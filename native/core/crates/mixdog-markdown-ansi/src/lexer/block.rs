@@ -100,6 +100,16 @@ fn queued_text(kind: TokenKind, raw: &str, text: &str, id: usize) -> Token {
     token
 }
 
+/// Adds a line to the text of `last` and returns its whole text.
+fn append_line(last: &mut Token, raw: &str, text: &str) -> String {
+    last.raw.push('\n');
+    last.raw.push_str(raw);
+    let held = last.text.get_or_insert_with(String::new);
+    held.push('\n');
+    held.push_str(text);
+    held.clone()
+}
+
 impl Lexer {
     /// `Lexer.blockTokens(src, tokens, lastParagraphClipped)`.
     pub(super) fn block_tokens(&mut self, src: &str, tokens: &mut Vec<Token>, mut last_paragraph_clipped: bool) {
@@ -123,14 +133,7 @@ impl Lexer {
                 src = advance(src, token.raw.len());
                 // An indented code block cannot interrupt a paragraph.
                 let continued = match tokens.last_mut() {
-                    Some(last) if matches!(last.kind, TokenKind::Paragraph | TokenKind::Text) => {
-                        last.raw.push('\n');
-                        last.raw.push_str(&token.raw);
-                        let text = last.text.get_or_insert_with(String::new);
-                        text.push('\n');
-                        text.push_str(token.text_str());
-                        Some(text.clone())
-                    }
+                    Some(last) if matches!(last.kind, TokenKind::Paragraph | TokenKind::Text) => Some(append_line(last, &token.raw, token.text_str())),
                     _ => None,
                 };
                 match continued {
@@ -179,14 +182,7 @@ impl Lexer {
             if let Some(def) = self.def(src) {
                 src = advance(src, def.raw.len());
                 let continued = match tokens.last_mut() {
-                    Some(last) if matches!(last.kind, TokenKind::Paragraph | TokenKind::Text) => {
-                        last.raw.push('\n');
-                        last.raw.push_str(&def.raw);
-                        let text = last.text.get_or_insert_with(String::new);
-                        text.push('\n');
-                        text.push_str(&def.raw);
-                        Some(text.clone())
-                    }
+                    Some(last) if matches!(last.kind, TokenKind::Paragraph | TokenKind::Text) => Some(append_line(last, &def.raw, &def.raw)),
                     _ => None,
                 };
                 match continued {
@@ -215,14 +211,8 @@ impl Lexer {
                 let merge = last_paragraph_clipped && tokens.last().is_some_and(|last| last.kind == TokenKind::Paragraph);
                 src = advance(src, token.raw.len());
                 if merge {
-                    let merged = tokens.last_mut().map(|last| {
-                        last.raw.push('\n');
-                        last.raw.push_str(&token.raw);
-                        let text = last.text.get_or_insert_with(String::new);
-                        text.push('\n');
-                        text.push_str(token.text_str());
-                        text.clone()
-                    });
+                    let merged = tokens.last_mut().map(|last| append_line(last, &token.raw, token.text_str()));
+
                     self.queue.pop();
                     if let Some(text) = merged {
                         self.requeue_last(&text);
@@ -238,14 +228,8 @@ impl Lexer {
                 src = advance(src, token.raw.len());
                 let merge = tokens.last().is_some_and(|last| last.kind == TokenKind::Text);
                 if merge {
-                    let merged = tokens.last_mut().map(|last| {
-                        last.raw.push('\n');
-                        last.raw.push_str(&token.raw);
-                        let text = last.text.get_or_insert_with(String::new);
-                        text.push('\n');
-                        text.push_str(token.text_str());
-                        text.clone()
-                    });
+                    let merged = tokens.last_mut().map(|last| append_line(last, &token.raw, token.text_str()));
+
                     self.queue.pop();
                     if let Some(text) = merged {
                         self.requeue_last(&text);

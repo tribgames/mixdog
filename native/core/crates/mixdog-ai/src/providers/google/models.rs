@@ -1,12 +1,3 @@
-//! The model listings of the Google providers (`listModels`:
-//! `gemini.mjs:924`, `vertex-ai.mjs:552`, `antigravity-oauth.mjs:252`), as
-//! pure request builders and parsers; [`super::adapter::GoogleAdapter`] does
-//! the one fetch.
-//!
-//! A listing is what the provider states: the catalog merge (models.dev,
-//! LiteLLM, the sanitizer) and every cache and fallback list are above this
-//! (PW §9). `ModelRecord::raw` holds Node's row, key for key.
-
 use std::cmp::Ordering;
 use std::sync::LazyLock;
 
@@ -510,12 +501,6 @@ struct Family {
     wires: Vec<(&'static str, Vec<String>)>,
 }
 
-/// `resolveAntigravityWireModel`: the wire id for a picker id and effort, and
-/// the effort that still travels as `thinkingLevel`, read from the records'
-/// `wire`. An id with no wire is sent as it is, effort unchanged. With one
-/// wire id, the effort rides along only if the record lists levels.
-/// A session pinned to the old standalone XHigh row names a wire id that already carries its effort, whether the roster
-/// holds that row (a restored cache), the model's tier map, or nothing at all.
 pub fn xhigh_pin(model: &str) -> bool {
     model.ends_with("-xhigh")
 }
@@ -558,10 +543,7 @@ struct AntigravityRow {
     record: ModelRecord,
 }
 
-/// `normalizeAntigravityCatalog`: the gateway's per-tier wire ids collapse into
-/// one record per model, whose `wire` map turns the chosen effort back into a
-/// wire id.
-fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<AntigravityRow> {
+fn fold_families(raw: &Map<String, Value>) -> Vec<(String, Family)> {
     let mut families: Vec<(String, Family)> = Vec::new();
     for (wire_id, entry) in raw {
         // A row the service marks disabled or internal answers 404 ("Requested entity was not found"): it is no model.
@@ -584,8 +566,6 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
         };
         let family = &mut families[at].1;
         family.context_window = family.context_window.max(window);
-        // Wire ids sharing one record keep the smallest declared output limit,
-        // so the ceiling holds for every id the record can resolve to.
         let declared = to_number(entry.get("maxOutputTokens").unwrap_or(&Value::Null)).floor();
         if declared > 0.0 {
             family.max_output = if family.max_output > 0.0 { family.max_output.min(declared) } else { declared };
@@ -598,68 +578,70 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
             None => family.wires.push((slot, vec![wire_id.clone()])),
         }
     }
-    let mut rows: Vec<AntigravityRow> = families
-        .into_iter()
-        .map(|(key, family)| {
-            let wires_of = |slot: &str| family.wires.iter().find(|(s, _)| *s == slot).map(|(_, ids)| ids.as_slice());
-            let efforts: Vec<&str> = EFFORT_ORDER.iter().copied().filter(|e| wires_of(e).is_some()).collect();
-            let tiered = efforts.len() > 1;
-            let pick = |slot: &str| pick_wire(wires_of(slot).expect("a slot of the family"), &family.base);
-            let (wire, ids, id) = if tiered {
-                let tiers: Vec<(String, String)> = efforts.iter().map(|e| ((*e).to_owned(), pick(e))).collect();
-                let map: Map<String, Value> = tiers.iter().map(|(e, w)| (e.clone(), json!(w))).collect();
-                (Value::Object(map), WireIds::Tiers(tiers), key)
-            } else {
-                let wire = pick(efforts.first().copied().unwrap_or(""));
-                (json!(wire), WireIds::One(wire.clone()), wire)
-            };
-            let display = match efforts.first() {
-                Some(first) if !tiered => {
-                    let mut chars = first.chars();
-                    let head: String = chars.next().into_iter().flat_map(char::to_uppercase).collect();
-                    format!("{} ({head}{})", family.base, chars.as_str())
-                }
-                _ => family.base.clone(),
-            };
-            let levels: Vec<String> = if efforts.is_empty() {
-                bare_levels(wire.as_str().unwrap_or(""), family.reasoning, traits)
-            } else if tiered {
-                efforts.iter().map(|e| (*e).to_owned()).collect()
-            } else {
-                // A lone labelled tier already names its effort in the wire id.
-                Vec::new()
-            };
-            let mut row = Map::new();
-            row.insert("id".into(), json!(id));
-            row.insert("name".into(), json!(display));
-            row.insert("display".into(), json!(display));
-            row.insert("provider".into(), json!("antigravity-oauth"));
-            if let Some(kind) = family_kind(&family.base) {
-                row.insert("family".into(), json!(kind));
-            }
-            row.insert("contextWindow".into(), number(family.context_window));
-            if family.max_output > 0.0 {
-                row.insert("maxOutputTokens".into(), number(family.max_output));
-            }
-            row.insert("supportsVision".into(), json!(family.vision));
-            row.insert("supportsReasoning".into(), json!(family.reasoning));
-            row.insert("supportsFunctionCalling".into(), json!(true));
-            row.insert("reasoningLevels".into(), json!(levels));
-            row.insert("wire".into(), wire);
-            let json = Value::Object(row);
-            let mut record = ModelRecord::new(id);
-            record.wire = Some(ids);
-            record.display_name = Some(display.clone());
-            record.name = Some(display.clone());
-            record.context_window = Some(family.context_window as u64);
-            record.max_output_tokens = (family.max_output > 0.0).then_some(family.max_output as u64);
-            record.supports_reasoning = Some(family.reasoning);
-            record.supports_images = Some(family.vision);
-            record.reasoning_levels = levels;
-            record.raw = Some(json);
-            AntigravityRow { display, record }
-        })
-        .collect();
+    families
+}
+
+fn antigravity_row(key: String, family: Family, traits: &dyn ModelTraits) -> AntigravityRow {
+    let wires_of = |slot: &str| family.wires.iter().find(|(s, _)| *s == slot).map(|(_, ids)| ids.as_slice());
+    let efforts: Vec<&str> = EFFORT_ORDER.iter().copied().filter(|e| wires_of(e).is_some()).collect();
+    let tiered = efforts.len() > 1;
+    let pick = |slot: &str| pick_wire(wires_of(slot).expect("a slot of the family"), &family.base);
+    let (wire, ids, id) = if tiered {
+        let tiers: Vec<(String, String)> = efforts.iter().map(|e| ((*e).to_owned(), pick(e))).collect();
+        let map: Map<String, Value> = tiers.iter().map(|(e, w)| (e.clone(), json!(w))).collect();
+        (Value::Object(map), WireIds::Tiers(tiers), key)
+    } else {
+        let wire = pick(efforts.first().copied().unwrap_or(""));
+        (json!(wire), WireIds::One(wire.clone()), wire)
+    };
+    let display = match efforts.first() {
+        Some(first) if !tiered => {
+            let mut chars = first.chars();
+            let head: String = chars.next().into_iter().flat_map(char::to_uppercase).collect();
+            format!("{} ({head}{})", family.base, chars.as_str())
+        }
+        _ => family.base.clone(),
+    };
+    let levels: Vec<String> = if efforts.is_empty() {
+        bare_levels(wire.as_str().unwrap_or(""), family.reasoning, traits)
+    } else if tiered {
+        efforts.iter().map(|e| (*e).to_owned()).collect()
+    } else {
+        Vec::new()
+    };
+    let mut row = Map::new();
+    row.insert("id".into(), json!(id));
+    row.insert("name".into(), json!(display));
+    row.insert("display".into(), json!(display));
+    row.insert("provider".into(), json!("antigravity-oauth"));
+    if let Some(kind) = family_kind(&family.base) {
+        row.insert("family".into(), json!(kind));
+    }
+    row.insert("contextWindow".into(), number(family.context_window));
+    if family.max_output > 0.0 {
+        row.insert("maxOutputTokens".into(), number(family.max_output));
+    }
+    row.insert("supportsVision".into(), json!(family.vision));
+    row.insert("supportsReasoning".into(), json!(family.reasoning));
+    row.insert("supportsFunctionCalling".into(), json!(true));
+    row.insert("reasoningLevels".into(), json!(levels));
+    row.insert("wire".into(), wire);
+    let json = Value::Object(row);
+    let mut record = ModelRecord::new(id);
+    record.wire = Some(ids);
+    record.display_name = Some(display.clone());
+    record.name = Some(display.clone());
+    record.context_window = Some(family.context_window as u64);
+    record.max_output_tokens = (family.max_output > 0.0).then_some(family.max_output as u64);
+    record.supports_reasoning = Some(family.reasoning);
+    record.supports_images = Some(family.vision);
+    record.reasoning_levels = levels;
+    record.raw = Some(json);
+    AntigravityRow { display, record }
+}
+
+fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<AntigravityRow> {
+    let mut rows: Vec<AntigravityRow> = fold_families(raw).into_iter().map(|(key, family)| antigravity_row(key, family, traits)).collect();
     rows.sort_by(|a, b| locale_compare(&a.display, &b.display));
     rows
 }

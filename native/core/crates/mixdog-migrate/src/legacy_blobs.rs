@@ -76,22 +76,24 @@ pub(crate) fn import_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>, link:
     if needs_replacement {
         recover_displacements(&core, false)?;
     }
-    // Every shard that exists in the core's store is synced, found there and not through the legacy tree: a run cut after
-    // linking and before this sync leaves names the resuming run skips, and 1.4.5 may have removed the legacy shard since.
-    // Then the shards' names in `blobs/sha256` and its own name in `blobs`, whether or not this run made the directories.
-    if durable::exists(&core)? {
-        for (shard, is_dir) in durable::list_dir(&core)? {
-            if is_dir {
-                fault("legacy-blobs:shard")?;
-                durable::sync_dir(&core.join(shard))?;
-            }
-        }
-        fault("legacy-blobs:names")?;
-        durable::sync_dir(&core)?;
-        durable::sync_dir(core.parent().expect("the store has a parent"))?;
-    }
+    sync_core_store(&core, fault)?;
     fault("legacy-blobs:marker")?;
     durable::publish_file(&marker, b"")
+}
+
+fn sync_core_store(core: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
+    if !durable::exists(core)? {
+        return Ok(());
+    }
+    for (shard, is_dir) in durable::list_dir(core)? {
+        if is_dir {
+            fault("legacy-blobs:shard")?;
+            durable::sync_dir(&core.join(shard))?;
+        }
+    }
+    fault("legacy-blobs:names")?;
+    durable::sync_dir(core)?;
+    durable::sync_dir(core.parent().expect("the store has a parent"))
 }
 
 fn digest_at(path: &Path) -> Result<Option<String>> {
@@ -191,19 +193,8 @@ fn install(source: &Path, target: &Path, digest: &str, fault: &dyn Fn(&str) -> R
     let tmp = tempfile::Builder::new().prefix(".mixdog-tmp-").tempfile_in(parent).map_err(|e| Blocked::io("create blob temp", parent, e))?.into_temp_path();
     let stage: &Path = tmp.as_ref();
     fs::remove_file(stage).map_err(|e| Blocked::io("remove empty blob temp", stage, e))?;
-    match link(source, stage) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(_) => {
-            let mut input = match fs::File::open(source) {
-                Ok(file) => file,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-                Err(error) => return Err(Blocked::io("open blob", source, error)),
-            };
-            let mut output = fsio::create_new_file(stage, fsio::Access::Inherit).map_err(Blocked::fsio)?;
-            io::copy(&mut input, &mut output).map_err(|e| Blocked::io("copy blob", stage, e))?;
-            fsio::sync_file(&output, stage).map_err(Blocked::fsio)?;
-        }
+    if !link_or_copy(source, stage, link)? {
+        return Ok(());
     }
     if digest_at(stage)?.as_deref() != Some(digest) {
         return Ok(());
@@ -237,6 +228,25 @@ fn install(source: &Path, target: &Path, digest: &str, fault: &dyn Fn(&str) -> R
         require_finished(&aside, target, digest, &observed)?;
     }
     Ok(())
+}
+
+/// `false` when the legacy file is gone.
+fn link_or_copy(source: &Path, stage: &Path, link: &dyn Fn(&Path, &Path) -> io::Result<()>) -> Result<bool> {
+    match link(source, stage) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => {
+            let mut input = match fs::File::open(source) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(Blocked::io("open blob", source, error)),
+            };
+            let mut output = fsio::create_new_file(stage, fsio::Access::Inherit).map_err(Blocked::fsio)?;
+            io::copy(&mut input, &mut output).map_err(|e| Blocked::io("copy blob", stage, e))?;
+            fsio::sync_file(&output, stage).map_err(Blocked::fsio)?;
+            Ok(true)
+        }
+    }
 }
 
 fn require_finished(aside: &Path, target: &Path, digest: &str, observed: &str) -> Result<()> {

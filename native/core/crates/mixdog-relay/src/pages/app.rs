@@ -1,10 +1,8 @@
-//! `/app` and `/app/latest.json` (`lib/app-page.mjs`): the target of the desktop's Phone QR. A static install page with the
-//! store or APK button for the visitor's platform and a line on how to pair. It takes no parameters and grants nothing.
+//! `/app` and `/app/latest.json`: the target of the desktop's Phone QR. A static install page with the store or APK button for the
+//! visitor's platform and a line on how to pair. It takes no parameters and grants nothing.
 //!
 //! The Android link is the newest release the deploy verified as published, recorded in `mobile-release.json` beside the
-//! executable. It is read once, at startup ([`AppPages::load`]); a missing, unreadable or malformed file leaves the
-//! releases list. The read runs once, before the relay serves, on the thread that starts it (no lane: the relay is the
-//! documented caller of `Unlaned`).
+//! executable and read once, at startup ([`AppPages::load`]).
 
 use std::path::Path;
 use std::sync::LazyLock;

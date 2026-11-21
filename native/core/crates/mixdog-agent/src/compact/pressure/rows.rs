@@ -8,6 +8,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use mixdog_ai::providers::file_text::base64_byte_length;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
@@ -235,15 +236,6 @@ pub(crate) fn node_base64(data: &str) -> Vec<u8> {
         }
     }
     out
-}
-
-/// `base64ByteLength`.
-fn base64_byte_length(data: &str) -> u64 {
-    if data.is_empty() {
-        return 0;
-    }
-    let padding = if data.ends_with("==") { 2 } else { u64::from(data.ends_with('=')) };
-    ((mixdog_js::utf16_len(data) as u64 * 3) / 4).saturating_sub(padding)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

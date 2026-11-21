@@ -24,6 +24,8 @@ use std::time::Instant;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::process::KillReason;
+use mixdog_core_api::domain::process::LaunchAuthority;
+use mixdog_core_api::domain::process::LaunchCommit;
 use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::OutputStream;
 use mixdog_core_api::domain::process::ProcessError;
@@ -67,7 +69,8 @@ pub struct ProcessConfig {
     pub default_shell: String,
     /// How long the exit waits for the output pipes after the root has ended. A descendant that
     /// inherited a pipe can hold it open long after the root is gone; once this has passed the
-    /// exit is published with the output that arrived, and later output is dropped.
+    /// exit is published with the output that arrived, and later output is dropped. Time a reader
+    /// waits for the subscriber that holds it (its output is that subscriber's) is not counted.
     pub output_drain: Duration,
 }
 
@@ -318,10 +321,6 @@ impl InputQueue {
         }
     }
 
-    /// Writes what is queued until the input is closed or the process is gone. When a write fails other than on a broken
-    /// pipe and `end_tree` is given (a piped input), the process's tree is ended first and the input is let go (`sink` dropped, which the reader sees as
-    /// the end of its input) only once the process is gone: a reader that took the end of a part of its input for the end
-    /// of all of it would run that part.
     fn run(&self, mut sink: Box<dyn Write + Send>, end_tree: Option<Box<dyn FnOnce() + Send>>) {
         loop {
             let chunk = {
@@ -420,10 +419,6 @@ impl Proc {
         self.owner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Tree kill, issued inline; the first reason wins. The exit follows as an event. The root's
-    /// exit does not end the tree: until the exit is published (all output drained) a
-    /// descendant may still hold the output pipes, and the kill still takes the whole job or
-    /// process group.
     fn kill(&self, reason: KillReason) -> Result<(), ProcessError> {
         self.kill_inner(reason, false)
     }
@@ -449,7 +444,8 @@ impl Proc {
         drop(gate);
         #[cfg(feature = "core-test")]
         crate::testing::kill_window();
-        // A stalled consumer must not keep a killed process's reader from reaching the end.
+        // A stalled consumer must not keep a killed process's reader from reaching the end; the
+        // one that holds the reader reads to the exit, and takes the rest of its output first.
         self.feed.release_reader();
         Ok(())
     }
@@ -689,10 +685,6 @@ impl Drop for Inner {
     }
 }
 
-/// What a spawn holds while its caller awaits the answer. Dropped before the answer (the caller's
-/// future was dropped), it tells the launch job the requester is gone and kills a child that is
-/// already committed; the job kills one that commits later. Either way the child that nobody was
-/// told about does not run on.
 struct Abandon {
     inner: Arc<Inner>,
     handle: ProcessHandle,
@@ -962,13 +954,13 @@ impl Drain {
         *self.open.lock().unwrap_or_else(|e| e.into_inner()) == 0
     }
 
-    /// Waits until every pipe has ended or `limit` has passed. A reader still blocked then is
-    /// left to end on its own; the feed drops what it pushes after the exit.
-    fn wait(&self, limit: Duration) {
-        let deadline = Instant::now() + limit;
+    fn wait(&self, limit: Duration, parked: impl Fn() -> Duration) {
+        let parked_before = parked();
+        let started = Instant::now();
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         while *open > 0 {
-            let left = deadline.saturating_duration_since(Instant::now());
+            let waited = started.elapsed().saturating_sub(parked().saturating_sub(parked_before));
+            let left = limit.saturating_sub(waited);
             if left.is_zero() {
                 return;
             }
@@ -1038,12 +1030,12 @@ fn frame_loop(mut frames: crate::scripted::Frames, stream: OutputStream, feed: W
 fn wait_and_finish(inner: Arc<Inner>, proc: Arc<Proc>, root: Root, drain: Arc<Drain>, on_exit: Option<ExitHook>, node_pty_exit: Option<NodePtyExit>) {
     let status = proc.wait_root(root);
     let reaped = status.is_ok();
-    // The readers' flow gate opens before anything waits on them: a reader parked on a paused
-    // or stalled consumer would never reach the end of its stream, and closing a ConPTY waits
-    // for its output to be read. What is left in the OS buffers is small and goes into the ring.
     proc.feed.release_reader();
-    // Closing a ConPTY can wait for its output to be read, and the close is what ends that
-    // output; it runs beside the drain so a close that hangs is bounded by the same limit.
+    end_output(&inner, &proc, &drain, node_pty_exit);
+    publish_exit(&inner, &proc, status, reaped, on_exit);
+}
+
+fn end_output(inner: &Inner, proc: &Arc<Proc>, drain: &Drain, node_pty_exit: Option<NodePtyExit>) {
     let close = |proc: &Arc<Proc>| {
         let closing = Arc::clone(proc);
         let _ = thread::Builder::new().name("pty-close".to_owned()).spawn(move || {
@@ -1054,32 +1046,32 @@ fn wait_and_finish(inner: Arc<Inner>, proc: Arc<Proc>, root: Root, drain: Arc<Dr
     };
     match node_pty_exit.filter(|_| cfg!(windows) && proc.pty.is_some()) {
         Some(rule) => {
-            rule.runtime.block_on(node_pty_end(&proc, &drain));
-            // node-pty left the console open; the exit drops what it writes from here (the feed is done after the exit), and the
-            // console is closed so it does not outlive the tab.
-            close(&proc);
+            rule.runtime.block_on(node_pty_end(proc, drain));
+            close(proc);
         }
         None => {
             if proc.pty.is_some() {
-                close(&proc);
+                close(proc);
             }
-            drain.wait(inner.config.output_drain);
+            drain.wait(inner.config.output_drain, || proc.feed.parked_time());
         }
     }
     if let Some(input) = &proc.input {
         input.shutdown();
     }
-    // A pseudo console's host is the terminal's, closed above; a piped command's console host signals its own exit before
-    // the exit is published, so it is never taken for a survivor.
     if proc.pty.is_none() {
         proc.containment.settle_exit();
     }
-    // Read after the drain: a kill during it (descendants still holding the pipes) counts.
-    // Fixing the reason and closing the door to kills is one step under the lifecycle lock; a
-    // later kill returns `AlreadyExited`.
+}
+
+fn publish_exit(
+    inner: &Inner,
+    proc: &Arc<Proc>,
+    status: std::io::Result<mixdog_core_api::domain::process::ExitStatus>,
+    reaped: bool,
+    on_exit: Option<ExitHook>,
+) {
     let status = status.unwrap_or(mixdog_core_api::domain::process::ExitStatus::Code(-1));
-    // The OS status does not establish what caused it. Keep the observed
-    // status and only the reasons recorded by the ordinary kill API.
     let killed = {
         let mut life = proc.life();
         life.finalized = true;
@@ -1105,11 +1097,19 @@ fn wait_and_finish(inner: Arc<Inner>, proc: Arc<Proc>, root: Root, drain: Arc<Dr
 
 /// Waits, from the root's end, until node-pty would have raised the terminal's exit (see [`NodePtyExit`]): [`NODE_PTY_FLUSH`] without
 /// output, [`NODE_PTY_EOF`] after the output's end, or (once hung up) [`NODE_PTY_FLUSH`] after the hang-up, whichever comes first.
+/// Each wait is counted, as [`Drain::wait`] counts the drain, without the time readers waited at the gate for the subscriber that
+/// holds them: a holder that takes its output late is not quiet output, and still gets all of it before the exit.
 async fn node_pty_end(proc: &Proc, drain: &Drain) {
     let hung_up = *proc.hung_up.lock().unwrap_or_else(|e| e.into_inner());
-    let mut quiet_from = tokio::time::Instant::now();
+    // An anchor of a wait: when it began, and the readers' parked time then (sampled first, as `Drain::wait` samples it).
+    let anchor = || {
+        let parked = proc.feed.parked_time();
+        (tokio::time::Instant::now(), parked)
+    };
+    let hung_up = hung_up.map(|at| (at, proc.feed.parked_time()));
+    let mut quiet_from = anchor();
     let mut seen = proc.feed.pushed();
-    let mut ended: Option<tokio::time::Instant> = None;
+    let mut ended: Option<(tokio::time::Instant, Duration)> = None;
     loop {
         let pushed = proc.feed.changed().notified();
         let finished = drain.ended.notified();
@@ -1120,20 +1120,25 @@ async fn node_pty_end(proc: &Proc, drain: &Drain) {
         let now = proc.feed.pushed();
         if now != seen {
             seen = now;
-            quiet_from = tokio::time::Instant::now();
+            quiet_from = anchor();
         }
         if ended.is_none() && drain.is_done() {
-            ended = Some(tokio::time::Instant::now());
+            ended = Some(anchor());
         }
         #[cfg(feature = "core-test")]
         proc.exit_wait.send_replace(ExitWait { waiting: true, quiet_from: seen, output_ended: ended.is_some() });
-        let due = [Some(quiet_from + NODE_PTY_FLUSH), ended.map(|at| at + NODE_PTY_EOF), hung_up.map(|at| at + NODE_PTY_FLUSH)]
+        let parked_now = proc.feed.parked_time();
+        let due_of = |(at, parked_then): (tokio::time::Instant, Duration), wait: Duration| at + wait + parked_now.saturating_sub(parked_then);
+        let due = [Some(due_of(quiet_from, NODE_PTY_FLUSH)), ended.map(|at| due_of(at, NODE_PTY_EOF)), hung_up.map(|at| due_of(at, NODE_PTY_FLUSH))]
             .into_iter()
             .flatten()
             .min()
             .expect("the quiet wait is always due");
+        if tokio::time::Instant::now() >= due {
+            return;
+        }
         tokio::select! {
-            () = tokio::time::sleep_until(due) => return,
+            () = tokio::time::sleep_until(due) => {}
             () = pushed => {}
             () = finished => {}
         }
@@ -1154,45 +1159,11 @@ fn launch_process(
         return Err(ProcessError::Io { os_code: Some(if cfg!(windows) { 3 } else { 2 }) });
     }
     let containment = Containment::create(crate::contain::breakaway_ok(&request.owner)).map_err(|e| io_error(&e))?;
-    // A scoped computer helper is created only while its scope holds: each attempt takes the scope's commit right before the creation
-    // (never across the retry's sleep), and the commit is let go only once the process is in the table and registered with the scope,
-    // so a revocation either refuses the creation or finds the process by its handle.
     let scope = match &request.owner {
         ProcessOwner::ComputerHelper { scope: Some(scope) } => Some(Arc::clone(&scope.0)),
         _ => None,
     };
-    let mut attempt = 0;
-    let (started, mut commit) = loop {
-        let commit = match scope.as_deref() {
-            Some(scope) => Some(scope.begin().ok_or(ProcessError::Revoked)?),
-            None => None,
-        };
-        // Recheck after queueing, scope acquisition and any retry delay. If shutdown
-        // closes the gate after this check, it waits for this admission to settle.
-        if inner.table().stopping {
-            return Err(ProcessError::Revoked);
-        }
-        let result = match request.pty {
-            Some(size) => pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| Started {
-                root: parts.root,
-                pty: Some(parts.pty),
-                readers: vec![(OutputStream::Pty, parts.reader)],
-                writer: Some(parts.writer),
-            }),
-            None => start_piped(&launch, &request, &env, &containment),
-        };
-        match result {
-            Err(error) => match denied_spawn_delay(launch.program(), &error, attempt) {
-                Some(delay) => {
-                    drop(commit);
-                    attempt += 1;
-                    thread::sleep(delay);
-                }
-                None => return Err(spawn_error(launch.program(), &error)),
-            },
-            Ok(started) => break (started, commit),
-        }
-    };
+    let (started, mut commit) = start_under_scope(inner, &launch, &request, &env, &containment, scope.as_deref())?;
 
     let Started { root, pty, readers, writer } = started;
     let pid = root.pid();
@@ -1203,7 +1174,7 @@ fn launch_process(
         feed.owned_by_its_reader();
     }
     // Before the reader threads start, so it holds the first byte (see `spawn_subscribed`).
-    let first = subscribe.then(|| feed.subscribe_oldest());
+    let first = subscribe.then(|| feed.subscribe_holder());
     let input = writer.is_some().then(|| InputQueue::new(inner.config.input_queue_bytes));
     let proc = Arc::new(Proc {
         handle: request.handle.clone(),
@@ -1248,63 +1219,37 @@ fn launch_process(
         inner.finished(&proc, reaped);
     };
 
-    // One dedicated blocking-read thread per output pipe, not a job on the pooled io-pty lane:
-    // up to `max_processes` of these block in `read` at once, and a pool smaller than that would
-    // leave a live process's output unread behind other processes' idle reads.
-    let mut filter = options.filter;
     let drain = Drain::new(readers.len());
-    for (stream, reader) in readers {
-        // An inherited pipe may outlive both the replay slot and its subscribers.
-        let feed = Arc::downgrade(&feed);
-        let filter = filter.take();
-        let reading = Reading(Arc::clone(&drain));
+    if let Err(error) = start_readers(
+        &feed,
+        readers,
+        options.filter,
+        &drain,
         #[cfg(feature = "scripted-shell")]
-        let scripted = options.scripted_frames;
-        let started = thread::Builder::new().name("io-pty-read".to_owned()).spawn(move || {
-            #[cfg(feature = "scripted-shell")]
-            if scripted {
-                return frame_loop(crate::scripted::Frames::new(reader), stream, feed, filter, reading);
-            }
-            read_loop(reader, stream, feed, filter, reading)
-        });
-        if let Err(error) = started {
-            abort_start(root);
-            return Err(io_error(&error));
-        }
+        options.scripted_frames,
+    ) {
+        abort_start(root);
+        return Err(io_error(&error));
     }
     if let (Some(input), Some(writer)) = (input, writer) {
-        // A piped input whose write fails ends the tree before it is let go; a terminal's input stops as before.
-        let end_tree: Option<Box<dyn FnOnce() + Send>> = proc.pty.is_none().then(|| {
-            let proc = Arc::downgrade(&proc);
-            Box::new(move || {
-                if let Some(proc) = proc.upgrade() {
-                    // A kill of a process whose exit is final is not an error: it is gone already.
-                    let _ = proc.kill_automatically(KillReason::Requested);
-                }
-            }) as Box<dyn FnOnce() + Send>
-        });
-        let started = thread::Builder::new().name("io-pty-write".to_owned()).spawn(move || input.run(writer, end_tree));
-        if let Err(error) = started {
+        if let Err(error) = start_writer(&proc, input, writer) {
             abort_start(root);
             return Err(io_error(&error));
         }
     }
-    // Keep the root handle if the OS refuses to start the waiter. Dropping a
-    // std::process::Child without waiting would leave a zombie on Unix.
     let root = Arc::new(Mutex::new(Some(root)));
-    let run = {
+    let waiter = {
         let (inner, proc, root) = (Arc::clone(inner), Arc::clone(&proc), Arc::clone(&root));
         move || {
             let root = root.lock().unwrap_or_else(|e| e.into_inner()).take().expect("waiter owns the root");
             wait_and_finish(inner, proc, root, drain, options.on_exit, options.node_pty_exit);
         }
     };
-    let start_waiter = || {
-        #[cfg(feature = "core-test")]
-        crate::testing::waiter_admission(&request.handle, pid)?;
-        thread::Builder::new().name("process-wait".to_owned()).spawn(run)
-    };
-    if let Err(error) = start_waiter() {
+    #[cfg(feature = "core-test")]
+    let admitted = crate::testing::waiter_admission(&request.handle, pid);
+    #[cfg(not(feature = "core-test"))]
+    let admitted: std::io::Result<()> = Ok(());
+    if let Err(error) = admitted.and_then(|()| thread::Builder::new().name("process-wait".to_owned()).spawn(waiter).map(drop)) {
         let root = root.lock().unwrap_or_else(|e| e.into_inner()).take().expect("waiter did not start");
         abort_start(root);
         return Err(io_error(&error));
@@ -1319,6 +1264,80 @@ fn launch_process(
     }
     drop(commit);
     Ok((SpawnedProcess { handle, pid }, first))
+}
+
+fn start_under_scope<'a>(
+    inner: &Inner,
+    launch: &Launch,
+    request: &SpawnRequest,
+    env: &[(std::ffi::OsString, std::ffi::OsString)],
+    containment: &Containment,
+    scope: Option<&'a dyn LaunchAuthority>,
+) -> Result<(Started, Option<Box<dyn LaunchCommit + 'a>>), ProcessError> {
+    let mut attempt = 0;
+    loop {
+        let commit = match scope {
+            Some(scope) => Some(scope.begin().ok_or(ProcessError::Revoked)?),
+            None => None,
+        };
+        if inner.table().stopping {
+            return Err(ProcessError::Revoked);
+        }
+        let result = match request.pty {
+            Some(size) => pty::spawn(launch, request.cwd.as_path(), env, size, containment).map(|parts| Started {
+                root: parts.root,
+                pty: Some(parts.pty),
+                readers: vec![(OutputStream::Pty, parts.reader)],
+                writer: Some(parts.writer),
+            }),
+            None => start_piped(launch, request, env, containment),
+        };
+        match result {
+            Err(error) => match denied_spawn_delay(launch.program(), &error, attempt) {
+                Some(delay) => {
+                    drop(commit);
+                    attempt += 1;
+                    thread::sleep(delay);
+                }
+                None => return Err(spawn_error(launch.program(), &error)),
+            },
+            Ok(started) => return Ok((started, commit)),
+        }
+    }
+}
+
+fn start_readers(
+    feed: &Arc<Feed>,
+    readers: Vec<(OutputStream, Box<dyn Read + Send>)>,
+    mut filter: Option<Box<dyn OutputFilter>>,
+    drain: &Arc<Drain>,
+    #[cfg(feature = "scripted-shell")] scripted: bool,
+) -> std::io::Result<()> {
+    for (stream, reader) in readers {
+        let feed = Arc::downgrade(feed);
+        let filter = filter.take();
+        let reading = Reading(Arc::clone(drain));
+        thread::Builder::new().name("io-pty-read".to_owned()).spawn(move || {
+            #[cfg(feature = "scripted-shell")]
+            if scripted {
+                return frame_loop(crate::scripted::Frames::new(reader), stream, feed, filter, reading);
+            }
+            read_loop(reader, stream, feed, filter, reading)
+        })?;
+    }
+    Ok(())
+}
+
+fn start_writer(proc: &Arc<Proc>, input: Arc<InputQueue>, writer: Box<dyn Write + Send>) -> std::io::Result<()> {
+    let end_tree: Option<Box<dyn FnOnce() + Send>> = proc.pty.is_none().then(|| {
+        let proc = Arc::downgrade(proc);
+        Box::new(move || {
+            if let Some(proc) = proc.upgrade() {
+                let _ = proc.kill_automatically(KillReason::Requested);
+            }
+        }) as Box<dyn FnOnce() + Send>
+    });
+    thread::Builder::new().name("io-pty-write".to_owned()).spawn(move || input.run(writer, end_tree)).map(drop)
 }
 
 #[derive(Clone)]
@@ -1351,7 +1370,10 @@ impl LocalProcessManager {
 
     /// Closes admission for all clones, stops the children of this manager and
     /// awaits their waiters. A confirmed survivor takes precedence over a
-    /// gap in the available evidence.
+    /// gap in the available evidence. Each waiter gets 5 s, while a subscriber
+    /// that holds a reader may itself wait longer to take its output (a shell
+    /// job's log admission waits up to 30 s, `LOG_STALL`): a reaped process
+    /// whose holder is stalled then ends the shutdown `Unverified`.
     pub async fn shutdown(&self) -> ShutdownOutcome {
         let inner = &self.inner;
         let _shutdown = inner.shutdown.lock().await;
@@ -1591,10 +1613,10 @@ impl LocalProcessManager {
 
     /// A subscription from the oldest event the ring still holds, with the output offset where its first event starts (more than zero
     /// when the ring has dropped the start of the output), taken in one step (see `Feed::subscribe_oldest`).
-    pub(crate) fn subscribe_oldest(&self, handle: &ProcessHandle) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
+    pub(crate) fn subscribe_oldest(&self, handle: &ProcessHandle) -> Result<(crate::feed::Subscription, u64), ProcessError> {
         let subscription = self.inner.lookup(handle)?.feed.subscribe_oldest();
         let start = subscription.start();
-        Ok((Box::new(subscription), start))
+        Ok((subscription, start))
     }
 
     /// What the [`NodePtyExit`] wait of `handle` has seen, as it changes. Tests only.
@@ -1673,6 +1695,11 @@ impl ProcessManager for LocalProcessManager {
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let proc = self.inner.lookup(handle)?;
         Ok(Box::new(proc.feed.subscribe(from_seq)?))
+    }
+
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        let proc = self.inner.lookup(handle)?;
+        Ok(Box::new(proc.feed.subscribe_holding(from_seq)?))
     }
 
     async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {

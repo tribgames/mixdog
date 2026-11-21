@@ -341,10 +341,14 @@ fn provider_input(params: &Map<String, Value>, models_optional: bool) -> Check {
     if models.is_none() && (models_optional || schema_v2) {
         return Ok(());
     }
-    let models_path = at(path, "models");
+    legacy_model_list(models, &at(path, "models"))
+}
+
+/// The unversioned `models` list: at most `MAX_OVERRIDES` rows, each an id with an optional name and token limits.
+fn legacy_model_list(models: Option<&Value>, models_path: &str) -> Check {
     let list = match models.and_then(Value::as_array) {
         Some(list) if list.len() <= MAX_OVERRIDES => list,
-        _ => return Err(fail(&models_path, "custom provider models are invalid.")),
+        _ => return Err(fail(models_path, "custom provider models are invalid.")),
     };
     for (index, model) in list.iter().enumerate() {
         let row_path = format!("{models_path}/{index}");
@@ -391,7 +395,12 @@ fn model_override(value: &Value, path: &str, patch: bool, protocol: Option<&str>
         header_map(headers, &at(path, "requestHeaders"), "custom provider requestHeaders", "custom provider requestHeaders are invalid.")?;
     }
     let Some(reasoning) = present("reasoning") else { return Ok(()) };
-    let reasoning_path = at(path, "reasoning");
+    reasoning_override(reasoning, &at(path, "reasoning"), patch, protocol)
+}
+
+/// The `reasoning` record of a model override: its declared levels, wire format, replay flag and per-level wire values.
+fn reasoning_override(reasoning: &Value, reasoning_path: &str, patch: bool, protocol: Option<&str>) -> Check {
+    let reasoning_path = reasoning_path.to_owned();
     let record = plain_record(reasoning, &reasoning_path, "custom provider reasoning")?;
     allowed_keys(record, REASONING_KEYS, &reasoning_path, "custom provider reasoning")?;
     let part = |key: &str| record.get(key).filter(|v| !(patch && v.is_null()));
@@ -494,6 +503,8 @@ fn model_preferences(params: &Map<String, Value>) -> Check {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     /// One row per accept or refuse case: `expected` null accepts, a text is the refusal's message (`path` its pointer).
@@ -530,16 +541,18 @@ mod tests {
         assert!(seen >= 8, "{seen} rows of the group");
     }
 
+    fn unversioned_input() -> Value {
+        json!({ "name": "live-check", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:4010/v1", "auth": "none", "models": [{ "id": "smoke" }] })
+    }
+
     /// A custom provider through the protocol: what a save, an edit and a connection test of the saved provider carry
     /// (`custom-provider-section.tsx` `customProviderInput`: the provider is named by `id`), in the unversioned form
     /// with a `models` list and in the v2 form the settings dialog sends. Every field the service reads from the input
     /// (`provider-admin.mjs` `customInputAt`, `withStoredSettings`, `normalizeCustomProviderConfig`) is taken.
     #[test]
     fn validate_custom_provider_save_and_test_of_a_saved_provider() {
-        use serde_json::json;
         let id = "custom-0190f3c2-7a31-7c00-8000-000000000001";
-        let unversioned =
-            json!({ "name": "live-check", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:4010/v1", "auth": "none", "models": [{ "id": "smoke" }] });
+        let unversioned = unversioned_input();
         let saved = {
             let mut input = unversioned.clone();
             input["id"] = json!(id);
@@ -581,11 +594,15 @@ mod tests {
                 assert_eq!(check(method, Some(&json!({ "opId": "o1", "input": input }))), Some(Ok(())), "{method} {input}");
             }
         }
-        // The provider a test addresses is `id`, and the model it sends to is the service's choice (the first visible
-        // one): the setup input has no `providerId` and no `model`, and the desktop refused both as it refused any
-        // other field (`requiredCustomProviderInput`).
+    }
+
+    /// The provider a test addresses is `id`, and the model it sends to is the service's choice (the first visible
+    /// one): the setup input has no `providerId` and no `model`, and the desktop refused both as it refused any
+    /// other field (`requiredCustomProviderInput`).
+    #[test]
+    fn a_connection_test_input_refuses_provider_id_and_model() {
         for extra in ["providerId", "model"] {
-            let mut input = unversioned.clone();
+            let mut input = unversioned_input();
             input[extra] = json!("smoke");
             assert_eq!(
                 check("account/testCustomProvider", Some(&json!({ "opId": "o1", "input": input }))),

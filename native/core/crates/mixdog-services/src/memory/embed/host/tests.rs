@@ -142,6 +142,29 @@ impl Drop for Reports {
     }
 }
 
+/// Accepts each child's start report on `listener` and acknowledges it.
+fn collect_reports(listener: tokio::net::TcpListener) -> Reports {
+    let (send, inbox) = tokio::sync::mpsc::unbounded_channel();
+    let reader = tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+        loop {
+            let report = async {
+                let (mut stream, _) = listener.accept().await?;
+                let pid = stream.read_u32_le().await?;
+                let below = stream.read_u8().await? == 1;
+                stream.write_all(&[1]).await?;
+                Ok((pid, below))
+            }
+            .await;
+            let failed = report.is_err();
+            if send.send(report).is_err() || failed {
+                break;
+            }
+        }
+    });
+    Reports { inbox: tokio::sync::Mutex::new(inbox), reader }
+}
+
 async fn fixture() -> Fixture {
     fixture_with(Limits::NODE).await
 }
@@ -163,25 +186,7 @@ async fn fixture_for(model_id: &str, limits: Limits, held_load: Option<(usize, A
     };
     let mut launch = test_launch("scripted");
     launch.env.push((REPORT.into(), listener.local_addr().unwrap().to_string()));
-    let (send, inbox) = tokio::sync::mpsc::unbounded_channel();
-    let reader = tokio::spawn(async move {
-        use tokio::io::AsyncWriteExt;
-        loop {
-            let report = async {
-                let (mut stream, _) = listener.accept().await?;
-                let pid = stream.read_u32_le().await?;
-                let below = stream.read_u8().await? == 1;
-                stream.write_all(&[1]).await?;
-                Ok((pid, below))
-            }
-            .await;
-            let failed = report.is_err();
-            if send.send(report).is_err() || failed {
-                break;
-            }
-        }
-    });
-    let reports = Reports { inbox: tokio::sync::Mutex::new(inbox), reader };
+    let reports = collect_reports(listener);
     let (launched, exits) = tokio::sync::mpsc::unbounded_channel();
     let loads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = loads.clone();
@@ -270,6 +275,7 @@ async fn admitted_vectors_share_a_child_then_it_exits_before_cache_hits_and_rest
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_custom_schema_stays_cold_until_queued_indexing_then_reuses_vectors() {
     use crate::memory::ingest::embed_flush::RawEmbedFlush;
     use crate::memory::pg::db::Schema;
@@ -336,6 +342,7 @@ async fn a_custom_schema_stays_cold_until_queued_indexing_then_reuses_vectors() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn root_reindex_retires_after_a_full_final_claim_and_picks_up_late_visible_work() {
     use crate::memory::ingest::embed_flush::{ClaimSeam, RawEmbedFlush};
     use crate::memory::pg::db::Schema;

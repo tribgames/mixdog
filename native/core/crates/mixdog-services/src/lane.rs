@@ -1,10 +1,3 @@
-//! Blocking work of the service modules as jobs on a lane.
-//!
-//! An async path never touches the file system itself: it hands the blocking body to the lane
-//! that owns that kind of work and awaits the answer. Cancelling the awaiting future leaves a
-//! job already queued to finish; a job that cannot be queued or is dropped is reported as an
-//! I/O error, so a caller treats it like any other failed read.
-
 use std::io;
 
 use mixdog_rt::{CancellationToken, LaneToken};

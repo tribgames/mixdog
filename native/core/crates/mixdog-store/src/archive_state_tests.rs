@@ -129,6 +129,36 @@ async fn a_delete_claim_and_a_restore_exclude_each_other() {
     assert!(states.claim_delete("s", judged).is_none(), "judged against an entry that is gone");
 }
 
+/// A commit whose caller stops waiting while the writer holds it still commits on the writer, and leaves no claim on its
+/// sessions behind: a delete judged against the committed entry is admitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_commit_its_caller_stopped_waiting_for_leaves_no_claim() {
+    use std::future::Future;
+    use std::task::Context;
+    use std::task::Waker;
+
+    let dir = tempfile::tempdir().unwrap();
+    let state = open_state(&dir.path().join("core.sqlite"));
+    let states = ArchiveStates::open(state.clone()).await.unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let mut holding = Box::pin(state.write(move |_| {
+        let _ = held.recv();
+        Ok(())
+    }));
+    assert!(holding.as_mut().poll(&mut cx).is_pending(), "the writer is held");
+    let mut commit = Box::pin(states.commit(|_, _| Ok(((), vec![("s".to_owned(), ArchiveEntry::Archived(5.0))]))));
+    assert!(commit.as_mut().poll(&mut cx).is_pending(), "the commit is queued on the writer");
+    drop(commit);
+    release.send(()).unwrap();
+    holding.await.unwrap();
+    // The writer runs its jobs in order: once this one is answered, the dropped commit ran.
+    state.write(|_| Ok(())).await.unwrap();
+    let judged = states.snapshot().entry("s");
+    assert_eq!(judged, Some(ArchiveEntry::Archived(5.0)), "the writer committed it");
+    assert!(states.claim_delete("s", judged).is_some(), "no claim was left on the session");
+}
+
 /// The catalog projection failing after a commit: the commit stands, the projection is owed, and the recent search (which filters
 /// by the projected column) settles it before it reads, so a session archived by the authority is not listed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

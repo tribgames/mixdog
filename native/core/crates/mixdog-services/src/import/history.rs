@@ -132,10 +132,6 @@ fn safe_positive_int(value: Option<&Value>) -> Option<u64> {
     })
 }
 
-/// Rollouts a `history_base` leads to, nearest first, and what reading their metadata took.
-/// Stops (`partial`, the warning code saying why) at a base that is missing or unreadable, that
-/// would take the total read beyond `max_file_bytes`, or is not paginated, already visited, past
-/// the depth cap, with a cutoff that passes the end of the file or does not end a record.
 fn resolve_history_chain(
     candidate: &Candidate,
     first_base: &Value,

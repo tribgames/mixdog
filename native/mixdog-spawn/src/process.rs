@@ -187,11 +187,6 @@ const EMPTY_POLL: Duration = Duration::from_millis(5);
 #[cfg(windows)]
 const REKILL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Every command runs in its own job object, which the root is created in
-/// (`winspawn::spawn`), so nothing it starts is created outside the job. A CONTAINED job also refuses breakaway: no descendant can
-/// leave it, so an empty job proves the whole tree is gone. An uncontained one
-/// keeps `JOB_OBJECT_LIMIT_BREAKAWAY_OK` for programs that start children with
-/// CREATE_BREAKAWAY_FROM_JOB, and proves nothing about those children.
 #[cfg(windows)]
 pub(crate) struct ProcessControl {
     pub(crate) handle: HANDLE,
@@ -425,24 +420,9 @@ impl ManagedProcess {
 }
 
 pub(crate) struct Manager {
-    /// THE registry: every command, by request id, from spawn until nothing
-    /// is left to decide about it (its completion reported and, contained,
-    /// its tree final; main.rs deregister_held), whatever it is meanwhile:
-    /// running, retained, settling, keeping survivors. Kills, cancels and the
-    /// shutdown reap all reach a command through it. Never held while an
-    /// entry's state lock is taken; an entry's state lock may be held while
-    /// this one is taken.
     pub(crate) live: Mutex<HashMap<u64, Arc<ManagedProcess>>>,
-    /// Every request id a spawn ever took this session (reserve); never
-    /// removed, so an id is never reused, not even after its command was let
-    /// go while its last events are still on their way. Only ever locked
-    /// under the `live` lock.
     used_ids: Mutex<HashSet<u64>>,
-    /// Set under the `live` lock when the shutdown reap takes its walk: a
-    /// command registered after that decides itself (register).
     closed: AtomicBool,
-    /// Task identities (job id → command) for task status/list/cancel; not a
-    /// lifecycle registry.
     pub(crate) jobs: Mutex<HashMap<String, Arc<ManagedProcess>>>,
 }
 

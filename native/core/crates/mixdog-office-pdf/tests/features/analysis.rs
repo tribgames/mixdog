@@ -6,9 +6,10 @@ use std::sync::{Arc, Mutex};
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::Unlaned;
 use mixdog_office_base::write_note::WriteNote;
+use mixdog_office_pdf::adapter::{SnapshotOptions, snapshot_pdf};
 use mixdog_office_pdf::search::{SearchOptions, find_pdf_text};
 use mixdog_office_pdf::writer::create_pdf;
-use mixdog_office_pdf::{LayoutOptions, PdfSource, RenderPagesOptions, RenderedPages, extract_pdf_text_layout, render_pdf_pages};
+use mixdog_office_pdf::{LayoutOptions, PdfFormView, PdfSource, RenderPagesOptions, RenderedPages, extract_pdf_text_layout, render_pdf_pages};
 use mixdog_pdf::embed::FontEnv;
 use mixdog_raster::svg::SvgFonts;
 use serde_json::{Value, json};
@@ -121,4 +122,50 @@ fn named_pages_are_the_only_ones_drawn_and_an_in_memory_render_writes_nothing() 
     assert!(!path.with_file_name(format!("{stem}-page-3.png")).exists());
     let (outside, _) = render(&path, RenderPagesOptions { pages: Some(vec![4.0]), ..RenderPagesOptions::default() });
     assert!(outside.is_err(), "a page the document does not have");
+}
+
+#[test]
+fn a_document_of_more_than_twelve_pages_is_drawn_as_labelled_contact_sheets_beside_the_pdf() {
+    let mut blocks = Vec::new();
+    for page in 1..=13 {
+        if page > 1 {
+            blocks.push(json!({ "type": "pagebreak" }));
+        }
+        blocks.push(paragraph(&format!("page {page}")));
+    }
+    let path = document("sheets", blocks);
+    let (rendered, note) = render(&path, RenderPagesOptions::default());
+    let rendered = rendered.expect("rendered").to_json();
+    assert_eq!(rendered["pageCount"], 13);
+    let images = rendered["images"].as_array().expect("images");
+    assert!(!images.is_empty() && images.len() <= 12, "{} sheets", images.len());
+    let listed: usize = images.iter().map(|sheet| sheet["pages"].as_array().expect("pages").len()).sum();
+    assert_eq!(listed, 13, "every page is on a sheet");
+    let stem = path.file_stem().expect("stem").to_string_lossy().into_owned();
+    let first = path.with_file_name(format!("{stem}-pages-1-{}.png", images[0]["pages"].as_array().expect("pages").last().expect("a page")));
+    assert!(first.exists(), "{}", first.display());
+    assert!(note.0.lock().expect("lock").contains(&first), "the write is reported before it happens");
+}
+
+#[test]
+fn a_snapshot_reads_a_window_of_pages_with_their_text_and_offers_the_next_one() {
+    let path = document(
+        "snapshot",
+        vec![paragraph("First page."), json!({ "type": "pagebreak" }), paragraph("Second page."), json!({ "type": "pagebreak" }), paragraph("Third page.")],
+    );
+    let options = SnapshotOptions::from_json(&json!({ "paged": true, "limit": 2 }));
+    let snapshot = snapshot_pdf(&Unlaned, &path, &options, &PdfFormView).expect("a snapshot");
+    assert_eq!(snapshot["pageCount"], json!(3));
+    assert_eq!(snapshot["pages"].as_array().map(Vec::len), Some(2));
+    assert!(snapshot["pages"][1]["text"].as_str().expect("text").contains("Second page."));
+    assert!(snapshot["pages"][0]["width"].is_number());
+    assert_eq!(snapshot["pagination"]["returned"], json!(2));
+    assert_eq!(snapshot["pagination"]["total"], json!(3));
+    assert_eq!(snapshot["pagination"]["nextOffset"], json!(2));
+    assert_eq!(snapshot["encrypted"], json!(false));
+    assert_eq!(snapshot["ocrRequired"], json!(false));
+    let named = SnapshotOptions::from_json(&json!({ "paged": true, "pages": [3] }));
+    let third = snapshot_pdf(&Unlaned, &path, &named, &PdfFormView).expect("a snapshot");
+    assert_eq!(third["pages"][0]["index"], json!(3));
+    assert_eq!(third["pagination"]["nextOffset"], Value::Null);
 }

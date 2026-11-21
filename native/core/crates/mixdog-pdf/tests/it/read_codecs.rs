@@ -401,6 +401,15 @@ pub(crate) fn text_region_head(flags: u16, huffman_flags: Option<u16>, instances
     data
 }
 
+pub(crate) fn iaid(coder: &mut MqEncoder, base: usize, bits: usize, id: usize) {
+    let mut previous = 1usize;
+    for shift in (0..bits).rev() {
+        let bit = ((id >> shift) & 1) as u8;
+        coder.encode(base + previous, bit);
+        previous = (previous << 1) | usize::from(bit);
+    }
+}
+
 /// `n` symbols need this many bits for their numbers.
 pub(crate) fn code_length(n: usize) -> usize {
     if n < 2 { 0 } else { (usize::BITS - (n - 1).leading_zeros()) as usize }
@@ -439,12 +448,7 @@ pub(crate) fn arithmetic_text_segment(number: u32, symbols: &[Vec<Vec<u8>>], str
             } else {
                 encode_integer(&mut coder, deltas, Some(left - cursor));
             }
-            let mut previous = 1usize;
-            for shift in (0..bits).rev() {
-                let bit = ((id >> shift) & 1) as u8;
-                coder.encode(ids + previous, bit);
-                previous = (previous << 1) | usize::from(bit);
-            }
+            iaid(&mut coder, ids, bits, id);
             cursor = left + symbols[id][0].len() as i64 - 1;
             instances += 1;
         }
@@ -700,12 +704,7 @@ pub(crate) fn a_symbol_dictionary_may_refine_and_aggregate_the_symbols_it_inheri
     encode_integer(&mut coder, heights, Some(4));
     encode_integer(&mut coder, widths, Some(5));
     encode_integer(&mut coder, aggregate_counts, Some(1));
-    let mut previous = 1usize;
-    for shift in (0..bits).rev() {
-        let bit = ((1usize >> shift) & 1) as u8;
-        coder.encode(ids + previous, bit);
-        previous = (previous << 1) | usize::from(bit);
-    }
+    iaid(&mut coder, ids, bits, 1);
     encode_integer(&mut coder, ref_dx, Some(0));
     encode_integer(&mut coder, ref_dy, Some(0));
     for y in 0..4i32 {
@@ -728,12 +727,7 @@ pub(crate) fn a_symbol_dictionary_may_refine_and_aggregate_the_symbols_it_inheri
         } else {
             encode_integer(&mut coder, deltas, Some(1)); // after symbol 0 (3 wide) the cursor is at 2
         }
-        let mut previous = 1usize;
-        for shift in (0..bits).rev() {
-            let bit = ((id >> shift) & 1) as u8;
-            coder.encode(ids + previous, bit);
-            previous = (previous << 1) | usize::from(bit);
-        }
+        iaid(&mut coder, ids, bits, id);
         encode_integer(&mut coder, refined_flags, Some(0)); // not refined
     }
     encode_integer(&mut coder, deltas, None);

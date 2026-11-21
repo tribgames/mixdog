@@ -1,11 +1,3 @@
-// Repo-relative path algebra shared by every resolver.
-//
-// Every path in this layer is repo-relative and forward-slash normalized (the
-// same form as `ImportRecord::rel`), and the graph root is the empty string "".
-// `std::path` cannot answer here: it works in OS-separator space and has no
-// lexical `..` collapsing, while resolution must answer in the exact string
-// space the fileSet is keyed on.
-
 // Mirror of JS `_normalizeImportSpec`: trim + backslash→forward-slash.
 pub(crate) fn normalize_import_spec(spec: &str) -> String {
     spec.trim().replace('\\', "/")
@@ -27,11 +19,6 @@ pub(crate) fn dirname_str(d: &str) -> String {
     }
 }
 
-// Repo-relative analogue of `pathResolve(base, spec)`: join `base` (a
-// repo-relative dir) with `spec`, collapse `.`/`..` segments, and emit a
-// forward-slash repo-relative path. Leading `..` that escapes the root is
-// preserved as a literal `..` segment so the result can never spuriously
-// match a repo-relative fileSet entry (which never contains `..`).
 pub(crate) fn path_join_norm(base: &str, spec: &str) -> String {
     let combined = if base.is_empty() { spec.to_string() } else { format!("{}/{}", base, spec) };
     let mut parts: Vec<&str> = Vec::new();

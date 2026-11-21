@@ -266,68 +266,69 @@ pub fn refine_history_comment_matches(matches: Vec<Value>, source_for: &dyn Fn(&
     let mut refined = Vec::new();
     for file in files {
         let file_matches: Vec<&Value> = history.iter().filter(|m| m["file"] == file.as_str()).collect();
-        let Some(buf) = source_for(&file) else {
-            refined.extend(file_matches.into_iter().cloned().map(manual));
-            continue;
-        };
-        let mut expanded = Vec::new();
-        for m in &file_matches {
-            let Some((s, e)) = offsets_of(m) else {
-                refined.push(manual((*m).clone()));
-                continue;
-            };
-            let (start, end) = expand_comment_range(&buf, s, e);
-            if phrase_re().is_match(&text(&buf, start, end)) {
-                expanded.push((start, end));
-            }
-        }
-        let sample = file_matches[0];
-        for (start, end) in merge_ranges(expanded) {
-            let comment = text(&buf, start, end);
-            let classified = classify_history_comment(&comment);
-            let refine = |fix: Value, is_manual: bool, message: Value| {
-                let mut r = sample.clone();
-                r["file"] = json!(file);
-                r["range"]["byteOffset"] = json!([start, end]);
-                r["fix"] = fix;
-                r["manual"] = json!(is_manual);
-                if !message.is_null() {
-                    r["message"] = message;
-                }
-                r
-            };
-            match classified.kind {
-                "none" => {}
-                "pure" => {
-                    let block = is_block_comment_text(&comment);
-                    let embedded = block && (!is_full_line_comment(&buf, start) || !js_trim(&text(&buf, end, line_end(&buf, end))).is_empty());
-                    if embedded {
-                        refined.push(refine(
-                            Value::Null,
-                            true,
-                            json!("History comment shares a line with code; preserve token boundaries and line terminators."),
-                        ));
-                        continue;
-                    }
-                    // A block comment keeps its line terminators so line numbers do not shift.
-                    let keep: String =
-                        if block { comment.chars().filter(|c| matches!(c, '\r' | '\n' | '\u{2028}' | '\u{2029}')).collect() } else { String::new() };
-                    let message = sample
-                        .get("message")
-                        .filter(|m| m.as_str().is_some_and(|s| !s.is_empty()))
-                        .cloned()
-                        .unwrap_or_else(|| json!("Delete comments that only record a move or copy."));
-                    refined.push(refine(json!({"byteOffset": [start, end], "text": keep}), false, message));
-                }
-                _ => refined.push(refine(
-                    Value::Null,
-                    true,
-                    json!(format!("History phrase mixed with other comment text; edit by hand: \"{}\"", classified.offending.unwrap_or_default())),
-                )),
-            }
+        match source_for(&file) {
+            Some(buf) => refined.extend(refine_file(&file, &file_matches, &buf)),
+            None => refined.extend(file_matches.into_iter().cloned().map(manual)),
         }
     }
     rest.into_iter().chain(refined).collect()
+}
+
+/// One file's history-comment matches: each comment run is deleted when it is all history, otherwise reported for hand editing.
+fn refine_file(file: &str, file_matches: &[&Value], buf: &[u8]) -> Vec<Value> {
+    let mut refined = Vec::new();
+    let mut expanded = Vec::new();
+    for m in file_matches {
+        let Some((s, e)) = offsets_of(m) else {
+            refined.push(manual((*m).clone()));
+            continue;
+        };
+        let (start, end) = expand_comment_range(buf, s, e);
+        if phrase_re().is_match(&text(buf, start, end)) {
+            expanded.push((start, end));
+        }
+    }
+    let sample = file_matches[0];
+    for (start, end) in merge_ranges(expanded) {
+        let comment = text(buf, start, end);
+        let classified = classify_history_comment(&comment);
+        let refine = |fix: Value, is_manual: bool, message: Value| {
+            let mut r = sample.clone();
+            r["file"] = json!(file);
+            r["range"]["byteOffset"] = json!([start, end]);
+            r["fix"] = fix;
+            r["manual"] = json!(is_manual);
+            if !message.is_null() {
+                r["message"] = message;
+            }
+            r
+        };
+        match classified.kind {
+            "none" => {}
+            "pure" => {
+                let block = is_block_comment_text(&comment);
+                let embedded = block && (!is_full_line_comment(buf, start) || !js_trim(&text(buf, end, line_end(buf, end))).is_empty());
+                if embedded {
+                    refined.push(refine(Value::Null, true, json!("History comment shares a line with code; preserve token boundaries and line terminators.")));
+                    continue;
+                }
+                // A block comment keeps its line terminators so line numbers do not shift.
+                let keep: String = if block { comment.chars().filter(|c| matches!(c, '\r' | '\n' | '\u{2028}' | '\u{2029}')).collect() } else { String::new() };
+                let message = sample
+                    .get("message")
+                    .filter(|m| m.as_str().is_some_and(|s| !s.is_empty()))
+                    .cloned()
+                    .unwrap_or_else(|| json!("Delete comments that only record a move or copy."));
+                refined.push(refine(json!({"byteOffset": [start, end], "text": keep}), false, message));
+            }
+            _ => refined.push(refine(
+                Value::Null,
+                true,
+                json!(format!("History phrase mixed with other comment text; edit by hand: \"{}\"", classified.offending.unwrap_or_default())),
+            )),
+        }
+    }
+    refined
 }
 
 #[cfg(test)]

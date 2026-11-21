@@ -23,6 +23,9 @@ impl PoolStore for Empty {
     async fn headers(&self, ids: &[String]) -> Vec<Option<serde_json::Map<String, Value>>> {
         ids.iter().map(|_| None).collect()
     }
+    async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {
+        fixes.iter().map(|fix| fix.candidate.clone()).collect()
+    }
 }
 
 impl PoolLive for Empty {

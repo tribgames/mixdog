@@ -14,10 +14,7 @@ fn main() {
     stamp_identity();
 }
 
-/// `mixdogd.exe` asks Windows for the segment heap. The core's memory is hundreds of thousands of small blocks whose
-/// number rises and falls with every turn; the default heap keeps the pages of each size class it once grew (measured
-/// after four agents ended: 62 MiB in use, 164 MiB of heap committed), and the segment heap hands emptied pages back.
-/// The setting exists only as an application manifest, which the linker embeds beside its own default one.
+/// The segment-heap setting exists only as an application manifest, which the linker embeds beside its own default one.
 fn segment_heap() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") || std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
         return;
@@ -41,10 +38,6 @@ fn segment_heap() {
     println!("cargo:rustc-link-arg-bin=mixdogd=/MANIFESTUAC:NO");
 }
 
-/// The Windows version resource and icon of `mixdogd.exe`. A Rust binary carries neither, so the core was a nameless
-/// row with a generic icon in every process list; with the desktop app's product name and icon it reads as part of
-/// Mixdog (the app starts it under the app's own name, `core/Mixdog.exe`, and Task Manager shows the description).
-/// Cosmetic: a machine without the resource compiler still builds a working core.
 #[cfg(windows)]
 fn stamp_identity() {
     println!("cargo:rerun-if-changed=../../../../apps/desktop/build/mixdog.ico");

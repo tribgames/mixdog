@@ -151,29 +151,22 @@ fn default_variant(routes: &[(&Variant, Map<String, Value>)], max_only: bool) ->
         .or(if routes.is_empty() { None } else { Some(0) })
 }
 
-fn parameterized_row(model: &CursorModel, provider: &str) -> Map<String, Value> {
-    let effort = model.effort_definition();
-    let routes: Vec<(&Variant, Map<String, Value>)> = model.variants.iter().map(|v| (v, route_parameters(v, effort.map(|d| d.id.as_str())))).collect();
-    let supports_max = model.supports_max_mode;
-    let supports_non_max = model.supports_non_max_mode || !supports_max;
-    let max_only = supports_max && !supports_non_max;
-    let default = default_variant(&routes, max_only).map(|at| &routes[at].1);
-    let efforts = model.efforts();
-    let mut fast_efforts: Vec<String> = Vec::new();
-    for (_, route) in &routes {
+fn fast_efforts<'a>(routes: impl Iterator<Item = &'a Map<String, Value>>) -> Vec<String> {
+    let mut efforts: Vec<String> = Vec::new();
+    for route in routes {
         if route.get("fast").and_then(Value::as_str) == Some("true") {
             let effort = route.get("effort").and_then(Value::as_str).unwrap_or("").to_owned();
-            if !fast_efforts.contains(&effort) {
-                fast_efforts.push(effort);
+            if !efforts.contains(&effort) {
+                efforts.push(effort);
             }
         }
     }
-    let default_parameters: Map<String, Value> = default
-        .map(|route| route.iter().filter(|(k, _)| !matches!(k.as_str(), "effort" | "fast")).map(|(k, v)| (k.clone(), v.clone())).collect())
-        .unwrap_or_default();
-    let description = description_of(model);
-    let described = described_context_window(&description);
-    let default_context = default_parameters.get("context").and_then(Value::as_str).map_or(0, context_window_of);
+    efforts
+}
+
+/// The window the row is listed at and the largest one the model offers (0 when none).
+fn context_windows(model: &CursorModel, default_context: u64, described: u64, supports_non_max: bool, max_only: bool) -> (u64, u64) {
+    let supports_max = model.supports_max_mode;
     let non_max = [default_context, model.context_window]
         .into_iter()
         .find(|n| *n > 0)
@@ -186,7 +179,24 @@ fn parameterized_row(model: &CursorModel, provider: &str) -> Map<String, Value> 
     } else {
         0
     };
-    let context_window = if max_only && max > 0 { max } else { non_max };
+    (if max_only && max > 0 { max } else { non_max }, max)
+}
+
+fn parameterized_row(model: &CursorModel, provider: &str) -> Map<String, Value> {
+    let effort = model.effort_definition();
+    let routes: Vec<(&Variant, Map<String, Value>)> = model.variants.iter().map(|v| (v, route_parameters(v, effort.map(|d| d.id.as_str())))).collect();
+    let supports_max = model.supports_max_mode;
+    let supports_non_max = model.supports_non_max_mode || !supports_max;
+    let max_only = supports_max && !supports_non_max;
+    let default = default_variant(&routes, max_only).map(|at| &routes[at].1);
+    let efforts = model.efforts();
+    let fast_efforts = fast_efforts(routes.iter().map(|(_, route)| route));
+    let default_parameters: Map<String, Value> = default
+        .map(|route| route.iter().filter(|(k, _)| !matches!(k.as_str(), "effort" | "fast")).map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    let description = description_of(model);
+    let default_context = default_parameters.get("context").and_then(Value::as_str).map_or(0, context_window_of);
+    let (context_window, max) = context_windows(model, default_context, described_context_window(&description), supports_non_max, max_only);
     let reasoning = !efforts.is_empty() || model.supports_reasoning;
     let mut row = Map::new();
     row.insert("id".into(), json!(model.id));

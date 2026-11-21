@@ -116,11 +116,6 @@ pub(super) fn build_with_tool_outputs(
         instructions_with_previous_response: true,
         continuation: ContinuationSpec { state_key: "openaiResponses".to_owned(), tag_history_owner: true, stateless_only: None, marker: None },
     };
-    // No continuation here: the first-party routes carry history through the
-    // ordered provider replay (Node keeps no slot of its own for them), and a
-    // slot on top would send the same reasoning twice.
-    // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keys the
-    // named namespace with a hash of the prefix and the session (`buildStableProviderPromptCacheKey`).
     let derive = |prefix: &cache_key::Prefix<'_>| {
         let var = |name: &str| config.context.var(name);
         if codex {

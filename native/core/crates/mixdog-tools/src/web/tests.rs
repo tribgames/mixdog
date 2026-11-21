@@ -348,11 +348,7 @@ mod tools {
     async fn public_policy_refuses_loopback_before_connecting() {
         let server = MockServer::start().await;
         Mock::given(path("/x")).respond_with(html("<main>secret</main>")).expect(0).mount(&server).await;
-        let web = WebService::new(WebConfig::new(
-            "test",
-            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
-        ))
-        .unwrap();
+        let web = default_policy_web();
         let out = call(&web, "web_fetch", json!({"url": format!("{}/x", server.uri())})).await;
         let shown = text(&out);
         assert!(out.is_err());
@@ -363,11 +359,7 @@ mod tools {
     /// throws: the message, `errorCode: 'Error'` (the error's name) and no diagnostics.
     #[tokio::test]
     async fn address_policy_block_is_nodes_plain_error_item() {
-        let web = WebService::new(WebConfig::new(
-            "test",
-            super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
-        ))
-        .unwrap();
+        let web = default_policy_web();
         let private = text(&call(&web, "web_fetch", json!({"url": "http://127.0.0.1:9/x"})).await);
         assert_eq!(private, "[http://127.0.0.1:9/x]\n(error: Blocked request to private address: 127.0.0.1)\nerrorCode: Error");
         let userinfo = text(&call(&web, "web_fetch", json!({"url": "http://user:p@example.com/"})).await);
@@ -471,15 +463,18 @@ mod tools {
             assert!(matches!(error.code, ToolErrorCode::InvalidArgs { .. }));
         }
     }
-    #[tokio::test]
-    async fn local_fetch_reaches_loopback_only() {
-        let server = MockServer::start().await;
-        Mock::given(path("/t")).respond_with(ResponseTemplate::new(200).set_body_raw("local text", "text/plain")).mount(&server).await;
-        let web = WebService::new(WebConfig::new(
+    fn default_policy_web() -> Arc<WebService> {
+        WebService::new(WebConfig::new(
             "test",
             super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
         ))
-        .unwrap();
+        .unwrap()
+    }
+    #[tokio::test]
+    async fn local_fetch_returns_the_raw_body_of_a_loopback_target() {
+        let server = MockServer::start().await;
+        Mock::given(path("/t")).respond_with(ResponseTemplate::new(200).set_body_raw("local text", "text/plain")).mount(&server).await;
+        let web = default_policy_web();
         let out = text(&call(&web, "local_fetch", json!({"url": format!("{}/t", server.uri())})).await);
         assert_eq!(out, format!("{}/t\n\nlocal text", server.uri()));
         let raw = "<html><body><h1>Hi</h1><script>var x = 1;</script></body></html>";
@@ -498,8 +493,16 @@ mod tools {
                 server.uri()
             )
         );
+    }
+    #[tokio::test]
+    async fn local_fetch_refuses_a_remote_target() {
+        let web = default_policy_web();
         let remote = text(&call(&web, "local_fetch", json!({"url": "http://example.com/"})).await);
         assert!(remote.contains("Blocked non-loopback local_fetch target: example.com"), "{remote}");
+    }
+    #[tokio::test]
+    async fn local_fetch_refuses_a_batch_over_the_cap() {
+        let web = default_policy_web();
         let many: Vec<String> = (0..9).map(|i| format!("http://127.0.0.1:1/{i}")).collect();
         let batch = text(&call(&web, "local_fetch", json!({"url": many})).await);
         assert!(batch.contains("fetch batch exceeds maximum of 8 URLs"), "{batch}");
@@ -693,13 +696,13 @@ mod tools {
     }
     /// Every expected text is `JSON.stringify({ error: 'Invalid arguments', details: error.issues })`
     /// printed by Node 22 with zod 4.6 for the schema in `index.mjs`.
+    fn union_missing(key: &str, other: &str) -> String {
+        format!(
+            r#"{{"error":"Invalid arguments","details":[{{"code":"invalid_union","errors":[[{{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received {other}"}}],[{{"expected":"array","code":"invalid_type","path":[],"message":"Invalid input: expected array, received {other}"}}]],"path":["{key}"],"message":"Invalid input"}}]}}"#
+        )
+    }
     #[tokio::test]
-    async fn invalid_arguments_match_nodes_zod_payload() {
-        let union_missing = |key: &str, other: &str| {
-            format!(
-                r#"{{"error":"Invalid arguments","details":[{{"code":"invalid_union","errors":[[{{"expected":"string","code":"invalid_type","path":[],"message":"Invalid input: expected string, received {other}"}}],[{{"expected":"array","code":"invalid_type","path":[],"message":"Invalid input: expected array, received {other}"}}]],"path":["{key}"],"message":"Invalid input"}}]}}"#
-            )
-        };
+    async fn fetch_invalid_arguments_match_nodes_zod_payload() {
         let web = service(|_| {});
         let fetch: Vec<(serde_json::Value, String)> = vec![
             (json!({}), union_missing("url", "undefined")),
@@ -731,6 +734,10 @@ mod tools {
                 assert!(matches!(error.code, ToolErrorCode::InvalidArgs { .. }));
             }
         }
+    }
+    #[tokio::test]
+    async fn search_invalid_arguments_match_nodes_zod_payload() {
+        let web = service(|_| {});
         let search: Vec<(serde_json::Value, String)> = vec![
             (json!({}), union_missing("keywords", "undefined")),
             (json!({"keywords": "  "}), union_missing("keywords", "undefined")),
@@ -752,6 +759,10 @@ mod tools {
             let error = call(&web, "web_search", args.clone()).await.unwrap_err();
             assert_eq!(error.message_for_model, want, "{args}");
         }
+    }
+    #[tokio::test]
+    async fn a_file_pattern_is_not_a_web_search_query() {
+        let web = service(|_| {});
         let pattern = call(&web, "web_search", json!({"pattern": "*.rs"})).await.unwrap_err();
         assert_eq!(pattern.message_for_model, "Error: web search requires query; use glob(pattern=...) for file paths.");
     }

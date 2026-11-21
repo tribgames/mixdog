@@ -1,13 +1,12 @@
-//! Delivery to one process. The window server's own per-process post reaches
-//! apps the public call misses (backgrounded Chromium and Catalyst windows);
-//! it is private, so it is looked up at run time and the public call remains
-//! the fallback when it is absent.
+//! The window server's private per-process post reaches apps the public call
+//! misses (backgrounded Chromium and Catalyst windows); it is looked up at run
+//! time, and the public call is the fallback.
 //!
-//! A pointer event posted to an inactive app is still only a "first mouse":
-//! AppKit spends it activating the window, which a posted event never does,
-//! so the click is lost. Telling the app its window is active and key, the
-//! way the window server tells it on a real click, lets the click land while
-//! the app stays behind the user's frontmost one.
+//! A pointer event posted to an inactive app is only a "first mouse": AppKit
+//! spends it activating the window, which a posted event never does, so the
+//! click is lost. Telling the app its window is active and key, as the window
+//! server does on a real click, lets the click land while the app stays behind
+//! the frontmost one.
 
 use super::ffi::{CGEventRef, CGPoint};
 use std::ffi::{CStr, c_void};

@@ -73,10 +73,6 @@ fn source_or(source: &'static str, desktop: &'static str) -> &'static str {
     if source.is_empty() { desktop } else { source }
 }
 
-/// Whether a view lists the node: an interactive role, a non-interactive one
-/// in the wider view, or a focusable text surface in either, where a terminal
-/// or editor takes input whatever its role (Snapshot-Window's search
-/// condition).
 fn in_view(node: &Node, include_noninteractive: bool) -> bool {
     node.extra.text_surface || is_interactive(&node.role) || (include_noninteractive && NONINTERACTIVE_ROLES.contains(&node.role.as_str()))
 }
@@ -87,59 +83,11 @@ fn in_view(node: &Node, include_noninteractive: bool) -> bool {
 fn element_entry(node: &Node, reference: &str, mark: i64, source: &'static str) -> (Obj, String) {
     let cx = (node.x + node.width / 2.0).round() as i64;
     let cy = (node.y + node.height / 2.0).round() as i64;
-    let msaa = node.extra.source == MSAA;
-    let mut details = Vec::new();
-    if msaa {
-        details.push(format!("source={MSAA}"));
-    }
-    if !node.automation_id.is_empty() {
-        details.push(format!("id=\"{}\"", format_value(&node.automation_id, 80)));
-    }
-    if !node.accelerator.is_empty() {
-        details.push(format!("accelerator=\"{}\"", format_value(&node.accelerator, 40)));
-    }
-    if !node.extra.access_key.is_empty() {
-        details.push(format!("access_key=\"{}\"", format_value(&node.extra.access_key, 40)));
-    }
     // Help text that only repeats the name tells nothing.
     let help = node.extra.help.trim();
     let help = (!help.eq_ignore_ascii_case(node.name.trim())).then_some(help).filter(|help| !help.is_empty());
-    if let Some(help) = help {
-        details.push(format!("help=\"{}\"", format_value(help, 120)));
-    }
-    if !node.value.is_empty() {
-        details.push(format!("value=\"{}\"", format_value(&node.value, 120)));
-    }
-    for (label, value) in [("toggle", &node.toggle), ("selected", &node.selected), ("expanded", &node.expanded), ("range", &node.range)] {
-        if !value.is_empty() {
-            details.push(format!("{label}={value}"));
-        }
-    }
-    if msaa {
-        for (label, value, maximum) in
-            [("role", &node.extra.native_role, 80), ("state", &node.extra.native_state, 120), ("default_action", &node.extra.default_action, 80)]
-        {
-            if !value.is_empty() {
-                details.push(format!("{label}=\"{}\"", format_value(value, maximum)));
-            }
-        }
-    }
-    let mut actions = Vec::new();
-    if node.enabled {
-        actions.push("click");
-    }
-    if node.can_invoke {
-        actions.push("invoke");
-    }
-    if node.can_set_value {
-        actions.push("set_value");
-    }
-    if node.can_toggle {
-        actions.push("toggle");
-    }
-    if node.can_scroll {
-        actions.push("scroll");
-    }
+    let details = element_details(node, help);
+    let actions = element_actions(node);
     let mut element = obj! {
         "mark" => mark,
         "ref" => reference,
@@ -172,6 +120,64 @@ fn element_entry(node: &Node, reference: &str, mark: i64, source: &'static str) 
     (element, line)
 }
 
+fn element_details(node: &Node, help: Option<&str>) -> Vec<String> {
+    let msaa = node.extra.source == MSAA;
+    let mut details = Vec::new();
+    if msaa {
+        details.push(format!("source={MSAA}"));
+    }
+    if !node.automation_id.is_empty() {
+        details.push(format!("id=\"{}\"", format_value(&node.automation_id, 80)));
+    }
+    if !node.accelerator.is_empty() {
+        details.push(format!("accelerator=\"{}\"", format_value(&node.accelerator, 40)));
+    }
+    if !node.extra.access_key.is_empty() {
+        details.push(format!("access_key=\"{}\"", format_value(&node.extra.access_key, 40)));
+    }
+    if let Some(help) = help {
+        details.push(format!("help=\"{}\"", format_value(help, 120)));
+    }
+    if !node.value.is_empty() {
+        details.push(format!("value=\"{}\"", format_value(&node.value, 120)));
+    }
+    for (label, value) in [("toggle", &node.toggle), ("selected", &node.selected), ("expanded", &node.expanded), ("range", &node.range)] {
+        if !value.is_empty() {
+            details.push(format!("{label}={value}"));
+        }
+    }
+    if msaa {
+        for (label, value, maximum) in
+            [("role", &node.extra.native_role, 80), ("state", &node.extra.native_state, 120), ("default_action", &node.extra.default_action, 80)]
+        {
+            if !value.is_empty() {
+                details.push(format!("{label}=\"{}\"", format_value(value, maximum)));
+            }
+        }
+    }
+    details
+}
+
+fn element_actions(node: &Node) -> Vec<&'static str> {
+    let mut actions = Vec::new();
+    if node.enabled {
+        actions.push("click");
+    }
+    if node.can_invoke {
+        actions.push("invoke");
+    }
+    if node.can_set_value {
+        actions.push("set_value");
+    }
+    if node.can_toggle {
+        actions.push("toggle");
+    }
+    if node.can_scroll {
+        actions.push("scroll");
+    }
+    actions
+}
+
 /// Whether a capture of the visible part leaves the node out: it is off
 /// screen or entirely outside the window.
 fn hidden(info: &WindowInfo, node: &Node) -> bool {
@@ -193,6 +199,43 @@ struct View<'a> {
     include_noninteractive: bool,
     role: &'a str,
     query: &'a str,
+}
+
+struct Page<'a> {
+    window: &'a WindowInfo,
+    generation: i64,
+    offset: usize,
+    end: usize,
+    bound_key: Option<&'a str>,
+    include_structure: bool,
+}
+
+fn select_uia(nodes: Vec<Node>, view: &View) -> (Vec<Node>, HashMap<String, usize>) {
+    let mut found: Vec<Node> = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for node in nodes {
+        if !node.width.is_finite() || node.width <= 0.0 || node.height <= 0.0 {
+            continue;
+        }
+        if !in_view(&node, view.include_noninteractive) {
+            continue;
+        }
+        if view.visible_only && hidden(view.window, &node) {
+            continue;
+        }
+        if !view.role.is_empty() && node.role.to_lowercase() != view.role {
+            continue;
+        }
+        let search = format!("{} {} {} {}", node.name, node.automation_id, node.value, node.role).to_lowercase();
+        if !view.query.is_empty() && !search.contains(view.query) {
+            continue;
+        }
+        if let Entry::Vacant(slot) = seen.entry(dedupe_key(&node)) {
+            slot.insert(found.len());
+            found.push(node);
+        }
+    }
+    (found, seen)
 }
 
 /// An MSAA node's capabilities, and a report-view list item's value, which
@@ -217,10 +260,6 @@ fn within_border(uia: &Node, native: &Node) -> bool {
         && uia.height - native.height <= 8.0
 }
 
-/// Appends the MSAA nodes the view keeps to `found` (Snapshot-Window's MSAA
-/// loop, observation.ps1:512-554). `seen` maps each dedupe key to the node
-/// that holds it. A node that duplicates one already listed is dropped
-/// unless it adds an invoke or value action to it.
 fn merge_native(found: &mut Vec<Node>, seen: &mut HashMap<String, usize>, native: Vec<Node>, view: &View) {
     let identity = |node: &Node| format!("{}|{}", node.name.to_lowercase(), node.role.to_lowercase());
     let mut by_identity: HashMap<String, Vec<usize>> = HashMap::new();
@@ -292,6 +331,35 @@ impl Host {
         }
     }
 
+    fn register_page(&self, found: &[Node], page: &Page) -> (Vec<Value>, Vec<String>) {
+        let mut elements = Vec::new();
+        let mut lines = Vec::new();
+        for (index, node) in found.iter().enumerate().take(page.end).skip(page.offset) {
+            let position = index - page.offset;
+            let reference = format!("s{}:e{position}", page.generation);
+            let record = RefRecord::new(node, page.window.id(), page.generation);
+            let bound = page.bound_key == Some(record.identity.as_str());
+            let mark = position as i64 + 1;
+            let (mut element, line) = element_entry(node, &reference, mark, self.desktop.element_source());
+            self.session(|session| {
+                session.refs.insert(reference.clone(), record);
+                session.marks.insert(mark, reference.clone());
+            });
+            if bound {
+                element.insert("bound_ref".into(), json!(true));
+                element.insert("is_password".into(), json!(node.element.masked()));
+            }
+            if page.include_structure {
+                for (key, value) in node.element.structure() {
+                    element.insert(key, value);
+                }
+            }
+            elements.push(Value::Object(element));
+            lines.push(line);
+        }
+        (elements, lines)
+    }
+
     pub(in crate::host) fn snapshot_window(&self, req: &Req) -> Res<Obj> {
         let started = now_ms();
         let info = self.resolve_window(req)?;
@@ -347,30 +415,8 @@ impl Host {
         }
         let format_started = now_ms();
         let candidate_count = nodes.len();
-        let mut found: Vec<Node> = Vec::new();
-        let mut seen: HashMap<String, usize> = HashMap::new();
-        for node in nodes {
-            if !node.width.is_finite() || node.width <= 0.0 || node.height <= 0.0 {
-                continue;
-            }
-            if !in_view(&node, include_noninteractive) {
-                continue;
-            }
-            if visible_only && hidden(&info, &node) {
-                continue;
-            }
-            if !role_filter.is_empty() && node.role.to_lowercase() != role_filter {
-                continue;
-            }
-            let search = format!("{} {} {} {}", node.name, node.automation_id, node.value, node.role).to_lowercase();
-            if !query.is_empty() && !search.contains(&query) {
-                continue;
-            }
-            if let Entry::Vacant(slot) = seen.entry(dedupe_key(&node)) {
-                slot.insert(found.len());
-                found.push(node);
-            }
-        }
+        let view = View { window: &info, visible_only, include_noninteractive, role: &role_filter, query: &query };
+        let (mut found, mut seen) = select_uia(nodes, &view);
         let format_ms = now_ms() - format_started;
         // The second tree is read after the first was filtered: a bounded
         // capture skips it when UIA already supplied the page.
@@ -378,14 +424,14 @@ impl Host {
         let (native, native_candidates, warning) = a11y.enrich(&info, found.len(), bounded, offset + max, candidate_count)?;
         let msaa_snapshot_ms = now_ms() - msaa_started;
         let candidate_count = candidate_count + native_candidates;
-        merge_native(&mut found, &mut seen, native, &View { window: &info, visible_only, include_noninteractive, role: &role_filter, query: &query });
+        merge_native(&mut found, &mut seen, native, &view);
         if continuation_total.is_some_and(|total| total != found.len()) {
             return Err("continuation is stale because the observed tree changed; capture the first page again".into());
         }
-        let view = if include_noninteractive { "all" } else { "interactive" };
+        let view_name = if include_noninteractive { "all" } else { "interactive" };
         let mut lines = vec![
             format!("Window: {} [{}]", info.title, info.id()),
-            format!("Elements: total={} candidates={candidate_count} view={view} offset={offset} max={max} generation={generation}", found.len()),
+            format!("Elements: total={} candidates={candidate_count} view={view_name} offset={offset} max={max} generation={generation}", found.len()),
         ];
         warnings.extend(warning);
         for warning in warnings {
@@ -393,31 +439,9 @@ impl Host {
         }
         let end = found.len().min(offset + max);
         let continuation = (end < found.len()).then(|| format!("{generation}:{end}:{fingerprint}:{}", found.len()));
-        let mut elements = Vec::new();
-        for (index, node) in found.iter().enumerate().take(end).skip(offset) {
-            let position = index - offset;
-            let reference = format!("s{generation}:e{position}");
-            let record = RefRecord::new(node, info.id(), generation);
-            let bound = bound_key.as_deref() == Some(record.identity.as_str());
-            let mark = position as i64 + 1;
-            let (mut element, line) = element_entry(node, &reference, mark, self.desktop.element_source());
-            // The mark names the element to a later action's element alias.
-            self.session(|session| {
-                session.refs.insert(reference.clone(), record);
-                session.marks.insert(mark, reference.clone());
-            });
-            if bound {
-                element.insert("bound_ref".into(), json!(true));
-                element.insert("is_password".into(), json!(node.element.masked()));
-            }
-            if include_structure {
-                for (key, value) in node.element.structure() {
-                    element.insert(key, value);
-                }
-            }
-            elements.push(Value::Object(element));
-            lines.push(line);
-        }
+        let page = Page { window: &info, generation, offset, end, bound_key: bound_key.as_deref(), include_structure };
+        let (elements, element_lines) = self.register_page(&found, &page);
+        lines.extend(element_lines);
         if found.is_empty() {
             lines.push("(no matching elements found)".into());
         }

@@ -240,6 +240,88 @@ async fn project_config_file_for(lane: DurabilityIo, cwd: &Path, engine_dir: &Pa
     .map_err(|_| unrun("The project's config for this engine"))
 }
 
+/// The catalog languages of the plugins a dprint configuration lists, `extends` followed the way
+/// dprint follows it for local files (remote ones cannot be read here and add nothing).
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn dprint_languages_blocking(file: &Path, depth: usize) -> Vec<String> {
+    let mut claimed: Vec<String> = Vec::new();
+    let Ok(text) = std::fs::read_to_string(file) else { return claimed };
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(&strip_jsonc(&text)) else { return claimed };
+    for plugin in config.get("plugins").and_then(|p| p.as_array()).into_iter().flatten().filter_map(|p| p.as_str()) {
+        let name = plugin.rsplit('/').next().unwrap_or(plugin).to_ascii_lowercase();
+        let langs: &[&str] = if name.contains("typescript") {
+            &["javascript", "typescript"]
+        } else if name.contains("json") {
+            &["json"]
+        } else if name.contains("markdown") {
+            &["markdown"]
+        } else if name.contains("toml") {
+            &["toml"]
+        } else {
+            &[]
+        };
+        claimed.extend(langs.iter().map(|l| (*l).to_owned()));
+    }
+    if depth < 8 {
+        let extends = match config.get("extends") {
+            Some(serde_json::Value::String(s)) => vec![s.clone()],
+            Some(serde_json::Value::Array(a)) => a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect(),
+            _ => Vec::new(),
+        };
+        let base = file.parent().unwrap_or(Path::new(""));
+        for target in extends.iter().filter(|t| !t.starts_with("http://") && !t.starts_with("https://")) {
+            claimed.extend(dprint_languages_blocking(&base.join(target), depth + 1));
+        }
+    }
+    claimed
+}
+
+/// JSON with the comments and trailing commas dprint's configuration allows removed.
+fn strip_jsonc(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if c == '\\' {
+                out.extend(chars.next());
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match (c, chars.peek()) {
+            ('/', Some('/')) => {
+                while chars.peek().is_some_and(|n| *n != '\n') {
+                    chars.next();
+                }
+            }
+            ('/', Some('*')) => {
+                chars.next();
+                while let Some(n) = chars.next() {
+                    if n == '*' && chars.peek() == Some(&'/') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            (']' | '}', _) => {
+                let kept = out.trim_end().len();
+                if out[..kept].ends_with(',') {
+                    out.truncate(kept - 1);
+                }
+                out.push(c);
+            }
+            _ => {
+                in_string = c == '"';
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn project_config_file_blocking(cwd: &Path, entry: &EngineEntry) -> Option<String> {
     if let Some(f) = entry.config_files.iter().find(|f| cwd.join(f).exists()) {
@@ -697,6 +779,17 @@ mod tests {
         assert!(!ruff.missing && !ruff.runnable() && ruff.command.is_empty());
         assert!(ruff.to_json()["unavailable"].is_string());
     }
+    fn taplo_skip(r: &Resolution) -> Option<String> {
+        r.engines.iter().find(|e| e.id == "taplo").unwrap().skipped.clone()
+    }
+
+    fn with_downloadable_dprint(path: &Path, downloads: &str) -> ResolveOptions {
+        let mut options = opts(&["dprint", "taplo"], path);
+        options.manifest = Some(json!({"engines": {"dprint": {"version": "1", "assets": {"any": {"url": "https://example.invalid/dprint.zip"}}}}}));
+        options.env.as_mut().unwrap().insert("MIXDOG_TIDY_DOWNLOADS".to_owned(), downloads.to_owned());
+        options
+    }
+
     #[tokio::test]
     async fn biome_stands_down_for_a_project_prettier_and_gated_engines_are_skipped() {
         let project = tempfile::tempdir().unwrap();
@@ -709,45 +802,83 @@ mod tests {
         assert_eq!(by("biome").skipped.as_deref(), Some("project uses prettier"));
         assert_eq!(by("dprint").skipped.as_deref(), Some("no project config for this engine"));
         assert_eq!(runnable_engines(&r.engines).iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["prettier"]);
-        let taplo = |r: &Resolution| r.engines.iter().find(|e| e.id == "taplo").unwrap().skipped.clone();
+    }
+
+    #[tokio::test]
+    async fn taplo_stands_down_only_for_a_configured_dprint_that_is_installed() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("dprint"), "x");
+        write(path_dir.path(), &bin("taplo"), "x");
         let unconfigured = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint", "taplo"], path_dir.path())).await;
-        assert_eq!(taplo(&unconfigured), None, "a dprint with no configuration formats nothing: TOML stays taplo's");
-        write(project.path(), "dprint.json", "{}");
+        assert_eq!(taplo_skip(&unconfigured), None, "a dprint with no configuration formats nothing: TOML stays taplo's");
+        write(project.path(), "dprint.json", r#"{"plugins":["https://plugins.dprint.dev/toml-0.6.2.wasm"]}"#);
         let again = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint", "taplo"], path_dir.path())).await;
         assert!(again.engines[0].skipped.is_none() && again.engines[0].config_file.as_deref() == Some("dprint.json"));
-        assert_eq!(taplo(&again).as_deref(), Some("project uses dprint"));
-        // The same configuration with no dprint installed: nothing would format TOML if taplo stood down.
+        assert_eq!(taplo_skip(&again).as_deref(), Some("project uses dprint"));
         let nowhere = tempfile::tempdir().unwrap();
         let absent = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint", "taplo"], nowhere.path())).await;
         assert!(absent.engines[0].missing);
-        assert_eq!(taplo(&absent), None);
-        // A dprint this run can download takes over from a taplo that is missing too, so taplo is
-        // not downloaded beside it; one that downloads are refused for takes over from nothing.
-        let downloadable = |path: &Path, downloads: &str| {
-            let mut options = opts(&["dprint", "taplo"], path);
-            options.manifest = Some(json!({"engines": {"dprint": {"version": "1", "assets": {"any": {"url": "https://example.invalid/dprint.zip"}}}}}));
-            options.env.as_mut().unwrap().insert("MIXDOG_TIDY_DOWNLOADS".to_owned(), downloads.to_owned());
-            options
-        };
-        assert_eq!(
-            taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(nowhere.path(), "auto")).await).as_deref(),
-            Some("project uses dprint")
-        );
-        assert_eq!(taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(nowhere.path(), "never")).await), None);
-        // An installed taplo keeps TOML until that dprint is really there: a download still to be
-        // approved formats nothing.
+        assert_eq!(taplo_skip(&absent), None, "nothing would format TOML if taplo stood down");
+    }
+
+    #[tokio::test]
+    async fn a_downloadable_dprint_takes_over_from_a_missing_taplo_only_when_downloads_are_allowed() {
+        let project = tempfile::tempdir().unwrap();
+        write(project.path(), "dprint.json", r#"{"plugins":["https://plugins.dprint.dev/toml-0.6.2.wasm"]}"#);
+        let nowhere = tempfile::tempdir().unwrap();
+        let auto = resolve_engines(&Processes::for_tests(), project.path(), with_downloadable_dprint(nowhere.path(), "auto")).await;
+        assert_eq!(taplo_skip(&auto).as_deref(), Some("project uses dprint"));
+        let never = resolve_engines(&Processes::for_tests(), project.path(), with_downloadable_dprint(nowhere.path(), "never")).await;
+        assert_eq!(taplo_skip(&never), None);
+    }
+
+    #[tokio::test]
+    async fn an_installed_taplo_keeps_toml_until_a_downloadable_dprint_is_really_there() {
+        let project = tempfile::tempdir().unwrap();
+        write(project.path(), "dprint.json", r#"{"plugins":["https://plugins.dprint.dev/toml-0.6.2.wasm"]}"#);
         let only_taplo = tempfile::tempdir().unwrap();
         write(only_taplo.path(), &bin("taplo"), "x");
-        assert_eq!(taplo(&resolve_engines(&Processes::for_tests(), project.path(), downloadable(only_taplo.path(), "ask")).await), None);
-        // A dprint configured to run in a directory of its own is configured by the nearest
-        // configuration from there up to the project.
+        let asked = resolve_engines(&Processes::for_tests(), project.path(), with_downloadable_dprint(only_taplo.path(), "ask")).await;
+        assert_eq!(taplo_skip(&asked), None);
+    }
+
+    #[tokio::test]
+    async fn a_dprint_run_in_its_own_directory_is_configured_by_the_nearest_configuration_up_to_the_project() {
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("dprint"), "x");
+        write(path_dir.path(), &bin("taplo"), "x");
         let nested = tempfile::tempdir().unwrap();
         write(nested.path(), ".mixdog/tidy.json", r#"{"engines":{"dprint":{"cwd":"packages/web/src"}}}"#);
-        write(nested.path(), "packages/web/dprint.json", "{}");
+        write(nested.path(), "packages/web/dprint.json", r#"{"plugins":["https://plugins.dprint.dev/toml-0.6.2.wasm"]}"#);
         write(nested.path(), "packages/web/src/a.ts", "");
         let in_web = resolve_engines(&Processes::for_tests(), nested.path(), opts(&["dprint", "taplo"], path_dir.path())).await;
         assert_eq!((in_web.engines[0].skipped.clone(), in_web.engines[0].config_file.as_deref()), (None, Some("packages/web/dprint.json")));
-        assert_eq!(taplo(&in_web).as_deref(), Some("project uses dprint"));
+        assert_eq!(taplo_skip(&in_web).as_deref(), Some("project uses dprint"));
+    }
+    /// dprint claims only the languages of the plugins its configuration lists, `extends` included.
+    #[tokio::test]
+    async fn dprint_takes_toml_from_taplo_only_when_a_listed_plugin_formats_it() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("dprint"), "x");
+        write(path_dir.path(), &bin("taplo"), "x");
+        write(project.path(), "dprint.json", "{\n  // markdown only\n  \"plugins\": [\"https://plugins.dprint.dev/markdown-0.17.8.wasm\",],\n}");
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint", "taplo"], path_dir.path())).await;
+        assert_eq!(r.engines[0].languages, ["markdown"]);
+        assert_eq!((r.engines[1].skipped.clone(), r.engines[1].suppressed_by.clone()), (None, Vec::<String>::new()));
+    }
+
+    #[tokio::test]
+    async fn dprint_claims_the_toml_plugin_of_a_configuration_it_extends() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("dprint"), "x");
+        write(path_dir.path(), &bin("taplo"), "x");
+        write(project.path(), "base.json", r#"{"plugins":["https://plugins.dprint.dev/toml-0.6.2.wasm"]}"#);
+        write(project.path(), "dprint.json", r#"{"extends":"base.json","plugins":["https://plugins.dprint.dev/markdown-0.17.8.wasm"]}"#);
+        let extended = resolve_engines(&Processes::for_tests(), project.path(), opts(&["dprint", "taplo"], path_dir.path())).await;
+        assert_eq!(extended.engines[1].skipped.as_deref(), Some("project uses dprint"));
     }
 
     /// The stand-down is per language, and only an engine that will run takes anything over.
@@ -917,21 +1048,27 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
                 r.unavailable.get_or_insert(why);
             }
         }
+        if let (true, Some(file)) = (entry.id == "dprint", r.config_file.clone()) {
+            let path = cwd.join(file);
+            if let Ok(claimed) = on_lane(processes.durability(), move || dprint_languages_blocking(&path, 0)).await {
+                r.languages.retain(|l| claimed.contains(l));
+            }
+        }
         if entry.requires_config && r.config_file.is_none() && r.source != "project-config" && r.unavailable.is_none() {
             r.skipped = Some("no project config for this engine".into());
         }
         r.toolchain = entry.toolchain;
         resolved.push(r);
     }
-    // A project keeps the engine it chose, and the one that would format the same files stands
-    // down: Biome for a Prettier or ESLint in node_modules/.bin, taplo for a configured dprint.
-    // Chosen means brought by the project, or run only under the project's own configuration. A
-    // chosen engine that runs takes over from every engine it suppresses; a skipped or unavailable
-    // one formats nothing, so it takes nothing over. One that is missing but that this run can
-    // download takes over only from engines that are missing too: the engine it would replace
-    // is not downloaded beside it, and an installed one keeps working until the chosen engine is
-    // really there. The stand-down is per language: an engine keeps what no suppressor handles.
-    let downloadable = |r: &Resolved| r.missing && r.installable && policy.downloads != "never" && r.skipped.is_none() && r.unavailable.is_none();
+    stand_down_for_chosen_project_engines(&mut resolved, &policy.downloads);
+    refine_managed_modules(processes, cwd, &mut resolved, options.host_module_probe.as_ref(), options.cancel.as_ref()).await;
+    if options.probe_versions {
+        probe_versions(processes, cwd, &mut resolved, options.cancel.as_ref()).await;
+    }
+    Resolution { engines: resolved, policy, config, unknown_engines: unknown }
+}
+fn stand_down_for_chosen_project_engines(resolved: &mut [Resolved], downloads_policy: &str) {
+    let downloadable = |r: &Resolved| r.missing && r.installable && downloads_policy != "never" && r.skipped.is_none() && r.unavailable.is_none();
     let chosen: Vec<(String, Vec<String>, bool)> = resolved
         .iter()
         .filter(|r| r.runnable() || downloadable(r))
@@ -941,11 +1078,13 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
         })
         .map(|r| (r.id.clone(), r.languages.clone(), r.runnable()))
         .collect();
-    for engine in &mut resolved {
+    for engine in resolved.iter_mut() {
         let Some(entry) = engine_entry(&engine.id) else { continue };
-        let suppressors: Vec<&(String, Vec<String>, bool)> =
-            chosen.iter().filter(|(id, _, runs)| entry.suppressed_by.contains(id) && (*runs || engine.missing)).collect();
-        // A missing engine is suppressed too: installing it would only have it skipped.
+        let suppressors: Vec<&(String, Vec<String>, bool)> = chosen
+            .iter()
+            .filter(|(id, _, runs)| entry.suppressed_by.contains(id) && (*runs || engine.missing))
+            .filter(|(_, langs, _)| engine.languages.iter().any(|l| langs.contains(l)))
+            .collect();
         if suppressors.is_empty() || engine.unavailable.is_some() {
             continue;
         }
@@ -958,23 +1097,21 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
         }
         engine.suppressed_by = names;
     }
-    refine_managed_modules(processes, cwd, &mut resolved, options.host_module_probe.as_ref(), options.cancel.as_ref()).await;
-    if options.probe_versions {
-        let cancel = options.cancel.clone();
-        let runnable: Vec<(usize, Resolved)> = resolved.iter().cloned().enumerate().filter(|(_, e)| !e.missing && !e.command.is_empty()).collect();
-        let versions = map_limit(runnable.clone(), 4, |(_, e)| {
-            let cancel = cancel.clone();
-            async move { if e.version.is_empty() { probe_version(processes, &e, cwd, cancel.as_ref()).await } else { e.version.clone() } }
-        })
-        .await;
-        for ((index, _), version) in runnable.iter().zip(versions) {
-            if !version.is_empty() {
-                resolved[*index].version = version;
-            }
+}
+
+async fn probe_versions(processes: &Processes, cwd: &Path, resolved: &mut [Resolved], cancel: Option<&CancellationToken>) {
+    let runnable: Vec<(usize, Resolved)> = resolved.iter().cloned().enumerate().filter(|(_, e)| !e.missing && !e.command.is_empty()).collect();
+    let versions = map_limit(runnable.clone(), 4, |(_, e)| async move {
+        if e.version.is_empty() { probe_version(processes, &e, cwd, cancel).await } else { e.version.clone() }
+    })
+    .await;
+    for ((index, _), version) in runnable.iter().zip(versions) {
+        if !version.is_empty() {
+            resolved[*index].version = version;
         }
     }
-    Resolution { engines: resolved, policy, config, unknown_engines: unknown }
 }
+
 async fn refine_managed_modules(
     processes: &Processes,
     cwd: &Path,

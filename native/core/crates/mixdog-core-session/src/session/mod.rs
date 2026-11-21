@@ -349,9 +349,10 @@ pub enum StartHold {
 
 /// A turn of any origin started on a thread (`session-activity-signal.mjs`
 /// `onSessionTurnStart`): the worker index clears the owner's release mark, and a Lead's pool row
-/// reads running; and it settled (`turn-settle.mjs:105`): a Lead's pool row reads idle.
+/// reads running, and a worker's row counts the turn `turn`; and it settled (`turn-settle.mjs:105`): a Lead's pool row
+/// reads idle.
 pub trait TurnStarts: Send + Sync {
-    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId);
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId, turn: &mixdog_core_api::ids::TurnId);
     fn turn_settled(&self, _thread: &mixdog_core_api::ids::ThreadId) {}
 }
 
@@ -397,9 +398,9 @@ impl LateTurnStarts {
 }
 
 impl TurnStarts for LateTurnStarts {
-    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId) {
+    fn turn_started(&self, thread: &mixdog_core_api::ids::ThreadId, turn: &mixdog_core_api::ids::TurnId) {
         if let Some(listener) = self.0.get() {
-            listener.turn_started(thread);
+            listener.turn_started(thread, turn);
         }
     }
 

@@ -160,6 +160,27 @@ fn sources(profile: &Path, sink: &PlanSink, paths: &[String], secret: bool) -> R
     Ok(files)
 }
 
+/// The files under `dir` that `kept` accepts as one preserve item moving to `target` under the data root (none when no
+/// file is kept), and the others, which are retired.
+fn preserved_directory(
+    profile: &Path,
+    sink: &PlanSink,
+    kind: ItemKind,
+    dir: &str,
+    secret: bool,
+    target: &str,
+    kept: impl Fn(&str) -> bool,
+) -> Result<(Vec<SourceFile>, Option<ManifestItem>)> {
+    let (kept, strays): (Vec<String>, Vec<String>) = files_under(profile, dir)?.into_iter().partition(|path| kept(path));
+    let strays = sources(profile, sink, &strays, secret)?;
+    let files = sources(profile, sink, &kept, secret)?;
+    if files.is_empty() {
+        return Ok((strays, None));
+    }
+    let target = Target::File { root: Root::Data, path: target.to_owned() };
+    Ok((strays, Some(kind_item(kind, Contract::Preserve, files, Some(target))?)))
+}
+
 fn kind_item(kind: ItemKind, contract: Contract, sources: Vec<SourceFile>, target: Option<Target>) -> Result<ManifestItem> {
     let key = format!("desktopProfile/{}", key_name(kind));
     item(&key, KindGroup::DesktopProfile, kind, contract, sources, target)
@@ -283,16 +304,10 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
         [(ItemKind::EditorBackups, "editor-backups", true, EDITOR_BACKUPS_TARGET), (ItemKind::EditorRecovery, "editor-recovery", false, EDITOR_RECOVERY_TARGET)]
     {
         debug_assert_eq!(preserve::source_dir(kind), Some(dir));
-        // The writer of each directory (`editor-backups.ts:118`, `project-recovery-store.ts:338`) may have been cut before
-        // it published: that temp file is retired, not kept as the editor's data.
-        let (temps, kept): (Vec<String>, Vec<String>) =
-            files_under(profile, dir)?.into_iter().partition(|path| is_editor_temp(kind, path.rsplit('/').next().unwrap_or(path)));
-        retired.extend(sources(profile, sink, &temps, secret)?);
-        let files = sources(profile, sink, &kept, secret)?;
-        if !files.is_empty() {
-            let target = Target::File { root: Root::Data, path: target.to_owned() };
-            items.push(kind_item(kind, Contract::Preserve, files, Some(target))?);
-        }
+        let (strays, item) =
+            preserved_directory(profile, sink, kind, dir, secret, target, |path| !is_editor_temp(kind, path.rsplit('/').next().unwrap_or(path)))?;
+        retired.extend(strays);
+        items.extend(item);
     }
 
     // The user-level editor settings are where the core reads them (`<D>/userdata/User/settings.json`); until they move the editor
@@ -307,13 +322,10 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
     // receipt binds nothing (`readReceipt`), so it goes with the temps of the atomic writer.
     {
         debug_assert_eq!(preserve::source_dir(ItemKind::NewTaskReceipts), Some(RECEIPTS_DIR));
-        let (receipts, strays): (Vec<String>, Vec<String>) = files_under(profile, RECEIPTS_DIR)?.into_iter().partition(|path| is_receipt(profile, path));
-        retired.extend(sources(profile, sink, &strays, true)?);
-        let files = sources(profile, sink, &receipts, true)?;
-        if !files.is_empty() {
-            let target = Target::File { root: Root::Data, path: RECEIPTS_TARGET.to_owned() };
-            items.push(kind_item(ItemKind::NewTaskReceipts, Contract::Preserve, files, Some(target))?);
-        }
+        let (strays, item) =
+            preserved_directory(profile, sink, ItemKind::NewTaskReceipts, RECEIPTS_DIR, true, RECEIPTS_TARGET, |path| is_receipt(profile, path))?;
+        retired.extend(strays);
+        items.extend(item);
     }
 
     if std::fs::symlink_metadata(resolve(profile, UNCLASSIFIED_WORKSPACE)).is_ok_and(|meta| meta.is_dir()) {

@@ -1,6 +1,5 @@
 //! The production [`WorkspaceHost`]: the session record side of a workspace change over the
-//! session directory (Node's `applyResolvedCwd` + `persistProjectSelection`, `stageWorkspaceReroot`
-//! of `refreshSessionWorkspaceContext`, `persistSession`), and the live-runtime reads and effects
+//! session directory, and the live-runtime reads and effects
 //! the session crate does not own (agent registry, shell jobs, prompt blocks, the Lead pool row)
 //! behind [`HostRuntime`], which the composition implements over them.
 
@@ -243,8 +242,6 @@ impl SessionWorkspaceHost {
         let header = self.header(session_id).ok_or_else(|| plain("session: the session is not loaded"))?;
         let prior_cwd = self.runtime.runtime_cwd(session_id);
         let prior_keys: Vec<(&'static str, Option<Value>)> = KEYS.iter().map(|key| (*key, header.get(*key).cloned())).collect();
-        // A Project switch to the folder the session already runs in stores only the record and
-        // the classification.
         let moves = !same_path(&prior_cwd, &change.cwd);
         let mut set = Map::new();
         let mut unset = Vec::new();
@@ -271,8 +268,7 @@ impl SessionWorkspaceHost {
                     return Err(error);
                 }
             };
-            // `refreshSessionWorkspaceContext` reads the committed messages (`session.messages`): a settled turn leaves
-            // nothing live, so only the stored rows tell an idle session's conversation.
+            // A settled turn leaves nothing live, so only the stored rows tell an idle session's conversation.
             let has_messages = match self.directory.holds_user_conversation(&ThreadId::from(session_id)).await {
                 Ok(has_messages) => has_messages,
                 Err(error) => {
@@ -303,18 +299,22 @@ impl SessionWorkspaceHost {
             return Err(error);
         }
         self.lock().remove(session_id);
-        // `applyResolvedCwd` warms the code graph on every apply, the same folder included
-        // (`cwd-apply.mjs:73`, `:85-90`).
+        // The code graph is warmed on every apply, the same folder included.
         if lead
             && let Some(handle) = self.directory.handle(&ThreadId::from(session_id))
             && let Err(error) = handle.cwd_applied(moves)
         {
             tracing::warn!("code-graph warm for the applied cwd not scheduled: {error}");
         }
+        Ok(self.restore_record(session_id, undos, prior_keys))
+    }
+
+    /// The undo of a change: the effects first, then the record's keys back to what they were.
+    fn restore_record(&self, session_id: &str, undos: Vec<Undo>, prior_keys: Vec<(&'static str, Option<Value>)>) -> Undo {
         let (threads, id) = (self.threads.clone(), ThreadId::from(session_id));
         let marker = self.marker.clone();
         let session = session_id.to_owned();
-        Ok(Box::new(move || {
+        Box::new(move || {
             Box::pin(async move {
                 run_undos(undos).await;
                 let mut set = Map::new();
@@ -331,7 +331,7 @@ impl SessionWorkspaceHost {
                 marker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&session);
                 Ok(())
             })
-        }))
+        })
     }
 }
 

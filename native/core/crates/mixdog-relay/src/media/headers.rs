@@ -1,7 +1,5 @@
-//! What a proxied media answer is allowed to say at the relay origin (`mediaResponseHeaders` of `lib/relay-media-proxy.mjs`).
-//!
-//! Desktop-supplied media metadata is forwarded, not trusted: these bytes leave the RELAY origin, so an HTML or SVG asset must
-//! never become an active document there and the leg must not be able to set arbitrary headers (cookies, CSP overrides) on it.
+//! What a proxied media answer may say at the relay origin. Desktop-supplied metadata is forwarded, not trusted: an HTML or SVG
+//! asset must never become an active document at this origin and the leg must not set arbitrary headers (cookies, CSP overrides).
 //! Everything outside the allow-list is dropped.
 
 use serde_json::Value;
@@ -44,11 +42,9 @@ fn safe_content_type(value: &str) -> String {
     value.to_owned()
 }
 
-/// `mediaResponseHeaders(supplied)`: the headers of a proxied answer, in the order the head is written. The forced ones come
-/// first (nothing on this lane is a document: no scripts, no framing, no sniffing a gallery file into active content), then
-/// the allow-listed ones the desktop supplied. A header supplied twice under different spellings is written once, with the
-/// last value; an array, an object or a null value is dropped, and so is a value of more than 4096 characters or one that is
-/// not printable ASCII.
+/// The headers of a proxied answer, in write order: the forced ones (no scripts, no framing, no sniffing), then the allow-listed
+/// ones the desktop supplied. A header supplied twice under different spellings is written once, with the last value; an array,
+/// an object, a null, a value of more than 4096 characters or one that is not printable ASCII is dropped.
 pub fn media_response_headers(supplied: Option<&Value>) -> Vec<(&'static str, String)> {
     let mut headers: Vec<(&'static str, String)> = vec![
         ("Content-Security-Policy", "default-src 'none'; sandbox".to_owned()),

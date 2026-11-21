@@ -1,6 +1,5 @@
 //! [`SessionSource`] over the stored sessions: what the worktree maintenance reads of the session
-//! layer (Node `worktrees/maintenance.mjs`: `storedSessionIds`, `storedFavoriteSessionIds`,
-//! `storedArchivedSessionIds`, `storedSessionActivity`, `runningShellJobs`).
+//! layer.
 //!
 //! - The ids are the store folder's listing, the session folders not carrying the delete mark
 //!   (a closed session's record stays listed). A folder that cannot be listed is Node's own
@@ -11,12 +10,9 @@
 //! - Activity is `subAgentActivityAt` of the header (`0` reads as none) and its `title || name`;
 //!   an absent or unreadable session is left out.
 //! - The running jobs are the background shells this process's task registry holds; a running
-//!   shell without a folder refuses the listing as Node's strict reader does. Node's
-//!   `runningShellJobs` reads the job records instead (`listShellJobRecords`, the non-terminal
-//!   ones), so it also counts a record another live process keeps running, and one a gone
-//!   runtime left running until the start-up pass ends it. This reads neither: a gone runtime's
-//!   record ends as failed at the next start (`ExecRuntime::reconcile_lost_jobs`, a pass beside
-//!   the start, not before it).
+//!   shell without a folder refuses the listing. A record another live process keeps running, or
+//!   one a gone runtime left running, is not counted: a gone runtime's record ends as failed at
+//!   the next start (`ExecRuntime::reconcile_lost_jobs`, a pass beside the start, not before it).
 
 use std::collections::HashMap;
 use std::collections::HashSet;

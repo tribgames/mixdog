@@ -1,4 +1,4 @@
-//! The managed-worktree backend operations the transitions use (Node's `manager.mjs` calls),
+//! The managed-worktree backend operations the transitions use,
 //! over `mixdog-scm`'s [`Worktrees`]: the session's retained worktree, lookups by folder,
 //! creation with its pre-checks, branch resolution, ownership and the removal guard.
 
@@ -194,11 +194,7 @@ impl Ops {
         let subdir = project.project_path.strip_prefix(&project.top_level).map(|rel| rel.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         let mut pending = Vec::new();
         match carry {
-            None => {}
-            // The manager moves the changes while it creates the worktree.
-            Some("carry") => {}
-            // `judgePendingChanges` (manager.mjs): carry.mjs `uncommittedChanges`, every untracked file
-            // but the project's own identity marker.
+            None | Some("carry") => {}
             Some(_) => pending = self.wt.uncommitted_changes(&project.top_level, &subdir, cancel).await?,
         }
         if carry == Some("ask") && !pending.is_empty() {
@@ -207,15 +203,11 @@ impl Ops {
                 DomainErrorDetail::WorktreeDirtyChoice { count: pending.len() as u64, paths: pending.iter().take(DIRTY_CHOICE_PREVIEW).cloned().collect() },
             ));
         }
-        let settings = self.settings.worktree_settings().await;
         let base_commit = match &project.current_branch {
-            Some(branch) => {
-                first_line(&self.wt.scm().git.read(cancel, &project.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")]).await?)
-            }
+            Some(branch) => self.branch_tip(&project.top_level, branch, cancel).await?,
             None => project.head.clone(),
         };
-        let root = names::managed_root(self.wt.data_dir(), &project.common_dir);
-        self.wt.assert_checkout_fits(&project.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
+        self.assert_base_fits(project, &base_commit, confirm_large, cancel).await?;
         let created = self
             .wt
             .create_full(
@@ -235,22 +227,7 @@ impl Ops {
         let record = created.record;
         let reference = created.changes.as_ref().and_then(|c| c["recoveryRef"].as_str()).map(str::to_owned);
         if let Err(failure) = self.claim(&record.id, session, cancel).await {
-            // `transition-steps.mjs:294-300`: the undo restores the carried changes, then removes the
-            // worktree, then drops the recovery ref, in that order and stopping at the first that
-            // fails: a restore that is refused keeps the worktree and the ref. The claim's failure is
-            // the one surfaced; Node attaches the undo's own failure to it (`rollbackErrors`, :43-52).
-            let undone: Result<(), ScmFailure> = async {
-                if let Some(reference) = &reference {
-                    self.wt.restore_from_recovery_ref(&project.top_level, &subdir, reference, cancel).await?;
-                }
-                self.wt.remove(&record.id, true, Some(session), cancel).await?;
-                if let Some(reference) = &reference {
-                    self.wt.drop_recovery_ref(&project.top_level, reference, cancel).await?;
-                }
-                Ok(())
-            }
-            .await;
-            if let Err(error) = undone {
+            if let Err(error) = self.discard_unclaimed(project, &subdir, &record, reference.as_deref(), session, cancel).await {
                 tracing::warn!(id = %record.id, "the undo of a worktree whose claim failed stopped: {error}");
             }
             return Err(failure);
@@ -263,6 +240,39 @@ impl Ops {
             _ => (!pending.is_empty()).then_some(("left", pending.len() as u64)),
         };
         Ok(Created { record, changes })
+    }
+
+    /// Restores the carried changes, then removes the worktree, then drops the recovery ref, stopping at the first
+    /// step that fails: a refused restore keeps the worktree and the ref.
+    async fn discard_unclaimed(
+        &self,
+        project: &RepoFacts,
+        subdir: &str,
+        record: &WorktreeRecord,
+        reference: Option<&str>,
+        session: &str,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        if let Some(reference) = reference {
+            self.wt.restore_from_recovery_ref(&project.top_level, subdir, reference, cancel).await?;
+        }
+        self.wt.remove(&record.id, true, Some(session), cancel).await?;
+        if let Some(reference) = reference {
+            self.wt.drop_recovery_ref(&project.top_level, reference, cancel).await?;
+        }
+        Ok(())
+    }
+
+    async fn branch_tip(&self, top_level: &Path, branch: &str, cancel: &CancellationToken) -> Result<String, ScmFailure> {
+        let tip = self.wt.scm().git.read(cancel, top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")]).await?;
+        Ok(first_line(&tip))
+    }
+
+    async fn assert_base_fits(&self, repo: &RepoFacts, base_commit: &str, confirm_large: bool, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let settings = self.settings.worktree_settings().await;
+        let root = names::managed_root(self.wt.data_dir(), &repo.common_dir);
+        self.wt.assert_checkout_fits(&repo.top_level, base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
+        Ok(())
     }
 
     /// Resolve a branch to its checkout without switching any existing folder: a retried
@@ -324,25 +334,8 @@ impl Ops {
         if !create && self.remote_defaults(&repo.project_path, cancel).await?.iter().any(|d| d == branch) {
             return Err(ScmFailure::coded("WORKTREE_DEFAULT_BRANCH", DomainErrorDetail::WorktreeDefaultBranch { branch: branch.to_owned() }));
         }
-        let settings = self.settings.worktree_settings().await;
-        let base_commit = first_line(
-            &self
-                .wt
-                .scm()
-                .git
-                .read(
-                    cancel,
-                    &repo.top_level,
-                    &[
-                        "rev-parse",
-                        "--verify",
-                        &format!("refs/heads/{}^{{commit}}", if create { repo.current_branch.as_deref().unwrap_or(branch) } else { branch }),
-                    ],
-                )
-                .await?,
-        );
-        let root = names::managed_root(self.wt.data_dir(), &repo.common_dir);
-        self.wt.assert_checkout_fits(&repo.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
+        let base_commit = self.branch_tip(&repo.top_level, if create { repo.current_branch.as_deref().unwrap_or(branch) } else { branch }, cancel).await?;
+        self.assert_base_fits(&repo, &base_commit, confirm_large, cancel).await?;
         let record = self
             .wt
             .create(

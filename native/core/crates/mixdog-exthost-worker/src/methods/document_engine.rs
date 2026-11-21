@@ -1,11 +1,3 @@
-//! The document engine of a worker process: `documentPreviewPdf` and `documentPreviewPages` of `pdf/document-preview.mjs` over
-//! `mixdog_office_pdf::preview`, for the handler layer in [`super::document`].
-//!
-//! The process boots the executors the preview runs its file, compute and child-process work on the first time a call needs
-//! them, and builds the preview (the system fonts scanned once, Microsoft Office through its transport) on that first call, so a
-//! worker that is only asked about a PDF or the LibreOffice status starts as fast as before. The scratch a preview leaves
-//! (a private copy of a document, a decrypted package, an unlocked PDF) is removed as the worker leaves.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

@@ -1,8 +1,5 @@
-//! `startRelay`, `finishRelayStart` and `closeRelay` of `server.mjs`: the services are built from the configuration (the feedback
-//! queue, the device store, the hub of live legs, the limiters, the renderer catalog and its readiness, native push from its
-//! environment, Web Push from `DATA_DIR` where no identity disables it, ICE from the TURN environment where a bad setting only logs),
-//! the listener is bound, and the 10 s heartbeat and the socket diagnostics are started. A failure after the feedback queue exists closes
-//! it first.
+//! Builds the services from the configuration, binds the listener and starts the 10 s heartbeat and the socket diagnostics. A
+//! failure after the feedback queue exists closes it first.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

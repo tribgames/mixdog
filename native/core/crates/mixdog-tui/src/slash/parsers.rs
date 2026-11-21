@@ -175,6 +175,10 @@ mod tests {
             parse_mcp_server_input(" web | WSS://example.test/socket | ignored | ignored "),
             Ok(json!({"name": "web", "url": "WSS://example.test/socket"}))
         );
+    }
+
+    #[test]
+    fn mcp_input_with_a_non_network_scheme_is_a_command() {
         assert_eq!(parse_mcp_server_input("web | ftp://example.test"), Ok(json!({"name": "web", "command": "ftp://example.test", "args": [], "cwd": ""})));
     }
 

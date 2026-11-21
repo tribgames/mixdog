@@ -289,6 +289,20 @@ impl Follow {
         answer.map(|a| End { key: format!("{}:{}", a.id, a.status), status: a.status, text: a.text, now: false, id: a.id })
     }
 
+    /// How much of the quiet period `end` still owes: an answer is final only if it is still the answer after `settle`.
+    fn settle_wait(&self, end: &End) -> Option<Duration> {
+        let mut state = self.lock();
+        let waited = state.candidate_at.map(|at| at.elapsed());
+        if end.now || self.settle.is_zero() || (end.key == state.candidate && waited.is_some_and(|w| w >= self.settle)) {
+            return None;
+        }
+        if end.key != state.candidate {
+            state.candidate = end.key.clone();
+            state.candidate_at = Some(Instant::now());
+        }
+        Some(self.settle.saturating_sub(state.candidate_at.map_or(Duration::ZERO, |at| at.elapsed())))
+    }
+
     /// Re-evaluates; call it on every state change of the runtime.
     pub fn check(self: &Arc<Self>) -> BoxFuture<'static, ()> {
         let this = Arc::clone(self);
@@ -315,31 +329,15 @@ impl Follow {
                         this.lock().candidate.clear();
                         this.arm(this.poll);
                     }
-                    Some(end) => {
-                        let wait = {
-                            let mut state = this.lock();
-                            let waited = state.candidate_at.map(|at| at.elapsed());
-                            if !end.now && !this.settle.is_zero() && (end.key != state.candidate || waited.is_none_or(|w| w < this.settle)) {
-                                if end.key != state.candidate {
-                                    state.candidate = end.key.clone();
-                                    state.candidate_at = Some(Instant::now());
-                                }
-                                Some(this.settle.saturating_sub(state.candidate_at.map_or(Duration::ZERO, |at| at.elapsed())))
-                            } else {
-                                None
-                            }
-                        };
-                        match wait {
-                            // Final only if it is still the answer after the quiet period.
-                            Some(wait) => this.arm(wait),
-                            None => {
-                                this.stop();
-                                if let Err(error) = (this.args.finish)(end.status, end.text, end.id).await {
-                                    mixdog_rt::node_stderr!("mixdog task sessions: following {} to its final answer failed: {error}", this.args.session_id);
-                                }
+                    Some(end) => match this.settle_wait(&end) {
+                        Some(wait) => this.arm(wait),
+                        None => {
+                            this.stop();
+                            if let Err(error) = (this.args.finish)(end.status, end.text, end.id).await {
+                                mixdog_rt::node_stderr!("mixdog task sessions: following {} to its final answer failed: {error}", this.args.session_id);
                             }
                         }
-                    }
+                    },
                 }
                 let more = {
                     let state = this.lock();

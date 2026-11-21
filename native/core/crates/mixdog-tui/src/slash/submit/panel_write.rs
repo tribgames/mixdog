@@ -1,11 +1,8 @@
-//! One acknowledged daemon write at a time per text-entry surface (`prompt-submit/panel-write.mjs`): `begin` marks the prompt
-//! submitting, `finish` closes it only while the write still owns the surface, `fail` restores the typed value instead of
-//! losing it.
+//! One acknowledged daemon write at a time per text-entry surface: `begin` marks the prompt submitting, `finish` closes it only
+//! while the write still owns the surface, `fail` restores the typed value instead of losing it.
 //!
-//! The in-flight writes are the host's (`write_token`): the Node dispatcher was re-created on every render, so a closure flag
-//! reset mid-write and a second Enter started an overlapping daemon write whose older acknowledgement then closed the panel
-//! that already held newer input. Each token is the panel epoch its write owns, so a write stops blocking the moment the user
-//! takes the surface back (Esc or close supersedes the epoch).
+//! The in-flight writes are the host's (`write_token`). Each token is the panel epoch its write owns, so a write stops blocking the
+//! moment the user takes the surface back (Esc or close supersedes the epoch).
 
 use crate::slash::host::{PromptSurface, SlashHost, TextPrompt, Tone};
 

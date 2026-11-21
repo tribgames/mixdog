@@ -1,12 +1,3 @@
-//! Versioned tool exposure (Node `runtime-core/tool-exposure.mjs`, with `deferredProviderMode`
-//! of `tool-catalog-schema.mjs` and `nativeDeferredFamilyForRoute` of `wire-route.mjs`).
-//!
-//! `deferredProviderMode` classifies the provider (native tool search or not);
-//! `toolExposureMode` records how the session's tools reach the model. Non-native providers use
-//! the fixed bridge: a small eager core plus the shared `load_tool` and `call_tool`, with every
-//! other tool only in the session's scoped catalog. Native sessions carry no field. A session is
-//! its stored header (`Value`), read as Node reads the live object.
-
 use serde_json::Value;
 
 pub const TOOL_EXPOSURE_BRIDGE: &str = "bridge-v1";
@@ -151,11 +142,6 @@ pub fn is_bridge_tool_definition(tool: &Value) -> bool {
     name == "load_tool" && tool.get("description").and_then(Value::as_str).is_some_and(|d| LEGACY_BRIDGE_LOAD_TOOL_DESCRIPTIONS.contains(&d))
 }
 
-/// The provider-native tool objects a session's request sends ahead of the schemas, in wire order.
-/// A conversation's request has none, whatever the exposure: `opts.nativeTools` is set only by the
-/// hosted web-search send (`session-runtime/native-web-search.mjs`), a one-shot request outside any
-/// session's fingerprint, and the request boundary starts its native prefix at zero for every
-/// provider. The exposure mode is taken so a future native tool lands here, in one place.
 pub fn native_request_tools(_session: &Value) -> Vec<Value> {
     Vec::new()
 }

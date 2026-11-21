@@ -230,6 +230,59 @@ fn path_names_file(root: &Path, rel: &str, opened: &Opened) -> WsResult<()> {
     Ok(())
 }
 
+struct Staged {
+    rel: String,
+    before: Vec<u8>,
+    after: Vec<u8>,
+}
+
+fn checked_batch(writes: &[BatchFile]) -> WsResult<Vec<(String, &BatchFile)>> {
+    if writes.is_empty() || writes.len() > 100 {
+        return Err(WsError::invalid("Workspace edit files are invalid."));
+    }
+    let normalized: Vec<(String, &BatchFile)> = writes.iter().map(|w| (w.rel_path.replace('\\', "/"), w)).collect();
+    let lower: HashSet<String> = normalized.iter().map(|(r, _)| r.to_lowercase()).collect();
+    if lower.len() != normalized.len() {
+        return Err(WsError::invalid("Workspace edit contains duplicate files."));
+    }
+    for (_, write) in &normalized {
+        check_content(&write.content, &write.expected_content)?;
+    }
+    Ok(normalized)
+}
+
+/// Rewrites the staged files in order. A failure puts back the bytes of every file already attempted, the failing one
+/// included; the answer is that failure and the paths restored.
+fn rewrite_all_or_restore(opened: &mut [Opened], staged: &[Staged]) -> (Option<WsError>, HashSet<String>) {
+    let mut attempted: Vec<usize> = Vec::new();
+    let mut restored: HashSet<String> = HashSet::new();
+    let mut failure: Option<WsError> = None;
+    for (index, file) in staged.iter().enumerate() {
+        attempted.push(index);
+        if let Err(error) = rewrite(&mut opened[index].file, &file.after) {
+            failure = Some(error.into());
+            break;
+        }
+        crate::killpoint::hit(&format!("write:{index}"));
+    }
+    let Some(error) = failure else { return (None, restored) };
+    let mut unrestored = Vec::new();
+    for &index in attempted.iter().rev() {
+        match rewrite(&mut opened[index].file, &staged[index].before) {
+            Ok(()) => {
+                restored.insert(staged[index].rel.clone());
+            }
+            Err(_) => unrestored.push(staged[index].rel.clone()),
+        }
+    }
+    let error = if unrestored.is_empty() {
+        error
+    } else {
+        WsError::new(Reason::Io, format!("Workspace edit failed: {}. Not restored: {unrestored:?}.", error.message))
+    };
+    (Some(error), restored)
+}
+
 pub struct ProjectFs {
     pub recovery: Arc<RecoveryStore>,
     pub identities: IdentityLocks,
@@ -267,17 +320,7 @@ impl ProjectFs {
     /// rewritten in place through its own handle; a failure puts back the bytes
     /// of every file already written.
     pub fn write_batch(&self, root: &Path, writes: &[BatchFile], journaled: bool) -> WsResult<()> {
-        if writes.is_empty() || writes.len() > 100 {
-            return Err(WsError::invalid("Workspace edit files are invalid."));
-        }
-        let normalized: Vec<(String, &BatchFile)> = writes.iter().map(|w| (w.rel_path.replace('\\', "/"), w)).collect();
-        let lower: HashSet<String> = normalized.iter().map(|(r, _)| r.to_lowercase()).collect();
-        if lower.len() != normalized.len() {
-            return Err(WsError::invalid("Workspace edit contains duplicate files."));
-        }
-        for (_, write) in &normalized {
-            check_content(&write.content, &write.expected_content)?;
-        }
+        let normalized = checked_batch(writes)?;
         let mut opened = Vec::with_capacity(normalized.len());
         for (rel, _) in &normalized {
             opened.push(open_authorized_rw(&project_entry_path(root, rel)?, root)?);
@@ -287,11 +330,6 @@ impl ProjectFs {
             return Err(WsError::invalid("Workspace edit contains duplicate files."));
         }
         let _claim = self.identities.lock(keys);
-        struct Staged {
-            rel: String,
-            before: Vec<u8>,
-            after: Vec<u8>,
-        }
         let mut staged = Vec::new();
         for (index, (rel, write)) in normalized.iter().enumerate() {
             path_names_file(root, rel, &opened[index])?;
@@ -309,35 +347,7 @@ impl ProjectFs {
             } else {
                 None
             };
-        let mut written: Vec<usize> = Vec::new();
-        let mut restored: HashSet<String> = HashSet::new();
-        let mut failure: Option<WsError> = None;
-        for (index, file) in staged.iter().enumerate() {
-            // Recorded before the write: a failure part-way leaves the file modified,
-            // and it is restored with the earlier ones.
-            written.push(index);
-            if let Err(error) = rewrite(&mut opened[index].file, &file.after) {
-                failure = Some(error.into());
-                break;
-            }
-            crate::killpoint::hit(&format!("write:{index}"));
-        }
-        if let Some(error) = failure.take() {
-            let mut unrestored = Vec::new();
-            for &index in written.iter().rev() {
-                match rewrite(&mut opened[index].file, &staged[index].before) {
-                    Ok(()) => {
-                        restored.insert(staged[index].rel.clone());
-                    }
-                    Err(_) => unrestored.push(staged[index].rel.clone()),
-                }
-            }
-            failure = Some(if unrestored.is_empty() {
-                error
-            } else {
-                WsError::new(Reason::Io, format!("Workspace edit failed: {}. Not restored: {unrestored:?}.", error.message))
-            });
-        }
+        let (failure, restored) = rewrite_all_or_restore(&mut opened, &staged);
         let mut bookkeeping = Vec::new();
         let mut journal_id = None;
         if let Some(journal) = journal.as_mut() {

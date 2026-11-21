@@ -1214,10 +1214,6 @@ mod tests {
         let tools = call(&owner("connector/listConnectorTools"), "connector/listConnectorTools", serde_json::json!({"connectorId": "nope"})).await;
         assert!(tools.is_array() || tools.is_object(), "{tools}");
     }
-    /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
-    /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
-    /// answers (a configured server whose address serves no request fails the flow at once, so the feed holds its
-    /// final state). A server that is not configured is refused before any flow exists, so it opens no feed.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
         let Composed { composed, extensions, feeds, .. } = compose_over(Arc::new(Quiet)).await;
@@ -1256,11 +1252,6 @@ mod tests {
         assert_eq!(seen[0]["params"]["feedId"], feed_id.0.as_str());
         assert_eq!(seen[0]["params"]["state"], read);
     }
-    /// A management call made on a child thread reads the scope the child inherited from the session
-    /// that spawned it (`spawn-plan.mjs:108`; the child's header names its parent's scope), not only the
-    /// scope its own session opened: the status of the parent's servers is the same through either thread,
-    /// a thread whose header names no scope reads nothing live, a request with no thread reads the runtime's own scope, and
-    /// once the parent's close releases the scope the child reads nothing either.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_management_call_on_a_child_thread_reads_the_scope_it_inherited() {
         use mixdog_mcp::mcp_glue::McpScopes;
@@ -1327,10 +1318,6 @@ mod tests {
         let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
         assert_eq!(status["servers"][0]["status"], "failed", "once settled, the read sees the failure");
     }
-    /// While the runtime scope's first connect is still pending, a thread-less status read answers at once
-    /// with the status of the moment (Node's `mcpStatus()` does not wait for the boot's background
-    /// `connectConfiguredMcp()`), and so do the config reads; a write (`reconnectMcp`) queues behind the connect and
-    /// finishes only after it. The connect is held by a server that accepted the connection and never answers.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_read_during_a_pending_first_connect_answers_at_once_and_a_write_waits_for_it() {
         let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;

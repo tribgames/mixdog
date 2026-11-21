@@ -144,12 +144,9 @@ fn report(label: &str, samples: &[Option<Duration>]) {
     );
 }
 
-fn main() {
-    let (_executors, tokens) = mixdog_rt::exec::boot(RtConfig::detect()).expect("the executors");
-    let root = std::env::temp_dir().join(format!("shell-start-latency-{}", std::process::id()));
-    std::fs::create_dir_all(root.join("cwd")).expect("the bench directory");
+fn exec_runtime(root: &std::path::Path, tokens: LaneTokens) -> ExecRuntime {
     let windows = cfg!(windows);
-    let runtime = ExecRuntime::new(ExecConfig {
+    ExecRuntime::new(ExecConfig {
         tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(NoPublisher), || 0)),
         lanes: IoLanes {
             interactive: tokens.interactive_io,
@@ -179,7 +176,36 @@ fn main() {
         powershell: windows,
         warm_standby: false,
         now_ms: Arc::new(|| 0),
-    });
+    })
+}
+
+/// Occupies both io-maintenance threads, as two long searches do, until the returned senders are dropped.
+fn hold_maintenance(tokens: LaneTokens) -> Vec<std::sync::mpsc::Sender<()>> {
+    let mut releases = Vec::new();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    for _ in 0..2 {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let started = started_tx.clone();
+        tokens
+            .maintenance_io
+            .submit(&CancellationToken::new(), move |_| {
+                started.send(()).unwrap();
+                let _ = held.recv();
+            })
+            .expect("io-maintenance takes the holder");
+        releases.push(release);
+    }
+    for _ in 0..2 {
+        started_rx.recv_timeout(Duration::from_secs(60)).expect("both io-maintenance threads are held");
+    }
+    releases
+}
+
+fn main() {
+    let (_executors, tokens) = mixdog_rt::exec::boot(RtConfig::detect()).expect("the executors");
+    let root = std::env::temp_dir().join(format!("shell-start-latency-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("cwd")).expect("the bench directory");
+    let runtime = exec_runtime(&root, tokens);
     let bench = Bench {
         shell: ShellTool::new(runtime),
         tokens,
@@ -203,23 +229,7 @@ fn main() {
         report(&format!("{CONCURRENT} concurrent calls"), &many);
 
         // Both io-maintenance threads held, as by two long searches.
-        let mut releases = Vec::new();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        for _ in 0..2 {
-            let (release, held) = std::sync::mpsc::channel::<()>();
-            let started = started_tx.clone();
-            tokens
-                .maintenance_io
-                .submit(&CancellationToken::new(), move |_| {
-                    started.send(()).unwrap();
-                    let _ = held.recv();
-                })
-                .expect("io-maintenance takes the holder");
-            releases.push(release);
-        }
-        for _ in 0..2 {
-            started_rx.recv_timeout(Duration::from_secs(60)).expect("both io-maintenance threads are held");
-        }
+        let releases = hold_maintenance(tokens);
         let calls = futures::future::join_all((0..CONCURRENT).map(|_| bench.call()));
         let held = mixdog_rt::time::timeout(HELD_DEADLINE, calls).await;
         match held {

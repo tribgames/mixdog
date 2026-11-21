@@ -1,9 +1,7 @@
 //! Test seam (`elide-syncs`): the physical flushes of a process, skipped.
 //!
 //! A test reads back what it wrote from the same running OS, which holds every write whether or not it was flushed to
-//! the device; what a flush adds is survival of a power loss, which no test observes. The flushes were what the
-//! write-heavy tests waited on (2026-11-11, beside twenty other builds: the migration crash matrix took 187 s with
-//! them and 44 s without), and they starve the builds that share the disk.
+//! the device; what a flush adds is survival of a power loss, which no test observes.
 //!
 //! Off until a test switches it on: [`elide_syncs`] in the test, or `MIXDOG_TEST_ELIDE_SYNCS=1` in the environment of
 //! the test process (cargo-gate sets it for a test run; the processes a test starts inherit it). Only the flush call

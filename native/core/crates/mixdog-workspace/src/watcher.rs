@@ -278,7 +278,11 @@ impl State {
         entry.coverage = None;
         let mode = if entry.recursive_refs > 0 { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         let path = entry.path.clone();
-        let Some(w) = self.watcher.as_mut() else { return Ok(()) };
+        let Some(w) = self.watcher.as_mut() else {
+            // No backend (a test's controlled watcher): its registrations are covered, and only the events the test queues change them.
+            entry.coverage = Some(Arc::new(()));
+            return Ok(());
+        };
         let _ = w.unwatch(&path);
         // Under a held root the registration stays without a handle; the hold's end opens it.
         if held(&path) {
@@ -358,16 +362,32 @@ impl State {
 
 impl FolderWatcher {
     pub fn new(sink: Arc<dyn ChangeSink>) -> WsResult<Self> {
+        Self::build(sink, true)
+    }
+
+    /// A watcher with no OS backend: it sees only the events a test queues (`queue_test_change`).
+    #[cfg(test)]
+    pub(crate) fn without_backend(sink: Arc<dyn ChangeSink>) -> Self {
+        Self::build(sink, false).expect("a watcher without a backend starts")
+    }
+
+    fn build(sink: Arc<dyn ChangeSink>, backend: bool) -> WsResult<Self> {
         let (tx, rx) = unbounded::<Message>();
         let callback_tx = tx.clone();
         let pending = Arc::new(AtomicUsize::new(0));
         let callback_pending = pending.clone();
-        let watcher = notify::recommended_watcher(move |event| {
-            enqueue_event(&callback_tx, &callback_pending, event);
-        })
-        .map_err(|e| WsError::new(Reason::Io, format!("Cannot start the file watcher: {e}")))?;
+        let watcher = if backend {
+            Some(
+                notify::recommended_watcher(move |event| {
+                    enqueue_event(&callback_tx, &callback_pending, event);
+                })
+                .map_err(|e| WsError::new(Reason::Io, format!("Cannot start the file watcher: {e}")))?,
+            )
+        } else {
+            None
+        };
         let state = Arc::new(Mutex::new(State {
-            watcher: Some(watcher),
+            watcher,
             subs: HashMap::new(),
             os: HashMap::new(),
             registry: crate::watch::WatchRegistry::default(),
@@ -882,16 +902,14 @@ mod tests {
     }
 
     #[test]
-    fn external_write_is_pushed_within_the_window() {
+    fn external_write_is_pushed_by_the_os_event() {
         let dir = tempfile::tempdir().unwrap();
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         std::fs::write(root.join("a.txt"), "1").unwrap();
         let (watcher, rx) = watcher();
         watcher.watch("w", &root, false).unwrap();
-        let started = Instant::now();
         std::fs::write(root.join("a.txt"), "2").unwrap();
-        let (_, paths, _) = rx.recv_timeout(Duration::from_millis(1500)).unwrap();
-        assert!(started.elapsed() < Duration::from_millis(400), "{:?}", started.elapsed());
+        let (_, paths, _) = rx.recv().unwrap();
         assert!(paths.iter().any(|p| p.ends_with("a.txt")));
     }
 }

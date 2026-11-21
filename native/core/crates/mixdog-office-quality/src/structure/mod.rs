@@ -1,8 +1,3 @@
-//! The structure review of an office document snapshot: `reviewOfficeStructure` of
-//! `src/runtime/office/quality/assurance-structure.mjs` and the three format reviews it picks from
-//! (`assurance-structure-{docx,pptx,xlsx}.mjs`). The input is the portable snapshot as a JSON value; the answer is the
-//! list of review records in the order Node writes them, with Node's wording and its float thresholds.
-
 use mixdog_js::{js_to_lowercase, number_to_string, to_number_of};
 use serde_json::{Map, Value};
 

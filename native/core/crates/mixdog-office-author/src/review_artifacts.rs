@@ -49,11 +49,6 @@ fn count_of(value: Option<&Value>) -> f64 {
 }
 
 /// The receipt of the deck behind `preview`, or `None` when it has none.
-///
-/// The receipt reads an authored deck against the brief it was written to. A deck opened for editing has no brief, and
-/// its pages are reviewed as edits, so its render carries the pages alone: a template's receipt ran to fifteen thousand
-/// characters beside three page images. A PDF of designed pages keeps the receipt its working deck was read into at
-/// author time (the PDF itself holds no shapes); each render reads its own copy against the printed pixels.
 fn receipt_of(session: &ReviewSession, receipts: &dyn Receipts, preview: &Value, images: &[Value]) -> Option<Value> {
     let found = if session.authored_frame {
         session.frame_receipt.clone()

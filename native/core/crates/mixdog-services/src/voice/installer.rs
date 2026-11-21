@@ -1,7 +1,5 @@
-//! The managed voice runtime download (`voice-runtime-fetcher.mjs` `ensureWhisperRuntime`,
-//! `ensureWhisperModel`, `ensureFfmpegRuntime`, driven by `voice-setup.mjs`
-//! `ensureVoiceRuntimeReady`): fetch what [`Missing`] names from the bundled manifest, verify
-//! its sha256, stage it beside the final directory and publish it with an `active-version`
+//! The managed voice runtime download: fetch what [`Missing`] names from the bundled manifest,
+//! verify its sha256, stage it beside the final directory and publish it with an `active-version`
 //! pointer, under a cross-process install lock.
 //!
 //! Layout: `<data>/voice-runtime/whisper-<ver>-<variant>/` + `active-version`;
@@ -76,10 +74,9 @@ fn cublas_majors(dir: &Path, pattern: &regex::Regex, found: &mut BTreeSet<u64>) 
     }
 }
 
-/// `detectCudaMajors` + `hasNvidiaDriver`: the CUDA majors with a cuBLAS library in a standard
-/// toolkit location or `CUDA_PATH*` (nothing is guessed from `PATH`), and a driver that ships
-/// `nvidia-smi.exe` or `nvml.dll` into `System32` (Windows only). macOS uses Metal: neither.
-/// Blocking: the body of a durability-lane job.
+/// The CUDA majors with a cuBLAS library in a standard toolkit location or `CUDA_PATH*`, and a
+/// driver that ships `nvidia-smi.exe` or `nvml.dll` into `System32` (Windows only). macOS uses
+/// Metal: neither. Blocking: the body of a durability-lane job.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn detect_variant_env(vars: &[(String, String)]) -> VariantEnv {
     static WINDOWS_DLL: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^cublas64_([0-9]+)\.dll$").expect("static pattern"));

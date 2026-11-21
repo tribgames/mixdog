@@ -258,11 +258,6 @@ impl Drop for JobAttributeList {
 const LAUNCH_FLAGS: PROCESS_CREATION_FLAGS =
     PROCESS_CREATION_FLAGS(CREATE_NO_WINDOW.0 | DETACHED_PROCESS.0 | CREATE_SUSPENDED.0 | EXTENDED_STARTUPINFO_PRESENT.0);
 
-/// Create a process with `create` — handed a `STARTUPINFOEX` whose attribute
-/// list assigns `job`, and [`LAUNCH_FLAGS`] — let `before_resume` prepare the
-/// still-suspended process, then resume it. Returns the process handle and the
-/// still-armed job. On any failure the job is dropped armed, so the process,
-/// which never ran, is terminated through it.
 fn start_in_job(
     job: BootstrapJob,
     desktop: PWSTR,

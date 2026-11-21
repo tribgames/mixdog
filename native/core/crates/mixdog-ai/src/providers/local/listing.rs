@@ -1,8 +1,3 @@
-//! `mixdog-local` model listing: the models installed on this machine. The
-//! managed runtime owns what is installed (weights on disk, registered
-//! models, context settings); the listing asks it and lists every row it
-//! returns. It needs no running server and no network.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,8 +1,3 @@
-//! What the tool loop does with the after-tool hooks' answers (Node `after-hook.mjs`,
-//! `record-outcome.mjs`, `flush.mjs`): the model-visible result a `PostToolUse` hook may
-//! replace, the directory hooks see for a call, and the note a blocking `PostToolBatch` hook
-//! adds for the next model call.
-
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;

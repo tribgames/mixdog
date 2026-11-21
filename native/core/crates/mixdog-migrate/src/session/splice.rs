@@ -206,6 +206,14 @@ fn append_observed_turn_output(
     calls: &[(Option<Value>, Option<Value>)],
     results: &[(Option<Value>, Option<Value>)],
 ) {
+    append_assistant_output(messages, text, reasoning, calls);
+    let mut answered: Vec<Value> =
+        messages.iter().filter(|m| role_is(m, "tool")).filter_map(|m| prop(Some(m), "toolCallId").filter(|id| js_truthy(Some(id))).cloned()).collect();
+    append_observed_results(messages, &mut answered, results);
+    cancel_unanswered_calls(messages, &mut answered);
+}
+
+fn append_assistant_output(messages: &mut Vec<Value>, text: &str, reasoning: &str, calls: &[(Option<Value>, Option<Value>)]) {
     let represented: Vec<Value> = messages.iter().flat_map(assistant_tool_call_ids).collect();
     let unrepresented: Vec<Value> = calls
         .iter()
@@ -213,26 +221,27 @@ fn append_observed_turn_output(
         .filter(|call| prop(Some(call), "id").is_some_and(|id| js_truthy(Some(id)) && !contains(&represented, id)))
         .cloned()
         .collect();
-    if !text.is_empty() || !reasoning.is_empty() || !unrepresented.is_empty() {
-        let mut assistant = Map::new();
-        assistant.insert("role".into(), "assistant".into());
-        assistant.insert("content".into(), text.into());
-        if !reasoning.is_empty() {
-            assistant.insert("reasoningContent".into(), reasoning.into());
-        }
-        if !unrepresented.is_empty() {
-            assistant.insert("toolCalls".into(), Value::Array(unrepresented));
-        }
-        messages.push(Value::Object(assistant));
+    if text.is_empty() && reasoning.is_empty() && unrepresented.is_empty() {
+        return;
     }
+    let mut assistant = Map::new();
+    assistant.insert("role".into(), "assistant".into());
+    assistant.insert("content".into(), text.into());
+    if !reasoning.is_empty() {
+        assistant.insert("reasoningContent".into(), reasoning.into());
+    }
+    if !unrepresented.is_empty() {
+        assistant.insert("toolCalls".into(), Value::Array(unrepresented));
+    }
+    messages.push(Value::Object(assistant));
+}
 
-    let mut answered: Vec<Value> =
-        messages.iter().filter(|m| role_is(m, "tool")).filter_map(|m| prop(Some(m), "toolCallId").filter(|id| js_truthy(Some(id))).cloned()).collect();
+fn append_observed_results(messages: &mut Vec<Value>, answered: &mut Vec<Value>, results: &[(Option<Value>, Option<Value>)]) {
     for (_, result) in results {
         let Some(id) = prop(result.as_ref(), "toolCallId").filter(|id| js_truthy(Some(id))) else {
             continue;
         };
-        if contains(&answered, id) {
+        if contains(answered, id) {
             continue;
         }
         let mut tool = Map::new();
@@ -246,7 +255,9 @@ fn append_observed_turn_output(
         messages.push(Value::Object(tool));
         answered.push(id.clone());
     }
+}
 
+fn cancel_unanswered_calls(messages: &mut Vec<Value>, answered: &mut Vec<Value>) {
     let mut all: Vec<Value> = Vec::new();
     for id in messages.iter().flat_map(assistant_tool_call_ids) {
         if !contains(&all, &id) {
@@ -254,7 +265,7 @@ fn append_observed_turn_output(
         }
     }
     for id in all {
-        if contains(&answered, &id) {
+        if contains(answered, &id) {
             continue;
         }
         messages.push(json!({"role": "tool", "content": INTERRUPTED_TOOL_RESULT, "toolCallId": id, "toolKind": "error"}));
@@ -292,6 +303,57 @@ fn strip_provider_replay(message: Value) -> Value {
     Value::Object(object)
 }
 
+/// How many of the record's messages a checkpoint that names its base keeps; `None` when the record is not the one the
+/// checkpoint was taken against.
+fn kept_by_boundary(header: &Map<String, Value>, messages: &[Value], checkpoint: &Map<String, Value>) -> Option<usize> {
+    let token = checkpoint.get("turnToken");
+    let active = header.get("activeTurnCheckpoint");
+    let base = checkpoint.get("base");
+    let base_epoch = prop(base, "epoch").filter(|e| e.as_str().is_some_and(|e| !e.is_empty()));
+    let same_turn = strict_eq(prop(active, "turnToken"), token);
+    let on_base_epoch = base_epoch.is_some() && strict_eq(header.get("transcriptEpoch"), base_epoch);
+    if checkpoint.get("fullTranscript") == Some(&Value::Bool(true)) {
+        return (on_base_epoch || same_turn).then_some(0);
+    }
+    let boundary = integer(checkpoint.get("boundary")).filter(|b| *b >= 0.0)?;
+    // `boundary > Number(base.length)`: false against NaN.
+    if base_epoch.is_none() || boundary > mixdog_js::to_number_of(prop(base, "length")) {
+        return None;
+    }
+    (on_base_epoch && messages.len() as f64 >= boundary).then_some(boundary as usize)
+}
+
+/// `legacyDisposition`: a checkpoint written before checkpoints named their base keeps the prefix it signed.
+fn kept_by_legacy_prefix<B: AttachmentBytes + ?Sized>(
+    header: &Map<String, Value>,
+    messages: &[Value],
+    checkpoint: &Map<String, Value>,
+    blobs: &B,
+) -> Result<Option<usize>, B::Error> {
+    let token = checkpoint.get("turnToken");
+    let marker = prop(header.get("activeTurnCheckpoint"), "turnToken");
+    if number_or_zero(checkpoint.get("generation")) != number_or_zero(header.get("generation"))
+        || (marker.is_some_and(Value::is_string) && !strict_eq(marker, token))
+        || checkpoint.get("fullTranscript") == Some(&Value::Bool(true))
+    {
+        return Ok(None);
+    }
+    let state = checkpoint.get("contextState");
+    let Some(count) = integer(prop(state, "committedPrefixCount")).filter(|c| *c >= 0.0) else {
+        return Ok(None);
+    };
+    let Some(signature) = prop(state, "committedPrefixSignature").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if (messages.len() as f64) < count || rows_exact_signature(&messages[..count as usize], blobs)? != signature {
+        return Ok(None);
+    }
+    if messages.len() as f64 != count && !strict_eq(marker, token) {
+        return Ok(None);
+    }
+    Ok(Some(count as usize))
+}
+
 /// `checkpointDisposition` then `replayCheckpoint` for the folded `checkpoint` against the
 /// durable record (`header` and its `messages`). A legacy checkpoint's prefix is signed as
 /// `contextMessagesSignature` signs it, reading referenced parts from `blobs`.
@@ -306,53 +368,13 @@ pub fn splice<B: AttachmentBytes + ?Sized>(
         return Ok(Splice::Covered);
     }
     let active = header.get("activeTurnCheckpoint");
-    let full = checkpoint.get("fullTranscript") == Some(&Value::Bool(true));
-    let keep = if checkpoint.contains_key("boundary") {
-        let base = checkpoint.get("base");
-        let base_epoch = prop(base, "epoch").filter(|e| e.as_str().is_some_and(|e| !e.is_empty()));
-        let same_turn = strict_eq(prop(active, "turnToken"), token);
-        let on_base_epoch = base_epoch.is_some() && strict_eq(header.get("transcriptEpoch"), base_epoch);
-        if full {
-            if !(on_base_epoch || same_turn) {
-                return Ok(Splice::Conflict);
-            }
-            0
-        } else {
-            let Some(boundary) = integer(checkpoint.get("boundary")).filter(|b| *b >= 0.0) else {
-                return Ok(Splice::Conflict);
-            };
-            // `boundary > Number(base.length)`: false against NaN.
-            if base_epoch.is_none() || boundary > mixdog_js::to_number_of(prop(base, "length")) {
-                return Ok(Splice::Conflict);
-            }
-            if !(on_base_epoch && messages.len() as f64 >= boundary) {
-                return Ok(Splice::Conflict);
-            }
-            boundary as usize
-        }
+    let kept = if checkpoint.contains_key("boundary") {
+        kept_by_boundary(header, messages, checkpoint)
     } else {
-        // `legacyDisposition`: a checkpoint written before checkpoints named their base.
-        let marker = prop(active, "turnToken");
-        if number_or_zero(checkpoint.get("generation")) != number_or_zero(header.get("generation"))
-            || (marker.is_some_and(Value::is_string) && !strict_eq(marker, token))
-            || full
-        {
-            return Ok(Splice::Conflict);
-        }
-        let state = checkpoint.get("contextState");
-        let Some(count) = integer(prop(state, "committedPrefixCount")).filter(|c| *c >= 0.0) else {
-            return Ok(Splice::Conflict);
-        };
-        let Some(signature) = prop(state, "committedPrefixSignature").and_then(Value::as_str) else {
-            return Ok(Splice::Conflict);
-        };
-        if (messages.len() as f64) < count || rows_exact_signature(&messages[..count as usize], blobs)? != signature {
-            return Ok(Splice::Conflict);
-        }
-        if messages.len() as f64 != count && !strict_eq(marker, token) {
-            return Ok(Splice::Conflict);
-        }
-        count as usize
+        kept_by_legacy_prefix(header, messages, checkpoint, blobs)?
+    };
+    let Some(keep) = kept else {
+        return Ok(Splice::Conflict);
     };
     let turn: &[Value] = checkpoint.get("turnMessages").and_then(Value::as_array).map_or(&[], Vec::as_slice);
     let finalized =

@@ -551,6 +551,14 @@ async fn an_expect_100_continue_is_answered_before_the_body_is_sent() {
 }
 
 #[tokio::test]
+async fn an_expectation_other_than_100_continue_is_refused_with_417() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nContent-Length: 2\r\nExpect: nonsense\r\n\r\nok").await;
+    assert!(text.starts_with("HTTP/1.1 417 Expectation Failed\r\n"), "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
 async fn an_upgrade_request_is_handed_over_with_the_bytes_that_followed_its_head() {
     let (server, addr) = echo_server().await;
     let text = exchange(addr, b"GET /ws HTTP/1.1\r\nHost: h\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\nab").await;

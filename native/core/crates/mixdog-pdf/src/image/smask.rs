@@ -127,7 +127,7 @@ impl PdfImage {
             x_scaled = Some((0..dest_width).map(|i| (i as f64 * x_ratio).floor() as usize).collect());
         }
         let mask: i64 = if options.invert_output { 0xff } else { 0 };
-        let (offset, stride) = (options.offset, options.stride);
+        let grid = GrayGrid { x_scaled, y_ratio, src_width, output_width, rows, offset: options.offset, stride: options.stride };
         if bpc == 1 {
             let needs_decode = self.needs_decode;
             let level = |comps: &Comps, index: usize| -> i64 {
@@ -143,23 +143,7 @@ impl PdfImage {
                 };
                 value ^ mask
             };
-            match &x_scaled {
-                Some(x_map) => {
-                    let mut dest = offset;
-                    for row in 0..rows {
-                        let py = (row as f64 * y_ratio).floor() as usize * src_width;
-                        for col in 0..output_width {
-                            put(buffer, dest, level(&comps, py + x_map[col]));
-                            dest += stride;
-                        }
-                    }
-                }
-                None => {
-                    for i in 0..output_width * rows {
-                        put(buffer, i * stride + offset, level(&comps, i));
-                    }
-                }
-            }
+            grid.write(buffer, |index| level(&comps, index));
             return Ok(());
         }
         if self.needs_decode {
@@ -171,24 +155,42 @@ impl PdfImage {
             let integer = if value.is_nan() { 0 } else { i64::from(value as i64 as i32) };
             integer ^ mask
         };
-        match &x_scaled {
+        grid.write(buffer, |index| level(&comps, index));
+        Ok(())
+    }
+}
+
+/// Where the gray levels of a source image land in the destination: the source sample each destination column reads
+/// (`x_scaled`, when the sizes differ) and the byte each one is written to.
+struct GrayGrid {
+    x_scaled: Option<Vec<usize>>,
+    y_ratio: f64,
+    src_width: usize,
+    output_width: usize,
+    rows: usize,
+    offset: usize,
+    stride: usize,
+}
+
+impl GrayGrid {
+    fn write(&self, buffer: &mut [u8], level: impl Fn(usize) -> i64) {
+        match &self.x_scaled {
             Some(x_map) => {
-                let mut dest = offset;
-                for row in 0..rows {
-                    let py = (row as f64 * y_ratio).floor() as usize * src_width;
-                    for col in 0..output_width {
-                        put(buffer, dest, level(&comps, py + x_map[col]));
-                        dest += stride;
+                let mut dest = self.offset;
+                for row in 0..self.rows {
+                    let py = (row as f64 * self.y_ratio).floor() as usize * self.src_width;
+                    for col in 0..self.output_width {
+                        put(buffer, dest, level(py + x_map[col]));
+                        dest += self.stride;
                     }
                 }
             }
             None => {
-                for i in 0..output_width * rows {
-                    put(buffer, i * stride + offset, level(&comps, i));
+                for i in 0..self.output_width * self.rows {
+                    put(buffer, i * self.stride + self.offset, level(i));
                 }
             }
         }
-        Ok(())
     }
 }
 

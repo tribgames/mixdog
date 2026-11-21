@@ -1,8 +1,3 @@
-//! The agent list reminder (`session/manager/agent-listing-notice.mjs`): the agents a coding Lead may delegate to,
-//! told by the turn that finds them changed. What the conversation was told is read back from the conversation
-//! itself every turn: the `# Available Agents` slice its prompt carries, then every earlier user turn's
-//! `meta.agentListing` (`prompt-utils.mjs` `presentedAgentCatalogSlice` / `agentListEntries`).
-
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;

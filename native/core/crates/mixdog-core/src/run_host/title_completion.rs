@@ -1,8 +1,3 @@
-//! `createTitleCompletion` (`agent-runtime/title-completion.mjs`): the title model over the real
-//! config and provider registry. The `title-agent` route is `resolveMaintenanceRoute({ agent:
-//! 'title-agent', config })` (`agent-runtime/maintenance-route.mjs`): the Maintainer's stored
-//! route, else the config's default; a disabled Maintainer has none.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -102,6 +97,36 @@ fn title_route(config: &Map<String, Value>) -> Route {
     stored.into_iter().chain(config.get("default")).find_map(candidate_route).unwrap_or(Route::None)
 }
 
+fn title_tool_env(deps: &SummaryDeps, session_id: &str) -> ToolEnv {
+    ToolEnv {
+        thread_id: ThreadId::from(session_id),
+        turn_id: TurnId::from("title"),
+        cwd: deps.data_dir.clone(),
+        surface: mixdog_core_api::domain::tool::SurfaceKind::Lead,
+        io: deps.io,
+        approvals: Arc::new(NoApprovals(deps.clock.clone())),
+        files: deps.files.clone(),
+        processes: deps.processes.clone(),
+        progress: deps.progress.clone(),
+        deadline_of: None,
+        notify: None,
+        review: None,
+    }
+}
+
+fn title_options(provider_name: &str, session_id: &str) -> RequestOptions {
+    let cache = session_provider_cache_opts(provider_name, Some(TITLE_AGENT), &json!({}));
+    let scope = cache.as_ref().and_then(|c| c.get("promptCacheScope")).and_then(Value::as_str).map(str::to_owned);
+    let strategy = cache.as_ref().and_then(|c| c.get("cacheStrategy")).cloned();
+    RequestOptions {
+        usage_session_id: Some(session_id.to_owned()).filter(|id| !id.is_empty()),
+        source_type: Some("session-title".to_owned()),
+        prompt_cache_scope: scope,
+        model_parameters: strategy.map(|strategy| json!({ "cacheStrategy": strategy })),
+        ..RequestOptions::default()
+    }
+}
+
 /// The title model over the process's providers.
 pub struct TitleCompletion {
     deps: Arc<SummaryDeps>,
@@ -132,33 +157,8 @@ impl TitleModel for TitleCompletion {
         let Some(provider) = deps.registry.get(&provider_name).await else {
             return Err(TitleError::Failed(format!("Error: Session title provider is unavailable: {provider_name}")));
         };
-        // `roleProviderCacheOpts(provider, 'title-agent')`: the one-shot role's shared prefix.
-        let cache = session_provider_cache_opts(&provider_name, Some(TITLE_AGENT), &json!({}));
-        let scope = cache.as_ref().and_then(|c| c.get("promptCacheScope")).and_then(Value::as_str).map(str::to_owned);
-        let strategy = cache.as_ref().and_then(|c| c.get("cacheStrategy")).cloned();
-        let tool_env = ToolEnv {
-            thread_id: ThreadId::from(session_id),
-            turn_id: TurnId::from("title"),
-            cwd: deps.data_dir.clone(),
-            surface: mixdog_core_api::domain::tool::SurfaceKind::Lead,
-            io: deps.io,
-            approvals: Arc::new(NoApprovals(deps.clock.clone())),
-            files: deps.files.clone(),
-            processes: deps.processes.clone(),
-            progress: deps.progress.clone(),
-            deadline_of: None,
-            notify: None,
-            review: None,
-        };
-        // The spend belongs to the titled session and the ledger names it a title call; the
-        // provider still sees a sessionless one-shot request.
-        let options = RequestOptions {
-            usage_session_id: Some(session_id.to_owned()).filter(|id| !id.is_empty()),
-            source_type: Some("session-title".to_owned()),
-            prompt_cache_scope: scope,
-            model_parameters: strategy.map(|strategy| json!({ "cacheStrategy": strategy })),
-            ..RequestOptions::default()
-        };
+        let tool_env = title_tool_env(deps, session_id);
+        let options = title_options(&provider_name, session_id);
         let one_shot = OneShot::standalone(
             deps.clock.clone(),
             Arc::new(RandomJitter),
@@ -190,13 +190,17 @@ impl TitleModel for TitleCompletion {
 mod tests {
     use super::*;
 
-    /// The config file's agent section for a config built the way Node's recording builds it: its roster in memory form.
+    #[test]
+    fn title_spend_is_booked_to_the_titled_session_as_a_title_call() {
+        let options = title_options("openai", "sess_1");
+        assert_eq!((options.usage_session_id.as_deref(), options.source_type.as_deref()), (Some("sess_1"), Some("session-title")));
+        assert_eq!(title_options("openai", "").usage_session_id, None);
+    }
+
     fn config(value: Value) -> Map<String, Value> {
         mixdog_core_config::config::agent_routes::stored_file_of(&value)["agent"].as_object().unwrap().clone()
     }
 
-    /// `resolveMaintenanceRoute` for the title agent: a disabled or unconfigured Maintainer
-    /// has no route; its stored route wins over the default; a route without a model is none.
     #[test]
     fn the_title_route_is_the_maintainers_stored_route_else_the_default() {
         let stored = json!({ "provider": " openai ", "model": "gpt-x", "effort": " high ", "fast": true });

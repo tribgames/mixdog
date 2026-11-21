@@ -1,8 +1,3 @@
-//! The three orders a value marked sensitive in one session and carried to another can meet the other session's writer and
-//! readers in, each forced at a named point of the rewrite (`store::rewrite_holds`, a `crash-gates` build only): a write of the
-//! session between its rewrite's scan and a later carry; the process ending between a child's mark and its parent's rewrite;
-//! reads of the session while its rewrite holds them.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -144,12 +139,6 @@ async fn a_value_carried_after_the_scan_never_stays_in_the_thread() {
     assert_eq!(holding(data.path(), &[CODE, LATER]), Vec::<String>::new());
 }
 
-/// What the row reads hold of a thread's log is kept while nothing changes it and read again after each thing that may:
-/// a rewind (whose history revision the kept one must not answer), a rewrite that leaves the file's name, length and
-/// write time as they were (a marked value as long as its replacement, the write time put back), and the delete mark,
-/// after which the read is refused. An append of rows changes none of it: the log is not read again (a running thread
-/// appends on every step, and every status pass reads its message count). Each time it answers what an open made then
-/// answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write_that_may_change_it() {
     const SAME_LENGTH: &str = "4829130157";
@@ -222,10 +211,6 @@ async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write_that_m
     assert!(refused, "the kept shape does not answer for a deleted thread");
 }
 
-/// The length of a thread's model context is counted from the index once and followed in memory from then on, through the
-/// thread's own commits: a model row adds one, a row the model does not see and an amend add none, a compaction starts
-/// the context again at its replacement. The number is there as the commit returns, before the index has the rows, and it
-/// is what the index counts once it has them. A rewind drops it, and the next ask counts again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_length_of_a_context_is_followed_in_memory_through_the_threads_commits() {
     const THREAD: &str = "kept-length-thread";
@@ -282,10 +267,6 @@ async fn the_length_of_a_context_is_followed_in_memory_through_the_threads_commi
     assert_eq!(counted, 2, "the row after the compaction was rewound");
 }
 
-/// A count taken while a batch is in the thread's log and its projection is not yet sent is not kept. Here the batch is a
-/// rewind: the count pairs the rewound shape with the index's rows from before it, and the rewind's own batch adds
-/// nothing to a kept number, so one kept there would stay the thread's length. On the product's lanes: the held batch
-/// keeps its own lane thread, and the count runs on another.
 #[tokio::test]
 async fn a_count_taken_beside_a_batch_in_the_log_is_not_kept() {
     const THREAD: &str = "counted-mid-batch-thread";

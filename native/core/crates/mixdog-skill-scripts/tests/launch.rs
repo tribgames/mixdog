@@ -58,8 +58,8 @@ fn shells() -> Vec<Shell> {
     found
 }
 
-fn probe() -> &'static str {
-    env!("CARGO_BIN_EXE_skill-run-probe")
+fn probe() -> String {
+    mixdog_testkit::bin_exe!("skill-run-probe")
 }
 
 fn repo_file(relative: &str) -> PathBuf {

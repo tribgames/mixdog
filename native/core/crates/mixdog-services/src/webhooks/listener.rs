@@ -1,4 +1,4 @@
-//! The webhook HTTP listener (`webhook/listener-lifecycle.mjs`, `webhook.mjs` routing): binds
+//! The webhook HTTP listener: binds
 //! loopback on the configured port or the next seven, answers `GET /` and `POST /webhook/<name>`,
 //! and moves bytes between the socket and [`WebhookService`]. HTTP/1.1 framing is hyper's, with
 //! Node's server limits: 16 KiB of headers (431 beyond), 60 s to receive them, five minutes for
@@ -113,24 +113,24 @@ async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: 
     }
 }
 
-async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
+async fn await_first_byte(stream: TcpStream, stop: &CancellationToken) -> Option<TcpStream> {
     // Node expires a connection that has sent nothing only when its connection check comes, somewhere in
     // `connectionsCheckingInterval` after `headersTimeout`; until then the connection is read and a request is served.
     // The end of that window is taken here: a connection still silent at it is answered Node's bare 408.
     let expiry = mixdog_rt::time::Instant::now() + HEADERS_TIMEOUT + CONNECTIONS_CHECKING_INTERVAL;
     let mut first = [0u8; 1];
     tokio::select! {
-        peeked = stream.peek(&mut first) => {
-            if !matches!(peeked, Ok(n) if n > 0) {
-                return;
-            }
-        }
+        peeked = stream.peek(&mut first) => matches!(peeked, Ok(n) if n > 0).then_some(stream),
         () = mixdog_rt::time::sleep_until(expiry) => {
             linger(stream, Some(BARE_REQUEST_TIMEOUT.to_vec())).await;
-            return;
+            None
         }
-        () = stop.cancelled() => return,
+        () = stop.cancelled() => None,
     }
+}
+
+async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
+    let Some(stream) = await_first_byte(stream, &stop).await else { return };
     let farewell = Arc::new(Mutex::new(None));
     let state = Arc::new(ConnState::default());
     let handler = {

@@ -242,24 +242,23 @@ impl SessionDirectory {
                 Err(_) => TurnSettle::Rejected,
             },
             () = cancel.cancelled() => {
-                let waiting = handle.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).remove(&turn.id).is_some();
-                if waiting {
-                    if let Some(queued) = queued {
-                        let unqueue = OpId::from(format!("{op}:unqueue"));
-                        let params = json!({ "threadId": thread, "opId": unqueue, "queuedId": queued, "restore": false });
-                        // Node takes the entry off its in-memory queue (`abortDiscardOnAbort`), which cannot be
-                        // refused; here the actor can refuse it, and a fire left queued would run later with
-                        // nobody waiting. Node logs a failed abort of the started turn the same way
-                        // (`routine-home-turn.mjs:165`).
-                        if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await {
-                            tracing::warn!("routine {}: its queued turn was not taken off the queue: {error:?}", turn.id);
-                        }
-                    }
-                } else {
-                    self.abort_session_turn(&thread, "routine-abort");
-                }
+                self.withdraw_routine_turn(&handle, &turn.id, queued, &op, ctx).await;
                 TurnSettle::Cancelled
             }
+        }
+    }
+
+    async fn withdraw_routine_turn(&self, handle: &Arc<SessionHandle>, turn_id: &str, queued: Option<String>, op: &OpId, ctx: CallContext) {
+        let waiting = handle.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).remove(turn_id).is_some();
+        if !waiting {
+            self.abort_session_turn(&handle.id, "routine-abort");
+            return;
+        }
+        let Some(queued) = queued else { return };
+        let unqueue = OpId::from(format!("{op}:unqueue"));
+        let params = json!({ "threadId": handle.id, "opId": unqueue, "queuedId": queued, "restore": false });
+        if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await {
+            tracing::warn!("routine {turn_id}: its queued turn was not taken off the queue: {error:?}");
         }
     }
 }

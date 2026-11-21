@@ -396,6 +396,20 @@ fn ignored_paths(stderr: &str) -> Vec<String> {
     lines.filter_map(|l| l.strip_prefix("- ")).map(|p| normalize_path(js_trim(p))).collect()
 }
 
+impl Chunks {
+    fn sort_unprocessed(&mut self, chunk: &[String], parsed: &Parsed, stderr: &str) {
+        let listed = ignored_paths(stderr);
+        for file in chunk {
+            let has_diagnostic = parsed.diagnostics.iter().any(|d| d.file == normalize_path(file));
+            if listed.contains(&normalize_path(file)) && !has_diagnostic {
+                self.ignored.push(file.clone());
+            } else {
+                self.unexplained.push(file.clone());
+            }
+        }
+    }
+}
+
 /// `biome check` over `files`, a group at a time, with `line_ending` added for the files that need it said.
 fn run_json_chunks<'a>(
     req: &'a RunRequest,
@@ -443,15 +457,7 @@ fn run_json_chunks<'a>(
                         out.absorb_nested(nested);
                         continue;
                     }
-                    let listed = ignored_paths(&result.stderr);
-                    for file in &chunk {
-                        let has_diagnostic = parsed.diagnostics.iter().any(|d| d.file == normalize_path(file));
-                        if listed.contains(&normalize_path(file)) && !has_diagnostic {
-                            out.ignored.push(file.clone());
-                        } else {
-                            out.unexplained.push(file.clone());
-                        }
-                    }
+                    out.sort_unprocessed(&chunk, &parsed, &result.stderr);
                 }
             }
             out.parts.push(parsed);
@@ -582,55 +588,66 @@ mod tests {
         let req = RunRequest::new(dir.path(), "biome", files, std::sync::Arc::new(Reply(Box::new(reply))), mixdog_rt::testing::tokens().durability_io);
         (dir, req)
     }
-    #[tokio::test]
-    async fn a_file_biome_did_not_process_is_ignored_not_checked_and_a_rejected_config_is_a_failure() {
-        use crate::tidy::process::ProcessResult;
-        // Biome processes everything but `ignored.ts`; with nothing processed it exits 1 and names no file.
-        let by_config = |args: &[String]| {
-            let files = given(args);
-            let processed = files.iter().filter(|f| f.as_str() != "ignored.ts" && f.as_str() != "unreadable.ts").count();
-            let rows: Vec<Value> = files.iter().filter(|f| f.as_str() == "unreadable.ts").map(|f| json!({"category": "internalError/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": f}})).collect();
-            let stdout = json!({"summary": {"changed": 0, "unchanged": processed}, "diagnostics": rows}).to_string();
-            // Biome names the paths only when nothing at all was processed; it names unreadable ones too.
-            let stderr = if processed == 0 {
-                format!(
-                    "  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}",
-                    files.iter().map(|f| format!("  - {f}\n")).collect::<String>()
-                )
-            } else {
-                String::new()
-            };
-            ProcessResult { stdout, stderr, code: i32::from(processed == 0), ..Default::default() }
+    /// Biome processes everything but `ignored.ts`; with nothing processed it exits 1 and names no file.
+    fn by_config(args: &[String]) -> crate::tidy::process::ProcessResult {
+        let files = given(args);
+        let processed = files.iter().filter(|f| f.as_str() != "ignored.ts" && f.as_str() != "unreadable.ts").count();
+        let rows: Vec<Value> = files
+            .iter()
+            .filter(|f| f.as_str() == "unreadable.ts")
+            .map(|f| json!({"category": "internalError/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": f}}))
+            .collect();
+        let stdout = json!({"summary": {"changed": 0, "unchanged": processed}, "diagnostics": rows}).to_string();
+        // Biome names the paths only when nothing at all was processed; it names unreadable ones too.
+        let stderr = if processed == 0 {
+            format!(
+                "  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}",
+                files.iter().map(|f| format!("  - {f}\n")).collect::<String>()
+            )
+        } else {
+            String::new()
         };
+        crate::tidy::process::ProcessResult { stdout, stderr, code: i32::from(processed == 0), ..Default::default() }
+    }
+
+    fn unknown_key(_: &[String]) -> crate::tidy::process::ProcessResult {
+        crate::tidy::process::ProcessResult {
+            code: 1, stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(), ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_file_biome_did_not_process_is_ignored_not_checked() {
         let mixed = Biome.check(&request(&["a.ts", "ignored.ts", "b.ts"], by_config).1).await;
         assert_eq!((mixed.files_checked, mixed.ignored.clone(), mixed.error.clone()), (Some(2), vec!["ignored.ts".to_owned()], None));
         let only = Biome.check(&request(&["ignored.ts"], by_config).1).await;
         assert_eq!((only.files_checked, only.ignored.clone(), only.error.clone()), (Some(0), vec!["ignored.ts".to_owned()], None));
-        // Biome lists an unreadable file as "ignored" too, but with an error against it: unprocessed
-        // for the reason that error gives, with the diagnostic kept.
+    }
+
+    /// Biome lists an unreadable file as "ignored" too, but with an error against it: unprocessed
+    /// for the reason that error gives, with the diagnostic kept.
+    #[tokio::test]
+    async fn an_unreadable_file_is_unprocessed_for_the_reason_biome_gives() {
         let unreadable = Biome.check(&request(&["a.ts", "unreadable.ts"], by_config).1).await;
         assert_eq!(unreadable.unprocessed, [("unreadable.ts".to_owned(), "stream did not contain valid UTF-8".to_owned())]);
         assert_eq!(
             (unreadable.files_checked, unreadable.ignored.is_empty(), unreadable.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()),
             (Some(1), true, vec!["internalError/io"])
         );
-        // A file tidy itself cannot read is not handed to Biome.
+    }
+
+    #[tokio::test]
+    async fn a_file_tidy_cannot_read_is_not_handed_to_biome() {
         let (dir, mut gone) = request(&["a.ts"], by_config);
         gone.files.push("gone.ts".to_owned());
         let missing = Biome.check(&gone).await;
         assert_eq!((missing.files_checked, missing.unprocessed.iter().map(|(file, _)| file.as_str()).collect::<Vec<_>>()), (Some(1), vec!["gone.ts"]));
         drop(dir);
-        // An invalid biome.json: exit 1, no report at all.
-        let rejected = Biome
-            .check(
-                &request(&["a.ts"], |_| ProcessResult {
-                    code: 1,
-                    stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(),
-                    ..Default::default()
-                })
-                .1,
-            )
-            .await;
+    }
+
+    #[tokio::test]
+    async fn a_rejected_config_is_a_failure_with_no_report() {
+        let rejected = Biome.check(&request(&["a.ts"], unknown_key).1).await;
         assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
         assert!(rejected.files_checked.is_none() && rejected.diagnostics.is_empty());
     }
@@ -664,38 +681,41 @@ mod tests {
             crate::tidy::process::ProcessResult { stdout: json!({"diagnostics": rows}).to_string(), ..Default::default() }
         }
     }
+    /// Findings remain after the fixes: exit 1, with a report that counts the one file processed.
+    fn findings_remain(args: &[String]) -> crate::tidy::process::ProcessResult {
+        assert_eq!(&args[..5], ["check", "--write", "--reporter=json", "--max-diagnostics=none", "--line-ending=lf"]);
+        crate::tidy::process::ProcessResult {
+            code: 1,
+            stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": []}).to_string(),
+            stderr: "× Some errors were emitted while applying fixes.".into(),
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
-    async fn a_fix_that_leaves_findings_is_applied_and_one_biome_refuses_is_not() {
-        use crate::tidy::process::ProcessResult;
-        // Findings remain after the fixes: exit 1, with a report that counts the one file processed.
-        let remaining = |args: &[String]| {
-            assert_eq!(&args[..5], ["check", "--write", "--reporter=json", "--max-diagnostics=none", "--line-ending=lf"]);
-            ProcessResult {
-                code: 1,
-                stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": []}).to_string(),
-                stderr: "× Some errors were emitted while applying fixes.".into(),
-                ..Default::default()
-            }
-        };
-        let applied = Biome.fix(&request(&["a.ts"], remaining).1).await;
+    async fn a_fix_that_leaves_findings_is_applied() {
+        let applied = Biome.fix(&request(&["a.ts"], findings_remain).1).await;
         assert_eq!((applied.error, applied.unprocessed.len(), applied.files_checked), (None, 0, Some(1)));
-        // The same report for two files leaves one of them unaccounted for: neither counts as fixed.
-        let partial = Biome.fix(&request(&["a.ts", "b.ts"], remaining).1).await;
+    }
+
+    #[tokio::test]
+    async fn a_report_that_leaves_a_file_unaccounted_for_counts_neither_as_fixed() {
+        let partial = Biome.fix(&request(&["a.ts", "b.ts"], findings_remain).1).await;
         assert_eq!((partial.files_checked, partial.unprocessed.len()), (Some(0), 2));
         assert!(partial.unprocessed[0].1.contains("biome processed 1 of the 2 files"), "{:?}", partial.unprocessed);
-        let rejected = Biome
-            .fix(
-                &request(&["a.ts", "b.ts"], |_| ProcessResult {
-                    code: 1,
-                    stderr: "biome.json:1:2 deserialize\n  × Found an unknown key `bogus`.".into(),
-                    ..Default::default()
-                })
-                .1,
-            )
-            .await;
+    }
+
+    #[tokio::test]
+    async fn a_fix_biome_refuses_is_not_applied() {
+        let rejected = Biome.fix(&request(&["a.ts", "b.ts"], unknown_key).1).await;
         assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
-        // Biome exits 0 after writing one file and failing to open the other, as 2.5.13 does: the
-        // file it names is unprocessed for the reason it gives, and the other is written.
+    }
+
+    /// Biome exits 0 after writing one file and failing to open the other, as 2.5.13 does: the
+    /// file it names is unprocessed for the reason it gives, and the other is written.
+    #[tokio::test]
+    async fn a_file_biome_failed_to_open_is_unprocessed_and_the_other_is_written() {
+        use crate::tidy::process::ProcessResult;
         let one_gone = |args: &[String]| {
             let rows = json!([{"category": "internalError/io", "severity": "error", "description": "The system cannot find the file specified.", "location": {"path": &args[6]}}]);
             ProcessResult { stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": rows}).to_string(), ..Default::default() }
@@ -705,9 +725,14 @@ mod tests {
             (skipped.files_checked, skipped.unprocessed, skipped.error),
             (Some(1), vec![("b.ts".to_owned(), "The system cannot find the file specified.".to_owned())], None)
         );
-        // A file it cannot decode it counts as unchanged and as skipped (2.6.8 names it under `fs/io`):
-        // with a.ts written, the two account for a group of two, and not for one of three, whose third
-        // file (one its configuration left out) the report does not name.
+    }
+
+    /// A file it cannot decode it counts as unchanged and as skipped (2.6.8 names it under `fs/io`):
+    /// with a.ts written, the two account for a group of two, and not for one of three, whose third
+    /// file (one its configuration left out) the report does not name.
+    #[tokio::test]
+    async fn a_file_biome_cannot_decode_is_unprocessed_and_a_group_it_does_not_account_for_is_all_unprocessed() {
+        use crate::tidy::process::ProcessResult;
         let undecodable = |args: &[String]| {
             let rows = json!([{"category": "fs/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": &args[6]}}]);
             ProcessResult { stdout: json!({"summary": {"changed": 1, "unchanged": 1, "skipped": 1}, "diagnostics": rows}).to_string(), ..Default::default() }
@@ -723,7 +748,6 @@ mod tests {
         );
         assert_eq!(three.unprocessed[1], ("b.ts".to_owned(), "stream did not contain valid UTF-8".to_owned()));
     }
-
     #[tokio::test]
     async fn a_truncated_chunk_is_halved_until_every_file_is_covered() {
         let spawn = std::sync::Arc::new(Splitting(Default::default()));
@@ -739,6 +763,20 @@ mod tests {
 }
 
 const EXPLAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+async fn explain_fix_kinds(req: &RunRequest, diagnostics: &[Diagnostic]) -> HashMap<String, String> {
+    let mut names: Vec<String> = diagnostics.iter().map(|f| rule_name(&f.code)).filter(|n| !n.is_empty()).collect();
+    names.sort();
+    names.dedup();
+    map_limit(names, EXPLAIN_CONCURRENCY, |name| async move {
+        let args = vec!["explain".to_owned(), name.clone()];
+        let r = req.spawn.run(&req.bin, &args, &req.cwd, EXPLAIN_TIMEOUT, req.cancel.as_ref(), None, None).await;
+        (name, parse_explain_fix(&format!("{}\n{}", r.stdout, r.stderr)).to_owned())
+    })
+    .await
+    .into_iter()
+    .collect()
+}
+
 #[async_trait]
 impl Runner for Biome {
     fn id(&self) -> &'static str {
@@ -765,17 +803,7 @@ impl Runner for Biome {
             return RunnerResult { error: Some(format!("biome exited {code} without completing: {detail}")), stderr_tail: detail, ..Default::default() };
         }
         let mut parsed = merge_biome_parses(result.parts);
-        let mut names: Vec<String> = parsed.diagnostics.iter().map(|f| rule_name(&f.code)).filter(|n| !n.is_empty()).collect();
-        names.sort();
-        names.dedup();
-        let kinds: HashMap<String, String> = map_limit(names, EXPLAIN_CONCURRENCY, |name| async move {
-            let args = vec!["explain".to_owned(), name.clone()];
-            let r = req.spawn.run(&req.bin, &args, &req.cwd, EXPLAIN_TIMEOUT, req.cancel.as_ref(), None, None).await;
-            (name, parse_explain_fix(&format!("{}\n{}", r.stdout, r.stderr)).to_owned())
-        })
-        .await
-        .into_iter()
-        .collect();
+        let kinds = explain_fix_kinds(req, &parsed.diagnostics).await;
         apply_biome_fix_kinds(&mut parsed.diagnostics, &kinds);
         // Biome's reason for a file it did not process is what it reported against it.
         let reason = |file: &String| {

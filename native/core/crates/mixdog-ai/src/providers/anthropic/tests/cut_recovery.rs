@@ -1,8 +1,3 @@
-//! What a cut Messages turn carries into the next request: its valid thinking whether or not an exact replay could be
-//! built (`partialThinkingBlocks` beside `partialAssistantBlocks`, turn-outcome.mjs), and where transport is marked.
-//! Each case streams the frames, cuts the body with a reset, folds the failure as the agent does (events, then the error's
-//! replay, else its thinking) and reads the request that continues the turn.
-
 use serde_json::Value;
 
 use super::*;

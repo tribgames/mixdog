@@ -1,9 +1,3 @@
-//! The single classification point of a failed OpenAI-compatible response or
-//! in-band error event (PW §3, `openai-compat-error-contract.mjs`). The wire
-//! error's fields are gathered here and handed to the shared classifier
-//! ([`crate::retry::classify`]) once; the message text is read only by that
-//! classifier's wording fallbacks (an undecided 400 naming a context overflow).
-
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mixdog_core_api::domain::provider::{DeliveryState, ErrorResponse, ProviderError};

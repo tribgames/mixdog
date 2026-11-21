@@ -49,5 +49,5 @@ mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-skill-scripts = { path = ".", features = ["test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }

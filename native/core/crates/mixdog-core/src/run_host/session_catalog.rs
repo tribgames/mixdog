@@ -1,14 +1,3 @@
-//! The real [`CatalogView`]: the tool catalog `load_tool` describes and `call_tool` resolves a
-//! name in, read from the running session's header as Node reads its live session
-//! (`runtime-core/tool-bridge.mjs`: `availableBridgeTools`, `bridgeBlockReason`,
-//! `resolveBridgeTarget`; `tool-catalog.mjs`: `pendingMcpInstructions`).
-//!
-//! A thread that is not running has no tools: nothing is available there.
-//!
-//! An eager tool the route can never send (`routeToolExclusionReason`'s schema rule, see
-//! `route_schema`) is blocked before it was ever sent, whatever the route's wire family; a tool
-//! a request left out is also blocked, through the surface's route exclusions.
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -707,10 +696,6 @@ mod tests {
         }
     }
 
-    /// The stored lists record what exists and what the session chose; what is advertised and callable is computed from them through
-    /// the availability of the moment. A session with `computer` selected and an eager-only `eagerone` while neither can run shows
-    /// neither active nor callable and its stored state is unchanged; once they can run, with no `load_tool` between, both are
-    /// active again and a call resolves.
     #[tokio::test]
     async fn a_selected_tool_is_active_again_when_it_becomes_runnable_and_nothing_stored_is_lost() {
         let on = Arc::new(std::sync::atomic::AtomicBool::new(false));

@@ -1,5 +1,4 @@
-//! The serialized, optimistic route write behind the session's `setRoute` (`src/tui/session/session-api/routes-write.mjs`): every
-//! model picker, the presets and the agent child routes save through it.
+//! The serialized, optimistic route write behind the session's `setRoute`: every model picker, the presets and the agent child routes save through it.
 //!
 //! The store applies these decisions; the pickers only call `setRoute`. The rules:
 //!

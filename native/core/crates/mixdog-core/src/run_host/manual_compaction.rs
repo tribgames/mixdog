@@ -25,7 +25,7 @@ use mixdog_agent::compact::pressure::{
     compaction_plan, failed_compaction, invalidate_provider_context_baseline, record_context_usage_snapshot, usage_totals,
 };
 use mixdog_agent::compact::tool_schema::RequestTools;
-use mixdog_agent::env::{Clock, CompactError, CompactRequest, CompactTrigger};
+use mixdog_agent::env::{Clock, CompactError, CompactOutput, CompactRequest, CompactTrigger};
 use mixdog_agent::message::AgentMessage;
 use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_core_api::CoreError;
@@ -376,6 +376,35 @@ impl PassTranscript for mixdog_core_session::session::SessionDirectory {
     }
 }
 
+fn summary_facts(output: &CompactOutput, usage: Option<Value>) -> SummaryFacts {
+    let summarized = output.summarized();
+    SummaryFacts {
+        usage,
+        fresh_context: true,
+        handoff_source: Some(if summarized { "session-local" } else { "rules" }.to_owned()),
+        summary_provider: output.summary_route.as_ref().map(|route| route.provider.clone()),
+        summary_model: output.summary_route.as_ref().map(|route| route.model.clone()),
+        pipeline_mode: Some(if summarized { "conversation-summary" } else { "rules" }.to_owned()),
+        summary_route: output.summary_route.as_ref().map(|route| route.step.to_owned()),
+        forked: output.summary_route.as_ref().is_some_and(|route| route.forked),
+        generated_ms: output.summary_ms,
+        total_ms: Some(output.pipeline_ms),
+    }
+}
+
+/// The compacted rows and the replacement pairing each with the item it keeps, or a new one.
+fn replacement_rows(context: &[(ItemId, Value)], output: &CompactOutput) -> (Vec<(ItemId, Value)>, Vec<Value>) {
+    let item_of: HashMap<String, ItemId> = context.iter().filter_map(|(iid, row)| Some((message_of(row).ok()?.message_id?, iid.clone()))).collect();
+    let compacted_rows: Vec<Value> = output.messages.iter().map(row_of).collect();
+    let replacement = output
+        .messages
+        .iter()
+        .zip(&compacted_rows)
+        .map(|(message, row)| (message.message_id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()))
+        .collect();
+    (replacement, compacted_rows)
+}
+
 impl HostManualCompaction {
     /// The manual pass over `snapshot`'s thread (`runSessionCompaction` with `force`), reading and committing through
     /// `transcript`.
@@ -459,27 +488,8 @@ impl HostManualCompaction {
         let commit_started_at = self.now();
 
         let usage = output.usage.as_ref().map(usage_value);
-        let summarized = output.summarized();
-        let fresh = SummaryFacts {
-            usage: usage.clone(),
-            fresh_context: true,
-            handoff_source: Some(if summarized { "session-local" } else { "rules" }.to_owned()),
-            summary_provider: output.summary_route.as_ref().map(|route| route.provider.clone()),
-            summary_model: output.summary_route.as_ref().map(|route| route.model.clone()),
-            pipeline_mode: Some(if summarized { "conversation-summary" } else { "rules" }.to_owned()),
-            summary_route: output.summary_route.as_ref().map(|route| route.step.to_owned()),
-            forked: output.summary_route.as_ref().is_some_and(|route| route.forked),
-            generated_ms: output.summary_ms,
-            total_ms: Some(output.pipeline_ms),
-        };
-        let item_of: HashMap<String, ItemId> = context.iter().filter_map(|(iid, row)| Some((message_of(row).ok()?.message_id?, iid.clone()))).collect();
-        let compacted_rows: Vec<Value> = output.messages.iter().map(row_of).collect();
-        let replacement = output
-            .messages
-            .iter()
-            .zip(&compacted_rows)
-            .map(|(message, row)| (message.message_id.as_ref().and_then(|id| item_of.get(id)).cloned().unwrap_or_else(new_item_id), row.clone()))
-            .collect();
+        let fresh = summary_facts(&output, usage.clone());
+        let (replacement, compacted_rows) = replacement_rows(&context, &output);
         let dropped = output.dropped.as_ref().map(|d| Dropped { message_ids: d.message_ids.clone(), call_ids: d.call_ids.clone() });
         let archived = Archived {
             dropped: output.dropped_count,

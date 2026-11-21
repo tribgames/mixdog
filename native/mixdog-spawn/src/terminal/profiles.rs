@@ -87,7 +87,7 @@ async fn wsl_distributions(manager: &LocalProcessManager, wsl: &Path, cwd: &Path
     if manager.spawn(request).await.is_err() {
         return Vec::new();
     }
-    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else {
+    let Ok(mut events) = manager.subscribe_holding(&handle, Some(0)) else {
         return Vec::new();
     };
     let mut bytes = Vec::new();
@@ -136,31 +136,7 @@ async fn detect_windows(manager: &LocalProcessManager) -> Vec<ShellProfile> {
     if let Some(cmd) = existing_file(&system32.join("cmd.exe")) {
         profiles.push(profile("cmd", "Command Prompt", &cmd, &[], &[]));
     }
-    // Git Bash: `<install>/cmd/git.exe` implies `<install>/bin/bash.exe` plus the conventional
-    // install roots as fallbacks.
-    let mut git_dirs: Vec<PathBuf> = Vec::new();
-    let mut add = |dir: PathBuf| {
-        if !git_dirs.contains(&dir) {
-            git_dirs.push(dir);
-        }
-    };
-    if let Some(git) = find_on_path("git.exe") {
-        if let Some(root) = git.parent().and_then(Path::parent).and_then(Path::parent) {
-            add(root.to_path_buf());
-        }
-    }
-    for root in [env_var("ProgramW6432"), env_var("ProgramFiles"), env_var("ProgramFiles(x86)")].into_iter().flatten() {
-        add(PathBuf::from(root));
-    }
-    if let Some(local) = env_var("LocalAppData") {
-        add(Path::new(&local).join("Programs"));
-    }
-    let git_bash = git_dirs.iter().find_map(|dir| {
-        existing_file(&dir.join("Git").join("bin").join("bash.exe"))
-            .or_else(|| existing_file(&dir.join("Git").join("usr").join("bin").join("bash.exe")))
-            .or_else(|| existing_file(&dir.join("usr").join("bin").join("bash.exe")))
-    });
-    if let Some(bash) = git_bash {
+    if let Some(bash) = git_bash() {
         profiles.push(profile("git-bash", "Git Bash", &bash, &["--login", "-i"], &[]));
     }
     let home_drive = format!("{}\\", env_var("HOMEDRIVE").unwrap_or_else(|| "C:".to_owned()));
@@ -189,6 +165,32 @@ async fn detect_windows(manager: &LocalProcessManager) -> Vec<ShellProfile> {
         }
     }
     profiles
+}
+
+/// `<install>/cmd/git.exe` implies `<install>/bin/bash.exe`; the conventional install roots are the fallbacks.
+fn git_bash() -> Option<PathBuf> {
+    let mut git_dirs: Vec<PathBuf> = Vec::new();
+    let mut add = |dir: PathBuf| {
+        if !git_dirs.contains(&dir) {
+            git_dirs.push(dir);
+        }
+    };
+    if let Some(git) = find_on_path("git.exe") {
+        if let Some(root) = git.parent().and_then(Path::parent).and_then(Path::parent) {
+            add(root.to_path_buf());
+        }
+    }
+    for root in [env_var("ProgramW6432"), env_var("ProgramFiles"), env_var("ProgramFiles(x86)")].into_iter().flatten() {
+        add(PathBuf::from(root));
+    }
+    if let Some(local) = env_var("LocalAppData") {
+        add(Path::new(&local).join("Programs"));
+    }
+    git_dirs.iter().find_map(|dir| {
+        existing_file(&dir.join("Git").join("bin").join("bash.exe"))
+            .or_else(|| existing_file(&dir.join("Git").join("usr").join("bin").join("bash.exe")))
+            .or_else(|| existing_file(&dir.join("usr").join("bin").join("bash.exe")))
+    })
 }
 
 fn detect_unix() -> Vec<ShellProfile> {

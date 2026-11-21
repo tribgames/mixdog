@@ -10,6 +10,12 @@
 
 use std::sync::LazyLock;
 
+mod chars;
+mod messages;
+
+use chars::*;
+use messages::*;
+
 const END: u32 = u32::MAX;
 
 /// V8's message for `pattern`/`flags`, or `None` when V8 accepts them.
@@ -50,37 +56,6 @@ fn valid_flags(flags: &str) -> bool {
 }
 
 type Fail<T = ()> = Result<T, &'static str>;
-
-const UNTERMINATED_GROUP: &str = "Unterminated group";
-const UNMATCHED_PAREN: &str = "Unmatched ')'";
-const ESCAPE_AT_END: &str = "\\ at end of pattern";
-const INVALID_PROPERTY_NAME: &str = "Invalid property name";
-const INVALID_CLASS_PROPERTY_NAME: &str = "Invalid property name in character class";
-const INVALID_ESCAPE: &str = "Invalid escape";
-const INVALID_DECIMAL_ESCAPE: &str = "Invalid decimal escape";
-const INVALID_UNICODE_ESCAPE: &str = "Invalid Unicode escape";
-const INVALID_CLASS_ESCAPE: &str = "Invalid class escape";
-const NOTHING_TO_REPEAT: &str = "Nothing to repeat";
-const LONE_QUANTIFIER_BRACKETS: &str = "Lone quantifier brackets";
-const RANGE_OUT_OF_ORDER: &str = "numbers out of order in {} quantifier";
-const INCOMPLETE_QUANTIFIER: &str = "Incomplete quantifier";
-const INVALID_QUANTIFIER: &str = "Invalid quantifier";
-const INVALID_GROUP: &str = "Invalid group";
-const INVALID_CAPTURE_GROUP_NAME: &str = "Invalid capture group name";
-const DUPLICATE_CAPTURE_GROUP_NAME: &str = "Duplicate capture group name";
-const INVALID_NAMED_REFERENCE: &str = "Invalid named reference";
-const INVALID_NAMED_CAPTURE_REFERENCE: &str = "Invalid named capture referenced";
-const INVALID_CHARACTER_CLASS: &str = "Invalid character class";
-const UNTERMINATED_CHARACTER_CLASS: &str = "Unterminated character class";
-const OUT_OF_ORDER_CHARACTER_CLASS: &str = "Range out of order in character class";
-const STACK_OVERFLOW: &str = "Maximum call stack size exceeded";
-const MAX_CLASS_DEPTH: usize = 1000;
-const INVALID_CHARACTER_IN_CLASS: &str = "Invalid character in character class";
-const INVALID_CLASS_SET_OPERATION: &str = "Invalid set operation in character class";
-const NEGATED_CLASS_WITH_STRINGS: &str = "Negated character class may contain strings";
-
-/// `RegExpTree::kInfinity`.
-const INFINITY: i64 = i32::MAX as i64;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Group {
@@ -124,61 +99,6 @@ struct Parser {
     capture_count: Option<usize>,
     named_captures: Vec<Vec<u32>>,
     named_back_references: Vec<Vec<u32>>,
-}
-
-fn hex_value(c: u32) -> Option<u32> {
-    char::from_u32(c)?.to_digit(16).filter(|_| c < 128)
-}
-
-/// The character for `c`, `None` at the end of the pattern. A lone surrogate unit (non-Unicode
-/// patterns read UTF-16 units) is an ordinary character that matches no special case.
-fn as_char(c: u32) -> Option<char> {
-    (c != END).then(|| char::from_u32(c).unwrap_or('\u{fffd}'))
-}
-
-fn is_digit(c: u32) -> bool {
-    (u32::from(b'0')..=u32::from(b'9')).contains(&c)
-}
-
-fn is_syntax_character_or_slash(c: u32) -> bool {
-    char::from_u32(c).is_some_and(|c| "^$\\.*+?()[]{}|/".contains(c))
-}
-
-/// `ClassSetReservedPunctuator`: escapable inside a `v`-flag class.
-fn is_class_set_reserved_punctuator(c: u32) -> bool {
-    char::from_u32(c).is_some_and(|c| "&-!#%,:;<=>@`~".contains(c))
-}
-
-/// `ClassSetSyntaxCharacter`.
-fn is_class_set_syntax_character(c: u32) -> bool {
-    char::from_u32(c).is_some_and(|c| "()[]{}/-\\|".contains(c))
-}
-
-/// The characters that make a `ClassSetReservedDoublePunctuator` when doubled.
-fn is_class_set_double_punctuator(c: u32) -> bool {
-    char::from_u32(c).is_some_and(|c| "&!#$%*+,.:;<=>?@^`~".contains(c))
-}
-
-fn is_lead(c: u32) -> bool {
-    (0xD800..0xDC00).contains(&c)
-}
-
-fn is_trail(c: u32) -> bool {
-    (0xDC00..0xE000).contains(&c)
-}
-
-fn property_regex_accepts(source: &str) -> bool {
-    regress::Regex::with_flags(source, "u").is_ok()
-}
-
-fn is_identifier_start(c: u32) -> bool {
-    static START: LazyLock<regress::Regex> = LazyLock::new(|| regress::Regex::with_flags(r"^[\p{ID_Start}$_]$", "u").expect("static pattern"));
-    char::from_u32(c).is_some_and(|c| START.find(c.encode_utf8(&mut [0; 4])).is_some())
-}
-
-fn is_identifier_part(c: u32) -> bool {
-    static PART: LazyLock<regress::Regex> = LazyLock::new(|| regress::Regex::with_flags(r"^[\p{ID_Continue}$_\u200c\u200d]$", "u").expect("static pattern"));
-    char::from_u32(c).is_some_and(|c| PART.find(c.encode_utf8(&mut [0; 4])).is_some())
 }
 
 impl Parser {
@@ -558,23 +478,28 @@ impl Parser {
         Ok(Some((min, max)))
     }
 
+    /// Moves past the `]` that closes the class being read, skipping escaped characters.
+    fn skip_class_body(&mut self) {
+        loop {
+            let c = self.current();
+            if c == END {
+                break;
+            }
+            self.advance();
+            if c == 0x5C {
+                self.advance();
+            } else if c == 0x5D {
+                break;
+            }
+        }
+    }
+
     /// `ScanForCaptures`: counts the capture groups of the whole pattern and notes named ones.
     fn scan_for_captures(&mut self, in_class: InClass) {
         let saved = self.pos;
         let mut count = self.captures_started;
         if in_class == InClass::Yes {
-            loop {
-                let c = self.current();
-                if c == END {
-                    break;
-                }
-                self.advance();
-                if c == 0x5C {
-                    self.advance();
-                } else if c == 0x5D {
-                    break;
-                }
-            }
+            self.skip_class_body();
         }
         loop {
             let n = self.current();
@@ -584,18 +509,7 @@ impl Parser {
             self.advance();
             match n {
                 0x5C => self.advance(),
-                0x5B => loop {
-                    let c = self.current();
-                    if c == END {
-                        break;
-                    }
-                    self.advance();
-                    if c == 0x5C {
-                        self.advance();
-                    } else if c == 0x5D {
-                        break;
-                    }
-                },
+                0x5B => self.skip_class_body(),
                 0x28 => {
                     if self.current() == 0x3F {
                         self.advance();
@@ -1202,58 +1116,4 @@ impl Parser {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn deeply_nested_classes_report_a_stack_overflow_instead_of_crashing() {
-        let deep = format!("{}{}", "[".repeat(50_000), "]".repeat(50_000));
-        assert_eq!(js_regex_error(&deep, "v").map(|m| m.rsplit(": ").next().unwrap_or("").to_owned()).as_deref(), Some("Maximum call stack size exceeded"));
-        assert_eq!(js_regex_error(&format!("{}{}", "[".repeat(100), "]".repeat(100)), "v"), None);
-    }
-
-    fn message(pattern: &str, flags: &str) -> Option<String> {
-        js_regex_error(pattern, flags)
-    }
-
-    #[test]
-    fn a_syntax_error_reads_as_the_engine_words_it() {
-        for (pattern, reason) in [
-            ("(", "Unterminated group"),
-            ("[", "Unterminated character class"),
-            (")", "Unmatched ')'"),
-            ("*", "Nothing to repeat"),
-            ("a**", "Nothing to repeat"),
-            ("a{2,1}", "numbers out of order in {} quantifier"),
-            ("\\", "\\ at end of pattern"),
-            ("[b-a]", "Range out of order in character class"),
-            ("(?<a>.)(?<a>.)", "Duplicate capture group name"),
-        ] {
-            assert_eq!(message(pattern, "").as_deref(), Some(format!("Invalid regular expression: /{pattern}/: {reason}").as_str()), "{pattern}");
-        }
-    }
-
-    #[test]
-    fn the_flags_are_shown_after_the_pattern_and_a_bad_flag_set_is_its_own_error() {
-        assert_eq!(message("(", "gi").as_deref(), Some("Invalid regular expression: /(/gi: Unterminated group"));
-        assert_eq!(message("a", "gg").as_deref(), Some("Invalid flags supplied to RegExp constructor 'gg'"));
-        assert_eq!(message("a", "uv").as_deref(), Some("Invalid flags supplied to RegExp constructor 'uv'"));
-        assert_eq!(message("a", "x").as_deref(), Some("Invalid flags supplied to RegExp constructor 'x'"));
-    }
-
-    #[test]
-    fn unicode_mode_rejects_what_legacy_mode_tolerates() {
-        for pattern in ["{", "}", "\\-", "\\k<a>", "[\\d-a]", "\\p{Foo}", "\\u{110000}", "a{1"] {
-            assert_eq!(message(pattern, ""), None, "{pattern} without u");
-            assert!(message(pattern, "u").is_some(), "{pattern} with u");
-        }
-    }
-
-    #[test]
-    fn valid_patterns_have_no_error() {
-        for pattern in ["a+b?", "(?:x)|y", "(?<n>.)\\k<n>", "(?<=a)b", "[^\\]]", "\\p{L}", "a{2,3}", "^$", "\\1(a)"] {
-            assert_eq!(message(pattern, ""), None, "{pattern}");
-        }
-        assert_eq!(message("[\\p{L}--[a-z]]", "v"), None);
-        assert_eq!(message("\\p{L}", "u"), None);
-    }
-}
+mod tests;

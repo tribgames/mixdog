@@ -1,11 +1,3 @@
-//! `ProviderAdapter` of the OpenAI-compatible family: encode, add the
-//! credential, send once, hand back the decoded stream. Retrying is above the
-//! adapter. The one repeat inside an attempt is the credential reload after a
-//! 401 (status-only, before a stream exists) for keys that can change under
-//! us; a key that needs a new login is surfaced with `reauth_required`.
-//!
-//! The HTTP exchange is the shared `transport::HttpSend` seam.
-
 use crate::transport::deadlines::MODEL_STREAM;
 use crate::transport::deadlines::compat_model_list;
 use crate::transport::model_driver::Expiry;
@@ -71,10 +63,6 @@ pub struct RouteInputs {
     pub catalog: Option<Arc<dyn ModelTraits>>,
 }
 
-/// `GET {url}` as JSON. A refused request keeps the provider's own reason
-/// with the request key redacted from it; a reachable endpoint that answers
-/// something else is `null`, except in the plain model-list fetch, where a body
-/// that is not JSON is the request's error.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub(super) async fn fetch_json(
     http: &dyn HttpSend,
@@ -617,10 +605,6 @@ impl CompatAdapter {
         crate::providers::head_wait::FirstByteGate::of(&policy, identity, self.profile().id.to_string())
     }
 
-    /// The model submission of `request`: the windows this provider declares (the chat profile's first-byte window for the head and
-    /// the first payload, its first-output and idle windows; the common fallback policy fills what it leaves, and
-    /// `MIXDOG_ENABLE_STREAM_WATCHDOG=0` drops the idle policy to it) and how an expiry of each phase reads. A non-streaming
-    /// `recovery` is one generation total over head and body.
     fn model_call(&self, request: &ModelRequest, gate: Option<crate::providers::head_wait::FirstByteGate>, recovery: bool) -> ModelCall {
         let millis = |ms: i64| std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
         let windows = PhaseWindows {
@@ -668,11 +652,6 @@ impl CompatAdapter {
             } else {
                 request.options.send_identity.raise_requesting_once();
             }
-            // Every real exchange is an attempt of the driver: it waits for its head under this attempt's window (the Chat
-            // Completions request's first-byte window, `perAttemptTimeoutMs`, openai-compat-chat-send.mjs:174-181), then for the
-            // first decoded `data:` record under the same window again (a timeout of either counts as one first-byte timeout of
-            // the send), then for the first output, then idle. The head also raises the transport mark
-            // (`openai-compat-stream.mjs:65`, `stream-state.mjs:61`).
             let call = self.model_call(&request, gate, false);
             let (response, attempt) = self.driver.send(&call, Self::with_key(&wire, key.as_deref()), MODEL_STREAM).await?;
             if response.is_success() {

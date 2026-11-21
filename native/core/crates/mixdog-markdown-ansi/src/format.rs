@@ -96,30 +96,91 @@ fn osc8_link(href: &str, label: &str) -> String {
     format!("\u{1b}]8;;{href}\u{7}{label}\u{1b}]8;;\u{7}")
 }
 
+fn format_blockquote(token: &Token, ctx: &Context<'_>) -> String {
+    // Block structure carries no colour: a dim bar and body-coloured italic text. Colour is reserved for inline
+    // codespans and links.
+    let bar = dim(BLOCKQUOTE_BAR);
+    let quote_prefix = format!("{BLOCKQUOTE_BAR} ");
+    let inner_width = content_width_after_prefix(ctx.width, &quote_prefix, ctx.wide);
+    let inner = format_children(token, &ctx.derive(0, None, None, inner_width, 0));
+    inner
+        .split(EOL)
+        .map(|line| {
+            // Padded fenced-code blank rows are space-only; trimming would drop the quote bar.
+            if display_width_with(&strip_ansi(line), ctx.wide) == 0 { line.to_owned() } else { format!("{bar} {}", italic(line)) }
+        })
+        .collect::<Vec<_>>()
+        .join(EOL)
+}
+
+fn format_image(token: &Token) -> String {
+    let ex = &styles().extra;
+    // The alt text is the only description a terminal reader gets.
+    let alt_text = decode_entities(token.text_str());
+    let alt = js_trim(&alt_text);
+    let href = token.href.as_deref().unwrap_or("");
+    if alt.is_empty() {
+        ex.link.apply(href)
+    } else if href.is_empty() {
+        ex.link_text.apply(alt)
+    } else {
+        format!("{} {}", ex.link_text.apply(alt), dim(&format!("({href})")))
+    }
+}
+
+fn format_link(token: &Token, ctx: &Context<'_>) -> String {
+    let ex = &styles().extra;
+    let href = token.href.as_deref().unwrap_or("");
+    if let Some(address) = href.strip_prefix("mailto:") {
+        return ex.link_text.apply(address);
+    }
+    let label_ctx = ctx.derive(0, None, Some(token), 0, 0);
+    if !has_safe_link_scheme(href) {
+        // Footnote references and other non-URL targets must not reach the terminal as a hyperlink destination.
+        let label = format_children(token, &label_ctx);
+        return ex.link_text.apply(if label.is_empty() { href } else { label.as_str() });
+    }
+    let link_text = format_children(token, &label_ctx);
+    let plain = strip_ansi(&link_text);
+    // An OSC 8 hyperlink: a clickable label with the URL hidden in terminals that support it; the others show
+    // the label as is. Only the SGR codes are stripped downstream, so the OSC 8 sequences reach the terminal.
+    if !plain.is_empty() && plain != href {
+        return osc8_link(href, &ex.link_text.apply(&link_text));
+    }
+    // No distinct label (empty or equal to the href): the URL is the visible, clickable text.
+    osc8_link(href, &ex.link.apply(href))
+}
+
+fn format_list(token: &Token, ctx: &Context<'_>) -> String {
+    // Loose lists (a blank line between items in the source): items are joined with one extra EOL, so
+    // multi-line items keep the author's breathing room. Tight lists render adjacent.
+    let ordered = token.ordered == Some(true);
+    let start = match token.start {
+        Some(ListStart::Number(n)) if n != 0 => n,
+        _ => 1,
+    };
+    let separator = if token.loose == Some(true) && ctx.depth == 0 { EOL } else { "" };
+    token
+        .items
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let number = ordered.then(|| start + index as u64);
+            format_token(item, &ctx.derive(ctx.list_base_indent, number, Some(token), ctx.width, ctx.depth))
+        })
+        .collect::<Vec<_>>()
+        .join(separator)
+}
 /// `formatToken(token, listBaseIndent, orderedListNumber, parent, width, depth)`: one marked token as an ANSI string.
 pub fn format_token(token: &Token, ctx: &Context<'_>) -> String {
     let styles = styles();
     let (accent, hr_line, heading_accent) = (&styles.base.accent, &styles.base.hr_line, &styles.base.heading_accent);
-    let ex = &styles.extra;
     // `formatToken(t, 0, null, parent)`: the children of emphasis keep the parent of the call.
     let inline = ctx.derive(0, None, ctx.parent, 0, 0);
     match token.kind {
-        TokenKind::Blockquote => {
-            // Block structure carries no colour: a dim bar and body-coloured italic text. Colour is reserved for inline
-            // codespans and links.
-            let bar = dim(BLOCKQUOTE_BAR);
-            let quote_prefix = format!("{BLOCKQUOTE_BAR} ");
-            let inner_width = content_width_after_prefix(ctx.width, &quote_prefix, ctx.wide);
-            let inner = format_children(token, &ctx.derive(0, None, None, inner_width, 0));
-            inner
-                .split(EOL)
-                .map(|line| {
-                    // Padded fenced-code blank rows are space-only; trimming would drop the quote bar.
-                    if display_width_with(&strip_ansi(line), ctx.wide) == 0 { line.to_owned() } else { format!("{bar} {}", italic(line)) }
-                })
-                .collect::<Vec<_>>()
-                .join(EOL)
-        }
+        TokenKind::Blockquote => format_blockquote(token, ctx),
         // A fenced block: flush-left wrapped body with syntax highlighting.
         TokenKind::Code => code::render_code_block(token, ctx.width, ctx.wide),
         // Inline code: the accent colour only, no background tint.
@@ -146,62 +207,9 @@ pub fn format_token(token: &Token, ctx: &Context<'_>) -> String {
             let width = (if ctx.width == 0 { 80 } else { ctx.width }).max(3);
             format!("{}{EOL}", hr_line.apply(&HR_LINE.repeat(width)))
         }
-        TokenKind::Image => {
-            // The alt text is the only description a terminal reader gets.
-            let alt_text = decode_entities(token.text_str());
-            let alt = js_trim(&alt_text);
-            let href = token.href.as_deref().unwrap_or("");
-            if alt.is_empty() {
-                ex.link.apply(href)
-            } else if href.is_empty() {
-                ex.link_text.apply(alt)
-            } else {
-                format!("{} {}", ex.link_text.apply(alt), dim(&format!("({href})")))
-            }
-        }
-        TokenKind::Link => {
-            let href = token.href.as_deref().unwrap_or("");
-            if let Some(address) = href.strip_prefix("mailto:") {
-                return ex.link_text.apply(address);
-            }
-            let label_ctx = ctx.derive(0, None, Some(token), 0, 0);
-            if !has_safe_link_scheme(href) {
-                // Footnote references and other non-URL targets must not reach the terminal as a hyperlink destination.
-                let label = format_children(token, &label_ctx);
-                return ex.link_text.apply(if label.is_empty() { href } else { label.as_str() });
-            }
-            let link_text = format_children(token, &label_ctx);
-            let plain = strip_ansi(&link_text);
-            // An OSC 8 hyperlink: a clickable label with the URL hidden in terminals that support it; the others show
-            // the label as is. Only the SGR codes are stripped downstream, so the OSC 8 sequences reach the terminal.
-            if !plain.is_empty() && plain != href {
-                return osc8_link(href, &ex.link_text.apply(&link_text));
-            }
-            // No distinct label (empty or equal to the href): the URL is the visible, clickable text.
-            osc8_link(href, &ex.link.apply(href))
-        }
-        TokenKind::List => {
-            // Loose lists (a blank line between items in the source): items are joined with one extra EOL, so
-            // multi-line items keep the author's breathing room. Tight lists render adjacent.
-            let ordered = token.ordered == Some(true);
-            let start = match token.start {
-                Some(ListStart::Number(n)) if n != 0 => n,
-                _ => 1,
-            };
-            let separator = if token.loose == Some(true) && ctx.depth == 0 { EOL } else { "" };
-            token
-                .items
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    let number = ordered.then(|| start + index as u64);
-                    format_token(item, &ctx.derive(ctx.list_base_indent, number, Some(token), ctx.width, ctx.depth))
-                })
-                .collect::<Vec<_>>()
-                .join(separator)
-        }
+        TokenKind::Image => format_image(token),
+        TokenKind::Link => format_link(token, ctx),
+        TokenKind::List => format_list(token, ctx),
         TokenKind::ListItem => list::format_list_item(token, ctx),
         TokenKind::Paragraph => {
             let child_ctx = ctx.derive(0, None, None, ctx.width, 0);

@@ -182,35 +182,13 @@ fn straight_layer(state: &State, style: &Style, pixmap_size: (u32, u32), device:
     let (width, height) = ((right - left) as u32, (bottom - top) as u32);
     let repeat = pattern.repetition != Repetition::NoRepeat;
     let inverse = state.transform.pre_concat(pattern.transform).invert()?;
-    let near = |t: f32| ((-21.0 / 18.0 * t + 27.0 / 18.0) * t + 9.0 / 18.0) * t + 1.0 / 18.0;
-    let far = |t: f32| (7.0 / 18.0 * t - 6.0 / 18.0) * t * t;
-    let index = |coordinate: f32, size: usize| -> usize {
-        let at = coordinate.floor() as i64;
-        if repeat { at.rem_euclid(size as i64) as usize } else { at.clamp(0, size as i64 - 1) as usize }
-    };
     let mut layer = Pixmap::new(width, height)?;
     let data = layer.data_mut();
     for row in 0..height as usize {
         for column in 0..width as usize {
             let mut point = [tiny_skia::Point::from_xy((left as usize + column) as f32 + 0.5, (top as usize + row) as f32 + 0.5)];
             inverse.map_points(&mut point);
-            let (u, v) = (point[0].x, point[0].y);
-            let (fx, fy) = ((u + 0.5) - (u + 0.5).floor(), (v + 0.5) - (v + 0.5).floor());
-            let wx = [far(1.0 - fx), near(1.0 - fx), near(fx), far(fx)];
-            let wy = [far(1.0 - fy), near(1.0 - fy), near(fy), far(fy)];
-            let (mut colour, mut alpha) = ([0.0f32; 3], 0.0f32);
-            for (j, wy) in wy.iter().enumerate() {
-                let y = index(v - 1.5 + j as f32, picture.height);
-                for (i, wx) in wx.iter().enumerate() {
-                    let x = index(u - 1.5 + i as f32, picture.width);
-                    let weight = wx * wy;
-                    let at = y * picture.width + x;
-                    alpha += weight * picture.alpha[at];
-                    for channel in 0..3 {
-                        colour[channel] += weight * picture.colour[at * 3 + channel];
-                    }
-                }
-            }
+            let (colour, alpha) = bicubic_sample(picture, repeat, (point[0].x, point[0].y));
             let alpha = alpha.clamp(0.0, 1.0);
             let out = &mut data[(row * width as usize + column) * 4..][..4];
             for channel in 0..3 {
@@ -220,6 +198,33 @@ fn straight_layer(state: &State, style: &Style, pixmap_size: (u32, u32), device:
         }
     }
     Some((layer, left, top))
+}
+
+/// The straight colour and the alpha of `picture` at the pattern-space position `(u, v)`, by the 4 x 4 bicubic taps.
+fn bicubic_sample(picture: &paint::StraightPicture, repeat: bool, (u, v): (f32, f32)) -> ([f32; 3], f32) {
+    let near = |t: f32| ((-21.0 / 18.0 * t + 27.0 / 18.0) * t + 9.0 / 18.0) * t + 1.0 / 18.0;
+    let far = |t: f32| (7.0 / 18.0 * t - 6.0 / 18.0) * t * t;
+    let index = |coordinate: f32, size: usize| -> usize {
+        let at = coordinate.floor() as i64;
+        if repeat { at.rem_euclid(size as i64) as usize } else { at.clamp(0, size as i64 - 1) as usize }
+    };
+    let (fx, fy) = ((u + 0.5) - (u + 0.5).floor(), (v + 0.5) - (v + 0.5).floor());
+    let wx = [far(1.0 - fx), near(1.0 - fx), near(fx), far(fx)];
+    let wy = [far(1.0 - fy), near(1.0 - fy), near(fy), far(fy)];
+    let (mut colour, mut alpha) = ([0.0f32; 3], 0.0f32);
+    for (j, wy) in wy.iter().enumerate() {
+        let y = index(v - 1.5 + j as f32, picture.height);
+        for (i, wx) in wx.iter().enumerate() {
+            let x = index(u - 1.5 + i as f32, picture.width);
+            let weight = wx * wy;
+            let at = y * picture.width + x;
+            alpha += weight * picture.alpha[at];
+            for channel in 0..3 {
+                colour[channel] += weight * picture.colour[at * 3 + channel];
+            }
+        }
+    }
+    (colour, alpha)
 }
 
 /// The paint with the shader that lays `layer` (at `left`, `top` on the device) where the draw puts its pixels: `draw` is the transform the
@@ -265,6 +270,35 @@ fn draw_mask<'a>(state: &'a State, style: &Style, width: u32, height: u32) -> Op
     };
     mask.intersect_path(&cell, FillRule::Winding, true, state.transform.pre_concat(pattern.transform));
     Some(DrawMask::Cell(mask))
+}
+
+/// The picture of the device pixels `(left, top, right, bottom)`, each the source pixel Skia's nearest sampler names for its centre;
+/// each axis is the inverse scale, the shift and the source pixel range `[low, high)`.
+fn nearest_pixels(
+    source: &Pixmap,
+    (left, top, right, bottom): (i64, i64, i64, i64),
+    (inverse_x, shift_x, x0, x1): (f32, f32, i32, i32),
+    (inverse_y, shift_y, y0, y1): (f32, f32, i32, i32),
+) -> Option<Pixmap> {
+    let (columns, rows) = ((right - left) as usize, (bottom - top) as usize);
+    let mut drawn = Pixmap::new(columns as u32, rows as u32)?;
+    let source_width = source.width() as usize;
+    let pick = |centre: i64, inverse: f32, shift: f32, low: i32, high: i32| -> usize {
+        let position = (centre as f32 + 0.5).mul_add(inverse, shift);
+        (position.ceil() as i64 - 1).clamp(i64::from(low), i64::from(high) - 1) as usize
+    };
+    let columns_at: Vec<usize> = (left..right).map(|x| pick(x, inverse_x, shift_x, x0, x1)).collect();
+    let pixels = source.data();
+    let target = drawn.data_mut();
+    for (row, y) in (top..bottom).enumerate() {
+        let from = pick(y, inverse_y, shift_y, y0, y1) * source_width;
+        for (column, &x) in columns_at.iter().enumerate() {
+            let at = (from + x) * 4;
+            let to = (row * columns + column) * 4;
+            target[to..to + 4].copy_from_slice(&pixels[at..at + 4]);
+        }
+    }
+    Some(drawn)
 }
 
 fn style_of(state: &State, ink: Ink) -> &Style {
@@ -351,50 +385,10 @@ fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::Devic
     let Some(draw) = draw_mask(state, style, pixmap.width(), pixmap.height()) else { return };
     let (width, height) = (pixmap.width() as usize, pixmap.height() as usize);
     let table = glyph::correcting_table(glyph::canonical_luminance(style.luminance_color()));
-    // The pixels the glyphs can touch, as left, top, right, bottom: the coverage, the scratch pixels and the clip are only
-    // looked at inside them, so the work follows the size of the text and not the size of the canvas.
-    let clamp = |bounds: tiny_skia::Rect| {
-        let left = (bounds.left().floor().max(0.0) as usize).min(width);
-        let right = (bounds.right().ceil().max(0.0) as usize).min(width);
-        let top = (bounds.top().floor().max(0.0) as usize).min(height);
-        let bottom = (bounds.bottom().ceil().max(0.0) as usize).min(height);
-        (right > left && bottom > top).then_some((left, top, right, bottom))
-    };
-    let sampled = paths.sampled.as_ref().and_then(|path| clamp(path.bounds()));
-    let exact = paths.exact.as_ref().and_then(|path| clamp(path.bounds()));
-    let Some((left, top, right, bottom)) =
-        [sampled, exact].into_iter().flatten().reduce(|(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2)))
-    else {
-        return;
-    };
+    let Some((left, top, right, bottom)) = glyph_area(paths, width, height) else { return };
     let (area_width, area_height) = (right - left, bottom - top);
-    let Some(mut coverage) = Mask::new(area_width as u32, area_height as u32) else { return };
+    let Some(coverage) = glyph_coverage(paths, &table, draw.get(), (left, top, right, bottom), (width, height)) else { return };
     let to_area = Transform::from_translate(-(left as f32), -(top as f32));
-    if let (Some(path), Some((sl, st, sr, sb))) = (paths.sampled.as_ref(), sampled) {
-        coverage.fill_path(path, FillRule::Winding, true, to_area);
-        for row in st - top..sb - top {
-            for value in &mut coverage.data_mut()[row * area_width + sl - left..row * area_width + sr - left] {
-                *value = table[usize::from(*value)];
-            }
-        }
-    }
-    if let Some(raster) = paths.exact.as_ref().and_then(|path| glyph::rasterize(path, width, height)) {
-        for row in 0..raster.height {
-            for column in 0..raster.width {
-                let at = (raster.top + row - top) * area_width + raster.left + column - left;
-                let corrected = table[usize::from(raster.data[row * raster.width + column])];
-                coverage.data_mut()[at] = coverage.data()[at].max(corrected);
-            }
-        }
-    }
-    if let Some(cut) = draw.get() {
-        for row in 0..area_height {
-            for column in 0..area_width {
-                let at = row * area_width + column;
-                coverage.data_mut()[at] = multiply(coverage.data()[at], cut.data()[(top + row) * width + left + column]);
-            }
-        }
-    }
     let layer = Rect::from_ltrb(left as f32, top as f32, right as f32, bottom as f32)
         .and_then(|area| straight_layer(state, style, (pixmap.width(), pixmap.height()), area, 0.0));
     if let Some((layer, at_left, at_top)) = &layer {
@@ -412,6 +406,65 @@ fn fill_glyphs(pixmap: &mut Pixmap, state: &State, ink: Ink, paths: &text::Devic
         let to = ((top + row) * width + left) * 4;
         bytes[to..to + area_width * 4].copy_from_slice(&scratch.data()[from..from + area_width * 4]);
     }
+}
+
+/// The pixels the glyphs can touch, as left, top, right, bottom: the coverage, the scratch pixels and the clip are only
+/// looked at inside them, so the work follows the size of the text and not the size of the canvas.
+fn glyph_area(paths: &text::DevicePaths, width: usize, height: usize) -> Option<(usize, usize, usize, usize)> {
+    [paths.sampled.as_ref(), paths.exact.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|path| clamp_to_canvas(path.bounds(), width, height))
+        .reduce(|(l, t, r, b), (l2, t2, r2, b2)| (l.min(l2), t.min(t2), r.max(r2), b.max(b2)))
+}
+
+fn clamp_to_canvas(bounds: tiny_skia::Rect, width: usize, height: usize) -> Option<(usize, usize, usize, usize)> {
+    let left = (bounds.left().floor().max(0.0) as usize).min(width);
+    let right = (bounds.right().ceil().max(0.0) as usize).min(width);
+    let top = (bounds.top().floor().max(0.0) as usize).min(height);
+    let bottom = (bounds.bottom().ceil().max(0.0) as usize).min(height);
+    (right > left && bottom > top).then_some((left, top, right, bottom))
+}
+
+/// The coverage of the glyphs over `area` (left, top, right, bottom): the sampled path filled and the exact one rasterised, each
+/// corrected by `table`, then cut by `cut` (the clip).
+fn glyph_coverage(
+    paths: &text::DevicePaths,
+    table: &[u8; 256],
+    cut: Option<&Mask>,
+    (left, top, right, bottom): (usize, usize, usize, usize),
+    (width, height): (usize, usize),
+) -> Option<Mask> {
+    let (area_width, area_height) = (right - left, bottom - top);
+    let mut coverage = Mask::new(area_width as u32, area_height as u32)?;
+    let to_area = Transform::from_translate(-(left as f32), -(top as f32));
+    let sampled = paths.sampled.as_ref().and_then(|path| clamp_to_canvas(path.bounds(), width, height).map(|bounds| (path, bounds)));
+    if let Some((path, (sl, st, sr, sb))) = sampled {
+        coverage.fill_path(path, FillRule::Winding, true, to_area);
+        for row in st - top..sb - top {
+            for value in &mut coverage.data_mut()[row * area_width + sl - left..row * area_width + sr - left] {
+                *value = table[usize::from(*value)];
+            }
+        }
+    }
+    if let Some(raster) = paths.exact.as_ref().and_then(|path| glyph::rasterize(path, width, height)) {
+        for row in 0..raster.height {
+            for column in 0..raster.width {
+                let at = (raster.top + row - top) * area_width + raster.left + column - left;
+                let corrected = table[usize::from(raster.data[row * raster.width + column])];
+                coverage.data_mut()[at] = coverage.data()[at].max(corrected);
+            }
+        }
+    }
+    if let Some(cut) = cut {
+        for row in 0..area_height {
+            for column in 0..area_width {
+                let at = row * area_width + column;
+                coverage.data_mut()[at] = multiply(coverage.data()[at], cut.data()[(top + row) * width + left + column]);
+            }
+        }
+    }
+    Some(coverage)
 }
 
 /// `a * b / 255`, rounded (the product of two coverages).
@@ -957,24 +1010,9 @@ impl Canvas {
             return true;
         }
         let (columns, rows) = ((right - left) as u32, (bottom - top) as u32);
-        let Some(mut drawn) = Pixmap::new(columns, rows) else { return false };
-        let source = image.pixmap();
-        let source_width = source.width() as usize;
-        let pick = |centre: i64, inverse: f32, shift: f32, low: i32, high: i32| -> usize {
-            let position = (centre as f32 + 0.5).mul_add(inverse, shift);
-            (position.ceil() as i64 - 1).clamp(i64::from(low), i64::from(high) - 1) as usize
+        let Some(drawn) = nearest_pixels(image.pixmap(), (left, top, right, bottom), (inverse_x, shift_x, x0, x1), (inverse_y, shift_y, y0, y1)) else {
+            return false;
         };
-        let columns_at: Vec<usize> = (left..right).map(|x| pick(x, inverse_x, shift_x, x0, x1)).collect();
-        let pixels = source.data();
-        let target = drawn.data_mut();
-        for (row, y) in (top..bottom).enumerate() {
-            let from = pick(y, inverse_y, shift_y, y0, y1) * source_width;
-            for (column, &x) in columns_at.iter().enumerate() {
-                let at = (from + x) * 4;
-                let to = (row * columns as usize + column) * 4;
-                target[to..to + 4].copy_from_slice(&pixels[at..at + 4]);
-            }
-        }
         let Some(cover) = Rect::from_xywh(left as f32, top as f32, columns as f32, rows as f32) else { return true };
         let placement = Transform::from_translate(left as f32, top as f32);
         self.draw_with(|pixmap, inner| {

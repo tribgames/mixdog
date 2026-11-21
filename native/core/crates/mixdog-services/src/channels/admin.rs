@@ -1,9 +1,3 @@
-//! The channel admin surface behind the `channel/*` methods (channel-admin.mjs and
-//! channel-config-api.mjs): saving, listing, switching and deleting schedules and webhook
-//! endpoints, the webhook settings, "Run now", the signed test request and the retry of an
-//! undelivered result. Every mutation re-reads the runtime afterwards ("reload soon"), and
-//! saving automation starts the runtime when it is not up.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +6,7 @@ use chrono_tz::Tz;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, WebhookProbe, WebhookSettings, is_truthy};
+use super::ports::{ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookPatch, WebhookProbe, WebhookSettings, is_truthy};
 use super::runtime::ChannelRuntime;
 use crate::bots::attachments::normalize_attachments;
 use crate::bots::ids::{MIXY_AGENT_ID, agent_home_session_id};
@@ -426,13 +420,9 @@ impl ChannelAdmin {
         });
     }
 
-    /// `scheduleChannelStart(0)` / `scheduleAutomationAutostart`: returns at once; the start
-    /// happens afterwards, owned by the runtime (a shutdown ends and joins it). When the
-    /// deferred callback runs it asks `hasActiveAutomation` (`onChannelStartTimer`): only enabled
-    /// schedules or webhooks start the runtime (a no-op when it is up), and
-    /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing. A save calls it after
-    /// its reload request (`ensureAutomationRuntime`); the daemon calls it once it is serving,
-    /// which is the boot-time start check.
+    /// Returns at once; the start happens afterwards, owned by the runtime. Only enabled
+    /// schedules or webhooks start the runtime, and `MIXDOG_DISABLE_CHANNEL_START` or a close in
+    /// progress starts nothing.
     pub fn schedule_automation_start(&self) {
         self.schedule_start(true);
     }
@@ -657,17 +647,7 @@ impl ChannelAdmin {
         let owner = Self::schedule_owner(entry.get("owner"), existing.as_ref().map(|e| e.owner_agent_id.as_str()))?;
         self.assert_owner(&owner).await?;
         let executor = self.routine_executor(entry.get("executorAgentId"), existing.as_ref().and_then(|e| e.executor_agent_id.as_deref())).await?;
-        // An explicit secret always wins; an EMPTY value on an overwrite PRESERVES the stored
-        // one (editing instructions must not silently rotate the key the external service was
-        // configured with); only a brand-new endpoint mints a random secret.
-        let explicit = trimmed(entry.get("secret"));
-        let secret = if !explicit.is_empty() {
-            explicit
-        } else {
-            let stored =
-                if overwrite { mixdog_js::js_trim(existing.as_ref().and_then(|e| e.secret.as_deref()).unwrap_or_default()).to_string() } else { String::new() };
-            if stored.is_empty() { random_secret() } else { stored }
-        };
+        let secret = explicit_stored_or_minted_secret(trimmed(entry.get("secret")), overwrite.then_some(existing.as_ref()).flatten());
         let def = EndpointRecord {
             name: id.clone(),
             description: trimmed(entry.get("description")),
@@ -684,24 +664,7 @@ impl ChannelAdmin {
         };
         let saved = self.d.webhooks.upsert(&def).await?;
         self.refuse_if_owner_deleted(&owner).await?;
-        let mut out = Map::new();
-        out.insert("name".into(), id.into());
-        out.insert("owner".into(), if saved.owner_agent_id.is_empty() { owner } else { saved.owner_agent_id.clone() }.into());
-        out.insert("executorAgentId".into(), saved.executor_agent_id.clone().filter(|e| !e.is_empty()).into());
-        out.insert("description".into(), saved.description.clone().into());
-        out.insert("parser".into(), saved.parser.clone().into());
-        if let Some(cwd) = saved.cwd.clone().filter(|c| !c.is_empty()) {
-            out.insert("cwd".into(), cwd.into());
-        }
-        if let Some(attachments) = saved.attachments.clone().filter(|a| !a.is_null()) {
-            out.insert("attachments".into(), attachments);
-        }
-        if entry.get("enabled") == Some(&Value::Bool(false)) {
-            out.insert("enabled".into(), false.into());
-        }
-        out.insert("secret".into(), secret.into());
-        out.insert("instructions".into(), body.into());
-        Ok(Value::Object(out))
+        Ok(saved_webhook_view(&saved, owner, secret, body, entry.get("enabled") == Some(&Value::Bool(false))))
     }
 
     pub async fn delete_webhook(&self, name: &str) -> Done {
@@ -726,7 +689,7 @@ impl ChannelAdmin {
     /// stable `code` (relay-unavailable | timeout | network | rejected) for localized UI text;
     /// `error` stays the English detail.
     pub async fn test_webhook(&self, name: &str) -> Done {
-        use crate::webhooks::handler::{WEBHOOK_TEST_FIELD, WEBHOOK_TEST_HEADER};
+        use crate::webhooks::handler::WEBHOOK_TEST_FIELD;
         let id = assert_webhook_name(Some(&json!(name)))?;
         let endpoint = self.d.webhooks.load(&id).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
         let secret = endpoint.secret.clone().unwrap_or_default();
@@ -744,43 +707,10 @@ impl ChannelAdmin {
         probe.insert("webhook".into(), id.clone().into());
         probe.insert("sentAt".into(), sent_at.into());
         let body = Value::Object(probe).to_string();
-        let sign = |data: &str| hmac_hex(&secret, data.as_bytes());
-        let mut headers = vec![("content-type".to_string(), "application/json".to_string()), (WEBHOOK_TEST_HEADER.to_string(), "1".to_string())];
-        match endpoint.parser.as_deref().filter(|p| !p.is_empty()).unwrap_or("github") {
-            "stripe" => {
-                let t = self.d.clock.now().timestamp();
-                headers.push(("stripe-signature".into(), format!("t={t},v1={}", sign(&format!("{t}.{body}")))));
-            }
-            "sentry" => headers.push(("sentry-hook-signature".into(), sign(&body))),
-            "generic" => headers.push(("x-signature-256".into(), format!("sha256={}", sign(&body)))),
-            _ => {
-                headers.push(("x-hub-signature-256".into(), format!("sha256={}", sign(&body))));
-                headers.push(("x-github-event".into(), "ping".into()));
-            }
-        }
-        Ok(match self.d.probe.post(&url, &headers, body, TEST_TIMEOUT).await {
-            Ok(response) => {
-                let parsed: Value = serde_json::from_str(&response.body).unwrap_or_else(|_| json!({}));
-                let ok = response.status == 200 && parsed["status"] == "verified";
-                let mut result = json!({"name": id, "ok": ok, "status": response.status, "url": url});
-                if !ok {
-                    result["code"] = "rejected".into();
-                    result["error"] = match parsed["error"].as_str().filter(|e| !e.is_empty()) {
-                        Some(error) => error.to_string(),
-                        None => format!("Unexpected response (HTTP {})", response.status),
-                    }
-                    .into();
-                }
-                result
-            }
-            Err(ProbeError::TimedOut) => json!({
-                "name": id, "ok": false, "status": 0, "url": url, "code": "timeout",
-                "error": "Request timed out after 15 seconds.",
-            }),
-            Err(ProbeError::Network(message)) => json!({
-                "name": id, "ok": false, "status": 0, "url": url, "code": "network", "error": message,
-            }),
-        })
+        let parser = endpoint.parser.as_deref().filter(|p| !p.is_empty()).unwrap_or("github");
+        let headers = signed_test_headers(parser, &secret, &body, self.d.clock.now().timestamp());
+        let reply = self.d.probe.post(&url, &headers, body, TEST_TIMEOUT).await;
+        Ok(test_result(&id, &url, reply))
     }
 
     // ---- run now -----------------------------------------------------------------------
@@ -858,6 +788,77 @@ impl ChannelAdmin {
 fn random_secret() -> String {
     let (a, b) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
     a.as_bytes().iter().chain(b.as_bytes()).take(24).map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn explicit_stored_or_minted_secret(explicit: String, stored: Option<&EndpointRecord>) -> String {
+    if !explicit.is_empty() {
+        return explicit;
+    }
+    let stored = mixdog_js::js_trim(stored.and_then(|e| e.secret.as_deref()).unwrap_or_default());
+    if stored.is_empty() { random_secret() } else { stored.to_string() }
+}
+
+fn saved_webhook_view(saved: &EndpointRecord, owner: String, secret: String, instructions: String, disabled: bool) -> Value {
+    let mut out = Map::new();
+    out.insert("name".into(), saved.name.clone().into());
+    out.insert("owner".into(), if saved.owner_agent_id.is_empty() { owner } else { saved.owner_agent_id.clone() }.into());
+    out.insert("executorAgentId".into(), saved.executor_agent_id.clone().filter(|e| !e.is_empty()).into());
+    out.insert("description".into(), saved.description.clone().into());
+    out.insert("parser".into(), saved.parser.clone().into());
+    if let Some(cwd) = saved.cwd.clone().filter(|c| !c.is_empty()) {
+        out.insert("cwd".into(), cwd.into());
+    }
+    if let Some(attachments) = saved.attachments.clone().filter(|a| !a.is_null()) {
+        out.insert("attachments".into(), attachments);
+    }
+    if disabled {
+        out.insert("enabled".into(), false.into());
+    }
+    out.insert("secret".into(), secret.into());
+    out.insert("instructions".into(), instructions.into());
+    Value::Object(out)
+}
+
+fn signed_test_headers(parser: &str, secret: &str, body: &str, timestamp: i64) -> Vec<(String, String)> {
+    let sign = |data: &str| hmac_hex(secret, data.as_bytes());
+    let mut headers =
+        vec![("content-type".to_string(), "application/json".to_string()), (crate::webhooks::handler::WEBHOOK_TEST_HEADER.to_string(), "1".to_string())];
+    match parser {
+        "stripe" => headers.push(("stripe-signature".into(), format!("t={timestamp},v1={}", sign(&format!("{timestamp}.{body}"))))),
+        "sentry" => headers.push(("sentry-hook-signature".into(), sign(body))),
+        "generic" => headers.push(("x-signature-256".into(), format!("sha256={}", sign(body)))),
+        _ => {
+            headers.push(("x-hub-signature-256".into(), format!("sha256={}", sign(body))));
+            headers.push(("x-github-event".into(), "ping".into()));
+        }
+    }
+    headers
+}
+
+fn test_result(id: &str, url: &str, reply: Result<ProbeResponse, ProbeError>) -> Value {
+    match reply {
+        Ok(response) => {
+            let parsed: Value = serde_json::from_str(&response.body).unwrap_or_else(|_| json!({}));
+            let ok = response.status == 200 && parsed["status"] == "verified";
+            let mut result = json!({"name": id, "ok": ok, "status": response.status, "url": url});
+            if !ok {
+                result["code"] = "rejected".into();
+                result["error"] = match parsed["error"].as_str().filter(|e| !e.is_empty()) {
+                    Some(error) => error.to_string(),
+                    None => format!("Unexpected response (HTTP {})", response.status),
+                }
+                .into();
+            }
+            result
+        }
+        Err(ProbeError::TimedOut) => json!({
+            "name": id, "ok": false, "status": 0, "url": url, "code": "timeout",
+            "error": "Request timed out after 15 seconds.",
+        }),
+        Err(ProbeError::Network(message)) => json!({
+            "name": id, "ok": false, "status": 0, "url": url, "code": "network", "error": message,
+        }),
+    }
 }
 
 /// `encodeURIComponent` for a name already limited to `[a-z0-9-]`.

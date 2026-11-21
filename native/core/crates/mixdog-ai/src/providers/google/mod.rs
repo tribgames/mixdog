@@ -1,12 +1,3 @@
-//! `gemini`, `vertex-ai` (Gemini publisher) and `antigravity-oauth`: three
-//! endpoints that speak the Gemini `streamGenerateContent` dialect (PW
-//! §5.8–5.10). One [`codec::GoogleCodec`] and one [`adapter::GoogleAdapter`]
-//! serve all three; they differ in target, credentials, a few request fields
-//! ([`request::Dialect`]), error reading and the retry rows ([`policy`]).
-//!
-//! No timer exists here: a stream dies by transport facts, a missing
-//! `finishReason`, a typed provider error or the consumer dropping it.
-
 use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::ProviderError;
@@ -35,21 +26,11 @@ pub use watchdog::stream_call;
 #[cfg(test)]
 mod boundary_regressions;
 #[cfg(test)]
-mod claude_replay_wire_tests;
-#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 mod first_response_budget_tests;
 #[cfg(test)]
 mod head_wait_tests;
-#[cfg(test)]
-mod maas_wire_tests;
-#[cfg(test)]
-mod usage_wire_tests;
-#[cfg(test)]
-mod vertex_claude_cancel_wire_tests;
-#[cfg(test)]
-mod vertex_claude_wire_tests;
 #[cfg(test)]
 pub(crate) mod wire_tests;
 

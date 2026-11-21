@@ -15,8 +15,6 @@
 //! - Write: only a fetch the provider stated (never its seed), non-empty (an empty answer never replaces a kept roster), by
 //!   the credential's own identity while that identity is still the route's, and never over a newer fetch's file;
 //!   `fetchedAt` is when the fetch began.
-//! - Not ported: `_refreshModelCache` (an internal forced refetch) and the in-memory mirror (`_setInMemoryCatalog`),
-//!   which the resident catalog replaces.
 //!
 //! The rows are Node's cache rows (the normalizer's fields beside the enrichment's), so the typed listing record is
 //! written as such a row and read back from one. What no typed field holds (the pricing provenance, the
@@ -203,10 +201,6 @@ fn read_listing_extras(row: &Map<String, Value>, record: &mut ModelRecord) {
     record.efforts_stated = row.get("effortsStated").and_then(Value::as_bool) == Some(true);
 }
 
-/// The keys of Node's normalized Codex row (`_normalizeCodexModel`) that the listing row has no place for, read off the
-/// catalog's own row (`ModelRecord::raw`, snake_case): reasoning summaries, the catalog's replacement for a retiring model
-/// (`upgrade`, what `codexModelSuccessor` reads), picker priority and visibility, verbosity, image generation, the tool
-/// types and the two compaction limits.
 fn codex_row_extras(listed: &ModelRecord, row: &mut Map<String, Value>) {
     let raw = listed.raw.as_ref();
     let get = |key: &str| raw.and_then(|raw| raw.get(key));
@@ -704,12 +698,7 @@ fn row_of_record(record: &ModelRecord) -> Value {
     if !thinking.is_empty() {
         row.insert("thinkingTypes".into(), Value::Object(thinking));
     }
-    for (key, value) in [
-        ("inputCostPerM", record.input_cost_per_m),
-        ("outputCostPerM", record.output_cost_per_m),
-        ("cacheReadCostPerM", record.cache_read_cost_per_m),
-        ("cacheWriteCostPerM", record.cache_write_cost_per_m),
-    ] {
+    for (key, value) in super::listing::prices(record) {
         if let Some(v) = value.filter(|v| v.is_finite()) {
             row.insert(key.into(), number(v));
         }

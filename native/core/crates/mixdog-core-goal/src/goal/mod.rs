@@ -1,5 +1,4 @@
-//! The Goal runtime (Node `runtime-core/goal-*.mjs`, `session-runtime/goal-facade-api.mjs`,
-//! `session-calls/goal-recovery.mjs`): the durable objective a session keeps working on across
+//! The Goal runtime: the durable objective a session keeps working on across
 //! turns, with its time cap, continuation turns, storage and recovery.
 //!
 //! `GoalRuntime` implements the tool front end's `GoalPort` and the three session hook traits

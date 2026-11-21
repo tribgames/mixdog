@@ -1,9 +1,3 @@
-//! The machine facts the feature gates read (`FeatureProbes`): which desktop features exist (the composition's one
-//! fact is `BridgeFeatures`, decided in `mcp_surface::ToolBridges` from the host claims and the computer gate, not from
-//! the bridge discovery files) and whether a `git` executable is on PATH (`gitExecutablePresent`, remembered
-//! for 30 seconds per PATH value, `path-executable.mjs:115`). The PATH walk reads directories, so it
-//! runs as a job on the interactive lane; a job that cannot run is a typed failure, never "no git".
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;

@@ -19,6 +19,10 @@ const MAX_ITER: usize = 1_000_000;
 /// Consecutive continued-fraction factors within [`CONV`] of 1 that end the iteration.
 const SETTLED: usize = 8;
 const TINY: f64 = 1e-300;
+/// A continued-fraction denominator kept away from an exact zero.
+fn floor_tiny(x: f64) -> f64 {
+    if x.abs() < TINY { TINY } else { x }
+}
 const LN_SQRT_2PI: f64 = 0.918_938_533_204_672_8;
 /// Arguments at or above this use the Stirling series directly (its first omitted term is below 1e-17 here).
 const STIRLING_MIN: f64 = 10.0;
@@ -475,13 +479,9 @@ fn gamma_q_fraction(a: f64, x: f64) -> R<f64> {
         let an = -fi * (fi - a);
         b += 2.0;
         d = an * d + b;
-        if d.abs() < TINY {
-            d = TINY;
-        }
+        d = floor_tiny(d);
         c = b + an / c;
-        if c.abs() < TINY {
-            c = TINY;
-        }
+        c = floor_tiny(c);
         d = 1.0 / d;
         let del = d * c;
         h *= del;
@@ -541,9 +541,7 @@ fn beta_fraction(a: f64, b: f64, x: f64, y: f64) -> R<f64> {
     let qam = a - 1.0;
     let mut c = 1.0;
     let mut d = (1.0 + a * y - b * x) / qap;
-    if d.abs() < TINY {
-        d = TINY;
-    }
+    d = floor_tiny(d);
     d = 1.0 / d;
     let mut h = d;
     let mut settled = 0;
@@ -554,14 +552,10 @@ fn beta_fraction(a: f64, b: f64, x: f64, y: f64) -> R<f64> {
         // `e` and `f` are the deviations of the odd step's denominators from 1; the even step needs them separately
         let e = aa * d;
         d = 1.0 + e;
-        if d.abs() < TINY {
-            d = TINY;
-        }
+        d = floor_tiny(d);
         let f = aa / c;
         c = 1.0 + f;
-        if c.abs() < TINY {
-            c = TINY;
-        }
+        c = floor_tiny(c);
         d = 1.0 / d;
         h *= d * c;
         // The even coefficient is `-x(1+ρ)`, and `1 + aa·d` there is `(e + y - xρ)/(1+e)` (likewise for `c` with `f`):
@@ -570,13 +564,9 @@ fn beta_fraction(a: f64, b: f64, x: f64, y: f64) -> R<f64> {
         let rho = (a * (b - 1.0) + mf * (b - 2.0 * a - 2.0) - 3.0 * mf * mf) / ((a + m2) * (qap + m2));
         let core = y - x * rho;
         d = (e + core) / (1.0 + e);
-        if d.abs() < TINY {
-            d = TINY;
-        }
+        d = floor_tiny(d);
         c = (f + core) / (1.0 + f);
-        if c.abs() < TINY {
-            c = TINY;
-        }
+        c = floor_tiny(c);
         d = 1.0 / d;
         let del = d * c;
         h *= del;
@@ -653,7 +643,6 @@ const ASYM_TERMS: usize = 24;
 /// two-term recurrence `N J_n = (n-1) J_{n-2} ∓ η^(n-1) e^(-Nη²/2)`). The tail on the far side of the mean is formed
 /// directly and the other as its complement. Truncation after `s^24` is below `1e-18` relative for both shapes at least
 /// 100 and `|η| < 0.3`; the rounding error is a few ulps plus `eps` times the exponent `Nη²/2`.
-#[allow(clippy::needless_range_loop)] // d[n] is built from d[n-1] .. d[0]
 fn beta_asym(x: f64, y: f64, a: f64, b: f64) -> Option<(f64, f64)> {
     let nh = a + b;
     let bb = nh - a;
@@ -675,21 +664,7 @@ fn beta_asym(x: f64, y: f64, a: f64, b: f64) -> Option<(f64, f64)> {
     if h >= ASYM_MAX_ETA {
         return None;
     }
-    let (p, q) = (a / nh, b / nh);
-    // u_n by the recurrence of u u' = s (pq + (q-p) u - u²), then d = 1 / (u(s) / (s u_1))
-    let mut u = [0.0_f64; ASYM_TERMS + 3];
-    u[1] = (p * q).sqrt();
-    let v = |u: &[f64], k: usize| -> f64 { (1..k).map(|i| u[i] * u[k - i]).sum() };
-    for n in 2..=ASYM_TERMS + 1 {
-        let s: f64 = (2..n).map(|i| u[i] * u[n + 1 - i]).sum();
-        let rhs = (q - p) * u[n - 1] - if n >= 3 { v(&u, n - 1) } else { 0.0 };
-        u[n] = (2.0 / (n as f64 + 1.0) * rhs - s) / (2.0 * u[1]);
-    }
-    let mut d = [0.0_f64; ASYM_TERMS + 1];
-    d[0] = 1.0;
-    for n in 1..=ASYM_TERMS {
-        d[n] = -(1..=n).map(|j| u[j + 1] / u[1] * d[n - j]).sum::<f64>();
-    }
+    let d = asym_coefficients(a / nh, b / nh);
     // d_n s^n integrated over the lower side: odd powers change sign there
     let flip = if delta < 0.0 { -1.0 } else { 1.0 };
     let e = (-m).exp();
@@ -717,6 +692,25 @@ fn beta_asym(x: f64, y: f64, a: f64, b: f64) -> Option<(f64, f64)> {
     let _ = jm2;
     let tail = (stirling_corr(nh) - stirling_corr(a) - stirling_corr(b)).exp() * (0.5 * erfc(h * (nh / 2.0).sqrt()) + (nh / (2.0 * PI)).sqrt() * sum);
     Some(if delta >= 0.0 { (1.0 - tail, tail) } else { (tail, 1.0 - tail) })
+}
+/// The Taylor coefficients `d_0 .. d_24` of `f(s)` for `p = a/N`, `q = b/N`.
+#[allow(clippy::needless_range_loop)] // d[n] is built from d[n-1] .. d[0]
+fn asym_coefficients(p: f64, q: f64) -> [f64; ASYM_TERMS + 1] {
+    // u_n by the recurrence of u u' = s (pq + (q-p) u - u²), then d = 1 / (u(s) / (s u_1))
+    let mut u = [0.0_f64; ASYM_TERMS + 3];
+    u[1] = (p * q).sqrt();
+    let v = |u: &[f64], k: usize| -> f64 { (1..k).map(|i| u[i] * u[k - i]).sum() };
+    for n in 2..=ASYM_TERMS + 1 {
+        let s: f64 = (2..n).map(|i| u[i] * u[n + 1 - i]).sum();
+        let rhs = (q - p) * u[n - 1] - if n >= 3 { v(&u, n - 1) } else { 0.0 };
+        u[n] = (2.0 / (n as f64 + 1.0) * rhs - s) / (2.0 * u[1]);
+    }
+    let mut d = [0.0_f64; ASYM_TERMS + 1];
+    d[0] = 1.0;
+    for n in 1..=ASYM_TERMS {
+        d[n] = -(1..=n).map(|j| u[j + 1] / u[1] * d[n - j]).sum::<f64>();
+    }
+    d
 }
 /// Regularized incomplete beta `(I_x(a,b), 1 - I_x(a,b))`, `a, b > 0`, `0 <= x <= 1`.
 pub fn beta_inc(x: f64, a: f64, b: f64) -> R<(f64, f64)> {

@@ -374,20 +374,8 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
     for transform in &container.transforms {
         raster = transformed(&raster, *transform);
     }
-    if let Some((alpha_width, alpha_height, samples)) = alpha {
-        // libheif applies the properties of the primary item to the colour only: the alpha plane (an item of its own,
-        // with none of them) is laid over the transformed colour, scaled by nearest neighbour when the sizes differ.
-        let (out_width, out_height) = (raster.width as usize, raster.height as usize);
-        let mut rgba = Vec::with_capacity(out_width * out_height * 4);
-        for (index, pixel) in raster.data.as_chunks::<3>().0.iter().enumerate() {
-            let (x, y) = (index % out_width, index / out_width);
-            let a = samples[(y * alpha_height / out_height) * alpha_width + x * alpha_width / out_width];
-            let straight = |channel: u8| {
-                if parsed.premultiplied_alpha && a != 0 && a != 255 { (u32::from(channel) * 255 / u32::from(a)).min(255) as u8 } else { channel }
-            };
-            rgba.extend_from_slice(&[straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), a]);
-        }
-        raster = Raster { width: raster.width, height: raster.height, has_alpha: true, data: rgba };
+    if let Some(plane) = alpha {
+        raster = with_alpha_plane(&raster, plane, parsed.premultiplied_alpha);
     }
     // The profile is applied to the decoded (straight-alpha) picture, as libvips imports it after libheif's decode; a
     // per-pixel conversion commutes with the transforms above.
@@ -397,6 +385,21 @@ pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingE
         }
     }
     Ok(AvifImage { width: raster.width, height: raster.height, raster })
+}
+
+/// libheif applies the properties of the primary item to the colour only: the alpha plane (an item of its own, with
+/// none of them), `(width, height, samples)`, is laid over the transformed colour, scaled by nearest neighbour when the
+/// sizes differ, and un-premultiplied when the container says the colour is premultiplied.
+fn with_alpha_plane(raster: &Raster, (alpha_width, alpha_height, samples): (usize, usize, Vec<u8>), premultiplied: bool) -> Raster {
+    let (out_width, out_height) = (raster.width as usize, raster.height as usize);
+    let mut rgba = Vec::with_capacity(out_width * out_height * 4);
+    for (index, pixel) in raster.data.as_chunks::<3>().0.iter().enumerate() {
+        let (x, y) = (index % out_width, index / out_width);
+        let a = samples[(y * alpha_height / out_height) * alpha_width + x * alpha_width / out_width];
+        let straight = |channel: u8| if premultiplied && a != 0 && a != 255 { (u32::from(channel) * 255 / u32::from(a)).min(255) as u8 } else { channel };
+        rgba.extend_from_slice(&[straight(pixel[0]), straight(pixel[1]), straight(pixel[2]), a]);
+    }
+    Raster { width: raster.width, height: raster.height, has_alpha: true, data: rgba }
 }
 
 /// `raster` with one transformative property applied.

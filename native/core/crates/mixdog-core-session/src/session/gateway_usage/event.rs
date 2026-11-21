@@ -270,15 +270,10 @@ pub fn summarize(
         }),
     );
     put("contextUsedPct", context_used_pct.map_or(Value::Null, json_number));
-    put("compact", compact_copy(compact));
+    put("compact", compact.clone());
     put("durationMs", duration_ms.and_then(finite).map_or(Value::Null, |ms| json_number(math::max(0.0, math::round(ms)))));
     put("rawUsageKeys", Value::Array(raw_usage_keys(get(usage, "raw"))));
     out
-}
-
-/// `compact && typeof compact === 'object' ? { ...compact } : compact`.
-fn compact_copy(compact: &Value) -> Value {
-    compact.clone()
 }
 
 /// `compactTelemetry(compact)`.
@@ -331,30 +326,30 @@ fn count_or_null(value: Option<&Value>) -> Value {
     finite(to_number_of(value)).map_or(Value::Null, |n| json_number(math::max(0.0, math::round(n))))
 }
 
+/// The first eight cleaned entries of a summary's `cacheStrategy`; null when it is not an object or array.
+fn cache_strategy_of(strategy: Option<&Value>) -> Value {
+    let entries: Vec<(String, Value)> = match strategy {
+        Some(Value::Object(map)) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        Some(Value::Array(items)) => items.iter().enumerate().map(|(i, v)| (i.to_string(), v.clone())).collect(),
+        _ => return Value::Null,
+    };
+    let mut kept = Map::new();
+    for (key, value) in entries {
+        if let (Some(key), Some(value)) = (clean_string(Some(&Value::String(key))), clean_string(Some(&value))) {
+            kept.insert(key, Value::String(value));
+        }
+        if kept.len() == 8 {
+            break;
+        }
+    }
+    Value::Object(kept)
+}
+
 /// `recordGatewayUsageEvent(summary)`'s event, at `now`.
 pub fn event_of(summary: &Value, now: i64) -> Value {
     let text = |key: &str| text_or_null(clean_string(get(summary, key)));
     let tokens = |key: &str| json_number(num(get(summary, key), 0.0));
-    let cache_strategy = match get(summary, "cacheStrategy") {
-        Some(strategy @ (Value::Object(_) | Value::Array(_))) => {
-            let entries: Vec<(String, Value)> = match strategy {
-                Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
-                Value::Array(items) => items.iter().enumerate().map(|(i, v)| (i.to_string(), v.clone())).collect(),
-                _ => Vec::new(),
-            };
-            let mut kept = Map::new();
-            for (key, value) in entries {
-                if let (Some(key), Some(value)) = (clean_string(Some(&Value::String(key))), clean_string(Some(&value))) {
-                    kept.insert(key, Value::String(value));
-                }
-                if kept.len() == 8 {
-                    break;
-                }
-            }
-            Value::Object(kept)
-        }
-        _ => Value::Null,
-    };
+    let cache_strategy = cache_strategy_of(get(summary, "cacheStrategy"));
     let raw_keys: Vec<Value> = match get(summary, "rawUsageKeys") {
         Some(Value::Array(keys)) => keys.iter().filter_map(|k| clean_string(Some(k))).take(40).map(Value::String).collect(),
         _ => Vec::new(),
@@ -401,4 +396,38 @@ pub fn event_of(summary: &Value, now: i64) -> Value {
         event.insert("transportTiming".into(), timing);
     }
     Value::Object(event)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::event_of;
+
+    fn strategy_of(summary: serde_json::Value) -> serde_json::Value {
+        event_of(&summary, 1)["cacheStrategy"].clone()
+    }
+
+    #[test]
+    fn a_cache_strategy_object_keeps_its_string_entries_and_drops_the_rest() {
+        assert_eq!(strategy_of(json!({ "cacheStrategy": { "tools": "5m", "system": "none", "n": 5 } })), json!({ "tools": "5m", "system": "none" }));
+    }
+
+    #[test]
+    fn a_cache_strategy_array_is_keyed_by_index() {
+        assert_eq!(strategy_of(json!({ "cacheStrategy": ["a", "b"] })), json!({ "0": "a", "1": "b" }));
+    }
+
+    #[test]
+    fn a_cache_strategy_keeps_at_most_eight_entries() {
+        let many: serde_json::Map<String, serde_json::Value> = (0..10).map(|i| (format!("k{i}"), json!("v"))).collect();
+        let kept = strategy_of(json!({ "cacheStrategy": many }));
+        assert_eq!(kept.as_object().unwrap().len(), 8);
+    }
+
+    #[test]
+    fn a_cache_strategy_that_is_not_a_container_is_null() {
+        assert_eq!(strategy_of(json!({ "cacheStrategy": "5m" })), json!(null));
+        assert_eq!(strategy_of(json!({})), json!(null));
+    }
 }

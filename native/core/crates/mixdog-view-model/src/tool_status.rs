@@ -33,9 +33,6 @@ pub fn normalize_tool_terminal_status(value: &str) -> &'static str {
         "running" | "pending" | "queued" | "in_progress" | "in-progress" => "running",
         "completed" | "complete" | "done" | "success" | "succeeded" | "ok" => "completed",
         "failed" | "fail" | "error" | "errored" | "timeout" | "timed_out" | "killed" => "failed",
-        // `cancel-unconfirmed` is task control's honest answer when a cancel was delivered but the process exit could not be
-        // confirmed. It is terminal for the tool call (the detail lives in the body), so it renders as cancelled rather than
-        // falling through to nothing and leaving the surface with no status.
         "cancelled" | "canceled" | "cancel" | "cancelling" | "canceling" => "cancelled",
         _ if CANCEL_QUALIFIED.is_match(&raw) => "cancelled",
         "denied" | "deny" | "refused" | "rejected" => "denied",

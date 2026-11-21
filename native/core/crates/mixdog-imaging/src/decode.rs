@@ -303,25 +303,7 @@ fn within(peak: u64, budget: u64) -> Result<(), ImagingError> {
 /// sRGB. Metadata uses sharp's default density (72 DPI).
 pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) -> Result<Decoded, ImagingError> {
     use resvg::{tiny_skia, usvg};
-    use std::sync::{Arc, OnceLock};
-    static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
-    let fonts = FONTS
-        .get_or_init(|| {
-            let mut fonts = usvg::fontdb::Database::new();
-            fonts.load_system_fonts();
-            Arc::new(fonts)
-        })
-        .clone();
-    let options = usvg::Options {
-        dpi: 72.0,
-        fontdb: fonts,
-        // A buffer has no base URL. Embedded data images are handled by usvg;
-        // do not resolve relative paths against the worker's current directory.
-        image_href_resolver: usvg::ImageHrefResolver { resolve_string: Box::new(|_, _| None), ..usvg::ImageHrefResolver::default() },
-        ..usvg::Options::default()
-    };
-    // The document is read under the bounds every SVG reader of the workspace shares (gzip inflated to a limit, the
-    // node count and the nesting bounded), not by `Tree::from_data`, which inflates and parses without any.
+    let options = svg_options();
     let text = crate::svg_limits::document_text(bytes)?;
     let document = crate::svg_limits::parse(&text)?;
     let tree = usvg::Tree::from_xmltree(&document, &options).map_err(|_| corrupt(Format::Svg, Stage::Header))?;
@@ -337,9 +319,35 @@ pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) ->
     let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
     let transform = tiny_skia::Transform::from_scale(width as f32 / declared_width as f32, height as f32 / declared_height as f32);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes
-    // the rasterizer's premultiplied pixels back to straight alpha (tiny-skia's own demultiply rounds).
-    let data = pixmap
+    let raster = Raster { width, height, has_alpha: true, data: straight_rgba(&pixmap) };
+    Ok(Decoded { format: Format::Svg, width, height, orientation: 1, raster })
+}
+
+/// usvg options at sharp's 72 DPI over the process-wide system font database; an SVG buffer has no base URL, so no
+/// external image reference resolves (embedded data images are still read by usvg).
+fn svg_options() -> resvg::usvg::Options<'static> {
+    use resvg::usvg;
+    use std::sync::{Arc, OnceLock};
+    static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
+    let fonts = FONTS
+        .get_or_init(|| {
+            let mut fonts = usvg::fontdb::Database::new();
+            fonts.load_system_fonts();
+            Arc::new(fonts)
+        })
+        .clone();
+    usvg::Options {
+        dpi: 72.0,
+        fontdb: fonts,
+        image_href_resolver: usvg::ImageHrefResolver { resolve_string: Box::new(|_, _| None), ..usvg::ImageHrefResolver::default() },
+        ..usvg::Options::default()
+    }
+}
+
+/// The pixmap as straight-alpha RGBA: the premultiplied byte over the alpha, truncated, which is what libvips writes
+/// (tiny-skia's own demultiply rounds).
+fn straight_rgba(pixmap: &resvg::tiny_skia::Pixmap) -> Vec<u8> {
+    pixmap
         .pixels()
         .iter()
         .flat_map(|pixel| {
@@ -347,9 +355,7 @@ pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) ->
             let straight = |channel: u8| (u32::from(channel) * 255).checked_div(alpha).map_or(0, |straight| straight.min(255) as u8);
             [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
         })
-        .collect();
-    let raster = Raster { width, height, has_alpha: true, data };
-    Ok(Decoded { format: Format::Svg, width, height, orientation: 1, raster })
+        .collect()
 }
 
 /// The dimensions of the image after one full decode: sharp's `decodedImageMeta`.

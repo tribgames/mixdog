@@ -1,13 +1,3 @@
-//! The credential files of the ten OAuth providers and how each provider loads them
-//! (`loadTokens()` / `loadCredentials()` / `loadStoredCredentials()` of the
-//! `agent/orchestrator/providers/*` modules): where the file is, which documents are a sign-in,
-//! and the document the describe functions read ([`describe_oauth`](super::oauth_status::describe_oauth)).
-//!
-//! Every function here reads files, so a caller runs it in a lane job. The loaded document leaves
-//! out `mtimeMs`: the describe functions never read it. An account binding (`withProviderAccount`)
-//! is the caller's: it passes the bound file as `path`. Not here: the model-proxy client mode,
-//! where every loader answers nothing.
-
 use std::path::Path;
 use std::path::PathBuf;
 

@@ -1,10 +1,3 @@
-//! `RouteConfig` of the session's route adapter: what Node's `updateSessionRoute` reads when it
-//! resolves a session's owner chain (`getConfig()` and the bot route store), at the moment of the call.
-//!
-//! The configuration is not held: every `agent_config()` reads the live snapshot (`config.agent()`,
-//! Node's `getConfig()`), so a settings change applies to the next route update. The bot routes are the
-//! store the turn path already reads (`BotRouteStore`, Node's `readBotRoute`).
-
 use std::sync::Arc;
 
 use mixdog_core_config::config::Config;

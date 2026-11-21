@@ -1,10 +1,3 @@
-//! The crash record of `mixdogd serve`, through the real binary's start-up: each end of the process (a panic out of the start, a
-//! start error, an exit with no stated reason, a kill, an abort that runs no hook, a panic a worker thread has caught) is a
-//! start of `mixdogd serve` that a launcher names with its sidecar first, and the sidecar left at the end says how the process
-//! ended. The binary's own recorder install is what writes it (`crash_record::install_for_process`, before the JS runtime or
-//! the executors are looked at), and one end is the start-up failing on its own (no JS runtime beside the binary), with no
-//! fault added. The faults are `boot_fault.rs`, compiled into a `crash-gates` build.
-//!
 //! Windows only: the binary's console is its own and has no window.
 #![cfg(windows)]
 #![allow(clippy::disallowed_methods, reason = "the test lays out an install, runs a process and reads what it left on disk")]
@@ -54,9 +47,9 @@ fn terminate(pid: u32) {
 /// The binary under test, hard-linked into a folder of its own with no `js-runtime.json` beside it. The folder is removed
 /// with the guard: a link left behind keeps every later build's old binary on disk.
 fn binary() -> (tempfile::TempDir, PathBuf) {
-    let dir = tempfile::Builder::new().prefix("crash-record-").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let dir = tempfile::Builder::new().prefix("crash-record-").tempdir_in(mixdog_testkit::target_tmpdir!()).unwrap();
     let exe = dir.path().join("mixdogd.exe");
-    std::fs::hard_link(env!("CARGO_BIN_EXE_mixdogd"), &exe).unwrap();
+    std::fs::hard_link(mixdog_testkit::bin_exe!("mixdogd"), &exe).unwrap();
     (dir, exe)
 }
 

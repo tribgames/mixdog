@@ -41,10 +41,9 @@ const REVIEW_BATCH_PATCH_CHARS: usize = 8_000_000;
 /// Pathspec text one batch passes on the command line (Windows caps it near 32k).
 const REVIEW_BATCH_ARGS_CHARS: usize = 20_000;
 const REVIEW_CACHE_MAX: usize = 16;
-/// A cached row older than this (plus its own offset, [`revalidate_after`]) is read again even when its identity stands. The
-/// identity is the status record and the file's `size:mtime:ctime:ino`, so this only covers a write the clocks cannot tell
-/// apart. At 30 s with no offset every row of a busy checkout came due together: while agents edited it, each 30 s one read
-/// re-diffed every changed file (over a second, and a re-read of each of them).
+/// A cached row older than this (plus its own offset, [`revalidate_after`]) is read again even when its identity stands, which
+/// only covers a write the clocks cannot tell apart. At 30 s with no offset every row of a busy checkout came due together and
+/// one read re-diffed every changed file.
 const REVIEW_REVALIDATE: Duration = Duration::from_secs(300);
 
 /// When `path`'s cached row is due again: [`REVIEW_REVALIDATE`] plus a fixed per-path offset of up to the same span, so rows
@@ -309,6 +308,80 @@ fn not_a_repository() -> Value {
     json!({ "repository": false, "root": "", "base": "", "files": [], "untrackedOmitted": 0 })
 }
 
+fn is_fresh(now: Instant, path: &str, checked_at: Instant) -> bool {
+    now.saturating_duration_since(checked_at) < revalidate_after(path)
+}
+
+/// The cached tracked rows that still hold, and a fresh read of the rest.
+async fn refresh_tracked(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &Path,
+    reference: &str,
+    candidates: &IndexMap<String, String>,
+    prior: &IndexMap<String, TrackedEntry>,
+    revisions: &HashMap<String, String>,
+) -> Result<IndexMap<String, TrackedEntry>, ScmFailure> {
+    let now = crate::seam::cache_clock();
+    let mut tracked = IndexMap::new();
+    let mut stale: Vec<String> = Vec::new();
+    for (path, status) in candidates {
+        let key = format!("{status}\0{}", revisions.get(path).map_or("", String::as_str));
+        match prior.get(path) {
+            Some(known) if known.key == key && is_fresh(now, path, known.checked_at) => {
+                tracked.insert(path.clone(), known.clone());
+            }
+            _ => {
+                tracked.insert(path.clone(), TrackedEntry { key, record: None, checked_at: now });
+                stale.push(path.clone());
+            }
+        }
+    }
+    if !stale.is_empty() {
+        let (records, whole) = diff_stale_rows(git, cancel, root, reference, &stale).await?;
+        for path in &stale {
+            if let Some(entry) = tracked.get_mut(path) {
+                entry.record = records.get(path).cloned();
+            }
+        }
+        if whole {
+            for (path, record) in records {
+                tracked.entry(path).or_insert(TrackedEntry { key: String::new(), record: Some(record), checked_at: now });
+            }
+        }
+    }
+    Ok(tracked)
+}
+
+/// The cached line counts of untracked files that still hold, and a fresh count of the rest.
+async fn refresh_untracked(
+    lane: MaintenanceIo,
+    cancel: &CancellationToken,
+    root: &str,
+    paths: &[String],
+    prior: Option<&IndexMap<String, UntrackedEntry>>,
+    revisions: &HashMap<String, String>,
+) -> Result<IndexMap<String, UntrackedEntry>, ScmFailure> {
+    let now = crate::seam::cache_clock();
+    let mut untracked = IndexMap::new();
+    for path in paths {
+        let revision = revisions.get(path).cloned().unwrap_or_default();
+        let entry = match prior.and_then(|cache| cache.get(path)) {
+            Some(known) if known.revision == revision && is_fresh(now, path, known.checked_at) => known.clone(),
+            _ => {
+                let counted = on_lane(lane, cancel, {
+                    let (root, path) = (root.to_owned(), path.clone());
+                    move || untracked_lines(Path::new(&root), &path)
+                })
+                .await?;
+                UntrackedEntry { revision, additions: counted, checked_at: now }
+            }
+        };
+        untracked.insert(path.clone(), entry);
+    }
+    Ok(untracked)
+}
+
 /// `gitReview(cwd, source)`: the review rows of the work tree against the diff base.
 pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationToken, cwd: &Path, source: &str) -> Result<Value, ScmFailure> {
     let root = match cached_git_root(git, cancel, cwd).await {
@@ -375,35 +448,7 @@ pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
         Some(known) if known.ref_key == ref_key => known.tracked.clone(),
         _ => IndexMap::new(),
     };
-    let mut tracked: IndexMap<String, TrackedEntry> = IndexMap::new();
-    let mut stale: Vec<String> = Vec::new();
-    let now = crate::seam::cache_clock();
-    let fresh = |path: &str, checked_at: Instant| now.saturating_duration_since(checked_at) < revalidate_after(path);
-    for path in &tracked_paths {
-        let key = format!("{}\0{}", candidates[path], revision_of(path));
-        match prior_tracked.get(path) {
-            Some(known) if known.key == key && fresh(path, known.checked_at) => {
-                tracked.insert(path.clone(), known.clone());
-            }
-            _ => {
-                tracked.insert(path.clone(), TrackedEntry { key, record: None, checked_at: now });
-                stale.push(path.clone());
-            }
-        }
-    }
-    if !stale.is_empty() {
-        let (records, whole) = diff_stale_rows(git, cancel, root_path, &reference, &stale).await?;
-        for path in &stale {
-            if let Some(entry) = tracked.get_mut(path) {
-                entry.record = records.get(path).cloned();
-            }
-        }
-        if whole {
-            for (path, record) in records {
-                tracked.entry(path).or_insert(TrackedEntry { key: String::new(), record: Some(record), checked_at: now });
-            }
-        }
-    }
+    let mut tracked = refresh_tracked(git, cancel, root_path, &reference, &candidates, &prior_tracked, &revisions).await?;
     let mut files: IndexMap<String, Value> = IndexMap::new();
     for (path, entry) in &tracked {
         let Some((status_letter, additions, deletions)) = &entry.record else { continue };
@@ -412,24 +457,7 @@ pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
             json!({ "path": path, "status": status_letter, "additions": additions, "deletions": deletions, "untracked": false, "revision": revision_of(path) }),
         );
     }
-    let mut untracked: IndexMap<String, UntrackedEntry> = IndexMap::new();
-    for path in &untracked_paths {
-        let revision = revision_of(path);
-        let known = previous.as_ref().and_then(|cache| cache.untracked.get(path));
-        let entry = match known {
-            // Recounting reads the file once: any moved identity field or an aged row is simply counted again.
-            Some(known) if known.revision == revision && fresh(path, known.checked_at) => known.clone(),
-            _ => {
-                let counted = on_lane(lane, cancel, {
-                    let (root, path) = (root.clone(), path.clone());
-                    move || untracked_lines(Path::new(&root), &path)
-                })
-                .await?;
-                UntrackedEntry { revision, additions: counted, checked_at: now }
-            }
-        };
-        untracked.insert(path.clone(), entry);
-    }
+    let untracked = refresh_untracked(lane, cancel, &root, &untracked_paths, previous.as_ref().map(|cache| &cache.untracked), &revisions).await?;
     for path in &untracked_paths {
         let entry = &untracked[path];
         files.insert(
@@ -502,6 +530,34 @@ enum TrackedRead {
     TooLarge,
 }
 
+/// The chunk of one `git diff` for each tracked path it names, and whether a chunk named none of them.
+fn split_by_path<'a>(output: &str, tracked: &'a [String]) -> (HashMap<&'a String, String>, bool) {
+    let by_header: HashMap<String, &String> = tracked.iter().map(|path| (format!("diff --git a/{path} b/{path}"), path)).collect();
+    let mut chunks: HashMap<&String, String> = HashMap::new();
+    let mut unmatched = false;
+    // output.split(/^(?=diff --git )/m): a chunk starts at each line that begins `diff --git `.
+    let mut starts: Vec<usize> =
+        output.match_indices("diff --git ").filter(|(at, _)| *at == 0 || output.as_bytes()[at - 1] == b'\n').map(|(at, _)| at).collect();
+    if starts.first() != Some(&0) {
+        starts.insert(0, 0);
+    }
+    for (index, start) in starts.iter().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or(output.len());
+        let chunk = &output[*start..end];
+        if chunk.is_empty() {
+            continue;
+        }
+        let header = chunk.split('\n').next().unwrap_or("");
+        match by_header.get(header) {
+            Some(path) => {
+                chunks.insert(path, chunk.to_owned());
+            }
+            None => unmatched = true,
+        }
+    }
+    (chunks, unmatched)
+}
+
 /// The answer of `gitReviewDiffs` from what was read: the single diff split back per path, the untracked patches, and the patch budget.
 fn assemble_batch(plan: BatchPlan, tracked_read: Option<TrackedRead>, mut untracked_patch_of: impl FnMut(&str) -> String) -> Value {
     let BatchPlan { tracked, untracked, mut omitted } = plan;
@@ -520,29 +576,7 @@ fn assemble_batch(plan: BatchPlan, tracked_read: Option<TrackedRead>, mut untrac
         None => {}
         Some(TrackedRead::TooLarge) => omitted.extend(tracked.iter().cloned()),
         Some(TrackedRead::Output(output)) => {
-            let by_header: HashMap<String, &String> = tracked.iter().map(|path| (format!("diff --git a/{path} b/{path}"), path)).collect();
-            let mut chunks: HashMap<&String, String> = HashMap::new();
-            let mut unmatched = false;
-            // output.split(/^(?=diff --git )/m): a chunk starts at each line that begins `diff --git `.
-            let mut starts: Vec<usize> =
-                output.match_indices("diff --git ").filter(|(at, _)| *at == 0 || output.as_bytes()[at - 1] == b'\n').map(|(at, _)| at).collect();
-            if starts.first() != Some(&0) {
-                starts.insert(0, 0);
-            }
-            for (index, start) in starts.iter().enumerate() {
-                let end = starts.get(index + 1).copied().unwrap_or(output.len());
-                let chunk = &output[*start..end];
-                if chunk.is_empty() {
-                    continue;
-                }
-                let header = chunk.split('\n').next().unwrap_or("");
-                match by_header.get(header) {
-                    Some(path) => {
-                        chunks.insert(path, chunk.to_owned());
-                    }
-                    None => unmatched = true,
-                }
-            }
+            let (mut chunks, unmatched) = split_by_path(&output, &tracked);
             // A path with no chunk is unchanged only when every chunk git printed was attributed; otherwise its patch may be among
             // the unmatched ones.
             for path in &tracked {

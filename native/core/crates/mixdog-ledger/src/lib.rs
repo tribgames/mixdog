@@ -3,9 +3,9 @@
 //! session-usage and token reads. Every function takes the `rusqlite` connection the
 //! store's writer or reader hands it.
 
-// The ledger's SQL runs on the connection `SqliteStore` lends it; until `mixdog-store::sqlite`
-// lands, `rusqlite::Connection` is named directly (through `db`).
-#![allow(clippy::disallowed_types, reason = "mixdog-store::sqlite has not landed")]
+// The ledger's SQL runs on the connection `SqliteStore` lends it; `mixdog-store::sqlite` does not
+// re-export `rusqlite::Connection`, so the ledger names it directly (through `db`).
+#![allow(clippy::disallowed_types, reason = "mixdog-store::sqlite does not re-export rusqlite::Connection")]
 
 pub mod append;
 pub mod backup;

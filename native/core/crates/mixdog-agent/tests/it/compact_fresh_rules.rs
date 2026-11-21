@@ -740,36 +740,43 @@ async fn compaction_keeps_the_current_used_skill_and_retires_an_unavailable_load
     assert!(second.messages.iter().any(|m| m.source == Some(Source::CompactSkillReload) && m.text().contains("\"active\"")));
 }
 
-#[tokio::test]
-async fn restored_native_schemas_consume_skill_budget_and_reminders_do_not_activate_tools() {
-    use mixdog_agent::compact::skills::{CurrentSkill, CurrentSkillResult, CurrentSkills};
-    struct Skills(Mutex<Vec<String>>);
-    #[async_trait]
-    impl CurrentSkills for Skills {
-        async fn resolve(&self, _: &str, _: bool) -> Result<Option<CurrentSkill>, String> {
-            Ok(Some(CurrentSkill {
-                body: "<skill>\n<name>alpha</name>\nUse the linked tool.\n</skill>".to_owned(),
-                tools: vec!["linked".to_owned()],
-                result: Some(CurrentSkillResult {
-                    summary: "Loaded skill: alpha".to_owned(),
-                    native: Some(json!({
-                        "provider": "openai", "toolReferences": ["linked"],
-                        "openaiTools": [{
-                            "name": "linked", "type": "function", "defer_loading": true,
-                            "description": "long schema documentation ".repeat(10_000)
-                        }]
-                    })),
-                }),
-            }))
-        }
-        async fn activate(&self, name: &str, _: &str) -> Result<(), String> {
-            self.0.lock().unwrap().push(name.to_owned());
-            Ok(())
-        }
+struct LinkedToolSkill(Mutex<Vec<String>>);
+
+#[async_trait]
+impl mixdog_agent::compact::skills::CurrentSkills for LinkedToolSkill {
+    async fn resolve(&self, _: &str, _: bool) -> Result<Option<mixdog_agent::compact::skills::CurrentSkill>, String> {
+        use mixdog_agent::compact::skills::{CurrentSkill, CurrentSkillResult};
+        Ok(Some(CurrentSkill {
+            body: "<skill>\n<name>alpha</name>\nUse the linked tool.\n</skill>".to_owned(),
+            tools: vec!["linked".to_owned()],
+            result: Some(CurrentSkillResult {
+                summary: "Loaded skill: alpha".to_owned(),
+                native: Some(json!({
+                    "provider": "openai", "toolReferences": ["linked"],
+                    "openaiTools": [{
+                        "name": "linked", "type": "function", "defer_loading": true,
+                        "description": "long schema documentation ".repeat(10_000)
+                    }]
+                })),
+            }),
+        }))
     }
-    let skills = Arc::new(Skills(Mutex::new(Vec::new())));
+    async fn activate(&self, name: &str, _: &str) -> Result<(), String> {
+        self.0.lock().unwrap().push(name.to_owned());
+        Ok(())
+    }
+}
+
+fn linked_tool_compactor() -> (FreshCompactor, Arc<LinkedToolSkill>) {
+    let skills = Arc::new(LinkedToolSkill(Mutex::new(Vec::new())));
     let mut compactor = compactor(None);
     Arc::get_mut(&mut compactor.parts).unwrap().skills = Some(skills.clone());
+    (compactor, skills)
+}
+
+#[tokio::test]
+async fn a_restored_skill_reminder_carries_no_native_schema_and_activates_no_tool() {
+    let (compactor, skills) = linked_tool_compactor();
     let messages = [
         system("Rules"),
         AgentMessage::user("Continue the task."),
@@ -782,8 +789,16 @@ async fn restored_native_schemas_consume_skill_budget_and_reminders_do_not_activ
     assert!(output.messages.iter().all(|m| m.message.native_tool_search.is_none()));
     compactor.adopted(&output.messages).await;
     assert!(skills.0.lock().unwrap().is_empty());
+}
 
-    // If the loader pair is mandatory, the same definition counts against the whole window.
+#[tokio::test]
+async fn a_mandatory_skill_loader_pair_counts_its_restored_native_schema_against_the_whole_window() {
+    let (compactor, skills) = linked_tool_compactor();
+    let messages = [
+        system("Rules"),
+        AgentMessage::user("Continue the task."),
+        AgentMessage::sourced(Source::Skill, "<skill>\n<name>alpha</name>\nUse the linked tool.\n</skill>"),
+    ];
     let retained = [
         messages[0].clone(),
         messages[1].clone(),

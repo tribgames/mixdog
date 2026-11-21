@@ -1,12 +1,3 @@
-//! The Model picker cluster (`src/tui/app/model-picker.mjs`, `model-picker/provider-models-list.mjs`): `openModelPicker` claims
-//! the panel surface, resolves the catalog ([`super::catalog`]), paints the provider list and opens one provider's model list,
-//! whose selections live in [`super::selection`] and whose footer is [`super::footer`].
-//!
-//! Every paint, the loading frame, the provider list and the per-provider model list, proves ownership through the picker's
-//! [`Own`] claim, and each paint re-arms it because a paint can itself be the handover. The request counter only orders
-//! concurrent OPENS; it cannot see an Esc that closed this one, so a model load settling afterwards must not repaint the
-//! dismissed picker.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -231,10 +222,6 @@ impl PickerHandler for ProviderListHandler {
     }
 }
 
-/// `saveSelectedRoute`: saves the route for a caller-owned save (`options.onSelectRoute`) or through `store.setRoute`. The
-/// keypress owns the hop: the destination is painted and the surface handed back on the spot; the write settles afterwards.
-/// Waiting for the write to ack first left a "Switching model..." panel (or a closed picker with an unchanged statusline) on
-/// screen for as long as the runtime took; `store.setRoute` previews the route immediately and reverts it if the write fails.
 fn save_selected_route(host: &mut dyn PickerHost, session: &Session, selected: &Value, route_input: &Value, effort: &Option<String>) {
     let options = &session.options;
     if let Some(on_select_route) = &options.on_select_route {

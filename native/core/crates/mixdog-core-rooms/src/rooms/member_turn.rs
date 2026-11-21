@@ -21,7 +21,7 @@ use super::rows::rows_since_cursor;
 use super::turn_answer::spoken_text;
 use super::turn_host::{Failure, MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_post::{HaltFuture, HaltOutcome, Polled, Speech, poll_for_answer, post_speech};
-use super::turn_prompt::{PromptInput, PromptMember, RoomPrompt, room_turn_prompt};
+use super::turn_prompt::{PromptInput, PromptMember, RoomPrompt, room_turn_prompt, str_of};
 use super::usage::room_usage_limit;
 
 #[cfg(test)]
@@ -175,10 +175,6 @@ impl Outcome {
     }
 }
 
-fn str_of<'a>(row: &'a Value, field: &str) -> &'a str {
-    row.get(field).and_then(Value::as_str).unwrap_or("")
-}
-
 fn is_seen(row: &Value) -> bool {
     row.get("seen").and_then(Value::as_bool).unwrap_or(false)
 }
@@ -296,30 +292,19 @@ enum Attempt {
 }
 
 impl Ctx {
-    /// The try block of `memberTurn`: an `Err` is the catch block's.
-    async fn attempt(self: &Arc<Self>, turn: &Turn, call: Option<&TurnCall>, rows: &[Value], shown: &[Value], waiting: bool) -> Result<Attempt, String> {
-        let host = &self.host;
-        let session = host.member_session(&self.member).await?;
-        *self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = session.clone();
-        self.state.set_member_session(&session);
-        if self.gone() {
-            return Ok(Attempt::Return(of_halt(self.left().await)));
-        }
+    fn label_name(&self, id: &str) -> String {
+        self.labels.get(id).map_or_else(|| id.to_owned(), |label| label.name.clone())
+    }
+
+    fn prompt(&self, turn: &Turn, call: Option<&TurnCall>, shown: &[Value], waiting: bool) -> RoomPrompt {
         let (name, share_tools, member_ids) = {
             let room = self.room();
             (room.name.clone(), room.share_tools, room.members.clone())
         };
-        let members: Vec<PromptMember> = member_ids
-            .iter()
-            .map(|id| PromptMember { id: id.clone(), name: self.labels.get(id).map_or_else(|| id.clone(), |label| label.name.clone()) })
-            .collect();
+        let members: Vec<PromptMember> = member_ids.iter().map(|id| PromptMember { id: id.clone(), name: self.label_name(id) }).collect();
         let myself = PromptMember { id: self.member.id.clone(), name: self.member.name.clone() };
-        let mentioned_by = if turn.mentioned_by.is_empty() {
-            String::new()
-        } else {
-            self.labels.get(&turn.mentioned_by).map_or_else(|| turn.mentioned_by.clone(), |label| label.name.clone())
-        };
-        let prompt = room_turn_prompt(&PromptInput {
+        let mentioned_by = if turn.mentioned_by.is_empty() { String::new() } else { self.label_name(&turn.mentioned_by) };
+        room_turn_prompt(&PromptInput {
             room_name: &name,
             myself: &myself,
             members: &members,
@@ -332,7 +317,19 @@ impl Ctx {
             waiting: Some(waiting),
             asked_by: call.map_or("", |call| call.asked_by.as_str()),
             relay: call.map_or("", |call| call.relay.as_str()),
-        });
+        })
+    }
+
+    /// The try block of `memberTurn`: an `Err` is the catch block's.
+    async fn attempt(self: &Arc<Self>, turn: &Turn, call: Option<&TurnCall>, rows: &[Value], shown: &[Value], waiting: bool) -> Result<Attempt, String> {
+        let host = &self.host;
+        let session = host.member_session(&self.member).await?;
+        *self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = session.clone();
+        self.state.set_member_session(&session);
+        if self.gone() {
+            return Ok(Attempt::Return(of_halt(self.left().await)));
+        }
+        let prompt = self.prompt(turn, call, shown, waiting);
         if let Some(last) = rows.last() {
             self.room().cursors.insert(self.agent_id.clone(), str_of(last, "id").to_owned());
         }
@@ -443,19 +440,7 @@ pub async fn member_turn(
     // Whether the user's newest message still has no answer in the room.
     let waiting = state.waiting();
     let rows = host.rows().await?;
-    let (cursor, seen_id) = {
-        let room = ctx.room();
-        (room.cursors.get(agent_id).cloned().unwrap_or_default(), room.seen.as_ref().and_then(|seen| seen.get(agent_id)).cloned().unwrap_or_default())
-    };
-    let mut shown = rows_since_cursor(&rows, &cursor, agent_id, &seen_id);
-    // A user still waiting keeps their newest message in view, as context when this member was
-    // already handed it.
-    let asked = if waiting { rows.iter().rev().find(|row| str_of(row, "kind") == "user") } else { None };
-    if let Some(asked) = asked.filter(|asked| !shown.iter().any(|row| row.get("id") == asked.get("id"))) {
-        let mut context = asked.clone();
-        context["seen"] = Value::Bool(true);
-        shown.insert(0, context);
-    }
+    let shown = ctx.rows_to_show(&rows, waiting);
     // Nothing new, nobody asking for it (the user, a peer's @mention or the supervisor's note) and
     // no user waiting: there is no turn to hand, so none is; the member counts as passing and
     // nothing is posted.
@@ -466,23 +451,9 @@ pub async fn member_turn(
     state.start_speaking(agent_id, &ctx.member.name, format!("room-typing-{}", host.new_id()));
     host.republish();
     *ctx.cursor_before.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = ctx.room().cursors.get(agent_id).cloned();
-    let attempt = ctx.attempt(turn, call, &rows, &shown, waiting).await;
-    let attempt = match attempt {
+    let attempt = match ctx.attempt(turn, call, &rows, &shown, waiting).await {
         Ok(attempt) => Ok(attempt),
-        Err(error) => {
-            host.log(&format!("{agent_id} could not speak in room {}: {error}", host.room_id()));
-            if state.stop() {
-                Err(Answer::of(TurnResult::Stopped))
-            } else if ctx.gone() {
-                Err(of_halt(ctx.left().await))
-            } else if ctx.interrupted() {
-                Err(of_halt(ctx.cut_short().await))
-            } else {
-                outcome.failed.store(true, Ordering::SeqCst);
-                state.push_failure(Failure { id: agent_id.to_owned(), name: ctx.member.name.clone(), reason: error });
-                Err(Answer { failed: true, ..Answer::of(TurnResult::Pass) })
-            }
-        }
+        Err(error) => Err(ctx.failed_attempt(error).await),
     };
     // `finally`
     state.set_approval(None);
@@ -494,63 +465,115 @@ pub async fn member_turn(
         Err(answer) | Ok(Attempt::Return(answer)) => return Ok(retired(host, state, answer)),
         Ok(Attempt::Answered { answer, snapshot, started_at }) => (answer, snapshot, started_at),
     };
-    // The member's turn ended: its submission is no work a later Stop of this exchange has to freeze.
-    {
-        let session = ctx.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-        let submission = ctx.submission.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-        state.run.answered(&session, &submission);
-    }
-    if state.stop() {
-        return Ok(retired(host, state, Answer::of(TurnResult::Stopped)));
-    }
-    if ctx.gone() {
-        let left = of_halt(ctx.left().await);
-        return Ok(retired(host, state, left));
-    }
-    if ctx.interrupted() {
-        let cut = of_halt(ctx.cut_short().await);
-        save_in_background(host);
-        return Ok(retired(host, state, cut));
-    }
-    // A relay of the member's own work is no turn to pass either.
-    let relay = call.is_some_and(|call| !call.relay.is_empty());
-    let text = spoken_text(&answer, waiting || relay);
-    // A member whose answer was a reaction on the user's row alone has taken its turn: the reaction
-    // shows under that row, and no pass row is posted.
-    if text.is_empty() && answer.reacted {
-        return Ok(retired(host, state, Answer::of(TurnResult::Pass)));
-    }
-    if text.is_empty() {
-        let failed = answer.status != "done";
-        outcome.failed.store(failed, Ordering::SeqCst);
-        if !failed {
-            let id = format!("row_{}", host.new_id());
-            let row = json!({ "id": id, "kind": "pass", "speaker": agent_id, "name": ctx.member.name, "at": host.now(), "text": "" });
-            host.post_ending_turn(vec![row], state).await?;
-            return Ok(Answer::of(TurnResult::Pass));
+    ctx.settle(call, waiting, answer, snapshot, started_at).await
+}
+
+impl Ctx {
+    /// The catch block of `memberTurn`: the answer the failed attempt ends the turn with.
+    async fn failed_attempt(self: &Arc<Self>, error: String) -> Answer {
+        self.host.log(&format!("{} could not speak in room {}: {error}", self.agent_id, self.host.room_id()));
+        if self.state.stop() {
+            Answer::of(TurnResult::Stopped)
+        } else if self.gone() {
+            of_halt(self.left().await)
+        } else if self.interrupted() {
+            of_halt(self.cut_short().await)
+        } else {
+            self.outcome.failed.store(true, Ordering::SeqCst);
+            self.state.push_failure(Failure { id: self.agent_id.clone(), name: self.member.name.clone(), reason: error });
+            Answer { failed: true, ..Answer::of(TurnResult::Pass) }
         }
-        let done = snapshot
-            .get("items")
-            .and_then(Value::as_array)
-            .and_then(|items| items.iter().find(|item| str_of(item, "kind") == "turndone" && item.get("id") == Some(&answer.id)))
-            .cloned()
-            .unwrap_or(Value::Null);
-        // A usage limit fails every member alike: the exchange stops on it and says so once,
-        // instead of showing this turn as one more failure.
-        if let Some(usage) = room_usage_limit(&done, &ctx.member.route) {
-            return Ok(retired(host, state, Answer { failed: true, usage: Some(usage), ..Answer::of(TurnResult::Pass) }));
-        }
-        state.push_failure(Failure {
-            id: agent_id.to_owned(),
-            name: ctx.member.name.clone(),
-            reason: done.get("detail").and_then(Value::as_str).unwrap_or("").to_owned(),
-        });
-        return Ok(retired(host, state, Answer { failed: true, ..Answer::of(TurnResult::Pass) }));
     }
-    *outcome.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
-    let speech = Speech { agent_id, member: &ctx.member, text: &text, snapshot: &snapshot, started_at };
-    let mention = post_speech(host.as_ref(), state, &ctx.room, labels, &speech).await?;
-    Ok(Answer { mention: mention.filter(|mention| !mention.is_empty()), ..Answer::of(TurnResult::Speech) })
+
+    /// The rows the member is handed: those new since its cursor, and a waiting user's newest message as context when it
+    /// was handed that already.
+    fn rows_to_show(&self, rows: &[Value], waiting: bool) -> Vec<Value> {
+        let (cursor, seen_id) = {
+            let room = self.room();
+            (
+                room.cursors.get(&self.agent_id).cloned().unwrap_or_default(),
+                room.seen.as_ref().and_then(|seen| seen.get(&self.agent_id)).cloned().unwrap_or_default(),
+            )
+        };
+        let mut shown = rows_since_cursor(rows, &cursor, &self.agent_id, &seen_id);
+        let asked = if waiting { rows.iter().rev().find(|row| str_of(row, "kind") == "user") } else { None };
+        if let Some(asked) = asked.filter(|asked| !shown.iter().any(|row| row.get("id") == asked.get("id"))) {
+            let mut context = asked.clone();
+            context["seen"] = Value::Bool(true);
+            shown.insert(0, context);
+        }
+        shown
+    }
+
+    /// An attempt that got the member's answer: what the turn posts for it, or why it posts nothing.
+    async fn settle(
+        self: &Arc<Self>,
+        call: Option<&TurnCall>,
+        waiting: bool,
+        answer: super::turn_answer::SessionAnswer,
+        snapshot: Value,
+        started_at: f64,
+    ) -> Result<Answer, String> {
+        let (host, state, outcome, agent_id) = (&self.host, &self.state, &self.outcome, self.agent_id.as_str());
+        // The member's turn ended: its submission is no work a later Stop of this exchange has to freeze.
+        {
+            let session = self.session.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            let submission = self.submission.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            state.run.answered(&session, &submission);
+        }
+        let (ctx, labels) = (self, &self.labels);
+        if state.stop() {
+            return Ok(retired(host, state, Answer::of(TurnResult::Stopped)));
+        }
+        if ctx.gone() {
+            let left = of_halt(ctx.left().await);
+            return Ok(retired(host, state, left));
+        }
+        if ctx.interrupted() {
+            let cut = of_halt(ctx.cut_short().await);
+            save_in_background(host);
+            return Ok(retired(host, state, cut));
+        }
+        // A relay of the member's own work is no turn to pass either.
+        let relay = call.is_some_and(|call| !call.relay.is_empty());
+        let text = spoken_text(&answer, waiting || relay);
+        // A member whose answer was a reaction on the user's row alone has taken its turn: the reaction
+        // shows under that row, and no pass row is posted.
+        if text.is_empty() && answer.reacted {
+            return Ok(retired(host, state, Answer::of(TurnResult::Pass)));
+        }
+        if text.is_empty() {
+            let failed = answer.status != "done";
+            outcome.failed.store(failed, Ordering::SeqCst);
+            if !failed {
+                let id = format!("row_{}", host.new_id());
+                let row = json!({ "id": id, "kind": "pass", "speaker": agent_id, "name": ctx.member.name, "at": host.now(), "text": "" });
+                host.post_ending_turn(vec![row], state).await?;
+                return Ok(Answer::of(TurnResult::Pass));
+            }
+            let done = snapshot
+                .get("items")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find(|item| str_of(item, "kind") == "turndone" && item.get("id") == Some(&answer.id)))
+                .cloned()
+                .unwrap_or(Value::Null);
+            // A usage limit fails every member alike: the exchange stops on it and says so once,
+            // instead of showing this turn as one more failure.
+            if let Some(usage) = room_usage_limit(&done, &ctx.member.route) {
+                return Ok(retired(host, state, Answer { failed: true, usage: Some(usage), ..Answer::of(TurnResult::Pass) }));
+            }
+            state.push_failure(Failure {
+                id: agent_id.to_owned(),
+                name: ctx.member.name.clone(),
+                reason: done.get("detail").and_then(Value::as_str).unwrap_or("").to_owned(),
+            });
+            return Ok(retired(host, state, Answer { failed: true, ..Answer::of(TurnResult::Pass) }));
+        }
+        *outcome.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
+        let speech = Speech { agent_id, member: &ctx.member, text: &text, snapshot: &snapshot, started_at };
+        let mention = post_speech(host.as_ref(), state, &ctx.room, labels, &speech).await?;
+        Ok(Answer { mention: mention.filter(|mention| !mention.is_empty()), ..Answer::of(TurnResult::Speech) })
+    }
 }
 
 /// One member's turn: hand it the new rows, wait for its answer (relaying any approval it asks for

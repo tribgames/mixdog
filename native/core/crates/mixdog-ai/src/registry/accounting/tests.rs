@@ -185,6 +185,62 @@ fn a_status_follows_failed_then_substituted_then_retried() {
     assert!(!served_model_substituted("gemini-x", "a", "b", true));
 }
 
+fn record_args(provider: &str, status: &str, facts: Facts) -> RecordArgs {
+    RecordArgs {
+        ts: 1_700_000_000_000,
+        provider: provider.into(),
+        model: "m".into(),
+        requested_model: "m".into(),
+        requested_provider: provider.into(),
+        status: status.into(),
+        attempts: 1.0,
+        ttft_ms: None,
+        elapsed_ms: 0.0,
+        pricing_model: None,
+        session_id: None,
+        owner_session_id: None,
+        source_type: "lead".into(),
+        facts,
+        input_tokens_inclusive: true,
+        media: None,
+        service_tier: None,
+        request_service_tier: None,
+        response_id: "resp".into(),
+        account: String::new(),
+        duration_ms: 0.0,
+        origin: None,
+        id: None,
+    }
+}
+
+fn facts_with_cost(cost_usd: Option<f64>) -> Facts {
+    Facts { input_tokens: Some(10.0), output_tokens_known: true, output_tokens: 5.0, cost_usd, ..Facts::FAILED }
+}
+
+#[test]
+fn a_provider_reported_cost_is_the_row_cost_under_the_providers_own_rates() {
+    let row = make_usage_record(&record_args("openai", "completed", facts_with_cost(Some(0.25))), &Unpriced, &|| "<id>".into()).unwrap();
+    assert_eq!((row.cost_usd, row.cost_source.as_str()), (Some(0.25), "provider"));
+    let rates: Value = serde_json::from_str(row.rates.as_deref().unwrap()).unwrap();
+    assert_eq!(rates, json!({ "requestedModel": "m", "pricingModel": "m", "pricingProvider": "openai", "pricingSource": "provider" }));
+}
+
+#[test]
+fn a_local_send_costs_nothing_and_a_subscription_without_a_price_is_unpriced() {
+    let local = make_usage_record(&record_args("mixdog-local", "completed", facts_with_cost(Some(0.25))), &Unpriced, &|| "<id>".into()).unwrap();
+    assert_eq!((local.cost_usd, local.cost_source.as_str()), (Some(0.0), "local"));
+    let rates: Value = serde_json::from_str(local.rates.as_deref().unwrap()).unwrap();
+    assert_eq!(rates["pricingSource"], "local");
+    let oauth = make_usage_record(&record_args("openai-oauth", "completed", facts_with_cost(Some(0.25))), &Unpriced, &|| "<id>".into()).unwrap();
+    assert_eq!((oauth.cost_usd, oauth.cost_source.as_str()), (None, "unpriced"));
+}
+
+#[test]
+fn a_failure_that_measured_no_tokens_costs_nothing_and_has_no_usage() {
+    let row = make_usage_record(&record_args("openai", "failed", Facts::FAILED), &Unpriced, &|| "<id>".into()).unwrap();
+    assert_eq!((row.cost_usd, row.cost_source.as_str()), (Some(0.0), NO_USAGE_COST_SOURCE));
+}
+
 mod through_the_registry {
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicI64;

@@ -82,6 +82,26 @@ impl Pipeline {
         }
     }
 
+    fn apply(&mut self, op: &Value) {
+        if let Some(data) = op.get("data") {
+            self.data(&hex(data.as_str().unwrap()));
+        } else if let Some(focus) = op.get("focus") {
+            let change = self.activity.set_focus(focus[0].as_str().unwrap(), focus[1].as_bool().unwrap());
+            self.note(change);
+        } else if let Some(input) = op.get("input") {
+            if self.scanner.is_some() {
+                let change = self.activity.input(input.as_str().unwrap());
+                self.note(change);
+            }
+        } else if op.get("exit").is_some() {
+            self.finish_stream();
+            let change = self.activity.exit();
+            self.note(change);
+        } else if op.get("flush").is_some() {
+            self.finish_stream();
+        }
+    }
+
     fn finish_stream(&mut self) {
         if let Some(scanner) = self.scanner.as_mut() {
             let held = scanner.flush();
@@ -99,6 +119,21 @@ fn burst() -> Vec<u8> {
         i += 1;
     }
     out.into_bytes()
+}
+
+fn assert_replay_matches(name: &str, pipe: Pipeline, expect: &Value) {
+    let replay = pipe.buffer.read();
+    let units: Vec<u16> = replay.encode_utf16().collect();
+    assert_eq!(pipe.buffer.cursor(), expect["cursor"].as_u64().unwrap(), "{name}: cursor");
+    assert_eq!(pipe.buffer.trimmed(), expect["trimmed"].as_bool().unwrap(), "{name}: trimmed");
+    assert_eq!(units.len() as u64, expect["length"].as_u64().unwrap(), "{name}: length");
+    assert_eq!(u64::from(fnv(&units)), expect["fnv"].as_u64().unwrap(), "{name}: replay text");
+    assert_eq!(String::from_utf16_lossy(&units[..units.len().min(80)]), expect["head"].as_str().unwrap(), "{name}: head");
+    assert_eq!(String::from_utf16_lossy(&units[units.len().saturating_sub(80)..]), expect["tail"].as_str().unwrap(), "{name}: tail");
+    if let Some(full) = expect["replay"].as_str() {
+        assert_eq!(replay, full, "{name}: replay");
+    }
+    assert_eq!(Value::Array(pipe.transitions), expect["transitions"], "{name}: activity transitions");
 }
 
 #[test]
@@ -119,37 +154,9 @@ fn output_pipeline_matches_terminal_manager() {
             }
         }
         for op in scenario["ops"].as_array().unwrap() {
-            if let Some(data) = op.get("data") {
-                pipe.data(&hex(data.as_str().unwrap()));
-            } else if let Some(focus) = op.get("focus") {
-                let change = pipe.activity.set_focus(focus[0].as_str().unwrap(), focus[1].as_bool().unwrap());
-                pipe.note(change);
-            } else if let Some(input) = op.get("input") {
-                if pipe.scanner.is_some() {
-                    let change = pipe.activity.input(input.as_str().unwrap());
-                    pipe.note(change);
-                }
-            } else if op.get("exit").is_some() {
-                pipe.finish_stream();
-                let change = pipe.activity.exit();
-                pipe.note(change);
-            } else if op.get("flush").is_some() {
-                pipe.finish_stream();
-            }
+            pipe.apply(op);
         }
-        let expect = &scenario["expect"];
-        let replay = pipe.buffer.read();
-        let units: Vec<u16> = replay.encode_utf16().collect();
-        assert_eq!(pipe.buffer.cursor(), expect["cursor"].as_u64().unwrap(), "{name}: cursor");
-        assert_eq!(pipe.buffer.trimmed(), expect["trimmed"].as_bool().unwrap(), "{name}: trimmed");
-        assert_eq!(units.len() as u64, expect["length"].as_u64().unwrap(), "{name}: length");
-        assert_eq!(u64::from(fnv(&units)), expect["fnv"].as_u64().unwrap(), "{name}: replay text");
-        assert_eq!(String::from_utf16_lossy(&units[..units.len().min(80)]), expect["head"].as_str().unwrap(), "{name}: head");
-        assert_eq!(String::from_utf16_lossy(&units[units.len().saturating_sub(80)..]), expect["tail"].as_str().unwrap(), "{name}: tail");
-        if let Some(full) = expect["replay"].as_str() {
-            assert_eq!(replay, full, "{name}: replay");
-        }
-        assert_eq!(Value::Array(pipe.transitions), expect["transitions"], "{name}: activity transitions");
+        assert_replay_matches(name, pipe, &scenario["expect"]);
         count += 1;
     }
     assert_eq!(count, 24);
@@ -199,8 +206,11 @@ fn shell_integration_plans_match_the_node_twin() {
         let integration = plan.integration.map(|i| format!("{i:?}").to_lowercase());
         assert_eq!(integration.as_deref(), expect["integration"].as_str(), "{spawn}");
     }
+}
 
-    // The startup files of bash and zsh are written byte for byte as the Node twin writes them.
+#[test]
+fn shell_startup_files_match_the_node_twin() {
+    let recorded = fixture("tests/fixtures/terminal-pipeline.json");
     let shell = &recorded["shellFiles"];
     let files_root = scratch_dir("plans-files");
     let bash =
@@ -700,9 +710,19 @@ async fn size_owner_follows_claims_not_focus() {
         ]
     );
 
-    // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
-    // process has ended, so nothing that belongs to the tab can still be pending. The claims go
-    // with the tab without an owner event (Node's `forgetSizeClaims` emits none), and the clock was never read again.
+    rig.tabs.dispose_all();
+}
+
+/// A disposal kills the shell and announces no owner change: the claims go with the tab, and its consumer is told once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disposing_a_tab_forgets_its_claims_without_an_owner_event() {
+    let rig = rig("dispose-claims").await;
+    let attached = rig.tabs.ensure(Some("term_dispclaims"), rig.request()).await.unwrap();
+    let id = attached.id.as_str();
+    rig.tabs.resize(id, 50, 20, "A");
+    let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
+    assert_eq!(owners, vec![("A".to_owned(), 50, 20)]);
+
     rig.tabs.dispose(id);
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
     // On Windows the disposal closes the shell's terminal and the shell ends itself (its code is its own answer, which the replay
@@ -1082,6 +1102,32 @@ async fn tabs_under_a_removed_worktree_are_disposed() {
 
 // ----- the corpus ------------------------------------------------------------------------------
 
+async fn assert_profile_list_has_the_recorded_shape(rig: &Rig, expect: &Value) {
+    let profiles = rig.tabs.profiles().await;
+    let got: Vec<Value> = profiles
+        .iter()
+        .map(|p| {
+            let mut v = json!({ "id": p.id, "label": p.label, "path": p.path });
+            if p.default {
+                v["default"] = json!(true);
+            }
+            v
+        })
+        .collect();
+    assert_eq!(got.iter().filter(|p| p["default"] == json!(true)).count(), 1, "one default profile");
+    // The recorded corpus is the shape of the list, not one machine's shells.
+    assert_eq!(expect["defaultCount"], json!(1));
+    assert_eq!(expect["nonEmpty"], json!(!got.is_empty()));
+    let allowed: Vec<&str> = expect["entryKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+    for p in &got {
+        assert!(std::path::Path::new(p["path"].as_str().unwrap()).is_absolute());
+        for key in p.as_object().unwrap().keys() {
+            assert!(allowed.contains(&key.as_str()), "unexpected key {key}");
+        }
+    }
+    assert_eq!(expect["pathsAbsolute"], json!(true));
+}
+
 /// The terminal corpus of the Node twin, replayed operation by operation on a real tab.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn terminal_corpus_replays_on_a_real_tab() {
@@ -1095,31 +1141,7 @@ async fn terminal_corpus_replays_on_a_real_tab() {
         let args = entry["args"].as_array();
         let expect = &entry["result"];
         match op {
-            "termProfiles" => {
-                let profiles = rig.tabs.profiles().await;
-                let got: Vec<Value> = profiles
-                    .iter()
-                    .map(|p| {
-                        let mut v = json!({ "id": p.id, "label": p.label, "path": p.path });
-                        if p.default {
-                            v["default"] = json!(true);
-                        }
-                        v
-                    })
-                    .collect();
-                assert_eq!(got.iter().filter(|p| p["default"] == json!(true)).count(), 1, "one default profile");
-                // The recorded corpus is the shape of the list, not one machine's shells.
-                assert_eq!(expect["defaultCount"], json!(1));
-                assert_eq!(expect["nonEmpty"], json!(!got.is_empty()));
-                let allowed: Vec<&str> = expect["entryKeys"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
-                for p in &got {
-                    assert!(std::path::Path::new(p["path"].as_str().unwrap()).is_absolute());
-                    for key in p.as_object().unwrap().keys() {
-                        assert!(allowed.contains(&key.as_str()), "unexpected key {key}");
-                    }
-                }
-                assert_eq!(expect["pathsAbsolute"], json!(true));
-            }
+            "termProfiles" => assert_profile_list_has_the_recorded_shape(&rig, expect).await,
             "termEnsure" => {
                 let attached = rig.tabs.ensure(None, rig.request()).await.unwrap();
                 id = attached.id.clone();
@@ -1225,6 +1247,22 @@ fn print_lines(count: u32) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn terminal_tool_answers_a_session_without_tabs() {
+    let rig = rig("bridge-empty").await;
+    let host = Arc::new(Host { cwd: rig.dir.display().to_string(), reveals: AtomicUsize::new(0) });
+    let bridge = TerminalBridge::new(rig.tabs.clone(), host);
+    let options = BridgeOptions::default();
+    let call = |args: Value| {
+        let (bridge, options) = (&bridge, &options);
+        async move { bridge.execute(&args, "sess8", options).await }
+    };
+    let listed = call(json!({ "action": "list" })).await;
+    assert_eq!(listed, ToolText { text: "No terminal tabs open for this session.".into(), is_error: false });
+    assert_eq!(call(json!({ "action": "read" })).await.text, "Error: no terminal tabs are open for this session");
+    assert_eq!(call(json!({ "action": "run", "tab": 2, "command": "x" })).await.text, "Error: no terminal tab 2; no terminal tabs are open");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn terminal_tool_lists_runs_and_reads_in_process() {
     let rig = rig("bridge").await;
     let host = Arc::new(Host { cwd: rig.dir.display().to_string(), reveals: AtomicUsize::new(0) });
@@ -1236,11 +1274,6 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
         let options = &options;
         async move { bridge.execute(&args, "sess8", options).await }
     };
-
-    let listed = call(json!({ "action": "list" })).await;
-    assert_eq!(listed, ToolText { text: "No terminal tabs open for this session.".into(), is_error: false });
-    assert_eq!(call(json!({ "action": "read" })).await.text, "Error: no terminal tabs are open for this session");
-    assert_eq!(call(json!({ "action": "run", "tab": 2, "command": "x" })).await.text, "Error: no terminal tab 2; no terminal tabs are open");
 
     // `run` with no tab open starts the session's first terminal and types into it.
     let run = call(json!({ "action": "run", "command": print_lines(500) })).await;

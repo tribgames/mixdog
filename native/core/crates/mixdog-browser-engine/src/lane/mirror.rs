@@ -1,4 +1,3 @@
-//! Owner: s4-engine-lane
 //! What the core knows of the claimed host's pages: the ledgers fed by the host's ordered notifications ([`Ingest`]), the pages
 //! whose notifications skipped, and the claim they were learned under. A command's result carries the page's facts at their
 //! `seq`; the engine reads the ledgers only once the mirror has caught up to it ([`Mirror::caught_up`]), so a reply never says

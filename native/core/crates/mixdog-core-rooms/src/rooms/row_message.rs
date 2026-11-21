@@ -5,15 +5,14 @@
 //! A row's files (`parts`, `attachments`, `images`) are stored references the log's intake made
 //! (`RoomFiles`); `attachments` are taken as that intake normalized them.
 
-use mixdog_js::{js_trim, js_words, slice_utf16, utf16_len, value_to_string};
+use mixdog_js::{js_trim, slice_utf16, utf16_len, value_to_string};
 use serde_json::{Map, Value, json};
 
-use super::config::ROOM_MAX_MEMBERS;
+use super::config::{NAME_LIMIT, ROOM_MAX_MEMBERS, clean_room_name};
 use super::turn_prompt::{is_attachment_ref, row_targets, stored_parts};
 
 /// `meta.source` of every row stored in a room's log.
 pub const ROOM_ROW_SOURCE: &str = "agent-room";
-const NAME_LIMIT: usize = 80;
 const TEXT_LIMIT: usize = 40_000;
 const REASON_LIMIT: i64 = 240;
 const TOOL_LIMIT: usize = 3;
@@ -37,7 +36,7 @@ fn bounded(value: &str, limit: usize) -> String {
 
 /// `cleanName`: whitespace runs collapsed to one space, trimmed, at most 80 units.
 fn clean_name(value: Option<&Value>) -> String {
-    slice_utf16(&js_words(&text_of(value)).collect::<Vec<_>>().join(" "), NAME_LIMIT)
+    clean_room_name(&text_of(value))
 }
 
 fn is_row_id(id: &str) -> bool {
@@ -92,6 +91,55 @@ fn stored_images(value: Option<&Value>) -> Vec<Value> {
         .collect()
 }
 
+fn failed_names(row: &Value) -> Vec<String> {
+    row.get("names")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|name| clean_name(Some(name)))
+        .filter(|name| !name.is_empty())
+        .take(ROOM_MAX_MEMBERS)
+        .collect()
+}
+
+/// `[row.reason ?? []].flat()`: a list contributes its items, anything else itself; the items share `REASON_LIMIT`.
+fn failed_reason(row: &Value) -> String {
+    let reasons: Vec<String> = match row.get("reason") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(list)) => list.iter().map(|each| js_trim(&value_to_string(each)).to_owned()).filter(|each| !each.is_empty()).collect(),
+        Some(single) => Some(js_trim(&value_to_string(single)).to_owned()).filter(|each| !each.is_empty()).into_iter().collect(),
+    };
+    let count = i64::try_from(reasons.len()).unwrap_or(i64::MAX);
+    let share = usize::try_from((REASON_LIMIT - 2 * (count - 1)).div_euclid(count.max(1))).unwrap_or(0);
+    reasons.iter().map(|each| bounded(each, share)).collect::<Vec<_>>().join("; ")
+}
+
+fn quota_usage(row: &Value, kind: &str) -> Option<Value> {
+    let stop = row.get("usage").filter(|usage| {
+        kind == "cap"
+            && row.get("limit").and_then(Value::as_str) == Some("usage")
+            && usage.get("kind").and_then(Value::as_str).is_some_and(|k| QUOTA_KINDS.contains(&k))
+    })?;
+    Some(json!({
+        "kind": stop["kind"],
+        "provider": bounded(&text_of(stop.get("provider")), NAME_LIMIT),
+        "model": bounded(&text_of(stop.get("model")), NAME_LIMIT),
+        "resetAt": finite_time(stop.get("resetAt")),
+    }))
+}
+
+fn named_targets(row: &Value) -> Vec<(String, String)> {
+    let mut targets: Vec<(String, String)> = Vec::new();
+    for (id, name) in row_targets(row) {
+        let (id, name) = (clean_name(Some(&json!(id))), clean_name(Some(&json!(name))));
+        if !id.is_empty() && !targets.iter().any(|(other, _)| *other == id) {
+            targets.push((id, name));
+        }
+    }
+    targets.truncate(ROOM_MAX_MEMBERS);
+    targets
+}
+
 /// A row descriptor in canonical shape; an unknown kind or an invalid id is refused.
 pub fn normalize_room_row(row: &Value) -> Result<Value, String> {
     let kind = row.get("kind").and_then(Value::as_str).unwrap_or("");
@@ -117,52 +165,10 @@ pub fn normalize_room_row(row: &Value) -> Result<Value, String> {
         })
         .collect();
     let failed_pass = kind == "pass" && row.get("failed") == Some(&Value::Bool(true));
-    let names: Vec<String> = if failed_pass {
-        row.get("names")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|name| clean_name(Some(name)))
-            .filter(|name| !name.is_empty())
-            .take(ROOM_MAX_MEMBERS)
-            .collect()
-    } else {
-        Vec::new()
-    };
-    // `[row.reason ?? []].flat()`: a list contributes its items, anything else itself.
-    let reasons: Vec<String> = if failed_pass {
-        match row.get("reason") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(list)) => list.iter().map(|each| js_trim(&value_to_string(each)).to_owned()).filter(|each| !each.is_empty()).collect(),
-            Some(single) => Some(js_trim(&value_to_string(single)).to_owned()).filter(|each| !each.is_empty()).into_iter().collect(),
-        }
-    } else {
-        Vec::new()
-    };
-    let count = i64::try_from(reasons.len()).unwrap_or(i64::MAX);
-    let share = usize::try_from((REASON_LIMIT - 2 * (count - 1)).div_euclid(count.max(1))).unwrap_or(0);
-    let reason = reasons.iter().map(|each| bounded(each, share)).collect::<Vec<_>>().join("; ");
-    let usage = row.get("usage").filter(|usage| {
-        kind == "cap"
-            && row.get("limit").and_then(Value::as_str) == Some("usage")
-            && usage.get("kind").and_then(Value::as_str).is_some_and(|k| QUOTA_KINDS.contains(&k))
-    });
-    let usage = usage.map(|stop| {
-        json!({
-            "kind": stop["kind"],
-            "provider": bounded(&text_of(stop.get("provider")), NAME_LIMIT),
-            "model": bounded(&text_of(stop.get("model")), NAME_LIMIT),
-            "resetAt": finite_time(stop.get("resetAt")),
-        })
-    });
-    let mut targets: Vec<(String, String)> = Vec::new();
-    for (id, name) in row_targets(row) {
-        let (id, name) = (clean_name(Some(&json!(id))), clean_name(Some(&json!(name))));
-        if !id.is_empty() && !targets.iter().any(|(other, _)| *other == id) {
-            targets.push((id, name));
-        }
-    }
-    targets.truncate(ROOM_MAX_MEMBERS);
+    let names = if failed_pass { failed_names(row) } else { Vec::new() };
+    let reason = if failed_pass { failed_reason(row) } else { String::new() };
+    let usage = quota_usage(row, kind);
+    let targets = named_targets(row);
     let parts = if carries_text { stored_parts(row.get("parts")) } else { Vec::new() };
     let attachments: Vec<Value> = if carries_text { row.get("attachments").and_then(Value::as_array).cloned().unwrap_or_default() } else { Vec::new() };
     let images = if kind == "user" { stored_images(row.get("images")) } else { Vec::new() };
@@ -256,5 +262,34 @@ mod tests {
         let message = room_row_message(&json!({ "id": "s", "kind": "speech", "speaker": "a", "name": "A", "text": "t", "at": 1, "to": ["b"] }), 0).unwrap();
         let keys: Vec<_> = message["meta"]["room"].as_object().unwrap().keys().cloned().collect();
         assert_eq!(keys, ["kind", "speaker", "name", "to", "toName"]);
+    }
+
+    #[test]
+    fn a_failed_pass_keeps_its_cleaned_names_and_shares_the_reason_limit() {
+        let row = json!({ "id": "p1", "kind": "pass", "failed": true, "names": [" Ann ", "", "Bob"], "reason": [" slow ", "down"], "text": "ignored" });
+        assert_eq!(
+            normalize_room_row(&row).unwrap(),
+            json!({ "id": "p1", "kind": "pass", "failed": true, "names": ["Ann", "Bob"], "reason": "slow; down", "text": "" })
+        );
+    }
+
+    #[test]
+    fn a_usage_cap_keeps_its_stop_only_for_a_quota_kind() {
+        let cap = |kind: &str| json!({ "id": "c1", "kind": "cap", "at": 10, "limit": "usage", "usage": { "kind": kind, "provider": " openai ", "model": "gpt", "resetAt": -1 }, "rounds": 2, "messages": 3 });
+        assert_eq!(
+            normalize_room_row(&cap("billing")).unwrap(),
+            json!({
+                "id": "c1", "kind": "cap", "at": 10, "limit": "usage",
+                "usage": { "kind": "billing", "provider": "openai", "model": "gpt", "resetAt": null },
+                "rounds": 2, "messages": 3, "text": ""
+            })
+        );
+        assert_eq!(normalize_room_row(&cap("other")).unwrap(), json!({ "id": "c1", "kind": "cap", "at": 10, "rounds": 2, "messages": 3, "text": "" }));
+    }
+
+    #[test]
+    fn an_unknown_kind_or_an_invalid_id_is_refused() {
+        assert_eq!(normalize_room_row(&json!({ "id": "x", "kind": "nope" })).unwrap_err(), "unknown room row kind \"nope\"");
+        assert_eq!(normalize_room_row(&json!({ "id": "bad id", "kind": "pass" })).unwrap_err(), "room row id is invalid");
     }
 }

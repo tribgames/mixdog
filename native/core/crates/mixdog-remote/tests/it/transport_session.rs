@@ -1,8 +1,3 @@
-//! A transport session on the relay carrier, end to end: the PC's session is opened over a real
-//! E2EE channel pair, its first message is the `e2ee-ready` record 1, a phone built from the same
-//! stream cores opens it, sends a record that reaches the core byte for byte, and receives what the
-//! core sends back, in order.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 

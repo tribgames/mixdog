@@ -29,10 +29,6 @@ pub(super) fn build_matcher(parsed: &ParsedArgs) -> Result<CompiledMatcher, Stri
     builder.build_many(&parsed.patterns).map(CompiledMatcher::Rust).map_err(|error| format!("regex parse error: {error}"))
 }
 
-/// Everything a scan needs from the request that does not change between
-/// operands or files: the parsed argv, the compiled pattern, the cancellation
-/// flag and soft deadline every bounded loop checks, and the counters the
-/// response reports a partial result from.
 pub(super) struct ScanCtx<'a> {
     pub(super) parsed: &'a ParsedArgs,
     pub(super) matcher: &'a CompiledMatcher,
@@ -149,10 +145,6 @@ pub(super) fn output_lines(bytes: Vec<u8>) -> Option<Vec<String>> {
     (!lines.is_empty()).then_some(lines)
 }
 
-/// Drive one printer's sink through the cancellation wrapper every output
-/// mode needs. The standard and summary printers hand back different sink
-/// types, so the wrapper is generic over the sink instead of being rebuilt
-/// once per output mode.
 fn search_with_sink<M, S, R>(
     searcher: &mut Searcher,
     matcher: M,
@@ -170,11 +162,6 @@ where
     searcher.search_reader(matcher, reader, &mut sink)
 }
 
-/// Everything a scan of one file does around its printer: open the file,
-/// build the optional trigram signature and the cancellable reader, then read
-/// from the outcome whether the file counted as a scan error and whether its
-/// signature may be cached. `search` runs the printer-specific pass over that
-/// reader and hands back its result plus the bytes the printer wrote.
 fn scan_with_printer(
     path: &Path,
     build_signature: bool,
@@ -327,11 +314,6 @@ pub(super) fn append_blocks(blocks: impl IntoIterator<Item = Vec<String>>, parse
     out.all_lines.len() >= out.collect_until
 }
 
-/// Scan `files` in parallel and append their blocks in `files` order, so the
-/// window is a pure function of the (sorted) inventory and offset paging is
-/// stable. A bounded window scans in growing chunks — each chunk parallel,
-/// merged by index — and stops after the chunk that fills it. Files in
-/// `prior` were already scanned (during a live walk) and reuse that result.
 pub(super) fn append_scanned_matches_ordered(
     files: &[PathBuf],
     prior: &HashMap<PathBuf, Option<Vec<String>>>,

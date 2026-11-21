@@ -1020,7 +1020,7 @@ async fn diagnostics_answer_this_pc_for_any_server_and_a_server_window_for_its_o
 // the logins on a server
 
 #[tokio::test]
-async fn the_server_logins_route_and_their_updates_reach_the_window_that_began_them() {
+async fn the_server_logins_route_to_the_servers_core() {
     let rig = rig().await;
     call(&rig, "connections/ssh/serverLoginBegin", json!({ "id": "box", "provider": "openai" }), main_ctx()).await.expect("begun");
     call(&rig, "connections/ssh/serverLoginStatus", json!({ "id": "box", "flowId": "flow-1" }), main_ctx()).await.expect("status");
@@ -1055,8 +1055,12 @@ async fn the_server_logins_route_and_their_updates_reach_the_window_that_began_t
     );
     let refused = call(&rig, "connections/ssh/serverLogins", json!({ "id": "nobody" }), main_ctx()).await;
     assert!(message_of(&refused.expect_err("refused")).contains("no longer saved"));
+}
 
-    // A login that ended on this PC's side is told to the window that began it.
+#[tokio::test]
+async fn a_login_that_ended_on_this_pcs_side_is_told_to_the_window_that_began_it() {
+    let rig = rig().await;
+    call(&rig, "connections/ssh/serverLoginBegin", json!({ "id": "box", "provider": "openai" }), main_ctx()).await.expect("begun");
     drop(rig.logins.updates.send(("box".to_owned(), flow("openai"))));
     settle().await;
     let updated = rig.notifier.of("connections/ssh/serverLoginUpdated");

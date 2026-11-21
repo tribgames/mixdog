@@ -8,6 +8,8 @@ use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
 use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved, park_idle};
 use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
 use mixdog_agent::agent_tool::host::CloseOptions;
+use mixdog_agent::agent_tool::host::MemberClose;
+use mixdog_agent::agent_tool::host::MemberOutcome;
 use mixdog_agent::agent_tool::host::OpenSession;
 use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::host::Sessions;
@@ -20,6 +22,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::AgentRegistry;
+use super::Row;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
 use crate::session::archive_trees::Mark;
@@ -221,6 +224,38 @@ impl AgentSessions {
     }
 }
 
+impl AgentSessions {
+    /// `closeRuntime` of one session under an admission its caller holds: `Err` when the durable stamp cannot be
+    /// written, as Node throws `agent session <id> could not be durably closed`.
+    async fn close_stamped(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
+        let thread = ThreadId::from(session_id);
+        let was_running = self.turn_in_flight(session_id);
+        // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
+        // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
+        // forget the row and the tag can start a fresh session.
+        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
+            return Err(format!("agent session {session_id} could not be durably closed"));
+        }
+        crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
+        // Only a close that stopped a running turn is a cancellation; closing a finished agent keeps its status.
+        if was_running {
+            self.registry.set_cancelled(session_id, true);
+        }
+        Ok(true)
+    }
+}
+
+/// An agent session as the cleanup lists it.
+pub(super) fn open_session(session: &Row) -> OpenSession {
+    OpenSession {
+        id: mixdog_agent::agent_tool::scope::clean(session.get("id")),
+        tag: super::rows::agent_tag_of(session),
+        agent: mixdog_agent::agent_tool::scope::clean(session.get("agent")),
+        owner: super::rows::owner_of(session),
+        status: mixdog_agent::agent_tool::scope::clean(session.get("status")),
+    }
+}
+
 /// The two steps of `__close_all` in Node's order: the workers close first, the descendants are
 /// cancelled once that has settled.
 async fn teardown_in_order(close_all: impl std::future::Future<Output = ()>, cancel_descendants: impl std::future::Future<Output = bool>) -> bool {
@@ -294,20 +329,27 @@ impl Sessions for AgentSessions {
         let mut covered = self.registry.descendants(session_id);
         covered.push(session_id.to_owned());
         let _cancelling = self.registry.begin_cancellation(&covered);
+        self.close_stamped(session_id, reason, options).await
+    }
+
+    /// The tree's admission guard stops a spawn or a send under it, not a turn started on the member's own session, so
+    /// the member's work is stopped at its start gate and only while the registry, which counts each turn started on a
+    /// worker, still names the turn the close was decided at. A turn that started while the stamp was written keeps
+    /// running, with its input: the stamp then reads as a close the session was resumed after.
+    async fn close_member(&self, session_id: &str, reason: &str, options: CloseOptions, member: MemberClose) -> Result<MemberOutcome, String> {
+        if options.tombstone || session_id.is_empty() {
+            return Ok(MemberOutcome::Nothing);
+        }
+        let at_turn = || self.registry.turn_mark(session_id) == member.turn;
+        if self.turn_in_flight(session_id) || !at_turn() {
+            return Ok(MemberOutcome::Moved);
+        }
         let thread = ThreadId::from(session_id);
-        let was_running = self.turn_in_flight(session_id);
-        // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
-        // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
-        // forget the row and the tag can start a fresh session.
-        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
+        if !member.stamped && crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
             return Err(format!("agent session {session_id} could not be durably closed"));
         }
-        crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
-        // Only a close that stopped a running turn is a cancellation; closing a finished agent keeps its status.
-        if was_running {
-            self.registry.set_cancelled(session_id, true);
-        }
-        Ok(true)
+        let stopped = crate::session::close::stop_idle_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, at_turn);
+        Ok(if stopped { MemberOutcome::Closed } else { MemberOutcome::Moved })
     }
 
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
@@ -316,6 +358,19 @@ impl Sessions for AgentSessions {
 
     fn child_session_ids(&self, session_id: &str) -> Vec<String> {
         self.registry.children_of(session_id)
+    }
+
+    /// The signal listener holds them: neither a held session's records nor its row writes reach every loaded thread.
+    fn hold_publication(&self, ids: &[String]) -> Box<dyn Send> {
+        self.directory.deps().agent_signals.hold(ids)
+    }
+
+    /// The worker-map writes made under the hold are header records of their own: they land, and are owed to it, first.
+    async fn publish_held(&self, hold: Box<dyn Send>) {
+        if let Err(error) = self.registry.rows_settled().await {
+            tracing::warn!(%error, "[agent] a worker row of the cleanup is not saved yet");
+        }
+        drop(hold);
     }
 
     fn begin_cancellation(&self, ids: &[String]) -> Box<dyn Send> {
@@ -347,9 +402,7 @@ impl Sessions for AgentSessions {
     /// `sessionGone` (`agent-tree.mjs`) over `storedSessionAbsent`: gone only when the index lists the session no longer
     /// and its record reads as absent. A loaded session is there, and so is one whose record could not be read.
     async fn session_gone(&self, session_id: &str) -> bool {
-        !session_id.is_empty()
-            && self.registry.session_of(session_id).is_none()
-            && self.directory.stored_presence(&ThreadId::from(session_id)).await == Some(false)
+        !session_id.is_empty() && !self.registry.knows_session(session_id) && self.directory.stored_presence(&ThreadId::from(session_id)).await == Some(false)
     }
 
     fn turn_in_flight(&self, session_id: &str) -> bool {
@@ -371,17 +424,7 @@ impl Sessions for AgentSessions {
     }
 
     fn open_sessions(&self) -> Vec<OpenSession> {
-        self.registry
-            .open_sessions()
-            .iter()
-            .map(|session| OpenSession {
-                id: mixdog_agent::agent_tool::scope::clean(session.get("id")),
-                tag: super::rows::agent_tag_of(session),
-                agent: mixdog_agent::agent_tool::scope::clean(session.get("agent")),
-                owner: super::rows::owner_of(session),
-                status: mixdog_agent::agent_tool::scope::clean(session.get("status")),
-            })
-            .collect()
+        self.registry.open_sessions().iter().map(open_session).collect()
     }
 
     async fn reveal_session(&self, session_id: &str) {

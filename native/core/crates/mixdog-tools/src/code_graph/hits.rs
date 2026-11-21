@@ -359,21 +359,50 @@ pub(super) struct FindOptions<'a> {
     pub scope_note: Option<String>,
 }
 
+fn no_symbol_matches(graph: &Graph, symbol: &str, cwd: &str, opts: &FindOptions<'_>, outside_line: String) -> String {
+    let mut lines = vec![format!("(no symbol matches in cwd={cwd}{})", opts.file_rel.map(|f| format!(" file={f}")).unwrap_or_default())];
+    lines.push(format!("graph: nodes={}{}", graph.nodes.len(), opts.language.map(|l| format!(", language={l}")).unwrap_or_default()));
+    let variants = graph.casing_variants(symbol);
+    if !variants.is_empty() {
+        lines.push(format!("hint: indexed under different casing: {}", variants.join(", ")));
+    }
+    if !outside_line.is_empty() {
+        lines.push(outside_line);
+    }
+    lines.join("\n")
+}
+
+fn best_declaration_lines(graph: &Graph, primary: &Hit, with_body: bool, lines: &mut Vec<String>) {
+    lines.push("# best declaration candidate".to_string());
+    let name_path = primary.name_path.as_ref().map(|p| format!(", path={p}")).unwrap_or_default();
+    let facts = primary.facts();
+    lines.push(format!(
+        "{} ({}{}, matches={}{name_path})",
+        primary.location(),
+        primary.lang,
+        if facts.is_empty() { String::new() } else { format!(", {facts}") },
+        primary.match_count
+    ));
+    let mut body_emitted = false;
+    if with_body && let Some(source) = graph.node(&primary.rel).map(|n| n.read()).filter(|s| !s.text().is_empty()) {
+        let all_lines: Vec<&str> = source.text().split('\n').collect();
+        let start = primary.line.max(1);
+        let end = primary.end_line.filter(|e| *e >= start).or_else(|| infer_span_end(&all_lines, start)).unwrap_or(start);
+        lines.push(format_body(source.text(), start, end));
+        body_emitted = true;
+    }
+    let text = summary(primary);
+    if !body_emitted && !text.is_empty() {
+        lines.push(format!("{}{text}", if primary.sig.is_some() { "signature: " } else { "" }));
+    }
+}
+
 pub(super) fn find_symbol_across_graph(graph: &Graph, symbol: &str, cwd: &str, opts: FindOptions<'_>) -> String {
     let all = find_hits(graph, symbol, opts.language);
     let hits: Vec<&Hit> = all.iter().filter(|h| opts.file_rel.is_none_or(|f| h.rel == f)).collect();
     let outside_line = opts.outside.as_ref().map(|o| format!("declared outside the requested files: {}", format_outside(o))).unwrap_or_default();
     if hits.is_empty() {
-        let mut lines = vec![format!("(no symbol matches in cwd={cwd}{})", opts.file_rel.map(|f| format!(" file={f}")).unwrap_or_default())];
-        lines.push(format!("graph: nodes={}{}", graph.nodes.len(), opts.language.map(|l| format!(", language={l}")).unwrap_or_default()));
-        let variants = graph.casing_variants(symbol);
-        if !variants.is_empty() {
-            lines.push(format!("hint: indexed under different casing: {}", variants.join(", ")));
-        }
-        if !outside_line.is_empty() {
-            lines.push(outside_line);
-        }
-        return lines.join("\n");
+        return no_symbol_matches(graph, symbol, cwd, &opts, outside_line);
     }
     let top: Vec<&Hit> = hits.iter().take(opts.limit.max(1)).copied().collect();
     let primary = top[0];
@@ -389,30 +418,7 @@ pub(super) fn find_symbol_across_graph(graph: &Graph, symbol: &str, cwd: &str, o
         lines.push(String::new());
     }
     if primary.declaration_like && decl_count <= 1 {
-        lines.push("# best declaration candidate".to_string());
-        let name_path = primary.name_path.as_ref().map(|p| format!(", path={p}")).unwrap_or_default();
-        let facts = primary.facts();
-        lines.push(format!(
-            "{} ({}{}, matches={}{name_path})",
-            primary.location(),
-            primary.lang,
-            if facts.is_empty() { String::new() } else { format!(", {facts}") },
-            primary.match_count
-        ));
-        let mut body_emitted = false;
-        if opts.body
-            && let Some(source) = graph.node(&primary.rel).map(|n| n.read()).filter(|s| !s.text().is_empty())
-        {
-            let all_lines: Vec<&str> = source.text().split('\n').collect();
-            let start = primary.line.max(1);
-            let end = primary.end_line.filter(|e| *e >= start).or_else(|| infer_span_end(&all_lines, start)).unwrap_or(start);
-            lines.push(format_body(source.text(), start, end));
-            body_emitted = true;
-        }
-        let text = summary(primary);
-        if !body_emitted && !text.is_empty() {
-            lines.push(format!("{}{text}", if primary.sig.is_some() { "signature: " } else { "" }));
-        }
+        best_declaration_lines(graph, primary, opts.body, &mut lines);
     }
     let candidates: Vec<&Hit> = if decl_count > 1 {
         rivals.iter().take(opts.limit.max(1)).copied().collect()

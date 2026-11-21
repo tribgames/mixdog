@@ -1,12 +1,6 @@
-//! `documentPreviewPages`: rasterised pages of a converted document, for surfaces that cannot display a PDF.
-//!
-//! `pages` is explicit and small: a viewer asks for what it is about to show, and the answer carries the page COUNT so it can ask
-//! for the rest. A page is served from memory (at most [`MAX_MEMORY_PAGES`] pages and [`MAX_MEMORY_PAGE_BYTES`] of base64), else
-//! from the disk cache `<cacheRoot>/document-preview-pages/<revision>/<page>-<width>.json`, else rasterised. The revision of a
-//! PDF is its path with its mtime and size; only pixels of the revision that was stat'ed are stored under it, so a PDF that
-//! changed during the render is not cached. Older revisions of the same PDF can never be requested again, so they go; beyond that
-//! the least recently used revisions are dropped past [`MAX_CACHED_PAGE_REVISIONS`]. Pages of a document opened with its
-//! password never reach the disk, like its PDF.
+//! `documentPreviewPages`: rasterised pages of a converted document. A page is served from memory, else from the disk cache
+//! `<cacheRoot>/document-preview-pages/<revision>/<page>-<width>.json`, else rasterised. Pages of a document opened with its
+//! password never reach the disk.
 
 use std::collections::HashMap;
 use std::io;
@@ -226,6 +220,16 @@ fn fresh(image: RawImage) -> PreviewPage {
     }
 }
 
+/// Whether the PDF still has the identity it was stat'ed with: only pixels of the revision that was stat'ed may be stored under it.
+async fn unchanged_since(preview: &DocumentPreview, pdf: &Path, before: Identity) -> Result<bool, PreviewError> {
+    let target = pdf.to_path_buf();
+    let after = job(preview.lanes.interactive_io, move |lane: &InLane<InteractiveIo>| mixdog_fsio::metadata(lane, &target).ok()).await?;
+    Ok(after.is_some_and(|details| {
+        let now = identity_of(&details);
+        now.mtime_ms == before.mtime_ms && now.size == before.size
+    }))
+}
+
 pub(super) async fn preview_pages(preview: &DocumentPreview, pdf: &Path, options: PagesOptions) -> Result<PreviewPages, PreviewError> {
     // Pages of a document opened with its password stay in memory only, like its PDF.
     let cache_root = if in_scratch(pdf) { String::new() } else { options.cache_root.clone() };
@@ -256,16 +260,8 @@ pub(super) async fn preview_pages(preview: &DocumentPreview, pdf: &Path, options
         let rendered = preview.renderer.render_pages(pdf.to_path_buf(), missing, options.max_width, options.cancel.clone()).await?;
         page_count = rendered.page_count;
         let images: Vec<PreviewPage> = rendered.images.into_iter().map(fresh).collect();
-        // Only pixels of the revision that was stat'ed may be stored under it.
         let unchanged = match (&revision, identity) {
-            (Some(_), Some(before)) => {
-                let target = pdf.to_path_buf();
-                let after = job(preview.lanes.interactive_io, move |lane: &InLane<InteractiveIo>| mixdog_fsio::metadata(lane, &target).ok()).await?;
-                after.is_some_and(|details| {
-                    let now = identity_of(&details);
-                    now.mtime_ms == before.mtime_ms && now.size == before.size
-                })
-            }
+            (Some(_), Some(before)) => unchanged_since(preview, pdf, before).await?,
             _ => false,
         };
         for entry in images {

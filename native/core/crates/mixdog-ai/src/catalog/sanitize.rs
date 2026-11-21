@@ -306,6 +306,41 @@ mod tests {
         assert_eq!(family_of("gemini-9-neon-002").as_deref(), Some("gemini-neon"));
     }
 
+    fn kept_ids(rows: &[&str], now_ms: i64) -> Vec<String> {
+        let release = |date: &str, family: &str| json!({ "family": family, "release_date": date, "tool_call": true });
+        let catalog = crate::catalog::Overlay::from_projected_models_dev(&json!({
+            "openai": { "models": {
+                "alpha-1": release("2026-10-01", "alpha"),
+                "alpha-2": release("2026-11-01", "alpha"),
+                "beta-1": release("2026-10-01", "beta"),
+                "beta-2": release("2026-10-15", "beta"),
+                "beta-3": release("2026-11-20", "beta"),
+                "gamma-1": release("2020-01-01", "gamma"),
+            } }
+        }));
+        let ctx = Context { models_dev: Some(&catalog), now_ms, stale_months: 9.0 };
+        let rows = rows.iter().copied().map(ModelRecord::new).collect();
+        sanitize_model_list(rows, "openai", &ctx).into_iter().map(|r| r.id).collect()
+    }
+
+    #[test]
+    fn a_model_of_a_family_with_a_newer_release_is_dropped() {
+        let kept = kept_ids(&["alpha-1", "alpha-2"], date_utc(2026, 11, 1));
+        assert_eq!(kept, ["alpha-2"]);
+    }
+
+    #[test]
+    fn a_family_superseded_by_an_unlisted_model_keeps_its_newest_listed_one() {
+        let kept = kept_ids(&["beta-1", "beta-2"], date_utc(2026, 11, 1));
+        assert_eq!(kept, ["beta-2"]);
+    }
+
+    #[test]
+    fn a_model_older_than_the_stale_window_is_cut_unless_it_would_empty_the_list() {
+        assert_eq!(kept_ids(&["alpha-2", "gamma-1"], date_utc(2026, 11, 1)), ["alpha-2"]);
+        assert_eq!(kept_ids(&["gamma-1"], date_utc(2026, 11, 1)), ["gamma-1"]);
+    }
+
     #[test]
     fn javascript_dates_and_month_settings() {
         assert_eq!(date_utc(2026, 5, 1), 1_780_272_000_000);
@@ -321,26 +356,36 @@ mod tests {
 /// models.dev release dates. `kept` holds indexes into `rows`.
 fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, ctx: &Context<'_>) -> Vec<usize> {
     let Some(catalog) = provider_models(ctx.models_dev, provider) else { return kept };
-    let catalog = &catalog;
-
-    struct Meta<'a> {
-        index: usize,
-        cat: Option<&'a Value>,
-        family: Option<String>,
-        epoch: Option<i64>,
-    }
-    let meta: Vec<Meta<'_>> = kept
+    let meta: Vec<Staleness<'_>> = kept
         .iter()
         .map(|&index| {
             // `catModels[row.id] || null`: a row that is not an object is absent.
             let cat = catalog.get(&rows[index].id).filter(|v| crate::service::admin_route::truthy(Some(v)));
-            Meta { index, cat, family: cat.and_then(|cr| staleness_family(cr, &rows[index].id)), epoch: cat.and_then(release_epoch) }
+            Staleness { index, cat, family: cat.and_then(|cr| staleness_family(cr, &rows[index].id)), epoch: cat.and_then(release_epoch) }
         })
         .collect();
 
-    // The newest date per family over the whole catalog, so a superseding
-    // model that is not listed still counts. Preview and experimental entries
-    // count only against other previews.
+    let mut dropped = superseded(rows, &meta, &newest_per_family(&catalog));
+    restore_emptied_families(&meta, &mut dropped);
+    if ctx.stale_months > 0.0 {
+        let cut = older_than_window(rows, &meta, &dropped, ctx);
+        if kept.iter().any(|i| !dropped.contains(i) && !cut.contains(i)) {
+            dropped.extend(cut);
+        }
+    }
+    kept.into_iter().filter(|i| !dropped.contains(i)).collect()
+}
+
+struct Staleness<'a> {
+    index: usize,
+    cat: Option<&'a Value>,
+    family: Option<String>,
+    epoch: Option<i64>,
+}
+
+/// The newest release per family over the whole catalog, so a superseding model that is not listed still counts: all
+/// entries, and the stable ones (a preview or experimental entry counts only against other previews).
+fn newest_per_family(catalog: &serde_json::Map<String, Value>) -> (BTreeMap<String, i64>, BTreeMap<String, i64>) {
     let mut newest: BTreeMap<String, i64> = BTreeMap::new();
     let mut newest_stable: BTreeMap<String, i64> = BTreeMap::new();
     for (id, cr) in catalog {
@@ -357,22 +402,28 @@ fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, 
             bump(&mut newest_stable);
         }
     }
+    (newest, newest_stable)
+}
 
-    let mut dropped: BTreeSet<usize> = BTreeSet::new();
-    for m in &meta {
+fn superseded(rows: &[ModelRecord], meta: &[Staleness<'_>], (newest, newest_stable): &(BTreeMap<String, i64>, BTreeMap<String, i64>)) -> BTreeSet<usize> {
+    let mut dropped = BTreeSet::new();
+    for m in meta {
         let (Some(_), Some(family), Some(epoch)) = (m.cat, &m.family, m.epoch) else { continue };
         if is_rolling_alias(&rows[m.index].id) {
             continue;
         }
-        let table = if is_preview_variant(&rows[m.index].id) { &newest } else { &newest_stable };
+        let table = if is_preview_variant(&rows[m.index].id) { newest } else { newest_stable };
         if table.get(family).is_some_and(|newest| *newest > epoch) {
             dropped.insert(m.index);
         }
     }
-    // Never empty a family: if supersession removed every listed member,
-    // restore the newest listed one (the first on a tie).
-    let mut by_family: BTreeMap<&str, Vec<&Meta<'_>>> = BTreeMap::new();
-    for m in &meta {
+    dropped
+}
+
+/// Never empty a family: if supersession removed every listed member, restores the newest listed one (the first on a tie).
+fn restore_emptied_families(meta: &[Staleness<'_>], dropped: &mut BTreeSet<usize>) {
+    let mut by_family: BTreeMap<&str, Vec<&Staleness<'_>>> = BTreeMap::new();
+    for m in meta {
         if let Some(family) = &m.family {
             by_family.entry(family).or_default().push(m);
         }
@@ -381,7 +432,7 @@ fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, 
         if !members.iter().all(|m| dropped.contains(&m.index)) {
             continue;
         }
-        let mut best: Option<&Meta<'_>> = None;
+        let mut best: Option<&Staleness<'_>> = None;
         for m in members {
             if best.is_none_or(|b| m.epoch.unwrap_or(0) > b.epoch.unwrap_or(0)) {
                 best = Some(m);
@@ -391,28 +442,15 @@ fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, 
             dropped.remove(&best.index);
         }
     }
+}
 
-    // The absolute cut; skipped when it would empty the provider's list.
-    if ctx.stale_months > 0.0 {
-        let cutoff = ctx.now_ms as f64 - ctx.stale_months * 30.4375 * 24.0 * 60.0 * 60.0 * 1000.0;
-        let mut cut: BTreeSet<usize> = BTreeSet::new();
-        for m in &meta {
-            if dropped.contains(&m.index) || m.cat.is_none() {
-                continue;
-            }
-            let Some(epoch) = m.epoch else { continue };
-            if is_rolling_alias(&rows[m.index].id) {
-                continue;
-            }
-            if (epoch as f64) < cutoff {
-                cut.insert(m.index);
-            }
-        }
-        if kept.iter().any(|i| !dropped.contains(i) && !cut.contains(i)) {
-            dropped.extend(cut);
-        }
-    }
-    kept.into_iter().filter(|i| !dropped.contains(i)).collect()
+fn older_than_window(rows: &[ModelRecord], meta: &[Staleness<'_>], dropped: &BTreeSet<usize>, ctx: &Context<'_>) -> BTreeSet<usize> {
+    let cutoff = ctx.now_ms as f64 - ctx.stale_months * 30.4375 * 24.0 * 60.0 * 60.0 * 1000.0;
+    meta.iter()
+        .filter(|m| !dropped.contains(&m.index) && m.cat.is_some() && !is_rolling_alias(&rows[m.index].id))
+        .filter(|m| m.epoch.is_some_and(|epoch| (epoch as f64) < cutoff))
+        .map(|m| m.index)
+        .collect()
 }
 /// `_applyCodingUnfit`: hosted providers only. A catalog row that does not
 /// call tools, or emits no text, is dropped; without a catalog row the id
@@ -470,17 +508,21 @@ pub fn sanitize_model_list(rows: Vec<ModelRecord>, provider: &str, ctx: &Context
 
     let fresh = apply_auto_staleness(&rows, kept, &provider, ctx);
     let coding_fit = apply_coding_unfit(&rows, fresh, &provider, ctx);
+    let winners = collapse_dated_snapshots(&rows, &coding_fit);
+    let keep: BTreeSet<usize> = coding_fit.into_iter().filter(|i| winners.contains(i)).collect();
+    rows.into_iter().enumerate().filter(|(i, _)| keep.contains(i)).map(|(_, row)| row).collect()
+}
 
-    // Dedupe on the unambiguous date suffixes; first-seen key order.
+/// The rows that survive collapsing dated snapshots onto one per unambiguous date-suffix key, and `-0xxx` rows onto
+/// their undated alias with equal limits.
+fn collapse_dated_snapshots(rows: &[ModelRecord], candidates: &[usize]) -> BTreeSet<usize> {
     let mut by_key: BTreeMap<String, usize> = BTreeMap::new();
-    for &i in &coding_fit {
+    for &i in candidates {
         let key = canonical_key(&rows[i].id);
-        let winner = by_key.get(&key).map_or(i, |&prev| prefer(prev, i, &rows));
+        let winner = by_key.get(&key).map_or(i, |&prev| prefer(prev, i, rows));
         by_key.insert(key, winner);
     }
     let mut winners: BTreeSet<usize> = by_key.values().copied().collect();
-
-    // Collapse a `-0xxx` row onto its surviving undated alias with equal limits.
     let alias_by_key: BTreeMap<String, usize> = winners.iter().map(|&i| (canonical_key(&rows[i].id), i)).collect();
     for i in winners.clone() {
         let Some(base) = mmdd_base(&rows[i].id) else { continue };
@@ -491,7 +533,5 @@ pub fn sanitize_model_list(rows: Vec<ModelRecord>, provider: &str, ctx: &Context
             winners.remove(&i);
         }
     }
-
-    let keep: BTreeSet<usize> = coding_fit.into_iter().filter(|i| winners.contains(i)).collect();
-    rows.into_iter().enumerate().filter(|(i, _)| keep.contains(i)).map(|(_, row)| row).collect()
+    winners
 }

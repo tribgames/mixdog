@@ -1,8 +1,4 @@
 //! The two tables of the formats: which reader and which editor serves `docx`, `xlsx` and `pptx`.
-//!
-//! Each application task adds its own line to the table it fills (through its wire fragment), so the readers and the editors
-//! of one application are written independently of the shared actions. A format with no line is answered as a format
-//! nobody can read or edit yet.
 
 use crate::format::FormatEditor;
 use crate::format::FormatReader;

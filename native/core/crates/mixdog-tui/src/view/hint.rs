@@ -1,8 +1,3 @@
-//! The welcome-screen prompt hint (`src/tui/app/use-welcome-prompt-hint.mjs`). A random starter tip is pinned for the
-//! process; a problem of the setup (no usable provider, no model, the solo workflow, a default web-search route on a model
-//! without native search, an error toast) replaces it with a tip that names the fix. The probes read the store; a probe
-//! that fails leaves the starter tip alone. Dismissal only counts while the hint row is on screen.
-
 use mixdog_js::{js_to_lowercase, js_trim, value_to_string};
 use serde_json::{Value, json};
 

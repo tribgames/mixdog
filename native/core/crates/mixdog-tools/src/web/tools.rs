@@ -39,7 +39,10 @@ use super::format::continuation;
 use super::format::format_fetch;
 use super::format::paginate;
 use super::http::Fetcher;
+use super::http::Redirect;
 use super::lanes::WebLanes;
+use super::pipeline::Attempt;
+use super::pipeline::Failure;
 use super::pipeline::Page;
 use super::pipeline::PageRenderer;
 use super::pipeline::Pipeline;
@@ -124,6 +127,10 @@ fn unavailable(capability: &str, message: String) -> ToolError {
 pub(super) fn failure_text(message: &str, surface: &str) -> String {
     let options = PresentOptions { surface: surface.to_owned(), ..PresentOptions::default() };
     present_error_text(&ErrorView::message(crate::fs::normalize_error_message(message, None)), &options)
+}
+
+fn search_failure_text(error: &NativeSearchError) -> String {
+    format!("Web search failed: {}", failure_text(error.message(), "web_search"))
 }
 
 fn failed(message: String) -> ToolError {
@@ -259,13 +266,18 @@ impl WebService {
             return match self.search.search(&one(only.clone()), thread, cancel).await {
                 Ok(payload) => Ok(text_output(format_results(&payload))),
                 Err(error) => {
-                    let text = format!("Web search failed: {}", failure_text(error.message(), "web_search"));
+                    let text = search_failure_text(&error);
                     Err(if matches!(error, NativeSearchError::Unavailable(_)) { unavailable("web_search", text) } else { failed(text) })
                 }
             };
         }
+        self.search_fanned_out(&queries, &one, thread, cancel).await
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    async fn search_fanned_out(&self, queries: &[String], one: &impl Fn(String) -> SearchArgs, thread: &ThreadId, cancel: &CancellationToken) -> ToolOutcome {
         let gate = Semaphore::new(search_fanout());
-        let (gate, one) = (&gate, &one);
+        let gate = &gate;
         let results = join_all(queries.iter().map(|query| async move {
             let _turn = gate.acquire().await;
             self.search.search(&one(query.clone()), thread, cancel).await
@@ -284,7 +296,7 @@ impl WebService {
                         if matches!(error, NativeSearchError::Unavailable(_)) {
                             unavailable_queries += 1;
                         }
-                        format!("Web search failed: {}", failure_text(error.message(), "web_search"))
+                        search_failure_text(&error)
                     }
                 };
                 format!("### Query: {query}\n\n{text}")
@@ -398,28 +410,6 @@ impl WebService {
 /// The payload Node caches for a fetched page, `{ tool, ...page }` as the pipeline returns it.
 /// `httpStatus` is a placeholder: a cached page is always 2xx, so it is three digits either way.
 pub(super) fn page_payload(page: &Page, requested_url: &str) -> serde_json::Value {
-    let failures: Vec<serde_json::Value> = page
-        .failures
-        .iter()
-        .map(|failure| {
-            let mut item = json!({ "extractor": failure.extractor, "error": failure.error, "code": failure.code });
-            if let (Some(status), Some(map)) = (failure.status, item.as_object_mut()) {
-                map.insert("status".into(), json!(status));
-            }
-            item
-        })
-        .collect();
-    let attempts: Vec<serde_json::Value> = page
-        .attempts
-        .iter()
-        .map(|attempt| {
-            let elapsed = u64::try_from(attempt.elapsed_ms).unwrap_or(u64::MAX);
-            match &attempt.code {
-                None => json!({ "stage": attempt.stage, "status": "success", "elapsedMs": elapsed }),
-                Some(code) => json!({ "stage": attempt.stage, "status": "error", "elapsedMs": elapsed, "code": code }),
-            }
-        })
-        .collect();
     let tried: Vec<&str> = page.attempts.iter().map(|attempt| attempt.stage.as_str()).collect();
     let mut map = serde_json::Map::new();
     map.insert("tool".into(), json!("web_fetch"));
@@ -432,20 +422,36 @@ pub(super) fn page_payload(page: &Page, requested_url: &str) -> serde_json::Valu
     map.insert("contentType".into(), json!(page.content_type));
     map.insert("httpStatus".into(), json!(200));
     if let Some(redirects) = &page.redirects {
-        let records: Vec<serde_json::Value> = redirects
-            .iter()
-            .map(|hop| match hop.status {
-                Some(status) => json!({ "url": hop.url, "status": status, "location": hop.location }),
-                None => json!({ "url": hop.url, "location": hop.location, "status": "meta-refresh" }),
-            })
-            .collect();
-        map.insert("redirects".into(), json!(records));
+        map.insert("redirects".into(), json!(redirects.iter().map(redirect_record).collect::<Vec<_>>()));
     }
     map.insert("requestedUrl".into(), json!(requested_url));
     map.insert("triedExtractors".into(), json!(tried));
-    map.insert("failures".into(), json!(failures));
-    map.insert("attempts".into(), json!(attempts));
+    map.insert("failures".into(), json!(page.failures.iter().map(failure_record).collect::<Vec<_>>()));
+    map.insert("attempts".into(), json!(page.attempts.iter().map(attempt_record).collect::<Vec<_>>()));
     serde_json::Value::Object(map)
+}
+
+fn failure_record(failure: &Failure) -> serde_json::Value {
+    let mut item = json!({ "extractor": failure.extractor, "error": failure.error, "code": failure.code });
+    if let (Some(status), Some(map)) = (failure.status, item.as_object_mut()) {
+        map.insert("status".into(), json!(status));
+    }
+    item
+}
+
+fn attempt_record(attempt: &Attempt) -> serde_json::Value {
+    let elapsed = u64::try_from(attempt.elapsed_ms).unwrap_or(u64::MAX);
+    match &attempt.code {
+        None => json!({ "stage": attempt.stage, "status": "success", "elapsedMs": elapsed }),
+        Some(code) => json!({ "stage": attempt.stage, "status": "error", "elapsedMs": elapsed, "code": code }),
+    }
+}
+
+fn redirect_record(hop: &Redirect) -> serde_json::Value {
+    match hop.status {
+        Some(status) => json!({ "url": hop.url, "status": status, "location": hop.location }),
+        None => json!({ "url": hop.url, "location": hop.location, "status": "meta-refresh" }),
+    }
 }
 
 /// Units the excerpt takes in Node's serialized entry beyond what the stored text takes: a cut

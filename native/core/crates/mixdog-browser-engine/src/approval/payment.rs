@@ -1,5 +1,4 @@
-//! Owner: s4-engine-approval
-//! Deterministic payment evidence of the page a submit or post step acts on (`payment-evidence.ts`). A step on such a page is a
+//! Deterministic payment evidence of the page a submit or post step acts on. A step on such a page is a
 //! payment: it asks once, every time, and no session or saved allow, nor "Allow all actions", covers it. Only page structure
 //! counts, never a button's label, and only the top document is read: an input or select whose `autocomplete` token is a
 //! payment-card one (or whose name or id plainly denotes a card number, expiry or CVC/CVV), or an embedded frame hosted by a

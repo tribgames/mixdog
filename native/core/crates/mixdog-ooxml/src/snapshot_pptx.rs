@@ -240,7 +240,6 @@ fn shape_snapshot<P: ReadProof>(
         .map(|found| string_to_number(found.get(1).unwrap_or("")) / 100.0)
         .filter(|size| *size > 0.0)
         .collect();
-    // Weight is a type-scale step of its own: a specimen ladder sets one size in light / regular / bold.
     let bold = compiled(r#"<a:rPr\b[^>]*\bb="1""#, "i").is_match(xml);
     let table_rows = count_of(r"<a:tr\b", xml);
     let table_columns = count_of(r"<a:gridCol\b", xml);
@@ -248,12 +247,9 @@ fn shape_snapshot<P: ReadProof>(
     let colors = distinct_groups(r#"<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})""#, xml, str::to_uppercase);
     let shape_name = xml_decode(&first_group(r#"<p:cNvPr\b[^>]*\bname="([^"]*)""#, "i", xml).unwrap_or_default());
     let geometry = shape_geometry(shape);
-    // What a reader who cannot see the picture is told about it; the audit asks for it, so the snapshot shows whether it is
-    // there.
     let alt_text = xml_decode(&first_group(r#"<p:cNvPr\b[^>]*\bdescr="([^"]*)""#, "i", xml).unwrap_or_default());
     let fill = shape_fill(xml);
-    // A table stands as tall as its rows draw, as PowerPoint reports it: rows grow to their text past the frame the file
-    // declares, and a source line under a table that ran long read as clear of it.
+    // PowerPoint grows table rows to their text past the declared frame, so the frame is as tall as the rows draw.
     let mut frame = shape_frame(xml);
     if table_rows > 0
         && let Some(frame) = frame.as_mut()
@@ -275,8 +271,6 @@ fn shape_snapshot<P: ReadProof>(
     if !shape_name.is_empty() {
         entries.insert("name".to_owned(), json!(shape_name));
     }
-    // PowerPoint's selection pane can hide a shape: it stays in the file and the slide does not show it, so it is neither
-    // measured nor read as what the page says.
     if compiled(r#"<p:cNvPr\b[^>]*\bhidden="(?:1|true)""#, "i").is_match(xml) {
         entries.insert("hidden".to_owned(), json!(true));
     }
@@ -289,9 +283,6 @@ fn shape_snapshot<P: ReadProof>(
     if !fill.is_empty() {
         entries.insert("fill".to_owned(), json!({ "color": fill }));
     }
-    // A table's cells are separate strings a reader never runs together ("4:3" beside "8.8초" is not "4:38.8초"), so they
-    // join on a space; a text body keeps its runs together and its breaks (a soft break (a:br, which the kit writes between
-    // Hangul words) and a paragraph end) as newlines, so "4주차" + "잔존율" never reads "4주차잔존율".
     let text = if table_rows > 0 { paragraph_texts(xml, "a:t").join(" ") } else { block_text(xml, "a:t") };
     entries.insert("text".to_owned(), json!(text));
     if shape.name == "p:grpSp" {
@@ -308,18 +299,8 @@ fn shape_snapshot<P: ReadProof>(
         }
         entries.insert("chart".to_owned(), Value::Object(chart));
     }
-    // Each cell's text, row by row, as PowerPoint reports a table: without it the cells a set_table_data edit would replace
-    // could only be read run together in `text`.
     if table_rows > 0 {
-        let cell = compiled(r"<a:tc\b[^>]*?(?:/>|>([\s\S]*?)</a:tc>)", "g");
-        let values: Vec<Value> = compiled(r"<a:tr\b[^>]*>([\s\S]*?)</a:tr>", "g")
-            .captures_iter(xml)
-            .map(|row| {
-                let cells = cell.captures_iter(row.get(1).unwrap_or("")).map(|found| json!(block_text(found.get(1).unwrap_or(""), "a:t")));
-                Value::Array(cells.collect())
-            })
-            .collect();
-        entries.insert("table".to_owned(), json!({ "rows": table_rows, "columns": table_columns, "values": values }));
+        entries.insert("table".to_owned(), json!({ "rows": table_rows, "columns": table_columns, "values": table_cell_texts(xml) }));
     }
     font_facts(&mut entries, &font_sizes, bold, &fonts, &run_color(xml));
     if !fonts.is_empty() {
@@ -336,6 +317,17 @@ fn shape_snapshot<P: ReadProof>(
     Ok(Value::Object(entries))
 }
 
+fn table_cell_texts(xml: &str) -> Vec<Value> {
+    let cell = compiled(r"<a:tc\b[^>]*?(?:/>|>([\s\S]*?)</a:tc>)", "g");
+    compiled(r"<a:tr\b[^>]*>([\s\S]*?)</a:tr>", "g")
+        .captures_iter(xml)
+        .map(|row| {
+            let cells = cell.captures_iter(row.get(1).unwrap_or("")).map(|found| json!(block_text(found.get(1).unwrap_or(""), "a:t")));
+            Value::Array(cells.collect())
+        })
+        .collect()
+}
+
 fn snapshot_slide<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, path: &str, index: usize, slide_id: f64) -> Result<Value, FontError> {
     let xml = zip.text(path);
     let tree = container_inner(&xml, "p:spTree", 0);
@@ -350,8 +342,6 @@ fn snapshot_slide<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, p
         "path": format!("/slide[{index}]"),
         "index": index,
         "slideId": json_number(slide_id),
-        // A hidden slide stays in the file and is skipped when the deck is shown; read as an ordinary page it puts a withdrawn
-        // page back in the argument.
         "hidden": compiled(r#"<p:sld\b[^>]*\bshow="0""#, "").is_match(&xml),
         "background": slide_background(zip, path, &xml),
         "notes": slide_notes(zip, path),

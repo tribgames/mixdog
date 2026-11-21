@@ -1,4 +1,4 @@
-//! The grammar of the panel layout signature (`app/panel-signature.mjs`).
+//! The grammar of the panel layout signature.
 //!
 //! The shell layout encodes the bottom area into one `|`-joined string; this module is the only reader of that encoding:
 //! which panel owns the area, and whether a transition between two signatures is a close the terminal must repaint

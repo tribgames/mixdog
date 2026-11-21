@@ -1,6 +1,6 @@
 //! The webhook endpoint table and the delivery dedup log in the core state store
 //! (`state/core.sqlite`, `meta` keys `webhook:endpoint:<name>` and
-//! `webhook:delivery:<endpoint>:<id>`), replacing webhooks-db.mjs. Each statement is one
+//! `webhook:delivery:<endpoint>:<id>`). Each statement is one
 //! state transaction, so the delivery claim is as indivisible as `INSERT … ON CONFLICT DO
 //! NOTHING`: two concurrent POSTs of one id cannot both win.
 

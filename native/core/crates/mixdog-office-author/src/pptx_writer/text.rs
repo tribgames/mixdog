@@ -216,7 +216,6 @@ impl TextObject {
         match content {
             TextContent::Plain(text) => {
                 if shared {
-                    // The same options object as the call's: cleaned a second time.
                     body = clean_options(&mut arena[0], None, place.text_objects)?;
                     runs.push(Run { text, opt: 0 });
                 } else {
@@ -236,22 +235,26 @@ impl TextObject {
                 }
             }
         }
-        // createHyperlinkRels: every run's hyperlink gets its relationship once.
-        for run in &runs {
-            let options = &mut arena[run.opt];
-            if options.hyperlink_rid.is_none() {
-                if let Some(hyperlink) =
-                    options.frame.hyperlink.as_ref().filter(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide))
-                {
-                    let rid = link(hyperlink);
-                    options.hyperlink_rid = Some(rid);
-                }
-            }
-        }
+        register_run_links(&runs, &mut arena, link);
         apply_margin(&arena[0], &mut body);
         let text_body = text_body_xml(BodyKind::Shape, &mut arena, &runs, &body)?;
         let xml = shape_xml(&arena[0], &text_body, place);
         Ok(Self { xml })
+    }
+}
+
+/// `createHyperlinkRels`: every run's hyperlink gets its relationship once.
+fn register_run_links(runs: &[Run], arena: &mut [TextOptions], link: &mut dyn FnMut(&Hyperlink) -> usize) {
+    for run in runs {
+        let options = &mut arena[run.opt];
+        if options.hyperlink_rid.is_none() {
+            if let Some(hyperlink) =
+                options.frame.hyperlink.as_ref().filter(|hyperlink| hyperlink.url.as_deref().is_some_and(|url| !url.is_empty()) || is_set(hyperlink.slide))
+            {
+                let rid = link(hyperlink);
+                options.hyperlink_rid = Some(rid);
+            }
+        }
     }
 }
 
@@ -503,46 +506,8 @@ pub(crate) fn text_body_xml(kind: BodyKind, arena: &mut [TextOptions], runs: &[R
     } else {
         xml.push_str("<a:lstStyle/>");
     }
-    // STEP 4: break the text of a run at its line breaks.
-    let mut texts: Vec<(String, usize)> = Vec::new();
-    for (index, run) in runs.iter().enumerate() {
-        let opt = run.opt;
-        if index == 0 && !bullet_on(&arena[opt].bullet) && bullet_on(&arena[0].bullet) {
-            arena[opt].bullet = arena[0].bullet.clone();
-        }
-        let text = crlf_breaks(&run.text);
-        if text.contains(CRLF) && !text.ends_with('\n') {
-            for line in text.split(CRLF) {
-                arena[opt].break_line = true;
-                texts.push((line.to_owned(), opt));
-            }
-        } else {
-            texts.push((text, opt));
-        }
-    }
-    // STEP 5: group the runs into paragraphs.
-    let mut lines: Vec<Vec<usize>> = Vec::new();
-    let mut current: Vec<usize> = Vec::new();
-    for index in 0..texts.len() {
-        let opt = texts[index].1;
-        if !current.is_empty() && (has(&arena[opt].align) || has(&arena[0].align)) {
-            let previous = texts[index - 1].1;
-            if arena[opt].align != arena[previous].align {
-                lines.push(std::mem::take(&mut current));
-            }
-        } else if !current.is_empty() && bullet_on(&arena[opt].bullet) {
-            lines.push(std::mem::take(&mut current));
-            arena[opt].break_line = false;
-        }
-        current.push(index);
-        if arena[opt].break_line && index + 1 < texts.len() {
-            lines.push(std::mem::take(&mut current));
-        }
-        if index + 1 == texts.len() {
-            lines.push(std::mem::take(&mut current));
-        }
-    }
-    // STEP 6: the paragraphs.
+    let texts = split_run_lines(arena, runs);
+    let lines = group_paragraphs(arena, &texts);
     for line in &lines {
         let mut closing_font_size = false;
         xml.push_str("<a:p>");
@@ -568,24 +533,7 @@ pub(crate) fn text_body_xml(kind: BodyKind, arena: &mut [TextOptions], runs: &[R
                 }
             }
         }
-        let opts = &arena[0];
-        let lang = opts.lang.as_deref().filter(|lang| !lang.is_empty()).unwrap_or("en-US");
-        let size = if is_set(opts.font_size) { format!(" sz=\"{}\"", num(round(opts.font_size.unwrap_or(0.0) * 100.0))) } else { String::new() };
-        if cell && (is_set(opts.font_size) || has(&opts.font_face)) {
-            if let Some(face) = opts.font_face.as_deref().filter(|face| !face.is_empty()) {
-                xml.push_str(&format!("<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\">"));
-                xml.push_str(&format!("<a:latin typeface=\"{face}\" charset=\"0\"/>"));
-                xml.push_str(&format!("<a:ea typeface=\"{face}\" charset=\"0\"/>"));
-                xml.push_str(&format!("<a:cs typeface=\"{face}\" charset=\"0\"/>"));
-                xml.push_str("</a:endParaRPr>");
-            } else {
-                xml.push_str(&format!("<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\"/>"));
-            }
-        } else if closing_font_size {
-            xml.push_str(&format!("<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\"/>"));
-        } else {
-            xml.push_str(&format!("<a:endParaRPr lang=\"{lang}\" dirty=\"0\"/>"));
-        }
+        xml.push_str(&end_paragraph_xml(&arena[0], cell, closing_font_size));
         xml.push_str("</a:p>");
     }
     if !xml.contains("<a:p>") {
@@ -593,6 +541,71 @@ pub(crate) fn text_body_xml(kind: BodyKind, arena: &mut [TextOptions], runs: &[R
     }
     xml.push_str(if cell { "</a:txBody>" } else { "</p:txBody>" });
     Ok(xml)
+}
+
+/// Breaks the text of each run at its line breaks; returns each piece with the index of the options it reads.
+fn split_run_lines(arena: &mut [TextOptions], runs: &[Run]) -> Vec<(String, usize)> {
+    let mut texts: Vec<(String, usize)> = Vec::new();
+    for (index, run) in runs.iter().enumerate() {
+        let opt = run.opt;
+        if index == 0 && !bullet_on(&arena[opt].bullet) && bullet_on(&arena[0].bullet) {
+            arena[opt].bullet = arena[0].bullet.clone();
+        }
+        let text = crlf_breaks(&run.text);
+        if text.contains(CRLF) && !text.ends_with('\n') {
+            for line in text.split(CRLF) {
+                arena[opt].break_line = true;
+                texts.push((line.to_owned(), opt));
+            }
+        } else {
+            texts.push((text, opt));
+        }
+    }
+    texts
+}
+
+/// Groups the pieces of text into paragraphs, each a list of indices into `texts`.
+fn group_paragraphs(arena: &mut [TextOptions], texts: &[(String, usize)]) -> Vec<Vec<usize>> {
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    let mut current: Vec<usize> = Vec::new();
+    for index in 0..texts.len() {
+        let opt = texts[index].1;
+        if !current.is_empty() && (has(&arena[opt].align) || has(&arena[0].align)) {
+            let previous = texts[index - 1].1;
+            if arena[opt].align != arena[previous].align {
+                lines.push(std::mem::take(&mut current));
+            }
+        } else if !current.is_empty() && bullet_on(&arena[opt].bullet) {
+            lines.push(std::mem::take(&mut current));
+            arena[opt].break_line = false;
+        }
+        current.push(index);
+        if arena[opt].break_line && index + 1 < texts.len() {
+            lines.push(std::mem::take(&mut current));
+        }
+        if index + 1 == texts.len() {
+            lines.push(std::mem::take(&mut current));
+        }
+    }
+    lines
+}
+
+fn end_paragraph_xml(opts: &TextOptions, cell: bool, closing_font_size: bool) -> String {
+    let lang = opts.lang.as_deref().filter(|lang| !lang.is_empty()).unwrap_or("en-US");
+    let size = if is_set(opts.font_size) { format!(" sz=\"{}\"", num(round(opts.font_size.unwrap_or(0.0) * 100.0))) } else { String::new() };
+    if cell && (is_set(opts.font_size) || has(&opts.font_face)) {
+        if let Some(face) = opts.font_face.as_deref().filter(|face| !face.is_empty()) {
+            format!(
+                "<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\"><a:latin typeface=\"{face}\" charset=\"0\"/><a:ea typeface=\"{face}\" charset=\"0\"/><a:cs typeface=\"{face}\" charset=\"0\"/></a:endParaRPr>"
+            )
+        } else {
+            format!("<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\"/>")
+        }
+    } else if closing_font_size {
+        format!("<a:endParaRPr lang=\"{lang}\"{size} dirty=\"0\"/>")
+    } else {
+        format!("<a:endParaRPr lang=\"{lang}\" dirty=\"0\"/>")
+    }
 }
 
 /// `a = a || b` for a number option.
@@ -657,9 +670,65 @@ fn inherit_run(run: &mut TextOptions, main: &TextOptions, own_link: bool) {
     run.rtl_mode = run.rtl_mode || main.rtl_mode;
 }
 
+/// The `a:pPr` margin attributes and the bullet element of a paragraph.
+fn bullet_xml(bullet: &Option<Bullet>, level: Option<f64>) -> (String, String) {
+    let mut bullet_margin = val_to_pts(DEFAULT_BULLET_MARGIN);
+    let mut attributes = String::new();
+    let mut bullet_xml = String::new();
+    let margin_of = |bullet_margin: f64| match level {
+        Some(level) => bullet_margin + bullet_margin * level,
+        None => bullet_margin,
+    };
+    let hanging = |bullet_margin: f64| format!(" marL=\"{}\" indent=\"-{}\"", num(margin_of(bullet_margin)), num(bullet_margin));
+    let default_bullet = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{DEFAULT_BULLET}\"/>");
+    let character = |code: &str| {
+        if code.len() == 4 && code.chars().all(|ch| ch.is_ascii_hexdigit()) { format!("&#x{code};") } else { DEFAULT_BULLET.to_owned() }
+    };
+    match bullet {
+        Some(Bullet::Spec(spec)) => {
+            if is_set(spec.indent) {
+                bullet_margin = val_to_pts(spec.indent.unwrap_or(0.0));
+            }
+            if has(&spec.kind) {
+                if spec.kind.as_deref().unwrap_or("").to_lowercase() == "number" {
+                    attributes.push_str(&hanging(bullet_margin));
+                    let start = if is_set(spec.number_start_at) {
+                        num(spec.number_start_at.unwrap_or(0.0))
+                    } else if is_set(spec.start_at) {
+                        num(spec.start_at.unwrap_or(0.0))
+                    } else {
+                        "1".to_owned()
+                    };
+                    bullet_xml = format!(
+                        "<a:buSzPct val=\"100000\"/><a:buFont typeface=\"+mj-lt\"/><a:buAutoNum type=\"{}\" startAt=\"{start}\"/>",
+                        spec.style.as_deref().filter(|style| !style.is_empty()).unwrap_or("arabicPeriod")
+                    );
+                }
+            } else if let Some(code) = spec.character_code.as_deref().filter(|code| !code.is_empty()) {
+                attributes.push_str(&hanging(bullet_margin));
+                bullet_xml = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{}\"/>", character(code));
+            } else if let Some(code) = spec.code.as_deref().filter(|code| !code.is_empty()) {
+                attributes.push_str(&hanging(bullet_margin));
+                bullet_xml = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{}\"/>", character(code));
+            } else {
+                attributes.push_str(&hanging(bullet_margin));
+                bullet_xml = default_bullet;
+            }
+        }
+        Some(Bullet::Flag(true)) => {
+            attributes.push_str(&hanging(bullet_margin));
+            bullet_xml = default_bullet;
+        }
+        _ => {
+            attributes.push_str(" indent=\"0\" marL=\"0\"");
+            bullet_xml = "<a:buNone/>".to_owned();
+        }
+    }
+    (attributes, bullet_xml)
+}
+
 /// `genXmlParagraphProperties` for a paragraph (not the placeholder's list style).
 fn paragraph_properties_xml(options: &TextOptions) -> String {
-    let mut bullet_margin = val_to_pts(DEFAULT_BULLET_MARGIN);
     let mut xml = String::from("<a:pPr");
     if options.rtl_mode {
         xml.push_str(" rtl=\"1\" ");
@@ -688,56 +757,8 @@ fn paragraph_properties_xml(options: &TextOptions) -> String {
     if let Some(after) = options.para_space_after.filter(|after| is_set(Some(*after)) && *after > 0.0) {
         spacing.push_str(&format!("<a:spcAft><a:spcPts val=\"{}\"/></a:spcAft>", num(round(after * 100.0))));
     }
-    let mut bullet_xml = String::new();
-    let margin_of = |bullet_margin: f64| match level {
-        Some(level) => bullet_margin + bullet_margin * level,
-        None => bullet_margin,
-    };
-    let hanging = |bullet_margin: f64| format!(" marL=\"{}\" indent=\"-{}\"", num(margin_of(bullet_margin)), num(bullet_margin));
-    let default_bullet = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{DEFAULT_BULLET}\"/>");
-    let character = |code: &str| {
-        if code.len() == 4 && code.chars().all(|ch| ch.is_ascii_hexdigit()) { format!("&#x{code};") } else { DEFAULT_BULLET.to_owned() }
-    };
-    match &options.bullet {
-        Some(Bullet::Spec(spec)) => {
-            if is_set(spec.indent) {
-                bullet_margin = val_to_pts(spec.indent.unwrap_or(0.0));
-            }
-            if has(&spec.kind) {
-                if spec.kind.as_deref().unwrap_or("").to_lowercase() == "number" {
-                    xml.push_str(&hanging(bullet_margin));
-                    let start = if is_set(spec.number_start_at) {
-                        num(spec.number_start_at.unwrap_or(0.0))
-                    } else if is_set(spec.start_at) {
-                        num(spec.start_at.unwrap_or(0.0))
-                    } else {
-                        "1".to_owned()
-                    };
-                    bullet_xml = format!(
-                        "<a:buSzPct val=\"100000\"/><a:buFont typeface=\"+mj-lt\"/><a:buAutoNum type=\"{}\" startAt=\"{start}\"/>",
-                        spec.style.as_deref().filter(|style| !style.is_empty()).unwrap_or("arabicPeriod")
-                    );
-                }
-            } else if let Some(code) = spec.character_code.as_deref().filter(|code| !code.is_empty()) {
-                xml.push_str(&hanging(bullet_margin));
-                bullet_xml = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{}\"/>", character(code));
-            } else if let Some(code) = spec.code.as_deref().filter(|code| !code.is_empty()) {
-                xml.push_str(&hanging(bullet_margin));
-                bullet_xml = format!("<a:buSzPct val=\"100000\"/><a:buChar char=\"{}\"/>", character(code));
-            } else {
-                xml.push_str(&hanging(bullet_margin));
-                bullet_xml = default_bullet;
-            }
-        }
-        Some(Bullet::Flag(true)) => {
-            xml.push_str(&hanging(bullet_margin));
-            bullet_xml = default_bullet;
-        }
-        _ => {
-            xml.push_str(" indent=\"0\" marL=\"0\"");
-            bullet_xml = "<a:buNone/>".to_owned();
-        }
-    }
+    let (bullet_attributes, bullet_xml) = bullet_xml(&options.bullet, level);
+    xml.push_str(&bullet_attributes);
     let mut tab_stops = String::new();
     if let Some(stops) = &options.tab_stops {
         let tabs: String = stops
@@ -840,26 +861,33 @@ fn run_properties_xml(options: &TextOptions) -> Result<String, String> {
         }
     }
     if let Some(link) = hyperlink {
-        let rid = options.hyperlink_rid.map_or_else(|| "undefined".to_owned(), |rid| rid.to_string());
-        let tooltip = link.tooltip.as_deref().filter(|tooltip| !tooltip.is_empty()).map(encode_xml_entities).unwrap_or_default();
-        let ending = if color.is_some() { ">" } else { "/>" };
-        if link.url.as_deref().is_some_and(|url| !url.is_empty()) {
-            xml.push_str(&format!("<a:hlinkClick r:id=\"rId{rid}\" invalidUrl=\"\" action=\"\" tgtFrame=\"\" tooltip=\"{tooltip}\" history=\"1\" highlightClick=\"0\" endSnd=\"0\"{ending}"));
-        } else if is_set(link.slide) {
-            xml.push_str(&format!("<a:hlinkClick r:id=\"rId{rid}\" action=\"ppaction://hlinksldjump\" tooltip=\"{tooltip}\"{ending}"));
-        } else {
-            return Err("ERROR: 'hyperlink requires either `url` or `slide`'".to_owned());
-        }
-        if color.is_some() {
-            xml.push_str(" <a:extLst>");
-            xml.push_str("  <a:ext uri=\"{A12FA001-AC4F-418D-AE19-62706E023703}\">");
-            xml.push_str("   <ahyp:hlinkClr xmlns:ahyp=\"http://schemas.microsoft.com/office/drawing/2018/hyperlinkcolor\" val=\"tx\"/>");
-            xml.push_str("  </a:ext>");
-            xml.push_str(" </a:extLst>");
-            xml.push_str("</a:hlinkClick>");
-        }
+        xml.push_str(&hyperlink_click_xml(link, options.hyperlink_rid, color.is_some())?);
     }
     xml.push_str("</a:rPr>");
+    Ok(xml)
+}
+
+fn hyperlink_click_xml(link: &Hyperlink, hyperlink_rid: Option<usize>, coloured: bool) -> Result<String, String> {
+    let rid = hyperlink_rid.map_or_else(|| "undefined".to_owned(), |rid| rid.to_string());
+    let tooltip = link.tooltip.as_deref().filter(|tooltip| !tooltip.is_empty()).map(encode_xml_entities).unwrap_or_default();
+    let ending = if coloured { ">" } else { "/>" };
+    let mut xml = if link.url.as_deref().is_some_and(|url| !url.is_empty()) {
+        format!(
+            "<a:hlinkClick r:id=\"rId{rid}\" invalidUrl=\"\" action=\"\" tgtFrame=\"\" tooltip=\"{tooltip}\" history=\"1\" highlightClick=\"0\" endSnd=\"0\"{ending}"
+        )
+    } else if is_set(link.slide) {
+        format!("<a:hlinkClick r:id=\"rId{rid}\" action=\"ppaction://hlinksldjump\" tooltip=\"{tooltip}\"{ending}")
+    } else {
+        return Err("ERROR: 'hyperlink requires either `url` or `slide`'".to_owned());
+    };
+    if coloured {
+        xml.push_str(" <a:extLst>");
+        xml.push_str("  <a:ext uri=\"{A12FA001-AC4F-418D-AE19-62706E023703}\">");
+        xml.push_str("   <ahyp:hlinkClr xmlns:ahyp=\"http://schemas.microsoft.com/office/drawing/2018/hyperlinkcolor\" val=\"tx\"/>");
+        xml.push_str("  </a:ext>");
+        xml.push_str(" </a:extLst>");
+        xml.push_str("</a:hlinkClick>");
+    }
     Ok(xml)
 }
 

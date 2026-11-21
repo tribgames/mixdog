@@ -33,7 +33,6 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::CpuInteractive;
 use mixdog_rt::InLane;
-use mixdog_rt::LaneToken;
 use mixdog_rt::TaskClass;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::bounded::Text;
@@ -370,7 +369,7 @@ impl DeleteHold {
         let id = &self.handle.id;
         let mut shard = lock(directory.shard(id));
         if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
-            shard.remove(id);
+            directory.vacate(&mut shard, id);
             #[cfg(any(test, feature = "test-support"))]
             directory.left.notify_waiters();
         }
@@ -588,6 +587,13 @@ impl DirInner {
         &self.shards[(hasher.finish() as usize) % SHARDS]
     }
 
+    /// The slot of `id` goes, and with it what the process remembered of the thread's surface. Under the shard lock, so
+    /// no later load of the id has begun: what that load remembers is its own.
+    fn vacate(&self, shard: &mut HashMap<ThreadId, Slot_>, id: &ThreadId) {
+        shard.remove(id);
+        self.deps.new_tools.unloaded(id);
+    }
+
     /// The thread of `cell` ends here: its actor ended ([`SlotLease`]), or its first record failed (the actor). It takes no
     /// more work, and its slot goes if it is still this thread's. Closing the cell under the shard lock is what an open that
     /// is about to publish the handle checks ([`Self::publish_opened`]).
@@ -595,7 +601,7 @@ impl DirInner {
         let mut shard = lock(self.shard(id));
         cell.close();
         if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell)) {
-            shard.remove(id);
+            self.vacate(&mut shard, id);
             #[cfg(any(test, feature = "test-support"))]
             self.left.notify_waiters();
         }
@@ -636,7 +642,7 @@ impl DirInner {
             }
             result => {
                 if ours {
-                    shard.remove(id);
+                    self.vacate(&mut shard, id);
                 }
                 result?.cell.close();
                 Err(CoreError::ThreadClosing { thread_id: id.clone() })
@@ -669,7 +675,7 @@ impl DirInner {
         let (done, finished) = watch::channel(());
         let (stop, stopped) = oneshot::channel();
         lock(&self.teardowns).insert(id.clone(), finished);
-        shard.remove(id);
+        self.vacate(&mut shard, id);
         struct PendingTeardown {
             directory: std::sync::Weak<DirInner>,
             thread: ThreadId,
@@ -732,21 +738,22 @@ impl DirInner {
         }
         self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
-        let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| {
+        let read = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| {
             store.read_header(lane, &thread).map(|header| header.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
         })
         .await;
         read.ok()?.ok()
     }
 
-    /// As [`stored_header`](Self::stored_header), but `Err` when the read job never ran.
+    /// As [`stored_header`](Self::stored_header), but `Err` when the read job never ran. The read waits out a full lane:
+    /// a busy lane says nothing about whether the session exists.
     async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
         self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
-        let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
+        let read = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
     }
 
@@ -780,10 +787,6 @@ impl DirInner {
         if let Some(fields) = fields.filter(|fields| fields.iter().all(|field| mixdog_store::worker::LISTED_FIELDS.contains(field))) {
             let asked: Vec<ThreadId> = stored.iter().map(|&at| ids[at].clone()).collect();
             let store = self.deps.store.clone();
-            // The one read waits for room in the lane. A read that never ran (the lane refused it as overloaded, is
-            // wedged or shut down) or failed answers nothing for these sessions, as a record read refused the same way
-            // does: a record is read only for a session the index itself answers it cannot vouch for, never because
-            // the index could not be asked.
             let rows =
                 mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked)).await;
             let Ok(Ok(rows)) = rows else {
@@ -929,39 +932,7 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
-                        let began = me.deps.clock.now_ms();
-                        me.settle_teardowns(&thread).await;
-                        // A session of the earlier version that is listed and not yet converted is converted now, ahead of the rest.
-                        if let Some(there) = me.arriving.get().and_then(|arriving| arriving.arriving(&thread)) {
-                            there.await;
-                        }
-                        let waited = me.deps.clock.now_ms();
-                        let result = me.load(&thread).await;
-                        let loaded = me.deps.clock.now_ms();
-                        // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
-                        // for a delete or an op record) takes its tool surface as it resolves now,
-                        // before any caller gets it.
-                        if for_use && let Ok(handle) = &result {
-                            me.refresh_resumed_tools(handle).await;
-                            // `resume`'s `setRoute(resumedRoute)`: the runtime takes the route its session holds.
-                            me.deps.new_route.boot(&thread, &handle.cell.header.load_full());
-                            // `resume`'s `routePreparation`: the booted route takes its effort fields once the provider's catalog
-                            // answers; the open does not wait for it.
-                            let route = me.deps.new_route.clone();
-                            let prepared = thread.clone();
-                            drop(mixdog_rt::spawn("route-prepare", TaskClass::Work, async move { route.prepare(&prepared).await }));
-                        }
-                        // An open a person waits for: one that took long says which step did.
-                        let ended = me.deps.clock.now_ms();
-                        if ended - began >= SLOW_OPEN_MS {
-                            tracing::warn!(
-                                thread = thread.as_str(),
-                                before_ms = waited - began,
-                                load_ms = loaded - waited,
-                                tools_ms = ended - loaded,
-                                "slow session open"
-                            );
-                        }
+                        let result = me.load_for_open(&thread, for_use).await;
                         let result = me.publish_opened(&thread, &opening, result);
                         tx.send_replace(Some(result));
                     });
@@ -977,6 +948,31 @@ impl DirInner {
                 Err(_) => Err(CoreError::ThreadClosing { thread_id: id.clone() }),
             },
         }
+    }
+
+    /// The load of a cold open: past the teardowns and the conversion it waits on, then the thread's resume (tool surface, route)
+    /// when it is opened for use. An open a person waits for: one that took long says which step did.
+    async fn load_for_open(&self, thread: &ThreadId, for_use: bool) -> Loaded {
+        let began = self.deps.clock.now_ms();
+        self.settle_teardowns(thread).await;
+        if let Some(there) = self.arriving.get().and_then(|arriving| arriving.arriving(thread)) {
+            there.await;
+        }
+        let waited = self.deps.clock.now_ms();
+        let result = self.load(thread).await;
+        let loaded = self.deps.clock.now_ms();
+        if for_use && let Ok(handle) = &result {
+            self.refresh_resumed_tools(handle).await;
+            self.deps.new_route.boot(thread, &handle.cell.header.load_full());
+            let route = self.deps.new_route.clone();
+            let prepared = thread.clone();
+            drop(mixdog_rt::spawn("route-prepare", TaskClass::Work, async move { route.prepare(&prepared).await }));
+        }
+        let ended = self.deps.clock.now_ms();
+        if ended - began >= SLOW_OPEN_MS {
+            tracing::warn!(thread = thread.as_str(), before_ms = waited - began, load_ms = loaded - waited, tools_ms = ended - loaded, "slow session open");
+        }
+        result
     }
 
     /// Writes the opened thread's refreshed tool surface ([`super::ResumedTools`]) as one header
@@ -1103,92 +1099,10 @@ impl DirInner {
         let settled = super::replay_settled::Lane::register(id.as_str(), &ctl_tx, &inbox_tx, &prod_tx);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
-        let mut view = SessionView::build(
-            feed_id.clone(),
-            deps.transcript.summary(&id, &super::archive_trees::resolved_header(&deps.archive, id.as_str(), &state.header)),
-            &state,
-            mixdog_app_protocol::v2::thread::StorageState::Ok,
-            None,
-        );
-        // Node's store holds the agent scope from its first state (`initial-state.mjs:57`), and the scope needs only the header: a
-        // `thread/read` answered before the actor's first publish shows it too (the actor publishes it as its load's first change).
-        let agents = view.state.agents.take().unwrap_or_default();
-        view.state.agents = Some(mixdog_app_protocol::v2::thread::ThreadAgents {
-            agent_scope: Some(super::agent_registry::status_rows::agent_scope(&id, &state.header)),
-            ..agents
-        });
-        let view = Arc::new(view);
+        let view = self.first_view(&id, &feed_id, &state);
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
-        let cell = Arc::new(ControlCell {
-            thread: id.clone(),
-            liveness,
-            run: Default::default(),
-            turn_chain: Default::default(),
-            queued: Default::default(),
-            queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
-            approvals: Default::default(),
-            shown_approval: Default::default(),
-            shown_changed: tokio::sync::watch::Sender::new(0),
-            takeover: Default::default(),
-            view: arc_swap::ArcSwap::new(view),
-            header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
-            surface: surface.subscribe(),
-            progress: watch::Sender::new(Default::default()),
-            turn_messages: watch::Sender::new(Default::default()),
-            turn_listeners: Default::default(),
-            agent_start: Default::default(),
-            routine_starts: Default::default(),
-            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
-            ctl_tx,
-            steer_cap: limits.steer_queue,
-            subscribers: Default::default(),
-            closed: Default::default(),
-            session_ended: Default::default(),
-            turn_held: Default::default(),
-            turn_pending: Default::default(),
-            ui_busy: Default::default(),
-            compacting: Default::default(),
-            live_rows: self.live_rows.clone(),
-            stop_latches: self.stop_latches.clone(),
-            #[cfg(any(test, feature = "test-support"))]
-            start_fences: Default::default(),
-            compaction_cancel: Default::default(),
-            pending_compact: Default::default(),
-            gated: Default::default(),
-            deferring: Default::default(),
-            retention: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            stepped: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            unacked: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            handed: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            busy: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            retry_blocked: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            goal_pending: Default::default(),
-            #[cfg(test)]
-            ask_marked: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            prompt_timers: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            recovered: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            drafts_settled: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            gate_holds: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            drain_passes: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            stop_ledger: Default::default(),
-            #[cfg(any(test, feature = "test-support"))]
-            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
-            #[cfg(any(test, feature = "test-support"))]
-            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
-        });
+        let cell = self.control_cell(&id, liveness, &state, view, surface.subscribe(), ctl_tx);
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
             control,
@@ -1239,6 +1153,117 @@ impl DirInner {
         (handle, launch)
     }
 
+    fn first_view(&self, id: &ThreadId, feed_id: &FeedId, state: &SessionState) -> Arc<SessionView> {
+        let deps = &self.deps;
+        let mut view = SessionView::build(
+            feed_id.clone(),
+            deps.transcript.summary(id, &super::archive_trees::resolved_header(&deps.archive, id.as_str(), &state.header)),
+            state,
+            mixdog_app_protocol::v2::thread::StorageState::Ok,
+            None,
+        );
+        // Node's store holds the agent scope from its first state (`initial-state.mjs:57`), and the scope needs only the header: a
+        // `thread/read` answered before the actor's first publish shows it too (the actor publishes it as its load's first change).
+        let agents = view.state.agents.take().unwrap_or_default();
+        view.state.agents = Some(mixdog_app_protocol::v2::thread::ThreadAgents {
+            agent_scope: Some(super::agent_registry::status_rows::agent_scope(id, &state.header)),
+            ..agents
+        });
+        Arc::new(view)
+    }
+
+    fn control_cell(
+        &self,
+        id: &ThreadId,
+        liveness: Arc<Liveness>,
+        state: &SessionState,
+        view: Arc<SessionView>,
+        surface: watch::Receiver<Arc<mixdog_tools::policy::SessionSurface>>,
+        ctl_tx: mpsc::Sender<Ctl>,
+    ) -> Arc<ControlCell> {
+        let deps = &self.deps;
+        Arc::new(ControlCell {
+            thread: id.clone(),
+            liveness,
+            run: Default::default(),
+            turn_chain: Default::default(),
+            queued: Default::default(),
+            queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
+            approvals: Default::default(),
+            shown_approval: Default::default(),
+            shown_changed: tokio::sync::watch::Sender::new(0),
+            takeover: Default::default(),
+            view: arc_swap::ArcSwap::new(view),
+            header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
+            surface,
+            progress: watch::Sender::new(Default::default()),
+            turn_messages: watch::Sender::new(Default::default()),
+            turn_listeners: Default::default(),
+            agent_start: Default::default(),
+            routine_starts: Default::default(),
+            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
+            ctl_tx,
+            steer_cap: deps.limits.steer_queue,
+            subscribers: Default::default(),
+            closed: Default::default(),
+            session_ended: Default::default(),
+            turn_held: Default::default(),
+            turn_pending: Default::default(),
+            ui_busy: Default::default(),
+            compacting: Default::default(),
+            live_rows: self.live_rows.clone(),
+            stop_latches: self.stop_latches.clone(),
+            #[cfg(any(test, feature = "test-support"))]
+            start_fences: Default::default(),
+            compaction_cancel: Default::default(),
+            pending_compact: Default::default(),
+            gated: Default::default(),
+            deferring: Default::default(),
+            retention: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            stepped: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            unacked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            handed: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            retry_blocked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            goal_pending: Default::default(),
+            #[cfg(test)]
+            ask_marked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            recovered: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            drafts_settled: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            gate_holds: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            drain_passes: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            stop_ledger: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
+            #[cfg(any(test, feature = "test-support"))]
+            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
+        })
+    }
+
+    /// Joined to its tree before the count moves: a preparation that reads the count after this finds the link.
+    fn register_created(&self, header: &Header, id: &ThreadId) {
+        if mixdog_store::summary::session_visibility(header) == "agent-only" {
+            let mut links = lock(&self.created_links);
+            for parent in super::sub_agent_retention::parent_ids(header, id.as_str()) {
+                links.entry(parent).or_default().push(id.as_str().to_owned());
+            }
+        }
+        self.created.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// A new thread: its `session` record is its first durable write; the reply follows it.
     pub(crate) async fn create(&self, spec: CreateSpec) -> Result<Arc<SessionHandle>, CoreError> {
         // The create settling, whichever way, is a busy-state change (`rt.wakeDeferredWarmups`):
@@ -1246,17 +1271,9 @@ impl DirInner {
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
         let _creating = InFlight::enter(&self.creating);
         let id = spec.id.unwrap_or_else(|| self.mint_session_id());
-        let invalid = |path: &str| CoreError::InvalidParams { path: path.into(), expected: "a shorter value".into() };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
-        // Joined to its tree before the count moves: a preparation that reads the count after this finds the link.
-        if mixdog_store::summary::session_visibility(&header) == "agent-only" {
-            let mut links = lock(&self.created_links);
-            for parent in super::sub_agent_retention::parent_ids(&header, id.as_str()) {
-                links.entry(parent).or_default().push(id.as_str().to_owned());
-            }
-        }
-        self.created.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.register_created(&header, &id);
         // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
         // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
         // rows names what they name: it holds none, and its transcript is scanned.
@@ -1265,16 +1282,7 @@ impl DirInner {
             mixdog_store::offload_sources::set_sources(&mut header, held);
         }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
-        let op = match &spec.op {
-            Some(op) => Some(mixdog_store::schema::record::OpRef {
-                id: Text::try_from(op.as_str()).map_err(|_| invalid("opId"))?,
-                method: Text::try_from(spec.method.as_str()).map_err(|_| invalid("method"))?,
-                digest: mixdog_store::schema::bounded::Digest::try_from(super::ops::digest(&spec.params)).expect("digest is well formed"),
-                audience: spec.op_audience,
-                result: None,
-            }),
-            None => None,
-        };
+        let op = op_ref(spec.op.as_ref(), &spec.method, &spec.params, spec.op_audience)?;
         // Only a control start holds its id before the create.
         let control = spec.starting.is_some();
         let session = Record::Session(SessionRecord {
@@ -1339,46 +1347,8 @@ impl SessionDirectory {
         id: Option<ThreadId>,
         attempt: Option<(&super::new_task::StepCell, bool)>,
     ) -> Result<Arc<SessionHandle>, CoreError> {
-        let now = self.inner.deps.clock.now_ms();
-        let mut header = Header::new();
-        header.insert("createdAt".into(), json!(now));
-        header.insert("updatedAt".into(), json!(now));
-        header.insert("lastUsedAt".into(), json!(now));
-        // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
-        // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
-        // workspace, no project, no classification.
         let control = params.kind == ThreadStartKind::Control;
-        let project = if control {
-            None
-        } else {
-            params
-                .project_path
-                .clone()
-                // `requiredNewTaskDraft` kept the draft's path trimmed.
-                .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(|path| mixdog_js::js_trim(path).to_owned()))
-                .filter(|path| !path.trim().is_empty())
-        };
-        if let Some(path) = &project {
-            header.insert("cwd".into(), json!(path));
-        } else if matches!(params.kind, ThreadStartKind::Task | ThreadStartKind::Control) {
-            // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
-            // the tools below are composed for that folder.
-            let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
-            header.insert("cwd".into(), json!(folder));
-        }
-        // A session the desktop creates for a new task or a project is classified by the project it names, as the host
-        // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
-        // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
-        // The control session is created with `desktopSession: null` (`ensureControlSession`): none is written.
-        if !control && (project.is_some() || params.draft.is_some()) {
-            let classified = match &project {
-                Some(path) => json!({ "classification": "project", "projectPath": path }),
-                None => json!({ "classification": "task", "projectPath": null }),
-            };
-            header.insert("desktopSession".into(), classified);
-        }
-        // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
-        super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
+        let mut header = self.start_header(params).await?;
         // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
         // A new task's address is given (`client.create` at the reserved address).
         let reserved = id.is_some();
@@ -1401,33 +1371,7 @@ impl SessionDirectory {
             self.inner.deps.new_route.adopt_control(&id).await
         } else {
             if let Some((step, configure)) = attempt {
-                let closing = self.inner.deps.new_tasks.closing();
-                let draft = params.draft.as_ref();
-                let settings = &self.inner.deps.draft_settings;
-                // `requiredNewTaskDraft` kept the draft's workflow id trimmed.
-                if let Some(workflow) =
-                    draft.and_then(|draft| draft.workflow_id.as_deref()).map(mixdog_js::js_trim).filter(|workflow| configure && !workflow.is_empty())
-                {
-                    step.set(super::new_task::Step::Configuring);
-                    super::new_task::quit_gate("setWorkflow", &closing).await;
-                    if let Err(error) = settings.set_workflow(&id, workflow).await {
-                        // A draft can remember a workflow deleted since; it starts on the built-in Default (:770-772).
-                        if !super::new_task::workflow_not_found(&error) {
-                            return Err(error);
-                        }
-                        settings.set_workflow(&id, "default").await?;
-                    }
-                }
-                let mode = draft.and_then(|draft| draft.orchestration_mode).and_then(|mode| serde_json::to_value(mode).ok());
-                if let Some(Value::String(mode)) = mode.filter(|_| configure) {
-                    step.set(super::new_task::Step::Configuring);
-                    super::new_task::quit_gate("setOrchestrationMode", &closing).await;
-                    settings.set_orchestration_mode(&id, &mode).await?;
-                }
-                if pick.is_some() {
-                    step.set(super::new_task::Step::Configuring);
-                    super::new_task::quit_gate("setRoute", &closing).await;
-                }
+                self.configure_draft(&id, params, step, configure, pick.is_some()).await?;
             }
             self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
         }
@@ -1483,6 +1427,93 @@ impl SessionDirectory {
         }
         self.session_started(&handle, &req.ctx).await;
         Ok(handle)
+    }
+
+    /// The header a `thread/start` begins with, before its tools are composed: its stamps, its cwd and classification, and the
+    /// session's options.
+    async fn start_header(&self, params: &ThreadStartParams) -> Result<Header, CoreError> {
+        let now = self.inner.deps.clock.now_ms();
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(now));
+        header.insert("updatedAt".into(), json!(now));
+        header.insert("lastUsedAt".into(), json!(now));
+        // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
+        // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
+        // workspace, no project, no classification.
+        let control = params.kind == ThreadStartKind::Control;
+        let project = if control {
+            None
+        } else {
+            params
+                .project_path
+                .clone()
+                // `requiredNewTaskDraft` kept the draft's path trimmed.
+                .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(|path| mixdog_js::js_trim(path).to_owned()))
+                .filter(|path| !path.trim().is_empty())
+        };
+        if let Some(path) = &project {
+            header.insert("cwd".into(), json!(path));
+        } else if matches!(params.kind, ThreadStartKind::Task | ThreadStartKind::Control) {
+            // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
+            // the tools below are composed for that folder.
+            let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            header.insert("cwd".into(), json!(folder));
+        }
+        // A session the desktop creates for a new task or a project is classified by the project it names, as the host
+        // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
+        // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
+        // The control session is created with `desktopSession: null` (`ensureControlSession`): none is written.
+        if !control && (project.is_some() || params.draft.is_some()) {
+            let classified = match &project {
+                Some(path) => json!({ "classification": "project", "projectPath": path }),
+                None => json!({ "classification": "task", "projectPath": null }),
+            };
+            header.insert("desktopSession".into(), classified);
+        }
+        // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
+        super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
+        Ok(header)
+    }
+
+    /// A new task's draft applied to its thread in Node's order, after `client.create` returned (session-host-lifecycle.ts:765-779):
+    /// the workflow, the orchestration mode (both only when `configure`: Node's `configureDraft` runs on a `reserved` receipt only),
+    /// then the route's turn at the quit gate. Each step that runs enters the draft step.
+    async fn configure_draft(
+        &self,
+        id: &ThreadId,
+        params: &ThreadStartParams,
+        step: &super::new_task::StepCell,
+        configure: bool,
+        routed: bool,
+    ) -> Result<(), CoreError> {
+        let closing = self.inner.deps.new_tasks.closing();
+        let draft = params.draft.as_ref();
+        let settings = &self.inner.deps.draft_settings;
+        // `requiredNewTaskDraft` kept the draft's workflow id trimmed.
+        if let Some(workflow) =
+            draft.and_then(|draft| draft.workflow_id.as_deref()).map(mixdog_js::js_trim).filter(|workflow| configure && !workflow.is_empty())
+        {
+            step.set(super::new_task::Step::Configuring);
+            super::new_task::quit_gate("setWorkflow", &closing).await;
+            if let Err(error) = settings.set_workflow(id, workflow).await {
+                // A draft can remember a workflow deleted since; it starts on the built-in Default (:770-772).
+                if !super::new_task::workflow_not_found(&error) {
+                    return Err(error);
+                }
+                settings.set_workflow(id, "default").await?;
+            }
+        }
+        let mode = draft.and_then(|draft| draft.orchestration_mode).and_then(|mode| serde_json::to_value(mode).ok());
+        if let Some(Value::String(mode)) = mode.filter(|_| configure) {
+            step.set(super::new_task::Step::Configuring);
+            super::new_task::quit_gate("setOrchestrationMode", &closing).await;
+            settings.set_orchestration_mode(id, &mode).await?;
+        }
+        if routed {
+            step.set(super::new_task::Step::Configuring);
+            super::new_task::quit_gate("setRoute", &closing).await;
+        }
+        Ok(())
     }
 
     /// `dispatchSessionStart(deps, reason, signal)` (`session-create.mjs` `buildSession`, right after `materializeSession`): the
@@ -1602,6 +1633,27 @@ impl SessionDirectory {
         let _ = super::delete::delete_session(&self.inner, id.as_str(), None).await;
     }
 }
+fn invalid(path: &str) -> CoreError {
+    CoreError::InvalidParams { path: path.into(), expected: "a shorter value".into() }
+}
+
+/// The record of the op a create answers, when it is one.
+fn op_ref(
+    op: Option<&OpId>,
+    method: &Method,
+    params: &Value,
+    audience: Option<mixdog_store::schema::bounded::Digest>,
+) -> Result<Option<mixdog_store::schema::record::OpRef>, CoreError> {
+    let Some(op) = op else { return Ok(None) };
+    Ok(Some(mixdog_store::schema::record::OpRef {
+        id: Text::try_from(op.as_str()).map_err(|_| invalid("opId"))?,
+        method: Text::try_from(method.as_str()).map_err(|_| invalid("method"))?,
+        digest: mixdog_store::schema::bounded::Digest::try_from(super::ops::digest(params)).expect("digest is well formed"),
+        audience,
+        result: None,
+    }))
+}
+
 #[async_trait]
 impl ThreadDirectory for SessionDirectory {
     fn stop_room(&self, id: &ThreadId) -> Option<mixdog_core_api::thread::RoomStopped> {
@@ -1685,8 +1737,6 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
         }
     }
 }
-/// Node's `withTeardownDeadline` (`memory-ingest.mjs:40`): stops waiting for `work` after `deadline`, and `work` goes on running (the insert is not
-/// rolled back; it ends with its pool). Dropping `work` would cancel it, so it runs as a task and only the wait is bounded.
 /// The restore gate's work: read the history's rows, import every image they hold that no image choice already covers (left
 /// out, replaced, or before a new start) into the vault, and open (or name what needs repair in) the thread's
 /// [`super::image_gate::ImageGate`]. Choices that cannot be read cover nothing: the send then says so and offers the new start
@@ -1734,6 +1784,8 @@ async fn image_gate_run(deps: Arc<SessionDeps>, id: ThreadId, gate: Arc<super::i
     }
 }
 
+/// Node's `withTeardownDeadline` (`memory-ingest.mjs:40`): stops waiting for `work` after `deadline`, and `work` goes on running (the insert is not
+/// rolled back; it ends with its pool). Dropping `work` would cancel it, so it runs as a task and only the wait is bounded.
 async fn wait_without_cancelling(deadline: std::time::Duration, work: impl std::future::Future<Output = ()> + Send + 'static) {
     let task = mixdog_rt::spawn("core-session.shutdown-ingest", TaskClass::Work, work);
     let _ = mixdog_rt::time::timeout(deadline, task).await;
@@ -1769,7 +1821,12 @@ impl SessionDirectory {
             #[cfg(any(test, feature = "test-support"))]
             adoption_gate: Default::default(),
         });
-        let me = Arc::downgrade(&inner);
+        Self::wire_events(&inner);
+        Self { inner }
+    }
+
+    fn wire_events(inner: &Arc<DirInner>) {
+        let me = Arc::downgrade(inner);
         let subscription = inner.deps.goals.on_goal_change(Box::new(move |event| {
             let Some(directory) = me.upgrade() else { return };
             if let Some(handle) = directory.loaded(&ThreadId::from(event.session_id.as_str())) {
@@ -1778,7 +1835,7 @@ impl SessionDirectory {
         }));
         *lock(&inner.goal_events) = Some(subscription);
         // A change that names no session changed every entry: each loaded thread reads its own again.
-        let me = Arc::downgrade(&inner);
+        let me = Arc::downgrade(inner);
         let subscription = inner.deps.quota.goals.subscribe(move |session| {
             let Some(directory) = me.upgrade() else { return };
             let handles: Vec<Arc<SessionHandle>> = match session {
@@ -1790,7 +1847,7 @@ impl SessionDirectory {
             }
         });
         *lock(&inner.quota_events) = Some(subscription);
-        let me = Arc::downgrade(&inner);
+        let me = Arc::downgrade(inner);
         inner.deps.sensitive.on_carried(Box::new(move |thread| {
             let Some(directory) = me.upgrade() else { return };
             let thread = thread.clone();
@@ -1798,7 +1855,6 @@ impl SessionDirectory {
                 SessionDirectory::over(directory).carried(&thread).await;
             }));
         }));
-        Self { inner }
     }
 
     /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
@@ -1849,6 +1905,11 @@ impl SessionDirectory {
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
+    }
+
+    /// [`super::control::StopLatches::while_idle`] of thread `id`.
+    pub(crate) fn while_idle<R>(&self, id: &ThreadId, at: impl FnOnce() -> Option<R>) -> Option<R> {
+        self.inner.stop_latches.while_idle(id, at)
     }
 
     /// Run the restore check of a loaded thread's images again: the gate shuts and the history's images are imported in the
@@ -1986,11 +2047,7 @@ impl SessionDirectory {
         let deps = &self.inner.deps;
         deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
-        deps.lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| store.history_row(lane, &thread, &iid))?
-            .await
-            .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })?
+        mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.history_row(lane, &thread, &iid)).await?
     }
 
     /// A completion handed to a live session's listeners (`notifySessionCompletion`): its card,
@@ -2022,11 +2079,7 @@ impl SessionDirectory {
         let deps = &self.inner.deps;
         deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
-        deps.lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| store.compaction_entry(lane, &thread, &iid))?
-            .await
-            .map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })?
+        mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.compaction_entry(lane, &thread, &iid)).await?
     }
 
     /// The agent the calling session's record names, as the agent-editor rule reads it:
@@ -2370,8 +2423,7 @@ impl SessionDirectory {
 
     /// [`create_session`](Self::create_session) for an agent-owned session (a delegated worker, `createAgentChild`): its
     /// header begins with the tool surface and prompt identity Node's `createSession` gives it
-    /// (`NewThreadTools::seed_agent`), so its first turn composes its prompt and sends its tools. Without them the
-    /// worker's requests carried no system prompt and no tools.
+    /// (`NewThreadTools::seed_agent`), so its first turn composes its prompt and sends its tools.
     pub async fn create_agent_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
         let id = self.inner.mint_session_id();
         // Its runtime is booted with the agent's route (`createAgentChild`'s `createSession({ provider, model, … })`).
@@ -2410,8 +2462,7 @@ impl SessionDirectory {
 
     /// [`create_session`](Self::create_session) for an imported conversation (`createImportedSession`): Node makes it with
     /// the manager's `createSession`, so its header begins with the tool surface and prompt a new thread's does
-    /// (`NewThreadTools::seed_imported`), in no MCP scope of its own: nothing is abandoned with it. Without them its turns
-    /// carried no system prompt and no tools.
+    /// (`NewThreadTools::seed_imported`), in no MCP scope of its own: nothing is abandoned with it.
     pub async fn create_imported_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
         let id = self.inner.mint_session_id();
         // Node's `createSession` boots the imported session's runtime on the route its options name.
@@ -2477,10 +2528,6 @@ impl SessionDirectory {
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
     /// all of them together bounded at 2500 ms. Before all of it, the new-task attempts in flight are cut ([`super::new_task::NewTaskReceipts::shutdown`]).
     pub async fn shutdown_for(&self, reason: &str) {
-        // The new-task attempts in flight are cut first, as a process ending leaves them, before the directory refuses their
-        // next step (a refusal would mark their receipts refused).
-        // Under Node's shutdown budget, within which its session service stop awaits the call a cut attempt awaits and the attempt
-        // then ends: a call or receipt write that outlives it cannot hold the rest of the teardown.
         if let Err(overrun) = self.inner.deps.new_tasks.shutdown(NEW_TASK_SHUTDOWN_BOUND).await {
             tracing::error!(%overrun, "the new-task receipts did not shut down in time");
         }
@@ -2507,8 +2554,15 @@ impl SessionDirectory {
             }))
             .await;
         }
-        let handles: Vec<Arc<SessionHandle>> = self
-            .inner
+        let handles = self.drain_slots();
+        self.stop_loaded(handles).await;
+        // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
+        // cleanup runs on, and what is left is the prune's and the startup reconcile's.
+        self.inner.deps.snapshots.dispose();
+    }
+
+    fn drain_slots(&self) -> Vec<Arc<SessionHandle>> {
+        self.inner
             .shards
             .iter()
             .flat_map(|shard| {
@@ -2525,7 +2579,12 @@ impl SessionDirectory {
                     })
                     .collect::<Vec<_>>()
             })
-            .collect();
+            .collect()
+    }
+
+    /// Stops every drained thread (a live run is cancelled) and waits, up to [`SHUTDOWN_INGEST_DEADLINE`], for the memory ingest of
+    /// each and for the teardowns of the unloaded.
+    async fn stop_loaded(&self, handles: Vec<Arc<SessionHandle>>) {
         let mut ingests = Vec::new();
         for handle in handles {
             let (done, ingest) = tokio::sync::oneshot::channel();
@@ -2546,9 +2605,6 @@ impl SessionDirectory {
             futures::join!(loaded, unloaded);
         })
         .await;
-        // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
-        // cleanup runs on, and what is left is the prune's and the startup reconcile's.
-        self.inner.deps.snapshots.dispose();
     }
 
     /// Opens (single-flight) and returns the concrete handle.

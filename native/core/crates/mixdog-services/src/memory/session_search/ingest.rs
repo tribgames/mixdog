@@ -1,14 +1,3 @@
-//! Keeps the session-search copy in step with the session store: per-turn
-//! ingest, a once-per-run backfill of stored sessions, and deletion.
-//! Everything is best-effort.
-//!
-//! A session's writes run one at a time, in the order they were issued. That
-//! order keeps a value marked sensitive out of the index: the replacement that
-//! redacts stored rows locks only rows that already exist, so an earlier
-//! plaintext append still in flight would otherwise land after it and bring
-//! the value back. A write also redacts with the values known when it runs,
-//! not when it was issued. Sessions never wait on each other.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

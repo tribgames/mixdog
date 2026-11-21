@@ -788,31 +788,8 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
     }
     let source = text_field_at(message, "source");
     let fields = metadata(message).fields;
-    let stamp = |row: &mut Row| {
-        for key in ["messageId", "at", "posted"] {
-            if let Some(value) = fields.get(key).filter(|v| truthy(v)) {
-                row.insert(key.to_owned(), value.clone());
-            }
-        }
-    };
     if is_routine_result_message(message) || held_request(message) {
-        let held = held_request(message);
-        let routine = message.pointer("/meta/routine");
-        let routine_field = |name: &str| number(routine.and_then(|r| r.get(name))) > 0.0;
-        let warn = if held {
-            message.pointer("/meta/heldRequest/status").and_then(Value::as_str) == Some("pending")
-        } else {
-            routine_field("relayFailed") || (!routine_field("omitted") && (routine.is_some_and(|r| text_field(r, "status") == "failed")))
-        };
-        let mut row = Row::new();
-        row.insert("kind".into(), json!("notice"));
-        row.insert("id".into(), json!(ids.next()));
-        row.insert("text".into(), json!(if held { held_request_text(message) } else { routine_result_notice_text(message) }));
-        row.insert("tone".into(), json!(if warn { "warn" } else { "info" }));
-        if !held {
-            row.extend(routine_notice_fields(message));
-        }
-        stamp(&mut row);
+        let row = notice_row(message, &fields, ids);
         out.push(Restored::Row { row, source: Some(source.to_owned()) });
         return;
     }
@@ -822,22 +799,7 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         return;
     }
     if let Some(end) = meta.and_then(|m| m.get("turnEnd")).filter(|end| end.is_object()) {
-        let mut row = Row::new();
-        row.insert("kind".into(), json!("turndone"));
-        row.insert("id".into(), json!(ids.next()));
-        row.insert("status".into(), json!("cancelled"));
-        row.insert("elapsedMs".into(), json!(0));
-        // The stored fact first; the marker text only for rows written before the cause was stored.
-        let cut_by_restart = match end.get("cause") {
-            Some(cause) => cause.as_str() == Some(mixdog_protocol::message_class::RESTART_CAUSE),
-            None => mixdog_protocol::text_class::is_process_restart_status_text(&tool_result_text(message.get("content").unwrap_or(&Value::Null))),
-        };
-        if cut_by_restart {
-            row.insert("cause".into(), json!(mixdog_protocol::message_class::RESTART_CAUSE));
-        }
-        if let Some(message_id) = fields.get("messageId").filter(|v| truthy(v)) {
-            row.insert("messageId".into(), message_id.clone());
-        }
+        let row = interrupted_end_row(end, message, &fields, ids);
         out.push(Restored::Row { row, source: None });
         return;
     }
@@ -859,6 +821,53 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         }
     }
     out.push(Restored::Row { row, source: (!source.is_empty()).then(|| source.to_owned()) });
+}
+
+/// The notice row of a routine result or a held request.
+fn notice_row(message: &Value, fields: &Row, ids: &mut Ids<'_>) -> Row {
+    let held = held_request(message);
+    let routine = message.pointer("/meta/routine");
+    let routine_field = |name: &str| number(routine.and_then(|r| r.get(name))) > 0.0;
+    let warn = if held {
+        message.pointer("/meta/heldRequest/status").and_then(Value::as_str) == Some("pending")
+    } else {
+        routine_field("relayFailed") || (!routine_field("omitted") && (routine.is_some_and(|r| text_field(r, "status") == "failed")))
+    };
+    let mut row = Row::new();
+    row.insert("kind".into(), json!("notice"));
+    row.insert("id".into(), json!(ids.next()));
+    row.insert("text".into(), json!(if held { held_request_text(message) } else { routine_result_notice_text(message) }));
+    row.insert("tone".into(), json!(if warn { "warn" } else { "info" }));
+    if !held {
+        row.extend(routine_notice_fields(message));
+    }
+    for key in ["messageId", "at", "posted"] {
+        if let Some(value) = fields.get(key).filter(|v| truthy(v)) {
+            row.insert(key.to_owned(), value.clone());
+        }
+    }
+    row
+}
+
+/// The end row of a turn a restart or a stop cut (`meta.turnEnd`).
+fn interrupted_end_row(end: &Value, message: &Value, fields: &Row, ids: &mut Ids<'_>) -> Row {
+    let mut row = Row::new();
+    row.insert("kind".into(), json!("turndone"));
+    row.insert("id".into(), json!(ids.next()));
+    row.insert("status".into(), json!("cancelled"));
+    row.insert("elapsedMs".into(), json!(0));
+    // The stored fact first; the marker text only for rows written before the cause was stored.
+    let cut_by_restart = match end.get("cause") {
+        Some(cause) => cause.as_str() == Some(mixdog_protocol::message_class::RESTART_CAUSE),
+        None => mixdog_protocol::text_class::is_process_restart_status_text(&tool_result_text(message.get("content").unwrap_or(&Value::Null))),
+    };
+    if cut_by_restart {
+        row.insert("cause".into(), json!(mixdog_protocol::message_class::RESTART_CAUSE));
+    }
+    if let Some(message_id) = fields.get("messageId").filter(|v| truthy(v)) {
+        row.insert("messageId".into(), message_id.clone());
+    }
+    row
 }
 
 /// `normalizeHandoffFiles`.
@@ -894,72 +903,86 @@ fn normalize_handoff_files(files: Option<&Value>) -> Vec<Value> {
 /// as `attachments`, which `SessionAttachments` finds them by.
 fn routine_notice_fields(message: &Value) -> Row {
     let routine = message.pointer("/meta/routine").unwrap_or(&Value::Null);
-    let field = |name: &str| routine.get(name).filter(|v| !v.is_null());
-    let mut payload = Map::new();
     let mut row = Row::new();
-    if number(routine.get("omitted")) > 0.0 {
-        payload.insert("omitted".into(), routine["omitted"].clone());
+    let payload = if number(routine.get("omitted")) > 0.0 {
+        Map::from_iter([("omitted".to_owned(), routine["omitted"].clone())])
     } else if number(routine.get("relayFailed")) > 0.0 {
-        payload.insert("relayFailed".into(), routine["relayFailed"].clone());
+        Map::from_iter([("relayFailed".to_owned(), routine["relayFailed"].clone())])
     } else if text_field(routine, "kind") == "task" {
-        payload.insert("kind".into(), json!("task"));
-        for name in ["name", "status", "summary", "sessionId"] {
-            if let Some(v) = routine.get(name) {
-                payload.insert(name.into(), v.clone());
-            }
-        }
-        if text_field(routine, "target") == "session" {
-            payload.insert("target".into(), json!("session"));
-        }
-        for name in ["agentId", "sendId"] {
-            if let Some(v) = field(name).filter(|v| truthy(v)) {
-                payload.insert(name.into(), v.clone());
-            }
-        }
-        if let Some(ids @ Value::Array(list)) = routine.get("sendIds")
-            && list.len() > 1
-        {
-            payload.insert("sendIds".into(), ids.clone());
-        }
-        let files = normalize_handoff_files(routine.get("files"));
-        if !files.is_empty() {
-            payload.insert("files".into(), Value::Array(files));
-        }
-        if !text_field(routine, "line").is_empty() {
-            payload.insert("line".into(), routine["line"].clone());
-        }
         let attachments = normalize_attachments(message.pointer("/meta/transcript/attachments"));
         if !attachments.is_empty() {
             row.insert("attachments".into(), Value::Array(attachments));
         }
+        task_routine_payload(routine)
     } else {
-        let failed = text_field(routine, "status") == "failed";
-        let text_or_empty = |name: &str| match routine.get(name) {
-            Some(v) if truthy(v) => mixdog_js::value_to_string(v),
-            _ => String::new(),
-        };
-        if text_field(routine, "kind") == "webhook" {
-            payload.insert("kind".into(), json!("webhook"));
-        }
-        payload.insert("name".into(), json!(text_or_empty("name")));
-        payload.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
-        payload.insert("summary".into(), json!(text_or_empty("summary")));
-        for name in ["runId", "runSessionId"] {
-            if let Some(v) = field(name).filter(|v| truthy(v)) {
-                payload.insert(name.into(), v.clone());
-            }
-        }
-        if failed {
-            if let Some(v) = field("reason").filter(|v| truthy(v)) {
-                payload.insert("reason".into(), v.clone());
-            }
-            if routine.get("paused").is_some_and(truthy) {
-                payload.insert("paused".into(), json!(true));
-            }
-        }
-    }
+        run_routine_payload(routine)
+    };
     row.insert("routine".into(), Value::Object(payload));
     row
+}
+
+fn present<'a>(routine: &'a Value, name: &str) -> Option<&'a Value> {
+    routine.get(name).filter(|v| !v.is_null())
+}
+
+fn task_routine_payload(routine: &Value) -> Map<String, Value> {
+    let mut payload = Map::new();
+    payload.insert("kind".into(), json!("task"));
+    for name in ["name", "status", "summary", "sessionId"] {
+        if let Some(v) = routine.get(name) {
+            payload.insert(name.into(), v.clone());
+        }
+    }
+    if text_field(routine, "target") == "session" {
+        payload.insert("target".into(), json!("session"));
+    }
+    for name in ["agentId", "sendId"] {
+        if let Some(v) = present(routine, name).filter(|v| truthy(v)) {
+            payload.insert(name.into(), v.clone());
+        }
+    }
+    if let Some(ids @ Value::Array(list)) = routine.get("sendIds")
+        && list.len() > 1
+    {
+        payload.insert("sendIds".into(), ids.clone());
+    }
+    let files = normalize_handoff_files(routine.get("files"));
+    if !files.is_empty() {
+        payload.insert("files".into(), Value::Array(files));
+    }
+    if !text_field(routine, "line").is_empty() {
+        payload.insert("line".into(), routine["line"].clone());
+    }
+    payload
+}
+
+fn run_routine_payload(routine: &Value) -> Map<String, Value> {
+    let mut payload = Map::new();
+    let failed = text_field(routine, "status") == "failed";
+    let text_or_empty = |name: &str| match routine.get(name) {
+        Some(v) if truthy(v) => mixdog_js::value_to_string(v),
+        _ => String::new(),
+    };
+    if text_field(routine, "kind") == "webhook" {
+        payload.insert("kind".into(), json!("webhook"));
+    }
+    payload.insert("name".into(), json!(text_or_empty("name")));
+    payload.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
+    payload.insert("summary".into(), json!(text_or_empty("summary")));
+    for name in ["runId", "runSessionId"] {
+        if let Some(v) = present(routine, name).filter(|v| truthy(v)) {
+            payload.insert(name.into(), v.clone());
+        }
+    }
+    if failed {
+        if let Some(v) = present(routine, "reason").filter(|v| truthy(v)) {
+            payload.insert("reason".into(), v.clone());
+        }
+        if routine.get("paused").is_some_and(truthy) {
+            payload.insert("paused".into(), json!(true));
+        }
+    }
+    payload
 }
 
 /// `heldRequestNotice(message).text`.
@@ -1066,6 +1089,72 @@ mod tests {
 
     fn call(id: &str, name: &str) -> Value {
         json!({ "id": id, "name": name, "arguments": {} })
+    }
+
+    fn user_row(message: &Value) -> Row {
+        let record: ItemRecord = serde_json::from_value(json!({
+            "iid": "itm_u", "form": "message", "model": true, "visible": true,
+            "refs": [], "body": { "inline": {} },
+        }))
+        .expect("record shape");
+        match restore(&record, message).into_iter().next() {
+            Some(Restored::Row { row, .. }) => row,
+            _ => panic!("one row expected"),
+        }
+    }
+
+    #[test]
+    fn a_task_routine_result_is_a_notice_with_its_task_payload() {
+        let row = user_row(&json!({ "role": "user", "content": "x", "meta": {
+            "source": "schedule-result",
+            "routine": { "kind": "task", "name": "nightly", "status": "completed", "summary": "done", "sessionId": "S1",
+                "target": "session", "agentId": "agent-1", "sendIds": ["a", "b"], "line": "L" },
+        } }));
+        assert_eq!((&row["kind"], &row["tone"]), (&json!("notice"), &json!("info")));
+        assert_eq!(
+            row["routine"],
+            json!({ "kind": "task", "name": "nightly", "status": "completed", "summary": "done", "sessionId": "S1",
+                "target": "session", "agentId": "agent-1", "sendIds": ["a", "b"], "line": "L" })
+        );
+    }
+
+    #[test]
+    fn a_failed_webhook_routine_result_is_a_warning_with_its_run_payload() {
+        let row = user_row(&json!({ "role": "user", "content": "x", "meta": {
+            "source": "schedule-result",
+            "routine": { "kind": "webhook", "name": "hook", "status": "failed", "summary": "bad", "runId": "r1", "reason": "timeout", "paused": true },
+        } }));
+        assert_eq!((&row["kind"], &row["tone"]), (&json!("notice"), &json!("warn")));
+        assert_eq!(
+            row["routine"],
+            json!({ "kind": "webhook", "name": "hook", "status": "failed", "summary": "bad", "runId": "r1", "reason": "timeout", "paused": true })
+        );
+    }
+
+    #[test]
+    fn an_omitted_routine_result_carries_only_the_omitted_count() {
+        let row = user_row(&json!({ "role": "user", "content": "x", "meta": { "source": "schedule-result", "routine": { "omitted": 3 } } }));
+        assert_eq!(row["routine"], json!({ "omitted": 3 }));
+        assert_eq!(row["tone"], json!("info"));
+    }
+
+    #[test]
+    fn a_pending_held_request_is_a_warning_notice() {
+        let row = user_row(&json!({ "role": "user", "content": "x", "meta": {
+            "source": "held-request", "heldRequest": { "id": "h1", "status": "pending", "tool": "shell", "target": "box" },
+        } }));
+        assert_eq!((&row["kind"], &row["tone"], &row["text"]), (&json!("notice"), &json!("warn"), &json!("⏸ Approval needed · shell → box")));
+    }
+
+    #[test]
+    fn a_turn_end_cut_by_a_restart_is_a_cancelled_end_with_its_cause() {
+        let row = user_row(&json!({ "role": "user", "content": "x", "meta": {
+            "turnEnd": { "status": "cancelled", "elapsedMs": 0, "cause": "restart" }, "transcript": { "messageId": "m9" },
+        } }));
+        assert_eq!(
+            (&row["kind"], &row["status"], &row["elapsedMs"], &row["cause"], &row["messageId"]),
+            (&json!("turndone"), &json!("cancelled"), &json!(0), &json!("restart"), &json!("m9"))
+        );
     }
 
     /// A reply shown as segments around its tool calls (`meta.segments`) is restored as those rows, in that order: each segment

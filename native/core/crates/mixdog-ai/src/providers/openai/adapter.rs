@@ -1,14 +1,3 @@
-//! `ProviderAdapter` of the OpenAI Responses routes (`openai`,
-//! `openai-oauth`) over HTTP/SSE or WebSocket. The WebSocket send owns one
-//! handshake/stream retry budget, shared by agent and direct callers. HTTP
-//! retrying remains above the adapter. Credential and effort repairs are
-//! bounded and cannot replay a response once it has been exposed.
-//! Connection retirement spends the same WebSocket budget as other transient
-//! failures; no caller retries a failure whose provider recovery has ended.
-//!
-//! The HTTP exchange is the shared [`HttpSend`] seam and the socket is the
-//! shared [`WsDial`] seam.
-
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
 // Private names for existing callback/result shapes; representations are unchanged.
@@ -516,14 +505,6 @@ impl OpenAiAdapter {
         Some(request)
     }
 
-    /// The model submission of `request` on the HTTP (`ws` false) or WebSocket wire: the windows this route declares (the
-    /// common fallback fills the rest) and how an expiry of each phase reads.
-    /// - HTTP: the head by `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`; the first payload and the first output by
-    ///   `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` (the one window that bounded the wait for both); idle by the semantic idle window.
-    /// - WebSocket: no head window (the acquire's own deadline bounds the dial); the first payload by the no-first-frame window,
-    ///   the first output and idle by their `PROVIDER_WS_*` windows.
-    ///
-    /// With `MIXDOG_ENABLE_STREAM_WATCHDOG` off the stream windows are the fallback policy's.
     fn model_call(&self, request: &ModelRequest, ws: bool) -> ModelCall {
         let millis = |ms: f64| Duration::from_millis(ms as u64);
         let oauth = self.codec.route() != Route::ApiKey;
@@ -572,10 +553,6 @@ impl OpenAiAdapter {
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
-            // The refused body is drained under the refused exchange's own clock (the connection is reusable only once it is
-            // read; discarded bytes are no progress and no fresh window opens). A drain that fails, the clock's expiry
-            // included, ends the cleanup at the first error: the refusal is already known, the body is released and the
-            // plain resend goes on.
             let mut body = response.body;
             while let Some(Ok(_)) = body.next().await {}
             drop(body);
@@ -650,65 +627,73 @@ impl OpenAiAdapter {
             None => (format!("\0shared:{}:{}", compat.auth, compat.cache_key), true),
         };
         let mut checkout = self.pool.checkout(&key, &compat, shared, force_fresh).await;
-        if checkout.socket.is_none() {
-            // One acquire is a hedged race of dial legs under the acquire deadline (`openHedged`).
-            ws_request(&wire)?;
-            let window = hedge::Window::from_settings(|name| self.context.var(name));
-            let dialed = match hedge::race(window, || async {
-                let handshake = ws_request(&wire).map_err(|_| ConnectError::Transport(TransportFault::Io { os_code: None }))?;
-                self.dial.dial(handshake).await
-            })
-            .await
-            {
-                hedge::Raced::Opened(connected) => Ok(connected),
-                hedge::Raced::Failed(error) => Err(error),
-                hedge::Raced::TimedOut => {
-                    let label = if self.codec.route() == Route::ApiKey { "OpenAI WS" } else { "OpenAI OAuth WS" };
-                    return Err(hedge::acquire_timeout(label, window));
+        if checkout.socket.is_none()
+            && let Some(refusal) = self.dial_into(&mut checkout, &wire).await?
+        {
+            return Ok(Submitted::Rejected(refusal));
+        }
+        self.send_frame(request, checkout, body).await
+    }
+
+    /// One acquire of a new socket for `checkout`; `Some` is the upgrade's refusal.
+    async fn dial_into(&self, checkout: &mut Checkout, wire: &WireRequest) -> Result<Option<ErrorResponse>, ProviderError> {
+        // One acquire is a hedged race of dial legs under the acquire deadline (`openHedged`).
+        ws_request(wire)?;
+        let window = hedge::Window::from_settings(|name| self.context.var(name));
+        let dialed = match hedge::race(window, || async {
+            let handshake = ws_request(wire).map_err(|_| ConnectError::Transport(TransportFault::Io { os_code: None }))?;
+            self.dial.dial(handshake).await
+        })
+        .await
+        {
+            hedge::Raced::Opened(connected) => Ok(connected),
+            hedge::Raced::Failed(error) => Err(error),
+            hedge::Raced::TimedOut => {
+                let label = if self.codec.route() == Route::ApiKey { "OpenAI WS" } else { "OpenAI OAuth WS" };
+                return Err(hedge::acquire_timeout(label, window));
+            }
+        };
+        let (socket, upgrade) = match dialed {
+            Ok((socket, upgrade)) => {
+                // The ping schedule `MIXDOG_PROVIDER_WS_PING_INTERVAL_MS` and `MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS`
+                // tune replaces the dialer's before the first frame; a link that cannot take it keeps the dialer's.
+                let _ = socket.link().arm(&self.keepalive);
+                (socket, upgrade)
+            }
+            Err(ConnectError::Transport(fault)) => {
+                let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
+                // `ws` reports a connection reset during the upgrade as the request's own error.
+                if error.transport == Some(TransportFault::Reset) {
+                    error.code = Some("ECONNRESET".into());
+                    error.message = "socket hang up".into();
                 }
-            };
-            let (socket, upgrade) = match dialed {
-                Ok((socket, upgrade)) => {
-                    // The ping schedule `MIXDOG_PROVIDER_WS_PING_INTERVAL_MS` and `MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS`
-                    // tune replaces the dialer's before the first frame; a link that cannot take it keeps the dialer's.
-                    let _ = socket.link().arm(&self.keepalive);
-                    (socket, upgrade)
-                }
-                Err(ConnectError::Transport(fault)) => {
-                    let mut error = ProviderError::transport(fault, DeliveryState::NotSent);
-                    // `ws` reports a connection reset during the upgrade as the request's own error.
-                    if error.transport == Some(TransportFault::Reset) {
-                        error.code = Some("ECONNRESET".into());
-                        error.message = "socket hang up".into();
-                    }
-                    return Err(error);
-                }
-                Err(ConnectError::Proxy { code, message }) => {
-                    // The network proxy policy or the proxy refused: nothing was sent.
-                    let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-                    error.code = Some(code);
-                    error.message = message;
-                    return Err(error);
-                }
-                Err(ConnectError::Rejected(response)) => {
-                    let headers = response.headers().iter().filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned()))).collect();
-                    return Ok(Submitted::Rejected(ErrorResponse {
-                        status: Some(response.status().as_u16()),
-                        headers,
-                        body: response.into_body().unwrap_or_default(),
-                    }));
-                }
-            };
-            // The upgrade answer's headers are not read for a turn state: Node takes it from the response's events
-            // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
-            drop(upgrade);
-            if !checkout.attach(socket) {
-                // `_bindPoolOwner` throws this from the acquire; no request was sent.
-                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
-                error.message = "OpenAI OAuth WS ownership changed during acquire".into();
                 return Err(error);
             }
+            Err(ConnectError::Proxy { code, message }) => {
+                // The network proxy policy or the proxy refused: nothing was sent.
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.code = Some(code);
+                error.message = message;
+                return Err(error);
+            }
+            Err(ConnectError::Rejected(response)) => {
+                let headers = response.headers().iter().filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned()))).collect();
+                return Ok(Some(ErrorResponse { status: Some(response.status().as_u16()), headers, body: response.into_body().unwrap_or_default() }));
+            }
+        };
+        // The upgrade answer's headers are not read for a turn state: Node takes it from the response's events
+        // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
+        drop(upgrade);
+        if !checkout.attach(socket) {
+            // `_bindPoolOwner` throws this from the acquire; no request was sent.
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+            error.message = "OpenAI OAuth WS ownership changed during acquire".into();
+            return Err(error);
         }
+        Ok(None)
+    }
+
+    async fn send_frame(&self, request: &ModelRequest, checkout: Checkout, body: serde_json::Map<String, Value>) -> Result<Submitted, ProviderError> {
         let framed = delta::compute(self.mode.delta(), &checkout.chain, &body);
         // `_withCodexWsClientMetadata`: the frame activates its turn under the session's pool key, with this socket as
         // the turn state's owner.
@@ -841,10 +826,6 @@ impl ProviderAdapter for OpenAiAdapter {
             Err(error) if self.unknown_model(&error) && refresh.take() => {}
             sent => return sent,
         }
-        // `openai-oauth.mjs:323`: the model is unknown to the backend, which may be the cached roster being old (the
-        // request's service tier, reasoning summaries and access programs come from it): read it again and send the same
-        // id once more; what that send answers is the answer. The refusal that arrives inside an opened stream is the
-        // same case and shares this one refresh.
         mixdog_rt::node_stderr!("[openai-oauth-ws] unknown model — refreshing catalog + 1 retry");
         self.codec.facts().refresh().await;
         self.attempt_once(request, &refresh, &mut auth).await
@@ -864,10 +845,6 @@ impl RefreshOnce {
 }
 
 impl OpenAiAdapter {
-    /// Whether the catalog refresh and one more send can answer `error`: the Codex route, an unknown-model refusal, and
-    /// nothing of the response shown or run (`liveTextEmitted`, a reasoning delta, a tool call begun). An upgrade the
-    /// endpoint answers 404 is the route saying it does not do WebSocket (the HTTP fallback's case), not a retired model
-    /// (`isOpenAiOAuthHandshakeHttpFallback`, `openai-oauth.mjs:316`).
     fn unknown_model(&self, error: &ProviderError) -> bool {
         self.codec.route() == Route::Codex
             && crate::providers::rejections::names_unknown_model(error.status, &error.message)
@@ -997,94 +974,67 @@ impl ResponsesSend {
         self.resume(None, false).await
     }
 
-    async fn resume(&mut self, mut failed: Option<Failed>, mut fresh: bool) -> Result<(), ProviderError> {
-        use mixdog_core_api::domain::retry::{RetryDecider, Verdict};
+    fn note_exposure(&mut self, event: &StreamEvent) {
+        self.reasoning_exposed |=
+            matches!(event, StreamEvent::ReasoningDelta(text) if !text.is_empty()) || matches!(event, StreamEvent::Progress(ProgressKind::Reasoning));
+        self.output_exposed |= matches!(event,
+            StreamEvent::TextDelta(text) | StreamEvent::FinalContent(text)
+                if !text.is_empty()
+        ) || matches!(event, StreamEvent::ToolCallDone(_));
+        self.visible_progress |= matches!(event, StreamEvent::Progress(kind) if kind.is_visible());
+    }
 
+    /// A failure inside the stream: the credential renewal, the catalog refresh or the reconnect ladder takes it; `Err` is
+    /// the send's answer.
+    async fn recover_from(&mut self, mut error: ProviderError, effort_rejected: bool, rejected_key: Option<Credential>) -> Result<(), ProviderError> {
+        error.unsafe_to_retry |= self.output_exposed;
+        if self.reasoning_exposed {
+            // Shown reasoning rules out this send's own reconnect and refresh; whether the cut is replayed
+            // is the loop's decision, which can withdraw what was shown (`latchExposure` marks it unsafe
+            // and nothing more).
+            error.unsafe_to_retry = true;
+            error.reauth_required |= error.status == Some(401) && self.auth.spent && error.kind == ErrorKind::Auth;
+            return Err(error);
+        }
+        if error.status == Some(401) {
+            if self.auth.spent {
+                error.reauth_required |= error.kind == ErrorKind::Auth;
+            } else if replay_safe(&error)
+                && !self.visible_progress
+                && let Some(key) = rejected_key
+            {
+                if let Err(refresh_error) = self.auth.renew(self.adapter.credentials.as_ref(), &key).await {
+                    return Err(if self.adapter.codec.route() == Route::ApiKey || error.partial_usage.is_some() { error } else { refresh_error });
+                }
+                let sent = &self.request.options.send_identity;
+                if error.partial_usage.is_some() && !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent) {
+                    return Err(error);
+                }
+                sent.note_dispatched_speed_tier("");
+                if self.wire_kind == Wire::Http {
+                    sent.restart_attempts();
+                    self.adapter.renew_request_id(self.wire_kind, &mut self.wire);
+                }
+                return self.resume(None, true).await;
+            }
+        }
+        if self.wire_kind == Wire::Ws && self.adapter.unknown_model(&error) && self.refresh.take() {
+            return self.resend_after_refresh().await;
+        }
+        self.resume(Some(Failed { error, handshake: false, effort_rejected }), false).await
+    }
+
+    async fn resume(&mut self, mut failed: Option<Failed>, mut fresh: bool) -> Result<(), ProviderError> {
         loop {
             if let Some(Failed { mut error, handshake, effort_rejected }) = failed.take() {
                 error.unsafe_to_retry |= self.output_exposed;
                 if effort_rejected {
-                    if !replay_safe(&error) || self.visible_progress {
-                        return Err(error);
-                    }
-                    self.adapter.context.effort_updates.mark_rejected(self.adapter.id.as_str(), &self.request.model);
-                    if self.effort_reissued {
-                        return Err(error);
-                    }
-                    let sent = &self.request.options.send_identity;
-                    if error.partial_usage.is_some() {
-                        if !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent) {
-                            return Err(error);
-                        }
-                        sent.note_dispatched_speed_tier("");
-                    }
-                    self.effort_reissued = true;
-                    self.retry =
-                        mixdog_core_api::domain::retry::RetryState::new(mixdog_core_api::domain::retry::RetryClass::Midstream, self.request.model.clone());
-                    self.first_failure = None;
-                    sent.restart_attempts();
-                    self.wire_kind = if self.adapter.starts_on_http(&self.request) { Wire::Http } else { Wire::Ws };
-                    self.wire = self.adapter.encode(self.wire_kind, &self.request)?;
+                    self.reissue_without_effort_updates(error)?;
                     fresh = true;
                 } else if self.wire_kind == Wire::Http || error.partial_usage.is_some() {
                     return Err(error);
                 } else {
-                    let decision = crate::retry::StandardRetryDecider.verdict(&error, &self.retry, &self.adapter.policy, self.adapter.context.retry_samples());
-                    let exhausted = matches!(decision.verdict, Verdict::Exhausted);
-                    if let Some(fallback) =
-                        self.adapter.http_fallback_enabled().then(|| switch::decide(self.adapter.codec.route(), &error, handshake, exhausted)).flatten()
-                    {
-                        if fallback.sticky
-                            && let Some(scope) = request_scope(&self.request)
-                        {
-                            self.adapter.pool.mark_http(scope);
-                        }
-                        if let Some(wait) = error.retry_after {
-                            self.adapter.context.retry_wait(wait).await;
-                        }
-                        self.wire_kind = Wire::Http;
-                        // What the fallback answers is not the roster's to refresh (Node's refresh check precedes the fallback).
-                        self.refresh.take();
-                        self.wire = self.adapter.encode(Wire::Http, &self.request)?;
-                        continue;
-                    }
-                    let Verdict::Retry { delay, .. } = decision.verdict else {
-                        let current = matches!(error.status, Some(401 | 403 | 426 | 429))
-                            || switch::too_big_close(&error)
-                            || error.unsafe_to_retry
-                            || error.exposure.text_emitted
-                            || error.exposure.tool_dispatched
-                            || error.exposure.tool_input_cut
-                            // A connection retirement must neither mask nor be masked by another failure.
-                            || [Some(&error), self.first_failure.as_ref()].into_iter().flatten().any(super::error::connection_limit);
-                        if !current && let Some(first) = self.first_failure.take() {
-                            error = first;
-                        }
-                        // An exposed stream needs the owner's retraction or split-call
-                        // recovery, not another provider retry. Only a genuinely ended
-                        // ladder forbids that owner-controlled new request.
-                        error.recovery_exhausted |= exhausted;
-                        if exhausted || (!error.exposure.text_emitted && !error.exposure.tool_input_cut && !self.output_exposed) {
-                            error.should_retry = Some(false);
-                        }
-                        return Err(error);
-                    };
-                    if !handshake || self.first_failure.is_none() {
-                        self.first_failure = Some(error.clone());
-                    }
-                    self.retry = decision.next;
-                    self.request.options.send_identity.raise_stage_with(
-                        "reconnecting",
-                        crate::retry::stage::reconnecting(
-                            &error,
-                            self.retry.count(None).retries,
-                            self.adapter.policy.midstream.schedule.max_retries,
-                            delay,
-                            self.adapter.context.now_unix_ms(),
-                        ),
-                    );
-                    self.adapter.context.retry_wait(delay).await;
-                    fresh = true;
+                    fresh |= self.reconnect_after(error, handshake).await?;
                 }
             }
             match self.adapter.exchange(self.wire_kind, &self.request, &mut self.wire, fresh, &mut self.auth).await {
@@ -1096,6 +1046,99 @@ impl ResponsesSend {
             }
         }
     }
+
+    /// The endpoint refused the request's effort updates: the send is encoded and begun anew without them, once, and only
+    /// while nothing of the response was shown.
+    fn reissue_without_effort_updates(&mut self, mut error: ProviderError) -> Result<(), ProviderError> {
+        if !replay_safe(&error) || self.visible_progress {
+            return Err(error);
+        }
+        self.adapter.context.effort_updates.mark_rejected(self.adapter.id.as_str(), &self.request.model);
+        if self.effort_reissued {
+            return Err(error);
+        }
+        let sent = &self.request.options.send_identity;
+        if error.partial_usage.is_some() {
+            if !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent) {
+                return Err(error);
+            }
+            sent.note_dispatched_speed_tier("");
+        }
+        self.effort_reissued = true;
+        self.retry = mixdog_core_api::domain::retry::RetryState::new(mixdog_core_api::domain::retry::RetryClass::Midstream, self.request.model.clone());
+        self.first_failure = None;
+        sent.restart_attempts();
+        self.wire_kind = if self.adapter.starts_on_http(&self.request) { Wire::Http } else { Wire::Ws };
+        self.wire = self.adapter.encode(self.wire_kind, &self.request)?;
+        Ok(())
+    }
+
+    /// Falls back to HTTP or waits out the retry the ladder allows; `Ok(true)` when the next exchange is a retry on a fresh
+    /// connection, `Ok(false)` when it is the HTTP fallback.
+    async fn reconnect_after(&mut self, error: ProviderError, handshake: bool) -> Result<bool, ProviderError> {
+        use mixdog_core_api::domain::retry::{RetryDecider, Verdict};
+
+        let decision = crate::retry::StandardRetryDecider.verdict(&error, &self.retry, &self.adapter.policy, self.adapter.context.retry_samples());
+        let exhausted = matches!(decision.verdict, Verdict::Exhausted);
+        if let Some(fallback) = self.adapter.http_fallback_enabled().then(|| switch::decide(self.adapter.codec.route(), &error, handshake, exhausted)).flatten()
+        {
+            if fallback.sticky
+                && let Some(scope) = request_scope(&self.request)
+            {
+                self.adapter.pool.mark_http(scope);
+            }
+            if let Some(wait) = error.retry_after {
+                self.adapter.context.retry_wait(wait).await;
+            }
+            self.wire_kind = Wire::Http;
+            // What the fallback answers is not the roster's to refresh (Node's refresh check precedes the fallback).
+            self.refresh.take();
+            self.wire = self.adapter.encode(Wire::Http, &self.request)?;
+            return Ok(false);
+        }
+        let Verdict::Retry { delay, .. } = decision.verdict else {
+            return Err(self.ended_ladder(error, exhausted));
+        };
+        if !handshake || self.first_failure.is_none() {
+            self.first_failure = Some(error.clone());
+        }
+        self.retry = decision.next;
+        self.request.options.send_identity.raise_stage_with(
+            "reconnecting",
+            crate::retry::stage::reconnecting(
+                &error,
+                self.retry.count(None).retries,
+                self.adapter.policy.midstream.schedule.max_retries,
+                delay,
+                self.adapter.context.now_unix_ms(),
+            ),
+        );
+        self.adapter.context.retry_wait(delay).await;
+        Ok(true)
+    }
+
+    /// The error a ladder with no retry left ends on: the first failure replaces a later one that is no more current.
+    fn ended_ladder(&mut self, mut error: ProviderError, exhausted: bool) -> ProviderError {
+        let current = matches!(error.status, Some(401 | 403 | 426 | 429))
+            || switch::too_big_close(&error)
+            || error.unsafe_to_retry
+            || error.exposure.text_emitted
+            || error.exposure.tool_dispatched
+            || error.exposure.tool_input_cut
+            // A connection retirement must neither mask nor be masked by another failure.
+            || [Some(&error), self.first_failure.as_ref()].into_iter().flatten().any(super::error::connection_limit);
+        if !current && let Some(first) = self.first_failure.take() {
+            error = first;
+        }
+        // An exposed stream needs the owner's retraction or split-call
+        // recovery, not another provider retry. Only a genuinely ended
+        // ladder forbids that owner-controlled new request.
+        error.recovery_exhausted |= exhausted;
+        if exhausted || (!error.exposure.text_emitted && !error.exposure.tool_input_cut && !self.output_exposed) {
+            error.should_retry = Some(false);
+        }
+        error
+    }
 }
 
 #[async_trait]
@@ -1106,64 +1149,14 @@ impl ModelStream for ResponsesSend {
             let event = stream.next().await?;
             match event {
                 Ok(event) => {
-                    self.reasoning_exposed |= matches!(&event, StreamEvent::ReasoningDelta(text) if !text.is_empty())
-                        || matches!(&event, StreamEvent::Progress(ProgressKind::Reasoning));
-                    self.output_exposed |= matches!(&event,
-                        StreamEvent::TextDelta(text) | StreamEvent::FinalContent(text)
-                            if !text.is_empty()
-                    ) || matches!(&event, StreamEvent::ToolCallDone(_));
-                    self.visible_progress |= matches!(&event, StreamEvent::Progress(kind) if kind.is_visible());
+                    self.note_exposure(&event);
                     return Some(Ok(event));
                 }
-                Err(mut error) => {
+                Err(error) => {
                     let effort_rejected = stream.updates.rejected(&error, stream.decoder.failure_param());
                     let rejected_key = stream.credential.take();
                     self.stream = None;
-                    error.unsafe_to_retry |= self.output_exposed;
-                    if self.reasoning_exposed {
-                        // Shown reasoning rules out this send's own reconnect and refresh; whether the cut is replayed
-                        // is the loop's decision, which can withdraw what was shown (`latchExposure` marks it unsafe
-                        // and nothing more).
-                        error.unsafe_to_retry = true;
-                        error.reauth_required |= error.status == Some(401) && self.auth.spent && error.kind == ErrorKind::Auth;
-                        return Some(Err(error));
-                    }
-                    if error.status == Some(401) {
-                        if self.auth.spent {
-                            error.reauth_required |= error.kind == ErrorKind::Auth;
-                        } else if replay_safe(&error)
-                            && !self.visible_progress
-                            && let Some(key) = rejected_key
-                        {
-                            if let Err(refresh_error) = self.auth.renew(self.adapter.credentials.as_ref(), &key).await {
-                                return Some(Err(if self.adapter.codec.route() == Route::ApiKey || error.partial_usage.is_some() {
-                                    error
-                                } else {
-                                    refresh_error
-                                }));
-                            }
-                            let sent = &self.request.options.send_identity;
-                            if error.partial_usage.is_some() && !crate::registry::accounted::handoff_abandoned_usage(&mut error, sent) {
-                                return Some(Err(error));
-                            }
-                            sent.note_dispatched_speed_tier("");
-                            if self.wire_kind == Wire::Http {
-                                sent.restart_attempts();
-                                self.adapter.renew_request_id(self.wire_kind, &mut self.wire);
-                            }
-                            if let Err(error) = self.resume(None, true).await {
-                                return Some(Err(error));
-                            }
-                            continue;
-                        }
-                    }
-                    if self.wire_kind == Wire::Ws && self.adapter.unknown_model(&error) && self.refresh.take() {
-                        if let Err(error) = self.resend_after_refresh().await {
-                            return Some(Err(error));
-                        }
-                        continue;
-                    }
-                    if let Err(error) = self.resume(Some(Failed { error, handshake: false, effort_rejected }), false).await {
+                    if let Err(error) = self.recover_from(error, effort_rejected, rejected_key).await {
                         return Some(Err(error));
                     }
                 }
@@ -1391,6 +1384,109 @@ impl ResponsesStream {
         self.failed = Some(error);
     }
 
+    fn surfaced(&mut self, mut err: ProviderError) -> ProviderError {
+        if self.ws {
+            err.ws_phase = Some(WsPhase::Stream);
+        }
+        if let Some(credential) = &self.credential {
+            err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&credential.bearer]);
+        }
+        self.decoder.fail(err)
+    }
+
+    /// An HTTP body is the driver's: a read that outlives the deadline of the attempt's phase ends with its fault. A
+    /// socket's reads are bounded here, under the same deadline.
+    async fn read_unit(&mut self) -> Result<Option<Result<Bytes, TransportFault>>, ProviderError> {
+        let source = self.source.as_mut().expect("a stream with a source");
+        match &self.bound {
+            Some(attempt) => attempt.bound(source.next_unit()).await.map_err(|expiry| attempt.error(expiry, DeliveryState::Accepted, self.decoder.exposure())),
+            None => Ok(source.next_unit().await),
+        }
+    }
+
+    fn on_unit(&mut self, unit: &[u8]) {
+        self.mark_transport();
+        self.note_frame(unit);
+        match self.decoder.feed(unit) {
+            Ok(events) => {
+                self.publish_boundaries(&events);
+                self.push(events);
+                // A failure held back behind this unit's events surfaces after them, not on the next read.
+                if let Err(err) = self.decoder.feed(&[]) {
+                    self.source = None;
+                    self.defer_failure(err);
+                }
+            }
+            Err(err) => {
+                self.source = None;
+                self.defer_failure(err);
+            }
+        }
+    }
+
+    /// A whole protocol record (a comment or metadata frame is not one) ends the payload wait and starts the first-output
+    /// window; the first output moves the attempt to its idle phase, where output and an item boundary after it renew the
+    /// window (keepalives and metadata never do).
+    fn publish_boundaries(&mut self, events: &[StreamEvent]) {
+        let Some((_, attempt)) = &self.attempt else { return };
+        if !self.payload_seen && (self.decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive))) {
+            self.payload_seen = true;
+            attempt.observe(Boundary::FirstProtocolPayload);
+        }
+        let idle = attempt.context().is_some_and(|ctx| ctx.phase == AttemptPhase::Idle);
+        if events.iter().any(crate::providers::idle::output) || (idle && events.iter().any(crate::providers::idle::boundary)) {
+            attempt.observe(Boundary::FirstSemanticOutput);
+        }
+    }
+
+    fn on_fault(&mut self, fault: TransportFault) {
+        // A phase deadline of the driver ended an HTTP body: its one failure, as classified above.
+        if let Some(Source::Http(body)) = &self.source
+            && let Some(timed) = body.expired(self.decoder.exposure())
+        {
+            self.source = None;
+            self.failed = Some(timed);
+            return;
+        }
+        let ending = match &self.source {
+            Some(Source::Ws { checkout, .. }) => checkout.socket.as_ref().and_then(|socket| socket.ending()),
+            _ => None,
+        };
+        let connection = match &self.source {
+            Some(Source::Http(body)) => body.connection(),
+            _ => None,
+        };
+        self.source = None;
+        // What `ws` emitted first, as `socket-handlers.mjs` takes it: a close is `wsClosedError(code,
+        // reason)` (`onClose`), a refused frame `ws`'s own error, its message and code (`onError`).
+        let mut err = match ending {
+            Some(WsEnding::Close { code, reason }) => super::error::ws_closed(code, &reason, DeliveryState::Accepted),
+            Some(WsEnding::Violation { message, code, .. }) => {
+                let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                err.message = message;
+                err.code = Some(code.to_owned());
+                err
+            }
+            None => ProviderError::transport(fault, DeliveryState::Accepted),
+        };
+        err.connection = connection;
+        err.exposure = self.decoder.exposure();
+        self.failed = Some(err);
+    }
+
+    fn on_end(&mut self) {
+        self.source = None;
+        match self.decoder.finish() {
+            Ok(events) => {
+                self.push(events);
+                if let Err(err) = self.decoder.feed(&[]) {
+                    self.defer_failure(err);
+                }
+            }
+            Err(err) => self.defer_failure(err),
+        }
+    }
+
     /// The response completed on a pooled socket: it keeps the anchor.
     fn park(&mut self) {
         let Some(Source::Ws { checkout, .. }) = self.source.take() else {
@@ -1426,118 +1522,24 @@ impl ModelStream for ResponsesStream {
             if let Some(event) = self.queue.pop_front() {
                 return Some(Ok(event));
             }
-            if let Some(mut err) = self.failed.take() {
-                if self.ws {
-                    err.ws_phase = Some(WsPhase::Stream);
-                }
-                if let Some(credential) = &self.credential {
-                    err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&credential.bearer]);
-                }
-                return Some(Err(self.decoder.fail(err)));
+            if let Some(err) = self.failed.take() {
+                return Some(Err(self.surfaced(err)));
             }
-            let source = self.source.as_mut()?;
+            self.source.as_ref()?;
             // The terminal event ends the attempt; anything after it is dropped.
             if self.decoder.terminal_seen() {
                 self.park();
                 self.source = None;
                 return None;
             }
-            // An HTTP body is the driver's: a read that outlives the deadline of the attempt's phase ends with its fault. A
-            // socket's reads are bounded here, under the same deadline.
-            let read = match &self.bound {
-                Some(attempt) => {
-                    attempt.bound(source.next_unit()).await.map_err(|expiry| attempt.error(expiry, DeliveryState::Accepted, self.decoder.exposure()))
-                }
-                None => Ok(source.next_unit().await),
-            };
-            let unit = match read {
-                Ok(unit) => unit,
+            match self.read_unit().await {
                 Err(err) => {
                     self.source = None;
                     self.failed = Some(err);
-                    continue;
                 }
-            };
-            match unit {
-                Some(Ok(unit)) => {
-                    self.mark_transport();
-                    self.note_frame(&unit);
-                    match self.decoder.feed(&unit) {
-                        Ok(events) => {
-                            // A whole protocol record (a comment or metadata frame is not one) ends the payload wait and starts
-                            // the first-output window; the first output moves the attempt to its idle phase, where output and
-                            // an item boundary after it renew the window (keepalives and metadata never do).
-                            if let Some((_, attempt)) = &self.attempt {
-                                if !self.payload_seen && (self.decoder.payload_seen() || events.iter().any(|e| !matches!(e, StreamEvent::ProviderKeepalive))) {
-                                    self.payload_seen = true;
-                                    attempt.observe(Boundary::FirstProtocolPayload);
-                                }
-                                let idle = attempt.context().is_some_and(|ctx| ctx.phase == AttemptPhase::Idle);
-                                if events.iter().any(crate::providers::idle::output) || (idle && events.iter().any(crate::providers::idle::boundary)) {
-                                    attempt.observe(Boundary::FirstSemanticOutput);
-                                }
-                            }
-                            self.push(events);
-                            // A failure held back behind this unit's events surfaces after them, not on the next read.
-                            if let Err(err) = self.decoder.feed(&[]) {
-                                self.source = None;
-                                self.defer_failure(err);
-                            }
-                        }
-                        Err(err) => {
-                            self.source = None;
-                            self.defer_failure(err);
-                        }
-                    }
-                }
-                Some(Err(fault)) => {
-                    // A phase deadline of the driver ended an HTTP body: its one failure, as classified above.
-                    if let Some(Source::Http(body)) = &self.source
-                        && let Some(timed) = body.expired(self.decoder.exposure())
-                    {
-                        self.source = None;
-                        self.failed = Some(timed);
-                        continue;
-                    }
-                    let ending = match &self.source {
-                        Some(Source::Ws { checkout, .. }) => checkout.socket.as_ref().and_then(|socket| socket.ending()),
-                        _ => None,
-                    };
-                    let connection = match &self.source {
-                        Some(Source::Http(body)) => body.connection(),
-                        _ => None,
-                    };
-                    self.source = None;
-                    // What `ws` emitted first, as `socket-handlers.mjs` takes it: a close is `wsClosedError(code,
-                    // reason)` (`onClose`), a refused frame `ws`'s own error, its message and code (`onError`).
-                    let mut err = match ending {
-                        Some(WsEnding::Close { code, reason }) => super::error::ws_closed(code, &reason, DeliveryState::Accepted),
-                        Some(WsEnding::Violation { message, code, .. }) => {
-                            let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
-                            err.message = message;
-                            err.code = Some(code.to_owned());
-                            err
-                        }
-                        None => ProviderError::transport(fault, DeliveryState::Accepted),
-                    };
-                    err.connection = connection;
-                    err.exposure = self.decoder.exposure();
-                    self.failed = Some(err);
-                }
-                None => {
-                    self.source = None;
-                    match self.decoder.finish() {
-                        Ok(events) => {
-                            self.push(events);
-                            if let Err(err) = self.decoder.feed(&[]) {
-                                self.defer_failure(err);
-                            }
-                        }
-                        Err(err) => {
-                            self.defer_failure(err);
-                        }
-                    }
-                }
+                Ok(Some(Ok(unit))) => self.on_unit(&unit),
+                Ok(Some(Err(fault))) => self.on_fault(fault),
+                Ok(None) => self.on_end(),
             }
         }
     }
@@ -1601,10 +1603,6 @@ mod tests {
         }
     }
 
-    // WS2: a turn state lives as follows (`turn_state_lifetime.json`): one live socket owns its turn's
-    // token, another socket under the same pool key gets none until the owner closes, a frame of another turn starts
-    // the scope afresh, the HTTP route keys the turn as given while a socket keys its v7 form, and the session's end
-    // clears the scope. Sockets are opened and closed through the pool, whose closing retires the owner.
     #[tokio::test]
     async fn a_turn_state_lives_as_long_as_its_socket_and_turn() {
         const SCRIPT: &str = include_str!("turn_state_lifetime.json");
@@ -1955,6 +1953,22 @@ fn scrub_refusal(mut refusal: ErrorResponse, credential: &Credential) -> ErrorRe
     }
     refusal
 }
+fn raise_requesting(identity: &mixdog_core_api::domain::provider::SendIdentity, wire_kind: Wire, resending: bool) {
+    match wire_kind {
+        Wire::Ws => identity.raise_stage("requesting"),
+        Wire::Http => {
+            if resending {
+                identity.restart_attempts();
+            }
+            let attempt = identity.next_attempt();
+            identity.raise_stage_with(
+                "requesting",
+                serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
+            );
+        }
+    }
+}
+
 impl OpenAiAdapter {
     /// A resend over HTTP is a request of its own, which Node builds anew with a fresh `x-client-request-id`
     /// (`openai-oauth-http-sse.mjs`, once per `sendViaHttpSse`); the WebSocket's resend keeps its headers.
@@ -1976,6 +1990,43 @@ impl OpenAiAdapter {
         let mut auth = AuthRetry::default();
         let stream = self.exchange(Wire::Ws, &request, &mut wire, false, &mut auth).await.map_err(|failed| failed.error)?;
         Ok(Box::new(stream))
+    }
+
+    /// The failure a refused request is: classified, labelled for its wire, its message free of the credential, and whether
+    /// the refusal names the effort updates the request carried.
+    fn refusal_failure(
+        &self,
+        wire_kind: Wire,
+        request: &ModelRequest,
+        wire: &WireRequest,
+        rejected: &ErrorResponse,
+        http_updates: &SentUpdates,
+        auth: &AuthRetry,
+    ) -> Failed {
+        let mut err = self.codec_for(wire_kind).classify(rejected);
+        let handshake = wire_kind == Wire::Ws;
+        let effort_rejected = !handshake && request.options.effort_projection.is_some() && rejected.status == Some(400) && {
+            let body = serde_json::from_slice::<Value>(&rejected.body).ok();
+            let param = body.as_ref().and_then(|b| b.get("error").unwrap_or(b).get("param")).and_then(Value::as_str);
+            http_updates.rejected(&err, param)
+        };
+        // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
+        crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
+        // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
+        let label = match (wire_kind, self.codec.route()) {
+            (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
+            (Wire::Ws, _) => "OpenAI WS handshake",
+            (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
+            (Wire::Http, _) => "OpenAI HTTP fallback",
+        };
+        err.message = super::error::http_response_message(label, rejected, &err, self.context.now_unix_ms());
+        if rejected.status == Some(401) && auth.spent && err.kind == ErrorKind::Auth {
+            err.reauth_required = true;
+        }
+        if handshake {
+            err.ws_phase = Some(WsPhase::Handshake);
+        }
+        Failed { error: err, handshake, effort_rejected }
     }
 
     async fn exchange(
@@ -2001,24 +2052,7 @@ impl OpenAiAdapter {
         };
         let mut resending = false;
         loop {
-            // Node raises `requesting` before each WebSocket acquisition (`openai-oauth-ws.mjs:250`) and before each
-            // HTTP/SSE request, which names its attempt (`openai-http-sse-request.mjs:133`). A resend below (the reloaded
-            // credential, `openai-oauth.mjs:293` / `openai-oauth-dispatch.mjs:209`; the effort update removed, the whole send
-            // again, `effort-configuration.mjs:112`) is a request of its own: it raises the stage again, and over HTTP its
-            // attempts count from the first.
-            match wire_kind {
-                Wire::Ws => identity.raise_stage("requesting"),
-                Wire::Http => {
-                    if resending {
-                        identity.restart_attempts();
-                    }
-                    let attempt = identity.next_attempt();
-                    identity.raise_stage_with(
-                        "requesting",
-                        serde_json::json!({ "attempt": attempt + 1, "maxAttempts": super::policy::REQUEST_RETRIES + 1, "retry": attempt > 0 }),
-                    );
-                }
-            }
+            raise_requesting(identity, wire_kind, resending);
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
                 // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
@@ -2060,30 +2094,7 @@ impl OpenAiAdapter {
                     Err(_) => {}
                 }
             }
-            let mut err = codec.classify(&rejected);
-            let handshake = wire_kind == Wire::Ws;
-            let effort_rejected = !handshake && request.options.effort_projection.is_some() && rejected.status == Some(400) && {
-                let body = serde_json::from_slice::<Value>(&rejected.body).ok();
-                let param = body.as_ref().and_then(|b| b.get("error").unwrap_or(b).get("param")).and_then(Value::as_str);
-                http_updates.rejected(&err, param)
-            };
-            // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
-            crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
-            // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
-            let label = match (wire_kind, self.codec.route()) {
-                (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
-                (Wire::Ws, _) => "OpenAI WS handshake",
-                (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
-                (Wire::Http, _) => "OpenAI HTTP fallback",
-            };
-            err.message = super::error::http_response_message(label, &rejected, &err, self.context.now_unix_ms());
-            if rejected.status == Some(401) && auth.spent && err.kind == ErrorKind::Auth {
-                err.reauth_required = true;
-            }
-            if handshake {
-                err.ws_phase = Some(WsPhase::Handshake);
-            }
-            return Err(Failed { error: err, handshake, effort_rejected });
+            return Err(self.refusal_failure(wire_kind, request, wire, &rejected, &http_updates, auth));
         }
     }
 }

@@ -1,8 +1,3 @@
-//! The custom provider's connection test as a real send on a scripted endpoint: the error text a refused key pool
-//! surfaces, which key sent each chat request, and how a 503 is retried. Every case discovers once (`/models`), then
-//! sends its chat requests; each lists the keys it saved, the bearers the endpoint refuses with a quota error, and how
-//! many 503s precede the first success.
-
 use std::collections::HashMap;
 
 use serde_json::Value;

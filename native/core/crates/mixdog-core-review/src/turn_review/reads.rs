@@ -409,25 +409,17 @@ impl Inner {
         reg.trackers.get(owner).is_some_and(|t| t.meta.owner_generation > 0 && !t.sealed() && t.meta.checkpoint_id == checkpoint_id)
     }
 
-    /// One turn's frozen changes by exact checkpoint id (TurnChangesReply). An unknown checkpoint
-    /// is `missing`; it never resolves to the latest turn.
-    pub(super) async fn turn_changes(&self, session_id: &str, read: &ChangesRead) -> Result<Reply, ReviewError> {
-        let owner = clean(session_id).to_owned();
-        let checkpoint_id = self.required_checkpoint_id(&read.checkpoint_id)?;
-        // Settled only when no seal of this checkpoint was in flight at any point of the record
-        // read: one in flight before or after it (a completion wake reopened the turn meanwhile),
-        // or one that landed during it, answers pending instead of the record from before that
-        // seal.
-        let in_flight = || !owner.is_empty() && self.turn_changes_pending(&owner, &checkpoint_id);
-        let key = pending_key(&owner, &checkpoint_id);
+    async fn settled_change_record(&self, owner: &str, checkpoint_id: &str) -> (Option<Obj>, bool) {
+        let in_flight = || !owner.is_empty() && self.turn_changes_pending(owner, checkpoint_id);
+        let key = pending_key(owner, checkpoint_id);
         let seal_landed = Arc::new(AtomicBool::new(false));
         self.reg().change_reads.entry(key.clone()).or_default().push(seal_landed.clone());
-        let mut pending = in_flight();
+        let pending_before = in_flight();
         let record = if owner.is_empty() {
             None
         } else {
-            let loaded = self.store.load_turn_change_record(&owner, &checkpoint_id).await;
-            self.with_unknown_change_states(&owner, loaded)
+            let loaded = self.store.load_turn_change_record(owner, checkpoint_id).await;
+            self.with_unknown_change_states(owner, loaded)
         };
         {
             let mut reg = self.reg();
@@ -438,23 +430,33 @@ impl Inner {
                 }
             }
         }
-        pending = pending || seal_landed.load(Ordering::SeqCst) || in_flight();
-        // An old record's outside-root file kept no counts: measure it so the card agrees with the
-        // session review and the island.
-        let mut record = record;
+        let pending = pending_before || seal_landed.load(Ordering::SeqCst) || in_flight();
+        (record, pending)
+    }
+
+    async fn measure_record_files(&self, rec: &mut Obj) {
+        let has_files = rec.get("files").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        if !has_files {
+            return;
+        }
+        let mut budget = LineDiffBudget::default();
+        let root = obj_str(rec, "root").to_owned();
+        let files: Vec<Obj> = rec.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
+        let mut measured = Vec::with_capacity(files.len());
+        for file in files {
+            measured.push(Value::Object(self.measure_legacy_change_file(file, &root, &mut budget).await));
+        }
+        rec.insert("files".into(), Value::Array(measured));
+    }
+
+    /// One turn's frozen changes by exact checkpoint id (TurnChangesReply). An unknown checkpoint
+    /// is `missing`; it never resolves to the latest turn.
+    pub(super) async fn turn_changes(&self, session_id: &str, read: &ChangesRead) -> Result<Reply, ReviewError> {
+        let owner = clean(session_id).to_owned();
+        let checkpoint_id = self.required_checkpoint_id(&read.checkpoint_id)?;
+        let (mut record, pending) = self.settled_change_record(&owner, &checkpoint_id).await;
         if let Some(rec) = record.as_mut() {
-            let has_files = rec.get("files").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
-            if has_files {
-                let mut budget = LineDiffBudget::default();
-                let root = obj_str(rec, "root").to_owned();
-                let files: Vec<Obj> =
-                    rec.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_object).cloned().collect()).unwrap_or_default();
-                let mut measured = Vec::with_capacity(files.len());
-                for file in files {
-                    measured.push(Value::Object(self.measure_legacy_change_file(file, &root, &mut budget).await));
-                }
-                rec.insert("files".into(), Value::Array(measured));
-            }
+            self.measure_record_files(rec).await;
         }
         let status = if pending {
             "pending"

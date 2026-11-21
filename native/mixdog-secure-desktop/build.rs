@@ -1,19 +1,7 @@
-// Windows VERSIONINFO for the bridge executable.
-//
-// A Rust binary ships no version resource, so the UAC prompt for the elevated
-// `install` showed only the bare file name. Windows takes the program name it
-// shows there (and in Explorer's properties and process lists) from the
-// resource's `FileDescription`; this stamps the product's Korean name.
-//
-// Same mechanism and crate as the other native tools (mixdog-spawn,
-// mixdog-graph, mixdog-patch): winresource writes `resource.rc` into OUT_DIR
-// with `#pragma code_page(65001)`, so the UTF-8 strings below survive, and
-// compiles it with the Windows SDK `rc.exe` of the MSVC toolchain. The
-// resource is linked into the exe here, before packaging signs it.
-// FileVersion/ProductVersion come from Cargo.toml's `package.version`.
-//
-// Unlike those tools, a failure fails the build: without the resource the UAC
-// prompt names a bare file instead of the product, so it is not cosmetic here.
+// The UAC prompt, Explorer properties and process lists take the program name from the
+// VERSIONINFO `FileDescription`; a Rust binary ships none. winresource compiles it with
+// the MSVC toolchain's `rc.exe` (UTF-8 via code_page 65001); FileVersion/ProductVersion
+// come from Cargo.toml's `package.version`.
 #[cfg(windows)]
 fn main() {
     let mut resource = winresource::WindowsResource::new();

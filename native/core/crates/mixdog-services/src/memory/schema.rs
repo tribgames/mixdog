@@ -1,9 +1,3 @@
-//! The `memory` schema: generated-history `entries`, curated `core_entries`
-//! and the `meta` key/value table. Every statement is idempotent and additive,
-//! so the same script creates a fresh store and brings a store written by an
-//! earlier version up to date; nothing here drops or rewrites user data except
-//! the vector reset when the embedding model changes.
-
 use serde_json::json;
 
 use crate::memory::error::Result;

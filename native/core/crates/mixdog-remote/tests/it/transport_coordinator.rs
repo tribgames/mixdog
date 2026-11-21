@@ -1,11 +1,5 @@
-//! The transport coordinator's behaviour, step by step (the recorded scenarios of the local-only comparison run live in
-//! `fixtures/remote-transport-coordinator/scenarios.json`): every step's effects, in
-//! order (relay writes, peer sends and closes, sealed control messages, deliveries, callbacks, log
-//! lines, lane operations), the settled sends and the diagnostics afterwards are the expected ones.
-//!
-//! The E2EE channel is the recorder's stand-in (see the fixture's `convention`): the boxes are
-//! `magic | u64 sequence | 12 zero bytes | JSON | 16 zero bytes`, control messages boxed as
-//! canonical JSON. The phone's inputs are the recorded bytes.
+//! The E2EE channel is a stand-in (see the fixture's `convention`): the boxes are `magic | u64 sequence | 12 zero bytes | JSON |
+//! 16 zero bytes`, control messages boxed as canonical JSON. The phone's inputs are the recorded bytes.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -533,10 +527,6 @@ impl LiveView {
     }
 }
 
-/// A live-view picture larger than the old ceiling (8 records of a 4 MiB JPEG), and one larger than the whole window (a 10 MiB
-/// JPEG), each arrive whole: the gate is asked at the first record, every record is sealed then, and they enter the window as the
-/// phone's acks admit them, as the coordinator sends them. A picture still waiting for the window, behind another message, when
-/// the device is unpaired enters none of it, and the stream goes on with no hole.
 #[test]
 fn a_live_view_picture_past_the_old_ceiling_arrives_whole_and_one_waiting_at_an_unpair_none_of_it() {
     let mut view = LiveView::new();

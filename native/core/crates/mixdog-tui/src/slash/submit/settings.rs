@@ -374,10 +374,6 @@ fn handler_for(kind: &str) -> Option<SettingsHandler> {
 
 /// `submitSettingsPrompt(ctx, settingsPrompt, commandText)`: `Some(handled)` when the prompt consumed the submit, `None` for
 /// an unknown kind.
-///
-/// Settings writes are daemon calls and the panel stays open until they are acknowledged, so a second Enter used to start an
-/// overlapping write whose older acknowledgement closed the prompt that already held the newer, restored value and lost the
-/// user's input. One write at a time per surface, and a superseded acknowledgement is ignored by the panel write.
 pub fn submit_settings_prompt(host: &mut dyn SlashHost, prompt: &TextPrompt, command_text: &str) -> Option<bool> {
     if host.state().command_busy {
         host.push_notice("wait for the current command to finish", Tone::Warn);

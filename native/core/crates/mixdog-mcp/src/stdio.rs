@@ -271,12 +271,6 @@ async fn read_loop(stdout: tokio::process::ChildStdout, tx: IncomingTx) {
 /// How much of an unfinished stderr line is held for its end before it is let out at a word boundary.
 const STDERR_LINE_CHARS: usize = 8192;
 
-/// The redaction of one stderr stream. What is held stays as written, and each release is redacted with the credential
-/// ranges found in all of it ([`crate::config::secret_ranges`]), so a secret split across reads, or one that began in
-/// text that is never let out, is redacted whole. Text is let out only after white space that lies in no credential, with
-/// the longest configured secret holding white space (a private key's lines) still held after it, so no credential
-/// straddles a cut. A word too long to hold is dropped: its last `keep` characters stay held, by position, as a lead-in
-/// that is never let out (`hidden`), so a secret beginning in it is still found in what follows.
 struct Redactor {
     secrets: Vec<String>,
     /// Text not let out yet, as written.
@@ -449,20 +443,7 @@ async fn supervise(
     tail: Arc<Mutex<String>>,
     tx: IncomingTx,
 ) {
-    // `Some(group may be signalled)` once the leader exited; `None`: it outlived its kill.
-    let exited = tokio::select! {
-        signalable = leader_exited(&mut child) => Some(signalable),
-        () = shutdown.cancelled() => {
-            // stdin is closed by the writer; a well-behaved server exits within the grace.
-            match mixdog_rt::time::timeout(grace, leader_exited(&mut child)).await {
-                Ok(signalable) => Some(signalable),
-                Err(_) => {
-                    kill_tree(&mut child, containment.as_ref());
-                    mixdog_rt::time::timeout(KILL_SETTLE, leader_exited(&mut child)).await.ok()
-                }
-            }
-        }
-    };
+    let exited = await_leader_exit(&mut child, containment.as_ref(), &shutdown, grace).await;
     // A wrapper that exits promptly leaves its descendants behind: the tree ends with the connection (`shutdownStdioChild`).
     // On Unix this runs before the leader is reaped, while its zombie still holds the group id.
     if let (Some(containment), Some(signalable)) = (&containment, exited) {
@@ -484,6 +465,29 @@ async fn supervise(
     // order: the group is signalled before anything can reap the leader.
     drop(containment);
     drop(child);
+    drain_readers(reader, stderr_reader, grace).await;
+    let stderr_tail = tail.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let _ = tx.send(Incoming::Closed(CloseCause { reason, stderr_tail }));
+}
+
+/// `Some(group may be signalled)` once the leader exited; `None`: it outlived its kill.
+async fn await_leader_exit(child: &mut Child, containment: Option<&Containment>, shutdown: &CancellationToken, grace: Duration) -> Option<bool> {
+    tokio::select! {
+        signalable = leader_exited(child) => Some(signalable),
+        () = shutdown.cancelled() => {
+            // stdin is closed by the writer; a well-behaved server exits within the grace.
+            match mixdog_rt::time::timeout(grace, leader_exited(child)).await {
+                Ok(signalable) => Some(signalable),
+                Err(_) => {
+                    kill_tree(child, containment);
+                    mixdog_rt::time::timeout(KILL_SETTLE, leader_exited(child)).await.ok()
+                }
+            }
+        }
+    }
+}
+
+async fn drain_readers(reader: Option<tokio::task::JoinHandle<()>>, stderr_reader: Option<tokio::task::JoinHandle<()>>, grace: Duration) {
     // Messages the child wrote before exiting are delivered before `Closed`.
     if let Some(reader) = reader {
         let _ = mixdog_rt::time::timeout(grace, reader).await;
@@ -497,8 +501,6 @@ async fn supervise(
         stderr_reader.abort();
         let _ = mixdog_rt::time::timeout(grace, stderr_reader).await;
     }
-    let stderr_tail = tail.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let _ = tx.send(Incoming::Closed(CloseCause { reason, stderr_tail }));
 }
 
 impl Drop for StdioTransport {

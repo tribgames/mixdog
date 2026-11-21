@@ -96,6 +96,9 @@ impl ProcessManager for Scripted {
         Ok(SpawnedProcess { handle: request.handle, pid: 4242 })
     }
 
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         Ok(Box::new(Source(self.receiver.lock().unwrap().take().expect("subscribed once after a spawn"))))
     }
@@ -229,21 +232,43 @@ async fn an_unserved_language_is_unsupported_and_a_missing_server_is_reported_on
     assert_eq!((answer["available"].clone(), answer["status"].clone()), (json!(false), json!("missing")));
 }
 
-/// The handshake and a document's life: the server gets `initialize` for the project folder, then `initialized`, `didOpen` with the
-/// document's text, `didChange` for a later version, `didClose`; its diagnostics reach the sink under the project-relative path and a
-/// close clears them; the status goes `starting`, `ready` with the capabilities the server announced.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
+struct Started {
+    pm: Arc<Scripted>,
+    sink: Arc<Sink>,
+    lsp: Arc<LspManager>,
+    root: std::path::PathBuf,
+    project_path: String,
+    program: std::path::PathBuf,
+    state: Value,
+    _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+async fn started_server() -> Started {
     let pm = Arc::new(Scripted::default());
     let sink = Arc::new(Sink::default());
     let lsp = manager(&pm, &sink);
     let dir = tempfile::tempdir().unwrap();
     let program = dir.path().join("scripted-server.bin");
     std::fs::write(&program, b"").unwrap();
-    let (_project_dir, root) = project(&program.to_string_lossy());
+    let (project_dir, root) = project(&program.to_string_lossy());
     let project_path = root.to_string_lossy().into_owned();
-
     let state = lsp.document(&project_path, &root, open("src/a.script", "let a", 1)).await.unwrap();
+    Started { pm, sink, lsp, root, project_path, program, state, _dirs: (dir, project_dir) }
+}
+
+async fn first_diagnostics(sink: &Sink) -> Value {
+    for _ in 0..200 {
+        if !sink.diagnostics.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    sink.diagnostics.lock().unwrap()[0].clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_first_document_starts_the_server_and_reports_the_capabilities_it_announced() {
+    let Started { pm, sink, program, state, .. } = started_server().await;
     assert_eq!((state["status"].clone(), state["available"].clone(), state["server"].clone()), (json!("ready"), json!(true), json!("Scripted")));
     assert_eq!(
         (state["capabilities"]["hover"].clone(), state["capabilities"]["completion"].clone(), state["capabilities"]["rename"].clone()),
@@ -253,11 +278,14 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
     assert_eq!(sink.states(), ["starting", "ready"]);
     assert_eq!(pm.spawned.lock().unwrap().len(), 1);
     assert_eq!(pm.spawned.lock().unwrap()[0].0, program.to_string_lossy());
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn the_handshake_names_the_project_folder_and_did_open_carries_the_documents_text() {
+    let Started { pm, root, .. } = started_server().await;
     let initialize = pm.message("initialize");
     assert_eq!(initialize["params"]["rootPath"], root.to_string_lossy().as_ref());
     assert_eq!(initialize["params"]["workspaceFolders"][0]["name"], root.file_name().unwrap().to_string_lossy().as_ref());
-    // `didOpen` carries the document's own text and version; the first message the server saw was `initialize`.
     let opened = pm.sent("textDocument/didOpen").await;
     assert_eq!(
         (
@@ -268,27 +296,30 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
         (json!("scriptlang"), json!("let a"), json!(1))
     );
     assert_eq!(pm.methods()[..3], ["initialize", "initialized", "textDocument/didOpen"]);
+}
 
-    // The server's diagnostics reach the sink under the relative path.
-    for _ in 0..200 {
-        if !sink.diagnostics.lock().unwrap().is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    let diagnostics = sink.diagnostics.lock().unwrap().clone();
+#[tokio::test(flavor = "multi_thread")]
+async fn the_servers_diagnostics_reach_the_sink_under_the_relative_path() {
+    let Started { sink, .. } = started_server().await;
+    let first = first_diagnostics(&sink).await;
     assert_eq!(
-        (diagnostics[0]["relPath"].clone(), diagnostics[0]["server"].clone(), diagnostics[0]["diagnostics"][0]["message"].clone()),
+        (first["relPath"].clone(), first["server"].clone(), first["diagnostics"][0]["message"].clone()),
         (json!("src/a.script"), json!("Scripted"), json!("scripted problem"))
     );
+}
 
-    // A second document event of an open one is a change, not another open; the server is not started again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_event_of_an_open_document_is_a_change_and_does_not_start_the_server_again() {
+    let Started { pm, lsp, root, project_path, .. } = started_server().await;
     lsp.document(&project_path, &root, DocumentInput { kind: "change".into(), ..open("src/a.script", "let ab", 2) }).await.unwrap();
     let change = pm.sent("textDocument/didChange").await;
     assert_eq!((change["params"]["textDocument"]["version"].clone(), change["params"]["contentChanges"][0]["text"].clone()), (json!(2), json!("let ab")));
     assert_eq!(pm.spawned.lock().unwrap().len(), 1);
+}
 
-    // A supported request is the server's answer; an unoffered method says so without asking the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_supported_request_is_the_servers_answer_and_an_unoffered_method_is_not_asked() {
+    let Started { pm, lsp, root, project_path, .. } = started_server().await;
     let hover = lsp
         .request(&project_path, &root, "src/a.script", "scriptlang", "textDocument/hover", &json!({ "position": { "line": 0, "character": 1 } }))
         .await
@@ -299,11 +330,18 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
     let rename = lsp.request(&project_path, &root, "src/a.script", "scriptlang", "textDocument/rename", &json!({})).await.unwrap();
     assert_eq!((rename["status"].clone(), rename["detail"].clone()), (json!("ready"), json!("Scripted does not support textDocument/rename.")));
     assert!(!pm.methods().contains(&"textDocument/rename".to_owned()));
+}
 
-    // A path out of the project is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_document_path_out_of_the_project_is_refused() {
+    let Started { lsp, root, project_path, .. } = started_server().await;
     assert!(lsp.document(&project_path, &root, open("../outside.script", "x", 1)).await.is_err());
+}
 
-    // Closing the document clears its diagnostics; stopping the project's servers shuts the server down and ends the process.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_document_clears_its_diagnostics_and_stopping_the_project_ends_the_server() {
+    let Started { pm, sink, lsp, root, project_path, .. } = started_server().await;
+    first_diagnostics(&sink).await;
     lsp.document(&project_path, &root, DocumentInput { kind: "close".into(), ..open("src/a.script", "", 3) }).await.unwrap();
     pm.sent("textDocument/didClose").await;
     assert_eq!(sink.diagnostics.lock().unwrap().last().unwrap()["diagnostics"], json!([]));
@@ -312,6 +350,5 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
     assert!(lsp.live_roots().is_empty());
     assert!(pm.methods().contains(&"shutdown".to_owned()));
     assert_eq!(*pm.killed.lock().unwrap(), 1);
-    // Stopping what is not running is empty.
     assert!(lsp.dispose_under(Path::new(&root)).await.is_empty());
 }

@@ -1,10 +1,3 @@
-//! The readers of "does Mixy exist" that run in the daemon: the routine rules (`DefinitionAgents`) and
-//! the heartbeat-report delivery (`DefinitionsDirectory`) both ask the agent definitions' one rule.
-//! The rule: `created: false` is no; a name, a message the user wrote in her thread, or a routine of
-//! hers is yes. A routine that is already stored is itself her evidence, so for it only `created: false`
-//! says no. When the rule cannot be read the report reader answers yes (a report is never dropped on
-//! an unreadable definition) and the routine reader passes the fault on.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

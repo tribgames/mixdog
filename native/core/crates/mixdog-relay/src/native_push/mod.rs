@@ -1,8 +1,8 @@
-//! Native app push delivery (`lib/native-push.mjs`): APNs (HTTP/2, token auth) and FCM (HTTP v1). The relay holds the
-//! credentials and carries the opaque `mx` string the desktop encrypted for the phone; it never sees notification content.
+//! Native app push delivery: APNs (HTTP/2, token auth) and FCM (HTTP v1). The relay holds the credentials and carries the opaque
+//! `mx` string the desktop encrypted for the phone; it never sees notification content.
 //!
 //! [`NativePush`] is the credentialed sender. The leg side talks to it only through [`PushSender`], and it reaches Apple and
-//! Google only through [`HttpTransport`], so a test or the twin host records requests instead of dialling out.
+//! Google only through [`HttpTransport`].
 
 mod apns;
 mod bindings;

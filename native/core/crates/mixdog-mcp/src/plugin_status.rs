@@ -220,9 +220,14 @@ fn registered_plugin(lane: &InLane<MaintenanceIo>, declarations: &DeclarationCac
         plugin.insert("searchedSkillRoots".to_owned(), json!(searched));
         plugin.insert("warning".to_owned(), json!(format!("No skills or MCP server found. Searched skill roots: {}", searched.join(", "))));
     }
-    // The servers the plugin declares, live: name, declared key, intent/effective state, connection,
-    // and declaration problems.
-    let mcp = summary.get(&id).cloned().unwrap_or_else(|| json!({"format": "none", "errors": [], "servers": []}));
+    insert_live_servers(&mut plugin, summary.get(&id));
+    Registered::Plugin(plugin)
+}
+
+/// The servers the plugin declares, live: name, declared key, intent/effective state, connection,
+/// and declaration problems.
+fn insert_live_servers(plugin: &mut Map<String, Value>, mcp: Option<&Value>) {
+    let mcp = mcp.cloned().unwrap_or_else(|| json!({"format": "none", "errors": [], "servers": []}));
     plugin.insert("mcpFormat".to_owned(), field(&mcp, "format").clone());
     plugin.insert("mcpErrors".to_owned(), field(&mcp, "errors").clone());
     let servers: Vec<Value> = field(&mcp, "servers").as_array().into_iter().flatten().filter(|row| truthy(row)).map(server_row).collect();
@@ -231,7 +236,6 @@ fn registered_plugin(lane: &InLane<MaintenanceIo>, declarations: &DeclarationCac
     plugin.insert("mcpServers".to_owned(), Value::Array(servers));
     plugin.insert("mcpServerName".to_owned(), first_name);
     plugin.insert("mcpEnabled".to_owned(), json!(any_enabled));
-    Registered::Plugin(plugin)
 }
 
 /// `pluginsStatus()` over the registry status `admin` (`pluginAdminStatus`) and the MCP summary the

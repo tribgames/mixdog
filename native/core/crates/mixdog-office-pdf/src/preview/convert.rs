@@ -1,18 +1,11 @@
 //! `documentPreviewPdf`: a document to a cached PDF.
 //!
-//! What protects a document is read from its container before any renderer starts (a hidden PowerPoint or Word would wait on a
-//! password prompt nobody sees, LibreOffice would fail late): an encrypted OOXML package this module unlocks with the password,
-//! one whose integrity data is malformed, an encrypted binary Word document Word opens with it, a protection no password route
-//! opens, or none. An unreadable container is left to the renderer.
-//!
-//! An encrypted OOXML package is opened the way [MS-OFFCRYPTO] specifies: the password verifier decides a wrong password without
-//! starting anything (its hashing on a thread of its own, ended by the request's cancellation), the package's HMAC must then
-//! prove it intact, and only then does the key decrypt it into a private scratch copy that the usual engine renders and that is
-//! removed with it. No engine ever sees that password.
+//! An encrypted OOXML package is opened the way [MS-OFFCRYPTO] specifies: the password verifier decides a wrong password, the
+//! package's HMAC must then prove it intact, and only then does the key decrypt it into a private scratch copy.
 //!
 //! LibreOffice renders when it is available, else Microsoft Office renders a private read-only copy (the host opens it
-//! read-only: no recalculation, no link updates, macros off), exports the PDF, closes the document without saving and quits the
-//! application instance it started. A password only reaches Microsoft Office, on the host's stdin, never on its command line.
+//! read-only: no recalculation, no link updates, macros off). A password only reaches Microsoft Office, on the host's stdin,
+//! never on its command line.
 
 use std::fs::Metadata;
 use std::io;
@@ -407,13 +400,6 @@ async fn convert(
     identity: &Identity,
     cancel: &CancellationToken,
 ) -> Result<PdfPreview, PreviewError> {
-    // Workers are processes that share the cache directory and nothing else, and a document can be asked for on several of them
-    // at once. The conversion therefore writes into a staging directory of its own and publishes the finished PDF in one rename;
-    // a failed or cancelled conversion removes only its own staging, never the cache directory another conversion may be
-    // publishing into, and the cache's eviction never sees a conversion that has not finished.
-    // The staging directory is owned through a file lock its conversion holds from before the directory exists until after it is
-    // removed (`cache::StagingOwner`); the system drops the lock if the process dies, which is what lets the next conversion
-    // reclaim what a killed one left (`reclaim_staging`) without guessing from names or times.
     let (name, documents) = (staging_name(directory), directory.parent().map(Path::to_path_buf));
     let cache_root = documents.as_deref().and_then(Path::parent).unwrap_or(directory).to_path_buf();
     let owner = job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| {

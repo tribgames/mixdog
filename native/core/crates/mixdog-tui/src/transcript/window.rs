@@ -1,26 +1,9 @@
-//! The transcript window (`src/tui/app/transcript-window.mjs`, `transcript-row-estimate.mjs`, `transcript-measure.mjs`,
-//! `use-transcript-window.mjs` and `use-transcript-window/*`): which items are mounted for the viewport, with exact heights.
+//! The transcript window: which items are mounted for the viewport, with exact heights. An item renders to lines through the
+//! transcript widgets and its number of lines is its height.
 //!
-//! Node estimated every item's rows and corrected them with the height Yoga measured after mounting. Here an item renders to
-//! lines through the transcript widgets and the number of lines is its exact height, so the estimate, the measured-height
-//! cache, the harvest and its oscillation breaker (all of `transcript-measure.mjs`, and the `MIXDOG_TUI_TRANSCRIPT_MEASURED`
-//! switch that turned them off) have nothing left to do. What stays is the geometry they fed:
-//!
-//! * [`heights`]: the height of one item (suppressed failed batches take none, a streaming assistant never shrinks while it
-//!   streams) and the bounded caches of heights and rendered lines, keyed by the item's content, the width, the expansion
-//!   and (for lines) the theme version;
-//! * [`row_index`]: the rows and prefix rows of every item, built whole or, while the tail streams, by replacing only the
-//!   tail row of the settled prefix;
-//! * [`render_window`]: the item span mounted around the viewport, the anchor arithmetic and the bulk-swap rule;
-//! * [`geometry`] and [`instance_state`]: the per-frame chain (row index, render offset, window, published geometry) and the
-//!   state one window keeps between frames, reset when the session changes;
-//! * [`visible_items`]: the on-screen slice and where the overlay hint attaches;
-//! * [`selection_shift`]: the selection geometry the readers share and the shift that keeps a released selection on its text.
-//!
-//! Older history is paged by the core (`thread/restoreOlderTranscript`, `thread/restoreNewerTranscript`; the core keeps the
-//! whole log and the pages come with `thread/items/list`): the window sees the items it is given, a page replacing them bumps
-//! the structure revision, and [`render_window::transcript_swap_returns_to_tail`] says when that replacement returns the
-//! viewport to the tail.
+//! Older history is paged by the core (`thread/restoreOlderTranscript`, `thread/restoreNewerTranscript`; the pages come with
+//! `thread/items/list`): the window sees the items it is given, a page replacing them bumps the structure revision, and
+//! [`render_window::transcript_swap_returns_to_tail`] says when that replacement returns the viewport to the tail.
 
 pub mod geometry;
 pub mod heights;

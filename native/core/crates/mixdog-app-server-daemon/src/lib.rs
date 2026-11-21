@@ -151,11 +151,6 @@ pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
     Ok(mixdog_rt::exec::boot(RtConfig::detect())?)
 }
 
-/// `mixdogd serve`: boots the executors and serves until the process is told to stop. A start that finds the data dir owned by another core yields
-/// to it: it ends cleanly, as Node's contender does (`claimDaemonOwnership`), and its launcher attaches to the holder.
-///
-/// The process has no runtime of its own: the calling thread blocks inside RT-W's context, so the composition's tasks and every ambient `Handle::current()` land on the
-/// executors, and the connection tasks the transport spawns with `TaskClass::Control` run on RT-C. Blocking work goes to the lanes, never to either runtime.
 pub fn run(desktop_confirmation_pipe: bool) -> Result<(), ServeError> {
     adopt_login_shell_environment(std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let (executors, tokens) = boot_executors()?;
@@ -235,10 +230,6 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     .await?;
     let boot::Begun { started, booting, watch, behind } = begun;
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
-    // The daemon's run token and the one daemon log (`<data>/daemon.log`). Compose and every writer share the log; the one stop procedure
-    // (`ComposedCore::run_stop_steps`) flushes it after the last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and
-    // then cancels the token. A forced exit that skips the stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
-    // Until the ready boundary (below) a log line and a Node stderr line go bare to the process's stderr, which is where Node's go.
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
     log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
@@ -332,6 +323,30 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     for line in daemon_log::ready_lines(serving.discovery.rpc_port().unwrap_or(0), std::process::id(), ready_ms) {
         ready_log.log(&line);
     }
+    start_after_ready_tasks(&core, &started, &stop, &sweep_dir, behind, &ready_log);
+    // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
+    let _stall_monitor = serving.watch_stalls(executors.clone(), core.stall_description());
+    // A stop that arrived on the way is handed over now: the watcher has been live since boot.
+    let signal = watch.wait().await.map_err(ServeError::Signal)?;
+    signals::stop_for(&serving.lifecycle, signal);
+    tracing::info!(signal = signal.name(), "stop handed to the lifecycle");
+    // The release thread runs the final barriers, closes the connections and the extension host,
+    // writes `last-exit.json`, withdraws discovery, runs the stop steps and ends the process.
+    let mut state = serving.lifecycle.state();
+    let _ = state.wait_for(|state| matches!(state, CoreState::Stopped)).await;
+    Ok(())
+}
+
+/// The tasks Node starts after ready, each behind the core that serves: the event pipeline, the idle sweep and sub-agent retention, Mixy's heartbeat,
+/// telemetry, the memory database, the restored channel pin, and the conversion of the earlier version's sessions.
+fn start_after_ready_tasks(
+    core: &Arc<compose::ComposedCore>,
+    started: &startup::Started,
+    stop: &mixdog_rt::CancellationToken,
+    sweep_dir: &std::path::Path,
+    behind: Option<boot::Behind>,
+    ready_log: &daemon_log::DaemonLog,
+) {
     // The tasks Node starts after ready (the webhook queue with the channels, the idle sweep and the retention with the session runtime's first interval, the heartbeat's first tick): their
     // lines land after the redirect, stamped, as Node's do.
     // The webhook event queue ticks from here: it takes the proof that startup finished.
@@ -340,7 +355,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     mixdog_rt::spawn(
         "idle-sweep",
         mixdog_rt::TaskClass::Work,
-        session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()),
+        session_sweep::run(started.clone(), core.sweep_store(sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()),
     );
     // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
     core.start_sub_agent_retention();
@@ -361,17 +376,6 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
     {
         tracing::error!(%error, "the thread that converts the earlier version's sessions could not start; the next start tries again");
     }
-    // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
-    let _stall_monitor = serving.watch_stalls(executors.clone(), core.stall_description());
-    // A stop that arrived on the way is handed over now: the watcher has been live since boot.
-    let signal = watch.wait().await.map_err(ServeError::Signal)?;
-    signals::stop_for(&serving.lifecycle, signal);
-    tracing::info!(signal = signal.name(), "stop handed to the lifecycle");
-    // The release thread runs the final barriers, closes the connections and the extension host,
-    // writes `last-exit.json`, withdraws discovery, runs the stop steps and ends the process.
-    let mut state = serving.lifecycle.state();
-    let _ = state.wait_for(|state| matches!(state, CoreState::Stopped)).await;
-    Ok(())
 }
 
 #[cfg(test)]

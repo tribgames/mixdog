@@ -1,12 +1,4 @@
-//! The session lifecycle against real Microsoft Office. Every test is `#[ignore]`: it starts Office, shows an Excel window
-//! and drives the foreground, so it runs only on request (`cargo test -p mixdog-office-com --test session_live -- --ignored`)
-//! on a Windows machine with Office and `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends
-//! at once and says it did nothing.
-//!
-//! The scenarios of `tests/scenarios/session.json` through the lifecycle in this process, on a single-threaded apartment
-//! of its own: open and create per format in the background, closed with a save; no WINWORD, EXCEL or POWERPNT process is
-//! left that was not there before; and a user's visible Excel holding a workbook is still running, workbook open, after an
-//! attach session on that workbook closes.
+//! Ignored: starts Office; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::PathBuf;

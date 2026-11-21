@@ -1,11 +1,3 @@
-// Compiling one language's rules, and the single traversal that applies them.
-//
-// The walk contract — every node is visited, item rules are indexed by node
-// kind, member rules are tried inside their owning item, and the descent never
-// stops — is described in the TRAVERSAL section of `src/outline.rs`. Symbols,
-// import edges, call sites, identifier tokens and the file-level
-// package/namespace metadata all come out of this one pass.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock, RwLock};
 
@@ -61,15 +53,14 @@ pub struct LangExtractors {
 pub struct Walked<'t> {
     pub items: Vec<WalkedItem<'t>>,
     pub calls: Vec<crate::calls::RawCall>,
-    /// Unique identifier-like texts, borrowed from the source (Stage 3-D).
+    /// Unique identifier-like texts, borrowed from the source.
     pub tokens: HashSet<&'t str>,
     pub meta: FileMeta,
 }
 
 /// `packageName` / `namespaceName` / `goPackageName` as the parse tree
 /// reports them. A file can hold more than one namespace declaration, so each
-/// field keeps the one that starts EARLIEST — the same "first one in the
-/// file" answer the pre-Stage-3 line regex gave.
+/// field keeps the one that starts earliest.
 #[derive(Default)]
 pub struct FileMeta {
     pub(super) package: Option<(usize, String)>,

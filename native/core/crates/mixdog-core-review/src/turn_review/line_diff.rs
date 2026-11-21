@@ -418,9 +418,7 @@ impl LineDiffer {
             return hit;
         }
         let mut result: Option<HunkSet> = None;
-        // A fallback forced by the operation's spent budget is not this pair's own outcome: it is
-        // not cached, so a later operation can still diff it.
-        let mut repeatable = true;
+        let mut cacheable = true;
         if !over_limits(old_text) && !over_limits(new_text) {
             if budget.remaining_ms > 0.0 {
                 let timeout = LINE_DIFF_FILE_TIMEOUT_MS.min(budget.remaining_ms);
@@ -429,18 +427,17 @@ impl LineDiffer {
                 budget.remaining_ms -= started.elapsed().as_secs_f64() * 1000.0;
                 match patch {
                     Some(hunks) => result = Some(HunkSet { hunks, exact: true }),
-                    None => repeatable = timeout >= LINE_DIFF_FILE_TIMEOUT_MS,
+                    None => cacheable = timeout >= LINE_DIFF_FILE_TIMEOUT_MS,
                 }
             } else {
-                repeatable = false;
+                cacheable = false;
             }
         }
         let result = Arc::new(result.unwrap_or_else(|| HunkSet { hunks: replacement_hunks(old_text, new_text), exact: false }));
-        if repeatable {
+        if cacheable {
             let chars = utf16_len(old_text) + utf16_len(new_text);
             self.cache.lock().unwrap_or_else(|e| e.into_inner()).set(key, result.clone(), chars);
         } else {
-            // Within its own operation it is final: the budget never grows back.
             budget.fallbacks.insert(key, result.clone());
         }
         result

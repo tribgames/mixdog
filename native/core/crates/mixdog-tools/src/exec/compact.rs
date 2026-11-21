@@ -1,8 +1,3 @@
-//! Lossless compaction of a successful foreground command's output
-//! (`builtin/shell-lossless-compact.mjs`): JSON whitespace, a one-line test or build summary, or
-//! folded progress frames and repeated lines — only when the savings are real and the full
-//! capture is archived so it can be read back.
-
 use std::sync::LazyLock;
 
 use mixdog_js::JsRegex;

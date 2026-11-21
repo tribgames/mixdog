@@ -434,6 +434,49 @@ pub fn cached_quota_windows_fallback(cache: Option<&Value>, provider: &str, mode
     (windows.clone(), cached_at)
 }
 
+fn adopt_current_route(gateway: &mut Map<String, Value>, current: Option<&Value>, provider: &str, model: &str) {
+    let mode = Some(clean(gateway.get("mode"))).filter(|mode| !mode.is_empty()).unwrap_or_else(|| "fixed".into());
+    gateway.insert("mode".into(), json!(mode));
+    gateway.insert("defaultProvider".into(), json!(provider));
+    gateway.insert("defaultModel".into(), json!(model));
+    let effort = clean(nullish(&[current.and_then(|route| route.get("effort")), current.and_then(|route| route.get("displayEffort"))]));
+    if !effort.is_empty() {
+        gateway.insert("effort".into(), json!(effort));
+    }
+    if let Some(fast) = clean_bool(current.and_then(|route| route.get("fast"))) {
+        gateway.insert("fast".into(), json!(fast));
+    }
+    for key in ["contextWindow", "rawContextWindow"] {
+        if let Some(window) = num(current.and_then(|route| route.get(key))).filter(|window| *window != 0.0) {
+            gateway.insert(key.into(), json_number(window));
+        }
+    }
+}
+
+/// The cached model file's row with the catalog's context window: the catalog is authoritative, a cached file can hold a stale one,
+/// and a live window the provider API reported on the cached row still outranks the catalog.
+fn model_info_with_catalog_window(world: &dyn StatusWorld, provider: &str, model: &str) -> Value {
+    let mut info = world.cached_model(provider, model).filter(|info| info.is_object()).unwrap_or_else(|| json!({}));
+    let catalog = world.catalog_meta(model, provider).map(Value::Object);
+    let catalog_window = num(nullish(&[
+        catalog.as_ref().and_then(|c| c.get("contextWindow")),
+        catalog.as_ref().and_then(|c| c.get("maxContextWindow")),
+        catalog.as_ref().and_then(|c| c.get("context_window")),
+        catalog.as_ref().and_then(|c| c.get("max_context_window")),
+    ]))
+    .unwrap_or(0.0);
+    let api_window = num(nullish(&[info.get("context_window"), info.get("max_context_window")])).unwrap_or(0.0);
+    let cached_window = num(nullish(&[info.get("contextWindow"), info.get("maxContextWindow")])).unwrap_or(0.0);
+    if api_window == 0.0
+        && catalog_window > 0.0
+        && cached_window != catalog_window
+        && let Some(object) = info.as_object_mut()
+    {
+        object.insert("contextWindow".into(), json_number(catalog_window));
+        object.insert("maxContextWindow".into(), json_number(catalog_window));
+    }
+    info
+}
 /// The route the footer shows, from the config, the session's stored route and Claude Code. `None` when the gateway
 /// module is off, no route resolves, or a requested `mixdog/` model names no preset.
 fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -> Option<Map<String, Value>> {
@@ -447,22 +490,7 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
         && !current_provider.is_empty()
         && !current_model.is_empty()
     {
-        let mode = Some(clean(gateway.get("mode"))).filter(|mode| !mode.is_empty()).unwrap_or_else(|| "fixed".into());
-        gateway.insert("mode".into(), json!(mode));
-        gateway.insert("defaultProvider".into(), json!(current_provider));
-        gateway.insert("defaultModel".into(), json!(current_model));
-        let effort = clean(nullish(&[current.and_then(|route| route.get("effort")), current.and_then(|route| route.get("displayEffort"))]));
-        if !effort.is_empty() {
-            gateway.insert("effort".into(), json!(effort));
-        }
-        if let Some(fast) = clean_bool(current.and_then(|route| route.get("fast"))) {
-            gateway.insert("fast".into(), json!(fast));
-        }
-        for key in ["contextWindow", "rawContextWindow"] {
-            if let Some(window) = num(current.and_then(|route| route.get(key))).filter(|window| *window != 0.0) {
-                gateway.insert(key.into(), json_number(window));
-            }
-        }
+        adopt_current_route(&mut gateway, current, &current_provider, &current_model);
     }
     let modules_gateway = config.and_then(|config| config.get("modules")).filter(|modules| modules.is_object()).and_then(|modules| modules.get("gateway"));
     if modules_gateway.is_some_and(|module| truthy(Some(module)) && module.get("enabled") == Some(&Value::Bool(false))) {
@@ -519,27 +547,7 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
         let first = matching.next();
         if matching.next().is_none() { first } else { None }
     });
-    let mut info = world.cached_model(&provider, &model).filter(|info| info.is_object()).unwrap_or_else(|| json!({}));
-    // The catalog is authoritative for the context window: a cached model file can hold a stale one. A live window
-    // the provider API reported on the cached row still outranks the catalog.
-    let catalog = world.catalog_meta(&model, &provider).map(Value::Object);
-    let catalog_window = num(nullish(&[
-        catalog.as_ref().and_then(|c| c.get("contextWindow")),
-        catalog.as_ref().and_then(|c| c.get("maxContextWindow")),
-        catalog.as_ref().and_then(|c| c.get("context_window")),
-        catalog.as_ref().and_then(|c| c.get("max_context_window")),
-    ]))
-    .unwrap_or(0.0);
-    let api_window = num(nullish(&[info.get("context_window"), info.get("max_context_window")])).unwrap_or(0.0);
-    let cached_window = num(nullish(&[info.get("contextWindow"), info.get("maxContextWindow")])).unwrap_or(0.0);
-    if api_window == 0.0
-        && catalog_window > 0.0
-        && cached_window != catalog_window
-        && let Some(object) = info.as_object_mut()
-    {
-        object.insert("contextWindow".into(), json_number(catalog_window));
-        object.insert("maxContextWindow".into(), json_number(catalog_window));
-    }
+    let info = model_info_with_catalog_window(world, &provider, &model);
     let g = |key: &str| gateway.get(key);
     let p = |key: &str| preset.and_then(|preset| preset.get(key));
     let inherited_effort = inherited_json.as_ref().and_then(|route| route.get("effort").cloned());
@@ -912,6 +920,66 @@ mod tests {
     }
 }
 
+fn window_reset_text(window: &Value, fmt: &SegmentFormat<'_>) -> String {
+    if is_local_estimate_window(window) {
+        return String::new();
+    }
+    let Some(at) = num(window.get("resetAt")).filter(|at| *at != 0.0 && *at > fmt.now) else { return String::new() };
+    if at - fmt.now < 24.0 * 60.0 * 60_000.0 {
+        return (fmt.epoch_ms_to_hhmm)(at);
+    }
+    match mixdog_js::time::local_fields(at) {
+        Some(t) => format!("{:02}-{:02} {:02}:{:02}", t.month, t.day, t.hour, t.minute),
+        None => String::new(),
+    }
+}
+
+/// One quota window as the footer prints it, coloured by what is left; `None` when it carries no figure.
+fn window_segment(window: &Value, fmt: &SegmentFormat<'_>, is_openai_oauth: bool) -> Option<String> {
+    let (d, r) = (fmt.dim, fmt.reset);
+    let label = window.get("label").filter(|v| truthy(Some(v))).map_or_else(|| "USE".to_owned(), value_to_string).to_uppercase();
+    let pct = num(window.get("usedPct"));
+    let field = |key: &str| if is_openai_oauth { None } else { num(window.get(key)) };
+    let (remaining, limit, used) = (field("remainingUsd"), field("limitUsd"), field("usedUsd"));
+    let (remaining_credits, limit_credits, used_credits) = (field("remainingCredits"), field("limitCredits"), field("usedCredits"));
+    let estimated = is_local_estimate_window(window);
+    let est = if estimated { "est " } else { "" };
+    let credit_color = if estimated {
+        fmt.yellow
+    } else if pct.is_some_and(|p| p >= 95.0) {
+        fmt.red
+    } else if pct.is_some_and(|p| p >= 80.0) {
+        fmt.yellow
+    } else {
+        fmt.green
+    };
+    Some(if let Some(remaining) = remaining {
+        let color = if estimated {
+            fmt.yellow
+        } else if remaining <= 1.0 {
+            fmt.red
+        } else if remaining <= 5.0 {
+            fmt.yellow
+        } else {
+            fmt.green
+        };
+        format!("{d}{label}{r} {color}{est}{}{r}", money(remaining))
+    } else if let (Some(used), Some(limit)) = (used, limit) {
+        format!("{d}{label}{r} {est}{}/{}", money(used), money(limit))
+    } else if let (Some(left), Some(limit)) = (remaining_credits, limit_credits) {
+        format!("{d}{label}{r} {credit_color}{est}{}/{}{r}", compact_number(left), compact_number(limit))
+    } else if let Some(left) = remaining_credits {
+        format!("{d}{label}{r} {credit_color}{est}{}{r}", compact_number(left))
+    } else if let (Some(used), Some(limit)) = (used_credits, limit_credits) {
+        format!("{d}{label}{r} {est}{}/{}", compact_number(used), compact_number(limit))
+    } else if let Some(pct) = pct {
+        let pct_text = (fmt.colour_pct)(math::round(pct) as i64);
+        let shown = if fmt.cols >= 80 { pad_left_visible(&pct_text, 4) } else { pct_text };
+        format!("{d}{label}{r} {est}{shown}")
+    } else {
+        return None;
+    })
+}
 /// `formatGatewayLimitSegments(status, fmt)`: what the footer prints for the limits of a status: the quota windows
 /// (as many as the width takes), the route spend and the credit balance.
 pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) -> Vec<String> {
@@ -944,25 +1012,9 @@ pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) ->
     let route_spend = num(status.get("routeSpend").and_then(|spend| spend.get("costUsd")));
     let label = clean(status.get("routeSpend").and_then(|spend| spend.get("label")));
     let route_spend_label = if label.is_empty() { (if fmt.cols >= 120 { "SESS" } else { "S" }).to_owned() } else { label };
-    // The percentage and the reset time are right-aligned in their own columns so the separators stop drifting as the
-    // values change width. Off below 80 columns, where the narrow layout keeps its own shape.
-    let align = fmt.cols >= 80;
-    let reset_width = if align { 5 } else { 0 };
-    let window_reset_text = |window: &Value| -> String {
-        if is_local_estimate_window(window) {
-            return String::new();
-        }
-        let Some(at) = num(window.get("resetAt")).filter(|at| *at != 0.0 && *at > fmt.now) else { return String::new() };
-        if at - fmt.now < 24.0 * 60.0 * 60_000.0 {
-            return (fmt.epoch_ms_to_hhmm)(at);
-        }
-        match mixdog_js::time::local_fields(at) {
-            Some(t) => format!("{:02}-{:02} {:02}:{:02}", t.month, t.day, t.hour, t.minute),
-            None => String::new(),
-        }
-    };
+    let reset_width = if fmt.cols >= 80 { 5 } else { 0 };
     let with_reset = |segment: String, window: &Value| {
-        let reset = window_reset_text(window);
+        let reset = window_reset_text(window, fmt);
         if reset.is_empty() { segment } else { format!("{segment} {d}↻ {}{r}", pad_left_visible(&reset, reset_width)) }
     };
     let add_route_spend = |segments: &mut Vec<String>| -> bool {
@@ -991,48 +1043,7 @@ pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) ->
         }
     }
     for window in windows.iter().take(max_windows) {
-        let label = window.get("label").filter(|v| truthy(Some(v))).map_or_else(|| "USE".to_owned(), value_to_string).to_uppercase();
-        let pct = num(window.get("usedPct"));
-        let field = |key: &str| if is_openai_oauth { None } else { num(window.get(key)) };
-        let (remaining, limit, used) = (field("remainingUsd"), field("limitUsd"), field("usedUsd"));
-        let (remaining_credits, limit_credits, used_credits) = (field("remainingCredits"), field("limitCredits"), field("usedCredits"));
-        let estimated = is_local_estimate_window(window);
-        let est = if estimated { "est " } else { "" };
-        let credit_color = if estimated {
-            fmt.yellow
-        } else if pct.is_some_and(|p| p >= 95.0) {
-            fmt.red
-        } else if pct.is_some_and(|p| p >= 80.0) {
-            fmt.yellow
-        } else {
-            fmt.green
-        };
-        let segment = if let Some(remaining) = remaining {
-            let color = if estimated {
-                fmt.yellow
-            } else if remaining <= 1.0 {
-                fmt.red
-            } else if remaining <= 5.0 {
-                fmt.yellow
-            } else {
-                fmt.green
-            };
-            format!("{d}{label}{r} {color}{est}{}{r}", money(remaining))
-        } else if let (Some(used), Some(limit)) = (used, limit) {
-            format!("{d}{label}{r} {est}{}/{}", money(used), money(limit))
-        } else if let (Some(left), Some(limit)) = (remaining_credits, limit_credits) {
-            format!("{d}{label}{r} {credit_color}{est}{}/{}{r}", compact_number(left), compact_number(limit))
-        } else if let Some(left) = remaining_credits {
-            format!("{d}{label}{r} {credit_color}{est}{}{r}", compact_number(left))
-        } else if let (Some(used), Some(limit)) = (used_credits, limit_credits) {
-            format!("{d}{label}{r} {est}{}/{}", compact_number(used), compact_number(limit))
-        } else if let Some(pct) = pct {
-            let pct_text = (fmt.colour_pct)(math::round(pct) as i64);
-            let shown = if align { pad_left_visible(&pct_text, 4) } else { pct_text };
-            format!("{d}{label}{r} {est}{shown}")
-        } else {
-            continue;
-        };
+        let Some(segment) = window_segment(window, fmt, is_openai_oauth) else { continue };
         segments.push(with_reset(segment, window));
     }
     add_route_spend(&mut segments);

@@ -121,6 +121,18 @@ fn tokens(text: &str) -> Vec<(usize, &str)> {
     out
 }
 
+/// Reads up to the next comma into `name`; true when a `;` or `!` ended the list instead.
+fn read_entry(chars: &mut impl Iterator<Item = char>, name: &mut String) -> bool {
+    for character in chars {
+        match character {
+            ',' => return false,
+            ';' | '!' => return true,
+            _ => name.push(character),
+        }
+    }
+    false
+}
+
 /// The family names of the text after the size.
 fn family_list(text: &str) -> Vec<String> {
     let mut families = Vec::new();
@@ -128,7 +140,7 @@ fn family_list(text: &str) -> Vec<String> {
     loop {
         while chars.next_if(|character| character.is_whitespace()).is_some() {}
         let Some(first) = chars.peek().copied() else { break };
-        let mut stop = false;
+        let stop;
         if matches!(first, '"' | '\'') {
             chars.next();
             let mut name = String::new();
@@ -140,34 +152,16 @@ fn family_list(text: &str) -> Vec<String> {
                 }
                 name.push(character);
             }
-            // An unterminated quote drops its entry; what follows a closing quote up to the comma is dropped.
             if !closed {
                 break;
             }
-            for character in chars.by_ref() {
-                if character == ',' {
-                    break;
-                }
-                if character == ';' || character == '!' {
-                    stop = true;
-                    break;
-                }
-            }
+            stop = read_entry(&mut chars, &mut String::new());
             if !name.is_empty() {
                 families.push(name);
             }
         } else {
             let mut raw = String::new();
-            for character in chars.by_ref() {
-                if character == ',' {
-                    break;
-                }
-                if character == ';' || character == '!' {
-                    stop = true;
-                    break;
-                }
-                raw.push(character);
-            }
+            stop = read_entry(&mut chars, &mut raw);
             let name = raw.trim();
             if !name.is_empty() {
                 families.push(name.to_owned());

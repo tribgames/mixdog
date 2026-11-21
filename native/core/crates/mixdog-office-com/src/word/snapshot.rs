@@ -72,15 +72,7 @@ pub(super) fn snapshot_word(document: &Obj, payload: &Value) -> Result<Value> {
     let mut context = reading_context(document);
     let paragraph_count = super::count(&document.get("Paragraphs")?)?;
     let paged = convert::to_bool(&payload::property(payload, "paged"));
-    let mut offset = if paged { payload_int(&payload::property(payload, "offset"))?.max(0) } else { 0 };
-    let mut limit = if paged { payload_int(&payload::property(payload, "limit"))?.max(1) } else { paragraph_count };
-    let target = payload::property(payload, "target");
-    if convert::to_bool(&target) {
-        if let Some(captures) = PARAGRAPH_TARGET.captures(&convert::to_ps_string(&target)) {
-            offset = payload_int(&string_value(&captures[1]))? - 1;
-            limit = 1;
-        }
-    }
+    let (offset, limit) = paragraph_window(payload, paged, paragraph_count)?;
     let paragraph_end = i32::try_from(i64::from(paragraph_count).min(i64::from(offset) + i64::from(limit))).unwrap_or(paragraph_count);
     let paragraphs = read_paragraphs(document, &mut context, offset, paragraph_end)?;
     let (tables, table_count) = read_tables(document, &context)?;
@@ -96,22 +88,7 @@ pub(super) fn snapshot_word(document: &Obj, payload: &Value) -> Result<Value> {
     let path = super::string(&document.get("FullName")?);
     let track_changes = truth(&document.get("TrackRevisions")?);
     let revision_count = document.get("Revisions")?.member("Count")?;
-    let pagination = if paged {
-        let next = if paragraph_end < paragraph_count { Value::Int(paragraph_end) } else { Value::Null };
-        Value::object(
-            ObjectKind::Ordered,
-            vec![
-                ("unit", string_value("paragraph")),
-                ("offset", Value::Int(offset)),
-                ("limit", Value::Int(limit)),
-                ("returned", Value::Int(count_of(&paragraphs))),
-                ("total", Value::Int(paragraph_count)),
-                ("nextOffset", next),
-            ],
-        )
-    } else {
-        Value::Null
-    };
+    let pagination = if paged { pagination_record(offset, limit, paragraph_end, count_of(&paragraphs), paragraph_count) } else { Value::Null };
     Ok(Value::object(
         ObjectKind::Ordered,
         vec![
@@ -140,6 +117,35 @@ pub(super) fn snapshot_word(document: &Obj, payload: &Value) -> Result<Value> {
             ("pagination", pagination),
         ],
     ))
+}
+
+/// The first paragraph and how many to read: the page asked for, the one paragraph a `/body/p[n]` target names, or all.
+fn paragraph_window(payload: &Value, paged: bool, paragraph_count: i32) -> Result<(i32, i32)> {
+    let mut offset = if paged { payload_int(&payload::property(payload, "offset"))?.max(0) } else { 0 };
+    let mut limit = if paged { payload_int(&payload::property(payload, "limit"))?.max(1) } else { paragraph_count };
+    let target = payload::property(payload, "target");
+    if convert::to_bool(&target) {
+        if let Some(captures) = PARAGRAPH_TARGET.captures(&convert::to_ps_string(&target)) {
+            offset = payload_int(&string_value(&captures[1]))? - 1;
+            limit = 1;
+        }
+    }
+    Ok((offset, limit))
+}
+
+fn pagination_record(offset: i32, limit: i32, paragraph_end: i32, returned: i32, total: i32) -> Value {
+    let next = if paragraph_end < total { Value::Int(paragraph_end) } else { Value::Null };
+    Value::object(
+        ObjectKind::Ordered,
+        vec![
+            ("unit", string_value("paragraph")),
+            ("offset", Value::Int(offset)),
+            ("limit", Value::Int(limit)),
+            ("returned", Value::Int(returned)),
+            ("total", Value::Int(total)),
+            ("nextOffset", next),
+        ],
+    )
 }
 
 fn count_of<T>(items: &[T]) -> i32 {
@@ -193,12 +199,7 @@ fn read_paragraph(document: &Obj, context: &mut ReadingContext, paragraph: &Com,
     // times as much to ask.
     let style = paragraph.member("Style")?;
     let style_name = canonical_style_name(document, &style_name_of(&style));
-    let mut tab_stops = Vec::new();
-    // Tab stops shape only a line that holds a tab, and Word lists every default stop beside the paragraph's own.
-    if text.contains('\t') {
-        let _ = read_tab_stops(paragraph, &mut tab_stops);
-    }
-    let format = paragraph.member("Format")?;
+    let format = paragraph_format(paragraph, &text)?;
     let path = format!("/body/p[{index}]");
     let mut entry = dictionary();
     entry.set("path", Value::String(path.clone()));
@@ -210,21 +211,7 @@ fn read_paragraph(document: &Obj, context: &mut ReadingContext, paragraph: &Com,
     entry.set("inTable", Value::Bool(in_table));
     entry.set("pageStart", Value::Int(context.page_at(range_start)));
     entry.set("pageEnd", Value::Int(context.page_at(range_start.max(range_end - 1))));
-    entry.set(
-        "format",
-        Value::object(
-            ObjectKind::Ordered,
-            vec![
-                ("alignment", Value::Int(super::int(&format.member("Alignment")?)?)),
-                ("spacingBefore", Value::Double(super::double(&format.member("SpaceBefore")?)?)),
-                ("spacingAfter", Value::Double(super::double(&format.member("SpaceAfter")?)?)),
-                ("lineSpacing", Value::Double(super::double(&format.member("LineSpacing")?)?)),
-                ("keepWithNext", Value::Int(super::int(&format.member("KeepWithNext")?)?)),
-                ("pageBreakBefore", Value::Int(super::int(&format.member("PageBreakBefore")?)?)),
-                ("tabStops", Value::Array(tab_stops)),
-            ],
-        ),
-    );
+    entry.set("format", format);
     // The portable reader reports the same two facts from the XML: tracked changes touching the paragraph, and list
     // membership as kind + 0-based level.
     if accepted.tracked {
@@ -251,6 +238,27 @@ fn read_paragraph(document: &Obj, context: &mut ReadingContext, paragraph: &Com,
         entry.set("list", Value::Object(list));
     }
     Ok(Some(ParagraphEntry { index, start: range_start, in_table, path, object: entry }))
+}
+
+fn paragraph_format(paragraph: &Com, text: &str) -> Result<Value> {
+    let mut tab_stops = Vec::new();
+    // Tab stops shape only a line that holds a tab, and Word lists every default stop beside the paragraph's own.
+    if text.contains('\t') {
+        let _ = read_tab_stops(paragraph, &mut tab_stops);
+    }
+    let format = paragraph.member("Format")?;
+    Ok(Value::object(
+        ObjectKind::Ordered,
+        vec![
+            ("alignment", Value::Int(super::int(&format.member("Alignment")?)?)),
+            ("spacingBefore", Value::Double(super::double(&format.member("SpaceBefore")?)?)),
+            ("spacingAfter", Value::Double(super::double(&format.member("SpaceAfter")?)?)),
+            ("lineSpacing", Value::Double(super::double(&format.member("LineSpacing")?)?)),
+            ("keepWithNext", Value::Int(super::int(&format.member("KeepWithNext")?)?)),
+            ("pageBreakBefore", Value::Int(super::int(&format.member("PageBreakBefore")?)?)),
+            ("tabStops", Value::Array(tab_stops)),
+        ],
+    ))
 }
 
 /// `try { [string]$style.NameLocal } catch { try { [string]$style.Name } catch { [string]$style } }`.
@@ -366,8 +374,6 @@ struct CellRecord {
     bold: bool,
 }
 
-/// One cell: the accepted view and the struck-through words, as for a paragraph, so a redline in a table reads the same way;
-/// and the cell's type, as the portable reader states it (a stat strip's label set at the figure's size).
 fn read_cell(document: &Obj, table: &Com, row: i32, column: i32, context: &ReadingContext) -> Result<CellRecord> {
     let cell_range = table.call_member("Cell", &[Com::I4(row), Com::I4(column)])?.member("Range")?;
     let accepted = accepted_text(document, &cell_range, context)?;
@@ -415,6 +421,38 @@ fn table_style_name(table: &Com) -> String {
         .unwrap_or_default()
 }
 
+fn cell_value(index: i32, row: i32, column: i32, record: Option<&CellRecord>) -> Value {
+    let mut cell = dictionary();
+    cell.set("path", Value::String(format!("/body/tbl[{index}]/row[{row}]/cell[{column}]")));
+    cell.set("index", Value::Int(column));
+    cell.set("text", record.map_or(Value::Null, |record| Value::String(record.text.clone())));
+    if let Some(record) = record {
+        if record.size > 0.0 || record.bold {
+            cell.set("font", Value::object(ObjectKind::Ordered, vec![("size", Value::Double(record.size)), ("bold", Value::Bool(record.bold))]));
+        }
+        if record.tracked {
+            cell.set("tracked", Value::Bool(true));
+        }
+        if !record.deleted.is_empty() {
+            cell.set("deletedText", Value::String(record.deleted.clone()));
+        }
+    }
+    Value::Object(cell)
+}
+
+fn table_rows_value(index: i32, rows: &[Vec<Option<CellRecord>>]) -> Value {
+    let mut table_rows = Vec::new();
+    for (row_at, cells) in rows.iter().enumerate() {
+        let row = row_at as i32 + 1;
+        let cell_values = cells.iter().enumerate().map(|(column_at, record)| cell_value(index, row, column_at as i32 + 1, record.as_ref())).collect();
+        table_rows.push(Value::object(
+            ObjectKind::Ordered,
+            vec![("path", Value::String(format!("/body/tbl[{index}]/row[{row}]"))), ("index", Value::Int(row)), ("cells", Value::Array(cell_values))],
+        ));
+    }
+    Value::Array(table_rows)
+}
+
 fn read_tables(document: &Obj, context: &ReadingContext) -> Result<(Vec<Object>, i32)> {
     let table_count = super::count(&document.get("Tables")?)?;
     let mut tables = Vec::new();
@@ -431,34 +469,7 @@ fn read_tables(document: &Obj, context: &ReadingContext) -> Result<(Vec<Object>,
             }
             rows.push(cells);
         }
-        let mut table_rows = Vec::new();
-        for (row_at, cells) in rows.iter().enumerate() {
-            let row = row_at as i32 + 1;
-            let mut cell_values = Vec::new();
-            for (column_at, record) in cells.iter().enumerate() {
-                let column = column_at as i32 + 1;
-                let mut cell = dictionary();
-                cell.set("path", Value::String(format!("/body/tbl[{index}]/row[{row}]/cell[{column}]")));
-                cell.set("index", Value::Int(column));
-                cell.set("text", record.as_ref().map_or(Value::Null, |record| Value::String(record.text.clone())));
-                if let Some(record) = record {
-                    if record.size > 0.0 || record.bold {
-                        cell.set("font", Value::object(ObjectKind::Ordered, vec![("size", Value::Double(record.size)), ("bold", Value::Bool(record.bold))]));
-                    }
-                    if record.tracked {
-                        cell.set("tracked", Value::Bool(true));
-                    }
-                    if !record.deleted.is_empty() {
-                        cell.set("deletedText", Value::String(record.deleted.clone()));
-                    }
-                }
-                cell_values.push(Value::Object(cell));
-            }
-            table_rows.push(Value::object(
-                ObjectKind::Ordered,
-                vec![("path", Value::String(format!("/body/tbl[{index}]/row[{row}]"))), ("index", Value::Int(row)), ("cells", Value::Array(cell_values))],
-            ));
-        }
+        let table_rows = table_rows_value(index, &rows);
         let mut widths = Vec::new();
         if column_widths_by_columns(&table, column_count, &mut widths).is_err() {
             let _ = column_widths_by_cells(&table, &mut widths);
@@ -470,7 +481,7 @@ fn read_tables(document: &Obj, context: &ReadingContext) -> Result<(Vec<Object>,
         let alignment = table.member("Rows").and_then(|rows| rows.member("Alignment")).and_then(|alignment| super::int(&alignment)).unwrap_or(0);
         entry.set("alignment", Value::Int(alignment));
         entry.set("columnWidths", Value::Array(widths));
-        entry.set("rows", Value::Array(table_rows));
+        entry.set("rows", table_rows);
         let start = super::int(&table_range.member("Start")?)?;
         let end = super::int(&table_range.member("End")?)?;
         entry.set("start", Value::Int(start));
@@ -738,7 +749,7 @@ fn read_revisions(document: &Obj) -> Result<RevisionReading> {
     const DELETIONS: [i32; 3] = [2, 14, 17];
     const PROPERTIES: [i32; 6] = [3, 8, 10, 11, 12, 13];
     let mut reading = RevisionReading { entries: Vec::new(), authors: Vec::new(), property_changes: 0, by_paragraph: Vec::new() };
-    let mut authors: Vec<(String, i32, i32)> = Vec::new();
+    let mut tally = AuthorTally::default();
     let document_end = super::int(&document.get("Content")?.member("End")?)?;
     let mut revision_index = 1;
     while revision_index <= super::count(&document.get("Revisions")?)? {
@@ -759,29 +770,45 @@ fn read_revisions(document: &Obj) -> Result<RevisionReading> {
             reading.property_changes += 1;
             continue;
         }
-        let at = match authors.iter().position(|(known, _, _)| strings_equal_ignore_case(known, &author)) {
+        tally.count(author, INSERTIONS.contains(&type_code), DELETIONS.contains(&type_code));
+    }
+    reading.authors = tally.into_values();
+    Ok(reading)
+}
+
+/// Each author's insertions and deletions; authors differing only in case are one, named as first seen.
+#[derive(Default)]
+struct AuthorTally {
+    authors: Vec<(String, i32, i32)>,
+}
+
+impl AuthorTally {
+    fn count(&mut self, author: String, insertion: bool, deletion: bool) {
+        let at = match self.authors.iter().position(|(known, _, _)| strings_equal_ignore_case(known, &author)) {
             Some(at) => at,
             None => {
-                authors.push((author, 0, 0));
-                authors.len() - 1
+                self.authors.push((author, 0, 0));
+                self.authors.len() - 1
             }
         };
-        if INSERTIONS.contains(&type_code) {
-            authors[at].1 += 1;
-        } else if DELETIONS.contains(&type_code) {
-            authors[at].2 += 1;
+        if insertion {
+            self.authors[at].1 += 1;
+        } else if deletion {
+            self.authors[at].2 += 1;
         }
     }
-    reading.authors = authors
-        .into_iter()
-        .map(|(author, insertions, deletions)| {
-            Value::object(
-                ObjectKind::Ordered,
-                vec![("author", Value::String(author)), ("insertions", Value::Int(insertions)), ("deletions", Value::Int(deletions))],
-            )
-        })
-        .collect();
-    Ok(reading)
+
+    fn into_values(self) -> Vec<Value> {
+        self.authors
+            .into_iter()
+            .map(|(author, insertions, deletions)| {
+                Value::object(
+                    ObjectKind::Ordered,
+                    vec![("author", Value::String(author)), ("insertions", Value::Int(insertions)), ("deletions", Value::Int(deletions))],
+                )
+            })
+            .collect()
+    }
 }
 
 /// The revisions that start in each paragraph are named beside it, after everything else the paragraph reports.

@@ -98,31 +98,40 @@ pub fn validate_args(args: &Value) -> Result<Validated, String> {
         Some("run") => Action::Run,
         _ => return Err("action must be \"list\", \"read\" or \"run\"".to_owned()),
     };
-    // `args[key] !== undefined`: an explicit null is present (and then invalid).
-    let has = |key: &str| object.contains_key(key);
     let mut out = Validated { action, tab: None, lines: DEFAULT_TERMINAL_LINES, since: None, grep: None, offset_lines: None, command: None };
     if action == Action::List {
-        let extra: Vec<&str> = ["tab", "lines", "since", "grep", "offset_lines", "command"].into_iter().filter(|key| has(key)).collect();
+        let extra = present(object, &["tab", "lines", "since", "grep", "offset_lines", "command"]);
         return if extra.is_empty() { Ok(out) } else { Err(format!("list does not accept {}", extra.join(", "))) };
     }
-    if has("tab") {
+    if object.contains_key("tab") {
         out.tab = Some(integer_field(&object["tab"], "tab", 1.0, f64::from(MAX_TAB), false)? as u32);
     }
-    if action == Action::Run {
-        let extra: Vec<&str> = ["lines", "since", "grep", "offset_lines"].into_iter().filter(|key| has(key)).collect();
-        if !extra.is_empty() {
-            return Err(format!("run does not accept {}", extra.join(", ")));
-        }
-        let command = match object.get("command") {
-            Some(Value::String(s)) if !mixdog_js::js_trim(s).is_empty() => s,
-            _ => return Err("run requires a non-empty command string".to_owned()),
-        };
-        if command.encode_utf16().count() > MAX_COMMAND_CHARS {
-            return Err(format!("command must be at most {MAX_COMMAND_CHARS} characters"));
-        }
-        out.command = Some(command.clone());
-        return Ok(out);
+    if action == Action::Run { validate_run(object, out) } else { validate_read(object, out) }
+}
+
+/// `args[key] !== undefined`: an explicit null is present (and then invalid).
+fn present<'a>(object: &serde_json::Map<String, Value>, keys: &[&'a str]) -> Vec<&'a str> {
+    keys.iter().copied().filter(|key| object.contains_key(*key)).collect()
+}
+
+fn validate_run(object: &serde_json::Map<String, Value>, mut out: Validated) -> Result<Validated, String> {
+    let extra = present(object, &["lines", "since", "grep", "offset_lines"]);
+    if !extra.is_empty() {
+        return Err(format!("run does not accept {}", extra.join(", ")));
     }
+    let command = match object.get("command") {
+        Some(Value::String(s)) if !mixdog_js::js_trim(s).is_empty() => s,
+        _ => return Err("run requires a non-empty command string".to_owned()),
+    };
+    if command.encode_utf16().count() > MAX_COMMAND_CHARS {
+        return Err(format!("command must be at most {MAX_COMMAND_CHARS} characters"));
+    }
+    out.command = Some(command.clone());
+    Ok(out)
+}
+
+fn validate_read(object: &serde_json::Map<String, Value>, mut out: Validated) -> Result<Validated, String> {
+    let has = |key: &str| object.contains_key(key);
     if has("command") {
         return Err("read does not accept command".to_owned());
     }
@@ -674,61 +683,60 @@ impl TerminalBridge {
         if !session_id_valid(session_id) {
             return Err("session_id is invalid".to_owned());
         }
-        let backend = &self.backend;
         match validated.action {
-            Action::Run => {
-                let text = validated.command.as_deref().unwrap_or_default();
-                // A caller that cancelled must never see its command entered: checked after
-                // every wait and again right before the write.
-                let not_cancelled = || {
-                    if cancel.is_some_and(CancellationToken::is_cancelled) { Err("terminal run cancelled".to_owned()) } else { Ok(()) }
-                };
-                not_cancelled()?;
-                let mut open = backend.session_tabs(session_id).await;
-                if open.is_empty() {
-                    if let Some(requested) = validated.tab {
-                        return Err(format!("no terminal tab {requested}; no terminal tabs are open"));
-                    }
-                    // The process starts here, whatever the screen shows: the pane that appears
-                    // later attaches to it.
-                    open = vec![backend.start_terminal(session_id).await?];
-                }
-                not_cancelled()?;
-                let target = find_target(&open, validated.tab)?.clone();
-                let Some(before) = backend.snapshot(&target.id, None).await else {
-                    return Err(format!("terminal tab {} is no longer available", target.tab));
-                };
-                not_cancelled()?;
-                backend.write(&target.id, &terminal_command_input(text)).await;
-                // Only a command that was entered is revealed, so the dock never opens on a run
-                // that failed.
-                let shown = backend.reveal_terminal(session_id, &target, &open).await;
-                Ok(json!({
-                    "id": target.id, "tab": target.tab, "shell": target.shell,
-                    "running": target.running, "cwd": target.cwd,
-                    "cursor": before.cursor, "shown": shown,
-                }))
-            }
+            Action::Run => self.run_command(validated, session_id, cancel).await,
             Action::List => {
-                let tabs = backend.session_tabs(session_id).await;
+                let tabs = self.backend.session_tabs(session_id).await;
                 Ok(json!({ "tabs": tabs.iter().map(tab_json).collect::<Vec<_>>() }))
             }
-            Action::Read => {
-                let tabs = backend.session_tabs(session_id).await;
-                if tabs.is_empty() {
-                    return Err("no terminal tabs are open for this session".to_owned());
-                }
-                let target = find_target(&tabs, validated.tab)?;
-                let Some(snapshot) = backend.snapshot(&target.id, validated.since).await else {
-                    return Err(format!("terminal tab {} is no longer available", target.tab));
-                };
-                Ok(json!({
-                    "id": target.id, "tab": target.tab, "shell": target.shell,
-                    "running": target.running, "cwd": target.cwd,
-                    "raw": snapshot.text, "cursor": snapshot.cursor, "reset": snapshot.reset,
-                }))
-            }
+            Action::Read => self.read_tab(validated, session_id).await,
         }
+    }
+
+    async fn run_command(&self, validated: &Validated, session_id: &str, cancel: Option<&CancellationToken>) -> Result<Value, String> {
+        let backend = &self.backend;
+        let text = validated.command.as_deref().unwrap_or_default();
+        let not_cancelled = || {
+            if cancel.is_some_and(CancellationToken::is_cancelled) { Err("terminal run cancelled".to_owned()) } else { Ok(()) }
+        };
+        not_cancelled()?;
+        let mut open = backend.session_tabs(session_id).await;
+        if open.is_empty() {
+            if let Some(requested) = validated.tab {
+                return Err(format!("no terminal tab {requested}; no terminal tabs are open"));
+            }
+            open = vec![backend.start_terminal(session_id).await?];
+        }
+        not_cancelled()?;
+        let target = find_target(&open, validated.tab)?.clone();
+        let Some(before) = backend.snapshot(&target.id, None).await else {
+            return Err(format!("terminal tab {} is no longer available", target.tab));
+        };
+        not_cancelled()?;
+        backend.write(&target.id, &terminal_command_input(text)).await;
+        let shown = backend.reveal_terminal(session_id, &target, &open).await;
+        Ok(json!({
+            "id": target.id, "tab": target.tab, "shell": target.shell,
+            "running": target.running, "cwd": target.cwd,
+            "cursor": before.cursor, "shown": shown,
+        }))
+    }
+
+    async fn read_tab(&self, validated: &Validated, session_id: &str) -> Result<Value, String> {
+        let backend = &self.backend;
+        let tabs = backend.session_tabs(session_id).await;
+        if tabs.is_empty() {
+            return Err("no terminal tabs are open for this session".to_owned());
+        }
+        let target = find_target(&tabs, validated.tab)?;
+        let Some(snapshot) = backend.snapshot(&target.id, validated.since).await else {
+            return Err(format!("terminal tab {} is no longer available", target.tab));
+        };
+        Ok(json!({
+            "id": target.id, "tab": target.tab, "shell": target.shell,
+            "running": target.running, "cwd": target.cwd,
+            "raw": snapshot.text, "cursor": snapshot.cursor, "reset": snapshot.reset,
+        }))
     }
 
     /// One `terminal` tool call.

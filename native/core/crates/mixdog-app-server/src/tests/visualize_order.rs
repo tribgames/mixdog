@@ -1,8 +1,3 @@
-//! A connection's visualize publications through the server: they are applied in the order they arrived on that connection
-//! (the place is taken before the lanes and kept while blobs are expanded), and only while the connection is the visualize
-//! claimant at the moment they are applied. The blob expander is injected, so each publication's preparation is a barrier the
-//! test opens.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

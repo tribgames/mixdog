@@ -1,20 +1,3 @@
-//! The consumers of the shell runtime's events (`exec::ExecEvents`), started by `compose()`.
-//!
-//! Node learns of a detached job's end and of every strip change by polling: the session host's
-//! `shellJobsPoller` (`apps/desktop/src/main/shell-jobs-poller.ts`, adaptive delay, `onChange`)
-//! republishes `shellJobs` per session and `hostShellJobs` when the status moved, and a finished
-//! job reaches its owner through `notifySessionCompletion`. The registry pushes both
-//! (DS §6.2, DS-PROC-5: no `listShellJobs` request), so each channel has one consumer:
-//!
-//! - a completion goes to the session directory (`TaskNotifier::finished`: the live session shows
-//!   its card, then it is queued for the model);
-//! - a thread's strip is published as its `shellJobs` section, once per change of that thread
-//!   (`movedSessionIds`);
-//! - the host's strip is published as the `hostShellJobs` section on every change, and its running background shells are running
-//!   work of the core's lifecycle until their completion has reached the owner (`background_work`).
-//!
-//! The tasks end with the run token or when the runtime drops the sending end.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -183,11 +166,6 @@ pub fn consume(events: ExecEvents, targets: Targets, stop: CancellationToken) {
     mixdog_rt::spawn("exec.background-work", TaskClass::Work, background_work(host_strip.clone(), delivered, targets.lifecycle, targets.shells, stop.clone()));
     mixdog_rt::spawn("exec.host-strip", TaskClass::Work, host_section(host_strip, targets.publisher, stop));
 }
-/// Node's `busySessions` counts a session whose background task still runs (`busy.mjs` `liveBusyCount`, `hasActiveBackgroundTasks`;
-/// "Keep the owner runtime (and daemon self-shutdown guard) live until the task reaches a terminal state and its completion can be
-/// delivered back into this session"): each running background shell of the host's strip is a `BackgroundShell` of the lifecycle
-/// until it leaves the strip and its completion has made the owner busy ([`Counted`]), and a confirmed stop's abort stops it as
-/// `stopBackgroundShellJob` does. `delivered` names each shell whose completion [`completions`] handed to its owner.
 async fn background_work(
     mut strip: watch::Receiver<HostShellJobs>,
     mut delivered: mpsc::UnboundedReceiver<String>,

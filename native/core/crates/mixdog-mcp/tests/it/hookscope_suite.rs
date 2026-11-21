@@ -25,7 +25,9 @@ use mixdog_mcp::result::OutputPolicy;
 use mixdog_protocol::ProcessHandle;
 use serde_json::json;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 /// The handlers here are `mcp_tool`s: no process is ever started.
 struct NoProcesses;
 
@@ -33,6 +35,9 @@ struct NoProcesses;
 impl ProcessManager for NoProcesses {
     async fn spawn(&self, _: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         Err(ProcessError::UnknownHandle)
+    }
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
     }
     fn subscribe(&self, _: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         Err(ProcessError::UnknownHandle)
@@ -80,7 +85,7 @@ async fn a_hook_runs_in_its_runtimes_scope_and_a_gone_runtime_has_none() {
     for scope in [runtime.as_str(), "s1"] {
         // A configuration of its own in each scope, so each runs its own process and counts its own runs: scopes that
         // connect the same configuration share one process (`_sharedStdio`).
-        let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string(), "MOCK_SCOPE": scope}});
+        let entry = json!({"command": mock_bin(), "env": {"MOCK_FIXTURES": json!([""]).to_string(), "MOCK_SCOPE": scope}});
         let config = McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap();
         hub.apply_in(scope, vec![config]);
         hub.server_in(scope, "mock").unwrap().connect().await.unwrap();
@@ -113,7 +118,7 @@ async fn compact_bus(dir: &Path, matcher: Option<&str>, event: &str) -> (Arc<Mcp
     };
     std::fs::write(dir.join("hooks.json"), json!({"hooks": {event: [rule]}}).to_string()).unwrap();
     let hub = McpHub::new(io, dir.join("artifacts"), OutputPolicy::default());
-    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
+    let entry = json!({"command": mock_bin(), "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
     // A hook that names no session runs in the daemon's runtime scope, and a session's in the scope it holds: the server
     // lives in the runtime scope and every session here holds it.
     let runtime = hub.runtime_scope().to_owned();

@@ -383,20 +383,59 @@ pub struct PivotWritten {
     pub columns: usize,
 }
 
+fn first_free_ordinal(zip: &Package, part_prefix: &str) -> usize {
+    (1..).find(|ordinal| zip.file(&format!("{part_prefix}{ordinal}.xml")).is_none()).unwrap_or(1)
+}
+
+/// Relates the cache definition to the workbook and lists it in `<pivotCaches>`; answers the id the workbook gave it.
+fn register_workbook_pivot_cache(zip: &mut Package, definition_part: &str) -> usize {
+    let relationship_id = add_package_relationship(
+        zip,
+        "xl/_rels/workbook.xml.rels",
+        &format!("{RELATIONSHIP_BASE}/pivotCacheDefinition"),
+        &posix::relative("xl", definition_part),
+        "",
+    );
+    let mut workbook = zip.text("xl/workbook.xml");
+    let cache_id = PIVOT_CACHE_OPEN.find_iter(&workbook).count() + 1;
+    let entry = format!("<pivotCache cacheId=\"{cache_id}\" r:id=\"{relationship_id}\"/>");
+    if PIVOT_CACHES_OPEN.is_match(&workbook) {
+        workbook = workbook.replacen("</pivotCaches>", &format!("{entry}</pivotCaches>"), 1);
+    } else {
+        let block = format!("<pivotCaches>{entry}</pivotCaches>");
+        workbook = match CALC_PR.find(&workbook) {
+            Some(range) => format!("{}{block}{}", &workbook[..range.end], &workbook[range.end..]),
+            None => workbook.replacen("</sheets>", &format!("</sheets>{block}"), 1),
+        };
+    }
+    zip.set("xl/workbook.xml", workbook);
+    cache_id
+}
+
+fn write_pivot_grid(zip: &mut Package, sheet_path: &str, destination: &str, grid: &[Vec<Value>]) -> Result<(), String> {
+    let anchor = parse_cell_ref(destination)?;
+    let anchor_column = column_number(&anchor.col);
+    let mut sheet_xml = zip.text(sheet_path);
+    for (row_offset, row) in grid.iter().enumerate() {
+        for (column_offset, value) in row.iter().enumerate() {
+            if value.is_null() || value.as_str() == Some("") {
+                continue;
+            }
+            let reference = format!("{}{}", column_label(anchor_column + column_offset as f64), anchor.row + row_offset as u64);
+            sheet_xml = set_cell_in_sheet(&sheet_xml, &reference, value, "")?;
+        }
+    }
+    zip.set(sheet_path, sheet_xml);
+    Ok(())
+}
+
 /// `writePivotTable(zip, request)`.
 pub fn write_pivot_table(zip: &mut Package, request: &PivotRequest<'_>) -> Result<PivotWritten, String> {
     let PivotRequest { layout, records, source_sheet, source_ref, destination_sheet_path, destination, name } = *request;
-    let mut ordinal = 1;
-    while zip.file(&format!("xl/pivotCache/pivotCacheDefinition{ordinal}.xml")).is_some() {
-        ordinal += 1;
-    }
+    let ordinal = first_free_ordinal(zip, "xl/pivotCache/pivotCacheDefinition");
     let definition_part = format!("xl/pivotCache/pivotCacheDefinition{ordinal}.xml");
     let records_part = format!("xl/pivotCache/pivotCacheRecords{ordinal}.xml");
-    let mut table_ordinal = 1;
-    while zip.file(&format!("xl/pivotTables/pivotTable{table_ordinal}.xml")).is_some() {
-        table_ordinal += 1;
-    }
-    let table_part = format!("xl/pivotTables/pivotTable{table_ordinal}.xml");
+    let table_part = format!("xl/pivotTables/pivotTable{}.xml", first_free_ordinal(zip, "xl/pivotTables/pivotTable"));
 
     let records_relationship_id = add_package_relationship(
         zip,
@@ -410,27 +449,7 @@ pub fn write_pivot_table(zip: &mut Package, request: &PivotRequest<'_>) -> Resul
     ensure_content_type_override(zip, &format!("/{definition_part}"), CACHE_DEFINITION_CONTENT_TYPE);
     ensure_content_type_override(zip, &format!("/{records_part}"), CACHE_RECORDS_CONTENT_TYPE);
 
-    let workbook_relationship_id = add_package_relationship(
-        zip,
-        "xl/_rels/workbook.xml.rels",
-        &format!("{RELATIONSHIP_BASE}/pivotCacheDefinition"),
-        &posix::relative("xl", &definition_part),
-        "",
-    );
-
-    let mut workbook = zip.text("xl/workbook.xml");
-    let cache_id = PIVOT_CACHE_OPEN.find_iter(&workbook).count() + 1;
-    let entry = format!("<pivotCache cacheId=\"{cache_id}\" r:id=\"{workbook_relationship_id}\"/>");
-    if PIVOT_CACHES_OPEN.is_match(&workbook) {
-        workbook = workbook.replacen("</pivotCaches>", &format!("{entry}</pivotCaches>"), 1);
-    } else {
-        let block = format!("<pivotCaches>{entry}</pivotCaches>");
-        workbook = match CALC_PR.find(&workbook) {
-            Some(range) => format!("{}{block}{}", &workbook[..range.end], &workbook[range.end..]),
-            None => workbook.replacen("</sheets>", &format!("</sheets>{block}"), 1),
-        };
-    }
-    zip.set("xl/workbook.xml", workbook);
+    let cache_id = register_workbook_pivot_cache(zip, &definition_part);
 
     zip.set(&table_part, pivot_table_xml(name, cache_id, &layout, destination)?);
     ensure_content_type_override(zip, &format!("/{table_part}"), PIVOT_TABLE_CONTENT_TYPE);
@@ -449,20 +468,8 @@ pub fn write_pivot_table(zip: &mut Package, request: &PivotRequest<'_>) -> Resul
         "",
     );
 
-    let anchor = parse_cell_ref(destination)?;
-    let anchor_column = column_number(&anchor.col);
     let grid = pivot_grid(&layout, records);
-    let mut sheet_xml = zip.text(destination_sheet_path);
-    for (row_offset, row) in grid.iter().enumerate() {
-        for (column_offset, value) in row.iter().enumerate() {
-            if value.is_null() || value.as_str() == Some("") {
-                continue;
-            }
-            let reference = format!("{}{}", column_label(anchor_column + column_offset as f64), anchor.row + row_offset as u64);
-            sheet_xml = set_cell_in_sheet(&sheet_xml, &reference, value, "")?;
-        }
-    }
-    zip.set(destination_sheet_path, sheet_xml);
+    write_pivot_grid(zip, destination_sheet_path, destination, &grid)?;
 
     Ok(PivotWritten { definition_part, records_part, table_part, cache_id, rows: grid.len(), columns: grid.iter().map(Vec::len).max().unwrap_or(0) })
 }

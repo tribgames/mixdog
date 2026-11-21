@@ -57,6 +57,26 @@ fn comparisons_in_text_ignore_case_unless_the_case_sensitive_form_is_used() {
 }
 
 #[test]
+fn a_replacement_reads_groups_names_and_the_dollar_symbols_and_keeps_an_unknown_dollar_literal() {
+    assert_eq!(text::replace("John Smith", "(\\w+) (\\w+)", "$2, $1", false).as_deref(), Ok("Smith, John"));
+    assert_eq!(text::replace("John Smith", "(?<first>\\w+) (\\w+)", "${first}-${2}", false).as_deref(), Ok("John-Smith"));
+    assert_eq!(text::replace("a", "a", "$$", false).as_deref(), Ok("$"));
+    assert_eq!(text::replace("xay", "a", "<$&|$`|$'>", false).as_deref(), Ok("x<a|x|y>y"));
+    assert_eq!(text::replace("ab", "(a)(b)", "$+", false).as_deref(), Ok("b"));
+    assert_eq!(text::replace("ab", "b", "$_", false).as_deref(), Ok("aab"));
+    assert_eq!(text::replace("a", "a", "$z ${nope} $9", false).as_deref(), Ok("$z ${nope} $9"));
+}
+
+#[test]
+fn a_like_pattern_reads_character_classes_and_the_backtick_escape() {
+    assert!(text::like("b", "[a-c]"));
+    assert!(!text::like("d", "[a-c]"));
+    assert!(text::like("a*", "a`*"));
+    assert!(!text::like("ab", "a`*"));
+    assert!(text::like("a[b", "a[b"), "an unclosed class is a literal bracket");
+}
+
+#[test]
 fn sorting_orders_numbers_by_value_and_text_without_regard_to_case_and_can_keep_one_of_each() {
     let numbers = [Value::Int(10), Value::Int(9), Value::Int(100)];
     let ascending = collate::sort_values(&numbers, SortOptions::default());

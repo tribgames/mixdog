@@ -1,7 +1,5 @@
-//! A text read answered a window at a time. A connection carries at most 512 KiB per answer, a file up to 10 MiB, so the reader asks for
-//! the text in windows (`projectFs/readText` with `maxChars`) and joins them. Node answered a read from one authorized handle, in one
-//! piece: every window of one read therefore comes from the one read of the file made when the first window was asked, with the
-//! metadata (`mtimeMs`, `encoding`, ...) of that read; a file replaced between two windows changes nothing the reader sees.
+//! A text read answered a window at a time (`projectFs/readText` with `maxChars`): a connection carries at most 512 KiB per
+//! answer, a file up to 10 MiB. Every window of one read comes from the read made when the first window was asked.
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Mutex;

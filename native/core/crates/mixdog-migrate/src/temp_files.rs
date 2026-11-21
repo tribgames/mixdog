@@ -12,8 +12,7 @@
 //! | `daemon-owner.json.<pid>.<ms>.tmp`, `memory-runtime-owner.json.<pid>.<ms>.tmp` | `refreshSingletonOwnerAsync`, `src/runtime/shared/singleton-owner.mjs:182`, over the two owner files |
 //! | `state-<uuid>.tmp` | `writeRecoveryState`, `apps/desktop/src/main/project-recovery-store.ts:338` |
 //!
-//! Where each applies is decided by the caller from the store the 1.4.5 writer writes to; the writers outside the migrated
-//! locations (downloads, installers, project files, the desktop's scratch state) are listed in the request notes.
+//! Where each applies is decided by the caller from the store the 1.4.5 writer writes to.
 
 /// `.mixdog-tmp-` joins a file name and its random suffix.
 const MARKER: &str = ".mixdog-tmp-";

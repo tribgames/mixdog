@@ -1,10 +1,3 @@
-//! The row index of the transcript (`buildTranscriptRowIndex`, `buildTranscriptRowIndexIncremental`,
-//! `transcriptItemsWithStableTail` of `transcript-window.mjs`): the rows of every item and their running sum.
-//!
-//! While the tail streams only its row changes between flushes, so the settled prefix is built once per structure revision
-//! and a flush replaces the last row in place ([`IncrementalRowIndex`]); Node appended an immutable view to a cached prefix,
-//! here the one index is truncated to the prefix and the new tail row pushed.
-
 use serde_json::Value;
 
 use super::heights::{HeightParams, ItemHeights, is_streaming_tail, item_id, item_kind};

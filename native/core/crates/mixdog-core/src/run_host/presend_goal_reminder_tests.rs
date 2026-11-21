@@ -1,8 +1,3 @@
-//! The Goal and todo reminder of a pre-send compaction: the kept latest request carries the session's open todo list, the
-//! savings preview prices it without touching the session, and the session's pending reminder is cleared once the pass
-//! was adopted, failed or cancelled and kept when the pass was skipped or changed nothing. A real session thread runs the
-//! turn; the compactor under the wrapper is scripted.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 

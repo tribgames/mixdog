@@ -1,8 +1,4 @@
-//! A Stop racing the turn's first output, through the actor: Node decides, hydrates, cancels and reclaims with no await between
-//! (`abort.mjs:131-205`), so an output that commits while the Stop is still reading lands before its decision (nothing is handed
-//! back) and one that commits after it does not take the hand-back away. Node's own runs of both orders are the oracle
-//! (`fixtures/phone-chat-core/phone-chat-core.json`: "output already produced: nothing to hand back" and "own device named, prompt handed
-//! back").
+//! Oracle: Node's runs of both orders in `fixtures/phone-chat-core/phone-chat-core.json` ("output already produced: nothing to hand back", "own device named, prompt handed back").
 
 use std::sync::Arc;
 
@@ -70,10 +66,6 @@ fn stop_answered(reply: &Value, restore_text: &str, restored: &[&str]) {
     assert_eq!(reply["restoredSubmissionIds"], serde_json::json!(restored));
 }
 
-/// The kickoff chain under the user's Stop: a runtime's own prompt (a kickoff) a Stop finds uncommitted is cancelled and consumed, not
-/// put back (Node 1.4.5 requeued it, `abort.mjs:160-199`; the user asked for the departure). The stopped turn shows its cancelled
-/// end (nothing was handed to a composer, so nothing suppresses it), its hidden provisional row is rewound, and the next drain finds
-/// nothing: no replacement run, however long it waits, and a repeated Stop before settlement changes nothing.
 #[tokio::test]
 async fn a_user_stopped_runtime_prompt_is_cancelled_and_never_runs_again() {
     let rig = Rig::new();
@@ -360,11 +352,6 @@ async fn a_member_stop_that_cannot_be_saved_answers_the_storage_failure() {
     assert!(format!("{error:?}").contains(super::actor::STOP_NOT_SAVED), "{error:?}");
 }
 
-/// A Stop while the person is asked (ask_user's question pending): the question's wait ends with the abort, so the call's card
-/// reads the abort's `Error: <reason>` with the Stop's reason `user-cancel` (Node: `runAbortable` rejects with the signal's
-/// `SessionClosedError`, ask-user-tool.mjs:249; the eager entry notices `Error: <message>` to the card, eager-dispatch/entry.mjs:39-44;
-/// `abortRuntime(reason)`, session-close.mjs:98-102, with `user-cancel` from abort.mjs:118), while the stored result is the
-/// interruption's `Cancelled`. Recorded from Node: remote-protocol-chat-abort.recorded.json `running-approval-pending`.
 #[tokio::test]
 async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
     use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalGate as _, ApprovalKind};
@@ -480,10 +467,6 @@ async fn reopened(prefix: Vec<Record>, id: &ThreadId, seen: &Arc<Mutex<Vec<Strin
     (replay, restarted, handle)
 }
 
-/// P1 of the session-wide wake prohibition: a Stop during a turn's settlement freezes exactly the completions queued then for the
-/// wake that would follow (A), never a prohibition without identity. A completion that arrives after the Stop (B) is unrelated work:
-/// its own drain returns while the settlement is busy, and once the settlement finishes B enters the provider with no other input.
-/// A never runs, its queue copy is gone and its terminal receipt is on disk.
 #[tokio::test(start_paused = true)]
 async fn a_stop_during_the_settlement_freezes_the_queued_completion_and_a_later_one_still_runs() {
     let rig = Rig::new();
@@ -690,12 +673,6 @@ async fn the_stop_answers_once_its_record_is_durable_while_the_input_read_is_sti
     assert!(handle.cell.queued.load().is_empty());
 }
 
-/// The rule's one stated exception, a Stop whose record could not be written (`StopWait`, `stop.rs`): the dequeue and the Stop
-/// cannot be saved (the store fails every write). The Stop answers `ESTOPNOTSAVED`, never success and never the restored text; the
-/// cancellation stands in this process (the late read never runs the model). A fresh process over what the store holds finds the
-/// durable enqueue and no Stop, so the work runs there: a disposition that was never written cannot survive a crash, and the
-/// caller was told so. This is the exception, not the rule: every Stop that answered success keeps its work from running
-/// (`every_crash_prefix_of_a_saved_stop_keeps_its_work_from_running`).
 #[tokio::test(start_paused = true)]
 async fn exception_an_unsaved_stop_answers_the_storage_error_and_its_work_runs_after_a_restart() {
     let rig = Rig::new();
@@ -737,10 +714,6 @@ async fn exception_an_unsaved_stop_answers_the_storage_error_and_its_work_runs_a
     eventually_on!(&[&_reopened.cell.stepped], || (replayed.lock().unwrap().iter().any(|text| text == "second")).then_some(())).await;
 }
 
-/// A successful Stop of a start that never ran, then a crash before its outcome was finished: a fresh process recovers the
-/// hand-back (the same one, by the Stop's id), settles it, and its resume's drain decides with zero provider admissions of the
-/// stopped identity. Every crash prefix: success never precedes the complete disposition, and a prefix holding the Stop's record
-/// never runs the work, whether or not its reply was lost.
 #[tokio::test(start_paused = true)]
 async fn every_crash_prefix_of_a_saved_stop_keeps_its_work_from_running() {
     let rig = Rig::new();
@@ -795,10 +768,6 @@ async fn without_a_stop_a_saved_queued_prompt_runs_after_a_restart() {
     gate.notify_one();
 }
 
-/// Another device stops the prompt `desktop-1` submitted, so it goes back to `desktop-1` through the session state, under the id
-/// its Stop's record derives (Node's format). Live: published once and settled with the stopped turn's close, nothing awaited.
-/// A crash after the record and before that settlement (the log cut there): the fresh process offers it once more under the
-/// same id (a composer that saw both applies it once), and settles it.
 #[tokio::test(start_paused = true)]
 async fn a_hand_back_through_the_state_is_offered_once_more_under_the_same_id_after_a_restart_and_settled() {
     let rig = Rig::new();
@@ -834,10 +803,6 @@ async fn a_hand_back_through_the_state_is_offered_once_more_under_the_same_id_af
     assert!(restore_ids(&after, &settled).is_empty(), "a settled hand-back is not offered again");
 }
 
-/// P2 of a recovery that skipped the rewind: the Stop's record is saved and the process dies before the stopped run's close (no
-/// rewind, no turn end). The fresh process finalizes the crashed run and finishes the disposition the live path would have: the
-/// handed-back prompt leaves the transcript and the model context, and the hand-back is offered under the id the Stop's reply
-/// already carried (reply and notification are one insertion), then settled.
 #[tokio::test(start_paused = true)]
 async fn a_crash_between_the_stops_save_and_its_cleanup_still_rewinds_the_prompt() {
     let rig = Rig::new();
@@ -963,10 +928,6 @@ async fn a_latched_room_submission_does_not_start_while_its_stop_is_not_saved_ye
     assert_eq!(*seen.lock().unwrap(), ["first"]);
 }
 
-/// A room prompt injected at a boundary into the member's running turn belongs to that run. A targeted Stop of it aborts the run
-/// (the prompt is in its model context: the run not continuing is the only way the prompt does not), and answers only once
-/// its record is durable, by which point the run's token is aborted. Only the targeted identity is frozen: the run's own
-/// submission stays non-terminal.
 #[tokio::test(start_paused = true)]
 async fn a_room_prompt_taken_at_a_boundary_is_stopped_with_the_run_that_took_it() {
     use super::run::DrainRequest;
@@ -1039,10 +1000,6 @@ fn noting_provider(seen: Arc<Mutex<Vec<(String, bool)>>>, gate: Arc<Notify>) -> 
     })
 }
 
-/// The seal lands while the member's start of Q is between its final Stop check and its spawn, at either side of the start
-/// gate: `check` (before the gate registered it) and `gate` (registered, not yet spawned). Before the gate: the start is
-/// refused and Q never reaches the provider. After it: the latch saw the registered run and aborted it, so Q reaches the
-/// provider only already aborted. Never started-and-running.
 #[tokio::test(start_paused = true)]
 async fn a_seal_between_the_final_check_and_the_spawn_never_leaves_the_work_running() {
     for at in ["check", "gate"] {

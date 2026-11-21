@@ -1,8 +1,3 @@
-//! The single llama-server child. One process owner for all sessions: starts and stops are
-//! serialized so model switches never overlap, and a cancelled queued caller never starts a
-//! child. Spawning, readiness probing and the loopback port sit behind small traits so the
-//! lifecycle is testable without a GPU.
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -87,6 +82,25 @@ pub trait Launcher: Send + Sync {
 pub trait Health: Send + Sync {
     async fn check(&self, port: u16, api_key: &str) -> bool;
     async fn free_port(&self) -> Result<u16, String>;
+}
+
+fn bounded_log() -> (Arc<Mutex<String>>, LogSink) {
+    let sink: Arc<Mutex<String>> = Arc::default();
+    let callback: LogSink = {
+        let sink = sink.clone();
+        Arc::new(move |text| {
+            let mut s = sink.lock().unwrap();
+            s.push_str(text);
+            if s.len() > LOG_LIMIT {
+                let mut cut = s.len() - LOG_LIMIT;
+                while !s.is_char_boundary(cut) {
+                    cut += 1;
+                }
+                s.drain(..cut);
+            }
+        })
+    };
+    (sink, callback)
 }
 
 struct ChildState {
@@ -215,6 +229,38 @@ impl ServerProcess {
         state.has_exited()
     }
 
+    fn watch_exit(&self, state: &Arc<ChildState>, process: Arc<dyn RunningProcess>, sink: Arc<Mutex<String>>) {
+        let (state, owner, on_exit, signal) = (state.clone(), self.owner.clone(), self.on_exit.clone(), self.signal.clone());
+        tokio::spawn(async move {
+            let exit = process.wait().await;
+            let mut inner = state.inner.lock().unwrap();
+            inner.log = sink.lock().unwrap().clone();
+            inner.exited = true;
+            inner.ready = false;
+            let expected = inner.expected_exit;
+            let log = inner.log.replace(&state.api_key, "[redacted]");
+            drop(inner);
+            let info = json!({"at": now_iso(), "modelId": state.model_id, "exitCode": exit.exit_code, "signal": exit.signal, "expected": expected, "log": log});
+            {
+                let mut o = owner.lock().unwrap();
+                if !expected {
+                    o.last_error = Some(format!(
+                        "[local-provider] llama-server exited ({}): {}",
+                        exit.exit_code.map_or_else(|| exit.signal.clone().unwrap_or_else(|| "spawn error".into()), |c| c.to_string()),
+                        mixdog_js::js_trim(&log)
+                    ));
+                }
+                if o.current.as_ref().is_some_and(|c| Arc::ptr_eq(c, &state)) {
+                    o.current = None;
+                }
+                o.last_exit = Some(info.clone());
+            }
+            state.exited.notify_waiters();
+            signal.notify();
+            on_exit(&info);
+        });
+    }
+
     async fn start(&self, spec: StartSpec, cancel: CancellationToken) -> Result<Value, String> {
         if cancel.is_cancelled() {
             return Err("aborted".into());
@@ -248,23 +294,8 @@ impl ServerProcess {
         }
         let api_key: String = (0..2).map(|_| uuid::Uuid::new_v4().simple().to_string()).collect();
         let args = (spec.args)(port, &api_key);
-        let log_sink: Arc<Mutex<String>> = Arc::default();
-        let log_cb: LogSink = {
-            let sink = log_sink.clone();
-            Arc::new(move |text| {
-                let mut s = sink.lock().unwrap();
-                s.push_str(text);
-                if s.len() > LOG_LIMIT {
-                    let mut cut = s.len() - LOG_LIMIT;
-                    while !s.is_char_boundary(cut) {
-                        cut += 1;
-                    }
-                    s.drain(..cut);
-                }
-            })
-        };
+        let (log_sink, log_cb) = bounded_log();
         let process = self.launcher.launch(&spec.executable, &args, &spec.cwd, &launch.env, log_cb).await;
-        let state_log = log_sink.clone();
         let (process, spawn_error) = match process {
             Ok(p) => (Some(p), None),
             Err(e) => (None, Some(e)),
@@ -289,39 +320,7 @@ impl ServerProcess {
         });
         self.owner.lock().unwrap().current = Some(state.clone());
         self.signal.notify();
-        // Watch the child: its exit is recorded by the owner whatever the cause.
-        {
-            let (state, owner, on_exit, sink, signal) = (state.clone(), self.owner.clone(), self.on_exit.clone(), state_log, self.signal.clone());
-            tokio::spawn(async move {
-                let exit = process.wait().await;
-                let mut inner = state.inner.lock().unwrap();
-                inner.log = sink.lock().unwrap().clone();
-                inner.exited = true;
-                inner.ready = false;
-                let expected = inner.expected_exit;
-                let log = inner.log.replace(&state.api_key, "[redacted]");
-                drop(inner);
-                let info =
-                    json!({"at": now_iso(), "modelId": state.model_id, "exitCode": exit.exit_code, "signal": exit.signal, "expected": expected, "log": log});
-                {
-                    let mut o = owner.lock().unwrap();
-                    if !expected {
-                        o.last_error = Some(format!(
-                            "[local-provider] llama-server exited ({}): {}",
-                            exit.exit_code.map_or_else(|| exit.signal.clone().unwrap_or_else(|| "spawn error".into()), |c| c.to_string()),
-                            mixdog_js::js_trim(&log)
-                        ));
-                    }
-                    if o.current.as_ref().is_some_and(|c| Arc::ptr_eq(c, &state)) {
-                        o.current = None;
-                    }
-                    o.last_exit = Some(info.clone());
-                }
-                state.exited.notify_waiters();
-                signal.notify();
-                on_exit(&info);
-            });
-        }
+        self.watch_exit(&state, process, log_sink.clone());
         let startup = cancel.child_token();
         let timer = {
             let startup = startup.clone();

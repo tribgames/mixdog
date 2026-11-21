@@ -23,7 +23,7 @@ use serde_json::json;
 use mixdog_core::run_host::fixture_fs;
 use mixdog_core::run_host::local_models::ManagedLocalModels;
 use mixdog_core::run_host::media::{AttachmentFacts, StoredFacts};
-use mixdog_core::run_host::process::{HostInfo, LocalModels};
+use mixdog_core::run_host::process::{HostInfo, LocalModels, ProcessServices};
 use mixdog_core::run_host::vault::KeychainVault;
 
 /// The machine itself: libuv's `os.type()` and `os.release()` and Node's `os.arch()`.
@@ -141,15 +141,14 @@ impl mixdog_core::run_host::process::SessionHeaders for NoHeaders {
 
 /// The constructor builds what the process owns itself — keychain, environment, machine,
 /// installation id, rejections file, local runtime — and passes the root's stores through.
-#[tokio::test]
-async fn the_production_services_are_built_from_the_process_and_the_roots_stores() {
+async fn production_services() -> (tempfile::TempDir, std::path::PathBuf, ProcessServices) {
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
     use mixdog_ai::netproxy::{NetworkProxy, system::SystemProxy};
     use mixdog_ai::oauth::CredentialIo;
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::{Config, ConfigLanes};
 
-    use mixdog_core::run_host::process::{ProcessInputs, ProcessServices};
+    use mixdog_core::run_host::process::ProcessInputs;
 
     let dir = tempfile::tempdir().unwrap();
     let plugin_data = dir.path().join("plugin-data");
@@ -182,26 +181,45 @@ async fn the_production_services_are_built_from_the_process_and_the_roots_stores
     })
     .await
     .unwrap();
+    (dir, plugin_data, services)
+}
 
+#[tokio::test]
+async fn the_production_services_pass_the_roots_version_and_folders_through_and_read_the_host() {
+    let (dir, plugin_data, services) = production_services().await;
     assert_eq!((services.build_version.as_str(), &services.plugin_data, &services.home_dir), ("9.8.7", &plugin_data, &dir.path().to_path_buf()));
     let host = HostInfo::current().unwrap();
     assert_eq!((services.host.os_type, services.host.os_release, services.host.arch), (host.os_type, host.os_release, host.arch));
-    // The id is created in the plugin data directory and the next process reads it back.
-    // The lookup the adapters read is the one the catalog publishes into: what the catalog loaded from disk is there, so a
-    // listing (OpenCode Go's models.dev fallback) is no longer read against an empty table.
+}
+
+#[tokio::test]
+async fn the_adapters_models_dev_lookup_is_the_table_the_catalog_loaded_from_disk() {
+    let (_dir, _plugin_data, services) = production_services().await;
     let rows = services.listing.models_dev_models("opencode-go").expect("the adapters' lookup holds the catalog's models.dev table");
     assert!(rows.contains_key("glm-5"));
+}
+
+#[tokio::test]
+async fn the_installation_id_is_created_in_the_plugin_data_directory() {
+    let (_dir, plugin_data, services) = production_services().await;
     assert_eq!(services.installation_id.len(), 36);
     assert_eq!(fixture_fs::read_to_string(plugin_data.join("installation_id")).unwrap(), services.installation_id);
+}
+
+#[tokio::test]
+async fn the_production_services_read_the_process_environment_and_know_the_managed_local_models() {
+    let (_dir, _plugin_data, services) = production_services().await;
     assert!(services.env.var("PATH").is_some() || services.env.var("Path").is_some());
     assert!(services.local.entry("qwen3.8-27b-q4-k-m").is_some());
-    // The keychain is the plugin data directory's `secrets/` folder, as Node's.
-    #[cfg(windows)]
-    {
-        services.vault.set("agent.sample.apiKey", "sk-DUMMY-sample").await.unwrap();
-        assert!(fixture_fs::exists(plugin_data.join("secrets").join("agent.sample.apiKey.dpapi")).unwrap());
-        assert_eq!(services.vault.get("agent.sample.apiKey").await.unwrap().as_deref(), Some("sk-DUMMY-sample"));
-    }
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn the_keychain_is_the_plugin_data_directorys_secrets_folder() {
+    let (_dir, plugin_data, services) = production_services().await;
+    services.vault.set("agent.sample.apiKey", "sk-DUMMY-sample").await.unwrap();
+    assert!(fixture_fs::exists(plugin_data.join("secrets").join("agent.sample.apiKey.dpapi")).unwrap());
+    assert_eq!(services.vault.get("agent.sample.apiKey").await.unwrap().as_deref(), Some("sk-DUMMY-sample"));
 }
 
 /// A real provider over a data directory that holds the registered-models index Node wrote.

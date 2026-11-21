@@ -372,6 +372,21 @@ impl AnthropicCodec {
         };
         let built = build_body(&cfg, request)?;
         let beta = if self.config.custom_endpoint { super::betas::custom_beta_header(built.betas) } else { beta_header(self.flavor, built.betas) };
+        Ok(Plain {
+            wire: WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: self.config.messages_url(),
+                headers: self.request_headers(beta),
+                body: built.bytes,
+            },
+            prefix: built.prefix,
+            manifest: None,
+            layout: built.layout,
+        })
+    }
+
+    fn request_headers(&self, beta: String) -> Vec<(String, String)> {
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         // The API-key route with beta headers off sends none; the OAuth route
         // always does.
@@ -391,11 +406,6 @@ impl AnthropicCodec {
             headers.push(("accept".to_owned(), "application/json".to_owned()));
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
-        Ok(Plain {
-            wire: WireRequest { transport: TransportKind::Http1, method: "POST".to_owned(), url: self.config.messages_url(), headers, body: built.bytes },
-            prefix: built.prefix,
-            manifest: None,
-            layout: built.layout,
-        })
+        headers
     }
 }

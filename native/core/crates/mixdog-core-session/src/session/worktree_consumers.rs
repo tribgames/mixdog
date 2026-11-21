@@ -1,12 +1,12 @@
-//! Node's `storedWorkspaceConsumers` (`worktrees/maintenance.mjs`): the stored sessions a
-//! destructive folder action must consider, read from the same store the session-search
-//! backfill reads ([`StoredSearchSessions`]: one listing, one header read; no second scan).
+//! The stored sessions a destructive folder action must consider, read from the same store the
+//! session-search backfill reads ([`StoredSearchSessions`]: one listing, one header read; no
+//! second scan).
 //!
 //! Every stored session is read; one whose record cannot be read refuses the whole listing
 //! ("Cannot inspect session <id>; no workspace was removed.") so an unreadable store never reads
 //! as "no consumers". A closed session (`closed === true`) is not a consumer. `active` is
-//! `isSessionActive` of a stored session no live runtime speaks for: its `status` in
-//! `ACTIVE_STAGES` (`activity-guards.mjs`), compared lower-cased.
+//! whether the `status` of a stored session no live runtime speaks for is in `ACTIVE_STAGES`,
+//! compared lower-cased.
 
 use std::sync::Arc;
 

@@ -241,6 +241,25 @@ async fn allowance_for_hook_ask(cx: &GateCx<'_>, action: &GrantKey) -> Result<Op
     Ok(session_allows(cx, action).then_some(SESSION_REMEMBERED_DECISION))
 }
 
+/// A saved allow of this very tool, or this session's own allowance for it (never an
+/// unattended run's, never a payment or permanent delete's), answers the call.
+async fn answered_by_allowance(cx: &GateCx<'_>, audit: &GateAudit, grant: &GrantKey, asked: bool) -> Result<Option<GateVerdict>, StoreError> {
+    let record = |decision: &str| cx.store.record_audit(audit.entry(decision, ""));
+    if asked {
+        let Some(answered) = allowance_for_hook_ask(cx, grant).await? else { return Ok(None) };
+        record(answered).await?;
+        // It answers the hook's ask only: not `remembered`, so a connector's
+        // own approval layer still asks its own question.
+        return Ok(Some(GateVerdict::Run { remembered: false }));
+    }
+    let standing = cx.store.mode_for(&cx.facts.agent_id, grant, false).await? == PermissionMode::Allow;
+    if !standing && !session_allows(cx, grant) {
+        return Ok(None);
+    }
+    record(if standing { "remembered" } else { SESSION_REMEMBERED_DECISION }).await?;
+    Ok(Some(GateVerdict::Run { remembered: true }))
+}
+
 pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict, StoreError> {
     let facts = cx.facts;
     let agent = facts.agent_id.as_str();
@@ -289,24 +308,10 @@ pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict,
         record(DEV_ALLOW_ALL_DECISION).await?;
         return Ok(GateVerdict::Run { remembered: false });
     }
-    // A saved allow of this very tool, or this session's own allowance for it
-    // (never an unattended run's, never a payment or permanent delete's),
-    // answers the call.
-    if let Some(grant) = &grant {
-        if asked {
-            if let Some(answered) = allowance_for_hook_ask(cx, grant).await? {
-                record(answered).await?;
-                // It answers the hook's ask only: not `remembered`, so a connector's
-                // own approval layer still asks its own question.
-                return Ok(GateVerdict::Run { remembered: false });
-            }
-        } else {
-            let standing = cx.store.mode_for(agent, grant, false).await? == PermissionMode::Allow;
-            if standing || session_allows(cx, grant) {
-                record(if standing { "remembered" } else { SESSION_REMEMBERED_DECISION }).await?;
-                return Ok(GateVerdict::Run { remembered: true });
-            }
-        }
+    if let Some(grant) = &grant
+        && let Some(verdict) = answered_by_allowance(cx, &audit, grant, asked).await?
+    {
+        return Ok(verdict);
     }
     if let Some(enricher) = cx.enricher {
         enricher.enrich(cx.mcp_scope, call.name, call.args, &mut card).await;

@@ -1,9 +1,9 @@
 //! The four system blocks of a session, as header fields, and the request's system messages.
 //!
-//! Node keeps them as the leading `system` messages of `session.messages`, told apart by their
-//! `cacheTier` and, for the two untiered ones, by position (`resolveDeferredBp2Index`:
-//! the first is BP1, the second BP2). Here each block is one header field, present exactly when
-//! Node's message exists (a present empty string is an empty message, as in Node).
+//! Each block is one header field, present exactly when its system message exists (a present
+//! empty string is an empty message). In a `messages` array the blocks are the leading `system`
+//! messages, told apart by their `cacheTier` and, for the two untiered ones, by position (the
+//! first is BP1, the second BP2).
 
 use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;

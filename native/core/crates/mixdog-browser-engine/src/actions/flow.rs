@@ -1,13 +1,3 @@
-//! Owner: s4-engine-actions-observe-nav
-//! Condition-based waiting (`actions/flow.ts`). `wait` holds until the page shows some text, no longer shows some text and/or has
-//! a URL containing some text, up to a limit, and then answers with the page as it is. The conditions are the same ones a command's
-//! `expect` is checked against (`settle::postcondition`), read the same way: the page's text is read only when a text condition
-//! needs it, and it counts only if the page did not navigate while it was read. Sequence dispatch lives in `actions::sequence`, so
-//! waiting never needs to know how the next gesture will address the page.
-//!
-//! The old engine woke on a DOM-change latch it held in the page; the host's page is read here every [`POSTCONDITION_POLL`] instead,
-//! the same cadence a command's `expect` is polled at.
-
 use std::time::Duration;
 
 use async_trait::async_trait;

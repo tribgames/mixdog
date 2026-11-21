@@ -1,4 +1,4 @@
-//! Untimestamped-repeat ordinal state, per session (`ingest/ordinal-state.mjs`).
+//! Untimestamped-repeat ordinal state, per session.
 //!
 //! `occ_next[identity]` is the next free occurrence ordinal of a (role,
 //! content) identity. It tells apart textually identical turns that carry no
@@ -7,10 +7,6 @@
 //! state lives in memory, bounded to [`MAX_SESSIONS`] by least-recent use, and
 //! is rebuilt from the previous snapshot or the durable high-water after an
 //! eviction or a restart.
-//!
-//! Node also keeps a per-message-object ordinal in a WeakMap. A transcript
-//! reaches this runtime as freshly parsed JSON on every call, so no object is
-//! ever seen twice and that map never hits; it has no counterpart here.
 
 use std::collections::{HashMap, VecDeque};
 

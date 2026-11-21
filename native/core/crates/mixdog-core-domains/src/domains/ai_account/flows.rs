@@ -124,6 +124,17 @@ impl Registry {
         }
     }
 
+    /// Ends the provider's pending login as superseded and cancels its session, which is returned.
+    fn supersede_active(&mut self, provider: &str) -> Option<Arc<dyn LoginSession>> {
+        let prior = self.active_by_provider.get(provider).cloned()?;
+        if !self.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
+            return None;
+        }
+        let session = self.flows[&prior].session.clone();
+        session.cancel();
+        Some(session)
+    }
+
     /// `finishFlow`: only a pending flow settles.
     fn finish(&mut self, id: &str, state: State, error: Option<String>, ending: Ending) -> bool {
         let Some(flow) = self.flows.get_mut(id) else { return false };
@@ -216,19 +227,10 @@ impl OAuthFlows {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A newer login of `provider` is about to start: the pending one ends as superseded first, so its callback
-    /// server and flow slot are free (Node's registry supersedes it, and never refuses the new login as busy).
-    /// The cancelled session is returned: its `released` resolves when the slot and port are free, which the
-    /// newer login awaits (an event, not a retry count).
+    /// Ends the pending login of `provider` as superseded and returns its cancelled session: its `released` resolves
+    /// when the callback server and flow slot are free, which the newer login awaits.
     pub fn supersede(&self, provider: &str) -> Option<Arc<dyn LoginSession>> {
-        let mut reg = self.lock();
-        let prior = reg.active_by_provider.get(mixdog_js::js_trim(provider)).cloned()?;
-        if !reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
-            return None;
-        }
-        let session = reg.flows[&prior].session.clone();
-        session.cancel();
-        Some(session)
+        self.lock().supersede_active(mixdog_js::js_trim(provider))
     }
 
     /// `register`: keeps the live session and answers its status. A newer login of the same
@@ -239,15 +241,10 @@ impl OAuthFlows {
             return Err(Failure::error("OAuth provider login is missing its provider id."));
         }
         let session: Arc<dyn LoginSession> = Arc::from(session);
-        let provider_id = provider.clone();
         let device = session.device_code();
         let (id, status) = {
             let mut reg = self.lock();
-            if let Some(prior) = reg.active_by_provider.get(&provider).cloned()
-                && reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None)
-            {
-                reg.flows[&prior].session.cancel();
-            }
+            reg.supersede_active(&provider);
             reg.sequence += 1;
             let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
             let id = format!("oauth_{}_{}", base36(now), base36(reg.sequence));
@@ -266,14 +263,22 @@ impl OAuthFlows {
             let status = flow.status();
             reg.feeds.open(&id, status.clone());
             reg.flows.insert(id.clone(), flow);
-            reg.active_by_provider.insert(provider, id.clone());
+            reg.active_by_provider.insert(provider.clone(), id.clone());
             (id, status)
         };
+        self.arm_expiry(&id, &provider, device);
         let this = self.clone();
-        let expiry_id = id.clone();
+        tokio::spawn(async move { this.watch(id, session, settle).await });
+        Ok(status)
+    }
+
+    /// Ends the flow when the provider's own login deadline (`LOGIN_TIMEOUT_MS`) passes, or else when the registry's
+    /// expiry does.
+    fn arm_expiry(&self, id: &str, provider: &str, device: bool) {
+        let this = self.clone();
+        let expiry_id = id.to_owned();
         let ttl = self.ttl;
-        // The provider's own login deadline (`LOGIN_TIMEOUT_MS`) ends the sign-in before the registry's expiry does.
-        let deadline = login_deadline(&provider_id, device).filter(|(after, _)| *after < ttl);
+        let deadline = login_deadline(provider, device).filter(|(after, _)| *after < ttl);
         let timeout = tokio::spawn(async move {
             mixdog_rt::time::sleep(deadline.map_or(ttl, |(after, _)| after)).await;
             let mut reg = this.lock();
@@ -286,12 +291,9 @@ impl OAuthFlows {
                 reg.flows[&expiry_id].session.cancel();
             }
         });
-        if let Some(flow) = self.lock().flows.get_mut(&id) {
+        if let Some(flow) = self.lock().flows.get_mut(id) {
             flow.timeout = Some(timeout);
         }
-        let this = self.clone();
-        tokio::spawn(async move { this.watch(id, session, settle).await });
-        Ok(status)
     }
 
     /// Follows the session to its end: a sign-in settles once, whether the callback or a pasted
@@ -348,28 +350,30 @@ impl OAuthFlows {
         Ok(reg.flows[&key].status())
     }
 
+    /// Marks the flow as taking a pasted code once it is pending, accepts one and holds a valid `raw_code`.
+    fn claim_for_code(&self, id: &str, raw_code: &str) -> Result<(String, Arc<dyn LoginSession>, Arc<Notify>, String), Failure> {
+        let mut reg = self.lock();
+        let key = Self::require(&reg, id)?;
+        let flow = reg.flows.get_mut(&key).expect("required flow exists");
+        if flow.state != State::Pending {
+            return Err(Failure::error("OAuth login flow is no longer pending."));
+        }
+        if !flow.status()["manualCodeSupported"].as_bool().unwrap_or(false) {
+            return Err(Failure::error("This OAuth provider does not accept a manual code."));
+        }
+        let code = mixdog_js::js_trim(raw_code);
+        if code.is_empty() || mixdog_js::utf16_len(code) > 16_384 {
+            return Err(Failure::type_error("OAuth code is invalid."));
+        }
+        if flow.completing {
+            return Err(Failure::error("OAuth login flow is already being completed."));
+        }
+        flow.completing = true;
+        Ok((key, flow.session.clone(), flow.settled.clone(), code.to_owned()))
+    }
+
     pub async fn complete(&self, id: &str, raw_code: &str) -> Result<Value, Failure> {
-        let (key, session, settled) = {
-            let mut reg = self.lock();
-            let key = Self::require(&reg, id)?;
-            let flow = reg.flows.get_mut(&key).expect("required flow exists");
-            if flow.state != State::Pending {
-                return Err(Failure::error("OAuth login flow is no longer pending."));
-            }
-            if !flow.status()["manualCodeSupported"].as_bool().unwrap_or(false) {
-                return Err(Failure::error("This OAuth provider does not accept a manual code."));
-            }
-            let code = mixdog_js::js_trim(raw_code);
-            if code.is_empty() || mixdog_js::utf16_len(code) > 16_384 {
-                return Err(Failure::type_error("OAuth code is invalid."));
-            }
-            if flow.completing {
-                return Err(Failure::error("OAuth login flow is already being completed."));
-            }
-            flow.completing = true;
-            (key, flow.session.clone(), flow.settled.clone())
-        };
-        let code = mixdog_js::js_trim(raw_code).to_owned();
+        let (key, session, settled, code) = self.claim_for_code(id, raw_code)?;
         let notified = settled.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();

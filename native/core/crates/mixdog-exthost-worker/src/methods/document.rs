@@ -1,12 +1,3 @@
-//! The `document.*` methods (`src/ext-host/document.mjs`): previews of Office documents as PDF and as page images, and the
-//! LibreOffice dependency (the latter in [`super::soffice`]).
-//!
-//! This is the handler layer: the project-entry path rules, the checks of a request's pages, width and password, the roots
-//! the core approved for the call, and the pin of a thread that unlocked a document. The conversion of a document to a PDF and
-//! the rasterising of its pages are a [`DocumentEngine`]; the build that links the office PDF backend registers it with
-//! [`register_with`]; the worker registers [`super::document_engine::OfficeEngine`], the office PDF backend. A PDF previews in
-//! place without the engine, and every refusal below is the same with any engine.
-//!
 //! Failures carry a stable `code` (the core maps it to the domain's coded error); the message stays the one Node showed.
 
 use std::collections::HashSet;

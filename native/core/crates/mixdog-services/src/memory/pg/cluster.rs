@@ -6,13 +6,12 @@
 //! only process of its data dir, so there is no secondary-attach protocol.
 //!
 //! Every child but `pg_ctl start` (`initdb`, `pg_ctl status|reload|stop`) runs under the one process
-//! manager through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status`
-//! 3 s, `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
-//! the caller's cancel. `pg_ctl start` is spawned outside the manager and not waited for (the
-//! readiness poll, 30 s, is its bound), as Node spawns it. A quitting core stops it, and on Windows it is put in a
-//! kill-on-close job the core holds for its life (`OWNED_SERVERS`), so the server ends with the core even when the core
-//! is killed, unlike Node's postmaster, which outlives its daemon. A postmaster left by Node or by a killed core
-//! elsewhere is still attached to through `postmaster.pid`.
+//! manager through [`Processes`], with these limits: `status` 3 s, `reload` 5 s, `stop` its `-t`
+//! seconds plus one; `initdb` has none and is ended by the caller's cancel. `pg_ctl start` is spawned
+//! outside the manager and not waited for (the readiness poll, 30 s, is its bound). A quitting core
+//! stops it, and on Windows it is put in a kill-on-close job the core holds for its life
+//! (`OWNED_SERVERS`), so the server ends with the core even when the core is killed. A postmaster left
+//! by a killed core elsewhere is still attached to through `postmaster.pid`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -155,8 +154,7 @@ maintenance_work_mem = 64MB
 
 /// The setting a sensitive scrub relies on (`session_search/db.rs` `scrub`): a WAL segment past
 /// the redo point is deleted, never renamed for reuse with its old bytes. Appended once to the
-/// configuration of a cluster made before it (as Node's `ensureConfV2` appends its versioned
-/// blocks at every start); a cluster made here has it from `CLUSTER_CONF` and `init`.
+/// configuration of a cluster made before it; a cluster made here has it from `CLUSTER_CONF` and `init`.
 const SCRUB_CONF_MARKER: &str = "# mixdog overrides v5 — no WAL segment reuse";
 const SCRUB_CONF: &str = "
 # mixdog overrides v5 — no WAL segment reuse
@@ -551,14 +549,13 @@ thread_local! {
     static SPAWNED_START: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
 }
 
-/// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:407-440`: `spawn` with piped output and `windowsHide`, never killed by its
-/// starter). In Node the postmaster belonged to no job of the daemon and outlived it (`process.mjs:409-416`). Here the server ends with the core: a
+/// Spawns `pg_ctl start` with piped output, never killed by its starter. The server ends with the core: a
 /// quitting core stops it (`stop_for_quit`), and on Windows this child is created suspended and put in a kill-on-close job the core holds for its
 /// life ([`OWNED_SERVERS`]) before it runs, so the postmaster `pg_ctl` starts through `cmd`, and every backend, are in that job and end when a core
-/// that was killed lets go of it. PostgreSQL recovers from its log at the next start. The child is still not given to the process manager, whose
-/// job belongs to one call. Its stdout and stderr are drained as they come, as Node's `data` listeners do, and the run
-/// ends when the child has exited and both pipes have closed (Node's `close` event): the postmaster inherits the pipe ends (pg_ctl starts it with handle
-/// inheritance on), so for a postmaster that started they stay open for its life and only the readiness probe ends the wait, as in Node.
+/// that was killed lets go of it. PostgreSQL recovers from its log at the next start. The child is not given to the process manager, whose
+/// job belongs to one call. Its stdout and stderr are drained as they come, and the run ends when the child has exited and both pipes have
+/// closed: the postmaster inherits the pipe ends (pg_ctl starts it with handle inheritance on), so for a postmaster that started they stay open
+/// for its life and only the readiness probe ends the wait.
 fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartOutput)> {
     use tokio::io::AsyncReadExt as _;
     let mut command = tokio::process::Command::new(runtime.bin("pg_ctl"));
@@ -679,6 +676,22 @@ async fn take_spawn_lock(lock_file: &Path, wait: Duration, cancel: &Cancellation
     }
 }
 
+/// The port of the postmaster `data_dir` records, when it answers.
+async fn healthy_postmaster_port(lane: DurabilityIo, data_dir: &Path, start: &Start) -> Option<u16> {
+    let port = read_postmaster_port(lane, data_dir).await?;
+    start.healthy(port).await.then_some(port)
+}
+
+/// A start failure's text: what `pg_ctl` said, then the server log.
+fn start_failure_detail(said: String, log_text: &str) -> String {
+    let log = log_text.trim();
+    [said, if log.is_empty() { String::new() } else { format!("postgres log:\n{log}") }]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// What a cluster start reports to its owner, synchronously at the point each fact becomes true: `admit` is the last check before `pg_ctl start` is
 /// spawned (no await between them), and `established` runs in the poll that attached to a postmaster or saw a started one ready, before `ensure`
 /// returns, with no await between the fact and the call. A plain `Fn() -> bool` admits and records nothing (tests).
@@ -698,12 +711,12 @@ impl<F: Fn() -> bool> Launch for F {
 }
 
 impl PgCluster {
-    /// `_doEnsure`'s cluster part (`supervisor.mjs:479-628`) for the profile data directory `profile`: the cluster is `<profile>/pgdata` (`_pgdataDir`), the
-    /// spawn lock `<profile>/pg-spawn.lock` (`:618`) and the server log `<profile>/pg.log` (`_startFresh`, `:358`), both outside the cluster as in Node (an
+    /// Attaches to or starts the cluster of the profile data directory `profile`: the cluster is `<profile>/pgdata`, the
+    /// spawn lock `<profile>/pg-spawn.lock` and the server log `<profile>/pg.log`, both outside the cluster (an
     /// `initdb` refuses a directory that holds anything, and a postmaster in crash recovery fsyncs every file of its directory). The prelock reuse of a
     /// postmaster that answers, then the spawn lock (30 s) around the reuse again, the leftover postmaster, `initdb` and the start. A lock another starter
-    /// holds for the whole wait falls back to one more reuse and else fails (`:619-627`). `cancel` ends an `initdb` in progress (it has no time limit, as in
-    /// Node), and a wait for another starter's lock or postmaster; a start is never begun once it is cancelled or `admit` refuses it, and one that was
+    /// holds for the whole wait falls back to one more reuse and else fails. `cancel` ends an `initdb` in progress (it has no time limit)
+    /// and a wait for another starter's lock or postmaster; a start is never begun once it is cancelled or `admit` refuses it, and one that was
     /// begun is waited for until it is ready (so the caller, if still there, can stop it) or has failed.
     #[allow(clippy::too_many_arguments, reason = "Keep the cluster lifecycle boundary explicit, including admission, cancellation and process ownership")]
     pub(crate) async fn ensure(
@@ -719,9 +732,7 @@ impl PgCluster {
         let data_dir = profile.join("pgdata");
         // `pgdata` itself is made only by `init`, whole.
         fsio::create_dir_all(lane, profile).await?;
-        if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && start.healthy(port).await
-        {
+        if let Some(port) = healthy_postmaster_port(lane, &data_dir, start).await {
             // A test's hold of this poll between the attach and its record (a thread preempted there), which no revocation can cut.
             #[cfg(test)]
             crate::memory::lifecycle::fences::hold("pg-attached");
@@ -730,9 +741,7 @@ impl PgCluster {
         let _spawn_lock = match take_spawn_lock(&profile.join("pg-spawn.lock"), start.lock_wait(), cancel).await {
             Ok(hold) => hold,
             Err(LockWait::Timeout(error)) => {
-                if let Some(port) = read_postmaster_port(lane, &data_dir).await
-                    && start.healthy(port).await
-                {
+                if let Some(port) = healthy_postmaster_port(lane, &data_dir, start).await {
                     return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
                 }
                 mixdog_rt::memory_stderr!("[supervisor-pg] spawn-lock wait ended: {error}");
@@ -740,9 +749,7 @@ impl PgCluster {
             }
             Err(LockWait::Failed(message)) => return Err(MemoryError::Runtime(message)),
         };
-        if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && start.healthy(port).await
-        {
+        if let Some(port) = healthy_postmaster_port(lane, &data_dir, start).await {
             return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
         }
         if let Some(port) = settle_leftover_postmaster(lane, &processes, &data_dir, start, cancel).await? {
@@ -783,8 +790,6 @@ impl PgCluster {
                 format!("-p {port} -h 127.0.0.1"),
             ]
             .into();
-            // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
-            // postmaster outlives it. An exit before readiness is a start failure.
             let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
             #[cfg(test)]
             crate::memory::lifecycle::fences::pass("pg-launched").await;
@@ -820,30 +825,18 @@ impl PgCluster {
                         from = port + 1;
                         continue 'attempt;
                     }
-                    let detail = [error.message(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
-                        .into_iter()
-                        .filter(|part| !part.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    let detail = start_failure_detail(error.message(), &log_text);
                     return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
                 }
                 if tokio::time::Instant::now() >= deadline {
-                    // Node's `startFailure` of a timed-out start (`process.mjs:459-467`): the output drained so far, then the server log.
                     let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                    let detail = [
-                        output.text().unwrap_or_default(),
-                        if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) },
-                    ]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                    let detail = start_failure_detail(output.text().unwrap_or_default(), &log_text);
                     let detail = if detail.is_empty() { "(readiness probe timed out after 30s; no pg_ctl or postgres log output)".to_owned() } else { detail };
                     return Err(Self { runtime, data_dir, port, lane, processes }
                         .abandon(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")))
                         .await);
                 }
-                // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
+                // A stop does not end this wait: a postmaster that is coming up has not written its pid file yet, so a
                 // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
                 mixdog_rt::time::sleep(READY_POLL).await;
             }
@@ -882,9 +875,8 @@ impl PgCluster {
         }
     }
 
-    /// `initClusterIfNeeded` (`process.mjs:339-372`): `initdb`, then the configuration appended. Node's `initdb` outlives a daemon that is killed or
-    /// stopped during it (it takes no abort signal, and on Windows its restricted-token worker leaves the daemon's job); here the cancel and the core's
-    /// kill-on-close job end it, and a `pgdata` it left half made (`PG_VERSION`, no `postgres` database) was taken for a cluster by every later start.
+    /// `initdb`, then the configuration appended. The cancel and the core's kill-on-close job end an `initdb` in progress, and a `pgdata` it left
+    /// half made (`PG_VERSION`, no `postgres` database) would be taken for a cluster by every later start.
     /// So the cluster is made in `pgdata.init` and becomes `pgdata` in one rename once both steps are done: an init that is ended leaves no `pgdata`,
     /// and the next start makes the cluster again.
     async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
@@ -1104,6 +1096,23 @@ enum Initiated {
     },
 }
 
+/// The pid a stop signals: `known`, else the first line of `postmaster.pid`; the outcome that ends the stop when there is none.
+#[allow(clippy::disallowed_methods, reason = "one synchronous read of the small pid file, inside the transition's step, which must not await")]
+fn stop_target_pid(data_dir: &Path, known: Option<u32>) -> std::result::Result<u32, StopDispatch> {
+    if let Some(pid) = known {
+        return Ok(pid);
+    }
+    match std::fs::read_to_string(data_dir.join("postmaster.pid")) {
+        Ok(text) => match text.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(str::parse::<u32>) {
+            Some(Ok(pid)) => Ok(pid),
+            None => Err(StopDispatch::AlreadyAbsent),
+            Some(Err(error)) => Err(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(StopDispatch::AlreadyAbsent),
+        Err(error) => Err(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
+    }
+}
+
 /// Starts the fast-stop delivery to the postmaster of `data_dir` synchronously, for a transition that finds the stop already decided: nothing here
 /// awaits, so neither revocation nor an executor that stops driving tasks can hold it back. The pid is `known` or read from the pid file (one small
 /// synchronous read). Unix signals the postmaster directly; Windows spawns `pg_ctl stop -m fast -W`, whose child the record owns and the controller
@@ -1111,17 +1120,9 @@ enum Initiated {
 #[allow(clippy::disallowed_methods, reason = "one synchronous read of the small pid file, inside the transition's step, which must not await")]
 #[cfg_attr(unix, allow(unused_variables, reason = "the runtime delivers the signal on Windows only"))]
 fn initiate_fast_stop(runtime: &PgRuntime, data_dir: &Path, known: Option<u32>) -> Initiated {
-    let pid = match known {
-        Some(pid) => pid,
-        None => match std::fs::read_to_string(data_dir.join("postmaster.pid")) {
-            Ok(text) => match text.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(str::parse::<u32>) {
-                Some(Ok(pid)) => pid,
-                None => return Initiated::Done(StopDispatch::AlreadyAbsent),
-                Some(Err(error)) => return Initiated::Done(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
-            },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Initiated::Done(StopDispatch::AlreadyAbsent),
-            Err(error) => return Initiated::Done(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
-        },
+    let pid = match stop_target_pid(data_dir, known) {
+        Ok(pid) => pid,
+        Err(outcome) => return Initiated::Done(outcome),
     };
     if !mixdog_statefile::process_exists(pid) {
         return Initiated::Done(StopDispatch::AlreadyAbsent);

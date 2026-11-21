@@ -135,27 +135,52 @@ fn settle(revision: &Com, reject: bool) -> Result<()> {
     revision.call_member(if reject { "Reject" } else { "Accept" }, &[]).map(|_| ())
 }
 
-/// `resolve_revisions`: everything at once, or one reviewer's, each revision on its own, from the end.
+/// Settles each of one reviewer's revisions on its own: Word settles all revisions or one, never one reviewer's. Walking
+/// from the last keeps the earlier indexes valid while the collection shrinks. Answers how many were settled.
+fn settle_by_author(document: &Obj, author: &str, reject: bool) -> Result<i32> {
+    let mut count = 0;
+    let mut position = revisions_count(document)?;
+    while position >= 1 {
+        if position <= revisions_count(document)? {
+            let revision = super::item(&document.get("Revisions")?, position)?;
+            if same(&super::string(&revision.member("Author")?), author) {
+                settle(&revision, reject)?;
+                count += 1;
+            }
+        }
+        position -= 1;
+    }
+    Ok(count)
+}
+
+/// The note for a reviewer label that matched nobody: most often it is misspelt, so the names present let the caller
+/// correct it.
+fn unmatched_author_note(document: &Obj, author: &str) -> Result<String> {
+    let mut reviewers: Vec<String> = Vec::new();
+    let mut position = 1;
+    while position <= revisions_count(document)? {
+        let name = super::string(&super::item(&document.get("Revisions")?, position)?.member("Author")?);
+        if !reviewers.iter().any(|known| same(known, &name)) {
+            reviewers.push(name);
+        }
+        position += 1;
+    }
+    let quoted: Vec<String> = reviewers.iter().map(|name| format!("\"{name}\"")).collect();
+    Ok(if reviewers.is_empty() {
+        format!("No revision by \"{author}\"; the document carries no tracked change.")
+    } else {
+        format!("No revision by \"{author}\"; the tracked changes are by {}.", quoted.join(", "))
+    })
+}
+
+/// `resolve_revisions`: everything at once, or one reviewer's.
 pub(super) fn resolve_revisions(document: &Obj, op: &Value) -> Result<Value> {
     let resolution = lower(&text_of(&prop(op, "resolution")));
     let reject = same(&resolution, "reject");
     let settled = if reject { "reject" } else { "accept" };
     let author = text_of(&prop(op, "author"));
     if !author.is_empty() {
-        // Word settles all revisions or one, never one reviewer's, so each of the reviewer's revisions is settled on its own.
-        // Walking from the last keeps the earlier indexes valid while the collection shrinks.
-        let mut count = 0;
-        let mut position = revisions_count(document)?;
-        while position >= 1 {
-            if position <= revisions_count(document)? {
-                let revision = super::item(&document.get("Revisions")?, position)?;
-                if same(&super::string(&revision.member("Author")?), &author) {
-                    settle(&revision, reject)?;
-                    count += 1;
-                }
-            }
-            position -= 1;
-        }
+        let count = settle_by_author(document, &author, reject)?;
         let mut pairs = vec![
             ("op", Value::string("resolve_revisions")),
             ("changed", Value::Bool(count > 0)),
@@ -164,23 +189,7 @@ pub(super) fn resolve_revisions(document: &Obj, op: &Value) -> Result<Value> {
             ("resolution", Value::string(settled)),
         ];
         if count == 0 {
-            // A label matching nobody is most often misspelt; the names present let the caller correct it.
-            let mut reviewers: Vec<String> = Vec::new();
-            let mut position = 1;
-            while position <= revisions_count(document)? {
-                let name = super::string(&super::item(&document.get("Revisions")?, position)?.member("Author")?);
-                if !reviewers.iter().any(|known| same(known, &name)) {
-                    reviewers.push(name);
-                }
-                position += 1;
-            }
-            let quoted: Vec<String> = reviewers.iter().map(|name| format!("\"{name}\"")).collect();
-            let note = if reviewers.is_empty() {
-                format!("No revision by \"{author}\"; the document carries no tracked change.")
-            } else {
-                format!("No revision by \"{author}\"; the tracked changes are by {}.", quoted.join(", "))
-            };
-            pairs.push(("note", Value::String(note)));
+            pairs.push(("note", Value::String(unmatched_author_note(document, &author)?)));
         }
         return Ok(ordered(pairs));
     }
@@ -193,7 +202,6 @@ pub(super) fn resolve_revisions(document: &Obj, op: &Value) -> Result<Value> {
         ("resolution", Value::string(settled)),
     ]))
 }
-
 /// `resolve_revision`.
 pub(super) fn resolve_revision(document: &Obj, op: &Value) -> Result<Value> {
     let index = index_in(document, op, "revision", "Revisions", "Revision index out of range")?;

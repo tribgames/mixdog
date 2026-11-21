@@ -169,11 +169,6 @@ impl<S: RoomStore> Rooms<S> {
         *self.member_log.lock().unwrap_or_else(|e| e.into_inner()) = Some(log);
     }
 
-    /// The logs of the rooms whose members differ between `live` and `next` record `next`'s, inside the writer's turn: a log
-    /// and its room change in one order whoever changes them, and a crash or a failed save after it leaves a log that lists
-    /// the members about to be saved, never one the room has dropped. A log that cannot be written fails the write, the
-    /// logs written before it put back. A new room's failure is not the write's: the next load gives its log the record.
-    /// The rooms whose logs were written.
     async fn log_members(&self, live: &RoomDoc, next: &RoomDoc) -> Result<Vec<String>, RoomError> {
         let Some(log) = self.member_log.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return Ok(Vec::new()) };
         let mut written = Vec::new();

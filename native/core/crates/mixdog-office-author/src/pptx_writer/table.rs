@@ -90,10 +90,8 @@ impl TableObject {
             Some(name) if !name.is_empty() => encode_xml_entities(name),
             _ => format!("Table {}", place.tables_before),
         };
-        // STEP 2: the cells, each with its borders.
         let raw_border = opt.border.clone();
         let mut cells: Vec<Vec<Cell>> = rows.into_iter().map(|row| row.into_iter().map(|cell| Cell::from_input(cell, &raw_border)).collect()).collect();
-        // STEP 3: the options of the table.
         let first_row_columns: usize = cells[0].iter().map(|cell| cell.options.colspan.filter(|span| *span > 0).unwrap_or(1)).sum();
         let (x, y) = (table_position(opt.frame.x, Axis::X, layout), table_position(opt.frame.y, Axis::Y, layout));
         let mut height = opt.frame.h;
@@ -109,35 +107,7 @@ impl TableObject {
         if !mentions_hyperlink(&cells) && !opt.color.as_deref().is_some_and(|color| !color.is_empty()) {
             opt.color = Some(DEFAULT_FONT_COLOR.to_owned());
         }
-        let mut width = opt.frame.w;
-        let mut col_w = col_w;
-        let has_col_w = match &col_w {
-            Some(ColWidths::One(width)) => is_set(Some(*width)),
-            Some(ColWidths::Each(_)) => true,
-            None => false,
-        };
-        if has_col_w {
-            let columns = first_row_columns as f64;
-            // `Some(Some(w))`: the width is made from the column width and `colW` is dropped; `Some(None)`: `colW` is
-            // dropped because it does not match the columns.
-            let reset = match &col_w {
-                Some(ColWidths::One(each)) => Some(Some(math::floor(*each * columns))),
-                Some(ColWidths::Each(each)) if each.len() == 1 && first_row_columns > 1 => Some(Some(math::floor(each[0] * columns))),
-                Some(ColWidths::Each(each)) if each.len() != first_row_columns => Some(None),
-                _ => None,
-            };
-            if let Some(made) = reset {
-                if let Some(made) = made {
-                    width = Some(Dim::Number(made));
-                }
-                col_w = None;
-            }
-        } else if width.is_some_and(Dim::truthy) {
-            width = width.map(|dim| Dim::Number(smart_parse(dim, Axis::X, layout)));
-        } else {
-            width = Some(Dim::Number(math::floor(layout.width / EMU - 2.0 * DEFAULT_SLIDE_MARGIN)));
-        }
-        // STEP 4: inches to EMU.
+        let (col_w, mut width) = resolve_width(col_w, opt.frame.w, first_row_columns, layout);
         let to_emu = |value: f64| if value != 0.0 && !value.is_nan() && value < 20.0 { inch_to_emu(value) } else { value };
         let x = to_emu(x);
         let y = to_emu(y);
@@ -147,16 +117,13 @@ impl TableObject {
         if let Some(Dim::Number(value)) = height {
             height = Some(Dim::Number(to_emu(value)));
         }
-        // The hyperlinks of the cells get their relationships, row by row.
         for cell in cells.iter_mut().flatten() {
             cell.give_links(link);
         }
-        // The grid of cells, with the merged ones that the spans reserve.
         let column_count = first_row_columns;
         let mut grid: Vec<Vec<Slot>> = cells.into_iter().map(|row| row.into_iter().map(Slot::Cell).collect()).collect();
         expand_column_spans(&mut grid);
         expand_row_spans(&mut grid);
-        // The XML.
         let cx = width.map_or_else(|| smart_parse(Dim::Percent(75.0), Axis::X, layout), |dim| smart_parse(dim, Axis::X, layout));
         let cy = height.map_or(0.0, |dim| smart_parse(dim, Axis::Y, layout));
         let (x, y) = (smart_parse(Dim::Number(x), Axis::X, layout), smart_parse(Dim::Number(y), Axis::Y, layout));
@@ -192,6 +159,39 @@ impl TableObject {
         xml.push_str("  </a:graphic>");
         xml.push_str("</p:graphicFrame>");
         Ok(Self { xml })
+    }
+}
+
+enum ColWReset {
+    MadeWidth(f64),
+    Mismatch,
+}
+
+fn resolve_width(col_w: Option<ColWidths>, width: Option<Dim>, first_row_columns: usize, layout: &Layout) -> (Option<ColWidths>, Option<Dim>) {
+    let has_col_w = match &col_w {
+        Some(ColWidths::One(width)) => is_set(Some(*width)),
+        Some(ColWidths::Each(_)) => true,
+        None => false,
+    };
+    if !has_col_w {
+        let width = if width.is_some_and(Dim::truthy) {
+            width.map(|dim| Dim::Number(smart_parse(dim, Axis::X, layout)))
+        } else {
+            Some(Dim::Number(math::floor(layout.width / EMU - 2.0 * DEFAULT_SLIDE_MARGIN)))
+        };
+        return (col_w, width);
+    }
+    let columns = first_row_columns as f64;
+    let reset = match &col_w {
+        Some(ColWidths::One(each)) => Some(ColWReset::MadeWidth(math::floor(*each * columns))),
+        Some(ColWidths::Each(each)) if each.len() == 1 && first_row_columns > 1 => Some(ColWReset::MadeWidth(math::floor(each[0] * columns))),
+        Some(ColWidths::Each(each)) if each.len() != first_row_columns => Some(ColWReset::Mismatch),
+        _ => None,
+    };
+    match reset {
+        Some(ColWReset::MadeWidth(made)) => (None, Some(Dim::Number(made))),
+        Some(ColWReset::Mismatch) => (None, width),
+        None => (col_w, width),
     }
 }
 
@@ -538,7 +538,6 @@ fn slot_xml(slot: &Slot, table: &TextOptions) -> Result<String, String> {
     };
     let fill = options.frame.fill.as_ref().map(|fill: &Fill| color_selection(fill)).unwrap_or_default();
     let borders = options.border.clone();
-    // The text: the cell's options come first, the options of the runs after them.
     let mut arena = vec![options];
     let mut runs = Vec::new();
     match &cell.text {
@@ -558,24 +557,30 @@ fn slot_xml(slot: &Slot, table: &TextOptions) -> Result<String, String> {
     let body = text_body_xml(BodyKind::Cell, &mut arena, &runs, &BodyProperties::default())?;
     let mut xml = format!("<a:tc{attributes}>{body}<a:tcPr{}{anchor}{direction}>", cell_margin_xml(&margin));
     if let Some(Borders::Each(sides)) = &borders {
-        for (index, name) in [(3, "lnL"), (1, "lnR"), (0, "lnT"), (2, "lnB")] {
-            let side = sides.get(index).and_then(Option::as_ref);
-            match side.filter(|side| side.kind.as_deref() != Some("none")) {
-                Some(side) => {
-                    xml.push_str(&format!("<a:{name} w=\"{}\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">", num(val_to_pts(side.pt.unwrap_or(f64::NAN)))));
-                    xml.push_str(&format!("<a:solidFill>{}</a:solidFill>", color_element(side.color.as_deref().unwrap_or(""), "")));
-                    xml.push_str(&format!("<a:prstDash val=\"{}\"/>", if side.kind.as_deref() == Some("dash") { "sysDash" } else { "solid" }));
-                    xml.push_str("<a:round/><a:headEnd type=\"none\" w=\"med\" len=\"med\"/><a:tailEnd type=\"none\" w=\"med\" len=\"med\"/>");
-                    xml.push_str(&format!("</a:{name}>"));
-                }
-                None => xml.push_str(&format!("<a:{name} w=\"0\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:noFill/></a:{name}>")),
-            }
-        }
+        xml.push_str(&cell_borders_xml(sides));
     }
     xml.push_str(&fill);
     xml.push_str("  </a:tcPr>");
     xml.push_str(" </a:tc>");
     Ok(xml)
+}
+
+fn cell_borders_xml(sides: &[Option<Border>]) -> String {
+    let mut xml = String::new();
+    for (index, name) in [(3, "lnL"), (1, "lnR"), (0, "lnT"), (2, "lnB")] {
+        let side = sides.get(index).and_then(Option::as_ref);
+        match side.filter(|side| side.kind.as_deref() != Some("none")) {
+            Some(side) => {
+                xml.push_str(&format!("<a:{name} w=\"{}\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">", num(val_to_pts(side.pt.unwrap_or(f64::NAN)))));
+                xml.push_str(&format!("<a:solidFill>{}</a:solidFill>", color_element(side.color.as_deref().unwrap_or(""), "")));
+                xml.push_str(&format!("<a:prstDash val=\"{}\"/>", if side.kind.as_deref() == Some("dash") { "sysDash" } else { "solid" }));
+                xml.push_str("<a:round/><a:headEnd type=\"none\" w=\"med\" len=\"med\"/><a:tailEnd type=\"none\" w=\"med\" len=\"med\"/>");
+                xml.push_str(&format!("</a:{name}>"));
+            }
+            None => xml.push_str(&format!("<a:{name} w=\"0\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:noFill/></a:{name}>")),
+        }
+    }
+    xml
 }
 
 #[cfg(test)]

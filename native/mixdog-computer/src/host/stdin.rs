@@ -1,8 +1,3 @@
-//! The host's stdin, read on its own thread (MixWorkerInput,
-//! MixForegroundLock.cs:445-499): a lease answer reaches the wait it answers
-//! while a request is still running, and request lines queue for the request
-//! loop, which reads them in order.
-
 use super::authority::{REVOKE_LINE, revoke_and_acknowledge};
 use super::lease;
 use crate::port::Scope as Authority;
@@ -35,10 +30,6 @@ impl Router {
         )
     }
 
-    /// Reads `input` on a thread of its own: `answer` gets each lease answer
-    /// without its marker, `revoke` runs at the revocation line, as it is read
-    /// and whatever the request loop is running, and `ended` runs once nothing
-    /// more can arrive, before the request lines end.
     fn routed(
         input: impl BufRead + Send + 'static,
         answer: impl Fn(&str) + Send + 'static,

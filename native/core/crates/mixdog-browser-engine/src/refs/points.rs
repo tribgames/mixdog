@@ -1,10 +1,9 @@
-//! Owner: s4-engine-target-points
-//! Where a gesture actually lands (`ref-points.ts`). A ref becomes a point only after the page confirms the element is on
+//! Where a gesture actually lands. A ref becomes a point only after the page confirms the element is on
 //! top of it, and refuses rather than guesses, because a wrong point clicks the wrong thing.
 //!
 //! The probe measures in the viewport of the realm the ref lives in and adds the offset of every same-origin frame itself. A ref
 //! inside a cross-origin frame lives in another process: the host answers the offset of that frame
-//! (`frameOffsetForSession` of `ref-points.ts`) with the call, and it is added here, so the point and the rectangle are always in
+//! with the call, and it is added here, so the point and the rectangle are always in
 //! the top viewport, where `host/browser/input/batch` dispatches a pointer step.
 //!
 //! Each call is one probe. The wait that repeats a probe while the element is covered, moving or hidden belongs to the settle

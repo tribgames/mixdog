@@ -1,8 +1,3 @@
-//! The C0 control plane of a thread (RL §5.3, D-L1, SPEC R10–R12): what RT-C reads and
-//! touches without the actor. The actor republishes the cell when the run, the queue or the
-//! set of decidable approvals changes (from its projected state), and RT-C answers abort,
-//! steer and decisions from it at once; the actor's control lane carries the follow-up.
-
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -214,10 +209,6 @@ pub(crate) struct ActiveRun {
     pub steers: Mutex<VecDeque<QueuedId>>,
     /// The prompt that started the run: what a stop may hand back (`flags.activePromptRestore`).
     pub prompt: Arc<super::stop::PromptState>,
-    /// The `user`/`assistant` context rows the run committed after its input. Node's saved `session.messages` (what the catalog
-    /// row's `messageCount` counts) holds the history and the turn's prompt while the turn runs (`precommitUserTurn`,
-    /// `ask-turn-execute.mjs:121-123`: the loop works on `liveTurnMessages`) and takes the turn's other rows when it settles
-    /// (`ask-turn-settle.mjs:113`); the listed row leaves these out until the run ends.
     pub unsaved_messages: std::sync::atomic::AtomicU64,
 }
 
@@ -450,6 +441,16 @@ impl StopLatches {
         true
     }
 
+    /// Runs `at` while no run of `thread` is registered, under the lock every start takes: a start either came first (`None`,
+    /// and `at` never runs) or comes after all `at` did. `at` only reads and signals; it takes no start gate.
+    pub fn while_idle<R>(&self, thread: &ThreadId, at: impl FnOnce() -> Option<R>) -> Option<R> {
+        let gates = lock(&self.0);
+        if gates.get(thread.as_str()).is_some_and(|gate| !gate.running.is_empty()) {
+            return None;
+        }
+        at()
+    }
+
     /// Running `turn` is about to take the entry of `identities` at a boundary: registered with the run, or refused (false) when
     /// any of them is latched, in which case the entry is not injected.
     pub fn claim(&self, thread: &ThreadId, turn: &TurnId, identities: &[String]) -> bool {
@@ -665,10 +666,6 @@ impl ControlCell {
     /// refuse it; the run stops at its next poll and its `run{interrupted}` record follows through the control
     /// reserve.
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
-        // `abort.mjs`: a Stop that hands the prompt back is `user-cancel` (the runtime rewinds a turn that produced
-        // nothing); one that does not names `user-cancel-keep-prompt`, so the prompt stays in the stored transcript.
-        // A queued steering prompt means the user already redirected the turn: the stop names `interrupt`
-        // (`abortGoalTurn`: `runtime.abort(hasPendingSteering ? 'interrupt' : reason)`).
         let steering = self.queue.load().iter().any(|queued| is_editable_entry(&queued.entry));
         let name = if steering {
             "interrupt"
@@ -757,3 +754,25 @@ impl ControlCell {
 /// A fence a test arms on the actor's own step: told the step's name.
 #[cfg(any(test, feature = "test-support"))]
 type StartFence = Arc<dyn Fn(&'static str) + Send + Sync>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_is_done_while_idle_is_done_only_while_no_run_is_registered() {
+        let latches = StopLatches::default();
+        let (thread, turn) = (ThreadId::from("t"), TurnId::from("r"));
+        assert_eq!(latches.while_idle(&thread, || Some(1)), Some(1));
+
+        let token = mixdog_rt::CancellationToken::new();
+        assert!(latches.begin(&thread, &turn, &[], &Cancel::from_token(&token)));
+        let mut ran = false;
+        assert_eq!(latches.while_idle(&thread, || Some(ran = true)), None, "a run started first");
+        assert!(!ran, "nothing is done to a thread a run started on");
+        assert_eq!(latches.while_idle(&ThreadId::from("other"), || Some(1)), Some(1), "another thread's run holds nothing back");
+
+        latches.end(&thread, &turn);
+        assert_eq!(latches.while_idle(&thread, || Some(1)), Some(1));
+    }
+}

@@ -103,7 +103,7 @@ pub fn parse_goal_duration(value: &Value) -> GoalResult<f64> {
     Ok(round(total))
 }
 
-/// One parsed `/goal` command (`parseUserCommand`): the fields it sets, in Node's order.
+/// One parsed `/goal` command: the fields it sets.
 pub fn parse_user_command(command: &str) -> Map<String, Value> {
     let mut out = Map::new();
     let value = js_trim(command);

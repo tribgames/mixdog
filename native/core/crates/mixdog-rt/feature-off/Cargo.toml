@@ -65,4 +65,3 @@ path = "../tests/ticker.rs"
 [[test]]
 name = "time_interval"
 path = "../tests/time_interval.rs"
-

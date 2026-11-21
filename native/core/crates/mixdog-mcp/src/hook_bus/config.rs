@@ -112,6 +112,25 @@ pub fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -
     Err(Unreadable::Damaged(damage))
 }
 
+fn fold_document(config: &mut HookConfig, entry: &HookConfigEntry, parsed: &Value) {
+    if parsed.get("disableAllHooks").is_some() {
+        config.disabled = parsed.get("disableAllHooks") == Some(&Value::Bool(true));
+    }
+    let report = config_report(parsed);
+    if report.standard {
+        if !report.invalid_events.is_empty() {
+            config.errors.push((entry.path.clone(), format!("ignored malformed hook event(s): {}", report.invalid_events.join(", "))));
+        }
+        merge_events(&mut config.events, parse_standard(parsed, &entry.path, entry));
+    } else {
+        let rules = normalize_rules(parsed);
+        if rules.is_empty() && !report.invalid_events.is_empty() {
+            config.errors.push((entry.path.clone(), format!("no usable hooks: malformed event(s) under \"hooks\": {}", report.invalid_events.join(", "))));
+        }
+        config.legacy_rules.extend(rules);
+    }
+}
+
 /// Loads the configuration that applies at `cwd`, reusing `previous` while no file changed.
 pub fn load_config(lane: &InLane<MaintenanceIo>, data_dir: &Path, cwd: &Path, env_file: Option<&Path>, previous: Option<Arc<HookConfig>>) -> Loaded {
     let trusted = read_trusted_projects(lane, data_dir);
@@ -141,22 +160,7 @@ pub fn load_config(lane: &InLane<MaintenanceIo>, data_dir: &Path, cwd: &Path, en
                 continue;
             }
         };
-        if parsed.get("disableAllHooks").is_some() {
-            config.disabled = parsed.get("disableAllHooks") == Some(&Value::Bool(true));
-        }
-        let report = config_report(&parsed);
-        if report.standard {
-            if !report.invalid_events.is_empty() {
-                config.errors.push((entry.path.clone(), format!("ignored malformed hook event(s): {}", report.invalid_events.join(", "))));
-            }
-            merge_events(&mut config.events, parse_standard(&parsed, &entry.path, entry));
-        } else {
-            let rules = normalize_rules(&parsed);
-            if rules.is_empty() && !report.invalid_events.is_empty() {
-                config.errors.push((entry.path.clone(), format!("no usable hooks: malformed event(s) under \"hooks\": {}", report.invalid_events.join(", "))));
-            }
-            config.legacy_rules.extend(rules);
-        }
+        fold_document(&mut config, entry, &parsed);
     }
     config.fallback_rules = read_document(lane, &rules_path, true).ok().flatten().map(|d| normalize_rules(&d)).unwrap_or_default();
     config.standard = !config.events.is_empty();

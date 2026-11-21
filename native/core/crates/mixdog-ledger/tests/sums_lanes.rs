@@ -1,7 +1,4 @@
-//! The writer stays responsive while a batch of day sums is being summed on a maintenance lane.
-//! This binary installs its own executors, with a gate that holds maintenance jobs, so the read
-//! of a large session can be paused while the writer works. (One test: the backend is process
-//! wide.)
+//! One test: the executor backend is process wide.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::sync::Arc;

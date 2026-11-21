@@ -44,10 +44,9 @@ pub fn binding_request(transaction_id: &[u8; TRANSACTION_ID_BYTES]) -> [u8; HEAD
     message
 }
 
-/// The IPv4 XOR-MAPPED-ADDRESS of a Binding success response to `transaction_id`, or None. The whole message must be well
-/// formed (RFC 8489 sections 5 and 14): a header of 20 bytes, a length field that is a multiple of 4 and equals the rest of the
-/// datagram, every attribute (padded to 4 bytes) inside it, and a XOR-MAPPED-ADDRESS that is exactly the 8-byte IPv4 form.
-/// Anything else (truncated, over-long, inconsistent) is refused rather than read around.
+/// The IPv4 XOR-MAPPED-ADDRESS of a Binding success response to `transaction_id`, or None. The whole message must be well formed
+/// (RFC 8489 sections 5 and 14): a 20-byte header, a length field that is a multiple of 4 and equals the rest of the datagram,
+/// every attribute (padded to 4 bytes) inside it, and a XOR-MAPPED-ADDRESS that is exactly the 8-byte IPv4 form.
 pub fn parse_binding_response(message: &[u8], transaction_id: &[u8; TRANSACTION_ID_BYTES]) -> Option<Mapped> {
     if message.len() < HEADER_BYTES {
         return None;

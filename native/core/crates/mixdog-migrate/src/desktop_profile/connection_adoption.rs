@@ -1,9 +1,3 @@
-//! Repair the connection-store root before its readers open. Profile generations 2/3 publish to `desktop/`, while the
-//! composed stores use `userdata/`. Current files (even empty/corrupt/backup-only families) are authoritative: there are no
-//! deletion tombstones with which to safely union the two lists. Both families are retained, with immutable recovery copies.
-//! This uses the migration's durable publication, hashes, private file creation and per-step supplemental journal pattern.
-//! It never changes profile-gen.json or deletes an original. Call after profile adoption, before composing connection stores.
-
 use super::fsx;
 use crate::durable;
 use crate::error::{Blocked, Result};
@@ -199,40 +193,51 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
         }
     };
     validate(&journal)?;
-    if journal.complete {
-        // Completion is durable before staging cleanup. A process can stop during any removal,
-        // so a completed journal must resume cleanup before its otherwise-idempotent fast path.
-        durable::remove_dir_all(&data.join(STAGE))?;
-        // A first TUI boot can have current stores before an Electron profile is ever named. Only families with NO recorded
-        // input may be added later; a settled family's later deletion must never reimport its retained originals.
-        let mut extended = false;
-        for old in &mut journal.families {
-            if old.copies.is_empty() {
-                let new = plan_family(data, &old.file)?;
-                if !new.copies.is_empty() {
-                    *old = new;
-                    extended = true;
-                }
-            } else if old.current_authoritative && !old.copies.iter().any(|copy| copy.root == Root::Desktop) {
-                // A later named profile can contribute losing legacy bytes to an already authoritative family. Archive them
-                // without reconsidering that authority or reading/recreating its current file (which the user may have removed).
-                for file in names(data, Root::Desktop, &old.file)? {
-                    let (size, sha256) = durable::hash_file(&data.join("desktop").join(&file))?;
-                    old.copies.push(Copy { root: Root::Desktop, file, size, sha256, archived: false, published: false });
-                    old.settled = false;
-                    extended = true;
-                }
+    if journal.complete && !reopen_for_new_evidence(data, &mut journal, fault)? {
+        return Ok(());
+    }
+    archive_every_source(data, &mut journal, fault)?;
+    publish_unsettled_families(data, &mut journal, fault)?;
+    fault("connections-adoption:complete:before")?;
+    journal.complete = true;
+    save(data, &journal)?;
+    durable::remove_dir_all(&data.join(STAGE))?;
+    Ok(())
+}
+
+/// Resumes the staging cleanup of a completed journal, then adds the families and desktop copies that appeared since
+/// and marks it incomplete; false when nothing was added. A settled family's later deletion never reimports its retained
+/// originals: only families with no recorded input, and authoritative families with no desktop copy, are extended.
+fn reopen_for_new_evidence(data: &Path, journal: &mut Journal, fault: &dyn Fn(&str) -> Result<()>) -> Result<bool> {
+    durable::remove_dir_all(&data.join(STAGE))?;
+    let mut extended = false;
+    for old in &mut journal.families {
+        if old.copies.is_empty() {
+            let new = plan_family(data, &old.file)?;
+            if !new.copies.is_empty() {
+                *old = new;
+                extended = true;
+            }
+        } else if old.current_authoritative && !old.copies.iter().any(|copy| copy.root == Root::Desktop) {
+            for file in names(data, Root::Desktop, &old.file)? {
+                let (size, sha256) = durable::hash_file(&data.join("desktop").join(&file))?;
+                old.copies.push(Copy { root: Root::Desktop, file, size, sha256, archived: false, published: false });
+                old.settled = false;
+                extended = true;
             }
         }
-        if !extended {
-            return Ok(());
-        }
-        journal.complete = false;
-        fault("connections-adoption:extend:before")?;
-        save(data, &journal)?;
     }
+    if !extended {
+        return Ok(false);
+    }
+    journal.complete = false;
+    fault("connections-adoption:extend:before")?;
+    save(data, journal)?;
+    Ok(true)
+}
 
-    // Archive EVERY source family before any canonical publication. Originals are never removed, even on success.
+/// Archives every source family before any canonical publication; originals are never removed, even on success.
+fn archive_every_source(data: &Path, journal: &mut Journal, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     for family in 0..journal.families.len() {
         if journal.families[family].settled {
             continue;
@@ -252,16 +257,21 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
             verify_archive(&archive, &copy)?;
             fault(&format!("connections-adoption:archive:{}:{}:after", copy.root.name(), copy.file))?;
             journal.families[family].copies[index].archived = true;
-            save(data, &journal)?;
+            save(data, journal)?;
         }
     }
+    Ok(())
+}
+
+/// Publishes the desktop copies of each family that has no current store into `userdata/`, and settles every family.
+fn publish_unsettled_families(data: &Path, journal: &mut Journal, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     for (family, file) in FILES.iter().enumerate() {
         if journal.families[family].settled || journal.families[family].copies.is_empty() {
             continue;
         }
         if journal.families[family].current_authoritative {
             journal.families[family].settled = true;
-            save(data, &journal)?;
+            save(data, journal)?;
             continue;
         }
         let chosen = &journal.families[family];
@@ -289,15 +299,11 @@ pub fn run_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
             verify(&target, &copy)?;
             fault(&format!("connections-adoption:publish:{}:after", copy.file))?;
             journal.families[family].copies[index].published = true;
-            save(data, &journal)?;
+            save(data, journal)?;
         }
         journal.families[family].settled = true;
-        save(data, &journal)?;
+        save(data, journal)?;
     }
-    fault("connections-adoption:complete:before")?;
-    journal.complete = true;
-    save(data, &journal)?;
-    durable::remove_dir_all(&data.join(STAGE))?;
     Ok(())
 }
 

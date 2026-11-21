@@ -1,6 +1,3 @@
-//! What a phone's connection receives from a feed before and after it opens the feed. The lanes of the Node relay web app are feeds here: a
-//! phone is sent a lane's pushes only once it has opened that lane's feed (`feed/subscribe`), and the app feed only after `app/subscribe`.
-//!
 //! The test asserts the matrix and prints it as one `@@LANES@@` JSON line.
 
 use std::sync::Arc;

@@ -1,12 +1,3 @@
-//! The one check every late cell answers to.
-//!
-//! The composition has a few true cycles (the session directory is built from the tool pool, which
-//! needs seams that read the directory; the connection hub exists only after the core). Each is a
-//! cell bound once, after what it waits for. A cell read before its bind answers as an unknown
-//! thread or a refused dial would, so the unbound state must be unreachable once the server accepts:
-//! the composition verifies every cell with [`require`] before the listener accepts, and a cell left
-//! unbound fails startup with an [`Unbound`] that names it.
-
 /// A cell that is bound after the part of the composition that waits for it exists.
 pub trait Bound {
     /// The cell's name, as the startup error reports it.

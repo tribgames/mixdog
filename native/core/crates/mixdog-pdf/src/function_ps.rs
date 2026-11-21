@@ -666,140 +666,163 @@ impl<'g> Tree<'g> {
         {
             return self.constant(v);
         }
-        if self.nodes_equal(first, second) {
-            match op {
-                Op::Sub => return self.constant(Val::Num(0.0)),
-                Op::Xor => {
-                    let boolean = self.vt(first) == ValueType::Boolean;
-                    return self.constant(if boolean { Val::Bool(false) } else { Val::Num(0.0) });
-                }
-                Op::And | Op::Or | Op::Min | Op::Max => return first,
-                Op::Eq | Op::Ge | Op::Le => return self.constant(Val::Bool(true)),
-                Op::Ne | Op::Gt | Op::Lt => return self.constant(Val::Bool(false)),
-                _ => {}
-            }
+        if self.nodes_equal(first, second)
+            && let Some(id) = self.simplify_equal_operands(op, first)
+        {
+            return id;
         }
-        if let Some(b) = self.const_value(first) {
-            match op {
-                Op::Add if b.is_num(0.0) => return second,
-                Op::Sub if b.is_num(0.0) => return second,
-                Op::Mul => {
-                    if b.is_num(1.0) {
-                        return second;
-                    }
-                    if b.is_num(0.0) {
-                        return first;
-                    }
-                    if b.is_num(-1.0) {
-                        return self.make_unary(Op::Neg, second);
-                    }
-                }
-                Op::Div if !b.is_num(0.0) => {
-                    let reciprocal = self.constant(Val::Num(1.0 / b.num()));
-                    return self.make_binary(Op::Mul, reciprocal, second);
-                }
-                Op::Idiv if b.is_num(1.0) => return second,
-                Op::Exp => {
-                    if b.is_num(1.0) {
-                        return second;
-                    }
-                    if b.is_num(-1.0) {
-                        let one = self.constant(Val::Num(1.0));
-                        return self.make_binary(Op::Div, second, one);
-                    }
-                    if b.is_num(0.5) {
-                        return self.make_unary(Op::Sqrt, second);
-                    }
-                    if b.is_num(0.25) {
-                        let once = self.make_unary(Op::Sqrt, second);
-                        return self.make_unary(Op::Sqrt, once);
-                    }
-                    if b.is_num(2.0) {
-                        return self.make_binary(Op::Mul, second, second);
-                    }
-                    if b.is_num(3.0) {
-                        let square = self.make_binary(Op::Mul, second, second);
-                        return self.make_binary(Op::Mul, square, second);
-                    }
-                    if b.is_num(4.0) {
-                        let square = self.make_binary(Op::Mul, second, second);
-                        return self.make_binary(Op::Mul, square, square);
-                    }
-                    if b.is_num(0.0) {
-                        return self.constant(Val::Num(1.0));
-                    }
-                }
-                Op::And => {
-                    if b.is_bool(true) {
-                        return second;
-                    }
-                    if b.is_bool(false) {
-                        return first;
-                    }
-                }
-                Op::Or => {
-                    if b.is_bool(false) {
-                        return second;
-                    }
-                    if b.is_bool(true) {
-                        return first;
-                    }
-                }
-                Op::Min => {
-                    if let Kind::Binary { op: Op::Max, first: inner, .. } = self.nodes[second].kind
-                        && let Some(v) = self.const_value(inner)
-                        && v.num() >= b.num()
-                    {
-                        return first;
-                    }
-                }
-                Op::Max => {
-                    if let Kind::Binary { op: Op::Min, first: inner, .. } = self.nodes[second].kind
-                        && let Some(v) = self.const_value(inner)
-                        && v.num() <= b.num()
-                    {
-                        return first;
-                    }
-                }
-                _ => {}
-            }
+        if let Some(b) = self.const_value(first)
+            && let Some(id) = self.simplify_constant_first(op, b, first, second)
+        {
+            return id;
         }
-        if let Some(a) = self.const_value(second) {
-            match op {
-                Op::Add if a.is_num(0.0) => return first,
-                Op::Sub if a.is_num(0.0) => return self.make_unary(Op::Neg, first),
-                Op::Mul => {
-                    if a.is_num(1.0) {
-                        return first;
-                    }
-                    if a.is_num(0.0) {
-                        return second;
-                    }
-                    if a.is_num(-1.0) {
-                        return self.make_unary(Op::Neg, first);
-                    }
-                }
-                Op::And => {
-                    if a.is_bool(true) {
-                        return first;
-                    }
-                    if a.is_bool(false) {
-                        return second;
-                    }
-                }
-                Op::Or => {
-                    if a.is_bool(false) {
-                        return first;
-                    }
-                    if a.is_bool(true) {
-                        return second;
-                    }
-                }
-                _ => {}
-            }
+        if let Some(a) = self.const_value(second)
+            && let Some(id) = self.simplify_constant_second(op, a, first, second)
+        {
+            return id;
         }
         let value_type = binary_value_type(op, self.vt(first), self.vt(second));
         self.add(Kind::Binary { op, first, second }, value_type)
+    }
+
+    fn simplify_equal_operands(&mut self, op: Op, operand: Id) -> Option<Id> {
+        Some(match op {
+            Op::Sub => self.constant(Val::Num(0.0)),
+            Op::Xor => {
+                let boolean = self.vt(operand) == ValueType::Boolean;
+                self.constant(if boolean { Val::Bool(false) } else { Val::Num(0.0) })
+            }
+            Op::And | Op::Or | Op::Min | Op::Max => operand,
+            Op::Eq | Op::Ge | Op::Le => self.constant(Val::Bool(true)),
+            Op::Ne | Op::Gt | Op::Lt => self.constant(Val::Bool(false)),
+            _ => return None,
+        })
+    }
+
+    /// `b` is the value of `first`, the top operand.
+    fn simplify_constant_first(&mut self, op: Op, b: Val, first: Id, second: Id) -> Option<Id> {
+        Some(match op {
+            Op::Add if b.is_num(0.0) => second,
+            Op::Sub if b.is_num(0.0) => second,
+            Op::Mul => {
+                if b.is_num(1.0) {
+                    second
+                } else if b.is_num(0.0) {
+                    first
+                } else if b.is_num(-1.0) {
+                    self.make_unary(Op::Neg, second)
+                } else {
+                    return None;
+                }
+            }
+            Op::Div if !b.is_num(0.0) => {
+                let reciprocal = self.constant(Val::Num(1.0 / b.num()));
+                self.make_binary(Op::Mul, reciprocal, second)
+            }
+            Op::Idiv if b.is_num(1.0) => second,
+            Op::Exp => {
+                if b.is_num(1.0) {
+                    second
+                } else if b.is_num(-1.0) {
+                    let one = self.constant(Val::Num(1.0));
+                    self.make_binary(Op::Div, second, one)
+                } else if b.is_num(0.5) {
+                    self.make_unary(Op::Sqrt, second)
+                } else if b.is_num(0.25) {
+                    let once = self.make_unary(Op::Sqrt, second);
+                    self.make_unary(Op::Sqrt, once)
+                } else if b.is_num(2.0) {
+                    self.make_binary(Op::Mul, second, second)
+                } else if b.is_num(3.0) {
+                    let square = self.make_binary(Op::Mul, second, second);
+                    self.make_binary(Op::Mul, square, second)
+                } else if b.is_num(4.0) {
+                    let square = self.make_binary(Op::Mul, second, second);
+                    self.make_binary(Op::Mul, square, square)
+                } else if b.is_num(0.0) {
+                    self.constant(Val::Num(1.0))
+                } else {
+                    return None;
+                }
+            }
+            Op::And => {
+                if b.is_bool(true) {
+                    second
+                } else if b.is_bool(false) {
+                    first
+                } else {
+                    return None;
+                }
+            }
+            Op::Or => {
+                if b.is_bool(false) {
+                    second
+                } else if b.is_bool(true) {
+                    first
+                } else {
+                    return None;
+                }
+            }
+            Op::Min => {
+                if let Kind::Binary { op: Op::Max, first: inner, .. } = self.nodes[second].kind
+                    && let Some(v) = self.const_value(inner)
+                    && v.num() >= b.num()
+                {
+                    first
+                } else {
+                    return None;
+                }
+            }
+            Op::Max => {
+                if let Kind::Binary { op: Op::Min, first: inner, .. } = self.nodes[second].kind
+                    && let Some(v) = self.const_value(inner)
+                    && v.num() <= b.num()
+                {
+                    first
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        })
+    }
+
+    /// `a` is the value of `second`, the deeper operand.
+    fn simplify_constant_second(&mut self, op: Op, a: Val, first: Id, second: Id) -> Option<Id> {
+        Some(match op {
+            Op::Add if a.is_num(0.0) => first,
+            Op::Sub if a.is_num(0.0) => self.make_unary(Op::Neg, first),
+            Op::Mul => {
+                if a.is_num(1.0) {
+                    first
+                } else if a.is_num(0.0) {
+                    second
+                } else if a.is_num(-1.0) {
+                    self.make_unary(Op::Neg, first)
+                } else {
+                    return None;
+                }
+            }
+            Op::And => {
+                if a.is_bool(true) {
+                    first
+                } else if a.is_bool(false) {
+                    second
+                } else {
+                    return None;
+                }
+            }
+            Op::Or => {
+                if a.is_bool(false) {
+                    first
+                } else if a.is_bool(true) {
+                    second
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        })
     }
 
     fn make_unary(&mut self, op: Op, operand: Id) -> Id {
@@ -2040,6 +2063,15 @@ mod tests {
         let f = function("{ dup 2 exp exch dup 0.5 exp exch 0 exp }", 1, 3);
         assert!(compiled(&f));
         assert_eq!(run(&f, &[0.25], 3), vec![0.0625, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn identities_and_equal_operands_are_simplified_without_changing_results() {
+        let f = function("{ dup dup sub exch 0 add 1 mul 0 exch sub }", 1, 2);
+        assert!(compiled(&f));
+        assert_eq!(run(&f, &[0.5], 2), vec![0.0, -0.5]);
+        let f = function("{ dup dup eq exch dup ge }", 1, 2);
+        assert_eq!(run(&f, &[0.5], 2), vec![1.0, 1.0]);
     }
 
     #[test]

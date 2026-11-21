@@ -429,6 +429,43 @@ pub fn pptx_slot(metadata: &Value, role: &str) -> Value {
     Value::Object(slot)
 }
 
+fn shape_kind(block: &ShapeBlock) -> &'static str {
+    let xml = block.xml.as_str();
+    if block.kind == "pic" {
+        "image"
+    } else if block.kind == "graphicFrame" && compiled(r"<c:chart\b", "i").is_match(xml) {
+        "chart"
+    } else if block.kind == "graphicFrame" && compiled(r"<a:tbl\b", "i").is_match(xml) {
+        "table"
+    } else if block.kind == "graphicFrame" || block.kind == "grpSp" {
+        "diagram"
+    } else {
+        "text"
+    }
+}
+
+fn shape_role(text: &str, placeholder_type: &str, kind: &str, shape: usize) -> String {
+    let role = token_slot_role(text);
+    if !role.is_empty() {
+        return role;
+    }
+    if placeholder_type == "title" || placeholder_type == "ctrTitle" {
+        "title".to_owned()
+    } else if placeholder_type == "subTitle" {
+        "subtitle".to_owned()
+    } else if placeholder_type == "pic" || kind == "image" {
+        "image".to_owned()
+    } else if kind == "chart" {
+        "chart".to_owned()
+    } else if kind == "table" {
+        "table".to_owned()
+    } else if !placeholder_type.is_empty() {
+        format!("body-{shape}")
+    } else {
+        String::new()
+    }
+}
+
 /// `pptxShapeMetadata(block, shape)`: what a shape element says of itself: name, kind, text, placeholder, geometry,
 /// type size, outline, and the slot its tokens or placeholder name.
 pub fn pptx_shape_metadata(block: &ShapeBlock, shape: usize) -> Value {
@@ -451,19 +488,7 @@ pub fn pptx_shape_metadata(block: &ShapeBlock, shape: usize) -> Value {
         "width": json_number(number(ext, "cx")),
         "height": json_number(number(ext, "cy")),
     });
-    let kind = if block.kind == "pic" {
-        "image"
-    } else if block.kind == "graphicFrame" && compiled(r"<c:chart\b", "i").is_match(xml) {
-        "chart"
-    } else if block.kind == "graphicFrame" && compiled(r"<a:tbl\b", "i").is_match(xml) {
-        "table"
-    } else if block.kind == "graphicFrame" || block.kind == "grpSp" {
-        "diagram"
-    } else {
-        "text"
-    };
-    // A page someone drew carries no placeholder and no token, so the only evidence of which box is the title and which
-    // row reads as steps is the type size it was set in and the outline it was drawn with.
+    let kind = shape_kind(block);
     let font_sizes: Vec<f64> = compiled(r#"<a:rPr\b[^>]*\bsz="(\d+)""#, "gi")
         .captures_iter(xml)
         .map(|found| string_to_number(found.get(1).unwrap_or("")) / 100.0)
@@ -490,22 +515,7 @@ pub fn pptx_shape_metadata(block: &ShapeBlock, shape: usize) -> Value {
     if !preset.is_empty() {
         metadata.insert("preset".to_owned(), Value::String(preset));
     }
-    let mut role = token_slot_role(&text);
-    if role.is_empty() {
-        if placeholder_type == "title" || placeholder_type == "ctrTitle" {
-            role = "title".to_owned();
-        } else if placeholder_type == "subTitle" {
-            role = "subtitle".to_owned();
-        } else if placeholder_type == "pic" || kind == "image" {
-            role = "image".to_owned();
-        } else if kind == "chart" {
-            role = "chart".to_owned();
-        } else if kind == "table" {
-            role = "table".to_owned();
-        } else if !placeholder_type.is_empty() {
-            role = format!("body-{shape}");
-        }
-    }
+    let role = shape_role(&text, &placeholder_type, kind, shape);
     let mut metadata = Value::Object(metadata);
     let slot = pptx_slot(&metadata, &role);
     if !slot.is_null() {

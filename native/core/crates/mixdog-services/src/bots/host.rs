@@ -1,8 +1,3 @@
-//! The session side of a routine fire, as one seam. A routine is a turn in its owner bot's
-//! home thread: queueing it behind the thread's own work, marking it unattended, aborting it
-//! and reading the bot and agent definitions all belong to the session core, which implements
-//! `RoutineHost`. Everything that decides *whether and how* a fire runs lives in this crate.
-
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;

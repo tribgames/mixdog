@@ -1,8 +1,3 @@
-//! The rig of the thread settings service, shared by this crate's tests and (behind `test-support`) by the tests of
-//! crates that run the service over a real session directory: the doubles of what the service reads (the registered
-//! Projects, the archive notes, the effort tuning, the agent-only index), [`build`] over any `SessionWorkspaces`, and
-//! [`hosted`], the workspaces over the directory's own host as the daemon composes them.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;

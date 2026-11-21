@@ -1,18 +1,3 @@
-//! The media a `browser` result carries beside its text: what `attachBrowserMedia` of the Node bridge client (`client.mjs`) made of the
-//! image and of the attached download (`result.file`), and the one place `browser_output` turns a download into what the model reads.
-//!
-//! The single classifier of inline file kinds is `mixdog_ai::providers::file_text::inline_file_kind` (`inlineFileKind` of
-//! `shared/inline-file-kind.mjs`): the providers lower their files through it and the host's media layer classifies by it. This
-//! module only decides which part each kind becomes. (`mixdog-mcp`'s `result.rs` keeps a private copy of the same rules for its own
-//! results; it is not used here.)
-//!
-//! | kind | part |
-//! |---|---|
-//! | png, jpeg, gif, webp (by label) | an image |
-//! | PDF (label or `%PDF-` bytes) | a document |
-//! | text, office | a `ToolPart::File`: rendered as the inline file part an attachment is, which the media lowering (`mixdog-core`'s `run_host/media.rs`, same classifier) turns into the file's text or its Office extraction |
-//! | binary | no part: a note that the file stays on disk, and the reply's "Attached" sentence says it was not attached |
-
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_ai::providers::file_text::FileKind;

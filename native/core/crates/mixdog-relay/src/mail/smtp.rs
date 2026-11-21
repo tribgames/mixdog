@@ -1,9 +1,7 @@
-//! The SMTP submission client: `nodemailer`'s `smtp-transport` and `smtp-connection` for the options `lib/feedback.mjs`
-//! passes to `createTransport`. Port 465 is implicit TLS; any other port connects in plain text and requires STARTTLS, which
-//! is sent whether or not the server advertised it (a refusal is `ETLS`). The certificate is verified against the webpki
-//! roots. Connection, greeting, socket and DNS timeouts are one value (15 s for the relay): the connection deadline covers
-//! the DNS lookup, every address tried, the greeting and the STARTTLS upgrade, and the socket timeout is the longest the
-//! connection may be silent. Failures carry nodemailer's `code` because the relay logs only that.
+//! The SMTP submission client. Port 465 is implicit TLS; any other port connects in plain text and requires STARTTLS, which is
+//! sent whether or not the server advertised it (a refusal is `ETLS`). The certificate is verified against the webpki roots.
+//! Connection, greeting, socket and DNS timeouts are one value: the connection deadline covers the DNS lookup, every address
+//! tried, the greeting and the STARTTLS upgrade, and the socket timeout is the longest the connection may be silent.
 
 use std::fmt;
 use std::io;
@@ -305,50 +303,51 @@ impl Session {
         if user.is_empty() || pass.is_empty() {
             return Err(MailError::api(MailCode::Auth, format!("Missing credentials for \"{method}\"")));
         }
-        let encode = |text: &str| STANDARD.encode(text.as_bytes());
         match method {
-            "LOGIN" => {
-                self.command("AUTH LOGIN").await?;
-                let reply = self.reply(None).await?;
-                if !is_continuation(&reply) {
-                    return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"334 VXNlcm5hbWU6\"", &reply, "AUTH LOGIN"));
-                }
-                self.command(&encode(user)).await?;
-                let reply = self.reply(None).await?;
-                if !is_continuation(&reply) {
-                    return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"334 UGFzc3dvcmQ6\"", &reply, "AUTH LOGIN"));
-                }
-                self.command(&encode(pass)).await?;
-                let reply = self.reply(None).await?;
-                self.auth_complete(reply, "AUTH LOGIN").await
-            }
-            "CRAM-MD5" => {
-                self.command("AUTH CRAM-MD5").await?;
-                let reply = self.reply(None).await?;
-                let Some(challenge) = cram_challenge(&reply) else {
-                    return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for server challenge string", &reply, "AUTH CRAM-MD5"));
-                };
-                let lenient = GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent));
-                let decoded: Vec<u8> = lenient.decode(challenge.trim()).unwrap_or_default().into_iter().map(|b| b & 0x7f).collect();
-                let mut mac = Hmac::<Md5>::new_from_slice(pass.as_bytes()).map_err(|error| MailError::api(MailCode::Auth, error.to_string()))?;
-                mac.update(&decoded);
-                let digest: String = mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
-                self.command(&encode(&format!("{user} {digest}"))).await?;
-                let reply = self.reply(None).await?;
-                let accepted = reply.strip_prefix("235").is_some_and(|rest| rest.starts_with(char::is_whitespace));
-                if accepted {
-                    Ok(())
-                } else {
-                    Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"235\"", &reply, "AUTH CRAM-MD5"))
-                }
-            }
-            _ => {
-                // The authorization identity is left out: it causes problems with some servers.
-                self.command(&format!("AUTH PLAIN {}", encode(&format!("\u{0}{user}\u{0}{pass}")))).await?;
-                let reply = self.reply(None).await?;
-                self.auth_complete(reply, "AUTH PLAIN").await
-            }
+            "LOGIN" => self.login_prompted(user, pass).await,
+            "CRAM-MD5" => self.login_cram_md5(user, pass).await,
+            _ => self.login_plain(user, pass).await,
         }
+    }
+
+    async fn login_prompted(&mut self, user: &str, pass: &str) -> Result<(), MailError> {
+        self.command("AUTH LOGIN").await?;
+        let reply = self.reply(None).await?;
+        if !is_continuation(&reply) {
+            return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"334 VXNlcm5hbWU6\"", &reply, "AUTH LOGIN"));
+        }
+        self.command(&STANDARD.encode(user)).await?;
+        let reply = self.reply(None).await?;
+        if !is_continuation(&reply) {
+            return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"334 UGFzc3dvcmQ6\"", &reply, "AUTH LOGIN"));
+        }
+        self.command(&STANDARD.encode(pass)).await?;
+        let reply = self.reply(None).await?;
+        self.auth_complete(reply, "AUTH LOGIN").await
+    }
+
+    async fn login_cram_md5(&mut self, user: &str, pass: &str) -> Result<(), MailError> {
+        self.command("AUTH CRAM-MD5").await?;
+        let reply = self.reply(None).await?;
+        let Some(challenge) = cram_challenge(&reply) else {
+            return Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for server challenge string", &reply, "AUTH CRAM-MD5"));
+        };
+        let lenient = GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent));
+        let decoded: Vec<u8> = lenient.decode(challenge.trim()).unwrap_or_default().into_iter().map(|b| b & 0x7f).collect();
+        let mut mac = Hmac::<Md5>::new_from_slice(pass.as_bytes()).map_err(|error| MailError::api(MailCode::Auth, error.to_string()))?;
+        mac.update(&decoded);
+        let digest: String = mac.finalize().into_bytes().iter().map(|byte| format!("{byte:02x}")).collect();
+        self.command(&STANDARD.encode(format!("{user} {digest}"))).await?;
+        let reply = self.reply(None).await?;
+        let accepted = reply.strip_prefix("235").is_some_and(|rest| rest.starts_with(char::is_whitespace));
+        if accepted { Ok(()) } else { Err(MailError::failed(MailCode::Auth, "Invalid login sequence while waiting for \"235\"", &reply, "AUTH CRAM-MD5")) }
+    }
+
+    async fn login_plain(&mut self, user: &str, pass: &str) -> Result<(), MailError> {
+        // The authorization identity is left out: it causes problems with some servers.
+        self.command(&format!("AUTH PLAIN {}", STANDARD.encode(format!("\u{0}{user}\u{0}{pass}")))).await?;
+        let reply = self.reply(None).await?;
+        self.auth_complete(reply, "AUTH PLAIN").await
     }
 
     /// `_actionAUTHComplete`: a `334` is answered with an empty line, anything but 2xx is a refusal.
@@ -381,46 +380,9 @@ impl Session {
         let mut envelope = Envelope { utf8, from_non_ascii: non_ascii(&built.from), ..Envelope::default() };
 
         let data_reply = if capabilities.pipelining {
-            let mut batch = format!("{mail_from}\r\n");
-            for to in &built.to {
-                batch.push_str(&format!("RCPT TO:<{to}>\r\n"));
-            }
-            batch.push_str("DATA\r\n");
-            self.write(batch.as_bytes()).await?;
-            let reply = self.reply(None).await?;
-            envelope.mail(&reply);
-            for to in &built.to {
-                let reply = self.reply(None).await?;
-                envelope.recipient(to, &reply);
-            }
-            let data_reply = self.reply(None).await?;
-            if let Some(error) = envelope.error(&data_reply, true) {
-                if data_reply.starts_with('3') && envelope.mail_error.is_none() {
-                    // The server took DATA without a recipient: the empty message is ended so the session stays usable.
-                    self.command(".").await?;
-                    self.reply(None).await?;
-                }
-                return Err(error);
-            }
-            data_reply
+            self.envelope_pipelined(&mail_from, &built.to, &mut envelope).await?
         } else {
-            self.command(&mail_from).await?;
-            let reply = self.reply(None).await?;
-            envelope.mail(&reply);
-            if let Some(error) = envelope.mail_error.take() {
-                return Err(error);
-            }
-            let mut last = reply;
-            for to in &built.to {
-                self.command(&format!("RCPT TO:<{to}>")).await?;
-                last = self.reply(None).await?;
-                envelope.recipient(to, &last);
-            }
-            if let Some(error) = envelope.error(&last, false) {
-                return Err(error);
-            }
-            self.command("DATA").await?;
-            self.reply(None).await?
+            self.envelope_sequential(&mail_from, &built.to, &mut envelope).await?
         };
         // Some servers answer 250 where 354 is expected.
         if !data_reply.starts_with(['2', '3']) {
@@ -429,6 +391,51 @@ impl Session {
         self.write(&dot_stuff(&built.data)).await?;
         let reply = self.reply(None).await?;
         if reply.starts_with('2') { Ok(()) } else { Err(MailError::failed(MailCode::Message, "Message failed", &reply, "DATA")) }
+    }
+
+    async fn envelope_pipelined(&mut self, mail_from: &str, to: &[String], envelope: &mut Envelope) -> Result<String, MailError> {
+        let mut batch = format!("{mail_from}\r\n");
+        for to in to {
+            batch.push_str(&format!("RCPT TO:<{to}>\r\n"));
+        }
+        batch.push_str("DATA\r\n");
+        self.write(batch.as_bytes()).await?;
+        let reply = self.reply(None).await?;
+        envelope.mail(&reply);
+        for to in to {
+            let reply = self.reply(None).await?;
+            envelope.recipient(to, &reply);
+        }
+        let data_reply = self.reply(None).await?;
+        if let Some(error) = envelope.error(&data_reply, true) {
+            if data_reply.starts_with('3') && envelope.mail_error.is_none() {
+                // The server took DATA without a recipient: the empty message is ended so the session stays usable.
+                self.command(".").await?;
+                self.reply(None).await?;
+            }
+            return Err(error);
+        }
+        Ok(data_reply)
+    }
+
+    async fn envelope_sequential(&mut self, mail_from: &str, to: &[String], envelope: &mut Envelope) -> Result<String, MailError> {
+        self.command(mail_from).await?;
+        let reply = self.reply(None).await?;
+        envelope.mail(&reply);
+        if let Some(error) = envelope.mail_error.take() {
+            return Err(error);
+        }
+        let mut last = reply;
+        for to in to {
+            self.command(&format!("RCPT TO:<{to}>")).await?;
+            last = self.reply(None).await?;
+            envelope.recipient(to, &last);
+        }
+        if let Some(error) = envelope.error(&last, false) {
+            return Err(error);
+        }
+        self.command("DATA").await?;
+        self.reply(None).await
     }
 }
 
@@ -700,10 +707,8 @@ fn hello_name() -> String {
     let is_ipv4 = parts.len() == 4 && parts.iter().all(|p| (1..=3).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit()));
     if is_ipv4 { format!("[{host}]") } else { host }
 }
-/// The DNS lookup and the addresses in turn, all inside the connection deadline. nodemailer picks one address at random
-/// and falls back to the others when it fails, each attempt with a full connection timeout; here every address is still
-/// tried, but within the one deadline: the IPv6 addresses first, each family shuffled; a family that is the only one
-/// gets its share of what is left, a mixed list moves on after a quarter of a second so a dead IPv6 path costs little.
+/// The DNS lookup and the addresses in turn, all inside the connection deadline: IPv6 first, each family shuffled; a family that
+/// is the only one gets its share of what is left, a mixed list moves on after a quarter of a second.
 async fn connect_tcp(config: &MailConfig, deadline: Instant) -> Result<TcpStream, MailError> {
     let dns_limit = config.timeout.min(deadline.saturating_duration_since(Instant::now()));
     let resolved = match timeout(dns_limit, lookup_host((config.host.as_str(), config.port))).await {

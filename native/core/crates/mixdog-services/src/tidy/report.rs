@@ -265,40 +265,28 @@ fn present_groups(summary: &Value) -> Vec<(String, Value)> {
     summary.as_object().into_iter().flatten().filter(|(_, g)| g.as_object().is_some_and(|o| !o.is_empty())).map(|(k, g)| (k.clone(), g.clone())).collect()
 }
 
+/// A file list page: `key` with its `Count`, and `More`/`NextOffset` when entries remain.
+fn put_file_page(m: &mut Map<String, Value>, key: &str, files: &[Value], (cap, offset): (usize, usize)) {
+    if files.is_empty() {
+        return;
+    }
+    let (items, more, start) = page_list(files, offset, cap);
+    put(m, key, json!(items));
+    put_if(m, more > 0, &format!("{key}More"), || json!(more));
+    put_if(m, more > 0, &format!("{key}NextOffset"), || json!(start + items.len()));
+    put(m, &format!("{key}Count"), json!(files.len()));
+}
+
 /// A clean engine is its id, filesChecked and diagnosticsCount 0; list, page and summary fields
 /// appear only when the engine reported something.
 fn shape_engine_result(result: &Value, summary: &Value, cap: usize, offset: usize, file_paging: (usize, usize)) -> Value {
     let diagnostics_count = arr(&result["diagnostics"]).len();
-    let changed_count = arr(&result["filesChanged"]).len();
     let (diag_items, diag_more, diag_offset) = page_list(arr(&result["diagnostics"]), offset, cap);
-    let (changed_items, changed_more, changed_offset) = page_list(arr(&result["filesChanged"]), file_paging.1, file_paging.0);
     let mut m = Map::new();
     put(&mut m, "id", result["id"].clone());
     put(&mut m, "filesChecked", json!(result["filesChecked"].as_i64().unwrap_or(0)));
-    // The file lists page with the same `offset` as the diagnostics; each states the offset that
-    // reaches its next entries, so no advertised entry is out of reach.
-    if changed_count > 0 {
-        put(&mut m, "filesChanged", json!(changed_items));
-        put_if(&mut m, changed_more > 0, "filesChangedMore", || json!(changed_more));
-        put_if(&mut m, changed_more > 0, "filesChangedNextOffset", || json!(changed_offset + changed_items.len()));
-        put(&mut m, "filesChangedCount", json!(changed_count));
-    }
-    let ignored = arr(&result["ignored"]);
-    if !ignored.is_empty() {
-        let (items, more, ignored_offset) = page_list(ignored, file_paging.1, file_paging.0);
-        put(&mut m, "ignored", json!(items));
-        put_if(&mut m, more > 0, "ignoredMore", || json!(more));
-        put_if(&mut m, more > 0, "ignoredNextOffset", || json!(ignored_offset + items.len()));
-        put(&mut m, "ignoredCount", json!(ignored.len()));
-    }
-    // Files the engine ran on and could not process (`{file, reason}`), paged like `ignored`.
-    let unprocessed = arr(&result["unprocessed"]);
-    if !unprocessed.is_empty() {
-        let (items, more, unprocessed_offset) = page_list(unprocessed, file_paging.1, file_paging.0);
-        put(&mut m, "unprocessed", json!(items));
-        put_if(&mut m, more > 0, "unprocessedMore", || json!(more));
-        put_if(&mut m, more > 0, "unprocessedNextOffset", || json!(unprocessed_offset + items.len()));
-        put(&mut m, "unprocessedCount", json!(unprocessed.len()));
+    for key in ["filesChanged", "ignored", "unprocessed"] {
+        put_file_page(&mut m, key, arr(&result[key]), file_paging);
     }
     put(&mut m, "diagnosticsCount", json!(diagnostics_count));
     if diagnostics_count > 0 {
@@ -452,23 +440,6 @@ struct Parts {
 /// Assembles the report and trims it until it fits the tool output budget.
 pub fn build_tidy_report(input: ReportInput) -> Value {
     let results = input.results.clone().unwrap_or_default();
-    let truncation_notes: Vec<String> = results
-        .iter()
-        .filter(|r| r["truncated"] == true)
-        .map(|r| {
-            r["note"]
-                .as_str()
-                .filter(|n| !n.is_empty())
-                .map_or_else(|| format!("{} output was truncated; split the scope and re-run", r["id"].as_str().unwrap_or("")), str::to_owned)
-        })
-        .collect();
-    let ignored_notes: Vec<String> = results
-        .iter()
-        .filter(|r| !arr(&r["ignored"]).is_empty())
-        .map(|r| {
-            format!("{} did not process {} file(s): its configuration ignores them; see ignored", r["id"].as_str().unwrap_or(""), arr(&r["ignored"]).len())
-        })
-        .collect();
     let engine_truncated = results.iter().any(|r| r["truncated"] == true);
     let start_cap = input.limit.min(RESULTS_PAGE_MAX);
     let pass_errors = structural_errors(&input.structural);
@@ -487,34 +458,7 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
         "failed"
     };
     let run = is_run_action(&input.action);
-    let mut notes = input.notes.clone();
-    notes.extend(truncation_notes);
-    notes.extend(ignored_notes);
-    if !run {
-        notes.extend(input.shadows.iter().flatten().map(shadow_note));
-    }
-    let wt = if input.working_tree.is_null() { None } else { Some(&input.working_tree) };
-    notes.extend(worktree_notes(wt, &input.action));
-    let mut languages_seen: Vec<String> = Vec::new();
-    for e in &pass_errors {
-        let l = e["language"].as_str().filter(|l| !l.is_empty()).unwrap_or("unknown language").to_owned();
-        if !languages_seen.contains(&l) {
-            languages_seen.push(l);
-        }
-    }
-    notes.extend(languages_seen.iter().map(|l| format!("{l} structural pass did not complete; see structural.errors")));
-    if !pass_errors.is_empty() {
-        notes.push("structural apply blocked for the entire run; no structural fixes were written".into());
-    }
-    let unprocessed_files: u64 = input.unprocessed.iter().map(|u| u["count"].as_u64().unwrap_or(0)).sum();
-    if unprocessed_files > 0 {
-        let languages: std::collections::BTreeSet<&str> = input.unprocessed.iter().filter_map(|u| u["language"].as_str()).collect();
-        let what = if input.action == "scan" { "no formatter or linter engine will process" } else { "no formatter or linter engine processed" };
-        notes.push(format!(
-            "{what} {unprocessed_files} file(s) of {}; see unprocessed: they are unchecked, not clean",
-            languages.into_iter().collect::<Vec<_>>().join(", ")
-        ));
-    }
+    let notes = report_notes(&input, &results, &pass_errors);
     let scopes: Vec<String> = arr(&input.scope).iter().filter_map(Value::as_str).map(str::to_owned).collect();
     let summaries = results
         .iter()
@@ -569,6 +513,55 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
         report["truncated"] = json!(true);
     }
     report
+}
+
+fn report_notes(input: &ReportInput, results: &[Value], pass_errors: &[Value]) -> Vec<String> {
+    let truncation_notes: Vec<String> = results
+        .iter()
+        .filter(|r| r["truncated"] == true)
+        .map(|r| {
+            r["note"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .map_or_else(|| format!("{} output was truncated; split the scope and re-run", r["id"].as_str().unwrap_or("")), str::to_owned)
+        })
+        .collect();
+    let ignored_notes: Vec<String> = results
+        .iter()
+        .filter(|r| !arr(&r["ignored"]).is_empty())
+        .map(|r| {
+            format!("{} did not process {} file(s): its configuration ignores them; see ignored", r["id"].as_str().unwrap_or(""), arr(&r["ignored"]).len())
+        })
+        .collect();
+    let mut notes = input.notes.clone();
+    notes.extend(truncation_notes);
+    notes.extend(ignored_notes);
+    if !is_run_action(&input.action) {
+        notes.extend(input.shadows.iter().flatten().map(shadow_note));
+    }
+    let wt = if input.working_tree.is_null() { None } else { Some(&input.working_tree) };
+    notes.extend(worktree_notes(wt, &input.action));
+    let mut languages_seen: Vec<String> = Vec::new();
+    for e in pass_errors {
+        let l = e["language"].as_str().filter(|l| !l.is_empty()).unwrap_or("unknown language").to_owned();
+        if !languages_seen.contains(&l) {
+            languages_seen.push(l);
+        }
+    }
+    notes.extend(languages_seen.iter().map(|l| format!("{l} structural pass did not complete; see structural.errors")));
+    if !pass_errors.is_empty() {
+        notes.push("structural apply blocked for the entire run; no structural fixes were written".into());
+    }
+    let unprocessed_files: u64 = input.unprocessed.iter().map(|u| u["count"].as_u64().unwrap_or(0)).sum();
+    if unprocessed_files > 0 {
+        let languages: std::collections::BTreeSet<&str> = input.unprocessed.iter().filter_map(|u| u["language"].as_str()).collect();
+        let what = if input.action == "scan" { "no formatter or linter engine will process" } else { "no formatter or linter engine processed" };
+        notes.push(format!(
+            "{what} {unprocessed_files} file(s) of {}; see unprocessed: they are unchecked, not clean",
+            languages.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    notes
 }
 
 /// The environment header describes the run itself, so a `results` page leaves it out.

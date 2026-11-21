@@ -274,39 +274,54 @@ impl HandoffUserTool {
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    /// What the secret request is bound to (the page's origin and form, empty for a computer field); the
+    /// handoff outcome when it cannot be bound.
+    async fn bind_secret(&self, ctx: &ToolContext, h: &Handoff, request_id: &str) -> Result<Value, &'static str> {
+        let thread = &ctx.thread_id;
+        if h.surface != "browser" {
+            return match self.env.computer_bind(thread, request_id, &h.identity.window_id, &h.identity.reference).await.as_str() {
+                "bound" => Ok(json!({})),
+                "no_field" => Err("no_field"),
+                _ => Err("blocked"),
+            };
+        }
+        let mut input = json!({"request_id": request_id, "field": h.field});
+        if !h.identity.tab.is_empty() {
+            input["tab"] = json!(h.identity.tab);
+        }
+        let facts = self.page(thread, "secret_bind", input, &ctx.cancel).await;
+        let origin = facts.as_ref().and_then(|f| f.get("origin")).and_then(Value::as_str).filter(|o| !o.is_empty()).ok_or("blocked")?;
+        let form = facts.as_ref().and_then(|f| f.get("form")).and_then(Value::as_str).filter(|o| !o.is_empty()).ok_or("no_field")?;
+        let mut bound = json!({"origin": origin, "form": form});
+        if let Some(length) = facts.as_ref().and_then(|f| f.get("length")).filter(|l| l.as_u64().is_some_and(|n| n > 0)) {
+            bound["length"] = length.clone();
+        }
+        Ok(bound)
+    }
+
+    /// The outcome of the fill the user handed the desktop for `request_id`.
+    async fn fill_secret(&self, ctx: &ToolContext, h: &Handoff, request_id: &str) -> String {
+        let thread = &ctx.thread_id;
+        let filled = if h.surface == "browser" {
+            let value = self.page(thread, "secret_input", json!({"request_id": request_id}), &ctx.cancel).await;
+            value.and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
+        } else {
+            self.env.computer_input(thread, request_id, &h.identity.window_id, &h.identity.reference).await
+        };
+        if filled != "user_skipped" && HANDOFF_OUTCOMES.contains(&filled.as_str()) { filled } else { "blocked".to_owned() }
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn secret(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, ToolError> {
         let thread = &ctx.thread_id;
         let request_id = (self.ids)();
-        let mut bound = json!({});
-        if h.surface == "browser" {
-            let mut input = json!({"request_id": request_id, "field": h.field});
-            if !h.identity.tab.is_empty() {
-                input["tab"] = json!(h.identity.tab);
-            }
-            let facts = self.page(thread, "secret_bind", input, &ctx.cancel).await;
-            let origin = facts.as_ref().and_then(|f| f.get("origin")).and_then(Value::as_str).filter(|o| !o.is_empty());
-            let form = facts.as_ref().and_then(|f| f.get("form")).and_then(Value::as_str).filter(|o| !o.is_empty());
-            let refused = match (origin, form) {
-                (None, _) => Some("blocked"),
-                (_, None) => Some("no_field"),
-                _ => None,
-            };
-            if let Some(outcome) = refused {
+        let bound = match self.bind_secret(ctx, h, &request_id).await {
+            Ok(bound) => bound,
+            Err(outcome) => {
                 self.record(thread, gate, outcome, "").await?;
                 return Ok(outcome.to_owned());
             }
-            bound = json!({"origin": origin, "form": form});
-            if let Some(length) = facts.as_ref().and_then(|f| f.get("length")).filter(|l| l.as_u64().is_some_and(|n| n > 0)) {
-                bound["length"] = length.clone();
-            }
-        } else {
-            let outcome = self.env.computer_bind(thread, &request_id, &h.identity.window_id, &h.identity.reference).await;
-            if outcome != "bound" {
-                let refused = if outcome == "no_field" { "no_field" } else { "blocked" };
-                self.record(thread, gate, refused, "").await?;
-                return Ok(refused.to_owned());
-            }
-        }
+        };
         let mut secret = json!({"requestId": request_id, "surface": h.surface, "target": h.target, "field": h.field});
         if let (Some(dst), Some(src)) = (secret.as_object_mut(), bound.as_object()) {
             dst.extend(src.clone());
@@ -334,13 +349,7 @@ impl HandoffUserTool {
         } else if !matches!(decided(&resolution), Some(d) if d.response == Some(HumanGateResponse::ProvideSecret)) {
             "user_skipped".to_owned()
         } else {
-            let filled = if h.surface == "browser" {
-                let value = self.page(thread, "secret_input", json!({"request_id": request_id}), &ctx.cancel).await;
-                value.and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default()
-            } else {
-                self.env.computer_input(thread, &request_id, &h.identity.window_id, &h.identity.reference).await
-            };
-            if filled != "user_skipped" && HANDOFF_OUTCOMES.contains(&filled.as_str()) { filled } else { "blocked".to_owned() }
+            self.fill_secret(ctx, h, &request_id).await
         };
         self.record(thread, gate, &outcome, device_of(&resolution)).await?;
         Ok(outcome)
@@ -393,7 +402,7 @@ impl HandoffUserTool {
             String::new()
         };
         let answer = takeover_outcome(&resolution, &page_url);
-        let response = if answer.starts_with("User ") { "done" } else { answer.as_str() };
+        let response = if decided(&resolution).is_some() && !expired(&resolution) { "done" } else { answer.as_str() };
         self.record(thread, gate, response, device_of(&resolution)).await?;
         Ok(answer)
     }
@@ -488,6 +497,146 @@ mod tests {
         assert_eq!(SECRET_REQUEST_TIMEOUT, Duration::from_secs(120));
         // The expiry ends the wait as Node's expiry settle does: reason `expired`.
         assert_eq!(takeover_outcome(&ApprovalResolution::TimedOut { at: 900_000 }, "https://a.com/x"), "expired");
+    }
+
+    struct Present;
+
+    #[async_trait]
+    impl CallerFacts for Present {
+        async fn is_heartbeat(&self, _: &ThreadId) -> bool {
+            false
+        }
+        async fn is_unattended(&self, _: &ThreadId) -> bool {
+            false
+        }
+        async fn user_available(&self, _: &ThreadId) -> bool {
+            true
+        }
+    }
+
+    struct Page(std::collections::HashMap<&'static str, Value>);
+
+    #[async_trait]
+    impl HostCommands for Page {
+        async fn browser(
+            &self,
+            _: &ThreadId,
+            action: &str,
+            _: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, crate::desktop::host::HostCommandError> {
+            self.0.get(action).cloned().ok_or(crate::desktop::host::HostCommandError::NoHost)
+        }
+        async fn visualize(
+            &self,
+            _: &ThreadId,
+            _: &str,
+            _: &str,
+            _: JsonValue,
+            _: &mixdog_rt::CancellationToken,
+        ) -> Result<JsonValue, crate::desktop::host::HostCommandError> {
+            unreachable!()
+        }
+    }
+
+    struct Desk {
+        bind: &'static str,
+        input: &'static str,
+        recorded: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl HandoffEnv for Desk {
+        async fn human_needed(&self, _: &ThreadId, _: &str, _: &str) -> bool {
+            false
+        }
+        async fn record_decision(&self, _: &ThreadId, _: &GateRecord, response: &str, _: &str) -> Result<(), String> {
+            self.recorded.lock().unwrap().push(response.to_owned());
+            Ok(())
+        }
+        async fn computer_bind(&self, _: &ThreadId, _: &str, _: &str, _: &str) -> String {
+            self.bind.to_owned()
+        }
+        async fn computer_input(&self, _: &ThreadId, _: &str, _: &str, _: &str) -> String {
+            self.input.to_owned()
+        }
+    }
+
+    struct Run {
+        answer: String,
+        recorded: Vec<String>,
+        asks: Vec<ApprovalAsk>,
+    }
+
+    async fn handoff(args: Value, page: &[(&'static str, Value)], bind: &'static str, input: &'static str, answers: Vec<ApprovalResolution>) -> Run {
+        let gate = Arc::new(mixdog_core_api::domain::mock::MockApprovalGate::default());
+        gate.script.lock().unwrap().extend(answers);
+        let env = Arc::new(Desk { bind, input, recorded: Default::default() });
+        let tool = HandoffUserTool::new(Arc::new(Present), Arc::new(Page(page.iter().cloned().collect())), env.clone(), Arc::new(|| "req_1".to_owned()));
+        let ctx = ToolContext { approvals: gate.clone(), ..crate::orch::tests::ctx() };
+        let out = tool.call(&ctx, args).await.expect("handoff answers");
+        let mixdog_core_api::domain::tool::ToolPart::Text(answer) = out.parts[0].clone() else { panic!("text") };
+        let asks = gate.asks.lock().unwrap().clone();
+        let recorded = env.recorded.lock().unwrap().clone();
+        Run { answer, recorded, asks }
+    }
+
+    fn secret_args(surface: &str) -> Value {
+        match surface {
+            "browser" => json!({"handoff": {"kind": "secret", "surface": "browser", "field": "password", "target": "shop"}}),
+            _ => json!({"handoff": {"kind": "secret", "surface": "computer", "field": "pin", "window_id": "w1", "ref": "r1"}}),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_browser_secret_is_bound_to_its_origin_and_form_then_filled() {
+        let page = [("secret_bind", json!({"origin": "https://a.com", "form": "f1", "length": 8})), ("secret_input", json!({"text": "entered"}))];
+        let provided = decision(true, None, Some(HumanGateResponse::ProvideSecret));
+        let run = handoff(secret_args("browser"), &page, "", "", vec![provided]).await;
+        assert_eq!((run.answer.as_str(), run.recorded), ("entered", vec!["entered".to_owned()]));
+        assert_eq!(
+            run.asks[0].payload,
+            json!({"kind": "secret", "secret": {"requestId": "req_1", "surface": "browser", "target": "shop", "field": "password", "origin": "https://a.com", "form": "f1", "length": 8}})
+        );
+    }
+
+    #[tokio::test]
+    async fn a_browser_secret_without_an_origin_is_blocked_and_without_a_form_has_no_field() {
+        let blocked = handoff(secret_args("browser"), &[("secret_bind", json!({"form": "f1"}))], "", "", vec![]).await;
+        assert_eq!((blocked.answer.as_str(), blocked.recorded, blocked.asks.len()), ("blocked", vec!["blocked".to_owned()], 0));
+        let no_field = handoff(secret_args("browser"), &[("secret_bind", json!({"origin": "https://a.com"}))], "", "", vec![]).await;
+        assert_eq!((no_field.answer.as_str(), no_field.recorded, no_field.asks.len()), ("no_field", vec!["no_field".to_owned()], 0));
+    }
+
+    #[tokio::test]
+    async fn a_computer_secret_ends_as_its_bind_or_the_users_answer_says() {
+        let no_field = handoff(secret_args("computer"), &[], "no_field", "", vec![]).await;
+        assert_eq!((no_field.answer.as_str(), no_field.asks.len()), ("no_field", 0));
+        let refused = handoff(secret_args("computer"), &[], "weird", "", vec![]).await;
+        assert_eq!(refused.answer, "blocked");
+        let skipped = handoff(secret_args("computer"), &[], "bound", "entered", vec![decision(false, None, None)]).await;
+        assert_eq!((skipped.answer.as_str(), skipped.recorded), ("user_skipped", vec!["user_skipped".to_owned()]));
+        let provided = decision(true, None, Some(HumanGateResponse::ProvideSecret));
+        let filled = handoff(secret_args("computer"), &[], "bound", "entered", vec![provided.clone()]).await;
+        assert_eq!(filled.answer, "entered");
+        let unknown = handoff(secret_args("computer"), &[], "bound", "garbage", vec![provided]).await;
+        assert_eq!(unknown.answer, "blocked");
+    }
+
+    #[tokio::test]
+    async fn a_finished_takeover_records_done_and_answers_with_the_page() {
+        let args = json!({"handoff": {"kind": "takeover", "surface": "browser", "instructions": "sign in"}});
+        let page = [("page_url", json!({"url": "https://a.com/home?x=1"}))];
+        let run = handoff(args, &page, "", "", vec![decision(true, None, Some(HumanGateResponse::Done))]).await;
+        assert_eq!(run.answer, "User pressed Done; page now at https://a.com/home");
+        assert_eq!(run.recorded, vec!["done".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_takeover_records_the_outcome_itself() {
+        let args = json!({"handoff": {"kind": "takeover", "surface": "browser", "instructions": "sign in"}});
+        let run = handoff(args, &[], "", "", vec![ApprovalResolution::TimedOut { at: 1 }]).await;
+        assert_eq!((run.answer.as_str(), run.recorded), ("expired", vec!["expired".to_owned()]));
     }
 
     #[test]

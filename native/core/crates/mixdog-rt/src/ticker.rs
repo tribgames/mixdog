@@ -1,15 +1,12 @@
-//! The core ticker (P §4.7, R13): one task on RT-C serves every deadline of the process.
+//! The core ticker: one task on RT-C serves every deadline of the process.
 //!
-//! A deadline is an absolute [`Instant`] plus a callback; the ticker puts it on the tokio clock
-//! (its distance from now) so a paused or advanced test clock moves it too. The ticker keeps them ordered, sleeps
-//! until the earliest, runs the due callbacks and sleeps again; it never polls. Registering an
-//! earlier deadline than the current first wakes it to re-arm. There is no task or timer per
-//! deadline, so a million pending expiries cost a map entry each.
+//! A deadline is an absolute [`Instant`] plus a callback; the ticker puts it on the tokio clock (its distance from now) so a
+//! paused or advanced test clock moves it too, keeps them ordered, sleeps until the earliest, runs the due callbacks and sleeps
+//! again; it never polls. Registering an earlier deadline than the current first wakes it to re-arm.
 //!
-//! Callbacks run inside a poll of the ticker task (RT-C, 5 ms bound): they must only flip a
-//! flag, send on a channel or `notify`, never block, do I/O or take long. A panicking callback
-//! is contained and does not stop the ticker. For "sleep until" inside async code use
-//! [`Ticker::wait_until`].
+//! Callbacks run inside a poll of the ticker task (RT-C, 5 ms bound): they must only flip a flag, send on a channel or `notify`,
+//! never block, do I/O or take long. A panicking callback is contained and does not stop the ticker. For "sleep until" inside
+//! async code use [`Ticker::wait_until`].
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -61,15 +58,9 @@ pub fn ticker() -> &'static Ticker {
     TICKER.get_or_init(Ticker::start)
 }
 
-/// Under the test backend there is no process-long runtime. A process-wide ticker would live on
-/// whichever test runtime asked first: it would die with that test, and while it lived it would run
-/// every other test's callbacks inside that runtime, with their deadlines converted on one clock
-/// and fired on another (a paused test's on a real one). So with `test-support` the ticker is per
-/// runtime: started inside the calling runtime, on its clock (paused or not), and gone with it.
-/// Outside a runtime it is the one process-wide ticker, as in production. Only a process in which a
-/// test installed its own backend ([`crate::install`]) gets this: one whose executors came from
-/// [`crate::exec::boot`] (every product process, also when built with `test-support`) has process-long
-/// runtimes and keeps the one production ticker.
+/// With `test-support` the ticker is per runtime: started inside the calling runtime, on its clock, and gone with it, so one test's
+/// callbacks never run on another's clock. Outside a runtime, or in a process whose executors came from [`crate::exec::boot`], it
+/// is the one process-wide ticker, as in production.
 #[cfg(feature = "test-support")]
 pub fn ticker() -> &'static Ticker {
     use std::collections::HashMap;

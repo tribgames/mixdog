@@ -1,12 +1,3 @@
-//! `buildSessionProviderCacheOpts(provider, sessionId, agent, config, session)`
-//! (`session-lifecycle.mjs`) with `cache-strategy.mjs` behind it: the cache policy a session carries
-//! in `providerCacheOpts`. An explicit-breakpoint provider (Anthropic) gets the four-slot
-//! `cacheStrategy`; every provider gets `promptCacheScope: "shared"` for a one-shot maintenance role.
-//!
-//! The one-shot test is `mixdog_agent::cache_scope`, the idle window is `compact::settings`, the
-//! internal agents are `ai_admin::hidden_agents` and the session ids are `rooms::ids`; nothing here
-//! is a second copy of them.
-
 use mixdog_agent::cache_scope::{SHARED, is_one_shot_maintenance};
 use mixdog_agent::compact::settings::{Doc, normalize_auto_clear, resolve_idle_ms};
 use mixdog_store::schema::record::Header;
@@ -72,12 +63,6 @@ fn lead_messages_ttl(auto_clear: &Doc) -> &'static str {
     }
 }
 
-/// `resolveCacheStrategy(agent, { autoClear, session })`; `env_ttl` is `MIXDOG_CACHE_MESSAGES_TTL`.
-///
-/// Departure from Node 1.4.5, chosen by the product: Node gave a delegated worker and an internal role a flat `5m` tail
-/// (`isLeadCacheClass` false → `messages: '5m'`) and linked only Lead-class sessions to `autoClear`. Every session that is
-/// not a one-shot maintenance role now takes the Lead rule, so an agent's tail lives as long as the idle sweep lets it. A
-/// one-shot role has no later request to read a tail and keeps `messages: none`.
 fn cache_strategy(agent: Option<&str>, auto_clear: &Doc, env_ttl: &str) -> Value {
     if is_one_shot(agent) {
         return json!({ "tools": "none", "system": "1h", "tier3": "1h", "messages": "none" });
@@ -114,11 +99,6 @@ pub fn session_provider_cache_opts(provider: &str, agent: Option<&str>, auto_cle
     opts_with(provider, agent, auto_clear, env.trim())
 }
 
-/// What `createSession` records at creation (`session-lifecycle.mjs:267,295`, `sessionOriginFields`): `providerCacheOpts`
-/// (null when the provider and the agent state no policy) and `providerCacheOptsOverride: false`. A delegated worker or an
-/// internal role is created straight on its route, so no route change seats it and this is the only place it gets its
-/// policy; without it the ledger and the tail TTL see no strategy at all. `header`
-/// must already name the route (`provider`) and `agent`; `auto_clear` is the saved `autoClear` section, as the Lead path reads it.
 pub fn stamp_cache_opts(header: &mut Header, auto_clear: &Value) {
     let env = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();
     stamp_cache_opts_with_env(header, auto_clear, env.trim());
@@ -132,11 +112,6 @@ pub fn stamp_cache_opts_with_env(header: &mut Header, auto_clear: &Value, env_tt
     header.insert("providerCacheOptsOverride".into(), Value::Bool(false));
 }
 
-/// `refreshSessionProviderCacheOpts(session, config)` (`session-lifecycle.mjs:95`): the `providerCacheOpts` a live or resumed
-/// session holds once it follows the saved `autoClear`, when that differs from the header's. Node refreshed Lead-class
-/// sessions only; a delegated worker and an internal role follow it now too (see `cache_strategy`). `None` leaves the
-/// session alone: an explicit caller/profile policy (`providerCacheOptsOverride`), a provider that states no policy, or a
-/// header already on it.
 pub fn refreshed_cache_opts(header: &Header, auto_clear: &Value) -> Option<Value> {
     let env = std::env::var("MIXDOG_CACHE_MESSAGES_TTL").unwrap_or_default();
     refreshed_with_env(header, auto_clear, env.trim())

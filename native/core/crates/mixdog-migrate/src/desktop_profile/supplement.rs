@@ -1,15 +1,3 @@
-//! Supplemental desktop-profile moves: generation 2 imports SSH hosts, port forwards, paired PCs and server windows
-//! into `<D>/desktop/`; generation 3 adds the JSONC user editor settings at `<D>/userdata/User/settings.json`.
-//! An older journal is extended in place and resumed against its recorded profile.
-//!
-//! The pass is journaled in `migration/profile-gen.json` (one file, republished after every item step): an item goes
-//! planned -> staged (copied, hashed) -> published (renamed into `<D>`) -> disposed (source removed), and a crash at any
-//! point resumes from the recorded state. It is idempotent: a marker at generation 3 ends the call before anything is
-//! read. Only the names in [`FILES`] (and their `.bak`, the copy the desktop's atomic writer keeps) are ever looked at.
-//! A target that already holds other bytes is kept as it is; the source is then set aside as `<name>.superseded`
-//! in the profile, never deleted, so nothing the person had is lost. Bytes are never changed; a secret is copied with
-//! owner-only access created with the file.
-
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -207,6 +195,25 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
     Ok(SupplementOutcome { generation: marker.generation, moved })
 }
 
+/// `<source>.superseded`, or the first `<source>.superseded.<n>` when an earlier migration already set a conflict aside there.
+fn unused_aside_name(source: &Path) -> Result<PathBuf> {
+    let mut first = source.to_path_buf().into_os_string();
+    first.push(SUPERSEDED_SUFFIX);
+    let mut aside = first.clone();
+    let mut suffix = 0u64;
+    loop {
+        match std::fs::symlink_metadata(Path::new(&aside)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(PathBuf::from(aside)),
+            Err(error) => return Err(Blocked::io("stat", Path::new(&aside), error)),
+            Ok(_) => {
+                suffix += 1;
+                aside = first.clone();
+                aside.push(format!(".{suffix}"));
+            }
+        }
+    }
+}
+
 /// Takes one item one state forward and records it.
 fn step(data: &Path, profile: &Path, marker_path: &Path, marker: &mut Marker, index: usize, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     let item = marker.items[index].clone();
@@ -233,25 +240,9 @@ fn step(data: &Path, profile: &Path, marker_path: &Path, marker: &mut Marker, in
                 State::Published
             } else if std::fs::symlink_metadata(&target).is_ok() {
                 // Something else stands there: it stays; what the profile held is set aside, not deleted.
-                let mut aside = source.clone().into_os_string();
-                aside.push(SUPERSEDED_SUFFIX);
-                // Preserve a conflict an earlier migration already set aside as well.
-                let first_aside = aside.clone();
-                let mut suffix = 0u64;
-                loop {
-                    match std::fs::symlink_metadata(Path::new(&aside)) {
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                        Err(error) => return Err(Blocked::io("stat", Path::new(&aside), error)),
-                        Ok(_) => {
-                            suffix += 1;
-                            aside = first_aside.clone();
-                            aside.push(format!(".{suffix}"));
-                        }
-                    }
-                }
                 // A source already set aside by a run that was cut before it recorded it stays where it is.
                 if regular(&source)? {
-                    durable::durable_rename(&source, Path::new(&aside))?;
+                    durable::durable_rename(&source, &unused_aside_name(&source)?)?;
                 }
                 State::Superseded
             } else if regular(&staged)? {

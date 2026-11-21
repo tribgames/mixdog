@@ -2,9 +2,8 @@
 //! calls independently — the hub holds no lock on the call path (an `ArcSwap` snapshot), so a
 //! slow or hung server never delays another server's connection or calls.
 //!
-//! The servers are kept per scope, as Node's registry keeps them under `scopeId`
-//! (`mcp/client.mjs:72-118`): a session's scope holds the servers connected for it, and a caller
-//! that names no scope is the default one.
+//! The servers are kept per scope: a session's scope holds the servers connected for it, and a
+//! caller that names no scope is the default one.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -222,9 +221,8 @@ impl McpHub {
     }
 
     /// The server and catalog entry a prefixed tool name (`mcp__<server>__<tool>`) refers to
-    /// among the servers of `scope` (`resolveMcpToolTarget(scopeId, name)`). The name's server
-    /// part finds it directly; a name shortened to fit provider limits is found by scanning the
-    /// servers.
+    /// among the servers of `scope`. The name's server part finds it directly; a name shortened
+    /// to fit provider limits is found by scanning the servers.
     pub fn tool_target_in(&self, scope: &str, name: &str) -> Option<ToolTarget> {
         let (server_name, _) = split_mcp_tool_name(name)?;
         let direct = self.server_in(scope, &server_name);
@@ -303,11 +301,8 @@ impl McpHub {
         }
     }
 
-    /// Makes the running set equal to `configs`: unchanged servers keep their connection, new
-    /// or changed ones start connecting in the background, removed or disabled ones close.
-    /// Never waits for a connection.
-    /// `setMcpScopeRoot(scopeId, root)` (mcp/client.mjs:1603): `scope`'s servers that follow their scope advertise
-    /// `root` from now on, and the connected ones are told when it changed. No reconnect.
+    /// `scope`'s servers that follow their scope advertise `root` from now on, and the connected
+    /// ones are told when it changed. No reconnect.
     pub fn set_scope_root(&self, scope: &str, root: &str) {
         let scope = normalize_scope(Some(scope));
         let root = mixdog_js::js_trim(root);
@@ -327,6 +322,9 @@ impl McpHub {
         }
     }
 
+    /// Makes the running set equal to `configs`: unchanged servers keep their connection, new
+    /// or changed ones start connecting in the background, removed or disabled ones close.
+    /// Never waits for a connection.
     pub fn apply(self: &Arc<Self>, configs: Vec<McpServerConfig>) {
         self.apply_in(&self.default_scope(), configs);
     }
@@ -387,10 +385,6 @@ impl McpHub {
         let mut next_oauth: HashMap<String, Arc<McpOAuth>> = HashMap::new();
         for config in configs.into_iter().filter(|c| c.enabled) {
             match current.iter().find(|s| s.name() == config.name) {
-                // A server whose last connect failed (or whose connection died) is connected again
-                // although its configuration is unchanged, as Node's reconcile retries its recorded
-                // failures (`server-connection.mjs` `reconcileServers`): a fixed command or a sign-in
-                // made elsewhere needs no configuration change.
                 Some(existing) if *existing.config() == config && !(matches!(&*existing.state(), ServerState::Failed { .. }) && retry(&config.name)) => {
                     kept.push(config.name.clone());
                     if let Some(kept) = previous_oauth.get(&(scope.clone(), config.name.clone())) {
@@ -409,10 +403,6 @@ impl McpHub {
                     }
                 }
                 _ => {
-                    // `adoptSharedConnection` (mcp/client.mjs:1395-1405): the connection the scopes hold for the same
-                    // configuration, unless it closed or its connect failed. One whose connection ended by itself connects
-                    // again in place, for every scope holding it, as Node's holders each reconnect onto one new shared
-                    // connection (`reconnectMcpServer`).
                     // `Some(dead)`: it can be adopted, and whether its connection ended by itself (one state read).
                     let adoptable = |s: &Arc<McpServer>| match &*s.state() {
                         ServerState::Closed => None,
@@ -630,10 +620,6 @@ impl McpHub {
         (tools, Published(published, self.account_names()))
     }
 
-    /// The names of the accounts connector servers hold that no server of the same name publishes under: an account is a private
-    /// connection inside its connector's one tool group, never a publisher of tools of its own.
-    /// Each with the prefixes its tools are named under: its own name, and the shortened form a long or unsafe name gets
-    /// (`naming::server_part`) unless a server publishes under that same part.
     fn account_names(&self) -> Accounts {
         let registry = self.servers.load();
         // Every prefix a real (configured or published) server's tools can be named under, by the qualification rule itself:
@@ -728,7 +714,7 @@ impl McpHub {
     /// [`apply_in`](Self::apply_in) for an operation requested at `generation`: applied only while
     /// the scope is unreleased and no newer generation was requested, checked and applied under one
     /// lock, so a release or a newer full connect can neither be overtaken nor resurrected by a late
-    /// operation (`connectServer`'s `genAtStart`, `mcp/client.mjs:199,405,447`). Of the failed
+    /// operation. Of the failed
     /// servers, those `retry` names connect again. Whether it applied.
     pub fn apply_at(self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool) -> bool {
         self.apply_at_tracked(scope, generation, configs, retry).is_some()
@@ -766,16 +752,15 @@ impl McpHub {
         Some(work)
     }
 
-    /// The first half of `disconnectAll({ scopeId })` (`mcp/client.mjs:1182-1230`), synchronous: the
+    /// The first half of releasing a scope, synchronous: the
     /// scope is marked released and its generation moves on (so every operation in flight or queued
     /// for it is void from this instant), its servers leave the registry, and its sign-ins and
     /// accounts are forgotten. The servers no other scope holds are returned to be closed ([`close_retired`]); a
     /// connection another scope shares stays open for it.
     ///
-    /// The runtime scope is the daemon's and is never tombstoned: Node's `disconnectAll` only drops the
-    /// servers and voids what is in flight, so the runtime stays readable (its servers read `disconnected`)
-    /// and a later reset or reconnect connects them again, which is what a reset (`connect.mjs:107`) and MCP
-    /// being switched off (`:142`) rely on. Every other scope is released for good.
+    /// The runtime scope is the daemon's and is never tombstoned: its servers are dropped and what is
+    /// in flight is voided, so it stays readable (its servers read `disconnected`) and a later reset
+    /// or reconnect connects them again. Every other scope is released for good.
     pub fn retire_scope(&self, scope: &str) -> Vec<Arc<McpServer>> {
         let scope = normalize_scope(Some(scope));
         let mut lives = self.lives.lock().unwrap_or_else(|e| e.into_inner());
@@ -892,8 +877,6 @@ mod withdrawn_tests {
         servers.iter().map(|(name, entries)| ((*name).to_owned(), entries.iter().map(|entry| (*entry).to_owned()).collect())).collect()
     }
 
-    /// A server dropping (it publishes no catalog while down) and returning (its catalog lists the tool again) withdraws
-    /// nothing: the definition and the selection are kept through both.
     #[test]
     fn a_server_dropping_and_returning_withdraws_nothing() {
         let tool = "mcp__fs__read_file";
@@ -903,9 +886,6 @@ mod withdrawn_tests {
         assert!(!withdrawn_by("fs", &up, tool), "and back again");
     }
 
-    /// Ownership is the identity recorded at publication, never the name's shape: `mcp__fs__b__read` was published by server
-    /// `fs__b`, which has not published since a restart, while server `fs` publishes another tool. `fs` does not own it, so
-    /// it is not withdrawn.
     #[test]
     fn a_name_with_a_double_underscore_is_judged_by_its_recorded_owner() {
         let tool = "mcp__fs__b__read";

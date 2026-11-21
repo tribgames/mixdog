@@ -181,15 +181,7 @@ mod tests {
         let capped = Processes::for_tests().run(bin, &args, options).await;
         assert_eq!((capped.stdout.as_str(), capped.truncated), ("0123", true));
     }
-    /// Cancelling kills the child through the real manager, and neither the kill nor the wait
-    /// for the exit may hold the runtime's only thread. The manager's two test seams hold the
-    /// kill (tree signalled, kill not yet returned) and then the exit finalizer (exit fixed, not
-    /// yet published); at each hold a task spawned meanwhile has to run before the hold is
-    /// released. A cancel path that runs the kill, or waits for it or for the exit, on the
-    /// runtime thread never lets that task run, so the hold is never released and the test
-    /// hangs. The lane backend is the real pooled one (the test backend runs lane jobs inline on
-    /// the submitting thread, which would put the kill back on the runtime thread). The seams and
-    /// the installed backend are process-wide, so this test needs a process of its own (nextest).
+    // Process-wide test seams and the real pooled lane backend: needs a process of its own (nextest).
     #[tokio::test(flavor = "current_thread")]
     async fn cancelling_kills_the_child_without_stalling_the_runtime() {
         async fn a_task_runs() {
@@ -263,6 +255,13 @@ mod tests {
         ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
             self.inner.subscribe(handle, from_seq)
         }
+        fn subscribe_holding(
+            &self,
+            handle: &ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
+            self.inner.subscribe_holding(handle, from_seq)
+        }
         async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
             self.inner.write_stdin(handle, bytes).await
         }
@@ -279,15 +278,7 @@ mod tests {
             self.inner.list()
         }
     }
-    /// A run dropped while its spawn is in flight on a lane thread (a caller that goes away, a
-    /// runtime shutdown) must not leave the child it creates running with nobody holding it. The
-    /// spawn is parked at two seams, so each side of the commit is hit exactly, with no timing:
-    /// - `before_launch`: the run is dropped before the child exists, so only the launch job, which
-    ///   looks after committing whether the requester is still there, can kill it.
-    /// - otherwise: the run is dropped after that look, with the child committed and the requester
-    ///   not yet told, so only the spawn's own drop can kill it.
-    /// The lane backend is the real pooled one (the test backend runs the spawn inline), and the
-    /// seams and backend are process-wide, so each of these needs a process of its own (nextest).
+    // Process-wide test seams and the real pooled lane backend: needs a process of its own (nextest).
     fn the_child_ends_when_the_run_is_dropped_during_its_spawn(before_launch: bool) {
         use futures::FutureExt;
         use mixdog_spawn::testing as seam;
@@ -397,6 +388,40 @@ async fn feed_stdin(processes: Arc<dyn ProcessManager>, handle: ProcessHandle, i
     }
     let _ = processes.close_stdin(&handle);
 }
+fn env_spec(env: Option<&HashMap<String, String>>) -> EnvSpec {
+    match env {
+        Some(env) => EnvSpec { inherit: false, set: env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), remove: Vec::new() },
+        None => EnvSpec { inherit: true, ..Default::default() },
+    }
+}
+
+/// Output drained as it arrives so the child never blocks on a full pipe; `stdout` and `stderr`
+/// stop at `cap` bytes, `combined` keeps the last `cap` bytes of both.
+struct CapturedOutput {
+    cap: usize,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    combined: Vec<u8>,
+    truncated: bool,
+}
+
+impl CapturedOutput {
+    fn new(cap: usize) -> Self {
+        Self { cap, stdout: Vec::new(), stderr: Vec::new(), combined: Vec::new(), truncated: false }
+    }
+
+    fn push(&mut self, stream: OutputStream, bytes: &[u8]) {
+        let sink = if stream == OutputStream::Stderr { &mut self.stderr } else { &mut self.stdout };
+        let room = self.cap.saturating_sub(sink.len());
+        self.truncated |= bytes.len() > room;
+        sink.extend_from_slice(&bytes[..bytes.len().min(room)]);
+        self.combined.extend_from_slice(bytes);
+        if self.combined.len() > self.cap {
+            self.combined.drain(..self.combined.len() - self.cap);
+        }
+    }
+}
+
 async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bin: &str, args: &[String], options: RunOptions<'_>) -> ProcessResult {
     let (program, argv) = spawn_form(bin, args);
     let Some(cwd) = AbsPath::new(std::path::absolute(options.cwd).unwrap_or_else(|_| options.cwd.to_owned())) else {
@@ -408,15 +433,11 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bi
         };
     };
     let handle = ProcessHandle(format!("tidy-{}-{}", std::process::id(), NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)));
-    let env = match options.env {
-        Some(env) => EnvSpec { inherit: false, set: env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), remove: Vec::new() },
-        None => EnvSpec { inherit: true, ..Default::default() },
-    };
     let request = SpawnRequest {
         handle: handle.clone(),
         command: CommandSpec::Argv { program: program.clone(), args: argv },
         cwd,
-        env,
+        env: env_spec(options.env),
         pty: None,
         stdin_piped: options.input.is_some(),
         output: OutputMode::Separate,
@@ -427,15 +448,14 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bi
         return spawn_failure(error, &program);
     }
     let mut owner = KillOnDrop { processes: processes.clone(), handle: handle.clone(), settled: false };
-    let mut events = match processes.subscribe(&handle, Some(0)) {
+    let mut events = match processes.subscribe_holding(&handle, Some(0)) {
         Ok(events) => events,
         Err(error) => return spawn_failure(error, &program),
     };
     if let Some(input) = options.input.clone() {
         tokio::spawn(feed_stdin(processes.clone(), handle.clone(), input));
     }
-    let cap = options.max_capture;
-    let (mut stdout, mut stderr, mut combined, mut truncated) = (Vec::new(), Vec::new(), Vec::new(), false);
+    let mut output = CapturedOutput::new(options.max_capture);
     let mut exit = None;
     let mut killed = false;
     // The kill in flight. Dropping a JoinHandle detaches the task, it does not cancel it: a run that
@@ -472,17 +492,7 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bi
                 }
             }
             event = events.next() => match event {
-                Some(ProcessEvent::Output { stream, bytes, .. }) => {
-                    // Keep draining so the child never blocks on a full pipe.
-                    let sink = if stream == OutputStream::Stderr { &mut stderr } else { &mut stdout };
-                    let room = cap.saturating_sub(sink.len());
-                    truncated |= bytes.len() > room;
-                    sink.extend_from_slice(&bytes[..bytes.len().min(room)]);
-                    combined.extend_from_slice(&bytes);
-                    if combined.len() > cap {
-                        combined.drain(..combined.len() - cap);
-                    }
-                }
+                Some(ProcessEvent::Output { stream, bytes, .. }) => output.push(stream, &bytes),
                 Some(ProcessEvent::Exited { exit: done, .. }) => {
                     exit = Some(done);
                     owner.settled = true;
@@ -501,11 +511,11 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bi
             Some(ExitStatus::Code(code)) => code,
             _ => -1,
         },
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
-        combined: String::from_utf8_lossy(&combined).into_owned(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        combined: String::from_utf8_lossy(&output.combined).into_owned(),
         timed_out,
-        truncated,
+        truncated: output.truncated,
         error: if timed_out { format!("timed out after {}ms", options.timeout.as_millis()) } else { String::new() },
         error_code: String::new(),
     }

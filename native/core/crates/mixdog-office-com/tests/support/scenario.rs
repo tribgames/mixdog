@@ -1,5 +1,4 @@
-//! The operations the test host registers in place of Office's. A request says what the stand-in does in its `scenario`
-//! object:
+//! The `scenario` object of a request says what the test host's operation does:
 //!
 //! - `hold`: how many handles the request acquires (each stands for a COM reference: `EVENT Acquire hN` when taken and
 //!   `EVENT Release hN` when given back, on stderr);

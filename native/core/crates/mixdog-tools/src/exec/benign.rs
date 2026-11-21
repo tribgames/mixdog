@@ -1,9 +1,3 @@
-//! The benign no-match exit (`bash-tool/benign-exit.mjs`): search-style commands and
-//! `git diff --exit-code` use exit 1 as a signal (no match, has diff), not a failure. Benign only
-//! when the exit status provably comes from a search-style stage: the last segment of a `;`/`&&`
-//! chain whose last pipeline stage is a search head. The quote-aware splitters are those of
-//! `shell-analysis.mjs`.
-
 use std::sync::LazyLock;
 
 use super::scan::JsRegex;

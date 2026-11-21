@@ -1,9 +1,3 @@
-//! The relay of posted task results (`createHomeRelay` of agent-home-delivery.mjs): owed results
-//! wake the agent with one hidden turn per batch. A batch is stored with its wake id BEFORE the
-//! wake is submitted and dropped once its relay turn settled done, so a restart in between re-checks
-//! that exact id; a relay turn that did not finish is owed again under a fresh id. Results owed
-//! later form a new batch. A replayed run id is never queued again.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,10 +53,6 @@ fn message_text(content: Option<&Value>) -> String {
     }
 }
 
-/// How the turn that took a submission ended, from a session's stored `messages` (the part of
-/// `submissionOutcome` a relay reads): the end status once that turn recorded one (its completion,
-/// an interruption marker, or the next turn's prompt), `Open` while it has none; `None` when no
-/// turn took it.
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Open,
@@ -91,10 +81,6 @@ fn submission_outcome(messages: &[Value], run_id: &str) -> Option<Outcome> {
 }
 
 impl AgentHomeDelivery {
-    /// How `batch`'s relay turn went: `None` when no turn took it. A turn an earlier process took
-    /// decides by its recorded end; one with none was cut off by the restart. A room member's
-    /// batch may be answered by a turn under another submission id (`follows`, recorded before that
-    /// turn was submitted).
     fn relay_of(&self, batch: &Value, messages: &[Value], taken: &HashSet<String>) -> Option<RelayState> {
         let id = str_of(batch.get("id"));
         if let Some(local) = lock(&self.relays).get(id) {

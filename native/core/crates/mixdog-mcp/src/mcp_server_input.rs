@@ -1,7 +1,5 @@
-//! Editor input → stored MCP server config (Node `mcp-glue/server-input.mjs`,
-//! `resource-mcp-servers.mjs` and `mergeMcpServerConfig` of `plugin-mcp.mjs`): the name slug, the
-//! transport of a URL or a command, the per-server timeouts, and the merge of a partial edit over
-//! the stored entry.
+//! Editor input → stored MCP server config: the name slug, the transport of a URL or a command,
+//! the per-server timeouts, and the merge of a partial edit over the stored entry.
 
 use std::path::Component;
 use std::path::Path;
@@ -191,73 +189,82 @@ fn url_message(error: ConfigError, kind: &str) -> String {
     }
 }
 
-/// `normalizeMcpServerInput(input)`: the server's name and its stored config.
+/// The server's name and its stored config.
 pub fn normalize_mcp_server_input(input: &Value, current_cwd: &Path, home: &Path) -> Result<(String, Value), String> {
-    static NAME_RUNS: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"[^a-z0-9_.-]+", "g"));
-    static EDGE_DASHES: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"^-+|-+$", "g"));
-    static WS_URL: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"^wss?://", "i"));
-    let lowered = clean(field(input, "name")).to_lowercase();
-    let dashed = NAME_RUNS.replace_all_with(&lowered, |_| "-".to_owned());
-    let name = EDGE_DASHES.replace_all_with(&dashed, |_| String::new());
+    let name = server_slug(field(input, "name"));
     if name.is_empty() {
         return Err("MCP server name is required".to_owned());
     }
     let url = clean(field(input, "url"));
-    let kind = clean(field(input, "type")).to_lowercase();
-    let mut config = Map::new();
-    if !url.is_empty() {
-        let kind = match kind.as_str() {
-            "sse" => "sse",
-            "ws" => "ws",
-            "http" | "streamable-http" => "http",
-            _ if WS_URL.is_match(&url) => "ws",
-            _ => "http",
-        };
-        let normalized = normalize_url(&url, kind == "ws").map_err(|e| url_message(e, kind))?.to_string();
-        let secure = if normalized == format!("{url}/") { url.clone() } else { normalized };
-        config.insert("type".to_owned(), json!(kind));
-        config.insert("url".to_owned(), json!(secure));
-        if let Some(headers) = string_record(field(input, "headers")) {
-            config.insert("headers".to_owned(), headers);
-        }
-        let bearer = clean(either(field(input, "bearer_token_env_var"), field(input, "bearerTokenEnvVar")));
-        if !bearer.is_empty() {
-            config.insert("bearer_token_env_var".to_owned(), json!(bearer));
-        }
-        if let Some(env_headers) = string_record(either(field(input, "env_http_headers"), field(input, "envHttpHeaders"))) {
-            config.insert("env_http_headers".to_owned(), env_headers);
-        }
-        let client = clean(field(input, "oauthClientId"));
-        if !client.is_empty() {
-            config.insert("oauthClientId".to_owned(), json!(client));
-        }
-    } else {
-        let command = clean(field(input, "command"));
-        if command.is_empty() {
-            return Err("MCP server command or URL is required".to_owned());
-        }
-        let args: Vec<Value> = match field(input, "args") {
-            Value::Array(list) => list.iter().map(value_to_string).filter(|s| !s.is_empty()).map(Value::String).collect(),
-            other => split_words(&clean(other)),
-        };
-        let requested = clean(field(input, "cwd"));
-        let expanded = expand_home(&requested, home);
-        config.insert("type".to_owned(), json!("stdio"));
-        config.insert("command".to_owned(), json!(command));
-        config.insert("args".to_owned(), Value::Array(args));
-        if !expanded.is_empty() {
-            config.insert("cwd".to_owned(), json!(resolve(current_cwd, &expanded).to_string_lossy()));
-        }
-        if let Some(env) = string_record(field(input, "env")) {
-            config.insert("env".to_owned(), env);
-        }
-        let env_vars = string_array(either(field(input, "env_vars"), field(input, "envVars")));
-        if !env_vars.is_empty() {
-            config.insert("env_vars".to_owned(), Value::Array(env_vars));
-        }
-    }
+    let mut config = if url.is_empty() { command_transport(input, current_cwd, home)? } else { url_transport(input, &url)? };
     config.extend(timeout_fields(input)?);
     Ok((name, Value::Object(config)))
+}
+
+fn server_slug(name: &Value) -> String {
+    static NAME_RUNS: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"[^a-z0-9_.-]+", "g"));
+    static EDGE_DASHES: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"^-+|-+$", "g"));
+    let dashed = NAME_RUNS.replace_all_with(&clean(name).to_lowercase(), |_| "-".to_owned());
+    EDGE_DASHES.replace_all_with(&dashed, |_| String::new())
+}
+
+fn url_transport(input: &Value, url: &str) -> Result<Map<String, Value>, String> {
+    static WS_URL: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"^wss?://", "i"));
+    let mut config = Map::new();
+    let kind = match clean(field(input, "type")).to_lowercase().as_str() {
+        "sse" => "sse",
+        "ws" => "ws",
+        "http" | "streamable-http" => "http",
+        _ if WS_URL.is_match(url) => "ws",
+        _ => "http",
+    };
+    let normalized = normalize_url(url, kind == "ws").map_err(|e| url_message(e, kind))?.to_string();
+    let secure = if normalized == format!("{url}/") { url.to_owned() } else { normalized };
+    config.insert("type".to_owned(), json!(kind));
+    config.insert("url".to_owned(), json!(secure));
+    if let Some(headers) = string_record(field(input, "headers")) {
+        config.insert("headers".to_owned(), headers);
+    }
+    let bearer = clean(either(field(input, "bearer_token_env_var"), field(input, "bearerTokenEnvVar")));
+    if !bearer.is_empty() {
+        config.insert("bearer_token_env_var".to_owned(), json!(bearer));
+    }
+    if let Some(env_headers) = string_record(either(field(input, "env_http_headers"), field(input, "envHttpHeaders"))) {
+        config.insert("env_http_headers".to_owned(), env_headers);
+    }
+    let client = clean(field(input, "oauthClientId"));
+    if !client.is_empty() {
+        config.insert("oauthClientId".to_owned(), json!(client));
+    }
+    Ok(config)
+}
+
+fn command_transport(input: &Value, current_cwd: &Path, home: &Path) -> Result<Map<String, Value>, String> {
+    let command = clean(field(input, "command"));
+    if command.is_empty() {
+        return Err("MCP server command or URL is required".to_owned());
+    }
+    let args: Vec<Value> = match field(input, "args") {
+        Value::Array(list) => list.iter().map(value_to_string).filter(|s| !s.is_empty()).map(Value::String).collect(),
+        other => split_words(&clean(other)),
+    };
+    let requested = clean(field(input, "cwd"));
+    let expanded = expand_home(&requested, home);
+    let mut config = Map::new();
+    config.insert("type".to_owned(), json!("stdio"));
+    config.insert("command".to_owned(), json!(command));
+    config.insert("args".to_owned(), Value::Array(args));
+    if !expanded.is_empty() {
+        config.insert("cwd".to_owned(), json!(resolve(current_cwd, &expanded).to_string_lossy()));
+    }
+    if let Some(env) = string_record(field(input, "env")) {
+        config.insert("env".to_owned(), env);
+    }
+    let env_vars = string_array(either(field(input, "env_vars"), field(input, "envVars")));
+    if !env_vars.is_empty() {
+        config.insert("env_vars".to_owned(), Value::Array(env_vars));
+    }
+    Ok(config)
 }
 
 fn split_words(text: &str) -> Vec<Value> {

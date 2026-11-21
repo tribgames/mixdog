@@ -1,12 +1,6 @@
-//! Tool-result image compaction (`compactResultImages` in `finalize.mjs`, over
-//! `compactToolResultImage` and `supersedingImageMetadataText` in
-//! `read-image-resize.mjs`).
-//!
-//! An inline image of a tool result rides every later request, so it is validated and
-//! re-encoded once, as the result enters the transcript. Everything that decides what happens
-//! to an image lives here and is checked against Node's own outputs. Decoding, resizing and
-//! JPEG encoding are the codec's (Node's is `sharp`): [`ImageCodec`] is that seam, and the
-//! bytes a result carries are only as equal to Node's as the codec's encoder.
+//! Tool-result image compaction. An inline image of a tool result rides every later request, so it is validated and
+//! re-encoded once, as the result enters the transcript. Decoding, resizing and JPEG encoding are the codec's (Node's is
+//! `sharp`): [`ImageCodec`] is that seam, and the bytes a result carries are only as equal to Node's as the codec's encoder.
 
 use std::sync::Arc;
 

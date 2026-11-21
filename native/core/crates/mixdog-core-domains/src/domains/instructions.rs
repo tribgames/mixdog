@@ -2,8 +2,6 @@
 //! four output-style depths) and the instruction-files mode of the tool modules.
 //!
 //! Each text has a shipped file and a same-named user file in the data dir that replaces it.
-//! The state, the revision hash, the checks and every sentence follow
-//! `src/session-runtime/workflow-agents-api/instruction-files.mjs` of the 1.4.5 daemon.
 
 use mixdog_core_config::config::output_style::style_slug;
 use std::path::Path;
@@ -409,50 +407,56 @@ impl InstructionsService {
             return Err(bad_argument("instruction text must be plain text".into()));
         }
         let expected = input.get("expectedRevision").cloned();
-        let write = {
-            let item = item.clone();
-            move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| -> Result<(), CoreError> {
-                locked(&item.user, || {
-                    let before = item.state();
-                    Self::assert_current(expected.as_ref(), &before, &item.id)?;
-                    let default_body = before["defaultBody"].as_str().unwrap_or_default();
-                    if normalize_text(&body) == normalize_text(default_body) {
-                        // Equal to the shipped text: no copy is kept, so it follows the shipped version.
-                        return remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e));
-                    }
-                    let shipped_text = match read_instruction_file(&item.shipped) {
-                        Found::Text(text) => text,
-                        _ => String::new(),
-                    };
-                    // The bytes that reach the disk, front matter and newline included, must pass
-                    // the reader's check, or the saved file would be ignored.
-                    let bytes = item.file(&body, &shipped_text).into_bytes();
-                    if bytes.len() > FILE_MAX_BYTES {
-                        return Err(bad_argument("instruction text is larger than 256 KB".into()));
-                    }
-                    if let Err(problem) = decode_file(&bytes) {
-                        return Err(bad_argument(format!("instruction text cannot be saved ({problem})")));
-                    }
-                    write_atomic(lane, &item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
-                })
+        let target = item.clone();
+        self.write_then_state(req, item, move |lane| Self::write_override(&target, &body, expected.as_ref(), lane)).await
+    }
+
+    /// Saves `body` as the user's copy, or drops the copy when it equals the shipped text so it follows the shipped version.
+    /// The bytes that reach the disk must pass the reader's check, or the saved file would be ignored.
+    fn write_override(item: &Item, body: &str, expected: Option<&Value>, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> Result<(), CoreError> {
+        locked(&item.user, || {
+            let before = item.state();
+            Self::assert_current(expected, &before, &item.id)?;
+            let default_body = before["defaultBody"].as_str().unwrap_or_default();
+            if normalize_text(body) == normalize_text(default_body) {
+                return remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e));
             }
-        };
+            let shipped_text = match read_instruction_file(&item.shipped) {
+                Found::Text(text) => text,
+                _ => String::new(),
+            };
+            let bytes = item.file(body, &shipped_text).into_bytes();
+            if bytes.len() > FILE_MAX_BYTES {
+                return Err(bad_argument("instruction text is larger than 256 KB".into()));
+            }
+            if let Err(problem) = decode_file(&bytes) {
+                return Err(bad_argument(format!("instruction text cannot be saved ({problem})")));
+            }
+            write_atomic(lane, &item.user, &bytes, true).map_err(|e| io_failure(DOMAIN, &e))
+        })
+    }
+
+    /// Runs `write` on the durability lane, waits for the change to be announced and answers the item's state; a
+    /// duplicate whose result was too large to store reads the files again, on the lane like the first execution.
+    async fn write_then_state(
+        &self,
+        req: &CoreRequest,
+        item: Item,
+        write: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> Result<(), CoreError> + Send + 'static,
+    ) -> Result<Value, CoreError> {
         let changed = self.changed.clone();
         let durability = self.durability;
+        let interactive = self.interactive;
         let cancel = req.ctx.cancel.clone();
         let replay_cancel = req.ctx.cancel.clone();
         let again = item.clone();
-        let interactive = self.interactive;
-        let state_item = item.clone();
         self.ops_run(
             req,
             move || async move {
                 on_lane(durability, &cancel, write).await??;
                 changed.changed().await;
-                on_lane(interactive, &cancel, move |_| state_item.state()).await
+                on_lane(interactive, &cancel, move |_| item.state()).await
             },
-            // A duplicate whose result was too large to store reads the files again, on the
-            // lane like the first execution.
             move || async move { on_lane(interactive, &replay_cancel, move |_| again.state()).await },
         )
         .await
@@ -461,41 +465,24 @@ impl InstructionsService {
     async fn reset(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: InstructionsResetInstructionFileParams = decode(req)?;
         let item = self.item(&params.group, &params.id)?;
-        // Read raw: the typed field folds `null` into absent, which Node tells apart.
+        // Read raw: the typed field folds `null` into absent, and `null` must stay distinct.
         let expected = req.params.get("expectedRevision").cloned();
-        #[allow(clippy::disallowed_methods, reason = "body of a durability-io lane job")]
-        let remove = {
-            let item = item.clone();
-            move || -> Result<(), CoreError> {
-                locked(&item.user, || {
-                    if !item.user.exists() {
-                        return Err(bad_argument(format!("\"{}\" has no user override to reset", item.id)));
-                    }
-                    Self::assert_current(expected.as_ref(), &item.state(), &item.id)?;
-                    remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e))?;
-                    let mut backup = item.user.as_os_str().to_owned();
-                    backup.push(".bak");
-                    remove_file_forced(Path::new(&backup)).map_err(|e| io_failure(DOMAIN, &e))
-                })
+        let target = item.clone();
+        self.write_then_state(req, item, move |_| Self::remove_override(&target, expected.as_ref())).await
+    }
+
+    #[allow(clippy::disallowed_methods, reason = "body of a durability-io lane job")]
+    fn remove_override(item: &Item, expected: Option<&Value>) -> Result<(), CoreError> {
+        locked(&item.user, || {
+            if !item.user.exists() {
+                return Err(bad_argument(format!("\"{}\" has no user override to reset", item.id)));
             }
-        };
-        let changed = self.changed.clone();
-        let durability = self.durability;
-        let interactive = self.interactive;
-        let cancel = req.ctx.cancel.clone();
-        let replay_cancel = req.ctx.cancel.clone();
-        let again = item.clone();
-        let state_item = item.clone();
-        self.ops_run(
-            req,
-            move || async move {
-                on_lane(durability, &cancel, move |_| remove()).await??;
-                changed.changed().await;
-                on_lane(interactive, &cancel, move |_| state_item.state()).await
-            },
-            move || async move { on_lane(interactive, &replay_cancel, move |_| again.state()).await },
-        )
-        .await
+            Self::assert_current(expected, &item.state(), &item.id)?;
+            remove_file_forced(&item.user).map_err(|e| io_failure(DOMAIN, &e))?;
+            let mut backup = item.user.as_os_str().to_owned();
+            backup.push(".bak");
+            remove_file_forced(Path::new(&backup)).map_err(|e| io_failure(DOMAIN, &e))
+        })
     }
 
     async fn set_files(&self, req: &CoreRequest) -> Result<Value, CoreError> {

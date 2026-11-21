@@ -1,10 +1,6 @@
 //! Window classes whose input stack takes a posted message without acting on
-//! it. The post still succeeds, so the call would report delivery that never
-//! reached the control; the table below turns each such pairing into the
-//! refusal every unsupported background route already gives, before any
-//! message is sent. Chromium and the UWP/WinUI hosts are refused where their
-//! routes read the class (keyboard.rs, pointer.rs), and Tk by the focus check
-//! in keyboard.rs, which tells an inactive frame from a focused child.
+//! it: the post still succeeds, so delivery would be reported that never
+//! reached the control.
 
 /// What a posted message would have been.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

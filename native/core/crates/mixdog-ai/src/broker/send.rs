@@ -4,6 +4,7 @@ use std::time::Duration;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::RetryLine;
 use mixdog_core_api::domain::provider::RetryLineStyle;
 use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -214,52 +215,7 @@ impl ModelBroker {
                         sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
                     }
                     if let Some(line) = line {
-                        // `lastErr?.message || lastErr?.code || 'transient error'`, then `retryDelayLabel(delayMs, delayReason)`.
-                        // The failure's text repeats what the endpoint answered: any credential the process holds is redacted
-                        // before the line is written.
-                        let scrub = crate::oauth::carried::remembered();
-                        let cause = scrub.redact_str(
-                            [Some(failure.message.as_str()), failure.code.as_deref()]
-                                .into_iter()
-                                .flatten()
-                                .find(|text| !text.is_empty())
-                                .unwrap_or("transient error"),
-                        );
-                        let advised = if failure.retry_after.is_some() { " (retry-after)" } else { "" };
-                        match line.style {
-                            RetryLineStyle::Attempt => {
-                                let wait = match (line.delay, failure.retry_after.is_some()) {
-                                    (false, _) => String::new(),
-                                    (true, false) => format!(", delay {}ms", delay.as_millis()),
-                                    (true, true) => format!(", delay {}ms (retry-after)", delay.as_millis()),
-                                };
-                                mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
-                            }
-                            RetryLineStyle::OfMax => {
-                                // `status || code || message || 'network error'`.
-                                let reason = failure
-                                    .status
-                                    .map(|status| status.to_string())
-                                    .or_else(|| failure.code.clone().filter(|code| !code.is_empty()))
-                                    .or_else(|| Some(failure.message.clone()).filter(|message| !message.is_empty()))
-                                    .map_or_else(|| "network error".to_owned(), |reason| scrub.redact_str(&reason));
-                                mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
-                            }
-                            RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),
-                            RetryLineStyle::AnthropicApi
-                                if midstream_ladder && failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream) =>
-                            {
-                                mixdog_rt::node_stderr!("{} truncated stream — retry {attempt}/{max}", line.tag);
-                            }
-                            RetryLineStyle::AnthropicApi => {
-                                let wait = if failure.retry_after.is_some() {
-                                    format!(", delay {}ms (retry-after)", delay.as_millis())
-                                } else {
-                                    format!(", delay {}ms", delay.as_millis())
-                                };
-                                mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
-                            }
-                        }
+                        write_retry_line(&line, &failure, (attempt, max), delay, midstream_ladder);
                     }
                     if let Some(usage) = &failure.partial_usage {
                         sink.abandoned(usage, failure.partial_model.as_deref());
@@ -524,6 +480,36 @@ impl Drop for Group<'_> {
 enum Stop {
     Cancelled,
     Failed(ProviderError),
+}
+
+/// The failure's text repeats what the endpoint answered: any credential the process holds is redacted before a line is written.
+fn write_retry_line(line: &RetryLine, failure: &ProviderError, (attempt, max): (u32, u32), delay: Duration, midstream_ladder: bool) {
+    let scrub = crate::oauth::carried::remembered();
+    let cause = scrub
+        .redact_str([Some(failure.message.as_str()), failure.code.as_deref()].into_iter().flatten().find(|text| !text.is_empty()).unwrap_or("transient error"));
+    let advised = if failure.retry_after.is_some() { " (retry-after)" } else { "" };
+    match line.style {
+        RetryLineStyle::Attempt => {
+            let wait = if line.delay { format!(", delay {}ms{advised}", delay.as_millis()) } else { String::new() };
+            mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
+        }
+        RetryLineStyle::OfMax => {
+            let reason = failure
+                .status
+                .map(|status| status.to_string())
+                .or_else(|| failure.code.clone().filter(|code| !code.is_empty()))
+                .or_else(|| Some(failure.message.clone()).filter(|message| !message.is_empty()))
+                .map_or_else(|| "network error".to_owned(), |reason| scrub.redact_str(&reason));
+            mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
+        }
+        RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),
+        RetryLineStyle::AnthropicApi if midstream_ladder && failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream) => {
+            mixdog_rt::node_stderr!("{} truncated stream — retry {attempt}/{max}", line.tag);
+        }
+        RetryLineStyle::AnthropicApi => {
+            mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}, delay {}ms{advised}", line.tag, delay.as_millis());
+        }
+    }
 }
 
 fn truncated(delivery: mixdog_core_api::domain::provider::DeliveryState) -> ProviderError {

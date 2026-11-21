@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use super::JpxError;
 use super::markers::{CBLK_BYPASS, CBLK_TERMALL, EPH, Poc, Progression, SOP};
-use super::tiles::{CodeBlock, PacketRecord, Segment, TileComponent, TileStructure, ceil_div, floor_div_pow2};
+use super::tiles::{Band, CodeBlock, PacketRecord, Segment, TileComponent, TileStructure, ceil_div, floor_div_pow2};
 
 fn eof() -> JpxError {
     JpxError::new("the packet header runs past the end of the data")
@@ -210,52 +210,58 @@ fn read_header(
                 blk.numbps = band_bps + 1 - i as i32;
                 blk.lblock = 3;
             }
-            let mut left = pass_count(bits)?;
+            let left = pass_count(bits)?;
             while bits.bit()? {
                 blk.lblock += 1;
                 if blk.lblock > 32 {
                     return Err(JpxError::new("invalid code-block length indicator"));
                 }
             }
-            let mut idx = match blk.segments.len() {
-                0 => {
-                    blk.segments.push(new_segment(None, style));
-                    0
-                }
-                n => {
-                    if blk.segments[n - 1].passes == blk.segments[n - 1].max_passes {
-                        let seg = new_segment(Some(&blk.segments[n - 1]), style);
-                        blk.segments.push(seg);
-                        n
-                    } else {
-                        n - 1
-                    }
-                }
-            };
-            let mut lens = Vec::new();
-            loop {
-                let seg = &mut blk.segments[idx];
-                let take = (seg.max_passes - seg.passes).min(left);
-                let width = blk.lblock + (31 - take.leading_zeros());
-                if width > 32 {
-                    return Err(JpxError::new("invalid code-block length indicator"));
-                }
-                let len = bits.bits(width)?;
-                seg.passes += take;
-                lens.push((idx, len));
-                left -= take;
-                blk.passes += take;
-                if left == 0 {
-                    break;
-                }
-                let seg = new_segment(Some(&blk.segments[idx]), style);
-                blk.segments.push(seg);
-                idx += 1;
-            }
-            taken.push((bi, ci, lens));
+            taken.push((bi, ci, read_segment_lengths(blk, left, style, bits)?));
         }
     }
     Ok(true)
+}
+
+/// Spreads `left` new passes of a code-block over its codeword segments, opening segments as they fill, and reads the
+/// length each takes: `(segment, length)`.
+fn read_segment_lengths(blk: &mut CodeBlock, mut left: u32, style: u8, bits: &mut Bits) -> Result<Vec<(usize, u32)>, JpxError> {
+    let mut idx = match blk.segments.len() {
+        0 => {
+            blk.segments.push(new_segment(None, style));
+            0
+        }
+        n => {
+            if blk.segments[n - 1].passes == blk.segments[n - 1].max_passes {
+                let seg = new_segment(Some(&blk.segments[n - 1]), style);
+                blk.segments.push(seg);
+                n
+            } else {
+                n - 1
+            }
+        }
+    };
+    let mut lens = Vec::new();
+    loop {
+        let seg = &mut blk.segments[idx];
+        let take = (seg.max_passes - seg.passes).min(left);
+        let width = blk.lblock + (31 - take.leading_zeros());
+        if width > 32 {
+            return Err(JpxError::new("invalid code-block length indicator"));
+        }
+        let len = bits.bits(width)?;
+        seg.passes += take;
+        lens.push((idx, len));
+        left -= take;
+        blk.passes += take;
+        if left == 0 {
+            break;
+        }
+        let seg = new_segment(Some(&blk.segments[idx]), style);
+        blk.segments.push(seg);
+        idx += 1;
+    }
+    Ok(lens)
 }
 
 fn min_steps(c: &TileComponent) -> (u64, u64) {
@@ -344,86 +350,91 @@ fn run(t: &TileStructure, poc: &Poc, f: &mut dyn FnMut(u32, u32, u32, u32) -> bo
             }
         }
         Progression::Rpcl => {
-            let (mut sx, mut sy) = (u64::MAX, u64::MAX);
-            for comp in comps {
-                let (a, b) = min_steps(comp);
-                sx = sx.min(a);
-                sy = sy.min(b);
-            }
+            let (sx, sy) = min_steps_all(comps);
             for r in r0..r1 {
-                let mut y = t.y0 as u64;
-                while y < t.y1 as u64 {
-                    let mut x = t.x0 as u64;
-                    while x < t.x1 as u64 {
-                        for c in c0..c1 {
-                            if r >= numres(c as usize) {
-                                continue;
-                            }
-                            if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y) {
-                                for l in 0..layers {
-                                    if !f(l, r, c, p) {
-                                        return false;
-                                    }
-                                }
-                            }
+                let done = scan_positions(t, sx, sy, |x, y| {
+                    for c in c0..c1 {
+                        if r >= numres(c as usize) {
+                            continue;
                         }
-                        x += sx - (x % sx);
+                        if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y)
+                            && !emit_layers(f, layers, r, c, p)
+                        {
+                            return false;
+                        }
                     }
-                    y += sy - (y % sy);
+                    true
+                });
+                if !done {
+                    return false;
                 }
             }
         }
         Progression::Pcrl => {
-            let (mut sx, mut sy) = (u64::MAX, u64::MAX);
-            for comp in comps {
-                let (a, b) = min_steps(comp);
-                sx = sx.min(a);
-                sy = sy.min(b);
-            }
-            let mut y = t.y0 as u64;
-            while y < t.y1 as u64 {
-                let mut x = t.x0 as u64;
-                while x < t.x1 as u64 {
-                    for c in c0..c1 {
-                        for r in r0..r1.min(numres(c as usize)) {
-                            if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y) {
-                                for l in 0..layers {
-                                    if !f(l, r, c, p) {
-                                        return false;
-                                    }
-                                }
-                            }
+            let (sx, sy) = min_steps_all(comps);
+            let done = scan_positions(t, sx, sy, |x, y| {
+                for c in c0..c1 {
+                    for r in r0..r1.min(numres(c as usize)) {
+                        if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y)
+                            && !emit_layers(f, layers, r, c, p)
+                        {
+                            return false;
                         }
                     }
-                    x += sx - (x % sx);
                 }
-                y += sy - (y % sy);
+                true
+            });
+            if !done {
+                return false;
             }
         }
         Progression::Cprl => {
             for c in c0..c1 {
                 let (sx, sy) = min_steps(&comps[c as usize]);
-                let mut y = t.y0 as u64;
-                while y < t.y1 as u64 {
-                    let mut x = t.x0 as u64;
-                    while x < t.x1 as u64 {
-                        for r in r0..r1.min(numres(c as usize)) {
-                            if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y) {
-                                for l in 0..layers {
-                                    if !f(l, r, c, p) {
-                                        return false;
-                                    }
-                                }
-                            }
+                let done = scan_positions(t, sx, sy, |x, y| {
+                    for r in r0..r1.min(numres(c as usize)) {
+                        if let Some(p) = precinct_at(t, &comps[c as usize], r as usize, x, y)
+                            && !emit_layers(f, layers, r, c, p)
+                        {
+                            return false;
                         }
-                        x += sx - (x % sx);
                     }
-                    y += sy - (y % sy);
+                    true
+                });
+                if !done {
+                    return false;
                 }
             }
         }
     }
     true
+}
+
+/// The smallest precinct step over all components.
+fn min_steps_all(comps: &[TileComponent]) -> (u64, u64) {
+    comps.iter().map(min_steps).fold((u64::MAX, u64::MAX), |(sx, sy), (a, b)| (sx.min(a), sy.min(b)))
+}
+
+/// Visits the grid positions of the tile in raster order, stepping to the next multiple of `sx` and `sy`, stopping at
+/// the first false.
+fn scan_positions(t: &TileStructure, sx: u64, sy: u64, mut visit: impl FnMut(u64, u64) -> bool) -> bool {
+    let mut y = t.y0 as u64;
+    while y < t.y1 as u64 {
+        let mut x = t.x0 as u64;
+        while x < t.x1 as u64 {
+            if !visit(x, y) {
+                return false;
+            }
+            x += sx - (x % sx);
+        }
+        y += sy - (y % sy);
+    }
+    true
+}
+
+/// Calls `f` for every layer of one precinct, stopping at the first false.
+fn emit_layers(f: &mut dyn FnMut(u32, u32, u32, u32) -> bool, layers: u32, r: u32, c: u32, p: u32) -> bool {
+    (0..layers).all(|l| f(l, r, c, p))
 }
 
 /// The progression changes of the tile, bounded by what the tile has; without POC one change covers everything.
@@ -462,6 +473,27 @@ pub fn packet_order(t: &TileStructure) -> Vec<(u32, u32, u32, u32)> {
         });
     }
     out
+}
+
+/// Moves the code-block bytes of one packet from `body` at `bpos` into the blocks `taken` names; returns the bytes
+/// taken and whether the body ended before the packet did.
+fn read_body(bands: &mut [Band], precinct: usize, taken: &[Taken], body: &[u8], bpos: &mut usize) -> (u32, bool) {
+    let mut data_len = 0u32;
+    for (bi, ci, lens) in taken {
+        let blk: &mut CodeBlock = &mut bands[*bi].precincts[precinct].blocks[*ci];
+        for &(si, len) in lens {
+            let avail = body.len().saturating_sub(*bpos);
+            let got = (len as usize).min(avail);
+            blk.data.extend_from_slice(&body[*bpos..*bpos + got]);
+            blk.segments[si].len += got as u32;
+            *bpos += got;
+            data_len += got as u32;
+            if got < len as usize {
+                return (data_len, true);
+            }
+        }
+    }
+    (data_len, false)
 }
 
 /// Reads every packet of the tile from `body` (and, with PPM or PPT, the packet headers from `packed`), filling in
@@ -508,26 +540,7 @@ pub(super) fn read_packets(tile: &mut TileStructure, body: &[u8], packed: Option
             Some(_) => hpos += used,
             None => bpos += used,
         }
-        let mut data_len = 0u32;
-        let mut cut = false;
-        for (bi, ci, lens) in &taken {
-            let blk: &mut CodeBlock = &mut tile.components[c].resolutions[r].bands[*bi].precincts[p].blocks[*ci];
-            for &(si, len) in lens {
-                let avail = body.len().saturating_sub(bpos);
-                let got = (len as usize).min(avail);
-                blk.data.extend_from_slice(&body[bpos..bpos + got]);
-                blk.segments[si].len += got as u32;
-                bpos += got;
-                data_len += got as u32;
-                if got < len as usize {
-                    cut = true;
-                    break;
-                }
-            }
-            if cut {
-                break;
-            }
-        }
+        let (data_len, cut) = read_body(&mut tile.components[c].resolutions[r].bands, p, &taken, body, &mut bpos);
         tile.packets.push(PacketRecord { layer, resolution: res, component: comp, precinct: precno, empty: !nonempty, data_len });
         if cut {
             tile.truncated = true;

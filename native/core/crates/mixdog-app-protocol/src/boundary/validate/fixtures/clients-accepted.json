@@ -4,7 +4,7 @@
     "method": "thread/start",
     "params": {
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000179"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000180"
     },
     "source": "native/core/crates/mixdog-cli/src/exec/launcher.rs:thread/start",
     "case": "required fields"
@@ -16,7 +16,7 @@
       "input": {
         "prompt": "prompt-1"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000180",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000181",
       "threadId": "threadId-1"
     },
     "source": "native/core/crates/mixdog-cli/src/exec/run.rs:turn/start",
@@ -117,7 +117,7 @@
     "client": "tui",
     "method": "turn/retryFailed",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000181",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000182",
       "threadId": "threadId-1",
       "turnKey": "turnKey-1"
     },
@@ -178,6 +178,26 @@
   },
   {
     "client": "phone",
+    "method": "fs/watch",
+    "params": {
+      "path": "path-1",
+      "recursive": true,
+      "watchId": "watchId-1"
+    },
+    "source": "apps/mobile/src/phone-fs-watches.ts:fs/watch",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "fs/unwatch",
+    "params": {
+      "watchId": "watchId-1"
+    },
+    "source": "apps/mobile/src/phone-fs-watches.ts:fs/unwatch",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
     "method": "feed/subscribe",
     "params": {
       "feedId": "feedId-1"
@@ -217,17 +237,10 @@
   },
   {
     "client": "phone",
-    "method": "app/subscribe",
-    "params": {},
-    "source": "apps/mobile/src/phone-view.ts:app/subscribe",
-    "case": "required fields"
-  },
-  {
-    "client": "phone",
     "method": "thread/start",
     "params": {
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000182"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000183"
     },
     "source": "apps/desktop/src/renderer/remote-capability-lane.ts:thread/start",
     "case": "required fields"
@@ -245,7 +258,7 @@
     "client": "phone",
     "method": "approval/provideSecret",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000183",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000184",
       "requestId": "requestId-1",
       "secret": "secret-1"
     },
@@ -301,7 +314,7 @@
     "method": "projectFs/recovery",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000184",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000185",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:projectFs/recovery",
@@ -309,10 +322,55 @@
   },
   {
     "client": "phone",
+    "method": "browser/command",
+    "params": {
+      "action": "action-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/command",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "browser/stream",
+    "params": {
+      "on": true,
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/stream",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "browser/webrtcSignal",
+    "params": {
+      "signal": {}
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/webrtcSignal",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "browser/screenDisplays",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/screenDisplays",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "browser/streamAck",
+    "params": {
+      "seq": 1,
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/streamAck",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
     "method": "room/remove",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000185"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000186"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-chat.ts:room/remove",
     "case": "required fields"
@@ -399,7 +457,7 @@
     "client": "phone",
     "method": "project/create",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000186",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000187",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/create",
@@ -410,7 +468,7 @@
     "method": "project/update",
     "params": {
       "alias": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000187",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000188",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/update",
@@ -420,7 +478,7 @@
     "client": "phone",
     "method": "project/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000188",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000189",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/delete",
@@ -471,7 +529,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000189",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000190",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -484,7 +542,7 @@
     "params": {
       "directory": true,
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000190",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000191",
       "relDir": "relDir-1",
       "root": "root-1"
     },
@@ -496,7 +554,7 @@
     "method": "projectFs/rename",
     "params": {
       "newName": "newName-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000191",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000192",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -507,7 +565,7 @@
     "client": "phone",
     "method": "projectFs/move",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000192",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000193",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -519,7 +577,7 @@
     "client": "phone",
     "method": "projectFs/copy",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000193",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000194",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -531,7 +589,7 @@
     "client": "phone",
     "method": "projectFs/trash",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000194",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000195",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -581,7 +639,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000195",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000196",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/write",
@@ -591,7 +649,7 @@
     "client": "phone",
     "method": "projectFs/backup/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000196",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000197",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/delete",
@@ -602,7 +660,7 @@
     "method": "projectFs/workspaceFile/write",
     "params": {
       "folders": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000197",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000198",
       "workspaceFile": "workspaceFile-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/workspaceFile/write",
@@ -633,7 +691,7 @@
     "client": "phone",
     "method": "projectFs/replaceText",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000198",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000199",
       "options": {},
       "replacement": "replacement-1",
       "root": "root-1"
@@ -656,7 +714,7 @@
     "client": "phone",
     "method": "lsp/request",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000199",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000200",
       "projectPath": "projectPath-1",
       "request": {},
       "root": "root-1"
@@ -669,7 +727,7 @@
     "method": "projectFs/writeTextBatch",
     "params": {
       "files": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000200",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000201",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/writeTextBatch",
@@ -729,21 +787,39 @@
   },
   {
     "client": "phone",
-    "method": "remoteAccess/registerNativePush",
-    "params": {
-      "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000201"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
+    "method": "remoteAccess/pushPublicKey",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/pushPublicKey",
     "case": "required fields"
   },
   {
     "client": "phone",
-    "method": "remoteAccess/removeNativePush",
+    "method": "remoteAccess/registerPushSubscription",
     "params": {
+      "input": {},
       "opId": "0190f3c2-7a31-7c00-8000-000000000202"
     },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerPushSubscription",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "remoteAccess/removePushSubscription",
+    "params": {
+      "endpoint": "endpoint-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000203"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removePushSubscription",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "remoteAccess/registerNativePush",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000204"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
     "case": "required fields"
   },
   {
@@ -759,6 +835,15 @@
   },
   {
     "client": "phone",
+    "method": "remoteAccess/removeNativePush",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000205"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
     "method": "remote/connectionTimeline",
     "params": {
       "text": "text-1"
@@ -768,9 +853,16 @@
   },
   {
     "client": "phone",
+    "method": "config/read",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:config/read",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
     "method": "config/value/write",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000203",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000206",
       "path": "path-1",
       "value": {}
     },
@@ -796,7 +888,7 @@
     "method": "update/desktop/command",
     "params": {
       "action": "check",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000204"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000207"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:update/desktop/command",
     "case": "required fields"
@@ -806,7 +898,7 @@
     "method": "feedback/upload",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000205"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000208"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:feedback/upload",
     "case": "required fields"
@@ -824,7 +916,7 @@
     "client": "phone",
     "method": "notify/test",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000206"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000209"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:notify/test",
     "case": "required fields"
@@ -860,7 +952,7 @@
     "client": "phone",
     "method": "terminal/dispose",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000207",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000210",
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/dispose",
@@ -874,26 +966,6 @@
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/focus",
-    "case": "required fields"
-  },
-  {
-    "client": "phone",
-    "method": "fs/watch",
-    "params": {
-      "path": "path-1",
-      "recursive": true,
-      "watchId": "watchId-1"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:fs/watch",
-    "case": "required fields"
-  },
-  {
-    "client": "phone",
-    "method": "fs/unwatch",
-    "params": {
-      "watchId": "watchId-1"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:fs/unwatch",
     "case": "required fields"
   },
   {
@@ -915,6 +987,15 @@
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/resize",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "visualize/command",
+    "params": {
+      "action": "action-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-visualize.ts:visualize/command",
     "case": "required fields"
   },
   {
@@ -947,7 +1028,7 @@
     "method": "thread/readState/update",
     "params": {
       "messageCount": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000208",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000211",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/readState/update",
@@ -973,7 +1054,7 @@
     "client": "phone",
     "method": "thread/name/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000209",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000212",
       "threadId": "threadId-1",
       "title": "title-1"
     },
@@ -984,7 +1065,7 @@
     "client": "phone",
     "method": "thread/continueInModel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000210",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000213",
       "route": {
         "model": "model-1",
         "provider": "provider-1"
@@ -998,7 +1079,7 @@
     "client": "phone",
     "method": "thread/quotaResume/schedule",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000211",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000214",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/schedule",
@@ -1008,7 +1089,7 @@
     "client": "phone",
     "method": "thread/quotaResume/cancel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000212",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000215",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/cancel",
@@ -1018,7 +1099,7 @@
     "client": "phone",
     "method": "thread/backgroundTerminals/terminate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000213",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000216",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -1029,7 +1110,7 @@
     "client": "phone",
     "method": "thread/backgroundTerminals/release",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000214",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000217",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -1059,7 +1140,7 @@
     "client": "phone",
     "method": "thread/metadata/update",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000215",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000218",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/metadata/update",
@@ -1069,7 +1150,7 @@
     "client": "phone",
     "method": "thread/archive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000216",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000219",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/archive",
@@ -1079,7 +1160,7 @@
     "client": "phone",
     "method": "thread/unarchive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000217",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000220",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/unarchive",
@@ -1089,7 +1170,7 @@
     "client": "phone",
     "method": "thread/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000218",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000221",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/delete",
@@ -1100,7 +1181,7 @@
     "method": "agent/home/open",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000219"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000222"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/open",
     "case": "required fields"
@@ -1110,7 +1191,7 @@
     "method": "agent/home/reset",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000220"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000223"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/reset",
     "case": "required fields"
@@ -1131,7 +1212,7 @@
       "agentId": "agentId-1",
       "entryId": "entryId-1",
       "indexRevision": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000221"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000224"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/memory/delete",
     "case": "required fields"
@@ -1140,7 +1221,7 @@
     "client": "phone",
     "method": "thread/fork",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000222",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000225",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/fork",
@@ -1151,7 +1232,7 @@
     "method": "room/send",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000223"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000226"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/send",
     "case": "required fields"
@@ -1163,7 +1244,7 @@
       "input": {
         "prompt": "prompt-1"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000224",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000227",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:turn/start",
@@ -1187,30 +1268,10 @@
   },
   {
     "client": "phone",
-    "method": "route/set",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000225",
-      "route": {}
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:route/set",
-    "case": "required fields"
-  },
-  {
-    "client": "phone",
-    "method": "fast/set",
-    "params": {
-      "on": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000226"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:fast/set",
-    "case": "required fields"
-  },
-  {
-    "client": "phone",
     "method": "room/create",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000227"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000228"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/create",
     "case": "required fields"
@@ -1220,7 +1281,7 @@
     "method": "room/update",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000228"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000229"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/update",
     "case": "required fields"
@@ -1230,7 +1291,7 @@
     "method": "room/continue",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000229"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000230"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/continue",
     "case": "required fields"
@@ -1240,7 +1301,7 @@
     "method": "room/leave",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000230"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000231"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/leave",
     "case": "required fields"
@@ -1250,7 +1311,7 @@
     "method": "room/reset",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000231"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000232"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/reset",
     "case": "required fields"
@@ -1275,12 +1336,22 @@
     "client": "phone",
     "method": "config/setBotOrder",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000232",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000233",
       "order": [
         "order-1"
       ]
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:config/setBotOrder",
+    "case": "required fields"
+  },
+  {
+    "client": "phone",
+    "method": "route/set",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000234",
+      "route": {}
+    },
+    "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:route/set",
     "case": "required fields"
   },
   {
@@ -1297,7 +1368,7 @@
     "client": "phone",
     "method": "thread/queue/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000233",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000235",
       "restore": true,
       "threadId": "threadId-1"
     },
@@ -1317,7 +1388,7 @@
     "client": "phone",
     "method": "thread/clear",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000234",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000236",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/clear",
@@ -1349,6 +1420,16 @@
   },
   {
     "client": "protocol-client",
+    "method": "thread/start",
+    "params": {
+      "kind": "project",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000237"
+    },
+    "source": "packages/protocol-client/src/client.ts:thread/start",
+    "case": "required fields"
+  },
+  {
+    "client": "protocol-client",
     "method": "thread/resume",
     "params": {
       "threadId": "threadId-1",
@@ -1373,6 +1454,31 @@
       "threadId": "threadId-1"
     },
     "source": "packages/protocol-client/src/client.ts:thread/unsubscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "protocol-client",
+    "method": "feed/heads",
+    "params": {},
+    "source": "packages/protocol-client/src/client.ts:feed/heads",
+    "case": "required fields"
+  },
+  {
+    "client": "protocol-client",
+    "method": "feed/subscribe",
+    "params": {
+      "feedId": "feedId-1"
+    },
+    "source": "packages/protocol-client/src/client.ts:feed/subscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "protocol-client",
+    "method": "feed/unsubscribe",
+    "params": {
+      "feedId": "feedId-1"
+    },
+    "source": "packages/protocol-client/src/client.ts:feed/unsubscribe",
     "case": "required fields"
   },
   {
@@ -1458,26 +1564,6 @@
   },
   {
     "client": "desktop",
-    "method": "browser/command",
-    "params": {
-      "action": "action-1"
-    },
-    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:browser/command",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "test/browserEngine/run",
-    "params": {
-      "args": {},
-      "threadId": "threadId-1",
-      "tool": "browser"
-    },
-    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:test/browserEngine/run",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "host/browser/surface",
     "params": {
       "sessionId": "sessionId-1"
@@ -1492,6 +1578,26 @@
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/main/browser/host-presentation.ts:host/browser/page",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/command",
+    "params": {
+      "action": "action-1"
+    },
+    "source": "apps/desktop/src/main/browser/host.integration.ts:browser/command",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "test/browserEngine/run",
+    "params": {
+      "args": {},
+      "threadId": "threadId-1",
+      "tool": "browser"
+    },
+    "source": "apps/desktop/src/main/browser/latency-scenarios.ts:test/browserEngine/run",
     "case": "required fields"
   },
   {
@@ -1533,21 +1639,21 @@
   },
   {
     "client": "desktop",
+    "method": "blob/read",
+    "params": {
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:blob/read",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "dev/computer/run",
     "params": {
       "command": {},
       "sessionThreadId": "sessionThreadId-1"
     },
     "source": "apps/desktop/src/main/computer/harness/core-transport.ts:dev/computer/run",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "blob/read",
-    "params": {
-      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    },
-    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:blob/read",
     "case": "required fields"
   },
   {
@@ -1572,7 +1678,7 @@
     "client": "desktop",
     "method": "config/value/write",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000235",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000238",
       "path": "path-1",
       "value": {}
     },
@@ -1618,22 +1724,22 @@
   },
   {
     "client": "desktop",
-    "method": "host/window/closed",
-    "params": {
-      "byUser": true,
-      "connectionId": "connectionId-1"
-    },
-    "source": "apps/desktop/src/main/connections/window-host.ts:host/window/closed",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "host/state/set",
     "params": {
       "key": "browserTabs",
       "value": {}
     },
     "source": "apps/desktop/src/main/connections/window-host.ts:host/state/set",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "host/window/closed",
+    "params": {
+      "byUser": true,
+      "connectionId": "connectionId-1"
+    },
+    "source": "apps/desktop/src/main/connections/window-host.ts:host/window/closed",
     "case": "required fields"
   },
   {
@@ -1739,6 +1845,21 @@
   },
   {
     "client": "desktop",
+    "method": "host/computer/scopeReport",
+    "params": {
+      "report": {
+        "admission": {},
+        "cleanup": "pending",
+        "scope": 1,
+        "unfinished": 1,
+        "unfinished_at_closure": 1
+      }
+    },
+    "source": "apps/desktop/src/main/host/computer-scope.ts:host/computer/scopeReport",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "host/notification/clicked",
     "params": {
       "threadId": "threadId-1"
@@ -1821,6 +1942,13 @@
       ]
     },
     "source": "apps/desktop/src/main/index.ts:desktop/nativeToolCache/gc",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "config/getUpdateSettings",
+    "params": {},
+    "source": "apps/desktop/src/main/index.ts:config/getUpdateSettings",
     "case": "required fields"
   },
   {
@@ -1969,6 +2097,13 @@
   },
   {
     "client": "desktop",
+    "method": "config/read",
+    "params": {},
+    "source": "apps/desktop/src/main/protocol/profile-adopt.ts:config/read",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "migrate/profile/adopt",
     "params": {
       "userData": "userData-1"
@@ -1987,7 +2122,7 @@
     "client": "desktop",
     "method": "account/refreshProviderSetup",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000236"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000239"
     },
     "source": "apps/desktop/src/main/protocol/section-capability-lane.ts:account/refreshProviderSetup",
     "case": "required fields"
@@ -2065,18 +2200,42 @@
   },
   {
     "client": "desktop",
-    "method": "thread/items/list",
+    "method": "transfer/writeChunk",
     "params": {
-      "threadId": "threadId-1"
+      "bytesB64": "bytesB64-1",
+      "offset": 1,
+      "transferId": "transferId-1"
     },
-    "source": "apps/desktop/src/main/remote-phone-transcript.ts:thread/items/list",
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/writeChunk",
     "case": "required fields"
   },
   {
     "client": "desktop",
-    "method": "config/read",
-    "params": {},
-    "source": "apps/desktop/src/main/settings-store.ts:config/read",
+    "method": "transfer/abort",
+    "params": {
+      "transferId": "transferId-1"
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/abort",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/beginWrite",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000240",
+      "size": 1
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/beginWrite",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/commit",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000241",
+      "transferId": "transferId-1"
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/commit",
     "case": "required fields"
   },
   {
@@ -2182,7 +2341,6 @@
     "client": "desktop",
     "method": "connections/ssh/cleanup",
     "params": {
-      "id": "id-1",
       "request": {
         "forget": true,
         "operationId": "operationId-1",
@@ -2447,7 +2605,7 @@
     "method": "feedback/upload",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000237"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000242"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-files.ts:feedback/upload",
     "case": "required fields"
@@ -2478,7 +2636,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000238",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000243",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2513,7 +2671,7 @@
     "client": "desktop",
     "method": "notify/test",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000239"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000244"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-settings.ts:notify/test",
     "case": "required fields"
@@ -2529,20 +2687,11 @@
     "client": "desktop",
     "method": "approval/provideSecret",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000240",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000245",
       "requestId": "requestId-1",
       "secret": "secret-1"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:approval/provideSecret",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "terminal/attach",
-    "params": {
-      "tabId": "tabId-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-terminal.ts:terminal/attach",
     "case": "required fields"
   },
   {
@@ -2552,6 +2701,27 @@
       "requestId": "requestId-1"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-terminal.ts:ui/terminalRun/claimed",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "git/watch",
+    "params": {
+      "cwd": "cwd-1"
+    },
+    "source": "apps/desktop/src/renderer/git-refresh-scheduler.ts:git/watch",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/imageRecovery",
+    "params": {
+      "action": {
+        "type": "state"
+      },
+      "opId": "0190f3c2-7a31-7c00-8000-000000000246"
+    },
+    "source": "apps/desktop/src/renderer/image-refusal.ts:thread/imageRecovery",
     "case": "required fields"
   },
   {
@@ -2569,9 +2739,18 @@
     "method": "thread/start",
     "params": {
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000241"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000247"
     },
     "source": "apps/desktop/src/renderer/remote-capability-lane.ts:thread/start",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/items/list",
+    "params": {
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-chat-host.ts:thread/items/list",
     "case": "required fields"
   },
   {
@@ -2614,7 +2793,7 @@
     "method": "projectFs/recovery",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000242",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000248",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:projectFs/recovery",
@@ -2622,10 +2801,39 @@
   },
   {
     "client": "desktop",
+    "method": "browser/stream",
+    "params": {
+      "on": true,
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/stream",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/webrtcSignal",
+    "params": {
+      "signal": {}
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/webrtcSignal",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "browser/streamAck",
+    "params": {
+      "seq": 1,
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/streamAck",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "room/remove",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000243"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000249"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-chat.ts:room/remove",
     "case": "required fields"
@@ -2681,7 +2889,7 @@
     "client": "desktop",
     "method": "project/create",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000244",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000250",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/create",
@@ -2692,7 +2900,7 @@
     "method": "project/update",
     "params": {
       "alias": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000245",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000251",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/update",
@@ -2702,7 +2910,7 @@
     "client": "desktop",
     "method": "project/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000246",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000252",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/delete",
@@ -2733,7 +2941,7 @@
     "params": {
       "directory": true,
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000247",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000253",
       "relDir": "relDir-1",
       "root": "root-1"
     },
@@ -2745,7 +2953,7 @@
     "method": "projectFs/rename",
     "params": {
       "newName": "newName-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000248",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000254",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2756,7 +2964,7 @@
     "client": "desktop",
     "method": "projectFs/move",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000249",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000255",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -2768,7 +2976,7 @@
     "client": "desktop",
     "method": "projectFs/copy",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000250",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000256",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -2780,7 +2988,7 @@
     "client": "desktop",
     "method": "projectFs/trash",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000251",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000257",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -2830,7 +3038,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000252",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000258",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/write",
@@ -2840,7 +3048,7 @@
     "client": "desktop",
     "method": "projectFs/backup/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000253",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000259",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/delete",
@@ -2851,7 +3059,7 @@
     "method": "projectFs/workspaceFile/write",
     "params": {
       "folders": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000254",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000260",
       "workspaceFile": "workspaceFile-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/workspaceFile/write",
@@ -2882,7 +3090,7 @@
     "client": "desktop",
     "method": "projectFs/replaceText",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000255",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000261",
       "options": {},
       "replacement": "replacement-1",
       "root": "root-1"
@@ -2905,7 +3113,7 @@
     "client": "desktop",
     "method": "lsp/request",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000256",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000262",
       "projectPath": "projectPath-1",
       "request": {},
       "root": "root-1"
@@ -2918,7 +3126,7 @@
     "method": "projectFs/writeTextBatch",
     "params": {
       "files": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000257",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000263",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/writeTextBatch",
@@ -2968,21 +3176,39 @@
   },
   {
     "client": "desktop",
-    "method": "remoteAccess/registerNativePush",
-    "params": {
-      "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000258"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
+    "method": "remoteAccess/pushPublicKey",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/pushPublicKey",
     "case": "required fields"
   },
   {
     "client": "desktop",
-    "method": "remoteAccess/removeNativePush",
+    "method": "remoteAccess/registerPushSubscription",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000259"
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000264"
     },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerPushSubscription",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteAccess/removePushSubscription",
+    "params": {
+      "endpoint": "endpoint-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000265"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removePushSubscription",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteAccess/registerNativePush",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000266"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
     "case": "required fields"
   },
   {
@@ -2994,6 +3220,15 @@
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:thread/approval/answerNotification",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteAccess/removeNativePush",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000267"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
     "case": "required fields"
   },
   {
@@ -3010,7 +3245,7 @@
     "method": "update/desktop/command",
     "params": {
       "action": "check",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000260"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000268"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:update/desktop/command",
     "case": "required fields"
@@ -3037,6 +3272,15 @@
   },
   {
     "client": "desktop",
+    "method": "terminal/attach",
+    "params": {
+      "tabId": "tabId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/attach",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "terminal/profiles",
     "params": {},
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/profiles",
@@ -3046,7 +3290,7 @@
     "client": "desktop",
     "method": "terminal/dispose",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000261",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000269",
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/dispose",
@@ -3085,6 +3329,15 @@
   },
   {
     "client": "desktop",
+    "method": "visualize/command",
+    "params": {
+      "action": "action-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-visualize.ts:visualize/command",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "account/listWebSearchModels",
     "params": {},
     "source": "apps/desktop/src/renderer/sidebar-reference-cache.ts:account/listWebSearchModels",
@@ -3097,7 +3350,7 @@
       "input": {
         "prompt": "prompt-1"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000262",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000270",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:turn/start",
@@ -3108,7 +3361,7 @@
     "method": "room/send",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000263"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000271"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:room/send",
     "case": "required fields"
@@ -3118,7 +3371,7 @@
     "method": "thread/stageAttachmentOriginal",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000264"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000272"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/stageAttachmentOriginal",
     "case": "required fields"
@@ -3128,7 +3381,7 @@
     "method": "thread/resizeImage",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000265"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000273"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/resizeImage",
     "case": "required fields"
@@ -3138,7 +3391,7 @@
     "method": "media/startMediaJob",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000266"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000274"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/startMediaJob",
     "case": "required fields"
@@ -3149,7 +3402,7 @@
     "params": {
       "id": "id-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000267"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000275"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/cacheMediaThumbnail",
     "case": "required fields"
@@ -3159,7 +3412,7 @@
     "method": "voice/transcribeAudio",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000268"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000276"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:voice/transcribeAudio",
     "case": "required fields"
@@ -3169,11 +3422,25 @@
     "method": "git/applyPatch",
     "params": {
       "cwd": "cwd-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000269",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000277",
       "patch": "patch-1",
       "path": "path-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:git/applyPatch",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "projectFs/localPage/virtual",
+    "params": {
+      "files": [
+        {
+          "path": "path-1",
+          "type": "type-1"
+        }
+      ]
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:projectFs/localPage/virtual",
     "case": "required fields"
   },
   {
@@ -3187,7 +3454,7 @@
     "client": "desktop",
     "method": "config/setBotOrder",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000270",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000278",
       "order": [
         "order-1"
       ]
@@ -3199,7 +3466,7 @@
     "client": "desktop",
     "method": "route/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000271",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000279",
       "route": {}
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:route/set",
@@ -3209,7 +3476,7 @@
     "client": "desktop",
     "method": "thread/queue/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000272",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000280",
       "restore": true,
       "threadId": "threadId-1"
     },
@@ -3229,7 +3496,7 @@
     "client": "desktop",
     "method": "thread/clear",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000273",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000281",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/clear",
@@ -3239,7 +3506,7 @@
     "client": "desktop",
     "method": "thread/name/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000274",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000282",
       "threadId": "threadId-1",
       "title": "title-1"
     },
@@ -3250,7 +3517,7 @@
     "client": "desktop",
     "method": "thread/metadata/update",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000275",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000283",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/metadata/update",
@@ -3260,7 +3527,7 @@
     "client": "desktop",
     "method": "thread/archive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000276",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000284",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/archive",
@@ -3270,7 +3537,7 @@
     "client": "desktop",
     "method": "thread/unarchive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000277",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000285",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/unarchive",
@@ -3280,7 +3547,7 @@
     "client": "desktop",
     "method": "thread/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000278",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000286",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/delete",
@@ -3290,7 +3557,7 @@
     "client": "desktop",
     "method": "thread/backgroundTerminals/terminate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000279",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000287",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -3310,15 +3577,6 @@
   },
   {
     "client": "desktop",
-    "method": "thread/read",
-    "params": {
-      "threadId": "threadId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/read",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "op/status",
     "params": {
       "fence": true,
@@ -3328,6 +3586,15 @@
       "scope": "scope-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:op/status",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/read",
+    "params": {
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/read",
     "case": "required fields"
   },
   {
@@ -3398,20 +3665,6 @@
   },
   {
     "client": "desktop",
-    "method": "projectFs/localPage/virtual",
-    "params": {
-      "files": [
-        {
-          "path": "path-1",
-          "type": "type-1"
-        }
-      ]
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:projectFs/localPage/virtual",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "projectFs/localPage/assetType",
     "params": {
       "file": "file-1",
@@ -3443,7 +3696,7 @@
     "method": "remoteAccess/setEnabled",
     "params": {
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000280"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000288"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setEnabled",
     "case": "required fields"
@@ -3453,7 +3706,7 @@
     "method": "remoteAccess/setName",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000281"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000289"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setName",
     "case": "required fields"
@@ -3464,7 +3717,7 @@
     "params": {
       "alias": "alias-1",
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000282"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000290"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setClientAlias",
     "case": "required fields"
@@ -3473,7 +3726,7 @@
     "client": "desktop",
     "method": "remoteAccess/rotate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000283"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000291"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/rotate",
     "case": "required fields"
@@ -3498,7 +3751,7 @@
     "params": {
       "approve": true,
       "claimId": "claimId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000284"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000292"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/resolveClaim",
     "case": "required fields"
@@ -3508,7 +3761,7 @@
     "method": "remoteAccess/pairCode",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000285"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000293"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/pairCode",
     "case": "required fields"
@@ -3518,7 +3771,7 @@
     "method": "remoteAccess/revokeClient",
     "params": {
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000286"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000294"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/revokeClient",
     "case": "required fields"
@@ -3528,60 +3781,20 @@
     "method": "remoteAccess/settleOwedControllerKeys",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000287"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000295"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/settleOwedControllerKeys",
     "case": "required fields"
   },
   {
     "client": "desktop",
-    "method": "transfer/beginWrite",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000288",
-      "size": 1
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/beginWrite",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "transfer/trash/entry",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000289",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000296",
       "path": "path-1",
       "rel": "rel-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/trash/entry",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/writeChunk",
-    "params": {
-      "bytesB64": "bytesB64-1",
-      "offset": 1,
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/writeChunk",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/commit",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000290",
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/commit",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/abort",
-    "params": {
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/abort",
     "case": "required fields"
   },
   {
@@ -3646,7 +3859,7 @@
     "method": "mcp/beginMcpOAuthLogin",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000291"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000297"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:mcp/beginMcpOAuthLogin",
     "case": "required fields"
@@ -3655,7 +3868,7 @@
     "client": "desktop",
     "method": "account/beginOAuthProviderLogin",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000292",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000298",
       "providerId": "providerId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:account/beginOAuthProviderLogin",
@@ -3665,7 +3878,7 @@
     "client": "desktop",
     "method": "github/login/start",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000293"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000299"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/start",
     "case": "required fields"
@@ -3675,7 +3888,7 @@
     "method": "mcp/cancelMcpOAuthLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000294"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000300"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:mcp/cancelMcpOAuthLogin",
     "case": "required fields"
@@ -3685,7 +3898,7 @@
     "method": "account/cancelOAuthProviderLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000295"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000301"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:account/cancelOAuthProviderLogin",
     "case": "required fields"
@@ -3695,7 +3908,7 @@
     "method": "github/login/cancel",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000296"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000302"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/cancel",
     "case": "required fields"
@@ -3704,7 +3917,7 @@
     "client": "desktop",
     "method": "remoteAccess/activate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000297"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000303"
     },
     "source": "apps/desktop/src/shared/core-lanes/remote-reads.ts:remoteAccess/activate",
     "case": "required fields"
@@ -3730,7 +3943,7 @@
     "method": "thread/readState/update",
     "params": {
       "messageCount": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000298",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000304",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/readState/update",
@@ -3756,7 +3969,7 @@
     "client": "desktop",
     "method": "thread/continueInModel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000299",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000305",
       "route": {
         "model": "model-1",
         "provider": "provider-1"
@@ -3770,7 +3983,7 @@
     "client": "desktop",
     "method": "thread/quotaResume/schedule",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000300",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000306",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/schedule",
@@ -3780,7 +3993,7 @@
     "client": "desktop",
     "method": "thread/quotaResume/cancel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000301",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000307",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/cancel",
@@ -3790,7 +4003,7 @@
     "client": "desktop",
     "method": "thread/backgroundTerminals/release",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000302",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000308",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -3802,7 +4015,7 @@
     "method": "agent/home/open",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000303"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000309"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/open",
     "case": "required fields"
@@ -3812,7 +4025,7 @@
     "method": "agent/home/reset",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000304"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000310"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/reset",
     "case": "required fields"
@@ -3833,7 +4046,7 @@
       "agentId": "agentId-1",
       "entryId": "entryId-1",
       "indexRevision": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000305"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000311"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/memory/delete",
     "case": "required fields"
@@ -3842,7 +4055,7 @@
     "client": "desktop",
     "method": "thread/fork",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000306",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000312",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/fork",
@@ -3866,20 +4079,10 @@
   },
   {
     "client": "desktop",
-    "method": "fast/set",
-    "params": {
-      "on": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000307"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:fast/set",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "room/create",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000308"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000313"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/create",
     "case": "required fields"
@@ -3889,7 +4092,7 @@
     "method": "room/update",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000309"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000314"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/update",
     "case": "required fields"
@@ -3899,7 +4102,7 @@
     "method": "room/continue",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000310"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000315"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/continue",
     "case": "required fields"
@@ -3909,7 +4112,7 @@
     "method": "room/leave",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000311"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000316"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/leave",
     "case": "required fields"
@@ -3919,7 +4122,7 @@
     "method": "room/reset",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000312"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000317"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/reset",
     "case": "required fields"
@@ -3999,7 +4202,7 @@
         "prompt": "prompt-1"
       },
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000313",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000318",
       "projectPath": "projectPath-1",
       "session": {
         "approvalMode": "implicit",
@@ -4059,7 +4262,7 @@
         },
         "prompt": "prompt-1"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000314",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000319",
       "threadId": "threadId-1"
     },
     "source": "native/core/crates/mixdog-cli/src/exec/run.rs:turn/start",
@@ -4175,7 +4378,7 @@
     "client": "tui",
     "method": "turn/retryFailed",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000315",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000320",
       "threadId": "threadId-1",
       "turnKey": "turnKey-1"
     },
@@ -4278,6 +4481,26 @@
   },
   {
     "client": "phone",
+    "method": "fs/watch",
+    "params": {
+      "path": "path-1",
+      "recursive": true,
+      "watchId": "watchId-1"
+    },
+    "source": "apps/mobile/src/phone-fs-watches.ts:fs/watch",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "fs/unwatch",
+    "params": {
+      "watchId": "watchId-1"
+    },
+    "source": "apps/mobile/src/phone-fs-watches.ts:fs/unwatch",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
     "method": "thread/items/list",
     "params": {
       "byteBudget": 1,
@@ -4294,7 +4517,7 @@
     "client": "phone",
     "method": "approval/provideSecret",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000316",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000321",
       "requestId": "requestId-1",
       "secret": "secret-1"
     },
@@ -4351,7 +4574,7 @@
     "params": {
       "action": "action-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000317",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000322",
       "revision": "revision-1",
       "root": "root-1"
     },
@@ -4360,10 +4583,57 @@
   },
   {
     "client": "phone",
+    "method": "browser/command",
+    "params": {
+      "action": "action-1",
+      "input": {}
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/command",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "browser/stream",
+    "params": {
+      "on": true,
+      "request": {},
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/stream",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "browser/webrtcSignal",
+    "params": {
+      "signal": {}
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/webrtcSignal",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "browser/screenDisplays",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/screenDisplays",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "browser/streamAck",
+    "params": {
+      "seq": 1,
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-browser.ts:browser/streamAck",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
     "method": "room/remove",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000318"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000323"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-chat.ts:room/remove",
     "case": "every optional field"
@@ -4463,7 +4733,7 @@
     "client": "phone",
     "method": "project/create",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000319",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000324",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/create",
@@ -4474,7 +4744,7 @@
     "method": "project/update",
     "params": {
       "alias": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000320",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000325",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/update",
@@ -4484,7 +4754,7 @@
     "client": "phone",
     "method": "project/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000321",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000326",
       "path": "path-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:project/delete",
@@ -4544,7 +4814,7 @@
       "content": "content-1",
       "encoding": "encoding-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000322",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000327",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -4557,7 +4827,7 @@
     "params": {
       "directory": true,
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000323",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000328",
       "relDir": "relDir-1",
       "root": "root-1"
     },
@@ -4569,7 +4839,7 @@
     "method": "projectFs/rename",
     "params": {
       "newName": "newName-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000324",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000329",
       "rel": "rel-1",
       "root": "root-1"
     },
@@ -4580,7 +4850,7 @@
     "client": "phone",
     "method": "projectFs/move",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000325",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000330",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -4592,7 +4862,7 @@
     "client": "phone",
     "method": "projectFs/copy",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000326",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000331",
       "rel": "rel-1",
       "root": "root-1",
       "targetDirRel": "targetDirRel-1"
@@ -4604,7 +4874,7 @@
     "client": "phone",
     "method": "projectFs/trash",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000327",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000332",
       "rel": "rel-1",
       "root": "root-1",
       "viaHost": true
@@ -4656,7 +4926,7 @@
     "params": {
       "content": "content-1",
       "expectedContent": "expectedContent-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000328",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000333",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/write",
@@ -4666,7 +4936,7 @@
     "client": "phone",
     "method": "projectFs/backup/delete",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000329",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000334",
       "sourcePath": "sourcePath-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/backup/delete",
@@ -4677,7 +4947,7 @@
     "method": "projectFs/workspaceFile/write",
     "params": {
       "folders": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000330",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000335",
       "workspaceFile": "workspaceFile-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/workspaceFile/write",
@@ -4708,7 +4978,7 @@
     "client": "phone",
     "method": "projectFs/replaceText",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000331",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000336",
       "options": {},
       "relPaths": [
         "relPaths-1"
@@ -4734,7 +5004,7 @@
     "client": "phone",
     "method": "lsp/request",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000332",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000337",
       "projectPath": "projectPath-1",
       "request": {},
       "root": "root-1"
@@ -4747,7 +5017,7 @@
     "method": "projectFs/writeTextBatch",
     "params": {
       "files": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000333",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000338",
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/writeTextBatch",
@@ -4813,22 +5083,39 @@
   },
   {
     "client": "phone",
-    "method": "remoteAccess/registerNativePush",
-    "params": {
-      "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000334"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
+    "method": "remoteAccess/pushPublicKey",
+    "params": {},
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/pushPublicKey",
     "case": "every optional field"
   },
   {
     "client": "phone",
-    "method": "remoteAccess/removeNativePush",
+    "method": "remoteAccess/registerPushSubscription",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000335",
-      "token": "token-1"
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000339"
     },
-    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerPushSubscription",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "remoteAccess/removePushSubscription",
+    "params": {
+      "endpoint": "endpoint-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000340"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removePushSubscription",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "remoteAccess/registerNativePush",
+    "params": {
+      "input": {},
+      "opId": "0190f3c2-7a31-7c00-8000-000000000341"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/registerNativePush",
     "case": "every optional field"
   },
   {
@@ -4844,6 +5131,16 @@
   },
   {
     "client": "phone",
+    "method": "remoteAccess/removeNativePush",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000342",
+      "token": "token-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-notifications.ts:remoteAccess/removeNativePush",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
     "method": "remote/connectionTimeline",
     "params": {
       "text": "text-1"
@@ -4853,11 +5150,22 @@
   },
   {
     "client": "phone",
+    "method": "config/read",
+    "params": {
+      "keys": [
+        "keys-1"
+      ]
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:config/read",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
     "method": "config/value/write",
     "params": {
       "announce": "desktop",
       "mode": "replace",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000336",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000343",
       "path": "path-1",
       "value": {}
     },
@@ -4884,7 +5192,7 @@
     "params": {
       "action": "check",
       "confirmed": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000337"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000344"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:update/desktop/command",
     "case": "every optional field"
@@ -4894,7 +5202,7 @@
     "method": "feedback/upload",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000338"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000345"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:feedback/upload",
     "case": "every optional field"
@@ -4912,7 +5220,7 @@
     "client": "phone",
     "method": "notify/test",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000339",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000346",
       "target": "target-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-settings.ts:notify/test",
@@ -4950,7 +5258,7 @@
     "client": "phone",
     "method": "terminal/dispose",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000340",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000347",
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:terminal/dispose",
@@ -4968,22 +5276,12 @@
   },
   {
     "client": "phone",
-    "method": "fs/watch",
+    "method": "visualize/command",
     "params": {
-      "path": "path-1",
-      "recursive": true,
-      "watchId": "watchId-1"
+      "action": "action-1",
+      "input": {}
     },
-    "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:fs/watch",
-    "case": "every optional field"
-  },
-  {
-    "client": "phone",
-    "method": "fs/unwatch",
-    "params": {
-      "watchId": "watchId-1"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-terminal.ts:fs/unwatch",
+    "source": "apps/desktop/src/renderer/remote-protocol-visualize.ts:visualize/command",
     "case": "every optional field"
   },
   {
@@ -5019,7 +5317,7 @@
     "params": {
       "consumedUnread": true,
       "messageCount": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000341",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000348",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/readState/update",
@@ -5045,7 +5343,7 @@
     "client": "phone",
     "method": "thread/name/set",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000342",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000349",
       "threadId": "threadId-1",
       "title": "title-1"
     },
@@ -5056,7 +5354,7 @@
     "client": "phone",
     "method": "thread/continueInModel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000343",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000350",
       "route": {
         "autoEffort": true,
         "contextPercent": 1,
@@ -5080,7 +5378,7 @@
     "client": "phone",
     "method": "thread/quotaResume/schedule",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000344",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000351",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/schedule",
@@ -5090,7 +5388,7 @@
     "client": "phone",
     "method": "thread/quotaResume/cancel",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000345",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000352",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/quotaResume/cancel",
@@ -5100,7 +5398,7 @@
     "client": "phone",
     "method": "thread/backgroundTerminals/terminate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000346",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000353",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -5111,7 +5409,7 @@
     "client": "phone",
     "method": "thread/backgroundTerminals/release",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000347",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000354",
       "taskId": "taskId-1",
       "threadId": "threadId-1"
     },
@@ -5146,7 +5444,7 @@
     "method": "thread/metadata/update",
     "params": {
       "favorite": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000348",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000355",
       "projectPath": "projectPath-1",
       "threadId": "threadId-1"
     },
@@ -5157,7 +5455,7 @@
     "client": "phone",
     "method": "thread/archive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000349",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000356",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/archive",
@@ -5167,7 +5465,7 @@
     "client": "phone",
     "method": "thread/unarchive",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000350",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000357",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/unarchive",
@@ -5178,7 +5476,7 @@
     "method": "thread/delete",
     "params": {
       "ifIdle": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000351",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000358",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:thread/delete",
@@ -5189,7 +5487,7 @@
     "method": "agent/home/open",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000352"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000359"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/open",
     "case": "every optional field"
@@ -5199,7 +5497,7 @@
     "method": "agent/home/reset",
     "params": {
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000353"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000360"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/home/reset",
     "case": "every optional field"
@@ -5220,7 +5518,7 @@
       "agentId": "agentId-1",
       "entryId": "entryId-1",
       "indexRevision": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000354"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000361"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:agent/memory/delete",
     "case": "every optional field"
@@ -5231,7 +5529,7 @@
     "params": {
       "compact": true,
       "intoThreadId": "intoThreadId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000355",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000362",
       "route": {
         "autoEffort": true,
         "contextPercent": 1,
@@ -5256,7 +5554,7 @@
     "method": "room/send",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000356"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000363"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/send",
     "case": "every optional field"
@@ -5279,32 +5577,10 @@
     "params": {
       "force": true,
       "quick": true,
-      "refresh": true
+      "refresh": true,
+      "withCatalogState": true
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:model/list",
-    "case": "every optional field"
-  },
-  {
-    "client": "phone",
-    "method": "route/set",
-    "params": {
-      "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000357",
-      "route": {},
-      "threadId": "threadId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:route/set",
-    "case": "every optional field"
-  },
-  {
-    "client": "phone",
-    "method": "fast/set",
-    "params": {
-      "on": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000358",
-      "threadId": "threadId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/service-route.ts:fast/set",
     "case": "every optional field"
   },
   {
@@ -5312,7 +5588,7 @@
     "method": "room/create",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000359"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000364"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/create",
     "case": "every optional field"
@@ -5322,7 +5598,7 @@
     "method": "room/update",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000360"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000365"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/update",
     "case": "every optional field"
@@ -5332,7 +5608,7 @@
     "method": "room/continue",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000361"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000366"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/continue",
     "case": "every optional field"
@@ -5342,7 +5618,7 @@
     "method": "room/leave",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000362"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000367"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/leave",
     "case": "every optional field"
@@ -5352,7 +5628,7 @@
     "method": "room/reset",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000363"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000368"
     },
     "source": "apps/desktop/src/shared/core-lanes/service-route.ts:room/reset",
     "case": "every optional field"
@@ -5370,13 +5646,25 @@
     "client": "phone",
     "method": "config/setBotOrder",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000364",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000369",
       "order": [
         "order-1"
       ],
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:config/setBotOrder",
+    "case": "every optional field"
+  },
+  {
+    "client": "phone",
+    "method": "route/set",
+    "params": {
+      "agentId": "agentId-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000370",
+      "route": {},
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:route/set",
     "case": "every optional field"
   },
   {
@@ -5395,7 +5683,7 @@
     "method": "thread/queue/delete",
     "params": {
       "currentText": "currentText-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000365",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000371",
       "queuedId": "queuedId-1",
       "restore": true,
       "submissionId": "submissionId-1",
@@ -5431,7 +5719,7 @@
     "client": "phone",
     "method": "thread/clear",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000366",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000372",
       "rebuildPrompt": true,
       "threadId": "threadId-1"
     },
@@ -5447,6 +5735,17 @@
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/capability-route.ts:thread/approval/answer",
+    "case": "every optional field"
+  },
+  {
+    "client": "protocol-client",
+    "method": "feed/heads",
+    "params": {
+      "feedIds": [
+        "feedIds-1"
+      ]
+    },
+    "source": "packages/protocol-client/src/client.ts:feed/heads",
     "case": "every optional field"
   },
   {
@@ -5482,27 +5781,6 @@
   },
   {
     "client": "desktop",
-    "method": "browser/command",
-    "params": {
-      "action": "action-1",
-      "input": {}
-    },
-    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:browser/command",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "test/browserEngine/run",
-    "params": {
-      "args": {},
-      "threadId": "threadId-1",
-      "tool": "browser"
-    },
-    "source": "apps/desktop/src/main/browser/golden-twin.integration.ts:test/browserEngine/run",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "host/browser/surface",
     "params": {
       "error": "error-1",
@@ -5525,6 +5803,17 @@
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/main/browser/host-presentation.ts:host/browser/page",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "test/browserEngine/run",
+    "params": {
+      "args": {},
+      "threadId": "threadId-1",
+      "tool": "browser"
+    },
+    "source": "apps/desktop/src/main/browser/latency-scenarios.ts:test/browserEngine/run",
     "case": "every optional field"
   },
   {
@@ -5626,22 +5915,23 @@
   },
   {
     "client": "desktop",
-    "method": "host/window/closed",
-    "params": {
-      "byUser": true,
-      "connectionId": "connectionId-1"
-    },
-    "source": "apps/desktop/src/main/connections/window-host.ts:host/window/closed",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "host/state/set",
     "params": {
       "key": "browserTabs",
       "value": {}
     },
     "source": "apps/desktop/src/main/connections/window-host.ts:host/state/set",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "host/window/closed",
+    "params": {
+      "byUser": true,
+      "connectionId": "connectionId-1",
+      "windowToken": "windowToken-1"
+    },
+    "source": "apps/desktop/src/main/connections/window-host.ts:host/window/closed",
     "case": "every optional field"
   },
   {
@@ -5774,6 +6064,25 @@
   },
   {
     "client": "desktop",
+    "method": "host/computer/scopeReport",
+    "params": {
+      "report": {
+        "admission": {},
+        "cleanup": "pending",
+        "revision": 1,
+        "scope": 1,
+        "unfinished": 1,
+        "unfinished_at_closure": 1,
+        "unknown_executors": [
+          "unknown_executors-1"
+        ]
+      }
+    },
+    "source": "apps/desktop/src/main/host/computer-scope.ts:host/computer/scopeReport",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "host/notification/clicked",
     "params": {
       "connectionId": "connectionId-1",
@@ -5830,13 +6139,6 @@
   },
   {
     "client": "desktop",
-    "method": "browser/screenDisplays",
-    "params": {},
-    "source": "apps/desktop/src/main/host/screen-displays.ts:browser/screenDisplays",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "host/screen/displaysChanged",
     "params": {},
     "source": "apps/desktop/src/main/host/screen-displays.ts:host/screen/displaysChanged",
@@ -5860,6 +6162,15 @@
       ]
     },
     "source": "apps/desktop/src/main/index.ts:desktop/nativeToolCache/gc",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "config/getUpdateSettings",
+    "params": {
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/main/index.ts:config/getUpdateSettings",
     "case": "every optional field"
   },
   {
@@ -5943,7 +6254,7 @@
     "params": {
       "force": true,
       "minimumValidityMs": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000367",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000373",
       "recheckKeychain": true,
       "refresh": true,
       "renewCredential": "renewCredential-1",
@@ -6027,13 +6338,46 @@
   },
   {
     "client": "desktop",
-    "method": "config/read",
+    "method": "transfer/writeChunk",
     "params": {
-      "keys": [
-        "keys-1"
-      ]
+      "bytesB64": "bytesB64-1",
+      "offset": 1,
+      "transferId": "transferId-1"
     },
-    "source": "apps/desktop/src/main/settings-store.ts:config/read",
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/writeChunk",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/abort",
+    "params": {
+      "transferId": "transferId-1"
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/abort",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/beginWrite",
+    "params": {
+      "name": "name-1",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000374",
+      "rel": "rel-1",
+      "root": "root-1",
+      "scope": "scope-1",
+      "size": 1
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/beginWrite",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/commit",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000375",
+      "transferId": "transferId-1"
+    },
+    "source": "apps/desktop/src/main/server-upload-coordinator.ts:transfer/commit",
     "case": "every optional field"
   },
   {
@@ -6157,7 +6501,8 @@
         "forget": true,
         "operationId": "operationId-1",
         "removeUserData": true
-      }
+      },
+      "target": "target-1"
     },
     "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/ssh/cleanup",
     "case": "every optional field"
@@ -6418,6 +6763,28 @@
   },
   {
     "client": "desktop",
+    "method": "git/watch",
+    "params": {
+      "cwd": "cwd-1"
+    },
+    "source": "apps/desktop/src/renderer/git-refresh-scheduler.ts:git/watch",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "thread/imageRecovery",
+    "params": {
+      "action": {
+        "type": "state"
+      },
+      "opId": "0190f3c2-7a31-7c00-8000-000000000376",
+      "threadId": "threadId-1"
+    },
+    "source": "apps/desktop/src/renderer/image-refusal.ts:thread/imageRecovery",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "account/listWebSearchModels",
     "params": {
       "options": {},
@@ -6431,7 +6798,7 @@
     "method": "thread/stageAttachmentOriginal",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000368",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000377",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/stageAttachmentOriginal",
@@ -6442,7 +6809,7 @@
     "method": "thread/resizeImage",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000369",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000378",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:thread/resizeImage",
@@ -6453,7 +6820,7 @@
     "method": "media/startMediaJob",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000370",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000379",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/startMediaJob",
@@ -6465,7 +6832,7 @@
     "params": {
       "id": "id-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000371",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000380",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:media/cacheMediaThumbnail",
@@ -6476,7 +6843,7 @@
     "method": "voice/transcribeAudio",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000372",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000381",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:voice/transcribeAudio",
@@ -6487,12 +6854,29 @@
     "method": "git/applyPatch",
     "params": {
       "cwd": "cwd-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000373",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000382",
       "patch": "patch-1",
       "path": "path-1",
       "reverse": true
     },
     "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:git/applyPatch",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "projectFs/localPage/virtual",
+    "params": {
+      "files": [
+        {
+          "dataBase64": "dataBase64-1",
+          "path": "path-1",
+          "text": "text-1",
+          "type": "type-1"
+        }
+      ],
+      "ownerId": "ownerId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/blob-ref-fields.ts:projectFs/localPage/virtual",
     "case": "every optional field"
   },
   {
@@ -6557,23 +6941,6 @@
   },
   {
     "client": "desktop",
-    "method": "projectFs/localPage/virtual",
-    "params": {
-      "files": [
-        {
-          "dataBase64": "dataBase64-1",
-          "path": "path-1",
-          "text": "text-1",
-          "type": "type-1"
-        }
-      ],
-      "ownerId": "ownerId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:projectFs/localPage/virtual",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "projectFs/localPage/assetType",
     "params": {
       "dataRoot": "dataRoot-1",
@@ -6606,7 +6973,7 @@
     "method": "remoteAccess/setEnabled",
     "params": {
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000374"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000383"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setEnabled",
     "case": "every optional field"
@@ -6616,7 +6983,7 @@
     "method": "remoteAccess/setName",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000375"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000384"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setName",
     "case": "every optional field"
@@ -6627,7 +6994,7 @@
     "params": {
       "alias": "alias-1",
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000376"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000385"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/setClientAlias",
     "case": "every optional field"
@@ -6636,7 +7003,7 @@
     "client": "desktop",
     "method": "remoteAccess/rotate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000377"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000386"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/rotate",
     "case": "every optional field"
@@ -6661,7 +7028,7 @@
     "params": {
       "approve": true,
       "claimId": "claimId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000378"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000387"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/resolveClaim",
     "case": "every optional field"
@@ -6671,7 +7038,7 @@
     "method": "remoteAccess/pairCode",
     "params": {
       "action": "action-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000379"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000388"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/pairCode",
     "case": "every optional field"
@@ -6681,7 +7048,7 @@
     "method": "remoteAccess/revokeClient",
     "params": {
       "clientId": "clientId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000380"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000389"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/revokeClient",
     "case": "every optional field"
@@ -6691,65 +7058,21 @@
     "method": "remoteAccess/settleOwedControllerKeys",
     "params": {
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000381"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000390"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:remoteAccess/settleOwedControllerKeys",
     "case": "every optional field"
   },
   {
     "client": "desktop",
-    "method": "transfer/beginWrite",
-    "params": {
-      "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000382",
-      "rel": "rel-1",
-      "root": "root-1",
-      "scope": "scope-1",
-      "size": 1
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/beginWrite",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "transfer/trash/entry",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000383",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000391",
       "path": "path-1",
       "permanent": true,
       "rel": "rel-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/trash/entry",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/writeChunk",
-    "params": {
-      "bytesB64": "bytesB64-1",
-      "offset": 1,
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/writeChunk",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/commit",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000384",
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/commit",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "transfer/abort",
-    "params": {
-      "transferId": "transferId-1"
-    },
-    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/abort",
     "case": "every optional field"
   },
   {
@@ -6814,7 +7137,7 @@
     "method": "mcp/beginMcpOAuthLogin",
     "params": {
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000385",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000392",
       "options": {},
       "threadId": "threadId-1"
     },
@@ -6825,7 +7148,7 @@
     "client": "desktop",
     "method": "account/beginOAuthProviderLogin",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000386",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000393",
       "options": {},
       "providerId": "providerId-1",
       "threadId": "threadId-1"
@@ -6837,7 +7160,7 @@
     "client": "desktop",
     "method": "github/login/start",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000387",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000394",
       "openBrowser": true
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/start",
@@ -6848,7 +7171,7 @@
     "method": "mcp/cancelMcpOAuthLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000388",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000395",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:mcp/cancelMcpOAuthLogin",
@@ -6859,7 +7182,7 @@
     "method": "account/cancelOAuthProviderLogin",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000389",
+      "opId": "0190f3c2-7a31-7c00-8000-000000000396",
       "threadId": "threadId-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:account/cancelOAuthProviderLogin",
@@ -6870,7 +7193,7 @@
     "method": "github/login/cancel",
     "params": {
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000390"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000397"
     },
     "source": "apps/desktop/src/shared/core-lanes/login-feed.ts:github/login/cancel",
     "case": "every optional field"
@@ -6879,7 +7202,7 @@
     "client": "desktop",
     "method": "remoteAccess/activate",
     "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000391"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000398"
     },
     "source": "apps/desktop/src/shared/core-lanes/remote-reads.ts:remoteAccess/activate",
     "case": "every optional field"
@@ -7431,6 +7754,19 @@
   },
   {
     "client": "protocol-client",
+    "method": "thread/imageRecovery",
+    "params": {
+      "threadId": "thread-1",
+      "action": {
+        "type": "state"
+      },
+      "opId": "0190f3c2-7a31-7c00-8000-000000000040"
+    },
+    "source": "packages/protocol-client/src/actions/action-namespaces.mjs:imageRecovery",
+    "case": "session action imageRecovery"
+  },
+  {
+    "client": "protocol-client",
     "method": "project/inspectProjectBranch",
     "params": {
       "threadId": "thread-1",
@@ -7484,7 +7820,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000040"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000041"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:selectProjectBranch",
     "case": "session action selectProjectBranch"
@@ -7495,7 +7831,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000041"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000042"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:mergeProjectBranch",
     "case": "session action mergeProjectBranch"
@@ -7506,7 +7842,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000042"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000043"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:manageProjectBranch",
     "case": "session action manageProjectBranch"
@@ -7518,7 +7854,7 @@
       "threadId": "thread-1",
       "input": {},
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000043"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000044"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:removeWorktree",
     "case": "session action removeWorktree"
@@ -7529,7 +7865,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000044"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000045"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:pruneWorktrees",
     "case": "session action pruneWorktrees"
@@ -7540,7 +7876,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000045"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000046"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteWorktree",
     "case": "session action deleteWorktree"
@@ -7551,7 +7887,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000046"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000047"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setArchivedSessionWorktrees",
     "case": "session action setArchivedSessionWorktrees"
@@ -7565,7 +7901,7 @@
       "connectorId": "connectorId-1",
       "enabled": true,
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000047"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000048"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setProjectConnectorEnabled",
     "case": "session action setProjectConnectorEnabled"
@@ -7706,7 +8042,7 @@
       "threadId": "thread-1",
       "payload": {},
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000048"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000049"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveAgentDefinition",
     "case": "session action saveAgentDefinition"
@@ -7717,7 +8053,7 @@
     "params": {
       "threadId": "thread-1",
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000049"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000050"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteAgentDefinition",
     "case": "session action deleteAgentDefinition"
@@ -7728,7 +8064,7 @@
     "params": {
       "threadId": "thread-1",
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000050"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000051"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:restoreAgentDefinition",
     "case": "session action restoreAgentDefinition"
@@ -7739,7 +8075,7 @@
     "params": {
       "threadId": "thread-1",
       "agentId": "agentId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000051"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000052"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:purgeAgentDefinition",
     "case": "session action purgeAgentDefinition"
@@ -7752,7 +8088,7 @@
       "agentId": "agentId-1",
       "connectors": {},
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000052"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000053"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAgentConnectors",
     "case": "session action setAgentConnectors"
@@ -7766,7 +8102,7 @@
       "connectorId": "connectorId-1",
       "enabled": true,
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000053"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000054"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAgentConnectorEnabled",
     "case": "session action setAgentConnectorEnabled"
@@ -7781,7 +8117,7 @@
       "toolName": "toolName-1",
       "permission": {},
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000054"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000055"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAgentConnectorToolPermission",
     "case": "session action setAgentConnectorToolPermission"
@@ -7795,7 +8131,7 @@
       "action": "action-1",
       "mode": "mode-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000055"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000056"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAgentPermission",
     "case": "session action setAgentPermission"
@@ -7808,7 +8144,7 @@
       "agentId": "agentId-1",
       "action": "action-1",
       "decision": "decision-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000056"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000057"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:recordAgentApprovalAudit",
     "case": "session action recordAgentApprovalAudit"
@@ -7819,7 +8155,7 @@
     "params": {
       "threadId": "thread-1",
       "text": "text-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000057"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000058"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveLeadPersona",
     "case": "session action saveLeadPersona"
@@ -7830,7 +8166,7 @@
     "params": {
       "threadId": "thread-1",
       "text": "text-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000058"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000059"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveLeadAgentBody",
     "case": "session action saveLeadAgentBody"
@@ -7842,7 +8178,7 @@
       "threadId": "thread-1",
       "created": true,
       "description": "description-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000059"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000060"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setLeadCreated",
     "case": "session action setLeadCreated"
@@ -7853,7 +8189,7 @@
     "params": {
       "threadId": "thread-1",
       "payload": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000060"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000061"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveLeadIdentity",
     "case": "session action saveLeadIdentity"
@@ -7864,7 +8200,7 @@
     "params": {
       "threadId": "thread-1",
       "avatar": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000061"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000062"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setLeadAppearance",
     "case": "session action setLeadAppearance"
@@ -7895,7 +8231,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000062"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000063"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveInstructionFile",
     "case": "session action saveInstructionFile"
@@ -7908,7 +8244,7 @@
       "group": "group-1",
       "id": "id-1",
       "expectedRevision": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000063"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000064"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:resetInstructionFile",
     "case": "session action resetInstructionFile"
@@ -7919,7 +8255,7 @@
     "params": {
       "threadId": "thread-1",
       "mode": "all",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000064"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000065"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setInstructionFiles",
     "case": "session action setInstructionFiles"
@@ -7940,7 +8276,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000065"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000066"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:addConnectorAccount",
     "case": "session action addConnectorAccount"
@@ -8164,7 +8500,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000066"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000067"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAutoClear",
     "case": "session action setAutoClear"
@@ -8175,7 +8511,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000067"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000068"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAutoUpdate",
     "case": "session action setAutoUpdate"
@@ -8186,7 +8522,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000068"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000069"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setCacheWarmingEnabled",
     "case": "session action setCacheWarmingEnabled"
@@ -8197,7 +8533,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000069"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000070"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setCompactionSettings",
     "case": "session action setCompactionSettings"
@@ -8209,7 +8545,7 @@
       "threadId": "thread-1",
       "id": "id-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000070"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000071"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setDeveloperOption",
     "case": "session action setDeveloperOption"
@@ -8220,7 +8556,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000071"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000072"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setProfile",
     "case": "session action setProfile"
@@ -8231,7 +8567,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000072"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000073"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setRecapEnabled",
     "case": "session action setRecapEnabled"
@@ -8242,7 +8578,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000073"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000074"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAiSessionTitles",
     "case": "session action setAiSessionTitles"
@@ -8253,7 +8589,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000074"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000075"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setHeartbeatEnabled",
     "case": "session action setHeartbeatEnabled"
@@ -8264,7 +8600,7 @@
     "params": {
       "threadId": "thread-1",
       "minutes": 30,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000075"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000076"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setHeartbeatInterval",
     "case": "session action setHeartbeatInterval"
@@ -8275,7 +8611,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000076"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000077"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setReactionsEnabled",
     "case": "session action setReactionsEnabled"
@@ -8286,7 +8622,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000077"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000078"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setSystemShell",
     "case": "session action setSystemShell"
@@ -8298,7 +8634,7 @@
       "threadId": "thread-1",
       "id": "id-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000078"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000079"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setTheme",
     "case": "session action setTheme"
@@ -8309,7 +8645,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000079"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000080"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setWebSearchEnabled",
     "case": "session action setWebSearchEnabled"
@@ -8320,7 +8656,7 @@
     "params": {
       "threadId": "thread-1",
       "next": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000080"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000081"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setWebSearchRoute",
     "case": "session action setWebSearchRoute"
@@ -8331,7 +8667,7 @@
     "params": {
       "threadId": "thread-1",
       "level": "medium",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000081"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000082"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAutoEffortBase",
     "case": "session action setAutoEffortBase"
@@ -8342,7 +8678,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000082"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000083"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMemoryToolsEnabled",
     "case": "session action setMemoryToolsEnabled"
@@ -8354,7 +8690,7 @@
       "threadId": "thread-1",
       "name": "git",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000083"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000084"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setBuiltinToolEnabled",
     "case": "session action setBuiltinToolEnabled"
@@ -8370,7 +8706,7 @@
           "ruff"
         ]
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000084"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000085"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:installBuiltinFeature",
     "case": "session action installBuiltinFeature"
@@ -8381,7 +8717,7 @@
     "params": {
       "threadId": "thread-1",
       "patch": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000085"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000086"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setWorktreeSettings",
     "case": "session action setWorktreeSettings"
@@ -8395,7 +8731,7 @@
         "mode": "system"
       },
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000086"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000087"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setNetworkProxy",
     "case": "session action setNetworkProxy"
@@ -8406,7 +8742,7 @@
     "params": {
       "threadId": "thread-1",
       "payload": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000087"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000088"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveWorkflowPack",
     "case": "session action saveWorkflowPack"
@@ -8417,7 +8753,7 @@
     "params": {
       "threadId": "thread-1",
       "payload": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000088"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000089"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:createWorkflow",
     "case": "session action createWorkflow"
@@ -8428,7 +8764,7 @@
     "params": {
       "threadId": "thread-1",
       "workflowId": "workflowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000089"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000090"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteWorkflow",
     "case": "session action deleteWorkflow"
@@ -8440,7 +8776,7 @@
       "threadId": "thread-1",
       "providerId": "providerId-1",
       "changes": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000090"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000091"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setModelPreferences",
     "case": "session action setModelPreferences"
@@ -8450,7 +8786,7 @@
     "method": "config/skipOnboarding",
     "params": {
       "threadId": "thread-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000091"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000092"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:skipOnboarding",
     "case": "session action skipOnboarding"
@@ -8461,7 +8797,7 @@
     "params": {
       "threadId": "thread-1",
       "payload": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000092"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000093"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:completeOnboarding",
     "case": "session action completeOnboarding"
@@ -8472,7 +8808,7 @@
     "params": {
       "threadId": "thread-1",
       "state": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000093"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000094"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveStarterGuideState",
     "case": "session action saveStarterGuideState"
@@ -8484,7 +8820,7 @@
       "threadId": "thread-1",
       "id": "id-1",
       "owner": "owner-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000094"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000095"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:claimSetupRequest",
     "case": "session action claimSetupRequest"
@@ -8497,7 +8833,7 @@
       "id": "id-1",
       "owner": "owner-1",
       "receipt": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000095"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000096"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:completeSetupRequest",
     "case": "session action completeSetupRequest"
@@ -8512,7 +8848,7 @@
       "projects": [
         "projects-1"
       ],
-      "opId": "0190f3c2-7a31-7c00-8000-000000000096"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000097"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setExtensionScope",
     "case": "session action setExtensionScope"
@@ -8551,7 +8887,7 @@
     "params": {
       "threadId": "thread-1",
       "patch": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000097"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000098"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setWebhookConfig",
     "case": "session action setWebhookConfig"
@@ -8562,7 +8898,7 @@
     "params": {
       "threadId": "thread-1",
       "entry": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000098"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000099"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveSchedule",
     "case": "session action saveSchedule"
@@ -8573,7 +8909,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000099"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000100"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteSchedule",
     "case": "session action deleteSchedule"
@@ -8585,7 +8921,7 @@
       "threadId": "thread-1",
       "name": "name-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000100"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000101"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setScheduleEnabled",
     "case": "session action setScheduleEnabled"
@@ -8596,7 +8932,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000101"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000102"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:runScheduleNow",
     "case": "session action runScheduleNow"
@@ -8607,7 +8943,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000102"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000103"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:runWebhookNow",
     "case": "session action runWebhookNow"
@@ -8619,7 +8955,7 @@
       "threadId": "thread-1",
       "kind": "kind-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000103"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000104"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:retryRoutineDelivery",
     "case": "session action retryRoutineDelivery"
@@ -8630,7 +8966,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000104"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000105"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:testWebhook",
     "case": "session action testWebhook"
@@ -8641,7 +8977,7 @@
     "params": {
       "threadId": "thread-1",
       "entry": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000105"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000106"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveWebhook",
     "case": "session action saveWebhook"
@@ -8652,7 +8988,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000106"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000107"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteWebhook",
     "case": "session action deleteWebhook"
@@ -8664,7 +9000,7 @@
       "threadId": "thread-1",
       "name": "name-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000107"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000108"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setWebhookEnabled",
     "case": "session action setWebhookEnabled"
@@ -8695,7 +9031,7 @@
     "params": {
       "threadId": "thread-1",
       "params": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000108"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000109"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:startConversationImport",
     "case": "session action startConversationImport"
@@ -8706,7 +9042,7 @@
     "params": {
       "threadId": "thread-1",
       "params": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000109"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000110"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cancelConversationImport",
     "case": "session action cancelConversationImport"
@@ -8717,7 +9053,7 @@
     "params": {
       "threadId": "thread-1",
       "params": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000110"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000111"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:registerConversationImportFile",
     "case": "session action registerConversationImportFile"
@@ -8808,7 +9144,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000111"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000112"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:startMediaJob",
     "case": "session action startMediaJob"
@@ -8819,7 +9155,7 @@
     "params": {
       "threadId": "thread-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000112"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000113"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cancelMediaJob",
     "case": "session action cancelMediaJob"
@@ -8830,7 +9166,7 @@
     "params": {
       "threadId": "thread-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000113"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000114"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteMediaAsset",
     "case": "session action deleteMediaAsset"
@@ -8841,7 +9177,7 @@
     "params": {
       "threadId": "thread-1",
       "filter": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000114"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000115"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteMediaAssets",
     "case": "session action deleteMediaAssets"
@@ -8852,7 +9188,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000115"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000116"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:createMediaBoard",
     "case": "session action createMediaBoard"
@@ -8864,7 +9200,7 @@
       "threadId": "thread-1",
       "id": "id-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000116"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000117"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:renameMediaBoard",
     "case": "session action renameMediaBoard"
@@ -8875,7 +9211,7 @@
     "params": {
       "threadId": "thread-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000117"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000118"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteMediaBoard",
     "case": "session action deleteMediaBoard"
@@ -8889,7 +9225,7 @@
         "ids-1"
       ],
       "boardId": "board-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000118"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000119"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMediaAssetBoard",
     "case": "session action setMediaAssetBoard"
@@ -8900,7 +9236,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000119"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000120"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMediaDefault",
     "case": "session action setMediaDefault"
@@ -8911,7 +9247,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000120"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000121"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMediaPin",
     "case": "session action setMediaPin"
@@ -8923,7 +9259,7 @@
       "threadId": "thread-1",
       "id": "id-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000121"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000122"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cacheMediaThumbnail",
     "case": "session action cacheMediaThumbnail"
@@ -8934,7 +9270,7 @@
     "params": {
       "threadId": "thread-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000122"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000123"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:openMediaAsset",
     "case": "session action openMediaAsset"
@@ -8945,7 +9281,7 @@
     "params": {
       "threadId": "thread-1",
       "id": "id-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000123"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000124"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:openMediaFolder",
     "case": "session action openMediaFolder"
@@ -8986,7 +9322,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000124"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000125"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:addMcpServer",
     "case": "session action addMcpServer"
@@ -8997,7 +9333,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000125"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000126"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveMcpServer",
     "case": "session action saveMcpServer"
@@ -9008,7 +9344,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000126"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000127"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:removeMcpServer",
     "case": "session action removeMcpServer"
@@ -9020,7 +9356,7 @@
       "threadId": "thread-1",
       "name": "name-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000127"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000128"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMcpServerEnabled",
     "case": "session action setMcpServerEnabled"
@@ -9031,7 +9367,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000128"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000129"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:reconnectMcp",
     "case": "session action reconnectMcp"
@@ -9043,7 +9379,7 @@
       "threadId": "thread-1",
       "name": "name-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000129"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000130"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:beginMcpOAuthLogin",
     "case": "session action beginMcpOAuthLogin"
@@ -9054,7 +9390,7 @@
     "params": {
       "threadId": "thread-1",
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000130"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000131"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cancelMcpOAuthLogin",
     "case": "session action cancelMcpOAuthLogin"
@@ -9066,7 +9402,7 @@
       "threadId": "thread-1",
       "flowId": "flowId-1",
       "callbackUrl": "callbackUrl-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000131"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000132"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:completeMcpOAuthLogin",
     "case": "session action completeMcpOAuthLogin"
@@ -9077,7 +9413,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000132"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000133"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:signOutMcpServer",
     "case": "session action signOutMcpServer"
@@ -9088,7 +9424,7 @@
     "params": {
       "threadId": "thread-1",
       "cfg": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000133"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000134"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:probeMcpServerAuth",
     "case": "session action probeMcpServerAuth"
@@ -9099,7 +9435,7 @@
     "params": {
       "threadId": "thread-1",
       "plugin": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000134"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000135"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:enablePluginMcp",
     "case": "session action enablePluginMcp"
@@ -9150,7 +9486,7 @@
       "threadId": "thread-1",
       "providerId": "providerId-1",
       "secret": "secret-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000135"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000136"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:authenticateProvider",
     "case": "session action authenticateProvider"
@@ -9162,7 +9498,7 @@
       "threadId": "thread-1",
       "providerId": "providerId-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000136"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000137"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:beginOAuthProviderLogin",
     "case": "session action beginOAuthProviderLogin"
@@ -9174,7 +9510,7 @@
       "threadId": "thread-1",
       "flowId": "flowId-1",
       "callbackUrl": "callbackUrl-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000137"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000138"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:completeOAuthProviderLogin",
     "case": "session action completeOAuthProviderLogin"
@@ -9185,7 +9521,7 @@
     "params": {
       "threadId": "thread-1",
       "flowId": "flowId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000138"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000139"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cancelOAuthProviderLogin",
     "case": "session action cancelOAuthProviderLogin"
@@ -9196,7 +9532,7 @@
     "params": {
       "threadId": "thread-1",
       "providerId": "providerId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000139"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000140"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:loginOAuthProvider",
     "case": "session action loginOAuthProvider"
@@ -9208,7 +9544,7 @@
       "threadId": "thread-1",
       "providerId": "providerId-1",
       "accountId": "accountId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000140"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000141"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:forgetProviderAuth",
     "case": "session action forgetProviderAuth"
@@ -9220,7 +9556,7 @@
       "threadId": "thread-1",
       "providerId": "providerId-1",
       "change": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000141"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000142"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:updateProviderAccounts",
     "case": "session action updateProviderAccounts"
@@ -9235,7 +9571,7 @@
       "options": {
         "authMode": "api-key"
       },
-      "opId": "0190f3c2-7a31-7c00-8000-000000000142"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000143"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveProviderApiKey",
     "case": "session action saveProviderApiKey"
@@ -9246,7 +9582,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000143"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000144"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveCustomProvider",
     "case": "session action saveCustomProvider"
@@ -9258,7 +9594,7 @@
       "threadId": "thread-1",
       "providerId": "custom-0190f3c2-7a31-7c00-8000-000000000001",
       "secret": "secret-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000144"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000145"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveCustomProviderKey",
     "case": "session action saveCustomProviderKey"
@@ -9269,7 +9605,7 @@
     "params": {
       "threadId": "thread-1",
       "providerId": "providerId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000145"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000146"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:removeCustomProvider",
     "case": "session action removeCustomProvider"
@@ -9282,7 +9618,7 @@
       "providerId": "providerId-1",
       "modelId": "modelId-1",
       "patch": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000146"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000147"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:updateCustomProviderModel",
     "case": "session action updateCustomProviderModel"
@@ -9293,7 +9629,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000147"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000148"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:testCustomProvider",
     "case": "session action testCustomProvider"
@@ -9304,7 +9640,7 @@
     "params": {
       "threadId": "thread-1",
       "name": "name-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000148"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000149"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:checkCustomProviderKeyEnv",
     "case": "session action checkCustomProviderKeyEnv"
@@ -9315,7 +9651,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000149"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000150"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:discoverCustomProviderModels",
     "case": "session action discoverCustomProviderModels"
@@ -9326,7 +9662,7 @@
     "params": {
       "threadId": "thread-1",
       "secret": "secret-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000150"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000151"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveOpenAIUsageSessionKey",
     "case": "session action saveOpenAIUsageSessionKey"
@@ -9337,7 +9673,7 @@
     "params": {
       "threadId": "thread-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000151"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000152"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:consumeCodexRateLimitResetCredit",
     "case": "session action consumeCodexRateLimitResetCredit"
@@ -9378,7 +9714,7 @@
     "params": {
       "threadId": "thread-1",
       "modelId": "modelId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000152"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000153"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:installLocalProviderModel",
     "case": "session action installLocalProviderModel"
@@ -9390,7 +9726,7 @@
       "threadId": "thread-1",
       "phase": "model",
       "modelId": "modelId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000153"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000154"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:startLocalProviderInstallation",
     "case": "session action startLocalProviderInstallation"
@@ -9401,7 +9737,7 @@
     "params": {
       "threadId": "thread-1",
       "jobId": "jobId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000154"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000155"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:cancelLocalProviderInstallation",
     "case": "session action cancelLocalProviderInstallation"
@@ -9413,7 +9749,7 @@
       "threadId": "thread-1",
       "phase": "model",
       "modelId": "modelId-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000155"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000156"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:discardLocalProviderInstallation",
     "case": "session action discardLocalProviderInstallation"
@@ -9424,7 +9760,7 @@
     "params": {
       "threadId": "thread-1",
       "seconds": 1,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000156"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000157"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setLocalProviderIdleTtl",
     "case": "session action setLocalProviderIdleTtl"
@@ -9436,7 +9772,7 @@
       "threadId": "thread-1",
       "modelId": "modelId-1",
       "tokens": 16384,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000157"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000158"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setLocalProviderContext",
     "case": "session action setLocalProviderContext"
@@ -9448,7 +9784,7 @@
       "threadId": "thread-1",
       "previewId": "previewId-1",
       "licenseAccepted": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000158"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000159"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:registerHuggingFaceModel",
     "case": "session action registerHuggingFaceModel"
@@ -9460,7 +9796,7 @@
       "threadId": "thread-1",
       "modelId": "modelId-1",
       "operation": "verify",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000159"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000160"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:startLocalProviderModelMaintenance",
     "case": "session action startLocalProviderModelMaintenance"
@@ -9471,7 +9807,7 @@
     "params": {
       "threadId": "thread-1",
       "confirmationToken": "confirmationToken-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000160"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000161"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:deleteLocalProviderModel",
     "case": "session action deleteLocalProviderModel"
@@ -9521,7 +9857,7 @@
     "params": {
       "threadId": "thread-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000161"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000162"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:checkForUpdate",
     "case": "session action checkForUpdate"
@@ -9531,7 +9867,7 @@
     "method": "update/runUpdateNow",
     "params": {
       "threadId": "thread-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000162"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000163"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:runUpdateNow",
     "case": "session action runUpdateNow"
@@ -9551,7 +9887,7 @@
     "params": {
       "threadId": "thread-1",
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000163"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000164"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:toggleVoice",
     "case": "session action toggleVoice"
@@ -9562,7 +9898,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000164"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000165"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:transcribeAudio",
     "case": "session action transcribeAudio"
@@ -9572,7 +9908,7 @@
     "method": "voice/prepareTranscription",
     "params": {
       "threadId": "thread-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000165"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000166"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:prepareTranscription",
     "case": "session action prepareTranscription"
@@ -9630,7 +9966,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000166"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000167"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:addSkill",
     "case": "session action addSkill"
@@ -9641,7 +9977,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000167"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000168"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveSkill",
     "case": "session action saveSkill"
@@ -9652,7 +9988,7 @@
     "params": {
       "threadId": "thread-1",
       "input": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000168"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000169"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:removeSkill",
     "case": "session action removeSkill"
@@ -9662,7 +9998,7 @@
     "method": "skills/reloadSkills",
     "params": {
       "threadId": "thread-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000169"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000170"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:reloadSkills",
     "case": "session action reloadSkills"
@@ -9675,7 +10011,7 @@
       "names": [
         "names-1"
       ],
-      "opId": "0190f3c2-7a31-7c00-8000-000000000170"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000171"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setDisabledSkills",
     "case": "session action setDisabledSkills"
@@ -9695,7 +10031,7 @@
     "params": {
       "threadId": "thread-1",
       "source": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000171"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000172"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:addPlugin",
     "case": "session action addPlugin"
@@ -9706,7 +10042,7 @@
     "params": {
       "threadId": "thread-1",
       "plugin": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000172"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000173"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:updatePlugin",
     "case": "session action updatePlugin"
@@ -9718,7 +10054,7 @@
       "threadId": "thread-1",
       "plugin": {},
       "enabled": true,
-      "opId": "0190f3c2-7a31-7c00-8000-000000000173"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000174"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setPluginEnabled",
     "case": "session action setPluginEnabled"
@@ -9729,7 +10065,7 @@
     "params": {
       "threadId": "thread-1",
       "plugin": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000174"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000175"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:removePlugin",
     "case": "session action removePlugin"
@@ -9739,7 +10075,7 @@
     "method": "plugins/reloadPlugins",
     "params": {
       "threadId": "thread-1",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000175"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000176"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:reloadPlugins",
     "case": "session action reloadPlugins"
@@ -9762,7 +10098,7 @@
     "params": {
       "threadId": "thread-1",
       "args": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000176"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000177"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:memoryControl",
     "case": "session action memoryControl"
@@ -9774,7 +10110,7 @@
       "threadId": "thread-1",
       "query": "query-1",
       "args": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000177"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000178"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:recall",
     "case": "session action recall"
@@ -9785,7 +10121,7 @@
     "params": {
       "threadId": "thread-1",
       "options": {},
-      "opId": "0190f3c2-7a31-7c00-8000-000000000178"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000179"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:runDoctor",
     "case": "session action runDoctor"

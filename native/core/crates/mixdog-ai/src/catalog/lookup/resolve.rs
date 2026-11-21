@@ -431,6 +431,32 @@ impl Lookup<'_> {
         self.litellm.row(key).filter(|v| truthy(Some(v)))
     }
 
+    /// The LiteLLM row of `id`: the bare key, then the vendor-prefixed keys `mapped` allows, then Bedrock's.
+    fn litellm_metadata(&self, id: &str, mapped: Option<&str>, provider_matches: impl Fn(&Value) -> bool) -> Option<Obj> {
+        let as_meta = |row: Value| {
+            let mut m = normalize(&row).unwrap_or_default();
+            m.insert("pricingSource".into(), json!("litellm"));
+            m
+        };
+        if let Some(row) = self.catalog_row(id).filter(|r| provider_matches(r)) {
+            return Some(as_meta(row));
+        }
+        let allowed: &[&str] = match mapped {
+            None => &SIMPLE_PREFIXES,
+            Some("openai") => &["openai/"],
+            Some("anthropic") => &["anthropic/"],
+            Some("google") => &["gemini/", "google/"],
+            Some("xai") => &["xai/"],
+            Some("deepseek") => &["deepseek/"],
+            Some("azure") => &["azure_ai/"],
+            Some("google-vertex") => &["vertex_ai/"],
+            Some(_) => &[],
+        };
+        let prefixed = SIMPLE_PREFIXES.iter().filter(|p| allowed.contains(p)).map(|prefix| format!("{prefix}{id}"));
+        let bedrock = BEDROCK_PREFIXES.iter().filter(|_| mapped.is_none_or(|m| m == "anthropic")).map(|prefix| format!("{prefix}{id}-v1:0"));
+        prefixed.chain(bedrock).find_map(|key| self.catalog_row(&key)).map(as_meta)
+    }
+
     /// Override → LiteLLM → models.dev rows under one catalog provider id.
     fn catalog_metadata(&self, id: &str, mapped: Option<&str>) -> Option<Obj> {
         let mut meta: Option<Obj> = None;
@@ -445,49 +471,8 @@ impl Lookup<'_> {
             meta = Some(m);
         }
         let from_override = meta.is_some();
-        let litellm = |row: &Value| {
-            let mut m = normalize(row).unwrap_or_default();
-            m.insert("pricingSource".into(), json!("litellm"));
-            m
-        };
         if meta.is_none() {
-            if let Some(row) = self.catalog_row(id).filter(|r| provider_matches(r)) {
-                meta = Some(litellm(&row));
-            }
-            let prefixes: Vec<&str> = match mapped {
-                None => SIMPLE_PREFIXES.to_vec(),
-                Some(m) => {
-                    let allowed: &[&str] = match m {
-                        "openai" => &["openai/"],
-                        "anthropic" => &["anthropic/"],
-                        "google" => &["gemini/", "google/"],
-                        "xai" => &["xai/"],
-                        "deepseek" => &["deepseek/"],
-                        "azure" => &["azure_ai/"],
-                        "google-vertex" => &["vertex_ai/"],
-                        _ => &[],
-                    };
-                    SIMPLE_PREFIXES.iter().copied().filter(|p| allowed.contains(p)).collect()
-                }
-            };
-            for prefix in prefixes {
-                if meta.is_some() {
-                    break;
-                }
-                if let Some(row) = self.catalog_row(&format!("{prefix}{id}")) {
-                    meta = Some(litellm(&row));
-                }
-            }
-            if mapped.is_none_or(|m| m == "anthropic") {
-                for prefix in BEDROCK_PREFIXES {
-                    if meta.is_some() {
-                        break;
-                    }
-                    if let Some(row) = self.catalog_row(&format!("{prefix}{id}-v1:0")) {
-                        meta = Some(litellm(&row));
-                    }
-                }
-            }
+            meta = self.litellm_metadata(id, mapped, provider_matches);
         }
         if let Some(mapped) = mapped {
             let row = self.models_dev.model(mapped, id).filter(|r| truthy(Some(r)));
@@ -591,58 +576,8 @@ impl Lookup<'_> {
             };
         }
         let source_provider = source.as_ref().map_or("", |s| s.provider.as_str());
-        if let Some(variant) = registry::priced_variant(source_provider, &id)
-            && !has_rates(meta.as_ref())
-            && let Some(base) = self.lookup(&variant.base, provider, None)
-            && RATE_KEYS.iter().any(|k| nn(base.get(*k)))
-        {
-            let multiplier = variant.row_multiplier.and_then(|k| base.get(k)).filter(|v| truthy(Some(v)));
-            let factor = multiplier.map_or(variant.rate_multiplier, |v| number(Some(v)));
-            let scaled = |set: &Value| {
-                let mut out = scaled_rates(Some(set), factor);
-                let tiers: Vec<Value> = set
-                    .get("pricingTiers")
-                    .and_then(Value::as_array)
-                    .map(|tiers| {
-                        tiers
-                            .iter()
-                            .map(|tier| {
-                                let mut t = tier.as_object().cloned().unwrap_or_default();
-                                t.extend(scaled_rates(Some(tier), factor));
-                                Value::Object(t)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                out.insert("pricingTiers".into(), Value::Array(tiers));
-                out
-            };
-            let base_value = Value::Object(base.clone());
-            let mut m = meta.take().unwrap_or_default();
-            m.extend(scaled(&base_value));
-            for key in ["fastPricing", "ultrafastPricing", "flexPricing"] {
-                if let Some(set) = base.get(key).filter(|v| truthy(Some(v))) {
-                    m.insert(key.into(), Value::Object(scaled(set)));
-                }
-            }
-            put(&mut m, "pricingSource", base.get("pricingSource").cloned());
-            put(&mut m, "supportsPromptCaching", base.get("supportsPromptCaching").cloned());
-            meta = Some(m);
-        }
-        let cursor_row = matches!(source_provider, "cursor-oauth" | "cursor-api").then(|| registry::CURSOR_PRICING.get(id.as_str())).flatten();
-        if let Some(row) = cursor_row {
-            if !has_rates(meta.as_ref()) {
-                let mut m = meta.take().unwrap_or_default();
-                m.extend(listed_rates(row));
-                m.insert("pricingSource".into(), json!("override"));
-                meta = Some(m);
-            }
-            if let Some(fast) = row.get("fast") {
-                let mut m = meta.take().unwrap_or_default();
-                m.insert("fastPricing".into(), Value::Object(listed_rates(fast)));
-                meta = Some(m);
-            }
-        }
+        meta = self.with_variant_rates(meta, provider, source_provider, &id);
+        meta = with_cursor_pricing(meta, source_provider, &id);
         let cached = if provider.is_empty() { None } else { self.rosters.row(source_provider, original_id).map(|row| roster_row_metadata(provider, &row)) };
         let seed = source.as_ref().and_then(|s| registry::seed_row(s, original_id));
         if meta.is_none() && cached.is_none() && seed.is_none() && guess.is_none() {
@@ -670,7 +605,6 @@ impl Lookup<'_> {
         meta = with_vendor_guess(meta, guess.as_ref(), !ladder_final, relay_guess.is_some());
         let mut meta = meta?;
         meta.insert("pricingModel".into(), json!(id));
-        // meta.pricingProvider || mappedProvider || provider || null
         let pricing_provider = match first_truthy(&[meta.get("pricingProvider")]) {
             Some(v) => v.clone(),
             None => match mapped_provider.as_deref().filter(|m| !m.is_empty()).or(Some(provider).filter(|p| !p.is_empty())) {
@@ -681,6 +615,61 @@ impl Lookup<'_> {
         meta.insert("pricingProvider".into(), pricing_provider);
         Some(meta)
     }
+
+    /// A priced variant of another model (a fast tier, a regional SKU) that no table prices: the base model's rates,
+    /// scaled by the variant's multiplier.
+    fn with_variant_rates(&self, meta: Option<Obj>, provider: &str, source_provider: &str, id: &str) -> Option<Obj> {
+        let Some(variant) = registry::priced_variant(source_provider, id).filter(|_| !has_rates(meta.as_ref())) else { return meta };
+        let Some(base) = self.lookup(&variant.base, provider, None).filter(|base| RATE_KEYS.iter().any(|k| nn(base.get(*k)))) else { return meta };
+        let multiplier = variant.row_multiplier.and_then(|k| base.get(k)).filter(|v| truthy(Some(v)));
+        let factor = multiplier.map_or(variant.rate_multiplier, |v| number(Some(v)));
+        let scaled = |set: &Value| {
+            let mut out = scaled_rates(Some(set), factor);
+            let tiers: Vec<Value> = set
+                .get("pricingTiers")
+                .and_then(Value::as_array)
+                .map(|tiers| {
+                    tiers
+                        .iter()
+                        .map(|tier| {
+                            let mut t = tier.as_object().cloned().unwrap_or_default();
+                            t.extend(scaled_rates(Some(tier), factor));
+                            Value::Object(t)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            out.insert("pricingTiers".into(), Value::Array(tiers));
+            out
+        };
+        let mut m = meta.unwrap_or_default();
+        m.extend(scaled(&Value::Object(base.clone())));
+        for key in ["fastPricing", "ultrafastPricing", "flexPricing"] {
+            if let Some(set) = base.get(key).filter(|v| truthy(Some(v))) {
+                m.insert(key.into(), Value::Object(scaled(set)));
+            }
+        }
+        put(&mut m, "pricingSource", base.get("pricingSource").cloned());
+        put(&mut m, "supportsPromptCaching", base.get("supportsPromptCaching").cloned());
+        Some(m)
+    }
+}
+
+/// Cursor's published rates for a model its tables do not price, and its fast-mode rates.
+fn with_cursor_pricing(mut meta: Option<Obj>, source_provider: &str, id: &str) -> Option<Obj> {
+    let Some(row) = matches!(source_provider, "cursor-oauth" | "cursor-api").then(|| registry::CURSOR_PRICING.get(id)).flatten() else { return meta };
+    if !has_rates(meta.as_ref()) {
+        let mut m = meta.take().unwrap_or_default();
+        m.extend(listed_rates(row));
+        m.insert("pricingSource".into(), json!("override"));
+        meta = Some(m);
+    }
+    if let Some(fast) = row.get("fast") {
+        let mut m = meta.take().unwrap_or_default();
+        m.insert("fastPricing".into(), Value::Object(listed_rates(fast)));
+        meta = Some(m);
+    }
+    meta
 }
 
 /// `id.replace(/(\d)\.(\d)/g, '$1-$2')`: matches do not overlap.

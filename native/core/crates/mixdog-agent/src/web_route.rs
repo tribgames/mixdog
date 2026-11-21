@@ -1,4 +1,4 @@
-//! Built-in `web_fetch` transport routing (`routeWebFetchCall`, Node's `pre-dispatch-deny.mjs`).
+//! Built-in `web_fetch` transport routing.
 //!
 //! Only a call whose complete URL set has one unambiguous transport is rewritten: all loopback
 //! `http(s)` URLs go to `local_fetch`, all image URLs to `image_fetch`. Mixed or public batches

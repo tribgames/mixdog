@@ -1,10 +1,3 @@
-//! `RoutineHost` over the process services: who may own or execute a routine
-//! (`routine-owner.mjs` `routineOwnerProblem`, `routine-executor.mjs` `defaultProbe`) is decided
-//! here from the agent definitions, and whether a thread is a heartbeat's from the process marks.
-//! What only the session core can do — queueing a routine turn behind a thread's own work,
-//! running a headless executor, queueing a result in the owner's thread — stays behind
-//! `RoutineSessions`.
-
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -199,18 +192,13 @@ fn human_needed_text(outcome: &str, site: &str) -> String {
     format!("{prefix}{}", if label.is_empty() { "the site" } else { &label })
 }
 
-/// `referencePart` of the routine executor: an inline image or document part as the stored
-/// attachment reference an executor's prompt admits; `None` when it cannot be stored (or is
-/// already a reference, which Node drops the same way).
-async fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
-    let object = part.as_object()?;
-    if object.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-    {
-        return None;
-    }
-    let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
+fn text(value: Option<&Value>) -> Option<String> {
+    value.and_then(Value::as_str).map(str::to_owned)
+}
+
+fn inline_payload(object: &serde_json::Map<String, Value>) -> Option<(String, serde_json::Map<String, Value>)> {
     let source = object.get("source").filter(|s| s.get("type").and_then(Value::as_str) == Some("base64"));
-    let (data, mut metadata) = match object.get("type").and_then(Value::as_str)? {
+    Some(match object.get("type").and_then(Value::as_str)? {
         "image" => match (text(object.get("data")).filter(|d| !d.is_empty()), source) {
             (Some(data), _) => {
                 let mut rest = object.clone();
@@ -258,8 +246,16 @@ async fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Val
             (data, rest)
         }
         _ => return None,
-    };
-    // A payload that would not re-encode to the same base64 string could not be replayed exactly.
+    })
+}
+
+async fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
+    let object = part.as_object()?;
+    if object.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    {
+        return None;
+    }
+    let (data, mut metadata) = inline_payload(object)?;
     let bytes = STANDARD.decode(&data).ok().filter(|bytes| !bytes.is_empty() && STANDARD.encode(bytes) == data)?;
     if metadata.get("type").and_then(Value::as_str) == Some("file") && bytes.starts_with(b"%PDF-") {
         metadata.insert("mimeType".into(), Value::String("application/pdf".into()));

@@ -1,23 +1,14 @@
-// The unified kind vocabulary (Stage 3-C) and the per-language map into it.
-//
-// `kinds` answers in the language's own words; this table is the one place
-// that turns those words into the single vocabulary every language reports in,
-// and `--langs` publishes it per language so a parity run can prove every
-// changed kind is a declared pair.
-
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 
-/// The ONE kind vocabulary every language reports in (Stage 3-C). Lowercase,
+/// The one kind vocabulary every language reports in. Lowercase,
 /// language-neutral, closed: a rule may not invent a token outside this list,
-/// and `KIND_MAP` maps every per-language Stage-2 kind into it.
+/// and `KIND_MAP` maps every per-language kind into it.
 ///
 /// `package`, `field`, `property`, `enumMember` are part of the vocabulary but
-/// unused today: no Stage-2 kind maps to them because struct fields, class
-/// properties and enum members were never graph symbols. `impl` is reached by
-/// Dart extensions and Haskell instances; Rust `impl` blocks stay NON-symbols
-/// (Stage 2 dropped them and emitting them now would be a new symbol, not a
-/// kind change).
+/// unused: struct fields, class properties and enum members are not graph
+/// symbols. `impl` is reached by Dart extensions and Haskell instances; Rust
+/// `impl` blocks are not symbols.
 pub const KIND_VOCABULARY: &[&str] = &[
     "module",
     "namespace",
@@ -42,11 +33,10 @@ pub const KIND_VOCABULARY: &[&str] = &[
     "impl",
 ];
 
-/// `Stage-2 kind → unified kind`, per language. This table IS the contract the
-/// parity tool checks: a `KIND_CHANGE` is legitimate exactly when it is one of
-/// these pairs, and `--langs` publishes it per language as `kinds`.
+/// `per-language kind → unified kind`, per language. `--langs` publishes it per
+/// language as `kinds`.
 ///
-/// It must be TOTAL: every kind the Stage-2 extraction can emit for a language
+/// It must be TOTAL: every kind the extraction can emit for a language
 /// — from a rule's `# mixdog-kind:` marker, from `kind_by_ast_kind`, or from
 /// `kind_by_symbol_type` — has a row here, which
 /// `kind_map_covers_every_emitted_kind` proves per language against the
@@ -178,7 +168,7 @@ static KIND_LOOKUP: LazyLock<HashMap<(&'static str, &'static str), &'static str>
     map
 });
 
-/// Unified kind for one per-language Stage-2 kind. A kind with no row falls
+/// Unified kind for one per-language kind. A kind with no row falls
 /// back to itself, which keeps a brand-new rule visible instead of blank —
 /// `kind_map_covers_every_emitted_kind` fails the build before that can ship.
 pub fn unified_kind(graph_lang: &str, kind: &'static str) -> &'static str {
@@ -240,15 +230,6 @@ mod tests {
         SymbolType::TypeParameter,
     ];
 
-    /// The kind map has to be TOTAL: a kind the extraction can emit and the
-    /// map does not carry would ship through `unified_kind`'s fallback as a
-    /// per-language token, i.e. exactly the vocabulary Stage 3-C removes.
-    ///
-    /// The three sources of a kind are checked against the real inputs:
-    /// every `# mixdog-kind:` marker of the loaded rule bundle, every LSP
-    /// category (`kind_by_symbol_type`), and every NODE KIND OF THE GRAMMAR
-    /// each language parses with (`kind_by_ast_kind`) — so a new grammar node
-    /// or a new rule cannot silently escape the map.
     #[test]
     fn kind_map_covers_every_emitted_kind() {
         let mapped = |lang: &str, kind: &str| KIND_LOOKUP.contains_key(&(lang, kind));
@@ -286,8 +267,6 @@ mod tests {
         }
     }
 
-    /// The vocabulary is closed, the map only speaks it, and every language
-    /// that reports symbols publishes a map through `--langs`.
     #[test]
     fn kind_map_targets_stay_inside_the_vocabulary() {
         for (lang, kinds) in KIND_MAP {
@@ -305,10 +284,6 @@ mod tests {
         assert_eq!(kind_map_for("dart").get("extension"), Some(&"impl"));
     }
 
-    /// Every kind that reaches a RECORD is in the one vocabulary. The map
-    /// tests prove the table; this one proves the emitted result, because
-    /// `unified_kind` falls back to the per-language token when a kind is
-    /// missing from the map.
     #[test]
     fn every_fixture_kind_is_in_the_vocabulary() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

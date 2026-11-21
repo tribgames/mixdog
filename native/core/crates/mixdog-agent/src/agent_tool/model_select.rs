@@ -1,12 +1,8 @@
-//! One-off model selection for a spawn the user explicitly pinned to a model (Node
-//! `agent-tool/model-select.mjs`). The agent's preset route stays the default; this runs only
+//! One-off model selection for a spawn the user explicitly pinned to a model. The agent's preset route stays the default; this runs only
 //! when `model` is passed. The query is matched against the quick/cached provider catalog
 //! (literal id, then normalized id, then exact display name, then every query word); a
 //! catalog miss retries once on a catalog refreshed for the requested provider. One match
 //! runs; several or none fail with candidates instead of substituting another model.
-//!
-//! Concurrent misses share one refresh in Node; sharing is the catalog implementation's
-//! concern here, since the catalog is the thing being refreshed.
 
 use async_trait::async_trait;
 use mixdog_ai::effort::coerce_effort_for;
@@ -186,10 +182,6 @@ pub async fn resolve_requested_model(args: &Value, catalog: Option<&dyn ModelCat
         }
         return Ok(args.clone());
     };
-    // The quick/cached catalog answers first. A loaded catalog is final, so its hit never
-    // waits on a provider; an incomplete one (cold or partial) may lack the model that wins,
-    // or one that makes the name ambiguous, so only a literal id inside an exact, explicitly
-    // named provider is taken from it. Anything else waits for the full catalog.
     let quick_rows = catalog.list(ListOptions { quick: true, ..ListOptions::default() }).await?;
     let mut pool = provider_rows(quick_rows.clone(), &provider);
     let mut hits = match_models(&pool, &model);

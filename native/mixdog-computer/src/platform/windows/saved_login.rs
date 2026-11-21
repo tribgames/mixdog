@@ -61,7 +61,7 @@ fn read<T>(result: windows::core::Result<T>) -> Result<T, String> {
 /// A tree-walker step: the next element, None at the end of a level (a null
 /// element, which windows-rs reports as an error coded S_OK or E_POINTER),
 /// and a refusal for any other failure, so a provider error never skips a
-/// subtree that may hold another address bar (Get-SavedLoginAddressBars).
+/// subtree that may hold another address bar.
 fn step<T>(result: windows::core::Result<T>) -> Result<Option<T>, String> {
     match result {
         Ok(next) => Ok(Some(next)),
@@ -106,8 +106,7 @@ fn focused_of(automation: &IUIAutomation, pid: u32) -> Option<IUIAutomationEleme
 /// accessibility tree: the nearest document must be the web content root,
 /// hosted directly by the browser's render widget window, and the walk must
 /// end at this browser window. A field in an embedded frame or a nested
-/// document, or in the browser's own UI such as the address bar, is refused
-/// (Get-SavedLoginDocument).
+/// document, or in the browser's own UI such as the address bar, is refused.
 fn document_of(walker: &IUIAutomationTreeWalker, element: &IUIAutomationElement, window: Wid, pid: u32) -> Result<IUIAutomationElement, String> {
     let mut document: Option<IUIAutomationElement> = None;
     let mut current = element.clone();
@@ -274,7 +273,7 @@ unsafe fn signer_name(store: HCERTSTORE, message: *mut c_void) -> Option<String>
 /// process: the handle stays open throughout (its id cannot be reused
 /// meanwhile), the path is the kernel's for that handle, the file is held open
 /// with writes denied while WinVerifyTrust checks it through that handle, and
-/// the process must still be running afterwards (VerifiedProcessImage).
+/// the process must still be running afterwards.
 fn image_of(pid: u32) -> Option<SavedLoginImage> {
     let process = Process::open(pid, PROCESS_QUERY_LIMITED_INFORMATION.0)?;
     let start_time = created(process.0);
@@ -329,7 +328,7 @@ impl SavedLoginReads for Reads {
     /// The window's address bars, in the browser's own UI only: web content
     /// can give its elements any class name, so a match under a document or
     /// the render widget window is never an address bar. The whole window is
-    /// walked; no node budget (Get-SavedLoginAddressBars).
+    /// walked; no node budget.
     fn address_bars(&self, window: Wid) -> Result<Vec<String>, String> {
         let automation = automation()?;
         // SAFETY: plain factory and lookup calls.

@@ -1,12 +1,3 @@
-//! `shell-run-settle.slow.test.mjs`: a foreground command whose kill could not be confirmed keeps its owner's workspace
-//! busy until the command has really exited. Node holds the run's workspace admission (`releaseAdmissionOnConfirmedTermination`,
-//! `shell-run-settle.mjs:46-104`): it follows confirmed termination, or an explicit release, and no timer. Its 60 s ceiling
-//! (`UNCONFIRMED_KILL_CLEANUP_CEILING_MS`, `:28`) bounds only the capture and resource clean-up, which this core has no
-//! counterpart of (the output is spilled files); the core holds the command's row as termination-unconfirmed, which the
-//! workspace gate counts as one of the owner's shell jobs (`assertLeadIdle`'s `shell-jobs`), and lets it go when the
-//! process exits (`cancel_foreground`: no time bound on the hold). Every wait here is an event under one deadline that
-//! names it: the spawn, the call's return after the kill check, and the registry's publication of the owner's strip without the command.
-
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
 
@@ -50,10 +41,6 @@ async fn an_unconfirmed_foreground_kill_keeps_the_owner_busy_until_the_command_e
     assert!(rig.runtime.config.tasks.thread_state(owner.as_str()).jobs.is_empty(), "the owner is idle again");
 }
 
-/// The daemon shutting down during the wait closes the owner and shuts its shell jobs down, which leaves the folder
-/// reserved; the reservation then ends with the command's confirmed exit, or another session's release (the process stays).
-/// Each observation, in order. The folder is reserved when a row of the registry `reserves_folder` (the predicate the
-/// worktree gate reads), reported as `WORKTREE_BUSY_JOBS`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_shutdown_during_the_unconfirmed_wait_leaves_the_folder_reserved() {
     let busy_jobs = serde_json::json!("WORKTREE_BUSY_JOBS");

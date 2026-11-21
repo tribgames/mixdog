@@ -1,7 +1,3 @@
-//! When the core tells clients to read a review again, against the core of this crate's tests: the real turn review over real Git
-//! and real tools, and the scm service that publishes its signal through the core's own publisher (`StateRuntime`: the feed state
-//! that numbers and encodes each section notification on the app feed). The listener registry is covered here too: subscribe,
-//! unsubscribe, removal and addition during a delivery.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::collections::HashMap;

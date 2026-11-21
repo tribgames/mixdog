@@ -152,21 +152,20 @@ pub fn select_template_page<'a>(document: &'a Value, request: &Value) -> Result<
     }
     let matches: Vec<&Value> = pages.iter().filter(|page| text(prop(page, "role")) == role).collect();
     if matches.is_empty() {
-        let mut carried: Vec<String> = Vec::new();
-        for page in pages {
-            let carried_role = text(prop(page, "role"));
-            if !carried_role.is_empty() && !carried.contains(&carried_role) {
-                carried.push(carried_role);
-            }
-        }
-        let carried = if carried.is_empty() { "unread".to_owned() } else { carried.join(", ") };
-        return Err(format!("The template carries no {role} page; its pages are: {carried}"));
+        return Err(missing_role_error(pages, &role));
     }
     let requested: &[Value] = prop(request, "items").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    Ok(best_fitting_page(&matches, requested))
+}
+
+fn missing_role_error(pages: &[Value], role: &str) -> String {
+    let carried = unique_in_order(pages.iter().map(|page| text(prop(page, "role"))).filter(|carried_role| !carried_role.is_empty()));
+    let carried = if carried.is_empty() { "unread".to_owned() } else { carried.join(", ") };
+    format!("The template carries no {role} page; its pages are: {carried}")
+}
+
+fn best_fitting_page<'a>(matches: &[&'a Value], requested: &[Value]) -> &'a Value {
     let items = requested.len() as f64;
-    // Items that carry a second line (a step's detail, a column's body, a metric's label) need a page with a box for it:
-    // between two four-step process pages the one without detail lines answered first, and the fill was refused for text
-    // the other page had room for.
     let follows = requested.iter().any(|item| !js_trim(&first_present(Some(item), &["body", "label", "detail"])).is_empty());
     let holds_follow = |slots: &Slots| match page_group(slots) {
         Some(group) => slots.roles().any(|role| role.starts_with(&format!("{}-{}-", group.family, group.follow))),
@@ -182,8 +181,6 @@ pub fn select_template_page<'a>(document: &'a Value, request: &Value) -> Result<
     if follows {
         sized.sort_by(|left, right| u8::from(right.2).cmp(&u8::from(left.2)));
     }
-    // The page that takes the items with the least room left over; when none holds them the widest one answers and the
-    // fill reports how far it falls short.
     let any_follow_fits = sized.iter().any(|other| other.2 && other.1 >= items);
     let mut fits: Vec<(&Value, f64, bool)> = sized.iter().filter(|entry| entry.1 >= items && (!follows || entry.2 || !any_follow_fits)).copied().collect();
     let chosen = if fits.is_empty() {
@@ -193,7 +190,7 @@ pub fn select_template_page<'a>(document: &'a Value, request: &Value) -> Result<
         fits.sort_by(|left, right| compare(left.1, right.1));
         fits[0]
     };
-    Ok(chosen.0)
+    chosen.0
 }
 
 /// What [`place_group_items`] found.
@@ -252,6 +249,51 @@ fn unplaced_text_error(page: &Value, group: &Group, unplaced: &[(usize, &'static
     )
 }
 
+/// The eyebrow, subtitle, body and source text, each in the box the page names for it; `subtitle` and `body` stand in
+/// for each other when the page has only one of the two boxes.
+fn place_prose_fields(slots: &Slots, content: &Value, index: &str) -> Result<Vec<(f64, String)>, String> {
+    let mut placed: Vec<(f64, String)> = Vec::new();
+    for field in ["eyebrow", "subtitle", "body", "source"] {
+        let partner = match field {
+            "subtitle" => Some("body"),
+            "body" => Some("subtitle"),
+            _ => None,
+        };
+        let shape = slots.get(field).or_else(|| partner.filter(|partner| text(prop(content, partner)).is_empty()).and_then(|partner| slots.get(partner)));
+        let given = text(prop(content, field));
+        if !given.is_empty() && shape.is_none() {
+            return Err(format!(
+                "Slide {index} of the template has no {field} box, so its {field} text has nowhere to go: leave it out, or use a page that carries one"
+            ));
+        }
+        if let (Some(shape), false) = (shape, given.is_empty()) {
+            placed.push((shape, given));
+        }
+    }
+    Ok(placed)
+}
+
+/// The template's own words left on the page after a fill: unclaimed prose and group boxes, and decorative type that is
+/// more than a sign.
+fn unclaimed_shapes(page: &Value, slots: &Slots, claimed: &[f64]) -> Vec<f64> {
+    let carried = compiled(r"^(eyebrow|subtitle|body(-\d+)?|meta|source|aside-\d+)$", "");
+    let group_role = compiled(GROUP_ROLE, "");
+    let mut unclaimed: Vec<f64> = slots
+        .0
+        .iter()
+        .filter(|(role, shape)| !claimed.contains(shape) && (carried.is_match(role) || group_role.is_match(role)))
+        .map(|(_, shape)| *shape)
+        .collect();
+    let sign = compiled(SIGN_TEXT, "u");
+    for shape in shapes_of(Some(page)) {
+        let number = to_number_of(prop(shape, "index"));
+        if text(prop(shape, "slot")) == "visual-text" && !claimed.contains(&number) && !sign.is_match(js_trim(&text(prop(shape, "text")))) {
+            unclaimed.push(number);
+        }
+    }
+    unclaimed
+}
+
 /// `templatePageFill(page, content)`: the text the page's boxes take for the content (`title`, `eyebrow`, `subtitle`,
 /// `body`, `source` and the `items` of its group) and the boxes it empties. A page that cannot take the content says so.
 pub fn template_page_fill(page: &Value, content: &Value) -> Result<TemplateFill, String> {
@@ -276,56 +318,13 @@ pub fn template_page_fill(page: &Value, content: &Value) -> Result<TemplateFill,
         let Some(shape) = slots.get("title") else { return Err(format!("Slide {index} of the template has no title slot to fill")) };
         sets.push((shape, title));
     }
-    // Text an item carries that the page has no box for: a comparison page whose columns are one line each cannot hold
-    // the second line of an item, and writing the first line alone drops the rest without a word.
     let placed = place_group_items(&slots, group.as_ref(), items);
     if !placed.unplaced.is_empty() {
         return Err(unplaced_text_error(page, group.as_ref().expect("a group holds the unplaced text"), &placed.unplaced));
     }
-    // The page's other words are the template's, not the deck's: an eyebrow or a subtitle takes the text given for it, and
-    // one given none is emptied rather than left reading the template's own words on a page about something else.
-    // Decorative type (visual-text) and the carriers (chart, table, image) stay.
-    let mut claimed: Vec<f64> = sets.iter().chain(&placed.sets).map(|entry| entry.0).collect();
-    let mut extra: Vec<(f64, String)> = Vec::new();
-    for field in ["eyebrow", "subtitle", "body", "source"] {
-        // The line under a title is a subtitle on a cover and the lead prose on a summary page; which name the author
-        // uses for it depends on the page, so either one lands in whichever of the two boxes the page has.
-        let partner = match field {
-            "subtitle" => Some("body"),
-            "body" => Some("subtitle"),
-            _ => None,
-        };
-        let shape = slots.get(field).or_else(|| partner.filter(|partner| text(prop(content, partner)).is_empty()).and_then(|partner| slots.get(partner)));
-        let given = text(prop(content, field));
-        if !given.is_empty() && shape.is_none() {
-            return Err(format!(
-                "Slide {index} of the template has no {field} box, so its {field} text has nowhere to go: leave it out, or use a page that carries one"
-            ));
-        }
-        if let (Some(shape), false) = (shape, given.is_empty()) {
-            extra.push((shape, given));
-            claimed.push(shape);
-        }
-    }
-    let carried = compiled(r"^(eyebrow|subtitle|body(-\d+)?|meta|source|aside-\d+)$", "");
-    let group_role = compiled(GROUP_ROLE, "");
-    let mut unclaimed: Vec<f64> = slots
-        .0
-        .iter()
-        .filter(|(role, shape)| !claimed.contains(shape) && (carried.is_match(role) || group_role.is_match(role)))
-        .map(|(_, shape)| *shape)
-        .collect();
-    // Decorative type stays only as a sign ("VS", "→"). A word or a figure set large in a template's accent block
-    // ("MIXDOG", "TIME TO DECISION", "18") is the template's content: kept, it read as the deck's on every page built from
-    // the bundled template, the closing page signed with the template's own name.
-    let sign = compiled(SIGN_TEXT, "u");
-    for shape in shapes_of(Some(page)) {
-        let number = to_number_of(prop(shape, "index"));
-        if text(prop(shape, "slot")) == "visual-text" && !claimed.contains(&number) && !sign.is_match(js_trim(&text(prop(shape, "text")))) {
-            unclaimed.push(number);
-        }
-    }
-    // Deleting a shape renumbers the ones after it, so they go highest first.
+    let extra = place_prose_fields(&slots, content, &index)?;
+    let claimed: Vec<f64> = sets.iter().chain(&placed.sets).chain(&extra).map(|entry| entry.0).collect();
+    let unclaimed = unclaimed_shapes(page, &slots, &claimed);
     let mut deletes: Vec<f64> = Vec::new();
     for shape in placed.deletes.iter().chain(&unclaimed) {
         if !deletes.contains(shape) {
@@ -338,11 +337,6 @@ pub fn template_page_fill(page: &Value, content: &Value) -> Result<TemplateFill,
     Ok(TemplateFill { sets, deletes, group })
 }
 
-// A page's chart, table, and picture arrive holding the template's own data: its fill writes words, not numbers or
-// photographs, so a filled page kept "Coverage 62% · Latency 820ms" and the template's logo unless the caller went on to
-// replace them, and nothing said so. Each carrier is named with its shape as it stands after the fill and the operation
-// that replaces its content. A chart's title is the template's words too, and new numbers keep it: the record carries it,
-// for set_chart_data's title to replace.
 fn template_carriers(page: &Value, deletes: &[f64], slide: f64) -> Vec<Value> {
     let mut carriers = Vec::new();
     for shape in shapes_of(Some(page)) {
@@ -372,10 +366,6 @@ fn template_carriers(page: &Value, deletes: &[f64], slide: f64) -> Vec<Value> {
     carriers
 }
 
-/// A template that ships a sidecar (`<deck>.pptx.mixdog.json`) has already said what each page does and which box fills
-/// which slot. Those declared roles win over the geometry reading: the bundled executive pages set their metrics on a
-/// stepped diagonal, which no row reading recognises, so a request for a metrics page landed on a chart page with no
-/// metric slot and was refused. A page the sidecar does not describe keeps its induced roles.
 fn overlay_template_sidecar<P: ReadProof>(proof: &P, document: &mut Value, path: &str) {
     let sidecar = read_json(proof, Path::new(&format!("{path}.mixdog.json")), Value::Null);
     let Some(samples) = prop(&sidecar, "samples").and_then(Value::as_array) else { return };

@@ -12,6 +12,7 @@ use serde_json::Value;
 use sha1::Digest;
 
 use super::content::decode_text;
+use super::line_diff::Hunk;
 use super::line_diff::LineDiffBudget;
 use super::line_diff::LineDiffer;
 use super::nodepath;
@@ -393,6 +394,55 @@ fn content_bytes(content: &ReviewContent) -> Option<&[u8]> {
     }
 }
 
+struct PatchNames<'a> {
+    status: char,
+    old_path: &'a str,
+    new_path: &'a str,
+    old_name: &'a str,
+    new_name: &'a str,
+}
+
+fn patch_head(names: &PatchNames<'_>, rename_prefix: &str) -> String {
+    let PatchNames { status, old_path, new_path, old_name, new_name } = *names;
+    let mut head = format!("diff --git a/{old_name} b/{new_name}\n");
+    if status == 'A' {
+        head.push_str("new file mode 100644\n");
+    }
+    if status == 'D' {
+        head.push_str("deleted file mode 100644\n");
+    }
+    if status == 'R' {
+        head.push_str(&format!("{rename_prefix}rename from {old_path}\nrename to {new_path}\n"));
+    }
+    head
+}
+
+fn append_hunks(patch: &mut String, names: &PatchNames<'_>, hunks: &[Hunk]) -> (u64, u64) {
+    let (mut additions, mut deletions) = (0u64, 0u64);
+    if hunks.is_empty() {
+        return (additions, deletions);
+    }
+    let PatchNames { status, old_name, new_name, .. } = *names;
+    let old_header = if status == 'A' { "/dev/null".to_owned() } else { format!("a/{old_name}{}", header_tab(old_name)) };
+    let new_header = if status == 'D' { "/dev/null".to_owned() } else { format!("b/{new_name}{}", header_tab(new_name)) };
+    patch.push_str(&format!("--- {old_header}\n+++ {new_header}\n"));
+    for hunk in hunks {
+        let old_start = if hunk.old_lines == 0 { hunk.old_start - 1 } else { hunk.old_start };
+        let new_start = if hunk.new_lines == 0 { hunk.new_start - 1 } else { hunk.new_start };
+        patch.push_str(&format!("@@ -{old_start},{} +{new_start},{} @@\n", hunk.old_lines, hunk.new_lines));
+        for line in &hunk.lines {
+            if line.starts_with('+') {
+                additions += 1;
+            } else if line.starts_with('-') {
+                deletions += 1;
+            }
+            patch.push_str(line);
+            patch.push('\n');
+        }
+    }
+    (additions, deletions)
+}
+
 /// One git-format patch from exact before/after bytes (absent = a missing file). Paths are
 /// root-relative. Text diffs as hunks within `budget`; binary content as a full-index binary patch
 /// hashed in `object_format`. Returns the record file without its state.
@@ -418,56 +468,18 @@ pub fn tracked_change_file(differ: &LineDiffer, input: &TrackedFileInput<'_>, bu
     let (old_text, new_text) = (decode_text(before), decode_text(after));
     let old_name = if status == 'A' { new_path } else { old_path };
     let new_name = if status == 'D' { old_path } else { new_path };
+    let names = PatchNames { status, old_path, new_path, old_name, new_name };
     let (Some(old_text), Some(new_text)) = (old_text, new_text) else {
-        let mut patch = format!("diff --git a/{old_name} b/{new_name}\n");
-        if status == 'A' {
-            patch.push_str("new file mode 100644\n");
-        }
-        if status == 'D' {
-            patch.push_str("deleted file mode 100644\n");
-        }
-        if status == 'R' {
-            patch.push_str(&format!("rename from {old_path}\nrename to {new_path}\n"));
-        }
-        // A pure rename carries the full-index body too: `git apply` then moves the file only
-        // while it still holds the recorded bytes.
+        let mut patch = patch_head(&names, "");
         patch.push_str(&binary_patch_body(content_bytes(before), content_bytes(after), status, object_format));
         meta.insert("binary".into(), Value::Bool(true));
         meta.insert("revertable".into(), Value::Bool(true));
         return RawFile { meta, patch: Some(patch.into_bytes()) };
     };
     let hunks = differ.hunks(old_text, new_text, budget, [content_bytes(before), content_bytes(after)]);
-    let mut patch = format!("diff --git a/{old_name} b/{new_name}\n");
-    if status == 'A' {
-        patch.push_str("new file mode 100644\n");
-    }
-    if status == 'D' {
-        patch.push_str("deleted file mode 100644\n");
-    }
-    if status == 'R' {
-        let similarity = if hunks.hunks.is_empty() { "similarity index 100%\n" } else { "" };
-        patch.push_str(&format!("{similarity}rename from {old_path}\nrename to {new_path}\n"));
-    }
-    let (mut additions, mut deletions) = (0u64, 0u64);
-    if !hunks.hunks.is_empty() {
-        let old_header = if status == 'A' { "/dev/null".to_owned() } else { format!("a/{old_name}{}", header_tab(old_name)) };
-        let new_header = if status == 'D' { "/dev/null".to_owned() } else { format!("b/{new_name}{}", header_tab(new_name)) };
-        patch.push_str(&format!("--- {old_header}\n+++ {new_header}\n"));
-        for hunk in &hunks.hunks {
-            let old_start = if hunk.old_lines == 0 { hunk.old_start - 1 } else { hunk.old_start };
-            let new_start = if hunk.new_lines == 0 { hunk.new_start - 1 } else { hunk.new_start };
-            patch.push_str(&format!("@@ -{old_start},{} +{new_start},{} @@\n", hunk.old_lines, hunk.new_lines));
-            for line in &hunk.lines {
-                if line.starts_with('+') {
-                    additions += 1;
-                } else if line.starts_with('-') {
-                    deletions += 1;
-                }
-                patch.push_str(line);
-                patch.push('\n');
-            }
-        }
-    }
+    let similarity = if hunks.hunks.is_empty() { "similarity index 100%\n" } else { "" };
+    let mut patch = patch_head(&names, similarity);
+    let (additions, deletions) = append_hunks(&mut patch, &names, &hunks.hunks);
     meta.insert("additions".into(), Value::from(additions));
     meta.insert("deletions".into(), Value::from(deletions));
     meta.insert("revertable".into(), Value::Bool(true));

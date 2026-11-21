@@ -7,6 +7,7 @@
 use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::Freeform;
@@ -439,6 +440,19 @@ fn wire_effort(spec: &ReasoningSpec, requested: Option<&str>) -> Option<String> 
     Some(spec.effort_aliases.iter().find(|(from, _)| from == &effort).map_or(effort, |(_, to)| to.clone()))
 }
 
+fn include_field(profile: &ResponsesProfile, options: &RequestOptions) -> Option<Value> {
+    let mut include: Vec<&str> = Vec::new();
+    if profile.include_encrypted_reasoning {
+        include.push(ENCRYPTED_REASONING);
+    }
+    for extra in crate::providers::hosted::responses_include(options) {
+        if !include.contains(&extra) {
+            include.push(extra);
+        }
+    }
+    (!include.is_empty()).then(|| json!(include))
+}
+
 /// The request body for `profile`, keys in `profile.order`.
 pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> BuiltRequest {
     let request = inputs.request;
@@ -462,7 +476,6 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     }
     let fallback_memo = SchemaMemo::default();
     let mut excluded = Vec::new();
-    // A freeform tool goes out as grammar, with no JSON schema to check (`isResponsesFreeformTool`).
     let custom = profile.input.custom_tools;
     let accepted = inputs.schemas.unwrap_or(&fallback_memo).accepted_wire_tools_except(
         &request.tools,
@@ -471,13 +484,10 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
         &mut |exclusion| excluded.push(exclusion),
         &|tool| custom && is_freeform(tool),
     );
-    // Hosted tools first, verbatim (`responsesToolsList`, openai-responses-payload.mjs:115-133).
     let mut tools: Vec<Value> = crate::providers::hosted::responses_tools(options);
     tools.extend(declare_tools(profile.tools, custom, &accepted));
     let summary = profile.reasoning.as_ref().is_some_and(|spec| spec.summary);
     let reasoning = match (inputs.effort, profile.reasoning.as_ref()) {
-        // A projected conversation keeps its initial effort here; changes ride
-        // as input items.
         (Some(projection), _) => Some(effort_field(&projection.initial_effort, summary)),
         (None, Some(spec)) => wire_effort(spec, options.effort.as_deref()).map(|e| effort_field(&e, summary)),
         (None, None) => None,
@@ -525,19 +535,7 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
             BodyField::Store => ("store", Some(json!(profile.store))),
             BodyField::Stream => ("stream", profile.stream.then(|| json!(true))),
             BodyField::StreamOptions => ("stream_options", profile.stream_options.clone()),
-            BodyField::Include => ("include", {
-                // `responsesInclude` (openai-responses-payload.mjs:107-113): encrypted reasoning, then `nativeInclude`.
-                let mut include: Vec<&str> = Vec::new();
-                if profile.include_encrypted_reasoning {
-                    include.push(ENCRYPTED_REASONING);
-                }
-                for extra in crate::providers::hosted::responses_include(options) {
-                    if !include.contains(&extra) {
-                        include.push(extra);
-                    }
-                }
-                (!include.is_empty()).then(|| json!(include))
-            }),
+            BodyField::Include => ("include", include_field(profile, options)),
             BodyField::ServiceTier => ("service_tier", profile.service_tier.as_ref().map(|t| json!(t))),
             BodyField::PromptCacheKey => ("prompt_cache_key", cache_key.filter(|_| profile.prompt_cache_key).map(|k| json!(k))),
             BodyField::Text => (

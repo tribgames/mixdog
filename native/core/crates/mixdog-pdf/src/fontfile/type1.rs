@@ -704,6 +704,35 @@ impl Type1Parser {
         if length > 0 { self.stream.get_bytes(Some(f64::from(length))) } else { Vec::new() }
     }
 
+    /// The `StartData` section of a CID-keyed file: `length` binary bytes, or `length` bytes decoded from the
+    /// hexadecimal digits that follow (`None` when they are fewer).
+    fn read_start_data(&mut self, length: f64, is_hex: bool) -> Option<Vec<u8>> {
+        let binary = self.stream.get_bytes(if is_hex { None } else { Some(length) });
+        if !is_hex {
+            return Some(binary);
+        }
+        let wanted = length as usize;
+        let mut decoded = vec![0u8; wanted];
+        let mut digit1: Option<u8> = None;
+        let mut j = 0;
+        for &digit in &binary {
+            if j >= wanted {
+                break;
+            }
+            if !is_hex_digit(Some(i32::from(digit))) {
+                continue;
+            }
+            match digit1.take() {
+                None => digit1 = Some(digit),
+                Some(first) => {
+                    decoded[j] = (hex_value(first) * 16 + hex_value(digit)) as u8;
+                    j += 1;
+                }
+            }
+        }
+        (j == wanted).then_some(decoded)
+    }
+
     /// `extractCidKeyedFontProgram`: the glyphs of a CID-keyed Type 1 file, `None` where the file is not one this
     /// layout can be read from.
     fn extract_cid_keyed_font_program(&mut self, properties: &mut Type1Properties) -> Result<Option<Vec<Type1Glyph>>> {
@@ -778,32 +807,9 @@ impl Type1Parser {
                 return Ok(None);
             }
         }
-        let mut binary = self.stream.get_bytes(if start_data_is_hex { None } else { Some(start_data_length) });
-        if start_data_is_hex {
-            let wanted = start_data_length as usize;
-            let mut decoded = vec![0u8; wanted];
-            let mut digit1: Option<u8> = None;
-            let mut j = 0;
-            for &digit in &binary {
-                if j >= wanted {
-                    break;
-                }
-                if !is_hex_digit(Some(i32::from(digit))) {
-                    continue;
-                }
-                match digit1.take() {
-                    None => digit1 = Some(digit),
-                    Some(first) => {
-                        decoded[j] = (hex_value(first) * 16 + hex_value(digit)) as u8;
-                        j += 1;
-                    }
-                }
-            }
-            if j != wanted {
-                return Ok(None);
-            }
-            binary = decoded;
-        }
+        let Some(binary) = self.read_start_data(start_data_length, start_data_is_hex) else {
+            return Ok(None);
+        };
         let binary_len = binary.len() as i64;
         let cid_entry_size = fd_bytes + gd_bytes;
         let read_uint = |offset: i64, byte_count: i64| -> i64 {

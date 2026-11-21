@@ -124,11 +124,6 @@ impl DomainService for GateDomain {
     }
 }
 
-/// The mock core, except that the namespaces in `gated` are served by [`GateDomain`]s.
-///
-/// Its thread directory puts the threads registered with [`TestCore::load`] and
-/// [`TestCore::cold`] in front of the mock's, and counts how often the server opens threads
-/// and how often a thread is actually loaded.
 pub(crate) struct TestCore {
     pub(crate) mock: MockCore,
     pub(crate) gated: HashMap<&'static str, Arc<GateDomain>>,
@@ -274,8 +269,8 @@ impl CoreHandle for TestCore {
         origin: mixdog_protocol::Origin,
         device: &str,
         kind: mixdog_protocol::ConnectionKind,
-    ) {
-        self.mock.connection_opened(connection, origin, device, kind);
+    ) -> String {
+        self.mock.connection_opened(connection, origin, device, kind)
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {

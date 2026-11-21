@@ -1,15 +1,3 @@
-//! The lifecycle, for the parts of the composition that run before it exists. `serving::start` builds the `Lifecycle` after `compose()`
-//! (it needs the ports the composed core provides), and six consumers of it are made inside `compose()`: the service-call count
-//! (`CoreHandle::request_started`, Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`), the memory-agent run watch
-//! (`busyMemoryAgents`, `:449`, `:1064`), the fencing ownership (`Ownership::revalidate` failing moves the core to `Fenced`, LR §2.4),
-//! the sessions' hold on turn starts ([`LateLifecycle::start_hold`], Node's `daemonWorkGate`), their busy turns and the running
-//! background shells (`exec_events`), both running work (Node's `busySessions`, `:452`).
-//! They read it through this cell, which `serving::start` binds once, before the listener accepts.
-//!
-//! Node's `activeCalls` also counts the model-proxy bridge's active requests (`modelProxyBridgeActive`, set by `trackWork`,
-//! `daemon.mjs:743-752`, `createModelProxyBridgeServer`). Rust has no server of that bridge (no `ModelProxyBridge` in any crate), so
-//! there is nothing to count yet; the port of it takes `ComposedCore::request_started` for its `trackWork`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -74,10 +62,6 @@ impl Exiter for Inert {
 /// Where the cell says that running work started before the bind (the daemon log).
 pub type WorkLog = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// The bound lifecycle, the open client connections it counts (Node's client registries: the core stops itself when the
-/// last one leaves, `maybeSelfShutdown`), the sessions' copy of its hold on turn starts ([`Self::start_hold`]), the tokens
-/// a confirmed stop's abort cancels the running work by ([`Self::cancels`]), and where running work that came before the bind
-/// is said ([`Self::logging`]).
 #[derive(Default)]
 pub struct LateLifecycle(
     OnceLock<Arc<Lifecycle>>,
@@ -87,11 +71,6 @@ pub struct LateLifecycle(
     Option<WorkLog>,
 );
 
-/// The registry a connection is in on Node's side: the channel bridge's, the remote clients' (phone, remote desktop), or the
-/// session transport's.
-/// A desktop that arrives through the ssh tunnel is a remote client whatever it calls itself (1.4.5's ssh-attached desktop
-/// registered with `remote: true`, `session-transport.ts` attachSession): its leaving takes the long grace, not the local 10 s.
-/// Only the ssh tunnel: 1.4.5's relay peers were `externalClients`, never session clients with a grace of their own.
 fn client_kind(origin: Origin, kind: ConnectionKind) -> ClientKind {
     match kind {
         ConnectionKind::ChannelBridge => ClientKind::Channel,
@@ -198,10 +177,6 @@ impl LateLifecycle {
         self.2.subscribe()
     }
 
-    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
-    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
-    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
-    /// called, so a move made before the future first runs is not missed.
     pub fn follow<F: Fn(CoreState) + Send + 'static>(
         self: &Arc<Self>,
         lifecycle: &Lifecycle,

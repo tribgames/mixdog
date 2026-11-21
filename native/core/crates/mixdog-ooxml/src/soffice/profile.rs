@@ -281,7 +281,7 @@ mod tests {
     fn failing_at(step: Step) -> impl Fn(Step, &Path) -> io::Result<()> {
         let failures = AtomicUsize::new(1);
         move |at, _| {
-            if at == step && failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok() { Err(disk_full()) } else { Ok(()) }
+            if at == step && failures.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok() { Err(disk_full()) } else { Ok(()) }
         }
     }
 
@@ -321,8 +321,7 @@ mod tests {
                 profiles.shared_dir_with(&Unlaned, &|step, _| {
                     if step == Step::UserFolder {
                         builds.fetch_add(1, Ordering::SeqCst);
-                        // The build is held until a second caller has joined it.
-                        drop(gate.lock().expect("gate").recv_timeout(Duration::from_secs(30)));
+                        gate.lock().expect("gate").recv_timeout(Duration::from_secs(30)).ok();
                         return Err(disk_full());
                     }
                     Ok(())

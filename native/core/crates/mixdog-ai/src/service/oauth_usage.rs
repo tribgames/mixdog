@@ -1008,11 +1008,6 @@ impl OAuthUsage {
             Ok(s) => s,
             Err(e) => self.usage_after_failure(&e, provider, &route.account_id).await,
         };
-        // A reading that succeeded and states no window (Go's status with every cap withdrawn) retires what an
-        // earlier reading of the same sign-in measured: the credential its own request used (its stamp) names which
-        // cached readings and which stored roster windows (each keeps its measuring stamp, so this holds after a
-        // restart) are withdrawn. A reading of another credential stays, and so do the account's refusal blocks,
-        // which are their own evidence.
         if let Some(none) = snapshot.as_ref().filter(|s| !contentful(s) && s.get("quotaWindows").is_some_and(Value::is_array))
             && let Some(stamp) = none.get(CREDENTIAL_STAMP).and_then(Value::as_str)
         {

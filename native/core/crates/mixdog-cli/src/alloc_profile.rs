@@ -19,15 +19,6 @@
 //! (a sample of a small block stands for 64 KiB); the live total includes profiler overhead and is read concurrently.
 //! Resolve addresses outside the core using `alloc-report REPORT MAP OUTPUT.jsonl`. Symbol loading inside the measured
 //! process would itself inflate private memory. No debugger, PDB, or symbol-server access is needed.
-//!
-//! The profiler can never stall the process. Nothing it does while holding a lock can wait: the ledger is fixed-size
-//! tables preallocated in `.bss`, so a critical section is a few loads and stores, never an allocation or a system
-//! call. An allocation that finds its shard busy or full drops its sample (the report counts drops); a free waits on
-//! its shard, which is bounded because the holder cannot block. Stack sites are published lock-free and read by the
-//! report thread without stopping anyone; the report formats only after copying. A stack is not captured while the
-//! thread holds the loader lock (thread exit runs TLS destructors under it, and unwinding takes loader-owned locks).
-//!
-//! The default build has none of this: without the feature the system heap is used directly.
 #![allow(
     unsafe_code,
     clippy::disallowed_methods,
@@ -736,16 +727,60 @@ mod tests {
         let second = render(120, &grown, &mut previous);
         assert!(second.contains("stack bytes=4194304 delta=+1048576 blocks=4"), "{second}");
     }
+
+    #[test]
+    fn the_report_goes_where_the_variable_says_else_under_the_profile_folder() {
+        let named = report_path(Some("D:/x/report.txt".into()), Some("C:/Users/a".into()));
+        assert_eq!(named, Some(std::path::PathBuf::from("D:/x/report.txt")));
+        let home = report_path(None, Some("C:/Users/a".into()));
+        assert_eq!(home, Some(std::path::PathBuf::from("C:/Users/a").join(".mixdog").join("data").join("alloc-profile.txt")));
+        assert_eq!(report_path(None, None), None);
+    }
+
+    #[test]
+    fn the_marker_and_the_made_report_sit_beside_the_report_file() {
+        let report = std::path::Path::new("D:/x/report.txt");
+        assert_eq!(sibling(report, ".now"), std::path::PathBuf::from("D:/x/report.txt.now"));
+        assert_eq!(sibling(report, ".made"), std::path::PathBuf::from("D:/x/report.txt.made"));
+    }
+
+    #[test]
+    fn reports_are_appended_to_both_files_and_a_missing_folder_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("alloc-profile-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (live, made) = (dir.join("r.txt"), dir.join("r.txt.made"));
+        append_reports(&live, "a\n", &made, "b\n").unwrap();
+        append_reports(&live, "c\n", &made, "d\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&live).unwrap(), "a\nc\n");
+        assert_eq!(std::fs::read_to_string(&made).unwrap(), "b\nd\n");
+        assert!(append_reports(&dir.join("absent").join("r.txt"), "x", &made, "y").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// `MIXDOG_ALLOC_PROFILE` when set; otherwise a core the desktop app starts (which inherits no such variable) reports to
+/// `<USERPROFILE>/.mixdog/data/alloc-profile.txt`.
+fn report_path(configured: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    configured.map(std::path::PathBuf::from).or_else(|| home.map(|home| std::path::PathBuf::from(home).join(".mixdog").join("data").join("alloc-profile.txt")))
+}
+
+/// `<report file><suffix>`: `.now` is the marker that asks for a report, `.made` carries the same rows for the bytes each stack
+/// ever allocated.
+fn sibling(report: &std::path::Path, suffix: &str) -> std::path::PathBuf {
+    let mut name = report.to_path_buf().into_os_string();
+    name.push(suffix);
+    std::path::PathBuf::from(name)
+}
+
+fn append_reports(live_path: &std::path::Path, live: &str, made_path: &std::path::Path, made: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let append = |path: &std::path::Path, text: &str| std::fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(text.as_bytes());
+    append(live_path, live).and_then(|()| append(made_path, made))
 }
 
 /// Starts sampling and the report thread (`serve` only).
 pub fn enable_from_env() {
-    // A core the desktop app starts inherits no variable set for it: a build with the feature then reports to
-    // `<home>/.mixdog/data/alloc-profile.txt` (the feature is a diagnostic build only).
-    let Some(path) = std::env::var_os("MIXDOG_ALLOC_PROFILE")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(|home| std::path::PathBuf::from(home).join(".mixdog").join("data").join("alloc-profile.txt")))
-    else {
+    let Some(path) = report_path(std::env::var_os("MIXDOG_ALLOC_PROFILE"), std::env::var_os("USERPROFILE")) else {
         return;
     };
     let every = std::env::var("MIXDOG_ALLOC_PROFILE_SECS").ok().and_then(|secs| secs.parse().ok()).unwrap_or(60u64).max(1);
@@ -759,18 +794,8 @@ pub fn enable_from_env() {
         }
         // SAFETY: null asks for this process's executable; no pointer is dereferenced.
         let image_base = unsafe { GetModuleHandleW(std::ptr::null()) } as usize;
-        let request = {
-            let mut name = path.clone().into_os_string();
-            name.push(".now");
-            std::path::PathBuf::from(name)
-        };
-        // Beside the live report, `<report file>.made`: the same rows for the bytes each stack ever allocated, whose
-        // change between two reports is what that stack put through the heap in between.
-        let made_path = {
-            let mut name = path.clone().into_os_string();
-            name.push(".made");
-            std::path::PathBuf::from(name)
-        };
+        let request = sibling(&path, ".now");
+        let made_path = sibling(&path, ".made");
         let mut previous_made = Table::default();
         let mut previous = Table::default();
         let mut waited = 0u64;
@@ -794,18 +819,9 @@ pub fn enable_from_env() {
                 reported = live_now;
                 let live = frame_names(LEDGER.live());
                 let text = format!("image_base=0x{image_base:x}\n{}", render(started.elapsed().as_secs(), &live, &mut previous));
-                use std::io::Write as _;
                 let made = frame_names(LEDGER.made());
                 let made_text = format!("image_base=0x{image_base:x}\n{}", render(started.elapsed().as_secs(), &made, &mut previous_made));
-                let written = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                    .and_then(|mut file| file.write_all(text.as_bytes()))
-                    .and_then(|()| std::fs::OpenOptions::new().create(true).append(true).open(&made_path))
-                    .and_then(|mut file| file.write_all(made_text.as_bytes()));
-                // A failed write is reported once and retried at the next report: the file's folder may appear later.
-                match written {
+                match append_reports(&path, &text, &made_path, &made_text) {
                     Err(error) if !failing => {
                         failing = true;
                         eprintln!("mixdogd: allocation profile report {}: {error}", path.display());

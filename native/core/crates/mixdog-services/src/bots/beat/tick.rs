@@ -258,11 +258,6 @@ impl Heartbeat {
         }
     }
 
-    /// The digest's lines after the Maintainer reviewed each session and task line in its own
-    /// call over the conversation since its last review (its previous note given): a line it
-    /// found nothing in is dropped, its note is appended, and a line whose read or review failed
-    /// stays as collected. A session with no item since its last review keeps that verdict
-    /// without a call. The cursors are the reviews to keep once the check is handled.
     async fn reviewed(&self, digest: &Digest, state: &HeartbeatState) -> (Vec<String>, Vec<(String, String, String)>) {
         let mut lines = digest.lines.clone();
         let mut dropped = std::collections::HashSet::new();
@@ -501,9 +496,6 @@ pub struct RunningHeartbeat {
     timers: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-/// Resolves once the injected clock reads `due` (epoch ms). The wait is the core ticker's, armed
-/// for what the clock says is left and re-armed until it says none is, so a clock that moves is
-/// followed, never raced.
 async fn until(heartbeat: &Heartbeat, due: i64) {
     loop {
         let left = due - heartbeat.now();

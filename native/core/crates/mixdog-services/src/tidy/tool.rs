@@ -32,8 +32,8 @@ use super::resolve::{DownloadPolicy, ResolveOptions, Resolved, resolve_engines};
 use super::run_engines::{SuiteOptions, SuiteRun, run_engine_suite};
 use super::shadow::detect_engine_shadows;
 use super::structural::{
-    GraphStructuralAdapter, PROBE_TIMEOUT, RulePack, StructuralEngineUnavailable, files_for_structural_group, groups_for_languages, load_rule_packs, packs_for_languages,
-    probe_graph_langs_within, resolve_structural_adapter_within, structural_unavailable_message,
+    GraphStructuralAdapter, PROBE_TIMEOUT, RulePack, StructuralEngineUnavailable, files_for_structural_group, groups_for_languages, load_rule_packs,
+    packs_for_languages, probe_graph_langs_within, resolve_structural_adapter_within, structural_unavailable_message,
 };
 use super::worktree::{list_working_tree_changes, split_findings_by_worktree};
 use crate::lane::on_lane;
@@ -207,10 +207,6 @@ async fn run_suite(engines: &[&Resolved], options: &SuiteOptions) -> SuiteRun {
     all
 }
 
-/// Runs the apply pass over the engines whose preflight succeeded. Structural edits land before the
-/// formatters, which then see (and fix) what they left, such as the blank line a deleted statement
-/// leaves behind. A failed preflight is kept, never replaced by a second attempt, and an engine the
-/// apply pass never reached is reported as not run rather than presented with its preflight row.
 async fn apply_after_preflight(preflight: SuiteRun, runnable: &[&Resolved], options: &SuiteOptions) -> SuiteRun {
     let eligible: Vec<_> = runnable.iter().zip(&preflight.failed).filter_map(|(&engine, failed)| (!*failed).then_some(engine)).collect();
     let applied = run_suite(&eligible, options).await;
@@ -223,7 +219,7 @@ async fn apply_after_preflight(preflight: SuiteRun, runnable: &[&Resolved], opti
         } else {
             applied.next().unwrap_or_else(|| {
                 let mut row = row;
-                row["skipped"] = json!(format!("not run: the apply pass stopped at {stopper}, which could not run"));
+                row["skipped"] = json!(not_run_reason(&stopper));
                 (row, false)
             })
         };
@@ -245,9 +241,76 @@ fn got_nowhere(row: &Value, failed: bool) -> bool {
     engine_error(row, failed) && row["filesChecked"].as_u64().unwrap_or(0) == 0 && row["filesChanged"].as_array().is_none_or(Vec::is_empty)
 }
 
+fn not_run_reason(stopper: &str) -> String {
+    format!("not run: the apply pass stopped at {stopper}, which could not run")
+}
+
+fn filter_engine_row(mut row: Value, matches_row: &dyn Fn(&Value) -> bool, matches_path: &dyn Fn(&str) -> bool) -> Value {
+    let kept = |rows: &Value, file_of: fn(&Value) -> &str| -> Vec<Value> {
+        rows.as_array().into_iter().flatten().filter(|r| matches_path(file_of(r))).cloned().collect()
+    };
+    row["diagnostics"] = json!(row["diagnostics"].as_array().into_iter().flatten().filter(|d| matches_row(d)).cloned().collect::<Vec<_>>());
+    row["filesChanged"] = json!(kept(&row["filesChanged"], |f| f.as_str().unwrap_or("")));
+    row["ignored"] = json!(kept(&row["ignored"], |f| f.as_str().unwrap_or("")));
+    row["unprocessed"] = json!(kept(&row["unprocessed"], |u| u["file"].as_str().unwrap_or("")));
+    row
+}
+
+fn withhold_uncovered_fixes(
+    matches: &mut [Value],
+    extensions: Option<&HashMap<String, String>>,
+    covered: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut withheld = std::collections::BTreeSet::new();
+    for m in matches {
+        let file = m["file"].as_str().unwrap_or("").to_owned();
+        let language = language_with(&file, extensions);
+        if !engines_for_languages(std::slice::from_ref(&language)).is_empty() && !covered.contains(&language) {
+            m["fix"] = Value::Null;
+            m["manual"] = json!(true);
+            withheld.insert(file);
+        }
+    }
+    withheld
+}
+
+fn covered_languages(suite: &SuiteRun, runnable: &[&Resolved]) -> std::collections::HashSet<String> {
+    suite
+        .results
+        .iter()
+        .zip(&suite.failed)
+        .filter(|(r, failed)| !**failed && r.get("skipped").is_none_or(Value::is_null))
+        .filter_map(|(r, _)| runnable.iter().find(|e| r["id"] == e.id.as_str()))
+        .flat_map(|e| e.languages.clone())
+        .collect()
+}
+
+fn engines_that_ran(suite: &SuiteRun, runnable: &[&Resolved], files: &[String], extensions: Option<&HashMap<String, String>>) -> Vec<String> {
+    suite
+        .results
+        .iter()
+        .zip(&suite.failed)
+        .filter(|(r, failed)| r["skipped"].as_str().is_none_or(str::is_empty) && !got_nowhere(r, **failed))
+        .filter_map(|(r, _)| runnable.iter().find(|e| r["id"] == e.id.as_str()))
+        .filter(|e| !files_for_languages(files, &e.languages, extensions).is_empty())
+        .map(|e| e.id.clone())
+        .collect()
+}
+
+fn append_not_run(suite: &mut SuiteRun, runnable: &[&Resolved]) {
+    if suite.results.len() < runnable.len() {
+        let stopper = suite.results.last().and_then(|r| r["id"].as_str()).unwrap_or("").to_owned();
+        for e in &runnable[suite.results.len()..] {
+            suite.results.push(not_run(e, &stopper));
+            suite.failed.push(false);
+        }
+    }
+}
+
 /// The row of an engine the apply pass never reached.
 fn not_run(engine: &Resolved, stopper: &str) -> Value {
-    let mut row = json!({"id": engine.id, "source": engine.source, "filesChecked": 0, "filesChanged": [], "diagnostics": [], "skipped": format!("not run: the apply pass stopped at {stopper}, which could not run")});
+    let mut row =
+        json!({"id": engine.id, "source": engine.source, "filesChecked": 0, "filesChanged": [], "diagnostics": [], "skipped": not_run_reason(stopper)});
     if !engine.version.is_empty() {
         row["version"] = json!(engine.version);
     }
@@ -802,6 +865,29 @@ sys.exit(0 if n else 1)
         assert_eq!(java["files"], json!(["A.java"]), "{report}");
     }
 
+    /// An apply runs only the engines it names, with or without the structural pass.
+    #[tokio::test]
+    async fn an_apply_runs_only_the_named_engines() {
+        let probe = tool(Path::new("."));
+        let dirty = "echo a\n  \necho b\n";
+        let Some(f) = fixture(&probe, &[("a.sh", dirty), ("b.ts", "let b = 1;\n")]).await else { return eprintln!("skipped: python or git is missing") };
+        for structural in [false, true] {
+            let report = body(
+                &graph_tool(&f)
+                    .execute(
+                        &json!({"action": "fix", "apply": true, "structural": structural, "paths": ["a.sh", "b.ts"], "engines": ["biome"]}),
+                        f.cwd.path(),
+                        None,
+                        None,
+                    )
+                    .await,
+            );
+            let ids: Vec<&str> = report["results"].as_array().unwrap().iter().filter_map(|r| r["id"].as_str()).collect();
+            assert_eq!(ids, ["biome"], "structural={structural}: {report}");
+            assert_eq!(std::fs::read_to_string(f.cwd.path().join("a.sh")).unwrap(), dirty, "structural={structural}");
+        }
+    }
+
     /// After the apply pass stops at an engine that could not run, the engines after it are
     /// reported as not run instead of vanishing.
     #[tokio::test]
@@ -1312,10 +1398,6 @@ impl TidyTool {
         Ok((resolution, manifest))
     }
 
-    /// Missing-but-downloadable engines that would run: installed when policy or the caller
-    /// approves, otherwise the approval request goes back to the caller. An engine that would be
-    /// skipped (no project config, suppressed by the project's own tools) or has no file of its
-    /// languages in `files` is neither downloaded nor offered.
     async fn satisfy_missing(
         &self,
         run: &Run<'_>,
@@ -1399,12 +1481,6 @@ impl TidyTool {
         Ok((matches, rule_errors))
     }
 
-    /// `ignored`: files an engine reported its own configuration ignores. They are outside the
-    /// project's lint/format surface for their language, so rule matches and fixes skip them too.
-    ///
-    /// `covered`: languages an engine ran for in this call. A file whose language has engines in the
-    /// catalog but none ran here has unknown eligibility (its ignore configuration was not
-    /// consulted), so its matches are reported with the fix withheld instead of being written.
     async fn run_structural(
         &self,
         run: &Run<'_>,
@@ -1418,7 +1494,9 @@ impl TidyTool {
             return Ok(json!({"adapter": "none", "matches": [], "applied": [], "packs": [], "note": "no structural rule packs are installed"}));
         }
         // No fallback engine: an old or missing mixdog-graph fails the call with the rebuild remedy.
-        let adapter = resolve_structural_adapter_within(&self.processes, run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), self.probe_deadline, run.cancel).await?;
+        let adapter =
+            resolve_structural_adapter_within(&self.processes, run.cwd, d.graph_bin.as_deref(), Some(d.graph_langs.is_some()), self.probe_deadline, run.cancel)
+                .await?;
         let files: Vec<String> = d.detected.files.iter().filter(|f| !ignored.contains(&match_file_key(f, run.cwd))).cloned().collect();
         if files.is_empty() {
             return Ok(json!({"adapter": GraphStructuralAdapter::ID, "packs": [], "matches": [], "applied": [], "note": "no files in scope"}));
@@ -1426,16 +1504,7 @@ impl TidyTool {
         let languages: Vec<String> = d.detected.languages.iter().map(|(l, _)| l.clone()).collect();
         let runnable = groups_for_languages(&groups, &languages);
         let (mut matches, rule_errors) = self.scan_structural(&adapter, run, &runnable, &files, d.detected.extensions.as_ref()).await?;
-        let mut withheld = std::collections::BTreeSet::new();
-        for m in &mut matches {
-            let file = m["file"].as_str().unwrap_or("").to_owned();
-            let language = language_with(&file, d.detected.extensions.as_ref());
-            if !engines_for_languages(std::slice::from_ref(&language)).is_empty() && !covered.contains(&language) {
-                m["fix"] = Value::Null;
-                m["manual"] = json!(true);
-                withheld.insert(file);
-            }
-        }
+        let withheld = withhold_uncovered_fixes(&mut matches, d.detected.extensions.as_ref(), covered);
         let mut structural = json!({"adapter": GraphStructuralAdapter::ID, "packs": runnable.iter().flat_map(|g| g.packs.clone()).collect::<Vec<_>>(), "matches": matches, "applied": []});
         if !withheld.is_empty() {
             structural["note"] = json!(format!(
@@ -1451,7 +1520,11 @@ impl TidyTool {
         if !apply || structural.get("error").is_some() || structural["matches"].as_array().is_some_and(Vec::is_empty) {
             return Ok(structural);
         }
-        // `--fix` emitted the payloads; tidy stays the only writer.
+        self.write_structural_fixes(run, &mut structural).await;
+        Ok(structural)
+    }
+
+    async fn write_structural_fixes(&self, run: &Run<'_>, structural: &mut Value) {
         let mut by_file: Vec<(String, Vec<Value>)> = Vec::new();
         for m in structural["matches"].as_array().into_iter().flatten().filter(|m| m.get("fix").is_some_and(|f| !f.is_null())) {
             let file = m["file"].as_str().unwrap_or("").to_owned();
@@ -1466,7 +1539,16 @@ impl TidyTool {
         if !outcome.rejected.is_empty() {
             structural["rejected"] = json!(outcome.rejected);
         }
-        Ok(structural)
+    }
+
+    async fn engine_shadows(&self, engines: &[Resolved], cwd: &Path, notes: &mut Vec<String>) -> Option<Vec<Value>> {
+        match detect_engine_shadows(&self.processes, engines, &env_map(), cwd).await {
+            Ok(rows) => Some(rows),
+            Err(note) => {
+                notes.push(note);
+                None
+            }
+        }
     }
 
     async fn outdated_graph_note(d: &Detection) -> Vec<String> {
@@ -1488,13 +1570,7 @@ impl TidyTool {
         notes.extend(Self::outdated_graph_note(&d).await);
         notes.extend(unavailable_notes(&resolution.engines));
         let unprocessed = unprocessed_files(&d.detected.files, d.detected.extensions.as_ref(), &resolution.engines, None, &[], run.cwd);
-        let shadows = match detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), run.cwd).await {
-            Ok(rows) => Some(rows),
-            Err(note) => {
-                notes.push(note);
-                None
-            }
-        };
+        let shadows = self.engine_shadows(&resolution.engines, run.cwd, &mut notes).await;
         Ok(build_tidy_report(ReportInput {
             action: "scan".into(),
             languages: d.detected.languages.iter().map(|(l, n)| json!({"id": l, "files": n})).collect(),
@@ -1565,14 +1641,7 @@ impl TidyTool {
         let structural = if structural_enabled {
             let engines_failed = suite.failed.iter().any(|f| *f);
             let ignored = ignored_files(&suite.results, run.cwd);
-            let covered = suite
-                .results
-                .iter()
-                .zip(&suite.failed)
-                .filter(|(r, failed)| !**failed && r.get("skipped").is_none_or(Value::is_null))
-                .filter_map(|(r, _)| runnable.iter().find(|e| r["id"] == e.id.as_str()))
-                .flat_map(|e| e.languages.clone())
-                .collect();
+            let covered = covered_languages(&suite, &runnable);
             self.run_structural(run, &d, apply && !engines_failed, &ignored, &covered).await?
         } else {
             Value::Null
@@ -1581,24 +1650,8 @@ impl TidyTool {
             options.apply = true;
             suite = apply_after_preflight(suite, &runnable, &options).await;
         }
-        // A single apply suite ends at an engine that could not run; the engines after it did not run.
-        if suite.results.len() < runnable.len() {
-            let stopper = suite.results.last().and_then(|r| r["id"].as_str()).unwrap_or("").to_owned();
-            for e in &runnable[suite.results.len()..] {
-                suite.results.push(not_run(e, &stopper));
-                suite.failed.push(false);
-            }
-        }
-        // The header names the engines that ran over at least one file, whether or not they then failed.
-        let ran: Vec<String> = suite
-            .results
-            .iter()
-            .zip(&suite.failed)
-            .filter(|(r, failed)| r["skipped"].as_str().is_none_or(str::is_empty) && !got_nowhere(r, **failed))
-            .filter_map(|(r, _)| runnable.iter().find(|e| r["id"] == e.id.as_str()))
-            .filter(|e| !files_for_languages(&engine_files, &e.languages, d.detected.extensions.as_ref()).is_empty())
-            .map(|e| e.id.clone())
-            .collect();
+        append_not_run(&mut suite, &runnable);
+        let ran = engines_that_ran(&suite, &runnable, &engine_files, d.detected.extensions.as_ref());
         let unprocessed = unprocessed_files(&d.detected.files, d.detected.extensions.as_ref(), &resolution.engines, Some(&suite), &excluded, run.cwd);
         let results = suite.results;
         let languages: Vec<Value> = d.detected.languages.iter().map(|(l, n)| json!({"id": l, "files": n})).collect();
@@ -1623,13 +1676,7 @@ impl TidyTool {
             summarize_function_lengths(self.host.outline_source().as_ref(), run.cwd, &d.detected.files, &run.cancel.cloned().unwrap_or_default()).await;
         let working_tree = self.split_run_findings(run, &results, &structural).await;
         notes.extend(unavailable_notes(&resolution.engines));
-        let shadows = match detect_engine_shadows(&self.processes, &resolution.engines, &env_map(), run.cwd).await {
-            Ok(rows) => Some(rows),
-            Err(note) => {
-                notes.push(note);
-                None
-            }
-        };
+        let shadows = self.engine_shadows(&resolution.engines, run.cwd, &mut notes).await;
         let mut report = build_tidy_report(ReportInput {
             ran,
             unprocessed,
@@ -1687,29 +1734,7 @@ impl TidyTool {
         let mut structural = if args.get("structural") == Some(&Value::Bool(false)) { Value::Null } else { cached.structural.clone() };
         let filtered = !rules.is_empty() || !prefixes.is_empty();
         if filtered {
-            results = results.map(|rs| {
-                rs.into_iter()
-                    .map(|mut r| {
-                        r["diagnostics"] = json!(r["diagnostics"].as_array().into_iter().flatten().filter(|d| matches_row(d)).cloned().collect::<Vec<_>>());
-                        r["filesChanged"] = json!(
-                            r["filesChanged"].as_array().into_iter().flatten().filter(|f| matches_path(f.as_str().unwrap_or(""))).cloned().collect::<Vec<_>>()
-                        );
-                        r["ignored"] = json!(
-                            r["ignored"].as_array().into_iter().flatten().filter(|f| matches_path(f.as_str().unwrap_or(""))).cloned().collect::<Vec<_>>()
-                        );
-                        r["unprocessed"] = json!(
-                            r["unprocessed"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter(|u| matches_path(u["file"].as_str().unwrap_or("")))
-                                .cloned()
-                                .collect::<Vec<_>>()
-                        );
-                        r
-                    })
-                    .collect()
-            });
+            results = results.map(|rs| rs.into_iter().map(|r| filter_engine_row(r, &matches_row, &matches_path)).collect());
             if !structural.is_null() {
                 structural["matches"] = json!(structural["matches"].as_array().into_iter().flatten().filter(|m| matches_row(m)).cloned().collect::<Vec<_>>());
                 if !prefixes.is_empty() {

@@ -227,12 +227,18 @@ pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
     edit_cancellable(db, id, request, None).await
 }
 
-pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel: Option<&CancellationToken>) -> Result<CoreEntry> {
-    let current = db
-        .query_opt("SELECT * FROM core_entries WHERE id = $1", &[&id])
-        .await?
-        .map(|row| CoreEntry::from_row(&row))
-        .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
+struct EditPlan<'a> {
+    element: String,
+    summary: String,
+    category: String,
+    target_project: Option<&'a str>,
+    project_changed: bool,
+    text_changed: bool,
+}
+
+/// Checks the request against the entry as read and decides what changes.
+fn plan_edit<'a>(request: &Edit<'a>, current: &CoreEntry) -> Result<EditPlan<'a>> {
+    let id = current.id;
     if request.expected_project_id != current.project_id.as_deref() {
         return Err(MemoryError::rejected(format!("entry id={id} is not in project {}", request.expected_project_id.unwrap_or("COMMON"))));
     }
@@ -264,32 +270,32 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
     if !text_changed && !project_changed && category == current.category {
         return Err(MemoryError::rejected("no change"));
     }
-    let now = now_ms();
-    let edited = |current: CoreEntry| CoreEntry {
-        element: element.clone(),
-        summary: summary.clone(),
-        category: category.clone(),
-        project_id: target_project.map(str::to_owned),
-        updated_at: now,
-        ..current
-    };
-    if !text_changed && !project_changed {
-        // Optimistic guard on the snapshot this patch was computed against.
-        let client = db.client().await?;
-        check_write_start(cancel)?;
-        let updated = client
-            .execute(
-                "UPDATE core_entries SET category = $1, updated_at = $2
+    Ok(EditPlan { element, summary, category, target_project, project_changed, text_changed })
+}
+
+/// A category-only change: guarded by the snapshot the patch was computed against, without the pool lock.
+async fn update_category_guarded(db: &Db, current: &CoreEntry, plan: &EditPlan<'_>, now: i64, cancel: Option<&CancellationToken>) -> Result<()> {
+    let client = db.client().await?;
+    check_write_start(cancel)?;
+    let updated = client
+        .execute(
+            "UPDATE core_entries SET category = $1, updated_at = $2
        WHERE id = $3 AND element = $4 AND summary = $5
          AND updated_at IS NOT DISTINCT FROM $6::bigint",
-                &[&category, &now, &id, &current.element, &current.summary, &current.updated_at],
-            )
-            .await?;
-        if updated == 0 {
-            return Err(MemoryError::rejected(format!("core entry id={id} changed concurrently — re-read and retry")));
-        }
-        return Ok(edited(current));
+            &[&plan.category, &now, &current.id, &current.element, &current.summary, &current.updated_at],
+        )
+        .await?;
+    if updated == 0 {
+        return Err(MemoryError::rejected(format!("core entry id={} changed concurrently — re-read and retry", current.id)));
     }
+    Ok(())
+}
+
+async fn update_under_lock(db: &Db, current: &CoreEntry, plan: &EditPlan<'_>, now: i64, cancel: Option<&CancellationToken>) -> Result<()> {
+    let id = current.id;
+    let agent_id = current.agent_id.as_deref();
+    let EditPlan { element, summary, category, target_project, project_changed, .. } = plan;
+    let (target_project, project_changed) = (*target_project, *project_changed);
     let mut lock_keys = vec![pool_lock_key(current.project_id.as_deref(), agent_id), pool_lock_key(target_project, agent_id)];
     lock_keys.sort();
     lock_keys.dedup();
@@ -312,8 +318,8 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
         {
             return Err(MemoryError::rejected(format!("core entry id={id} changed concurrently — re-read and retry")));
         }
-        if (element != current.element || project_changed) && !key_rows(tx, target_project, agent_id, &element, Some(id)).await?.is_empty() {
-            return Err(already_exists(Pool { project_id: target_project, agent_id }, &element));
+        if (*element != current.element || project_changed) && !key_rows(tx, target_project, agent_id, element, Some(id)).await?.is_empty() {
+            return Err(already_exists(Pool { project_id: target_project, agent_id }, element));
         }
         check_write_start(cancel)?;
         tx.execute(
@@ -325,8 +331,30 @@ pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel
         .await?;
         Ok(())
     })
-    .await?;
-    Ok(edited(current))
+    .await
+}
+
+pub(crate) async fn edit_cancellable(db: &Db, id: i64, request: Edit<'_>, cancel: Option<&CancellationToken>) -> Result<CoreEntry> {
+    let current = db
+        .query_opt("SELECT * FROM core_entries WHERE id = $1", &[&id])
+        .await?
+        .map(|row| CoreEntry::from_row(&row))
+        .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
+    let plan = plan_edit(&request, &current)?;
+    let now = now_ms();
+    if plan.text_changed || plan.project_changed {
+        update_under_lock(db, &current, &plan, now, cancel).await?;
+    } else {
+        update_category_guarded(db, &current, &plan, now, cancel).await?;
+    }
+    Ok(CoreEntry {
+        element: plan.element,
+        summary: plan.summary,
+        category: plan.category,
+        project_id: plan.target_project.map(str::to_owned),
+        updated_at: now,
+        ..current
+    })
 }
 
 /// Deletes one entry of the pool the caller named and was authorised for.

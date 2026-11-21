@@ -55,6 +55,9 @@ impl ProcessManager for Scripted {
         self.replies.lock().unwrap().insert(request.handle.0.clone(), events);
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, handle: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let events = self.replies.lock().unwrap().remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
         Ok(Box::new(Replay(events)))

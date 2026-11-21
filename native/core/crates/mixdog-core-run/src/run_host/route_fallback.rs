@@ -400,6 +400,10 @@ fn has_agent(session: &Value) -> bool {
     session.get("agent").is_some_and(|a| !matches!(a, Value::Null | Value::Bool(false)) && a.as_str() != Some(""))
 }
 
+fn has_checkpoint(session: &Value) -> bool {
+    session.get("activeTurnCheckpoint").is_some_and(Value::is_object)
+}
+
 /// The next route a mid-turn hop may take ([`RouteHop::next_present`]).
 enum Candidate {
     /// The chain index of the first present route, and its readied provider.
@@ -478,13 +482,7 @@ impl RouteHop {
             return RouteDecision::Surface(Box::new(self.annotate(&tried, error, Some(next))));
         }
         let failed = self.failure(&session, &error);
-        // The left model's share of the turn ends here: the running total at the switch bounds
-        // it, so each model's tokens are booked at its own rates.
-        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
-            provider: text(session.get("provider")),
-            model: text(session.get("model")),
-            usage: last_usage.cloned(),
-        });
+        self.book_usage(&session, last_usage.cloned());
         // The route a reset returns to, kept from the first hop.
         let primary = if route_fallback_hopped(&session) {
             session.get("routeFallbackPrimary").filter(|p| !p.is_null()).cloned()
@@ -494,13 +492,7 @@ impl RouteHop {
         let notice = notice_text(&self.label(&session), &self.label(next), error.kind);
         let mut failures = standing;
         failures.push(failed);
-        let write = HopWrite {
-            chain: chain.clone(),
-            primary,
-            index: index + 1,
-            failures,
-            checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
-        };
+        let write = HopWrite { chain: chain.clone(), primary, index: index + 1, failures, checkpoint_route_changed: has_checkpoint(&session) };
         if error.kind != ErrorKind::QuotaExhausted {
             self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
         }
@@ -550,19 +542,24 @@ impl RouteHop {
             primary: (!route_fallback_hopped(&session)).then(|| Value::Object(route_leaf(Some(&session)))),
             index,
             failures,
-            checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
+            checkpoint_route_changed: has_checkpoint(&session),
         };
         let notice = notice_text(&self.label(&session), &self.label(next), ErrorKind::Transient);
-        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
-            provider: text(session.get("provider")),
-            model: text(session.get("model")),
-            usage: None,
-        });
+        self.book_usage(&session, None);
         self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
         let switch = self.seat(next, provider, write, notice).await?;
         let provider = switch.provider.clone();
         *self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(switch);
         Ok(Some(provider))
+    }
+
+    /// Ends the left model's share of the turn: `usage`, the running total at the switch, bounds it so each model's tokens are booked at its own rates.
+    fn book_usage(&self, left: &Value, usage: Option<Usage>) {
+        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
+            provider: text(left.get("provider")),
+            model: text(left.get("model")),
+            usage,
+        });
     }
 
     /// A reconsidered switch to `next` failed with `failure` after its session write: the session is written back onto the
@@ -612,6 +609,40 @@ impl RouteHop {
         Ok(RouteSwitch { provider, model: text(updated.get("model")), notice, request, effort, text_only })
     }
 
+    /// The index of the route `reconsider` moves to, and whether the current route is known exhausted (the move is a diversion):
+    /// the first usable eligible route above `current`, else, while `current` is exhausted, the first one below it.
+    async fn reconsider_target(&self, order: &[Value], current: usize, failed_here: &[Value], left_unavailable: bool) -> (Option<usize>, bool) {
+        let usable = |route: &Value| !failed_here.iter().any(|failed| same_route_model(Some(failed), Some(route)));
+        for (index, route) in order.iter().enumerate().take(current) {
+            if !usable(route) {
+                continue;
+            }
+            let eligible = match self.host.route_eligibility(route).await {
+                RouteEligibility::Eligible => true,
+                RouteEligibility::Exhausted => false,
+                // A primary left only because its provider was not there is taken back as soon as the provider is.
+                RouteEligibility::Unknown => index == 0 && left_unavailable && matches!(self.lookup(&text(route.get("provider"))).await, Ok(Some(_))),
+            };
+            if eligible {
+                return (Some(index), false);
+            }
+        }
+        if self.host.route_eligibility(&order[current]).await != RouteEligibility::Exhausted {
+            return (None, false);
+        }
+        for (index, route) in order.iter().enumerate().skip(current + 1) {
+            if usable(route) {
+                match self.host.route_eligibility(route).await {
+                    RouteEligibility::Eligible => return (Some(index), true),
+                    RouteEligibility::Exhausted => {}
+                    // The ordinary fallback path may still send here. Do not jump past it.
+                    RouteEligibility::Unknown => break,
+                }
+            }
+        }
+        (None, true)
+    }
+
     /// Before an unsent request: the primary or a session diverted by quota follows the configured order
     /// by eligibility. The order is the authoritative chain owner's ([`session_chain_source`], the primary first), and
     /// the first route that is eligible and ranks above the current one is taken even when the current is healthy; while
@@ -652,39 +683,7 @@ impl RouteHop {
         let order = self.configured_order(&session, &config, &chain).await;
         let Some(current) = order.iter().position(|route| same_route_model(Some(route), Some(&session))) else { return Ok(None) };
         let failed_here = self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-        let usable = |route: &Value| !failed_here.iter().any(|failed| same_route_model(Some(failed), Some(route)));
-        let mut target = None;
-        for (index, route) in order.iter().enumerate().take(current) {
-            if !usable(route) {
-                continue;
-            }
-            let eligible = match self.host.route_eligibility(route).await {
-                RouteEligibility::Eligible => true,
-                RouteEligibility::Exhausted => false,
-                // A primary left only because its provider was not there is taken back as soon as the provider is.
-                RouteEligibility::Unknown => index == 0 && left_unavailable && matches!(self.lookup(&text(route.get("provider"))).await, Ok(Some(_))),
-            };
-            if eligible {
-                target = Some(index);
-                break;
-            }
-        }
-        let diverted_on = target.is_none() && self.host.route_eligibility(&order[current]).await == RouteEligibility::Exhausted;
-        if diverted_on {
-            for (index, route) in order.iter().enumerate().skip(current + 1) {
-                if usable(route) {
-                    match self.host.route_eligibility(route).await {
-                        RouteEligibility::Eligible => {
-                            target = Some(index);
-                            break;
-                        }
-                        RouteEligibility::Exhausted => {}
-                        // The ordinary fallback path may still send here. Do not jump past it.
-                        RouteEligibility::Unknown => break,
-                    }
-                }
-            }
-        }
+        let (target, diverted_on) = self.reconsider_target(&order, current, &failed_here, left_unavailable).await;
         let Some(index) = target else { return Ok(None) };
         let next = &order[index];
         let next_provider = text(next.get("provider"));
@@ -714,19 +713,14 @@ impl RouteHop {
             primary: (!route_fallback_hopped(&session)).then(|| Value::Object(route_leaf(Some(&session)))),
             index,
             failures,
-            checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
+            checkpoint_route_changed: has_checkpoint(&session),
         };
         let switch = match self.seat(next, provider, write, notice).await {
             Ok(switch) => switch,
             // The switch is optional: the run stays on the route it is on, and the session is written back onto it.
             Err(failure) => return self.put_back(&session, next, failure).await.map(|()| None),
         };
-        // The left route's share of the turn ends here, as at a hop.
-        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
-            provider: text(session.get("provider")),
-            model: text(session.get("model")),
-            usage: last_usage.cloned(),
-        });
+        self.book_usage(&session, last_usage.cloned());
         Ok(Some(switch))
     }
 }

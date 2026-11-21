@@ -1,7 +1,5 @@
-//! The tools a `channel/call` can name. The core hosts the bridge's lifecycle tools
-//! (`activate_channel_bridge`, `reload_config`, `rename_schedule`); a messaging backend's own
-//! tools (reply, react, …) are not part of this runtime and answer as unknown, exactly as the
-//! worker's dispatch does for any name it does not own.
+//! The core hosts only the bridge's lifecycle tools (`activate_channel_bridge`, `reload_config`,
+//! `rename_schedule`); any other name a `channel/call` names answers as unknown.
 
 use async_trait::async_trait;
 use serde_json::Value;

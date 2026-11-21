@@ -1,11 +1,3 @@
-//! The first-byte window of a request whose head has not come (`createTimeoutSignal(attemptSignal,
-//! windowMs, '<label> first byte')` around the fetch, `gemini.mjs:795-807`, `antigravity-transport.mjs:220-253`;
-//! `perAttemptTimeoutMs` of `openai-compat-chat-send.mjs:174-181`), and what the send's first-byte timeouts cost
-//! (`noteAttemptFailure`, `antigravity-transport.mjs:285-297`; `withCompatRetryProfile`, `openai-compat-retry-profile.mjs`).
-//!
-//! The timeout is one `ProviderError` of the stream timeout rule, in its `Headers` phase: transient, so the provider's own
-//! ladder retries it; a first-byte timeout past the policy's retries ends that ladder.
-
 use std::time::Duration;
 
 use mixdog_core_api::domain::provider::DeliveryState;

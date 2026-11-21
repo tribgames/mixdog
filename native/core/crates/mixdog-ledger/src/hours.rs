@@ -97,11 +97,10 @@ fn tokens_of(row: &Value, fields: [&str; 4]) -> f64 {
     fields.iter().map(|f| amount(row.get(*f))).sum()
 }
 
-/// `records` is the rollup's `hourly`; the period bounds come from the resolved period.
-pub fn hourly_series(records: Option<&Hourly>, from_ms: i64, to_ms: i64, end_ms: i64, conversation_only: bool) -> Value {
+/// One bucket per elapsed hour: rolling windows always contain 24 elapsed hours, even across DST changes.
+fn hour_buckets(from_ms: i64, to_ms: i64, end_ms: i64) -> Vec<Bucket> {
     let mut buckets: Vec<Bucket> = Vec::new();
     let mut ts = from_ms;
-    // Rolling windows always contain 24 elapsed hours, even across DST changes.
     while ts < end_ms {
         let local = local_fields(ts);
         let mut bucket = Bucket::new(ts.to_string(), format!("{:02}:{:02}", local.hour(), local.minute()), ts > to_ms);
@@ -109,6 +108,32 @@ pub fn hourly_series(records: Option<&Hourly>, from_ms: i64, to_ms: i64, end_ms:
         buckets.push(bucket);
         ts += HOUR_MS;
     }
+    buckets
+}
+
+/// The usage the rollup could not place in an hour, when there is any.
+fn unknown_time_bucket(records: Option<&Hourly>, conversation_only: bool) -> Option<Bucket> {
+    let mut unknown = Bucket::new("unknown-time".into(), String::new(), false);
+    unknown.unknown = true;
+    for route in records.into_iter().flat_map(|r| &r.unallocated) {
+        let usage = if conversation_only { route.get("conversation") } else { Some(route) };
+        let Some(usage) = usage.filter(|u| !u.is_null()) else {
+            continue;
+        };
+        unknown.add(
+            route.get("provider").and_then(Value::as_str).unwrap_or(""),
+            amount(usage.get("turns")),
+            tokens_of(usage, ["input", "output", "cacheRead", "cacheWrite"]),
+            amount(usage.get("costUsd")),
+            amount(usage.get("unmeasuredTurns")),
+            known_cost_turns(usage),
+        );
+    }
+    (unknown.total.turns != 0.0 || unknown.total.tokens != 0.0 || unknown.total.cost_usd != 0.0).then_some(unknown)
+}
+/// `records` is the rollup's `hourly`; the period bounds come from the resolved period.
+pub fn hourly_series(records: Option<&Hourly>, from_ms: i64, to_ms: i64, end_ms: i64, conversation_only: bool) -> Value {
+    let mut buckets = hour_buckets(from_ms, to_ms, end_ms);
     for row in records.into_iter().flat_map(|r| &r.rows) {
         let row_ts = row.ts as f64;
         if row_ts < from_ms as f64 || row_ts > to_ms as f64 {
@@ -134,24 +159,6 @@ pub fn hourly_series(records: Option<&Hourly>, from_ms: i64, to_ms: i64, end_ms:
             if priced { 1.0 } else { 0.0 },
         );
     }
-    let mut unknown = Bucket::new("unknown-time".into(), String::new(), false);
-    unknown.unknown = true;
-    for route in records.into_iter().flat_map(|r| &r.unallocated) {
-        let usage = if conversation_only { route.get("conversation") } else { Some(route) };
-        let Some(usage) = usage.filter(|u| !u.is_null()) else {
-            continue;
-        };
-        unknown.add(
-            route.get("provider").and_then(Value::as_str).unwrap_or(""),
-            amount(usage.get("turns")),
-            tokens_of(usage, ["input", "output", "cacheRead", "cacheWrite"]),
-            amount(usage.get("costUsd")),
-            amount(usage.get("unmeasuredTurns")),
-            known_cost_turns(usage),
-        );
-    }
-    if unknown.total.turns != 0.0 || unknown.total.tokens != 0.0 || unknown.total.cost_usd != 0.0 {
-        buckets.push(unknown);
-    }
+    buckets.extend(unknown_time_bucket(records, conversation_only));
     Value::Array(buckets.iter().map(Bucket::to_value).collect())
 }

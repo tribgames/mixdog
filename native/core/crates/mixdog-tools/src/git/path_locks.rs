@@ -1,13 +1,7 @@
-//! Per-path mutual exclusion inside the core: the in-process half of Node's
-//! `withBuiltinPathLocks` (`builtin/path-locks.mjs`). Locks are per exact path key: every
-//! holder of one key runs one at a time, in arrival order, and several keys are taken in
-//! sorted order so two callers never deadlock. A key does not cover the paths under it.
-//!
-//! In Node a mutating git call locks the work tree root and `edit`/`apply_patch` lock their
-//! target files (`withEditTargetLock`, `withBuiltinPathLocks(lockPaths)`), so a git write and
-//! an edit of a file under that folder do NOT wait for each other there, and do not here. Two
-//! git writes in one folder, or two edits of one file, do. (The cross-process advisory lock
-//! is not needed: one core owns the data directory.)
+//! Per-path mutual exclusion inside the core, as Node's `withBuiltinPathLocks`: holders of one
+//! exact path key run one at a time in arrival order, several keys are taken in sorted order,
+//! and a key does not cover the paths under it. A git write (locking the work tree root) and
+//! an edit of a file under it do not wait for each other, as in Node.
 
 use std::collections::HashMap;
 use std::path::Path;

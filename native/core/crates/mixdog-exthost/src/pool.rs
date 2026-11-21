@@ -491,11 +491,7 @@ impl Dispatcher {
         for queued in self.schedule.drain() {
             fail(&queued, closing());
         }
-        // Every worker is asked to leave, so it first ends what would outlive its job: an office session
-        // host quits the application DCOM started for it, the cleanup Node's exit hook asks for
-        // (`com-adapter.mjs` installExitHook). Its owner ends the group when it exits, or at `CLOSE_GRACE`
-        // (a worker still spawning is ended when its process exists, in `on_spawned`); `run` returns
-        // only after each has signalled and reaped.
+        // BYE lets an office session host quit the application DCOM started for it (`com-adapter.mjs` installExitHook).
         let mut asked = false;
         for entry in self.workers.values_mut() {
             entry.retirement_timer = None;

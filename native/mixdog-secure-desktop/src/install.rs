@@ -62,7 +62,6 @@ use crate::winutil::{OwnedHandle, SecurityDescriptor, current_user_sid, is_win32
 use crate::{log, paths, signature};
 
 const DELETE_ACCESS: u32 = 0x0001_0000; // DELETE
-const ERROR_ALREADY_EXISTS_CODE: u32 = 183;
 const ERROR_SERVICE_DOES_NOT_EXIST: u32 = 1060;
 
 /// Exit code when the per-machine install lock is already held: another
@@ -99,51 +98,17 @@ pub(crate) const EXIT_POLICY_BLOCKED: i32 = 15;
 pub(crate) const EXIT_DELEGATION_DISABLED: i32 = 20;
 pub(crate) const EXIT_DELEGATION_DENIED: i32 = 21;
 pub(crate) const EXIT_DELEGATION_UNAVAILABLE: i32 = 22;
-// No overall self-abort timer on `install`/`uninstall`/`verify-image`. Each
-// external wait has its own limit instead:
-// - the online revocation retrieval: `signature::REVOCATION_RETRIEVAL_TIMEOUT_MS`,
-//   20 s cumulative across its CRL/OCSP retrievals;
-// - each network retrieval of chain building (root auto-update, AIA issuers)
-//   in `WinVerifyTrust` and in the revocation chain: Windows' default per-URL
-//   retrieval timeout (`signature::WINDOWS_DEFAULT_URL_RETRIEVAL_TIMEOUT_MS`,
-//   15 s), a configurable policy value that limits one retrieval at a time —
-//   not the whole `WinVerifyTrust` operation, which may make several;
-// - every SCM stop/start: the documented checkpoint/wait-hint pattern. By
-//   design that waiter keeps going for as long as the service keeps advancing
-//   its checkpoint, and gives up only after a whole wait hint without
-//   progress; [`service_stop_bound`] / [`service_start_bound`] are what that
-//   means for this crate's own service, not a cap the waiter enforces.
-// Everything else (lock, staging, ACLs, SCM registration, registry) is local
-// work with nothing external to wait on. A global timer could only abort such
-// local work half-way (slow disk, AV scanning), which is worse than what it
-// guards.
 
 /// The `dwWaitHint` this crate's service reports with its single
 /// SERVICE_START_PENDING before SERVICE_RUNNING, exported by `service.rs`.
 use crate::service::SERVICE_START_WAIT_HINT_MS;
 
-/// Worst case of following this service's stop with the documented pattern
-/// ("Starting a Service"): the service reports STOP_PENDING with
-/// `dwWaitHint = SHUTDOWN_DEADLINE` and advances its checkpoint each poll for
-/// at most `SHUTDOWN_DEADLINE` (it force-kills the helper then and stops); if
-/// it then stops progressing, the waiter gives up once a whole hint has passed
-/// without progress, noticed at the next poll slice. So
-/// `SHUTDOWN_DEADLINE + stall_window(hint) + wait_slice(hint)` = 10 + 10 + 1 s.
-/// Documents (and the tests check) the per-step bound; nothing arms a timer.
-/// The waiter itself, by design, keeps waiting for as long as the checkpoint
-/// keeps advancing: this bound holds because this service stops advancing it
-/// after `SHUTDOWN_DEADLINE`.
 #[cfg_attr(not(test), allow(dead_code))]
 fn service_stop_bound() -> Duration {
     let hint = SHUTDOWN_DEADLINE.as_millis() as u32;
     SHUTDOWN_DEADLINE + stall_window(hint) + wait_slice(hint)
 }
 
-/// Worst case of following this service's start: one START_PENDING with
-/// [`SERVICE_START_WAIT_HINT_MS`] and no further progress before RUNNING, so a
-/// stuck start is given up after a whole hint, noticed at the next slice:
-/// 3 + 1 s. Documents (and the tests check) the per-step bound; as for the
-/// stop, the waiter would keep going while a checkpoint advanced, by design.
 #[cfg_attr(not(test), allow(dead_code))]
 fn service_start_bound() -> Duration {
     stall_window(SERVICE_START_WAIT_HINT_MS) + wait_slice(SERVICE_START_WAIT_HINT_MS)
@@ -184,17 +149,6 @@ fn apply_security(path: &Path, sddl: &str, info: OBJECT_SECURITY_INFORMATION) ->
     unsafe { SetFileSecurityW(PCWSTR(wide_path.as_ptr()), info, descriptor.raw()).ok().map_err(|error| format!("set security on {}: {error}", path.display())) }
 }
 
-/// The chain of directories that must exist from just below an already-present
-/// `base` (e.g. `%ProgramData%`) down to and including `leaf`, ordered
-/// shallowest-first so they can be created top-down. `base` is assumed to exist
-/// already and is **never** returned — the installer must not re-permission a
-/// shared system directory such as `%ProgramData%`; only Mixdog's own
-/// descendants are created with the protected DACL. Returns an error if `leaf`
-/// is not under `base`.
-///
-/// Pure (no filesystem access); unit-tested below. The P2 fix: before this,
-/// only `leaf`'s final component was created, so a fresh machine whose
-/// `%ProgramData%\Mixdog` did not yet exist failed the install.
 fn protected_dir_chain(base: &Path, leaf: &Path) -> Result<Vec<PathBuf>, String> {
     let relative = leaf.strip_prefix(base).map_err(|_| format!("{} is not under {}", leaf.display(), base.display()))?;
     let mut chain = Vec::new();
@@ -206,17 +160,13 @@ fn protected_dir_chain(base: &Path, leaf: &Path) -> Result<Vec<PathBuf>, String>
     Ok(chain)
 }
 
-/// Create `path` with its protected security descriptor applied atomically at
-/// creation time, so there is never a window where it exists with default
-/// (user-writable) permissions. If it already exists, it is accepted only after
-/// it verifies as a trusted, non-reparse path, and its descriptor is re-applied.
 fn create_protected_dir(path: &Path, sddl: &str) -> Result<(), String> {
     let descriptor = SecurityDescriptor::from_sddl(sddl).map_err(|e| e.to_string())?;
     let attributes = descriptor.attributes();
     let wide_path = wide(&path.to_string_lossy());
     match unsafe { CreateDirectoryW(PCWSTR(wide_path.as_ptr()), Some(&attributes)) } {
         Ok(()) => Ok(()),
-        Err(error) if is_win32_error(&error, ERROR_ALREADY_EXISTS_CODE) => {
+        Err(error) if is_win32_error(&error, ERROR_ALREADY_EXISTS.0) => {
             // Reject an existing directory that is a reparse point or is owned /
             // writable by an untrusted principal, then re-assert our descriptor.
             acl::verify_trusted_ancestry(path).map_err(|reason| format!("existing {} is not trusted: {reason}", path.display()))?;
@@ -226,38 +176,21 @@ fn create_protected_dir(path: &Path, sddl: &str) -> Result<(), String> {
     }
 }
 
-/// Install the service binary into a protected machine directory and lock it
-/// down. The bytes come from a source image already verified and held open by
-/// the caller ([`signature::verify_source`]), never re-read from a path a
-/// user-level process could have swapped. Returns the quoted, protected path to
-/// register the service against. Everything the service later runs as SYSTEM
-/// lives here, owned by Administrators and writable only by SYSTEM/Administrators
-/// — never by the installing user — so the user cannot swap the binary for
-/// their own code.
 fn stage_protected_binary(user_sid: &str, image: &[u8]) -> Result<String, String> {
     let dir_sddl = state_dir_sddl(user_sid).ok_or("invalid user SID")?;
 
-    // 1. Create every directory from just below %ProgramData% down to the bin
-    //    subdirectory, top-down and each atomically protected — the
-    //    intermediate %ProgramData%\Mixdog may not exist on a fresh machine.
-    //    %ProgramData% itself is the pre-existing base and is left untouched.
     let base = paths::program_data_root();
     for dir in protected_dir_chain(&base, &paths::bin_dir())? {
         create_protected_dir(&dir, &dir_sddl)?;
     }
 
-    // 2. Verify the state dir, the bin dir, and every ancestor are trusted and
-    //    not redirected — before any secret is written.
     acl::verify_trusted_ancestry(&paths::state_dir())?;
     acl::verify_trusted_ancestry(&paths::bin_dir())?;
 
-    // 3. Write the verified bytes into the protected dir and lock the copy down
-    //    (admin/SYSTEM-only). These are the exact bytes WinVerifyTrust accepted.
     std::fs::write(paths::bin_exe(), image).map_err(|e| format!("write binary to {}: {e}", paths::bin_exe().display()))?;
     let bin_sddl = binary_sddl(user_sid).ok_or("invalid user SID")?;
     apply_security(&paths::bin_exe(), &bin_sddl, owner_group_dacl())?;
 
-    // 4. Verify the final binary path and its whole ancestry are trusted.
     acl::verify_trusted_ancestry(&paths::bin_exe())?;
 
     // Quoted so a space in the path cannot split the ImagePath into an
@@ -373,10 +306,6 @@ fn lock_refused(lock: InstallLock) -> i32 {
     }
 }
 
-/// Whether an existing registration belongs to a different Windows account:
-/// registered, and its readable state records another SID. A registration with
-/// no readable state has no owner left to protect (it cannot serve anyone), so
-/// it is repaired. Pure; unit-tested.
 fn owned_by_other_user(service_registered: bool, recorded_owner: Option<&str>, installer_sid: &str) -> bool {
     service_registered && recorded_owner.is_some_and(|owner| !owner.eq_ignore_ascii_case(installer_sid))
 }
@@ -384,7 +313,12 @@ fn owned_by_other_user(service_registered: bool, recorded_owner: Option<&str>, i
 /// The SID an existing install recorded (readable elevated: the state DACL
 /// grants Administrators), or `None` without a valid state file.
 fn recorded_owner() -> Option<String> {
-    std::fs::read_to_string(paths::state_file()).ok().and_then(|text| InstallState::from_json(&text).ok()).map(|state| state.user_sid)
+    load_install_state().ok().map(|state| state.user_sid)
+}
+
+fn load_install_state() -> Result<InstallState, String> {
+    let text = std::fs::read_to_string(paths::state_file()).map_err(|error| format!("read install state: {error}"))?;
+    InstallState::from_json(&text)
 }
 
 /// Whether the service is registered.
@@ -454,24 +388,6 @@ fn create_protected_file(path: &Path, bytes: &[u8], sddl: &str) -> Result<(), St
     file.write_all(bytes).and_then(|()| file.sync_all()).map_err(|error| format!("write {}: {error}", path.display()))
 }
 
-/// Write the state file into the already-protected directory with its
-/// read-only-to-user DACL. Must run only after [`stage_protected_binary`] has
-/// created and verified the directory, and under the install lock.
-///
-/// What it holds: the installing user's SID, versions, the enrolled phones'
-/// **public** keys, the delegation policy — and the 32-byte pipe `secret`.
-/// The secret *is* sensitive, but by design it is shared with exactly one
-/// principal besides SYSTEM/Administrators: the installing user, whose app
-/// must read it to run the mutual HMAC handshake on the helper pipe (`probe`,
-/// the desktop client). So that user keeps read-only access (it can never
-/// write the file, so it cannot change keys or policy), and every other user
-/// is excluded. See `security::state_file_sddl`.
-///
-/// The temp sibling is created with that final DACL (never weaker, even for a
-/// moment), written and flushed through its own handle, then atomically
-/// swapped in, so a concurrent reader (the running helper re-reading the key
-/// set) sees either the old file or the whole new one, never partial JSON. A
-/// temp a crash left behind is removed first.
 fn write_protected_state(state: &InstallState) -> Result<(), String> {
     let final_path = paths::state_file();
     let dir = final_path.parent().ok_or("the state file has no parent directory")?;
@@ -524,14 +440,10 @@ fn stop_existing_service() -> Result<(), String> {
 /// Why a service whose stop was not confirmed is left registered.
 const SERVICE_NOT_STOPPED: &str = "the service did not confirm SERVICE_STOPPED (no checkpoint progress for its whole wait hint, or its status could not be read); it stays registered, and its files, software SAS marker and uninstall entry are kept for a retry";
 
-/// Delete the registration only after a confirmed `SERVICE_STOPPED`. Microsoft
-/// Learn, *DeleteService*: it "marks a service for deletion … The database
+/// Microsoft Learn, *DeleteService*: it "marks a service for deletion … The database
 /// entry is not removed until all open handles to the service have been closed
-/// … and the service is not running" — on a service that has not stopped it
-/// would return success while the service still runs from its files and still
-/// holds the software SAS value. So an unconfirmed stop is an error and
-/// `delete` is not called; callers then remove nothing else (no SAS recovery,
-/// no files, no uninstall entry). Pure; unit-tested.
+/// … and the service is not running", so it would succeed on a service that
+/// still runs from its files. An unconfirmed stop is an error and `delete` is not called.
 fn delete_after_confirmed_stop(stopped: bool, delete: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     if !stopped {
         return Err(SERVICE_NOT_STOPPED.into());
@@ -554,11 +466,6 @@ fn remove_service() -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve a `SoftwareSASGeneration` value the stopped service left behind
-/// (`crate::service::recover_software_sas`), so the value never outlives its
-/// marker in the state directory. Must run after the service has stopped and
-/// before the state directory is removed; on failure the directory (and the
-/// marker) is kept so a retry can still resolve it.
 fn recover_software_sas() -> Result<(), String> {
     match crate::service::recover_software_sas() {
         Ok(outcome) => {
@@ -609,12 +516,6 @@ fn cleanup_outcome(service_removed: &Result<(), String>, files_removed: &Result<
     if clean { Cleanup::Clean } else { Cleanup::Incomplete }
 }
 
-/// Roll a failed install back. If the service is confirmed stopped and its
-/// registration removed, the SAS marker is resolved and the files and entry go
-/// too (a clean not-installed state); otherwise all of them are kept so the
-/// still-registered (possibly still running) service keeps a working binary,
-/// and the result is reported as an explicit incomplete cleanup rather than a
-/// silent not-installed.
 fn fail_and_roll_back(error: &str) -> i32 {
     let (cleanup, problems) = roll_back(&mut ThisMachine);
     for problem in &problems {
@@ -647,10 +548,6 @@ fn roll_back(target: &mut impl UninstallTarget) -> (Cleanup, Vec<String>) {
 const FILES_KEPT_FOR_SERVICE: &str =
     "left in place (with the software SAS marker and the uninstall entry) because the service was not confirmed stopped and removed";
 
-/// The phone's control-grant key from `--controller-key <base64url>`, as `check`
-/// takes it (the first one; none is fine). A flag without a value, or a value
-/// that is not an uncompressed P-256 point (`security::decode_controller_key`),
-/// is an error. Pure; unit-tested.
 fn controller_key_arg(args: &[String]) -> Result<Option<String>, String> {
     let Some(position) = args.iter().position(|arg| arg == "--controller-key") else {
         return Ok(None);
@@ -818,12 +715,9 @@ fn perform_disable_delegation() -> i32 {
     if let Err(code) = confirm_installed_and_ours() {
         return code;
     }
-    let mut state = match std::fs::read_to_string(paths::state_file()) {
-        Ok(text) => match InstallState::from_json(&text) {
-            Ok(state) => state,
-            Err(error) => return fail(&error),
-        },
-        Err(error) => return fail(&format!("read install state: {error}")),
+    let mut state = match load_install_state() {
+        Ok(state) => state,
+        Err(error) => return fail(&error),
     };
     state.disable_delegation();
     if let Err(error) = write_protected_state(&state) {
@@ -838,18 +732,9 @@ fn perform_disable_delegation() -> i32 {
 /// kept separate from the mutation ([`mutate_key_set`]) so each source is one
 /// isolated arm.
 enum KeyChangeAuth {
-    /// Under the install lock: an elevated administrator (one UAC prompt), the
-    /// impersonated batch-logon token, or the SYSTEM service applying a
-    /// delegated change it has already authenticated. Holding the lock
-    /// serializes against installs/uninstalls and is kept for the change.
     Elevated(#[allow(dead_code)] PrivateNamespace),
 }
 
-/// Take the install lock, which only an elevated administrator, the logon
-/// token, or SYSTEM (the service) can — an ordinary unelevated process cannot
-/// (its Administrators SID is deny-only). This is the privilege-escalation
-/// guard for the CLI paths; the delegated path adds the service's app
-/// authentication *before* it calls in as SYSTEM.
 fn authorize_key_change() -> Result<KeyChangeAuth, i32> {
     match acquire_install_lock() {
         InstallLock::Held(lock) => Ok(KeyChangeAuth::Elevated(lock)),
@@ -873,10 +758,6 @@ fn apply_key_change(add: &[String], remove: &[String]) -> i32 {
     }
 }
 
-/// Confirm the helper is installed and this operation may change it: SYSTEM (the
-/// service, on the delegated path, having already authenticated the installing
-/// user) is always allowed; otherwise the acting user must be the install's
-/// recorded owner. Returns the refusal exit code on failure.
 fn confirm_installed_and_ours() -> Result<(), i32> {
     let sid = current_user_sid().map_err(|error| fail(&format!("cannot resolve user SID: {error}")))?;
     let registered = service_registered().map_err(|error| fail(&error))?;
@@ -892,16 +773,8 @@ fn confirm_installed_and_ours() -> Result<(), i32> {
     Ok(())
 }
 
-/// Apply adds and removes to the key set in one read/write; returns whether the
-/// set changed. Removes are applied first, so an enroll-plus-pending-revoke in
-/// one elevation cannot drop a key it just added. The only thing written is the
-/// key set. Shared by every authorization source (CLI and the delegated pipe),
-/// so the mutation is identical however it was authorized.
 fn mutate_key_set(add: &[String], remove: &[String]) -> Result<bool, String> {
-    let mut state = match std::fs::read_to_string(paths::state_file()) {
-        Ok(text) => InstallState::from_json(&text)?,
-        Err(error) => return Err(format!("read install state: {error}")),
-    };
+    let mut state = load_install_state()?;
     let mut changed = false;
     for key in remove {
         changed |= state.revoke_key(key);
@@ -927,14 +800,7 @@ pub(crate) fn apply_delegated_key_change(op: &str, key: &str, expected: &signatu
         Err(_) => return Err("the install lock is held or unavailable".into()),
     };
     confirm_installed_and_ours().map_err(|_| "the helper is not installed for this account".to_string())?;
-    // Re-read the delegation policy UNDER the lock: a `disable-delegation` (or
-    // a signer-policy change) that completed while the caller was being
-    // authenticated must be honored, not raced past. The policy read in
-    // `delegation::evaluate` was before the lock; this is the authoritative one.
-    let state = match std::fs::read_to_string(paths::state_file()) {
-        Ok(text) => InstallState::from_json(&text)?,
-        Err(error) => return Err(format!("read install state: {error}")),
-    };
+    let state = load_install_state()?;
     if !delegation_still_authorized(&state, expected) {
         return Err("app delegation was disabled or changed before the request was applied".into());
     }
@@ -952,6 +818,69 @@ fn delegation_still_authorized(state: &InstallState, expected: &signature::Signe
     state.delegation.authorized_signer() == Some((expected.subject.as_str(), expected.profile_eku.as_str()))
 }
 
+/// Create or reconfigure the service against the protected binary, grant the installing
+/// user start/stop/query, set recovery, write the Apps & Features entry and start it.
+fn register_service(sid: &str, bin_path: &str) -> Result<ScHandle, String> {
+    let manager = open_manager(SC_MANAGER_ALL_ACCESS)?;
+
+    let name = wide(paths::SERVICE_NAME);
+    let display = wide(paths::SERVICE_DISPLAY_NAME);
+    let bin = wide(bin_path);
+    let service = match open_service(&manager, SERVICE_ALL_ACCESS)? {
+        // Upgrade: re-assert the registration against the protected copy.
+        Some(service) => {
+            unsafe {
+                ChangeServiceConfigW(
+                    service.0,
+                    SERVICE_WIN32_OWN_PROCESS,
+                    SERVICE_DEMAND_START,
+                    SERVICE_ERROR_NORMAL,
+                    PCWSTR(bin.as_ptr()),
+                    PCWSTR::null(),
+                    None,
+                    PCWSTR::null(),
+                    PCWSTR::null(), // account unchanged (LocalSystem)
+                    PCWSTR::null(),
+                    PCWSTR(display.as_ptr()),
+                )
+            }
+            .map_err(|error| format!("reconfigure service: {error}"))?;
+            service
+        }
+        None => ScHandle(
+            unsafe {
+                CreateServiceW(
+                    manager.0,
+                    PCWSTR(name.as_ptr()),
+                    PCWSTR(display.as_ptr()),
+                    SERVICE_ALL_ACCESS,
+                    SERVICE_WIN32_OWN_PROCESS,
+                    SERVICE_DEMAND_START,
+                    SERVICE_ERROR_NORMAL,
+                    PCWSTR(bin.as_ptr()),
+                    PCWSTR::null(),
+                    None,
+                    PCWSTR::null(),
+                    PCWSTR::null(), // LocalSystem
+                    PCWSTR::null(),
+                )
+            }
+            .map_err(|error| format!("create service: {error}"))?,
+        ),
+    };
+
+    let sddl = service_sddl(sid).ok_or("invalid user SID for the service security")?;
+    let descriptor = SecurityDescriptor::from_sddl(&sddl).map_err(|error| format!("build the service security: {error}"))?;
+    unsafe { SetServiceObjectSecurity(service.0, DACL_SECURITY_INFORMATION, descriptor.raw()) }
+        .map_err(|error| format!("set the service security: {error}"))?;
+
+    set_failure_actions(&service)?;
+    write_apps_entry()?;
+
+    unsafe { StartServiceW(service.0, None) }.map_err(|error| format!("start service: {error}"))?;
+    Ok(service)
+}
+
 fn perform_install(keys: &[String]) -> i32 {
     let _lock = match acquire_install_lock() {
         InstallLock::Held(lock) => lock,
@@ -963,10 +892,6 @@ fn perform_install(keys: &[String]) -> i32 {
         Err(error) => return fail(&format!("cannot resolve user SID: {error}")),
     };
 
-    // Ownership is decided here, under the lock, before anything changes: a
-    // service another Windows account installed is never taken over (the
-    // unelevated `check` reports the same state, but it ran before the prompt
-    // and outside the lock).
     let registered = match service_registered() {
         Ok(registered) => registered,
         Err(error) => return fail(&error),
@@ -975,10 +900,6 @@ fn perform_install(keys: &[String]) -> i32 {
         return refuse_other_user("install");
     }
 
-    // Never trust a path in the user-writable app folder: hold the running
-    // image itself open against writers/deleters, verify it against the
-    // release signer pinned at build time (and its chain for revocation), and
-    // stage exactly those bytes. An unpinned (local/dev) build is refused here.
     let verified = match signature::verify_own_image() {
         Ok(verified) => verified,
         Err(refusal) => {
@@ -1007,11 +928,6 @@ fn perform_install(keys: &[String]) -> i32 {
         Ok(state) => state,
         Err(error) => return fail_and_roll_back(&error),
     };
-    // Opt in to app delegation (the "approve once, then paired phones
-    // auto-enroll" model). The authorized app signer is this build's release
-    // signer, which the Mixdog app and this helper share; a build with no pin
-    // never reaches here (the image was verified above). A later elevated
-    // `install` re-enables it after a security disable.
     match signature::release_signer_policy() {
         Ok(policy) => state.enable_delegation(&policy.subject, &policy.profile_eku),
         Err(error) => return fail_and_roll_back(&format!("record the delegation signer: {error}")),
@@ -1020,79 +936,10 @@ fn perform_install(keys: &[String]) -> i32 {
         return fail_and_roll_back(&error);
     }
 
-    let result = (|| -> Result<ScHandle, String> {
-        let manager = open_manager(SC_MANAGER_ALL_ACCESS)?;
-
-        let name = wide(paths::SERVICE_NAME);
-        let display = wide(paths::SERVICE_DISPLAY_NAME);
-        let bin = wide(&bin_path);
-        let service = match open_service(&manager, SERVICE_ALL_ACCESS)? {
-            // Upgrade: re-assert the registration against the protected copy.
-            Some(service) => {
-                unsafe {
-                    ChangeServiceConfigW(
-                        service.0,
-                        SERVICE_WIN32_OWN_PROCESS,
-                        SERVICE_DEMAND_START,
-                        SERVICE_ERROR_NORMAL,
-                        PCWSTR(bin.as_ptr()),
-                        PCWSTR::null(),
-                        None,
-                        PCWSTR::null(),
-                        PCWSTR::null(), // account unchanged (LocalSystem)
-                        PCWSTR::null(),
-                        PCWSTR(display.as_ptr()),
-                    )
-                }
-                .map_err(|error| format!("reconfigure service: {error}"))?;
-                service
-            }
-            None => ScHandle(
-                unsafe {
-                    CreateServiceW(
-                        manager.0,
-                        PCWSTR(name.as_ptr()),
-                        PCWSTR(display.as_ptr()),
-                        SERVICE_ALL_ACCESS,
-                        SERVICE_WIN32_OWN_PROCESS,
-                        SERVICE_DEMAND_START,
-                        SERVICE_ERROR_NORMAL,
-                        PCWSTR(bin.as_ptr()),
-                        PCWSTR::null(),
-                        None,
-                        PCWSTR::null(),
-                        PCWSTR::null(), // LocalSystem
-                        PCWSTR::null(),
-                    )
-                }
-                .map_err(|error| format!("create service: {error}"))?,
-            ),
-        };
-
-        // Grant the installing user start/stop/query so later control needs no
-        // further elevation. Without it the user could never start the
-        // demand-start service, so a failure is an install failure (rolled
-        // back), not a silently degraded install.
-        let sddl = service_sddl(&sid).ok_or("invalid user SID for the service security")?;
-        let descriptor = SecurityDescriptor::from_sddl(&sddl).map_err(|error| format!("build the service security: {error}"))?;
-        unsafe { SetServiceObjectSecurity(service.0, DACL_SECURITY_INFORMATION, descriptor.raw()) }
-            .map_err(|error| format!("set the service security: {error}"))?;
-
-        set_failure_actions(&service)?;
-        write_apps_entry()?;
-
-        unsafe { StartServiceW(service.0, None) }.map_err(|error| format!("start service: {error}"))?;
-        Ok(service)
-    })();
-
-    let service = match result {
+    let service = match register_service(&sid, &bin_path) {
         Ok(service) => service,
         Err(error) => return fail_and_roll_back(&error),
     };
-    // StartService returns while the service is still START_PENDING: report
-    // `running` only once the SCM confirms it (the same bounded waiter as
-    // `start`). The install is complete either way; a service that is not
-    // confirmed running is started on demand later.
     let started = wait_until_running(|| query_process_status(&service).map(|status| ServiceProgress::of(&status)), std::thread::sleep, Instant::now);
     let mut report = json!({
         "ok": true,
@@ -1146,10 +993,6 @@ fn stop_and_wait(service: &ScHandle) -> bool {
     if info.dwCurrentState == SERVICE_STOPPED {
         return true;
     }
-    // Poll every slice, but treat the stop as stalled only when the checkpoint
-    // has not advanced for the service's whole wait hint (the documented SCM
-    // pattern); one slice is a tenth of it and would misreport a slow, healthy
-    // graceful helper shutdown.
     let mut previous_checkpoint = info.dwCheckPoint;
     let mut deadline = Instant::now() + stall_window(info.dwWaitHint);
     while info.dwCurrentState == SERVICE_STOP_PENDING {
@@ -1224,21 +1067,8 @@ fn set_failure_actions(service: &ScHandle) -> Result<(), String> {
         .map_err(|error| format!("set the service failure-actions flag: {error}"))
 }
 
-/// The machine's Apps & Features entry for the installed service. Its
-/// `UninstallString` runs the **protected copy** — the only `uninstall` left
-/// once the app folder is gone (an unattended `/S` app uninstall never prompts
-/// and so leaves the service) — and it lives under HKLM, writable only by
-/// administrators, so a user cannot redirect it.
 const APPS_ENTRY_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MixdogSecureDesktop";
-/// The entry's name in Settings > Apps, the same as the exe's `FileDescription`
-/// (build.rs) that the UAC prompt shows. Only a value: the key above never
-/// depends on it, so an install or update rewrites it in place and uninstall
-/// finds the entry under any earlier name.
 const APPS_ENTRY_DISPLAY_NAME: &str = "Mixdog 원격 접근";
-/// The argument the Apps & Features entry passes: the only `uninstall` that
-/// asks for elevation itself (Settings launches entries unelevated). Every
-/// other caller — the app uninstaller, scripts — passes plain `uninstall` and
-/// is never prompted by the bridge.
 const FROM_APPS_ARG: &str = "--from-apps";
 
 /// A registry value of the Apps & Features entry.
@@ -1324,11 +1154,6 @@ fn process_is_elevated() -> Result<bool, String> {
     Ok(elevation.TokenIsElevated != 0)
 }
 
-/// The Apps & Features path: Settings starts the entry unelevated, so ask for
-/// elevation once — the user just chose "Uninstall" there — and run the plain
-/// `uninstall` elevated from this same protected copy, waiting for it.
-/// Returns its exit code, or `ERROR_CANCELLED` (1223) when the prompt was
-/// declined.
 fn uninstall_elevated_from_apps() -> i32 {
     const ERROR_CANCELLED: u32 = 1223;
     let image = match std::env::current_exe() {
@@ -1483,10 +1308,6 @@ impl RemovalFs for RealRemovalFs {
     }
 }
 
-/// The parking directory for an uninstall: a uniquely named sibling of the
-/// state directory (`%ProgramData%\Mixdog\SecureDesktop.uninstalled-<unique>`).
-/// Same parent directory as the image's tree, so the same volume, and under
-/// the protected `%ProgramData%\Mixdog`. Pure; unit-tested.
 fn parking_dir_for(state: &Path, unique: &str) -> Option<PathBuf> {
     let name = state.file_name()?.to_string_lossy();
     Some(state.parent()?.join(format!("{name}.uninstalled-{unique}")))
@@ -1497,24 +1318,11 @@ fn with_recovery(error: String, recovery: impl IntoIterator<Item = Result<(), St
     recovery.into_iter().filter_map(Result::err).fold(error, |message, problem| format!("{message}; {problem}"))
 }
 
-/// Remove the state tree. When the running image lives inside it (the Apps &
-/// Features uninstall runs the protected copy itself), that image cannot be
-/// deleted while it runs, but it can be renamed:
-/// 1. create the unique, admin-only `parking` directory beside the tree;
-/// 2. rename the image into it (same volume; the file keeps its own protected
-///    DACL). If that fails — e.g. a different volume — nothing has been
-///    removed and the tree stays whole;
-/// 3. **at once** register the parked image, then its directory, for deletion
-///    at restart (`MoveFileExW` + `MOVEFILE_DELAY_UNTIL_REBOOT`: "If
-///    lpExistingFileName refers to a directory, the system removes the
-///    directory at restart only if the directory is empty"; pending operations
-///    run in the order registered, so the file goes first). If the image cannot
-///    be scheduled it is moved back, so it is never left parked unscheduled;
-/// 4. remove the tree, so a later `check` sees nothing installed. If that
-///    fails the image is moved back where it was when possible, so the Apps &
-///    Features entry (kept by the caller on any failure) still runs it.
-///
-/// Returns the parked path when it was used.
+/// Remove the state tree, parking the running image (which cannot be deleted
+/// while it runs, but can be renamed) when it lives inside it. `MoveFileExW` with
+/// `MOVEFILE_DELAY_UNTIL_REBOOT` removes a directory at restart "only if the
+/// directory is empty", and pending operations run in registration order, so the
+/// parked file is registered before its directory. Returns the parked path when used.
 fn remove_tree_around_image(
     fs: &mut impl RemovalFs,
     state: &Path,
@@ -1598,10 +1406,6 @@ fn remove_tree(path: &Path) -> Result<(), String> {
     }
 }
 
-/// The locked part of `uninstall`. Ownership is decided first, under the lock
-/// and before anything is removed: another Windows account's install is
-/// refused with [`EXIT_OTHER_USER`], exactly as `install` refuses it (the app
-/// uninstaller's own `check` ran unelevated and outside the lock).
 fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
     let sid = match target.caller_sid() {
         Ok(sid) => sid,
@@ -1618,11 +1422,6 @@ fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
     let mut problems: Vec<String> = Vec::new();
     let service_removed = target.remove_service();
 
-    // If the service was not confirmed stopped, or its registration could not
-    // be removed, it may still run and must keep its binary: report an
-    // incomplete cleanup and keep the SAS marker, the files and the uninstall
-    // entry, rather than leaving a registered service pointing at a deleted
-    // binary or recovering the SAS value under a live service.
     if let Err(ref error) = service_removed {
         log::event("uninstall", error);
         emit(json!({
@@ -1634,11 +1433,6 @@ fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
         return 1;
     }
 
-    // With the service stopped, resolve a SoftwareSASGeneration value it left
-    // (a crash between setting and removing it) while its marker still exists;
-    // if that fails, the state folder and the marker stay for a retry. The
-    // Apps & Features entry goes only after the files are gone: while any file
-    // cleanup fails it stays, so the removal can be retried from there.
     let leftovers = target.recover_software_sas().and_then(|()| target.remove_state_dir(&mut problems)).and_then(|()| target.remove_apps_entry());
     let cleanup = cleanup_outcome(&service_removed, &leftovers, &mut problems);
     for problem in &problems {
@@ -1661,22 +1455,19 @@ fn uninstall_from(target: &mut impl UninstallTarget) -> i32 {
 
 /// Open the service read-only and report installed / running / version.
 pub fn status() -> i32 {
-    let version = std::fs::read_to_string(paths::state_file()).ok().and_then(|text| InstallState::from_json(&text).ok()).map(|state| state.product_version);
+    let version = load_install_state().ok().map(|state| state.product_version);
 
-    let manager = match unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) } {
-        Ok(manager) => ScHandle(manager),
-        Err(error) => return fail(&format!("open SCM: {error}")),
+    let manager = match open_manager(SC_MANAGER_CONNECT) {
+        Ok(manager) => manager,
+        Err(error) => return fail(&error),
     };
-    let name = wide(paths::SERVICE_NAME);
-    let service = match unsafe { OpenServiceW(manager.0, PCWSTR(name.as_ptr()), SERVICE_QUERY_STATUS) } {
-        // Not installed is a normal, expected answer.
-        Err(error) if is_win32_error(&error, ERROR_SERVICE_DOES_NOT_EXIST) => {
+    let service = match open_service(&manager, SERVICE_QUERY_STATUS) {
+        Ok(Some(service)) => service,
+        Ok(None) => {
             emit(json!({ "ok": true, "installed": false, "running": false, "version": version }));
             return 0;
         }
-        // Any other open error is a real fault, reported as such.
-        Err(error) => return fail(&format!("open service: {error}")),
-        Ok(service) => ScHandle(service),
+        Err(error) => return fail(&error),
     };
 
     let running = query_process_status(&service).is_some_and(|status| status.dwCurrentState == SERVICE_RUNNING);
@@ -1749,10 +1540,6 @@ impl InstallCheck {
     }
 }
 
-/// The pure decision behind `check`. "Current" is a byte-for-byte match of the
-/// protected copy with the binary being run, so any bridge change shipped by an
-/// app update is reinstalled without relying on a version bump. A registered
-/// service whose state this user cannot read is another account's install.
 fn install_check(service_registered: bool, state: StateStatus, state_dir_present: bool, binary_matches: bool) -> InstallCheck {
     match state {
         StateStatus::AccessDenied if service_registered => InstallCheck::OtherUser,
@@ -2184,11 +1971,6 @@ mod tests {
 
     #[test]
     fn enroll_and_revoke_require_the_elevated_or_logon_path() {
-        // The admin-gated ops take the install lock first; an unelevated
-        // process cannot (its Administrators SID is deny-only), so no
-        // unelevated path can add or remove a key. When the test process is
-        // elevated the lock would succeed and touch real state, so only the
-        // unelevated case is asserted (the lock itself is covered elsewhere).
         if process_is_elevated().expect("query own elevation") {
             return;
         }

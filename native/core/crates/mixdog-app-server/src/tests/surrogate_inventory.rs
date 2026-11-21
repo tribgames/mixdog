@@ -1,9 +1,3 @@
-//! The rule of decisions.md "Lone UTF-16 surrogates in client strings", field by field from the inventory
-//! (mixdog-app-protocol tests/it/free_text_fields.json, each field's class stated independently of `FREE_TEXT`): a lone
-//! surrogate in a `free` field reaches its service as U+FFFD, whole as with a real U+FFFD there; in a `refused` field the
-//! frame is refused naming the field (a request), dropped (a notification) or fails its request (an answer), before
-//! anything acts on it.
-
 use mixdog_app_protocol::CLIENT_METHODS;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
@@ -172,6 +166,7 @@ async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() 
             | "host/computer/appInput"
             | "host/computer/cursorPrepare"
             | "host/computer/permissions"
+            | "host/computer/processFate"
             | "host/computer/command"
             | "host/computer/revokeScopes" => HostCapability::Computer,
             other if other.starts_with("host/browser/") && other != "host/browser/command" => HostCapability::BrowserEngine,

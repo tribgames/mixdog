@@ -420,9 +420,43 @@ fn is_invalid_result(hit: &SearchHit) -> bool {
     NOT_FOUND.is_match(mixdog_js::js_trim(&hit.title))
 }
 
-pub fn format_results(payload: &SearchPayload) -> String {
+fn result_entries(results: &[&SearchHit], shown_answer: &str) -> Vec<String> {
     const TITLE_CAP: usize = 200;
     const SNIPPET_CAP: usize = 600;
+    // A label shared by several URLs names the search, not a page.
+    let mut urls_by_title: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for hit in results {
+        if !hit.title.is_empty() && !hit.url.is_empty() {
+            urls_by_title.entry(&hit.title).or_default().insert(&hit.url);
+        }
+    }
+    let mut entries: Vec<String> = Vec::new();
+    for hit in results {
+        let snippet = clip(mixdog_js::js_trim(&hit.snippet), SNIPPET_CAP);
+        let date = hit.published_date.as_deref().unwrap_or("");
+        let url_part = [hit.url.as_str(), date].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" — ");
+        let query_labelled =
+            hit.title.is_empty() || hit.title == hit.url || hit.from_call || urls_by_title.get(hit.title.as_str()).is_some_and(|urls| urls.len() > 1);
+        if !hit.url.is_empty() && snippet.is_empty() && query_labelled {
+            if !text_cites_url(shown_answer, &hit.url) {
+                entries.push(format!("{}. {url_part}", entries.len() + 1));
+            }
+            continue;
+        }
+        let title = clip(if hit.title.is_empty() { "(no title)" } else { &hit.title }, TITLE_CAP);
+        let mut lines = vec![format!("{}. {title}", entries.len() + 1)];
+        if !url_part.is_empty() {
+            lines.push(format!("   {url_part}"));
+        }
+        if !snippet.is_empty() && snippet != title && snippet != hit.url {
+            lines.push(format!("   {snippet}"));
+        }
+        entries.push(lines.join("\n"));
+    }
+    entries
+}
+
+pub fn format_results(payload: &SearchPayload) -> String {
     const ANSWER_CAP: usize = 4000;
     let results: Vec<&SearchHit> = payload.results.iter().filter(|hit| !is_invalid_result(hit)).collect();
     let mut blocks: Vec<String> = Vec::new();
@@ -440,36 +474,7 @@ pub fn format_results(payload: &SearchPayload) -> String {
     if results.is_empty() {
         return blocks.join("\n\n");
     }
-    // A label shared by several URLs names the search, not a page.
-    let mut urls_by_title: HashMap<&str, HashSet<&str>> = HashMap::new();
-    for hit in &results {
-        if !hit.title.is_empty() && !hit.url.is_empty() {
-            urls_by_title.entry(&hit.title).or_default().insert(&hit.url);
-        }
-    }
-    let mut entries: Vec<String> = Vec::new();
-    for hit in &results {
-        let snippet = clip(mixdog_js::js_trim(&hit.snippet), SNIPPET_CAP);
-        let date = hit.published_date.as_deref().unwrap_or("");
-        let url_part = [hit.url.as_str(), date].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" — ");
-        let query_labelled =
-            hit.title.is_empty() || hit.title == hit.url || hit.from_call || urls_by_title.get(hit.title.as_str()).is_some_and(|urls| urls.len() > 1);
-        if !hit.url.is_empty() && snippet.is_empty() && query_labelled {
-            if !text_cites_url(&shown_answer, &hit.url) {
-                entries.push(format!("{}. {url_part}", entries.len() + 1));
-            }
-            continue;
-        }
-        let title = clip(if hit.title.is_empty() { "(no title)" } else { &hit.title }, TITLE_CAP);
-        let mut lines = vec![format!("{}. {title}", entries.len() + 1)];
-        if !url_part.is_empty() {
-            lines.push(format!("   {url_part}"));
-        }
-        if !snippet.is_empty() && snippet != title && snippet != hit.url {
-            lines.push(format!("   {snippet}"));
-        }
-        entries.push(lines.join("\n"));
-    }
+    let entries = result_entries(&results, &shown_answer);
     if !entries.is_empty() {
         blocks.push(entries.join("\n\n"));
     }

@@ -1,16 +1,14 @@
-//! The Project switch of a Lead (Node `transition-runner.mjs` and `transition-steps.mjs`
-//! `switchProject`): the desktop and remote `setCwd`. Admitted like a workspace transition,
+//! The Project switch of a Lead: the desktop and remote `setCwd`. Admitted like a workspace transition,
 //! refused while a turn or workers run and while the session works in a managed worktree; the
 //! runtime cwd, `session.cwd`, the workspace record and the desktop classification move
 //! together through the host, journaled so a failure puts back what already moved.
 
 use super::*;
 
-/// `WORKTREE_BOUND_SWITCH`.
 const WORKTREE_BOUND_SWITCH: &str = "The session works in a managed worktree; exit the worktree first (switch to a project-folder branch, or merge or remove the worktree) before moving it to another project.";
 
 impl SessionWorkspaces {
-    /// `switchProject(cwd, { classifyByMembership: true })` of the hosted `session`: `cwd` is the
+    /// Switch the hosted `session` to another Project: `cwd` is the
     /// resolved folder, `desktop_session` the classification to store (`None`: the session has
     /// none). Background shells do not refuse it. Resolves the runtime cwd after the switch.
     /// `own_turn`: the Lead's own `session set-project` call, which tolerates its calling turn.

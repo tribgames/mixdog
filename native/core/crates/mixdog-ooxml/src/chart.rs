@@ -255,10 +255,6 @@ struct CategoryAxis<'a> {
     number_format: &'a str,
 }
 
-/// Horizontal bars (barDir bar) read top-down in the order given: the category axis runs max-to-min on the left and the
-/// value axis crosses it at the far end, along the bottom. A series below zero sets the category names at the foot of the
-/// plot (low), not on the zero line, where a loss bar's value label and its category name ran over each other. Dated
-/// categories read in their cells' format on a text axis: auto would turn them into a date scale.
 fn category_axis(axis: &CategoryAxis<'_>) -> String {
     let format =
         if axis.number_format.is_empty() { String::new() } else { format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"1\"/>", xml_encode(axis.number_format)) };
@@ -434,6 +430,105 @@ fn axis_limit(axis: Option<&Value>, name: &str) -> Option<String> {
     axis.and_then(|axis| axis.get(name)).filter(|value| !value.is_null()).map(value_to_string)
 }
 
+/// The `<c:ser>` elements of the plot: one per series that carries values.
+fn chart_series(spec: &ChartSpec<'_>, family: &Family, entries: &[&Value], rows: &[String], label_size: u32) -> String {
+    let references = spec.references.unwrap_or_default();
+    let sheet = if references.sheet.is_empty() { "Sheet1" } else { references.sheet };
+    let last_row = rows.len() + 1;
+    let category_formula = if references.category.is_empty() { format!("{sheet}!$A$2:$A${last_row}") } else { references.category.to_owned() };
+    let mut plots = String::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let column = column_label((index + 2) as f64);
+        let name_formula = match references.names.get(index).filter(|name| !name.is_empty()) {
+            Some(name) => name.clone(),
+            None => format!("{sheet}!${column}$1"),
+        };
+        let value_formula = match references.values.get(index).filter(|name| !name.is_empty()) {
+            Some(name) => name.clone(),
+            None => format!("{sheet}!${column}$2:${column}${last_row}"),
+        };
+        let own_format = entry.get("numberFormat").filter(|value| truthy(value)).map(value_to_string);
+        let number_format = own_format.as_deref().unwrap_or(spec.value_number_format);
+        let name = match entry.get("name").filter(|name| !name.is_null()) {
+            Some(name) => value_to_string(name),
+            None => format!("Series {}", index + 1),
+        };
+        let color = match entry.get("color").filter(|color| truthy(color)) {
+            Some(color) => color.clone(),
+            None => Value::from(DEFAULT_SERIES_COLORS[index % DEFAULT_SERIES_COLORS.len()]),
+        };
+        let point_colors = point_colors_for(family, entry, rows);
+        let values = entry.get("values").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+        plots.push_str(&format!("<c:ser><c:idx val=\"{index}\"/><c:order val=\"{index}\"/><c:tx>{}</c:tx>", string_reference(&name_formula, &[name])));
+        plots.push_str(&series_shape(family, &color));
+        // A line is the line, as Microsoft Excel and PowerPoint draw chartType 'line': left to the reader's default a 21-day
+        // series carried a diamond on every day and read as a dotted band.
+        if family.element == "lineChart" {
+            plots.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>");
+        }
+        if family.element == "barChart" {
+            plots.push_str("<c:invertIfNegative val=\"0\"/>");
+        }
+        plots.push_str(&data_point_shapes(family, point_colors.as_deref()));
+        plots.push_str(&data_labels(&LabelOptions {
+            show_values: spec.show_values,
+            position: spec.data_label_position,
+            color: spec.data_label_color,
+            number_format,
+            family,
+            size: label_size,
+            point_colors: point_colors.as_deref(),
+        }));
+        let categories = match &spec.category_dates {
+            Some(dates) => number_reference(&category_formula, dates.values, dates.format),
+            None => string_reference(&category_formula, &rows),
+        };
+        plots.push_str(&format!("<c:cat>{categories}</c:cat><c:val>{}</c:val>", number_reference(&value_formula, values, number_format)));
+        if family.element == "lineChart" {
+            plots.push_str("<c:smooth val=\"0\"/>");
+        }
+        plots.push_str("</c:ser>");
+    }
+    plots
+}
+
+fn chart_legend(size: u32) -> String {
+    format!(
+        "<c:legend><c:legendPos val=\"b\"/><c:overlay val=\"0\"/>\
+         <c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"{size}\"/></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>\
+         </c:legend>"
+    )
+}
+
+/// The category and value axes of a chart that has them.
+fn chart_axes(spec: &ChartSpec<'_>, family: &Family, negative: bool, baseline: bool, reversed: bool) -> String {
+    let horizontal = family.direction == Some("bar");
+    let size = spec.text.body;
+    let date_format = spec.category_dates.as_ref().map_or("", |dates| dates.format);
+    format!(
+        "{}{}",
+        category_axis(&CategoryAxis {
+            hidden: axis_flag(spec.axis, "hideCategoryAxis"),
+            horizontal,
+            reversed,
+            size,
+            low: negative,
+            number_format: date_format,
+        }),
+        value_axis(&ValueAxis {
+            size,
+            horizontal,
+            reversed,
+            number_format: spec.value_number_format,
+            zero_baseline: baseline,
+            hidden: axis_flag(spec.axis, "hideValueAxis"),
+            min: axis_limit(spec.axis, "min"),
+            max: axis_limit(spec.axis, "max"),
+            gridlines: spec.axis.and_then(|axis| axis.get("gridlines")).and_then(Value::as_bool) != Some(false),
+        })
+    )
+}
+
 /// `chartXml(spec)`: the chart part's text.
 pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
     let Some(family) = resolve_chart_family(spec.chart_type) else {
@@ -462,63 +557,7 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
         Some(value) => value.as_str() == Some("maxMin"),
         None => family.direction == Some("bar"),
     };
-    let references = spec.references.unwrap_or_default();
-    let sheet = if references.sheet.is_empty() { "Sheet1" } else { references.sheet };
-    let last_row = rows.len() + 1;
-    let category_formula = if references.category.is_empty() { format!("{sheet}!$A$2:$A${last_row}") } else { references.category.to_owned() };
-    let mut plots = String::new();
-    for (index, entry) in entries.iter().enumerate() {
-        let column = column_label((index + 2) as f64);
-        let name_formula = match references.names.get(index).filter(|name| !name.is_empty()) {
-            Some(name) => name.clone(),
-            None => format!("{sheet}!${column}$1"),
-        };
-        let value_formula = match references.values.get(index).filter(|name| !name.is_empty()) {
-            Some(name) => name.clone(),
-            None => format!("{sheet}!${column}$2:${column}${last_row}"),
-        };
-        let own_format = entry.get("numberFormat").filter(|value| truthy(value)).map(value_to_string);
-        let number_format = own_format.as_deref().unwrap_or(spec.value_number_format);
-        let name = match entry.get("name").filter(|name| !name.is_null()) {
-            Some(name) => value_to_string(name),
-            None => format!("Series {}", index + 1),
-        };
-        let color = match entry.get("color").filter(|color| truthy(color)) {
-            Some(color) => color.clone(),
-            None => Value::from(DEFAULT_SERIES_COLORS[index % DEFAULT_SERIES_COLORS.len()]),
-        };
-        let point_colors = point_colors_for(&family, entry, &rows);
-        let values = entry.get("values").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-        plots.push_str(&format!("<c:ser><c:idx val=\"{index}\"/><c:order val=\"{index}\"/><c:tx>{}</c:tx>", string_reference(&name_formula, &[name])));
-        plots.push_str(&series_shape(&family, &color));
-        // A line is the line, as Microsoft Excel and PowerPoint draw chartType 'line': left to the reader's default a 21-day
-        // series carried a diamond on every day and read as a dotted band.
-        if family.element == "lineChart" {
-            plots.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>");
-        }
-        if family.element == "barChart" {
-            plots.push_str("<c:invertIfNegative val=\"0\"/>");
-        }
-        plots.push_str(&data_point_shapes(&family, point_colors.as_deref()));
-        plots.push_str(&data_labels(&LabelOptions {
-            show_values: spec.show_values,
-            position: spec.data_label_position,
-            color: spec.data_label_color,
-            number_format,
-            family: &family,
-            size: text.label,
-            point_colors: point_colors.as_deref(),
-        }));
-        let categories = match &spec.category_dates {
-            Some(dates) => number_reference(&category_formula, dates.values, dates.format),
-            None => string_reference(&category_formula, &rows),
-        };
-        plots.push_str(&format!("<c:cat>{categories}</c:cat><c:val>{}</c:val>", number_reference(&value_formula, values, number_format)));
-        if family.element == "lineChart" {
-            plots.push_str("<c:smooth val=\"0\"/>");
-        }
-        plots.push_str("</c:ser>");
-    }
+    let plots = chart_series(spec, &family, &entries, &rows, text.label);
     let grouping = match family.element {
         "barChart" => format!("<c:grouping val=\"{}\"/>", family.grouping.unwrap_or("clustered")),
         "lineChart" | "areaChart" => format!("<c:grouping val=\"{}\"/>", family.grouping.unwrap_or("standard")),
@@ -551,41 +590,9 @@ pub fn chart_xml(spec: &ChartSpec<'_>) -> Result<String, String> {
     let legend = if spec.show_legend == Some(false) || (spec.show_legend.is_none() && entries.len() < 2 && !family.slices()) {
         String::new()
     } else {
-        format!(
-            "<c:legend><c:legendPos val=\"b\"/><c:overlay val=\"0\"/>\
-             <c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz=\"{}\"/></a:pPr><a:endParaRPr lang=\"en-US\"/></a:p></c:txPr>\
-             </c:legend>",
-            text.body
-        )
+        chart_legend(text.body)
     };
-    let horizontal = family.direction == Some("bar");
-    let axes = if family.axes {
-        let date_format = spec.category_dates.as_ref().map_or("", |dates| dates.format);
-        format!(
-            "{}{}",
-            category_axis(&CategoryAxis {
-                hidden: axis_flag(spec.axis, "hideCategoryAxis"),
-                horizontal,
-                reversed,
-                size: text.body,
-                low: negative,
-                number_format: date_format,
-            }),
-            value_axis(&ValueAxis {
-                size: text.body,
-                horizontal,
-                reversed,
-                number_format: spec.value_number_format,
-                zero_baseline: baseline,
-                hidden: axis_flag(spec.axis, "hideValueAxis"),
-                min: axis_limit(spec.axis, "min"),
-                max: axis_limit(spec.axis, "max"),
-                gridlines: spec.axis.and_then(|axis| axis.get("gridlines")).and_then(Value::as_bool) != Some(false),
-            })
-        )
-    } else {
-        String::new()
-    };
+    let axes = if family.axes { chart_axes(spec, &family, negative, baseline, reversed) } else { String::new() };
     let default_face = if spec.font.is_empty() {
         String::new()
     } else {
@@ -630,4 +637,44 @@ pub fn chart_workbook_rows(categories: &[Value], series: &[Value]) -> Vec<Vec<Va
         rows.push(row);
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn xml_of(chart_type: &str, series: &[Value]) -> String {
+        let categories = [json!("A"), json!("B")];
+        chart_xml(&ChartSpec { chart_type, categories: &categories, series, ..ChartSpec::default() }).expect("a chart")
+    }
+
+    #[test]
+    fn a_two_series_column_chart_has_both_axes_a_legend_and_a_zero_baseline() {
+        let xml = xml_of("column", &[json!({ "name": "S1", "values": [1, 2] }), json!({ "name": "S2", "values": [3, 4] })]);
+        assert_eq!(xml.matches("<c:ser>").count(), 2);
+        assert!(xml.contains("<c:barDir val=\"col\"/>") && xml.contains("<c:catAx>") && xml.contains("<c:valAx>") && xml.contains("<c:legend>"));
+        assert!(xml.contains("<c:min val=\"0\"/>") && xml.contains("<c:orientation val=\"minMax\"/></c:scaling><c:delete"));
+    }
+
+    #[test]
+    fn a_single_series_line_has_no_legend_and_a_bar_chart_reads_top_down() {
+        let line = xml_of("line", &[json!({ "name": "S", "values": [1, 2] })]);
+        assert!(!line.contains("<c:legend>") && line.contains("<c:marker><c:symbol val=\"none\"/></c:marker>") && !line.contains("<c:min "));
+        let bar = xml_of("bar", &[json!({ "name": "S", "values": [1, 2] })]);
+        assert!(bar.contains("<c:barDir val=\"bar\"/>") && bar.contains("<c:orientation val=\"maxMin\"/>") && bar.contains("<c:crosses val=\"max\"/>"));
+    }
+
+    #[test]
+    fn a_loss_puts_the_category_names_low_and_drops_the_zero_baseline() {
+        let xml = xml_of("column", &[json!({ "name": "S", "values": [-8, 2] })]);
+        assert!(xml.contains("<c:tickLblPos val=\"low\"/>") && !xml.contains("<c:min "));
+    }
+
+    #[test]
+    fn a_pie_has_no_axes_and_keeps_a_legend_of_its_slices() {
+        let xml = xml_of("pie", &[json!({ "name": "S", "values": [1, 2] })]);
+        assert!(!xml.contains("<c:catAx>") && xml.contains("<c:varyColors val=\"1\"/>") && xml.contains("<c:legend>"));
+    }
 }

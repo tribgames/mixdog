@@ -1,7 +1,3 @@
-//! Test support: a minimal Compound File Binary ([MS-CFB]) writer with real container structure (header, FAT, DIFAT,
-//! mini FAT, mini stream, directory with sibling trees), laid out the way Office writes it, and an encrypting writer
-//! that follows [MS-OFFCRYPTO] in the encrypting direction. A port of `pdf/cfb-fixture.mjs` of the Node tree.
-//! Random bytes are a fixed pseudo-random sequence, so a failure repeats.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -95,15 +91,8 @@ fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-/// The container holding `entries` under its root storage. `version` is the CFB major version: 3 (512-byte sectors) or
-/// 4 (4096-byte sectors).
-pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
-    let sector_size: usize = if version == 4 { 4096 } else { 512 };
-    let entries_per_sector = sector_size / 4;
-
-    // Directory ids in storage order, root first; the siblings under each storage form one balanced tree.
-    let mut nodes: Vec<Node> = Vec::new();
-    register(&mut nodes, "Root Entry", 5, &[], entries);
+/// Gives each storage (the root included) one balanced tree of its siblings, ordered as a directory orders names.
+fn link_sibling_trees(nodes: &mut [Node]) {
     for id in 0..nodes.len() {
         if nodes[id].kind == 2 {
             continue;
@@ -113,9 +102,82 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
             let (a, b) = (&nodes[*a].name, &nodes[*b].name);
             a.chars().count().cmp(&b.chars().count()).then_with(|| a.to_uppercase().cmp(&b.to_uppercase()))
         });
-        let child = build_tree(&mut nodes, &ordered, 0, ordered.len() as isize - 1);
+        let child = build_tree(nodes, &ordered, 0, ordered.len() as isize - 1);
         nodes[id].child = Some(child);
     }
+}
+
+fn directory_bytes(nodes: &[Node], sector_size: usize) -> Vec<u8> {
+    let mut directory = vec![0xffu8; nodes.len().div_ceil(sector_size / 128) * sector_size];
+    for (i, node) in nodes.iter().enumerate() {
+        let at = i * 128;
+        directory[at..at + 128].fill(0);
+        for (j, unit) in node.name.encode_utf16().enumerate() {
+            put_u16(&mut directory, at + j * 2, unit);
+        }
+        put_u16(&mut directory, at + 64, ((node.name.encode_utf16().count() + 1) * 2) as u16);
+        directory[at + 66] = node.kind;
+        directory[at + 67] = 1;
+        put_u32(&mut directory, at + 68, node.left);
+        put_u32(&mut directory, at + 72, node.right);
+        put_u32(&mut directory, at + 76, node.child.unwrap_or(NO_STREAM));
+        put_u32(&mut directory, at + 116, node.start.unwrap_or(0));
+        put_u32(&mut directory, at + 120, node.size.unwrap_or(0) as u32);
+    }
+    // Entries past the last one are unallocated: type 0, with every id unset.
+    let mut at = nodes.len() * 128;
+    while at < directory.len() {
+        directory[at..at + 68].fill(0);
+        at += 128;
+    }
+    directory
+}
+
+/// Appends the FAT sectors and the DIFAT sectors after `sectors` and answers their sector ids. The FAT describes every
+/// sector including its own and the DIFAT's, so their counts settle together.
+fn append_fat_and_difat(sectors: &mut Vec<Vec<u8>>, fat: &[u32], entries_per_sector: usize, sector_size: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut fat_count = 0usize;
+    let mut difat_count = 0usize;
+    while fat_count * entries_per_sector < fat.len() + fat_count + difat_count {
+        fat_count += 1;
+        difat_count = if fat_count > HEADER_DIFAT_ENTRIES { (fat_count - HEADER_DIFAT_ENTRIES).div_ceil(entries_per_sector - 1) } else { 0 };
+    }
+    let fat_sector_ids: Vec<u32> = (0..fat_count).map(|i| (sectors.len() + i) as u32).collect();
+    let difat_sector_ids: Vec<u32> = (0..difat_count).map(|i| (sectors.len() + fat_count + i) as u32).collect();
+    let mut fat_entries = fat.to_vec();
+    fat_entries.extend(fat_sector_ids.iter().map(|_| FAT_SECTOR));
+    fat_entries.extend(difat_sector_ids.iter().map(|_| DIFAT_SECTOR));
+    let mut fat_bytes = vec![0xffu8; fat_count * sector_size];
+    for (i, next) in fat_entries.iter().enumerate() {
+        put_u32(&mut fat_bytes, i * 4, *next);
+    }
+    for i in 0..fat_count {
+        sectors.push(fat_bytes[i * sector_size..(i + 1) * sector_size].to_vec());
+    }
+    let beyond_header: Vec<u32> = fat_sector_ids.iter().skip(HEADER_DIFAT_ENTRIES).copied().collect();
+    for i in 0..difat_count {
+        let mut sector = vec![0xffu8; sector_size];
+        let from = (i * (entries_per_sector - 1)).min(beyond_header.len());
+        let to = ((i + 1) * (entries_per_sector - 1)).min(beyond_header.len());
+        for (j, id) in beyond_header[from..to].iter().enumerate() {
+            put_u32(&mut sector, j * 4, *id);
+        }
+        let next = if i == difat_count - 1 { END_OF_CHAIN } else { difat_sector_ids[i + 1] };
+        put_u32(&mut sector, sector_size - 4, next);
+        sectors.push(sector);
+    }
+    (fat_sector_ids, difat_sector_ids)
+}
+
+/// The container holding `entries` under its root storage. `version` is the CFB major version: 3 (512-byte sectors) or
+/// 4 (4096-byte sectors).
+pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
+    let sector_size: usize = if version == 4 { 4096 } else { 512 };
+    let entries_per_sector = sector_size / 4;
+
+    let mut nodes: Vec<Node> = Vec::new();
+    register(&mut nodes, "Root Entry", 5, &[], entries);
+    link_sibling_trees(&mut nodes);
 
     let mut sectors: Vec<Vec<u8>> = Vec::new();
     let mut fat: Vec<u32> = Vec::new();
@@ -162,61 +224,11 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
     }
     let mini_fat_start = allocate(&mut sectors, &mut fat, &mini_fat_bytes);
 
-    let mut directory = vec![0xffu8; nodes.len().div_ceil(sector_size / 128) * sector_size];
-    for (i, node) in nodes.iter().enumerate() {
-        let at = i * 128;
-        directory[at..at + 128].fill(0);
-        for (j, unit) in node.name.encode_utf16().enumerate() {
-            put_u16(&mut directory, at + j * 2, unit);
-        }
-        put_u16(&mut directory, at + 64, ((node.name.encode_utf16().count() + 1) * 2) as u16);
-        directory[at + 66] = node.kind;
-        directory[at + 67] = 1;
-        put_u32(&mut directory, at + 68, node.left);
-        put_u32(&mut directory, at + 72, node.right);
-        put_u32(&mut directory, at + 76, node.child.unwrap_or(NO_STREAM));
-        put_u32(&mut directory, at + 116, node.start.unwrap_or(0));
-        put_u32(&mut directory, at + 120, node.size.unwrap_or(0) as u32);
-    }
-    // Entries past the last one are unallocated: type 0, with every id unset.
-    let mut at = nodes.len() * 128;
-    while at < directory.len() {
-        directory[at..at + 68].fill(0);
-        at += 128;
-    }
+    let directory = directory_bytes(&nodes, sector_size);
     let directory_start = allocate(&mut sectors, &mut fat, &directory);
 
-    // The FAT describes every sector including its own and the DIFAT's, so their counts settle together.
-    let mut fat_count = 0usize;
-    let mut difat_count = 0usize;
-    while fat_count * entries_per_sector < fat.len() + fat_count + difat_count {
-        fat_count += 1;
-        difat_count = if fat_count > HEADER_DIFAT_ENTRIES { (fat_count - HEADER_DIFAT_ENTRIES).div_ceil(entries_per_sector - 1) } else { 0 };
-    }
-    let fat_sector_ids: Vec<u32> = (0..fat_count).map(|i| (sectors.len() + i) as u32).collect();
-    let difat_sector_ids: Vec<u32> = (0..difat_count).map(|i| (sectors.len() + fat_count + i) as u32).collect();
-    let mut fat_entries = fat.clone();
-    fat_entries.extend(fat_sector_ids.iter().map(|_| FAT_SECTOR));
-    fat_entries.extend(difat_sector_ids.iter().map(|_| DIFAT_SECTOR));
-    let mut fat_bytes = vec![0xffu8; fat_count * sector_size];
-    for (i, next) in fat_entries.iter().enumerate() {
-        put_u32(&mut fat_bytes, i * 4, *next);
-    }
-    for i in 0..fat_count {
-        sectors.push(fat_bytes[i * sector_size..(i + 1) * sector_size].to_vec());
-    }
-    let beyond_header: Vec<u32> = fat_sector_ids.iter().skip(HEADER_DIFAT_ENTRIES).copied().collect();
-    for i in 0..difat_count {
-        let mut sector = vec![0xffu8; sector_size];
-        let from = (i * (entries_per_sector - 1)).min(beyond_header.len());
-        let to = ((i + 1) * (entries_per_sector - 1)).min(beyond_header.len());
-        for (j, id) in beyond_header[from..to].iter().enumerate() {
-            put_u32(&mut sector, j * 4, *id);
-        }
-        let next = if i == difat_count - 1 { END_OF_CHAIN } else { difat_sector_ids[i + 1] };
-        put_u32(&mut sector, sector_size - 4, next);
-        sectors.push(sector);
-    }
+    let (fat_sector_ids, difat_sector_ids) = append_fat_and_difat(&mut sectors, &fat, entries_per_sector, sector_size);
+    let (fat_count, difat_count) = (fat_sector_ids.len(), difat_sector_ids.len());
 
     let mut header = vec![0u8; sector_size];
     header[..8].copy_from_slice(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
@@ -392,8 +404,12 @@ impl Default for Encryption {
 /// dataIntegrity (2.3.4.14) unless `integrity` is false, its HMAC key a salt of `hmac_salt_size` bytes: hashSize, as
 /// Excel writes it, unless given.
 pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption) -> Vec<Entry> {
-    let (encryption_info, encrypted_package);
-    if options.standard {
+    let (encryption_info, encrypted_package) = if options.standard { encrypt_standard(plain, password) } else { encrypt_agile(plain, password, options) };
+    vec![Entry::stream("EncryptionInfo", encryption_info), Entry::stream("EncryptedPackage", encrypted_package), data_spaces()]
+}
+
+fn encrypt_standard(plain: &[u8], password: &str) -> (Vec<u8>, Vec<u8>) {
+    {
         let salt = random_bytes(16);
         let first = spun(HashAlgorithm::Sha1, &salt, password, 50_000);
         let final_hash = sha(HashAlgorithm::Sha1, &[&first, &0u32.to_le_bytes()]);
@@ -423,9 +439,12 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         info.extend_from_slice(&aes_encrypt("ecb", &key, &[], &verifier));
         info.extend_from_slice(&20u32.to_le_bytes());
         info.extend_from_slice(&aes_encrypt("ecb", &key, &[], &pad_to(&sha(HashAlgorithm::Sha1, &[&verifier]), 16)));
-        encryption_info = info;
-        encrypted_package = with_size(plain.len(), &aes_encrypt("ecb", &key, &[], &pad_to(plain, 16)));
-    } else {
+        (info, with_size(plain.len(), &aes_encrypt("ecb", &key, &[], &pad_to(plain, 16))))
+    }
+}
+
+fn encrypt_agile(plain: &[u8], password: &str, options: &Encryption) -> (Vec<u8>, Vec<u8>) {
+    {
         let algorithm = HashAlgorithm::from_descriptor_name(options.hash_algorithm).expect("a descriptor hash name");
         let hash_size = algorithm.digest_length().expect("a computable hash");
         let secret = random_bytes(32);
@@ -478,8 +497,6 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         );
         let mut info = vec![4, 0, 4, 0, 0x40, 0, 0, 0];
         info.extend_from_slice(xml.as_bytes());
-        encryption_info = info;
-        encrypted_package = package;
+        (info, package)
     }
-    vec![Entry::stream("EncryptionInfo", encryption_info), Entry::stream("EncryptedPackage", encrypted_package), data_spaces()]
 }

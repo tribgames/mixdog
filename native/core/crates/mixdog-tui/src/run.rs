@@ -1,6 +1,6 @@
-//! The run loop of the terminal UI (`src/tui/index.jsx` runTui): the boot sequence, the event loop and the teardown.
+//! The run loop of the terminal UI: the boot sequence, the event loop and the teardown.
 //!
-//! Boot, in Node's order: refuse without a TTY on stdin (two lines, exit 1); install the stderr guard; enter the alternate screen
+//! Boot: refuse without a TTY on stdin (two lines, exit 1); install the stderr guard; enter the alternate screen
 //! and the modes at once; paint the boot splash; connect the session store (ensure the core, start or resume the thread with the
 //! CLI options); apply the theme and write the terminal background before the first frame; touch the project (best effort);
 //! resolve the onboarding verdict; mount; turn mouse tracking on unless `MIXDOG_TUI_MOUSE` says no; run.
@@ -10,10 +10,10 @@
 //! store tick). A frame is drawn at most once per [`TUI_FRAME_MS`]; every flushed frame is the render acknowledgement the store's
 //! frame-batched publication waits for.
 //!
-//! It ends through the application's exit flow (`/exit`, `/quit`), a signal, a dead stdio or a panic. The normal teardown is
-//! Node's: the reader stops, the store is disposed within `MIXDOG_TUI_EXIT_WAIT_MS` (2500 ms by default), the terminal is
+//! It ends through the application's exit flow (`/exit`, `/quit`), a signal, a dead stdio or a panic. The normal teardown: the
+//! reader stops, the store is disposed within `MIXDOG_TUI_EXIT_WAIT_MS` (2500 ms by default), the terminal is
 //! restored, the stderr guard is released, and the hard-exit timer is armed. `MIXDOG_BOOT_PROFILE` (1, true, yes or on) writes a
-//! line per boot phase to the stderr log under Node's phase names.
+//! line per boot phase to the stderr log.
 
 use std::io::{IsTerminal, Write, stdin, stdout};
 use std::process::ExitCode;

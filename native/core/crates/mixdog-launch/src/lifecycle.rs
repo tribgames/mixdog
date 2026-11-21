@@ -1,15 +1,11 @@
-//! The process lifecycle a launching binary reports around its own run: begin, a fatal error it could still catch, finish with a
-//! reason and an exit code. It is `process-lifecycle.mjs` in Rust, writing the same files in the same shapes, so a later run of
-//! either runtime reads what an earlier run of the other left:
+//! The same files in the same shapes as `process-lifecycle.mjs`, so a later run of either runtime reads what an earlier run of
+//! the other left:
 //!   - `<data>/diagnostics/process-lifecycle.active/<pid>-<token>.json`, one marker per running process;
 //!   - `<data>/diagnostics/process-lifecycle.jsonl`, one JSON line per event, kept to 64 KiB under a file lock
 //!     (`process-lifecycle.lock`), the full file moving to `process-lifecycle.jsonl.1`.
 //!
 //! A run that never finishes leaves its marker behind; the next run that finds it and shows its process gone (no such pid, or
 //! the pid now names a process that started at another time) records `prior-process-vanished` for it and removes it.
-//!
-//! Not ported: the Node diagnostic report (`mixdog-node-report.json`) that Node's runtime wrote on a fatal error; a native
-//! process has none (decision D11). The ledger's record of the unclean end is what remains.
 
 pub mod host;
 pub mod identity;

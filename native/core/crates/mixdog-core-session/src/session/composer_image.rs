@@ -1,9 +1,3 @@
-//! The desktop composer's image attach (`session-api/media.mjs` `resizeImage` over
-//! `paste-attachments.mjs` `imageAttachmentFromBuffer`): the same resize pipeline the TUI paste
-//! path uses, under the current provider's image profile, so the desktop and the TUI submit
-//! byte-identical image payloads. When the resized copy differs from the picked file, the file's
-//! own bytes are staged so the PC copy of the attachment is the original.
-
 use mixdog_core_api::domain::ext::ImageProfile;
 use mixdog_core_api::domain::ext::ProfiledImageResizer;
 use mixdog_core_api::domain::ext::ProfiledResizeError;

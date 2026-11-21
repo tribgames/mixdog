@@ -459,6 +459,10 @@ mod tests {
         stage: Option<String>,
     }
     impl LiveSessions for Live {
+        fn while_idle(&self, _session: &str, at: &mut dyn FnMut() -> bool) -> bool {
+            at()
+        }
+
         fn loaded(&self) -> Vec<String> {
             self.work.clone()
         }

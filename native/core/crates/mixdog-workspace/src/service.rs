@@ -1,9 +1,6 @@
-//! The workspace `DomainService`: maps the `project/*`, `projectFs/*`, `fs/*`,
-//! `search/*`, `transfer/*` and `lsp/*` wire methods to this crate's services.
-//! Blocking file work runs on its lane (reads interactive, writes durability,
-//! walks/searches/zips maintenance); mutations hold their path claims first.
-//! Every `root` is resolved through the project registry, which is also the
-//! project-boundary table for relay origins (DS-WS-9).
+//! The workspace `DomainService`: maps the `project/*`, `projectFs/*`, `fs/*`, `search/*`, `transfer/*` and `lsp/*` wire
+//! methods to this crate's services. Every `root` is resolved through the project registry, which is also the
+//! project-boundary table for relay origins.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -67,6 +64,12 @@ use crate::watcher::ChangeSink;
 use crate::watcher::FolderWatcher;
 use mixdog_store::state::OpRow;
 use mixdog_store::state::OpRowState;
+
+mod file_calls;
+mod lsp_calls;
+mod project_calls;
+mod transfer_calls;
+mod watch_calls;
 
 /// Publishes file watches. Search checks freshness at the shared watcher root,
 /// before events are batched for individual subscribers.
@@ -873,10 +876,9 @@ impl WorkspaceService {
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
     }
 
-    /// Turns on the desktop's file grants (`projectFs/grant/*`, a one-file token on a Local call) and the core's page server
-    /// (`projectFs/localPageUrl`, `projectFs/localPage/*`). The grants persist at `grants_file`, the page server keeps its port in
-    /// `page_port_file`. Without this the four methods answer `unsupported`.
-    /// Set once.
+    /// Turns on the desktop's file grants (`projectFs/grant/*`) and the page server (`projectFs/localPageUrl`,
+    /// `projectFs/localPage/*`). The grants persist at `grants_file`, the page server keeps its port in `page_port_file`.
+    /// Without this the four methods answer `unsupported`. Set once.
     pub fn enable_desktop_files(&self, grants_file: PathBuf, page_port_file: PathBuf) {
         let grants = crate::desktop_grants::DesktopGrantStore::new(grants_file, self.lanes);
         let authority = Arc::new(DesktopPageAuthority { grants: grants.clone() });
@@ -990,9 +992,8 @@ impl WorkspaceService {
         }
     }
 
-    /// An unpair ends what the device holds. `connection` is the number of one of the device's attached connections, which the unpair
-    /// walks (`PairedDeviceCleanup::unpaired`): what the connection owns ends, and so do the downloads of the credential it is attached
-    /// under. The downloads of a device with no connection attached end through the grant store, which is told the credential
+    /// An unpair ends what the device holds: what `connection` (one of the device's attached connections) owns, and the downloads
+    /// of the credential it is attached under. A device with no connection attached ends through the grant store
     /// (see [`Self::set_phone_grants`]).
     pub fn revoke_device(&self, connection: &str) {
         let Ok(id) = connection.parse::<u64>() else { return };
@@ -1066,10 +1067,6 @@ impl WorkspaceService {
         self.root_of(origin, params, "root").await
     }
 
-    /// The folder a request works in. A local or SSH connection names any absolute folder (Node's
-    /// `…In` operations take a root the window already resolved); a relay connection is held to
-    /// the registered projects and their ready managed worktrees, as Node's relay resolved every
-    /// phone's project path through `SessionHost.projectDirectory` (DS 4.2: origin rules are data).
     async fn root_of(&self, origin: mixdog_protocol::Origin, params: &Value, key: &str) -> WsResult<PathBuf> {
         match origin {
             mixdog_protocol::Origin::Relay => self.scope(s(params, key)?).await.map(|(project, worktree)| worktree.unwrap_or(project)),
@@ -1169,16 +1166,10 @@ impl WorkspaceService {
         })
     }
 
-    /// A paired phone's file named by its path (an editor backup, a document preview), held to what Node's host let a phone
-    /// name (`remoteFileTarget`, `remote-file-preview.ts`): a file this device holds a live one-file grant for, or an entry of a
-    /// registered project confined to it. The registered projects are the catalog's; the grants are this connection's device
-    /// table in the grant store (`set_phone_grants`). A refusal is Node's answer for a file named without a token:
-    /// `PROJECT_UNAVAILABLE` "Project is not available." for a folder that is no project, "Path is outside the project." (no code)
-    /// for an entry beyond it. The token's own refusals stay with `projectFs/entryPath`, which redeems a token.
-    ///
-    /// The answer is the file as admitted, and it is what the caller acts on in place of what the phone sent: Node's callers
-    /// used `target.root`, `target.rel` and `target.absolute`, never the phone's own spelling (a folder name that only trims
-    /// to a project's is not that project).
+    /// A paired phone's file named by its path: a file this device holds a live one-file grant for, or an entry of a registered
+    /// project confined to it. The refusals are `PROJECT_UNAVAILABLE` "Project is not available." for a folder that is no project
+    /// and "Path is outside the project." (no code) for an entry beyond it. The answer is the file as admitted, and the caller
+    /// acts on it in place of what the phone sent.
     pub async fn relay_file(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<RelayTarget, CoreError> {
         self.relay_target(req, root, rel).await.map_err(|error| self.map_error(req, error))
     }
@@ -1234,10 +1225,6 @@ impl WorkspaceService {
         Ok(RelayTarget { root: project, rel: rel.to_owned(), absolute })
     }
 
-    /// An editor backup of a relay connection: [`Self::relay_file`] for a file named by its absolute path alone. The
-    /// deepest registered project that holds it names the project and the entry (Node's phone named them), else the file's
-    /// own folder is the folder named. Other origins name any absolute path, as the desktop's own editor did. The answer is the
-    /// path the backup is kept under: the admitted file's (Node's `editorFilePath`), the caller's own for another origin.
     async fn relay_backup(&self, req: &CoreRequest, source: String) -> WsResult<String> {
         if req.ctx.origin != mixdog_protocol::Origin::Relay {
             return Ok(source);
@@ -1263,882 +1250,77 @@ impl WorkspaceService {
 
     async fn dispatch(self: &Arc<Self>, req: &CoreRequest, op: Option<OpRecord>) -> WsResult<Reply> {
         let params = &req.params;
-        let cancel = req.ctx.cancel.clone();
-        let this = self.clone();
-        let value = |v: Value| Ok(Reply::Value(v));
         match req.method.as_str() {
-            "project/list" => {
-                let projects: Vec<Value> = self.catalog.list().await?.iter().map(crate::catalog::project_json).collect();
-                value(json!({ "projects": projects }))
-            }
-            "project/read" => {
-                // Node's `inspectProjectPath` (project-catalog.mjs:32): any path, registered or not (the TUI asks it about a folder before
-                // adding it as a project), resolved by `resolveProjectPath` and probed.
-                let path = crate::pathguard::project_path(s(params, "path")?).ok_or_else(|| WsError::invalid("project path is required"))?;
-                let probe = path.clone();
-                let (exists, directory) = run_fallible(self.lanes.interactive, &cancel, move || {
-                    #[allow(clippy::disallowed_methods, reason = "lane job")]
-                    Ok((probe.exists(), probe.is_dir()))
-                })
-                .await?;
-                value(json!({ "path": path.to_string_lossy(), "exists": exists, "directory": directory }))
-            }
-            "project/create" => value(json!({ "project": self.catalog.add(s(params, "path")?, &cancel, op).await? })),
-            "project/touch" => {
-                // Node's `touchProject` takes the registered Project (`knownProject`: a managed worktree names its owner).
-                let (project, _) = self.scope(s(params, "path")?).await?;
-                value(json!({ "project": self.catalog.touch(&project.to_string_lossy(), op).await? }))
-            }
-            "project/update" => {
-                let alias = params.get("alias").and_then(Value::as_str).unwrap_or_default();
-                value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
-            }
-            "project/delete" => {
-                // What holds the removed folder open is released with it (DS §4.1: Node's
-                // `lspDisposeUnder` / `termDisposeUnder`); a hook that fails is named in the answer.
-                let path = s(params, "path")?;
-                let mut removed = self.catalog.remove(path, op).await?;
-                let failures = self.releases.release_under(Path::new(path)).await;
-                if !failures.is_empty() {
-                    removed["releaseFailures"] = failures.iter().map(|f| json!({ "name": f.name, "error": f.error })).collect();
-                }
-                value(removed)
-            }
-            "project/ensureDirectory" => {
-                let path = self.catalog.ensure_directory(s(params, "path")?, &cancel).await?;
-                value(json!({ "path": path.to_string_lossy() }))
-            }
-            "project/directory" => {
-                // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
-                // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
-                let path = s(params, "path")?;
-                match self.project_directory(path, opt_bool(params, "owner"), &cancel).await {
-                    Ok(folder) => value(json!({ "path": folder.to_string_lossy() })),
-                    // `standalone`: a folder that is no registered Project answers every file call as its own root (the desktop's
-                    // `standaloneRoot`): an absolute path of an existing directory, for a window's own call. A file or a missing
-                    // path keeps the registry's refusal.
-                    Err(refusal) if opt_bool(params, "standalone") && req.ctx.origin != mixdog_protocol::Origin::Relay => {
-                        let Ok(folder) = crate::pathguard::absolute_local_path(path) else { return Err(refusal) };
-                        let probe = folder.clone();
-                        let directory = run_fallible(self.lanes.interactive, &cancel, move || {
-                            #[allow(clippy::disallowed_methods, reason = "lane job")]
-                            Ok(probe.is_dir())
-                        })
-                        .await?;
-                        if !directory {
-                            return Err(refusal);
-                        }
-                        value(json!({ "path": folder.to_string_lossy(), "standalone": true }))
-                    }
-                    Err(refusal) => Err(refusal),
-                }
-            }
-            "projectFs/grant/describe" => {
-                let paths: Vec<String> =
-                    serde_json::from_value(params.get("paths").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("paths are invalid."))?;
-                let mint = params.get("mint").and_then(Value::as_bool).unwrap_or(true);
-                let projects: Vec<PathBuf> = self.catalog.list().await?.into_iter().map(|row| PathBuf::from(row.path)).collect();
-                value(json!(self.desktop_grants()?.describe(&paths, mint, &projects).await?))
-            }
-            "projectFs/grant/redeem" => {
-                let granted = self.desktop_grants()?.redeem(s(params, "accessToken")?, s(params, "projectPath")?, s(params, "relPath")?).await?;
-                value(json!({ "root": granted.root.to_string_lossy(), "rel": granted.rel, "absolute": granted.absolute.to_string_lossy() }))
-            }
-            "projectFs/localPage/revokeOwner" => {
-                self.page_server()?.revoke_owner(s(params, "ownerId")?);
-                value(json!({}))
-            }
-            "projectFs/localPage/origin" => value(Value::String(self.page_server()?.origin().await?)),
-            "projectFs/localPage/assetType" => {
-                let root = PathBuf::from(s(params, "root")?);
-                let file = PathBuf::from(s(params, "file")?);
-                let data_root = params.get("dataRoot").and_then(Value::as_str).map(PathBuf::from);
-                let found = crate::pageserver::policy::page_asset_type(&root, &file, data_root.as_deref());
-                value(json!({ "type": found.unwrap_or("") }))
-            }
-            "projectFs/localPage/virtual" => {
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct VirtualFileParam {
-                    path: String,
-                    #[serde(default)]
-                    data_base64: Option<String>,
-                    #[serde(default)]
-                    text: Option<String>,
-                    #[serde(rename = "type")]
-                    content_type: String,
-                }
-                let files: Vec<VirtualFileParam> =
-                    serde_json::from_value(params.get("files").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("files are invalid."))?;
-                let owner_id = match params.get("ownerId") {
-                    None | Some(Value::Null) => None,
-                    Some(owner) => Some(owner.as_str().ok_or_else(|| WsError::invalid("ownerId is invalid."))?.to_owned()),
-                };
-                let files = crate::pageserver::virtual_pages::build_files(files.into_iter().map(|file| crate::pageserver::virtual_pages::VirtualFileInput {
-                    path: file.path,
-                    data_base64: file.data_base64,
-                    text: file.text,
-                    content_type: file.content_type,
-                }))?;
-                let url = self.page_server()?.lease_virtual(files, owner_id).await?;
-                value(json!({ "url": url }))
-            }
-            "project/recoveryDirectory" => {
-                let root = self.catalog.resolve(s(params, "path")?).await?;
-                value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
-            }
-            "projectFs/listDir" => {
-                let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
-                let items = run_fallible(self.lanes.interactive, &cancel, move || fsops::list_dir(&root, &rel)).await?;
-                value(json!(items))
-            }
-            "projectFs/readText" => {
-                // A connection carries at most 512 KiB per answer, a file up to 10 MiB: the reader asks for the text a window at a time
-                // (code points, so no character is split) and joins the pieces. The first window reads the file once; `readId` names that
-                // read, and the windows after it are served from it (readwindow.rs), so the pieces are one version of the file.
-                let max = req.params.get("maxChars").and_then(Value::as_u64).map(|max| max as usize);
-                if let (Some(max), Some(id)) = (max, req.params.get("readId").and_then(Value::as_str)) {
-                    let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
-                    return value(self.read_windows.next(&Self::owner(req), id, from, max)?);
-                }
-                // Taken before any await: a close that comes while the file is read is seen by `begin`.
-                let first_window = self.read_windows.first_window(&Self::owner(req));
-                let (root, rel) = self.file_target(req, params).await?;
-                let authorized = opt_bool(params, "authorized");
-                let file = run_fallible(self.lanes.interactive, &cancel, move || {
-                    if authorized { fsops::read_text_authorized(&root, &rel) } else { fsops::read_text(&root, &rel) }
-                })
-                .await?;
-                let answer = json!(file);
-                value(match max {
-                    Some(max) => self.read_windows.begin(&first_window, answer, max),
-                    None => answer,
-                })
-            }
-            "projectFs/stat" => {
-                let (root, rel) = self.file_target(req, params).await?;
-                value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::stat(&root, &rel)).await?))
-            }
-            "projectFs/entryPath" => {
-                let (root, rel) = self.file_target(req, params).await?;
-                value(json!({ "path": project_entry_path(&root, &rel)?.to_string_lossy() }))
-            }
-            "projectFs/browseDirs" => {
-                let path = s(params, "path")?.to_owned();
-                let include_hidden = params.get("includeHidden").and_then(Value::as_bool);
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::browse::browse_dirs(&path, include_hidden)).await?)
-            }
-            "projectFs/previewFile" => {
-                let (root, rel) = self.file_target(req, params).await?;
-                // A paired device's image, audio or video also gets a lease the relay media lane streams (Node's
-                // `authorizedMediaFile`); a pdf, a call of a window and a connection that is no paired device get none and
-                // read ranges.
-                let lease = (req.ctx.origin == mixdog_protocol::Origin::Relay)
-                    .then(|| {
-                        self.phone_grants_for(req).ok().map(|(_, credential, _)| {
-                            let authorize = self.preview_authority(req, &root, &rel, &credential);
-                            (self.project_leases.clone(), credential, authorize)
-                        })
-                    })
-                    .flatten();
-                value(
-                    run_fallible(self.lanes.interactive, &cancel, move || {
-                        let mut preview = crate::preview::preview_file(&root, &rel)?;
-                        if let Some((leases, device, authorize)) = lease
-                            && preview["kind"] != "pdf"
-                        {
-                            let mime = preview["mime"].as_str().unwrap_or_default().to_owned();
-                            preview["mediaAssetId"] = Value::String(leases.mint_with_authority(&root, &rel, &mime, &device, Some(authorize))?);
-                        }
-                        Ok(preview)
-                    })
-                    .await?,
-                )
-            }
-            "projectFs/previewRange" => {
-                let (root, rel) = self.file_target(req, params).await?;
-                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
-                let length = params
-                    .get("length")
-                    .and_then(Value::as_u64)
-                    .filter(|n| (1..=crate::preview::RANGE_MAX).contains(n))
-                    .ok_or_else(|| WsError::invalid("length is invalid."))?;
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length)).await?)
-            }
-            "projectFs/readLocal" => {
-                let path = s(params, "path")?.to_owned();
-                if params.get("paged").and_then(Value::as_bool) == Some(true) {
-                    // The checks of the whole read, then the file held open as a transfer of this connection to page through.
-                    let (owner, t) = (Self::owner(req), self.transfers.clone());
-                    return value(run_fallible(self.lanes.interactive, &cancel, move || {
-                        let (file, name, _) = fsops::local_file(&path)?;
-                        let opened = t.begin_local_read(&owner, &file.to_string_lossy())?;
-                        Ok(json!({ "name": name, "size": opened.size, "mimeType": opened.mime_type, "transferId": opened.transfer_id, "version": opened.version }))
-                    })
-                    .await?);
-                }
-                value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::read_local(&path)).await?))
-            }
-            "projectFs/statLocal" => {
-                let paths: Vec<String> = params
-                    .get("paths")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| WsError::invalid("paths is invalid."))?
-                    .iter()
-                    .filter_map(|p| p.as_str().map(str::to_owned))
-                    .collect();
-                let entries = run_fallible(self.lanes.interactive, &cancel, move || {
-                    Ok(paths.iter().map(|p| fsops::stat_local(p).map(|e| json!(e)).unwrap_or_else(|e| json!({ "error": e.message }))).collect::<Vec<_>>())
-                })
-                .await?;
-                value(json!(entries))
-            }
-            "projectFs/writeText" => {
-                let (root, rel) = self.file_target(req, params).await?;
-                let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
-                let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
-                let lone = (Self::held_lone(req, "/content"), Self::held_lone(req, "/expectedContent"));
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
-                let fs = self.fs.clone();
-                let (note_root, note_rel) = (root.clone(), rel.clone());
-                let mtime = run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, lone)).await?;
-                self.note_written(&note_root, &[&note_rel]);
-                value(json!({ "mtimeMs": mtime }))
-            }
-            "projectFs/writeTextBatch" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let files = Self::batch_files(req, params)?;
-                let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
-                let fs = self.fs.clone();
-                let (note_root, note_rels) = (root.clone(), files.iter().map(|f| f.rel_path.clone()).collect::<Vec<_>>());
-                run_fallible(self.lanes.durability, &cancel, move || fs.write_batch(&root, &files, true)).await?;
-                self.note_written(&note_root, &note_rels);
-                value(json!({}))
-            }
-            "projectFs/create" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let (dir, name, directory) = (s(params, "relDir")?.to_owned(), s(params, "name")?.to_owned(), opt_bool(params, "directory"));
-                // Node names the segments invalid before it joins and claims the path.
-                fsops::entry_segments(&name)?;
-                let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
-                let note_root = root.clone();
-                run_fallible(self.lanes.durability, &cancel, move || fsops::create_entry(&root, &dir, &name, directory)).await?;
-                self.note_written(&note_root, &[&target.to_string_lossy()]);
-                value(json!({}))
-            }
-            "projectFs/rename" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let (rel, new_name) = (s(params, "rel")?.to_owned(), s(params, "newName")?.to_owned());
-                let destination = fsops::rename_destination_rel(&rel, &new_name)?;
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
-                let (note_root, note_rel) = (root.clone(), rel.clone());
-                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name)).await?;
-                self.note_written(&note_root, &[&note_rel, &destination]);
-                value(json!({}))
-            }
-            "projectFs/move" | "projectFs/copy" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let (rel, target) = (s(params, "rel")?.to_owned(), s(params, "targetDirRel")?.to_owned());
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &target])?).await;
-                let note_root = root.clone();
-                let leaf = |rel: &str| rel.rsplit('/').next().unwrap_or_default().to_owned();
-                if req.method.as_str() == "projectFs/move" {
-                    let (from, to) = (rel.clone(), format!("{}/{}", target, leaf(&rel)));
-                    run_fallible(self.lanes.durability, &cancel, move || fsops::move_entry(&root, &rel, &target)).await?;
-                    self.note_written(&note_root, &[&from, &to]);
-                    value(json!({}))
-                } else {
-                    let dir = target.clone();
-                    let name = run_fallible(self.lanes.durability, &cancel, move || fsops::copy_entry(&root, &rel, &target)).await?;
-                    self.note_written(&note_root, &[&format!("{dir}/{name}")]);
-                    value(json!({ "name": name }))
-                }
-            }
-            "projectFs/trash" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let rel = s(params, "rel")?;
-                let target = project_entry_path(&root, rel)?;
-                if target == crate::pathguard::lexical(&root) {
-                    return Err(WsError::invalid("Cannot trash the project root."));
-                }
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[rel])?).await;
-                let moved = target.clone();
-                run_fallible(self.lanes.durability, &cancel, move || trash::delete(&moved).map_err(|e| WsError::new(Reason::Io, e.to_string()))).await?;
-                self.note_written(&root, &[rel]);
-                value(json!({}))
-            }
-            "projectFs/searchText" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::held_lone(req, "/options/query"))?;
-                let token = cancel.clone();
-                let found = run_fallible(self.lanes.maintenance, &cancel, move || crate::textsearch::search(&root, &query, &|| token.is_cancelled())).await?;
-                value(json!(found))
-            }
-            "projectFs/replaceText" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let options = params.get("options").unwrap_or(&Value::Null);
-                let query = text_query(options, Self::held_lone(req, "/options/query"))?;
-                let replacement = s(params, "replacement")?.to_owned();
-                // Every planned write holds the replacement; one that held a lone surrogate is refused (Node: project-files.ts:744).
-                let content_lone = Self::held_lone(req, "/replacement");
-                // An empty list names no file, as in Node: every matching file is replaced.
-                let rel_paths: Option<Vec<String>> = params
-                    .get("relPaths")
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect::<Vec<_>>())
-                    .filter(|paths| !paths.is_empty());
-                let token = cancel.clone();
-                let plan_root = root.clone();
-                let plan = run_fallible(self.lanes.maintenance, &cancel, move || {
-                    crate::textsearch::plan_replace(&plan_root, &query, &replacement, rel_paths.as_deref(), &|| token.is_cancelled())
-                })
-                .await?;
-                if plan.writes.is_empty() {
-                    return value(json!({ "filesChanged": 0, "replacements": 0, "paths": [] }));
-                }
-                let files: Vec<BatchFile> = plan
-                    .writes
-                    .iter()
-                    .map(|w| BatchFile {
-                        rel_path: w.rel_path.clone(),
-                        content: w.content.clone(),
-                        expected_content: w.expected_content.clone(),
-                        content_lone,
-                        expected_lone: false,
-                    })
-                    .collect();
-                let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
-                let paths: Vec<String> = files.iter().map(|f| f.rel_path.clone()).collect();
-                let fs = self.fs.clone();
-                let note_root = root.clone();
-                run_fallible(self.lanes.durability, &cancel, move || fs.write_batch(&root, &files, true)).await?;
-                self.note_written(&note_root, &paths);
-                value(json!({ "filesChanged": paths.len(), "replacements": plan.replacements, "paths": paths }))
-            }
-            "projectFs/recovery" => {
-                let root = self.recovery_root(req.ctx.origin, params).await?;
-                let action = Action::parse(s(params, "action")?, params.get("id").and_then(Value::as_str), params.get("revision").and_then(Value::as_str))?;
-                let (mutating, store_use) = match action {
-                    Action::List | Action::Inspect { .. } => (false, RecoveryUse::Inspect),
-                    Action::Restore { .. } => (true, RecoveryUse::Restore),
-                    Action::Discard { .. } => (true, RecoveryUse::Discard),
-                };
-                let _claim = if mutating { Some(self.paths.acquire(vec![root.clone()]).await) } else { None };
-                let this2 = this.clone();
-                let lane_root = root.clone();
-                let (durability, interactive) = (self.lanes.durability, self.lanes.interactive);
-                let task_cancel = cancel.clone();
-                let run: std::pin::Pin<Box<dyn std::future::Future<Output = WsResult<Value>> + Send>> = Box::pin(async move {
-                    let job = move || this2.fs.recovery.execute(&lane_root, action);
-                    let response =
-                        if mutating { run_fallible(durability, &task_cancel, job).await? } else { run_fallible(interactive, &task_cancel, job).await? };
-                    Ok(json!(response))
-                });
-                let response = match self.managed.get() {
-                    Some(managed) => managed.recovery_store(&root, &self.fs.recovery.store_path(&root), store_use, run).await?,
-                    None => run.await?,
-                };
-                if mutating {
-                    // A restore or discard may touch any file of the project.
-                    self.note_anything();
-                }
-                value(response)
-            }
-            "fs/watch" => {
-                let id = s(params, "watchId")?.to_owned();
-                // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch` of that resolved string,
-                // desktop-operations.ts:185-213): the watch is of the path as resolved, not of its real path, so a junction
-                // watched under two names is two watches that each report under their own name, and a failure is `fs.watch`'s own
-                // (`ENOENT: no such file or directory, watch '<path>'`). Every touch of the file system is on the lane below.
-                let Some(given) = params.get("path").and_then(Value::as_str) else { return Err(WsError::invalid("path must be a string.")) };
-                let path = crate::pathguard::absolute_local_path(given)?;
-                let recursive = opt_bool(params, "recursive");
-                let publisher = Arc::new(Publisher::create_ordered(self.search_feeds(), &format!("fs:{id}"), json!({})));
-                self.router.fs.lock().expect("fs watches").insert(id.clone(), publisher.clone());
-                let (watcher, watch_id, watch_path) = (self.watcher.clone(), id.clone(), path.clone());
-                let attached = run_fallible(self.lanes.interactive, &cancel, move || watcher.watch(&watch_id, &watch_path, recursive)).await;
-                if let Err(error) = attached {
-                    self.router.fs.lock().expect("fs watches").remove(&id);
-                    return Err(error);
-                }
-                self.watches.lock().expect("watches").insert(id, Owned { connection: Self::owner(req).to_string(), publisher: publisher.clone() });
-                Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
-            }
-            "fs/unwatch" => {
-                let id = s(params, "watchId")?;
-                let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == *Self::owner(req));
-                if owned {
-                    // Ending the OS watch closes its handle, which a path that does not answer can hold: on the lane, not here. The job is
-                    // admitted before the watch's record goes, with a token no cancel reaches, so the OS watch never outlives its record:
-                    // a lane that refuses it leaves the watch whole, and a request cancelled meanwhile does not drop it.
-                    let (watcher, watch_id) = (self.watcher.clone(), id.to_owned());
-                    let job = move |_: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>| crate::lanes::counted(move || watcher.unwatch(&watch_id))();
-                    let cleanup = mixdog_rt::LaneToken::submit(self.lanes.interactive, &CancellationToken::new(), job)?;
-                    self.forget_watch(id);
-                    let _ = cleanup.await;
-                }
-                value(json!({}))
-            }
-            "search/start" => {
-                let id = s(params, "sessionId")?.to_owned();
-                let roots = params
-                    .get("roots")
-                    .and_then(Value::as_array)
-                    .filter(|r| !r.is_empty() && r.len() <= 16)
-                    .ok_or_else(|| WsError::invalid("roots is invalid."))?
-                    .iter()
-                    .map(|r| r.as_str().unwrap_or_default())
-                    .collect::<Vec<_>>();
-                let mut resolved = Vec::new();
-                for root in roots {
-                    resolved.push(self.catalog.resolve(root).await?);
-                }
-                let roots = resolved;
-                let config = SessionConfig {
-                    roots,
-                    limit: params.get("limit").and_then(Value::as_u64).map(|n| n as usize),
-                    include_ignored: opt_bool(params, "includeIgnored"),
-                    include_directories: opt_bool(params, "includeDirectories"),
-                    consumer: params.get("consumer").and_then(Value::as_str).map(str::to_owned),
-                    scan_cap: None,
-                    beyond_budget: None,
-                };
-                let publisher = self.search.start(&id, config)?;
-                self.search_owner.lock().expect("search owners").insert(id, Self::owner(req).to_string());
-                Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: publisher.source(), window: Window::Fixed, resume_from: None }))
-            }
-            "search/update" => {
-                self.search.update(s(params, "sessionId")?, s(params, "query")?.to_owned(), Self::held_lone(req, "/query"))?;
-                value(json!({}))
-            }
-            "search/stop" => {
-                let id = s(params, "sessionId")?;
-                self.search_owner.lock().expect("search owners").remove(id);
-                self.search.stop(id);
-                value(json!({}))
-            }
-            "transfer/beginRead" => {
-                let source = params.get("source").ok_or_else(|| WsError::invalid("source is invalid."))?;
-                let owner = Self::owner(req);
-                let t = self.transfers.clone();
-                let opened = match source.get("kind").and_then(Value::as_str) {
-                    Some("file") => {
-                        let root = self.root(req.ctx.origin, source).await?;
-                        let rel = s(source, "rel")?.to_owned();
-                        run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
-                    }
-                    Some("granted") => {
-                        let (grants, credential, connection) = self.phone_grants_for(req)?;
-                        let granted =
-                            grants.redeem(&credential, connection, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?).await?;
-                        let (root, rel) = (granted.root, granted.rel);
-                        run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
-                    }
-                    Some("localFile") => {
-                        // An absolute path is the desktop's and an SSH window's; a paired device reads outside its
-                        // projects only through a grant (`granted`).
-                        if matches!(req.ctx.origin, mixdog_protocol::Origin::Relay) {
-                            return Err(WsError::denied("A paired device reads local files through a granted-file permission."));
-                        }
-                        let path = s(source, "path")?.to_owned();
-                        run_fallible(self.lanes.interactive, &cancel, move || t.begin_local_read(&owner, &path)).await?
-                    }
-                    Some("export") if req.ctx.origin == mixdog_protocol::Origin::Relay => {
-                        return Err(WsError::denied("A paired device downloads exports through a download grant."));
-                    }
-                    Some(kind) => match self.sources.iter().find(|x| x.kind() == kind) {
-                        Some(found) => {
-                            let file = found.open(source, &cancel).await?;
-                            self.transfers.begin_source(&owner, file)?
-                        }
-                        None => return Err(WsError::new(Reason::Unsupported, "This transfer source is served by another domain.")),
-                    },
-                    None => return Err(WsError::invalid("source.kind is invalid.")),
-                };
-                value(json!({ "transferId": opened.transfer_id, "size": opened.size, "mimeType": opened.mime_type,
-                    "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
-            }
-            "transfer/beginZip" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let (rel, owner) = (s(params, "rel")?.to_owned(), Self::owner(req));
-                let opened = self.transfers.begin_zip(&owner, self.tracked.as_ref(), self.lanes, &cancel, &root, &rel).await?;
-                value(json!({ "transferId": opened.transfer_id, "size": opened.size, "mimeType": opened.mime_type,
-                    "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
-            }
-            "transfer/readRange" => {
-                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
-                let length = params.get("length").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("length is invalid."))?;
-                // `serverFileReadRange(root, rel, offset, length)` names the file and opens no transfer.
-                if params.get("transferId").is_none() {
-                    if length == 0 {
-                        return Err(WsError::invalid("length is invalid."));
-                    }
-                    let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
-                    return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
-                }
-                let id = s(params, "transferId")?.to_owned();
-                let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
-                let owners = [owner.as_str(), connection.as_str()];
-                let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
-                let range = run_fallible(self.lanes.interactive, &cancel, {
-                    let (owners, id) = (owners.map(str::to_owned), id.clone());
-                    move || t.read_range(&[owners[0].as_str(), owners[1].as_str()], &id, offset, length, version.as_deref())
-                })
-                .await?;
-                // The lane answered some time after the range took its last look: a revoke that landed since is never followed by bytes.
-                if !self.transfers.holds(&owners, &id) {
-                    return Err(WsError::expired());
-                }
-                value(json!(range))
-            }
-            "transfer/authorizeRead" => {
-                // Node's `requiredFileDownloadRequest`, check for check and before anything is looked up: the core is the boundary, whoever
-                // calls it, and each identifier is the trimmed text Node goes on with.
-                let source = params.get("source").filter(|source| source.is_object()).ok_or_else(|| WsError::invalid("download source is invalid."))?;
-                if !matches!(params.get("purpose").and_then(Value::as_str), Some("save" | "share" | "open")) {
-                    return Err(WsError::invalid("download purpose is invalid."));
-                }
-                let session = crate::transfer::required_session_id(params.get("sessionId"))?;
-                let requested = crate::transfer::DownloadRequest::of(source)?;
-                let owner = self.download_owner(req);
-                let mark = self.transfers.mark(&owner, &session);
-                let t = self.transfers.clone();
-                // Node's `sessionRow`: the conversation must be in the host's catalog now, whoever asks, and its project is the catalog's, never
-                // the caller's.
-                let grants = self.phone_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device downloads are not available."))?;
-                let row = grants.store.session_row(&session).await?.ok_or_else(unavailable)?;
-                // `projectRoot`: only a project conversation whose project is still a registered one has a root.
-                let project = match (&row.project_path, row.project) {
-                    (Some(given), true) => self.catalog.resolve(given).await.ok(),
-                    _ => None,
-                };
-                let given = row.project_path.as_deref().map(PathBuf::from);
-                let mut left_out = None;
-                let opened = match requested {
-                    crate::transfer::DownloadRequest::Export(mut input) => {
-                        let owner = if req.ctx.origin == mixdog_protocol::Origin::Relay {
-                            let (_, credential, _) = self.phone_grants_for(req)?;
-                            let paired = Owner::device(&credential);
-                            if paired != owner {
-                                return Err(WsError::expired());
-                            }
-                            paired
-                        } else {
-                            owner
-                        };
-                        let render = self
-                            .sources
-                            .iter()
-                            .find(|x| x.kind() == "export")
-                            .ok_or_else(|| WsError::new(Reason::Unsupported, "Visualize exports are not available."))?;
-                        // The catalog-validated conversation, not any session named inside the render input, owns the grant.
-                        input.insert("sessionId".into(), json!(&session));
-                        let file = render.open(&json!({ "kind": "export", "input": input }), &cancel).await.map_err(crate::transfer::source_refusal)?;
-                        // Once the host has rendered a file, authorization takes cleanup ownership even on refusal.
-                        return value(json!(t.authorize_source(&owner, &session, mark, file)?));
-                    }
-                    crate::transfer::DownloadRequest::Project(rel) => {
-                        let root = project.ok_or_else(|| {
-                            WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project.")
-                        })?;
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point)))
-                            .await?
-                    }
-                    crate::transfer::DownloadRequest::Session(path) => {
-                        let cwd = row.cwd.clone();
-                        run_fallible(self.lanes.interactive, &cancel, move || {
-                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
-                        })
-                        .await?
-                    }
-                    crate::transfer::DownloadRequest::Media(asset) => {
-                        // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
-                        let entry = grants.store.media(&asset).await?;
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point)))
-                            .await?
-                    }
-                    crate::transfer::DownloadRequest::Link(href) => {
-                        // Node's `authorizeLinkedFile`: the link decoded as the desktop decodes it, then opened as a path the conversation names.
-                        let path = crate::transfer::link_path(&href)
-                            .ok_or_else(|| WsError::new(Reason::Download("file-download:not-a-file"), "Only files on this PC can be downloaded."))?;
-                        let cwd = row.cwd.clone();
-                        run_fallible(self.lanes.interactive, &cancel, move || {
-                            crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
-                        })
-                        .await?
-                    }
-                    crate::transfer::DownloadRequest::Attachment(id) => {
-                        // Node's `authorizeAttachment`: an id the conversation the core resolved names, staged by the attachment domain.
-                        let source = self
-                            .sources
-                            .iter()
-                            .find(|x| x.kind() == "attachment")
-                            .ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
-                        let read =
-                            source.bytes(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await.map_err(crate::transfer::source_refusal)?;
-                        let (owner, session) = (owner.clone(), session.clone());
-                        run_fallible(self.lanes.interactive, &cancel, move || t.stage(&owner, &session, &read.bytes, read.name, read.mime_type)).await?
-                    }
-                    crate::transfer::DownloadRequest::Folder(path) => {
-                        // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
-                        let cwd = row.cwd.clone();
-                        let (root, given) = (project.clone(), given.clone());
-                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || {
-                            crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())
-                        })
-                        .await?;
-                        let scan = crate::zip::scan_folder(
-                            self.tracked.as_ref(),
-                            self.lanes,
-                            &cancel,
-                            &folder,
-                            crate::transfer::ZIP_MAX_BYTES,
-                            crate::transfer::ZIP_MAX_FILES,
-                            None,
-                        )
-                        .await
-                        .map_err(crate::transfer::phone_folder_refusal)?;
-                        left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
-                        let (t, owner, session) = (self.transfers.clone(), owner.clone(), session.clone());
-                        run_fallible(self.lanes.cpu_bulk, &cancel, move || {
-                            let (archive, name) = crate::transfer::folder_zip(&folder, &scan.files, &|point| t.point(point))?;
-                            t.stage(&owner, &session, &archive, name, "application/zip".into())
-                        })
-                        .await?
-                    }
-                };
-                let t = self.transfers.clone();
-                let mut authorized = t.authorize(&owner, &session, mark, opened)?;
-                authorized.left_out = left_out;
-                value(json!(authorized))
-            }
-            "transfer/redeemGrant" => {
-                let (owner, t, id) =
-                    (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
-                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
-            }
-            "transfer/finishRead" => {
-                let (owner, t, id) =
-                    (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
-                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
-            }
-            "transfer/endRead" => {
-                let (owner, connection, id) = (self.download_owner(req), Self::owner(req), s(params, "transferId")?);
-                value(json!({ "ended": self.transfers.end_read(&[owner.as_str(), connection.as_str()], id) }))
-            }
-            "transfer/beginWrite" if params.get("scope").is_some() => {
-                // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
-                let scope = s(params, "scope")?.trim();
-                if scope.is_empty()
-                    || scope.len() > 128
-                    || scope == "."
-                    || scope == ".."
-                    || !scope.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-                {
-                    return Err(WsError::invalid("The upload scope is invalid."));
-                }
-                let size = params
-                    .get("size")
-                    .and_then(Value::as_u64)
-                    .filter(|size| (1..=UPLOAD_MAX_BYTES).contains(size))
-                    .ok_or_else(|| WsError::invalid("size is invalid."))?;
-                let dir = self.user_data.join("attachments").join(scope);
-                let (owner, name, t) = (Self::owner(req), s(params, "name")?.to_owned(), self.transfers.clone());
-                let id = run_fallible(self.lanes.durability, &cancel, move || t.begin_staged(&owner, &dir, &name, size)).await?;
-                value(json!({ "transferId": id, "uploadId": id, "chunkBytes": self.upload_chunk_bytes, "maxBytes": UPLOAD_MAX_BYTES }))
-            }
-            "transfer/beginWrite" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let rel = s(params, "rel")?.to_owned();
-                let size = params.get("size").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("size is invalid."))?;
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
-                let id = run_fallible(self.lanes.durability, &cancel, move || t.begin_write(&owner, &root, &rel, size)).await?;
-                value(json!({ "transferId": id }))
-            }
-            "transfer/writeChunk" => {
-                let id = s(params, "transferId")?.to_owned();
-                // Validated in `Transfers::write_chunk`, in Node's order and with its sentences.
-                let offset = params.get("offset").and_then(Value::as_u64);
-                let encoded = params.get("bytesB64").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let received = run_fallible(self.lanes.durability, &cancel, move || t.write_chunk(&owner, &id, offset, &encoded)).await?;
-                value(json!({ "received": received }))
-            }
-            "transfer/commit" => {
-                let id = s(params, "transferId")?.to_owned();
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let (size, path) = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
-                self.note_anything();
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                value(json!({ "size": size, "absolutePath": path.to_string_lossy(), "name": name, "dir": false }))
-            }
-            "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
-            "transfer/serverDownload/begin" => {
-                let not_connected = || WsError::plain("This SSH server is not connected. Connect it from the SSH server dialog.");
-                let server = s(params, "serverId")?;
-                let reader = self.remote_files.get().and_then(|links| links.reader(server)).ok_or_else(not_connected)?;
-                let begun = self.server_downloads.begin(reader, Path::new(s(params, "downloadsDir")?), s(params, "root")?, s(params, "rel")?).await?;
-                value(json!({ "downloadId": begun.download_id, "name": begun.name, "size": begun.size }))
-            }
-            "transfer/serverDownload/step" => {
-                let stepped = self.server_downloads.step(s(params, "downloadId")?).await?;
-                value(json!({ "received": stepped.received, "size": stepped.size, "done": stepped.done }))
-            }
-            "transfer/serverDownload/finish" => {
-                let path = self.server_downloads.finish(s(params, "downloadId")?).await?;
-                value(json!({ "path": path.to_string_lossy() }))
-            }
-            "transfer/serverDownload/abort" => value(json!(self.server_downloads.abort(s(params, "downloadId")?))),
-            "transfer/serverDownload/check" => value(json!(self.server_downloads.was_downloaded(Path::new(s(params, "path")?)))),
-            "transfer/trash/info" => {
-                // `serverTrashInfo` is handed `projectDirectory` of a registered project (ipc-server-files.ts:132), whatever the
-                // connection: a path that names none is the registry's refusal, and a relative one is read by the registry's rule.
-                let root = self.project_directory(s(params, "path")?, false, &cancel).await?;
-                value(run_fallible(self.lanes.interactive, &cancel, move || Ok(crate::servertrash::info(&root))).await?)
-            }
-            "transfer/grant/mint" => {
-                // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
-                // grant when it lies outside every project (a conversation's attachment always gets one).
-                let (grants, credential, connection) = self.phone_grants_for(req)?;
-                if params.get("attachmentId").is_some() {
-                    // `attachmentOpen` (remote-attachments.ts): the attachment this conversation names, staged as a named file in the
-                    // PC's temp folder (`stageSessionAttachment`) and opened through a one-file grant of that conversation.
-                    // Node's `requiredSessionId` first, then the attachment.
-                    let session = crate::transfer::required_session_id(params.get("sessionId"))?;
-                    let source = self
-                        .sources
-                        .iter()
-                        .find(|x| x.kind() == "attachment")
-                        .ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
-                    let read = source.bytes(params, &cancel).await.map_err(crate::transfer::source_refusal)?;
-                    let id = s(params, "attachmentId")?.to_owned();
-                    let (bytes, name) = (read.bytes, read.name);
-                    let size = bytes.len();
-                    let path = run_fallible(self.lanes.durability, &cancel, move || crate::transfer::stage_attachment(&id, &name, &bytes)).await?;
-                    let token = grants.mint(&credential, connection, &path, &session).await?;
-                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    let folder = path.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
-                    return value(json!({ "absolutePath": path.to_string_lossy(), "name": name, "dir": false, "size": size,
-                        "mimeType": read.mime_type, "projectPath": folder, "relPath": name, "accessToken": token }));
-                }
-                let path = s(params, "path")?.to_owned();
-                let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
-                let mut row = json!(entry);
-                if !entry.dir {
-                    let absolute = PathBuf::from(&entry.absolute_path);
-                    let projects: Vec<String> = self.catalog.list().await?.into_iter().map(|project| project.path).collect();
-                    let owner = if session.is_empty() { crate::grants::owning_project(&projects, &absolute) } else { None };
-                    match owner {
-                        Some((project, relative)) => {
-                            row["projectPath"] = json!(project);
-                            row["relPath"] = json!(relative);
-                        }
-                        None => {
-                            row["projectPath"] = json!(absolute.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
-                            row["relPath"] = json!(absolute.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
-                            row["accessToken"] = json!(grants.mint(&credential, connection, &absolute, &session).await?);
-                        }
-                    }
-                }
-                value(row)
-            }
-            "transfer/trash/entry" => {
-                // Root and entry as `server-file-operations.ts` takes them; `path` is the root.
-                let root = self.catalog.resolve(s(params, "path")?).await?;
-                let rel = params.get("rel").and_then(Value::as_str).unwrap_or_default().to_owned();
-                let permanent = opt_bool(params, "permanent");
-                let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
-                let (note_root, note_rel) = (root.clone(), rel.clone());
-                let outcome = run_fallible(self.lanes.durability, &cancel, move || crate::servertrash::entry(&root, &rel, permanent)).await?;
-                self.note_written(&note_root, &[&note_rel]);
-                value(outcome)
-            }
-            "projectFs/backup/read" => {
-                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
-                value(run_fallible(self.lanes.interactive, &cancel, move || backups.read(&source)).await?)
-            }
-            "projectFs/backup/write" => {
-                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
-                let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
-                let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
-                value(run_fallible(self.lanes.durability, &cancel, move || backups.write(&source, &content, &expected)).await?)
-            }
-            "projectFs/backup/delete" => {
-                let (backups, source) = (self.backups.clone(), self.relay_backup(req, s(params, "sourcePath")?.to_owned()).await?);
-                let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
-                run_fallible(self.lanes.durability, &cancel, move || backups.delete(&source)).await?;
-                value(json!({}))
-            }
-            "projectFs/workspaceFile/read" => {
-                let file = PathBuf::from(s(params, "workspaceFile")?);
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::editorcfg::read_workspace_file(&file)).await?)
-            }
-            "projectFs/workspaceFile/write" => {
-                let file = PathBuf::from(s(params, "workspaceFile")?);
-                let folders = params.get("folders").cloned().unwrap_or(Value::Null);
-                let _claim = self.paths.acquire(vec![file.clone()]).await;
-                value(run_fallible(self.lanes.durability, &cancel, move || crate::editorcfg::write_workspace_file(&file, &folders)).await?)
-            }
-            "projectFs/readEditorSettings" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let rel = s(params, "rel")?.to_owned();
-                let workspace = params.get("workspaceFile").and_then(Value::as_str).map(PathBuf::from);
-                let user_data = self.user_data.clone();
-                let markdown_view = self.user_markdown_view.get().and_then(|read| read());
-                value(
-                    run_fallible(self.lanes.interactive, &cancel, move || {
-                        crate::editorcfg::read_editor_settings(&user_data, &root, &rel, workspace.as_deref(), markdown_view)
-                    })
-                    .await?,
-                )
-            }
-            "project/taskWorkspace" => {
-                let path = self.task_workspace(&cancel).await?;
-                value(json!({ "path": path.to_string_lossy() }))
-            }
-            "project/codeGraph" => {
-                let mode = s(params, "mode")?;
-                let query = s(params, "query")?.trim();
-                // Node's `codeGraphQueryIn`: the same checks, arguments and text.
-                let symbols = mode == "symbols";
-                if !matches!(mode, "find_symbol" | "references" | "symbols") {
-                    return Err(WsError::invalid("mode is invalid."));
-                }
-                if query.is_empty() || query.encode_utf16().count() > if symbols { 1_024 } else { 256 } {
-                    return Err(WsError::invalid(if symbols { "File path is invalid." } else { "Symbol is invalid." }));
-                }
-                let args = if symbols { json!({ "mode": mode, "files": query, "limit": 200 }) } else { json!({ "mode": mode, "symbols": query, "limit": 20 }) };
-                let root = self.root_of(req.ctx.origin, params, "path").await?;
-                let graph = self.code_graph.as_ref().ok_or_else(|| WsError::new(Reason::Unsupported, "The code graph is not available."))?;
-                value(Value::String(graph.query(&root, args, &cancel).await?))
-            }
-            "lsp/subscribe" => {
-                // The feed is named by the project string `lsp/document` was given, which is what the
-                // events carry as `projectPath`.
-                let feed = self.lsp_feeds.source(s(params, "root")?);
-                Ok(Reply::Subscribe(Subscribe { result: json!({}), feed, window: Window::Fixed, resume_from: None }))
-            }
-            // The subscription itself is the server's; the feed outlives it (servers keep running).
-            "lsp/unsubscribe" => value(json!({})),
-            "lsp/document" => {
-                // `projectPath` names the project the events carry; `root` is the folder the host
-                // resolved for it (a worktree may differ), as Node's `lspDocument(projectPath, root, input)`.
-                let project = s(params, "projectPath")?;
-                let root = self.root(req.ctx.origin, params).await?;
-                let document = DocumentInput::from_value(params.get("document").unwrap_or(&Value::Null))?;
-                value(self.lsp.document(project, &root, document).await?)
-            }
-            "lsp/request" => {
-                let project = s(params, "projectPath")?;
-                let root = self.root(req.ctx.origin, params).await?;
-                let r = params.get("request").unwrap_or(&Value::Null);
-                value(self.lsp.request(project, &root, s(r, "relPath")?, s(r, "languageId")?, s(r, "method")?, r.get("params").unwrap_or(&Value::Null)).await?)
-            }
+            "project/list" => self.handle_project_list().await,
+            "project/read" => self.handle_project_read(req).await,
+            "project/create" => self.handle_project_create(req, op).await,
+            "project/touch" => self.handle_project_touch(req, op).await,
+            "project/update" => self.handle_project_update(req, op).await,
+            "project/delete" => self.handle_project_delete(req, op).await,
+            "project/ensureDirectory" => self.handle_project_ensure_directory(req).await,
+            "project/directory" => self.handle_project_directory(req).await,
+            "projectFs/grant/describe" => self.handle_project_fs_grant_describe(req).await,
+            "projectFs/grant/redeem" => self.handle_project_fs_grant_redeem(req).await,
+            "projectFs/localPage/revokeOwner" => self.handle_project_fs_local_page_revoke_owner(req).await,
+            "projectFs/localPage/origin" => self.handle_project_fs_local_page_origin().await,
+            "projectFs/localPage/assetType" => self.handle_project_fs_local_page_asset_type(req).await,
+            "projectFs/localPage/virtual" => self.handle_project_fs_local_page_virtual(req).await,
+            "project/recoveryDirectory" => self.handle_project_recovery_directory(req).await,
+            "projectFs/listDir" => self.handle_project_fs_list_dir(req).await,
+            "projectFs/readText" => self.handle_project_fs_read_text(req).await,
+            "projectFs/stat" => self.handle_project_fs_stat(req).await,
+            "projectFs/entryPath" => self.handle_project_fs_entry_path(req).await,
+            "projectFs/browseDirs" => self.handle_project_fs_browse_dirs(req).await,
+            "projectFs/previewFile" => self.handle_project_fs_preview_file(req).await,
+            "projectFs/previewRange" => self.handle_project_fs_preview_range(req).await,
+            "projectFs/readLocal" => self.handle_project_fs_read_local(req).await,
+            "projectFs/statLocal" => self.handle_project_fs_stat_local(req).await,
+            "projectFs/writeText" => self.handle_project_fs_write_text(req).await,
+            "projectFs/writeTextBatch" => self.handle_project_fs_write_text_batch(req).await,
+            "projectFs/create" => self.handle_project_fs_create(req).await,
+            "projectFs/rename" => self.handle_project_fs_rename(req).await,
+            "projectFs/move" | "projectFs/copy" => self.handle_project_fs_move_or_copy(req).await,
+            "projectFs/trash" => self.handle_project_fs_trash(req).await,
+            "projectFs/searchText" => self.handle_project_fs_search_text(req).await,
+            "projectFs/replaceText" => self.handle_project_fs_replace_text(req).await,
+            "projectFs/recovery" => self.handle_project_fs_recovery(req).await,
+            "fs/watch" => self.handle_fs_watch(req).await,
+            "fs/unwatch" => self.handle_fs_unwatch(req).await,
+            "search/start" => self.handle_search_start(req).await,
+            "search/update" => self.handle_search_update(req).await,
+            "search/stop" => self.handle_search_stop(req).await,
+            "transfer/beginRead" => self.handle_transfer_begin_read(req).await,
+            "transfer/beginZip" => self.handle_transfer_begin_zip(req).await,
+            "transfer/readRange" => self.handle_transfer_read_range(req).await,
+            "transfer/authorizeRead" => self.handle_transfer_authorize_read(req).await,
+            "transfer/redeemGrant" => self.handle_transfer_redeem_grant(req).await,
+            "transfer/finishRead" => self.handle_transfer_finish_read(req).await,
+            "transfer/endRead" => self.handle_transfer_end_read(req).await,
+            "transfer/beginWrite" if params.get("scope").is_some() => self.handle_transfer_begin_write_staged(req).await,
+            "transfer/beginWrite" => self.handle_transfer_begin_write(req).await,
+            "transfer/writeChunk" => self.handle_transfer_write_chunk(req).await,
+            "transfer/commit" => self.handle_transfer_commit(req).await,
+            "transfer/abort" => self.handle_transfer_abort(req).await,
+            "transfer/serverDownload/begin" => self.handle_transfer_server_download_begin(req).await,
+            "transfer/serverDownload/step" => self.handle_transfer_server_download_step(req).await,
+            "transfer/serverDownload/finish" => self.handle_transfer_server_download_finish(req).await,
+            "transfer/serverDownload/abort" => self.handle_transfer_server_download_abort(req).await,
+            "transfer/serverDownload/check" => self.handle_transfer_server_download_check(req).await,
+            "transfer/trash/info" => self.handle_transfer_trash_info(req).await,
+            "transfer/grant/mint" => self.handle_transfer_grant_mint(req).await,
+            "transfer/trash/entry" => self.handle_transfer_trash_entry(req).await,
+            "projectFs/backup/read" => self.handle_project_fs_backup_read(req).await,
+            "projectFs/backup/write" => self.handle_project_fs_backup_write(req).await,
+            "projectFs/backup/delete" => self.handle_project_fs_backup_delete(req).await,
+            "projectFs/workspaceFile/read" => self.handle_project_fs_workspace_file_read(req).await,
+            "projectFs/workspaceFile/write" => self.handle_project_fs_workspace_file_write(req).await,
+            "projectFs/readEditorSettings" => self.handle_project_fs_read_editor_settings(req).await,
+            "project/taskWorkspace" => self.handle_project_task_workspace(req).await,
+            "project/codeGraph" => self.handle_project_code_graph(req).await,
+            "lsp/subscribe" => self.handle_lsp_subscribe(req).await,
+            "lsp/unsubscribe" => self.handle_lsp_unsubscribe().await,
+            "lsp/document" => self.handle_lsp_document(req).await,
+            "lsp/request" => self.handle_lsp_request(req).await,
             _ => Err(WsError::new(Reason::Unsupported, "This method is served by the desktop host.")),
         }
     }
@@ -2173,37 +1355,37 @@ impl WorkspaceService {
         req.ctx.lone_surrogates.iter().any(|held| matches!(held, mixdog_js::LoneAt::Value(at) if at == pointer))
     }
 }
+fn replay_recorded(found: OpRow, req: &CoreRequest, digest: &PayloadDigest, audience: &PayloadDigest) -> Result<Reply, CoreError> {
+    let id = req.op.clone().expect("op present");
+    if found.state == OpRowState::Fenced {
+        return Err(CoreError::OpFenced { op_id: id });
+    }
+    if found.method != req.method.as_str() || found.payload_digest != digest.as_str() {
+        return Err(CoreError::OpIdConflict { op_id: id });
+    }
+    let StoredOpRecord::Settled { audience: Some(owner), state, .. } = op_record(found)? else {
+        return Err(CoreError::OpIdConflict { op_id: id });
+    };
+    if owner != *audience {
+        return Err(CoreError::OpIdConflict { op_id: id });
+    }
+    match state {
+        OpState::Applied { result, .. } => Ok(Reply::Value(result.unwrap_or_else(|| json!({})))),
+        OpState::Rejected { error } => Err(error),
+        OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } => {
+            Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect, target })
+        }
+    }
+}
+
 impl WorkspaceService {
-    /// Runs a mutation under its op record: a repeated id answers from the record, a
-    /// different method, payload or audience conflicts. The record is written before the
-    /// effect (externalPending) and completed after it (applied or rejected). Registry changes
-    /// write the record in the same transaction as the change.
     async fn with_op(self: &Arc<Self>, req: &CoreRequest, scope: &'static str, op_id: String) -> Result<Reply, CoreError> {
         let method = req.method.as_str();
         let digest = PayloadDigest::of_params(&req.params);
         let audience = replay_audience(&req.ctx);
         let state_error = |_| CoreError::Internal { incident_id: "workspace-op-store".into() };
         if let Some(found) = self.state.op(scope, &op_id).await.map_err(state_error)? {
-            let id = req.op.clone().expect("op present");
-            if found.state == OpRowState::Fenced {
-                return Err(CoreError::OpFenced { op_id: id });
-            }
-            if found.method != method || found.payload_digest != digest.as_str() {
-                return Err(CoreError::OpIdConflict { op_id: id });
-            }
-            let StoredOpRecord::Settled { audience: Some(owner), state, .. } = op_record(found)? else {
-                return Err(CoreError::OpIdConflict { op_id: id });
-            };
-            if owner != audience {
-                return Err(CoreError::OpIdConflict { op_id: id });
-            }
-            return match state {
-                OpState::Applied { result, .. } => Ok(Reply::Value(result.unwrap_or_else(|| json!({})))),
-                OpState::Rejected { error } => Err(error),
-                OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } => {
-                    Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect, target })
-                }
-            };
+            return replay_recorded(found, req, &digest, &audience);
         }
         let now = crate::catalog::now_ms();
         let mut record = OpRecord {

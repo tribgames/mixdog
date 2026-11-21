@@ -457,10 +457,6 @@ impl mixdog_core_api::turn_review::TurnReviewApi for SealWatch {
     }
 }
 
-/// The turn's review (`snapshot-tracker.mjs`): the run begins it once its workspace is final, a
-/// tool waits for the baseline, and the turn settles after the seal or `turnCleanupSettleMs`,
-/// whichever comes first; once the seal has returned, its edit is the sealed turn's change record
-/// under the input row's checkpoint (a read before that answers `pending`, as in Node).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace and the run's file edit")]
 async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
@@ -941,6 +937,25 @@ async fn an_inherit_creates_the_heirs_session_before_the_source_is_looked_up() {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_refused_carry_keeps_the_heirs_reference_set_and_takes_the_copy_mark_off() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    for id in ["sess_source", "sess_heir"] {
+        directory
+            .create_with_id(ThreadId::from(id), header(json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" })), json!({}))
+            .await
+            .expect("create");
+    }
+    let params = json!({ "threadId": "sess_source", "intoThreadId": "sess_heir", "opId": "op-inherit" });
+    let refused = directory.request(request("thread/fork", params, "op-inherit")).await;
+    assert!(matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.contains("no conversation to carry")), "{refused:?}");
+    let held = directory.stored_header(&ThreadId::from("sess_heir")).await.expect("heir header");
+    assert!(held.get(mixdog_store::offload_sources::INHERITING).is_none() && held.get(mixdog_store::offload_sources::INHERITING_BOOT).is_none(), "{held:?}");
+    assert!(mixdog_store::offload_sources::sources(&held).contains(&"sess_source".to_owned()), "the set stays: {held:?}");
+}
+
 /// A thread that has no session yet (the control session, started before any model was chosen) gets it from a turn
 /// (`createCurrentSession('turn')`), and a route with no model refuses that turn as `prepareRoute` does; a thread that has
 /// its session is not seated again.
@@ -1201,12 +1216,6 @@ async fn a_seeded_thread_that_is_not_created_is_abandoned_once() {
     assert_eq!(directory.loaded_ids().len(), 1);
 }
 
-/// A request cancelled after the thread is published and before its first record is acknowledged
-/// (`create`'s wait on the actor) does not release the scope of the thread that then gets created:
-/// the actor owns the seed from the publication. When that first record fails instead, the actor
-/// abandons it, whoever is still waiting. The store's gate blocks the thread that runs the first
-/// record's lane job (the test backend runs lane jobs inline on the polling thread), so the test
-/// runs on a multi-thread runtime: its own thread is free to cancel the request and release the gate.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor() {
     use mixdog_store::schema::record::Header;
@@ -1315,10 +1324,6 @@ fn gated_directory(rig: &Rig, route: GatedRoute) -> Arc<SessionDirectory> {
     Arc::new(SessionDirectory::new(Arc::new(deps)))
 }
 
-/// Create succeeds. A control start is among the control threads the config's adoption syncs from before its route is first
-/// resolved (the route cell takes the config of that moment, as Node's runtime does when it subscribes), through its create,
-/// and then as the created thread, whose header names it the control session. The id it holds is not a thread yet (an open
-/// finds none) and is not another create's (a create of the same id is refused); a task thread beside it is never listed.
 #[tokio::test(start_paused = true)]
 async fn a_control_start_is_synced_from_before_its_route_is_resolved_through_its_created_thread() {
     let rig = Rig::new();
@@ -1406,10 +1411,6 @@ async fn a_control_start_that_does_not_end_in_a_thread_leaves_nothing_to_sync() 
     assert_eq!(directory.control_ids(), vec![created]);
 }
 
-/// Caller cancelled before the commit. A control `create` whose request is cancelled while its first record is at the store
-/// still leaves the thread when that record lands, and the thread stays among the control threads the config's adoption syncs;
-/// when the record fails instead, the actor releases its own slot and the thread is not listed. The store's gate holds the
-/// first record's lane job (see `a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_control_create_whose_caller_is_cancelled_before_the_commit_is_synced_only_once_it_commits() {
     let rig = Rig::new();
@@ -1562,10 +1563,6 @@ async fn a_failed_create_never_releases_the_create_that_claimed_its_id_after_it(
     assert_eq!(directory.loaded_ids(), [id]);
 }
 
-/// Close between the adoption's listing and its write. The adoption lists the live control threads, then syncs each under that
-/// thread's liveness: a thread closed and a start abandoned after the listing ended before their sync and are never written; a
-/// thread still live is. Real time: the adoption runs on its own OS thread, and a paused clock would advance past the
-/// directory's timers whenever the runtime idles waiting for it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_adoption_never_writes_a_control_thread_that_ended_after_it_was_listed() {
     use mixdog_core_domains::domains::ai_admin::route_service::LiveControls;
@@ -2605,17 +2602,19 @@ async fn the_live_header_follows_acked_header_changes() {
     assert_eq!(live.header().get("title"), Some(&json!("renamed")));
 }
 
-/// `rewindToItem` (`rewind.mjs`): a composer that cannot hold file parts (`restoreFiles: false`) is refused with Node's sentence and
-/// the conversation stays as it was; otherwise the stored prompt's pasted text, image and file come back with their bytes
-/// (`restorableAttachmentsFromPrompt`, `hydrateTolerantly`), a blob that is gone dropped alone and counted in `notice`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rewind_hands_back_the_prompts_attachments_and_refuses_a_composer_that_cannot_hold_its_files() {
+struct StoredPrompt {
+    _first: SessionDirectory,
+    _second: SessionDirectory,
+    handle: Arc<SessionHandle>,
+    paste: String,
+    image: String,
+}
+
+async fn stored_prompt_with_attachments(rig: &Rig) -> StoredPrompt {
     use sha2::Digest;
 
-    let rig = Rig::new();
-    let deps = rig.deps_parts(rig.store.clone());
+    let deps = Arc::new(rig.deps_parts(rig.store.clone()));
     let root = rig._data.path().to_path_buf();
-    let deps = Arc::new(deps);
     let first = SessionDirectory::new(deps.clone());
     let id = start_thread(&first).await.id.clone();
     let blob = |bytes: &[u8]| {
@@ -2643,46 +2642,76 @@ async fn a_rewind_hands_back_the_prompts_attachments_and_refuses_a_composer_that
     rig.store.seed(&id, vec![mixdog_store::schema::record::Record::Item(record)]);
 
     let second = SessionDirectory::new(deps);
-    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-    let refused = reopened.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r1", "itemId": "u1", "restoreFiles": false }), "op-r1")).await;
+    let handle = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    StoredPrompt { _first: first, _second: second, handle, paste, image }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_refuses_a_composer_that_cannot_hold_the_prompts_files_and_leaves_the_conversation() {
+    let rig = Rig::new();
+    let stored = stored_prompt_with_attachments(&rig).await;
+    let id = stored.handle.id.clone();
+    let refused =
+        stored.handle.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r1", "itemId": "u1", "restoreFiles": false }), "op-r1")).await;
     let Err(CoreError::DomainError { message, .. }) = refused else { panic!("a refusal") };
     assert_eq!(message.as_deref(), Some("this message has PDF/Office attachments the terminal composer cannot restore; edit it in the desktop app"));
 
-    // Untouched: the same prompt is still there to rewind to.
-    let reply = reopened.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r2", "itemId": "u1" }), "op-r2")).await.expect("rewind");
+    let reply = stored
+        .handle
+        .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r2", "itemId": "u1" }), "op-r2"))
+        .await
+        .expect("the same prompt is still there to rewind to");
+    assert!(matches!(reply, Reply::Value(_)), "{reply:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_hands_back_the_prompts_attachments_and_counts_the_one_that_is_gone() {
+    let rig = Rig::new();
+    let stored = stored_prompt_with_attachments(&rig).await;
+    let id = stored.handle.id.clone();
+    let reply = stored.handle.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r2", "itemId": "u1" }), "op-r2")).await.expect("rewind");
     let Reply::Value(value) = reply else { panic!("a value") };
     assert_eq!(value["text"], json!("see [Pasted text #1 +1 lines] [Image #2] [Image #3]"), "{value}");
-    assert_eq!(value["pastedTexts"], json!({ "1": { "id": 1, "source": "paste", "attachmentRef": paste, "sizeBytes": 11, "text": "pasted body" } }), "{value}");
+    assert_eq!(
+        value["pastedTexts"],
+        json!({ "1": { "id": 1, "source": "paste", "attachmentRef": stored.paste, "sizeBytes": 11, "text": "pasted body" } }),
+        "{value}"
+    );
     assert_eq!(
         value["pastedImages"],
-        json!({ "2": { "id": 2, "type": "image", "mediaType": "image/png", "attachmentRef": image, "sizeBytes": 3, "content": "AQID" } }),
+        json!({ "2": { "id": 2, "type": "image", "mediaType": "image/png", "attachmentRef": stored.image, "sizeBytes": 3, "content": "AQID" } }),
         "{value}"
     );
     assert_eq!(value["content"], json!([{ "type": "file", "data": "JVBERi0xLjc=", "mimeType": "application/pdf", "filename": "r.pdf" }]), "{value}");
     assert_eq!(value["notice"], json!("1 attachment was no longer available and dropped."), "{value}");
 }
 
-/// `clearSessionMessages` (`session-crud.mjs`): a person's clear first copies the outgoing conversation to a fresh session id
-/// (`forkOutgoingTranscript`), so it stays resumable, and records the clear in the header (`lastStage: 'auto_clear'`, `lastClearAt`).
-/// A conversation the user never spoke in keeps no copy, and neither does a reset the core runs itself (it keeps its own).
+fn log_ids(rig: &Rig) -> std::collections::BTreeSet<String> {
+    rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_persons_clear_of_a_conversation_nobody_spoke_in_keeps_no_copy() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c0" }), "op-c0")).await.expect("clear");
+    assert_eq!(log_ids(&rig).len(), 1, "an empty conversation keeps no copy");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_records_when() {
     let rig = Rig::new();
     rig.set_script(echo());
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
-
-    // Nothing said yet: no copy.
-    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c0" }), "op-c0")).await.expect("clear");
-    assert_eq!(ids().len(), 1, "an empty conversation keeps no copy");
-
     turn(&handle, "one", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    let before = ids();
+    let before = log_ids(&rig);
     handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c1" }), "op-c1")).await.expect("clear");
     eventually_on!(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
-    let copies: Vec<String> = ids().difference(&before).cloned().collect();
+    let copies: Vec<String> = log_ids(&rig).difference(&before).cloned().collect();
     let [copy] = copies.as_slice() else { panic!("one copy of the cleared conversation: {copies:?}") };
     assert!(copy.starts_with("sess_"), "{copy}");
     let copy = ThreadId::from(copy.as_str());
@@ -2704,11 +2733,17 @@ async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_reco
     assert_eq!(compaction["lastClearAt"], json!(now), "{compaction}");
     assert_eq!(compaction["lastCheckedAt"], json!(now), "{compaction}");
     assert_eq!(compaction["lastClearCompactError"], Value::Null);
+}
 
-    // The core's own reset: it keeps (or drops) its copy itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_internal_reset_makes_no_copy_of_its_own() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
     turn(&handle, "two", "op-2").await;
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
-    let before = ids();
+    let before = log_ids(&rig);
     let own = CoreRequest {
         method: Method("thread/clear"),
         params: json!({ "threadId": handle.id, "opId": "op-c2" }),
@@ -2716,7 +2751,7 @@ async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_reco
         ctx: CallContext::internal("test"),
     };
     handle.request(own).await.expect("clear");
-    assert_eq!(ids(), before, "an internal reset makes no copy of its own");
+    assert_eq!(log_ids(&rig), before, "an internal reset makes no copy of its own");
 }
 
 // ---- the retained working indicator: a run stage is the spinner's state, not an event a client reconstructs ----
@@ -3114,10 +3149,6 @@ async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
 }
 
-/// A prompt a running turn takes from the queue (steered) is stored and shown under the submission its client sent it with,
-/// as the turn's starter is; the turn's end still names the starter's row. The run here takes the drain, injects each input
-/// through the agent's `steer::inject` and commits its row, as the host's run does; the rows are then read from the live view and
-/// from the thread loaded again from the store.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_steered_prompt_shows_under_its_client_submission_beside_the_starters() {
     let data = tempfile::tempdir().expect("data dir");
@@ -3835,17 +3866,35 @@ async fn the_runs_progress_is_read_from_the_session_cell() {
     assert_eq!(directory.worker_live(&ThreadId::from("elsewhere"), 2_000, &NoJobs), Default::default());
 }
 
-/// A run's live-only events reach the view and the feed as Node's turn shows them: reasoning
-/// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
-/// call's usage is `thread/tokenUsage/updated`, and a committed row's own prompt text joins the
-/// prompt history.
-#[tokio::test(start_paused = true)]
-async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
+struct LiveEvents {
+    rig: Rig,
+    handle: Arc<SessionHandle>,
+    _directory: SessionDirectory,
+}
+
+impl LiveEvents {
+    fn items(&self) -> Vec<ThreadItem> {
+        self.handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect()
+    }
+
+    fn frames(&self) -> Vec<(u64, String, Value)> {
+        self.rig.feeds.frames(self.handle.id.as_str())
+    }
+
+    fn notices(&self) -> Vec<Value> {
+        self.items()
+            .iter()
+            .filter_map(|item| match item {
+                ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => Some(serde_json::to_value(meta).expect("meta")),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+async fn run_live_events() -> LiveEvents {
     let rig = Rig::new();
-    let gate: Arc<tokio::sync::Notify> = Arc::default();
-    let release = gate.clone();
-    rig.set_script(Arc::new(move |run| {
-        let release = release.clone();
+    rig.set_script(Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let reasoning = ItemId::from("r1".to_owned());
@@ -3873,26 +3922,11 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new().into(),
                     sent_at_ms: 0,
-                    input_excludes_cache: false, tail_book: None,
+                    input_excludes_cache: false,
+                    tail_book: None,
                 })
                 .await
                 .expect("usage");
-            let event = mixdog_agent::env::CompactEvent {
-                dropped_count: 2,
-                dropped: None,
-                trigger: mixdog_agent::env::CompactTrigger::Auto,
-                status: mixdog_agent::env::CompactStatus::Compacted,
-                before_tokens: 0,
-                duration_ms: 0,
-                after_tokens: 0,
-                before_messages: 4,
-                after_messages: 1,
-                pressure_tokens: 900,
-                trigger_tokens: 800,
-                boundary_tokens: 1000,
-                target_budget_tokens: 500,
-            };
-            run.port.compact_event(event).await.expect("compact");
             run.port
                 .commit_item(ItemCommit {
                     iid: ItemId::from(format!("s-{}", run.turn)),
@@ -3904,60 +3938,45 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
                 })
                 .await
                 .expect("commit");
-            release.notified().await;
             RunOutcome::Completed(Default::default())
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    let items = |handle: &SessionHandle| -> Vec<ThreadItem> { handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect() };
-    let thinking = eventually_on!(&[&handle.cell.stepped], || {
-        items(&handle).into_iter().find_map(|item| match item {
-            ThreadItem::Reasoning { content, .. } if content.concat() == "think more" => Some(content),
-            _ => None,
-        })
-    })
-    .await;
-    assert_eq!(thinking, ["think more"], "one growing part");
-    eventually_on!(&[&handle.cell.stepped], || prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
-    gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    LiveEvents { rig, handle, _directory: directory }
+}
 
-    let shown = items(&handle);
-    let kinds: Vec<String> = shown
+#[tokio::test(start_paused = true)]
+async fn a_runs_reasoning_grows_one_item_and_completes_it_in_place() {
+    let live = run_live_events().await;
+    let reasoning: Vec<ThreadItem> = live.items().into_iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).collect();
+    let [ThreadItem::Reasoning { content, .. }] = reasoning.as_slice() else { panic!("one reasoning item: {reasoning:?}") };
+    assert_eq!(*content, ["think more"], "one growing part");
+    let frames = live.frames();
+    assert_eq!(frames.iter().filter(|(_, method, _)| method == "item/reasoning/textDelta").count(), 2);
+    let completed: Vec<&Value> =
+        frames.iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "reasoning").map(|(_, _, params)| params).collect();
+    assert_eq!(completed.len(), 1);
+    assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_runs_notices_show_with_their_tone() {
+    let notices = run_live_events().await.notices();
+    let info = notices.iter().find(|notice| notice["ext"]["text"] == "Couldn’t switch model.").expect("the notice");
+    assert_eq!(info["ext"]["tone"], json!("info"), "{info}");
+    let warned = notices
         .iter()
-        .map(|item| match item {
-            ThreadItem::UserMessage { display_text, .. } => format!("user:{display_text}"),
-            ThreadItem::StatusRow { kind, meta, .. } => format!("{kind}:{}", meta.label.clone().unwrap_or_default()),
-            other => format!("{:?}", std::mem::discriminant(other)),
-        })
-        .collect();
-    assert!(kinds.contains(&"user:go".to_owned()), "{kinds:?}");
-    let notice = shown
-        .iter()
-        .find_map(|item| match item {
-            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => Some(serde_json::to_value(meta).expect("meta")),
-            _ => None,
-        })
-        .expect("the notice");
-    assert_eq!((notice["ext"]["text"].clone(), notice["ext"]["tone"].clone()), (json!("Couldn’t switch model."), json!("info")), "{notice}");
-    // A warn-toned stage notice (an excluded tool) is shown with the warn level.
-    let warned = shown
-        .iter()
-        .find_map(|item| match item {
-            ThreadItem::StatusRow { kind, meta, .. } if kind == "notice" => {
-                let meta = serde_json::to_value(meta).expect("meta");
-                meta["ext"]["text"].as_str().is_some_and(|text| text.contains("was excluded from this session")).then_some(meta)
-            }
-            _ => None,
-        })
+        .find(|notice| notice["ext"]["text"].as_str().is_some_and(|text| text.contains("was excluded from this session")))
         .expect("the warn notice");
     assert_eq!(warned["ext"]["tone"], json!("warn"), "{warned}");
+}
 
-    let frames = rig.feeds.frames(handle.id.as_str());
-    let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
-    assert_eq!(methods.iter().filter(|m| **m == "item/reasoning/textDelta").count(), 2);
+#[tokio::test(start_paused = true)]
+async fn a_model_calls_usage_is_published_as_a_token_usage_update() {
+    let frames = run_live_events().await.frames();
     let usage = frames.iter().find(|(_, method, _)| method == "thread/tokenUsage/updated").expect("usage").2["usage"].clone();
     assert_eq!(
         (
@@ -3969,7 +3988,6 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
         ),
         (json!(10), json!(5), json!(3), json!(2), json!(1))
     );
-    // `usageDeltaEvent`'s other fields, in Node's key order, less the request's tool definitions (`sendTools`), which no client reads.
     let keys: Vec<&str> = usage.as_object().expect("usage").keys().map(String::as_str).collect();
     assert_eq!(
         keys,
@@ -4009,18 +4027,14 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
         ),
         (json!("gpt-answered"), json!("gpt-asked"), json!(2), json!(340), json!(15), json!(4))
     );
-    // The finished thinking is `item/completed` of type `reasoning`, once, in place of the live item.
-    let completed: Vec<&Value> =
-        frames.iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "reasoning").map(|(_, _, params)| params).collect();
-    assert_eq!(completed.len(), 1);
-    assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
-    assert_eq!(shown.iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).count(), 1);
 }
 
-/// A turn's start does not re-sync the session's compaction with the saved settings, its completion does
-/// (`completeTurn`'s `setSession`, `turn-settle.mjs:38`, runs `syncSessionCompaction`), the first streamed text stamps the
-/// disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
-/// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
+#[tokio::test(start_paused = true)]
+async fn a_committed_rows_prompt_text_joins_the_prompt_history() {
+    let live = run_live_events().await;
+    eventually_on!(&[&live.handle.cell.stepped], || prompt_list(&live.handle).contains(&"steered words".to_owned()).then_some(())).await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compaction_when_it_completes() {
     let rig = Rig::new();
@@ -4062,10 +4076,6 @@ async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compa
     assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
 }
 
-/// A Goal set during a user turn continues across it: once the turn settles with the Goal
-/// active and the thread idle, the runtime's continuation runs as an automatic turn whose input
-/// is runtime-synthetic (no user row); that turn pausing the Goal ends the chain, and the lane
-/// shows the paused Goal.
 #[tokio::test(start_paused = true)]
 async fn a_goal_continues_across_a_turn_until_it_stops() {
     use mixdog_core_goal::goal::hooks::GoalViewHooks;
@@ -4162,10 +4172,6 @@ fn quota_failure() -> Script {
     })
 }
 
-/// `beginQuotaSettlement` / `finishQuotaSettlement`: an automatic Goal turn that fails on quota
-/// queues its resume and, once its Goal settled `usage_limited`, records that Goal for the
-/// resume. A user prompt inside the settling window (after the failed turn end, before the
-/// Goal settlement) cancels the resume and keeps the suspension from being recorded.
 #[tokio::test(start_paused = true)]
 async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecorded() {
     use std::sync::atomic::Ordering;
@@ -4225,10 +4231,6 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     assert!(rig.quota.entry(id).is_none());
 }
 
-/// The scheduler's fire through the production `ResumeHost` (Node `fireQuotaResume`, recorded in
-/// `fixtures/quota-resume-fire`): while the quota-failed turn settles the fire is `busy`; then
-/// the queued resume of a user turn fires once (its prompt runs again as a new turn, the entry
-/// goes), and every repeat of that generation is `stale` ("prompt replayed").
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_scheduler_fire_replays_the_failed_turn_once() {
     use super::quota_resume_host::SessionResumeHost;
@@ -4320,8 +4322,44 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
 }
 
-/// One compaction of a run shows one divider, carrying the pass's duration and token move: the pass's
-/// event and the `compacted` record reach the thread in either order, and neither adds a row of its own.
+fn compact_event(before_tokens: u64, after_tokens: u64) -> mixdog_agent::env::CompactEvent {
+    mixdog_agent::env::CompactEvent {
+        dropped_count: 3,
+        dropped: None,
+        trigger: mixdog_agent::env::CompactTrigger::Auto,
+        status: mixdog_agent::env::CompactStatus::Compacted,
+        before_tokens,
+        duration_ms: 110,
+        after_tokens,
+        before_messages: 4,
+        after_messages: 1,
+        pressure_tokens: before_tokens,
+        trigger_tokens: 500_000,
+        boundary_tokens: 500_000,
+        target_budget_tokens: 40_000,
+    }
+}
+
+fn compaction_record(iid: &str, at: i64, size: usize) -> super::run::Compaction {
+    let summary = json!({ "role": "user", "content": format!("[summary] {iid}{}", "x".repeat(size)) });
+    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
+}
+
+fn compaction_rows(handle: &SessionHandle) -> Vec<(i64, Option<String>)> {
+    handle
+        .cell
+        .view
+        .load_full()
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(item.as_ref(), ThreadItem::ContextCompaction { .. })
+                || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact"))
+        })
+        .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
+        .collect()
+}
+
 #[tokio::test(start_paused = true)]
 async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
     for event_first in [true, false] {
@@ -4329,21 +4367,7 @@ async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
         rig.set_script(Arc::new(move |run| {
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
-                let event = mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens: 537_276,
-                    duration_ms: 110,
-                    after_tokens: 41_248,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: 537_276,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
+                let event = compact_event(537_276, 41_248);
                 let summary = json!({ "role": "user", "content": "[summary] earlier work" });
                 let compaction =
                     super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
@@ -4361,26 +4385,10 @@ async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let dividers: Vec<Option<String>> = handle
-            .cell
-            .view
-            .load_full()
-            .items
-            .iter()
-            .filter(|item| {
-                matches!(item.as_ref(), ThreadItem::ContextCompaction { .. })
-                    || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact"))
-            })
-            .map(|item| super::view::meta(item).detail.clone())
-            .collect();
-        assert_eq!(dividers, [Some("1s · 537k→41k".to_owned())], "event first: {event_first}");
+        assert_eq!(compaction_rows(&handle), [(777, Some("1s · 537k→41k".to_owned()))], "event first: {event_first}");
     }
 }
 
-/// Two compactions of one turn, their records and their events arriving in batches (each stream in order, as the run
-/// delivers them), still pair one to one: each divider shows its own pass's figures, and no pass adds a row of its own.
-/// Node keeps no figures past the live row (the archive's divider is the label and the time), so a reopened store shows
-/// the same two dividers without a detail.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two_dividers() {
     for event_first in [true, false] {
@@ -4390,35 +4398,16 @@ async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two
         rig.set_script(Arc::new(move |run| {
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
-                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens,
-                    duration_ms: 110,
-                    after_tokens,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: before_tokens,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
-                let compaction = |iid: &str, at: i64| {
-                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}") });
-                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
-                };
                 if event_first {
-                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
-                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
-                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
-                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
+                    run.port.compact_event(compact_event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(compact_event(300_000, 20_000)).await.expect("event b");
+                    run.port.compacted(compaction_record("sum1", 777, 0)).await.expect("record a");
+                    run.port.compacted(compaction_record("sum2", 888, 0)).await.expect("record b");
                 } else {
-                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
-                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
-                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
-                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
+                    run.port.compacted(compaction_record("sum1", 777, 0)).await.expect("record a");
+                    run.port.compacted(compaction_record("sum2", 888, 0)).await.expect("record b");
+                    run.port.compact_event(compact_event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(compact_event(300_000, 20_000)).await.expect("event b");
                 }
                 RunOutcome::Completed(Default::default())
             })
@@ -4427,35 +4416,18 @@ async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
-            handle
-                .cell
-                .view
-                .load_full()
-                .items
-                .iter()
-                .filter(|item| {
-                    matches!(item.as_ref(), ThreadItem::ContextCompaction { .. })
-                        || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact"))
-                })
-                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
-                .collect()
-        };
         assert_eq!(
-            compactions(&handle),
+            compaction_rows(&handle),
             [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
             "live, event first: {event_first}"
         );
         let id = handle.id.clone();
         let reopened = SessionDirectory::new(rig.deps_on(store));
         let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        assert_eq!(compactions(&restored), [(777, None), (888, None)], "reopened, event first: {event_first}");
+        assert_eq!(compaction_rows(&restored), [(777, None), (888, None)], "reopened, event first: {event_first}");
     }
 }
 
-/// A compaction record the encoder rejects (an oversized replacement) leaves no divider, and the live view is the same
-/// whichever of the record and its event came first: the rejected pass's event is dropped with it, the patch of a
-/// record-first divider goes with its record, and the pairs after it stay aligned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_and_later_pairs_stay_aligned() {
     for event_first in [true, false] {
@@ -4465,28 +4437,9 @@ async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_
         rig.set_script(Arc::new(move |run| {
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
-                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
-                    dropped_count: 3,
-                    dropped: None,
-                    trigger: mixdog_agent::env::CompactTrigger::Auto,
-                    status: mixdog_agent::env::CompactStatus::Compacted,
-                    before_tokens,
-                    duration_ms: 110,
-                    after_tokens,
-                    before_messages: 4,
-                    after_messages: 1,
-                    pressure_tokens: before_tokens,
-                    trigger_tokens: 500_000,
-                    boundary_tokens: 500_000,
-                    target_budget_tokens: 40_000,
-                };
-                let compaction = |iid: &str, at: i64, size: usize| {
-                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}{}", "x".repeat(size)) });
-                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
-                };
                 let oversized = mixdog_protocol::MAX_BLOB_BYTES as usize + 1;
-                let events = [event(537_276, 41_248), event(400_000, 30_000), event(300_000, 20_000)];
-                let records = [compaction("sum1", 777, 0), compaction("sum2", 888, oversized), compaction("sum3", 999, 0)];
+                let events = [compact_event(537_276, 41_248), compact_event(400_000, 30_000), compact_event(300_000, 20_000)];
+                let records = [compaction_record("sum1", 777, 0), compaction_record("sum2", 888, oversized), compaction_record("sum3", 999, 0)];
                 if event_first {
                     for event in events {
                         run.port.compact_event(event).await.expect("event");
@@ -4509,29 +4462,15 @@ async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
-            handle
-                .cell
-                .view
-                .load_full()
-                .items
-                .iter()
-                .filter(|item| {
-                    matches!(item.as_ref(), ThreadItem::ContextCompaction { .. })
-                        || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact"))
-                })
-                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
-                .collect()
-        };
         assert_eq!(
-            compactions(&handle),
+            compaction_rows(&handle),
             [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
             "live, event first: {event_first}"
         );
         let id = handle.id.clone();
         let reopened = SessionDirectory::new(rig.deps_on(store));
         let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
-        assert_eq!(compactions(&restored), [(777, None), (999, None)], "reopened, event first: {event_first}");
+        assert_eq!(compaction_rows(&restored), [(777, None), (999, None)], "reopened, event first: {event_first}");
     }
 }
 
@@ -4666,17 +4605,12 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
     eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 3).then_some(())).await;
 }
 
-/// A value marked sensitive after records holding it were written (the prompt that brought it, its title and prompt-history
-/// rows) leaves every file the thread store and the prompt history wrote (`redactSessionFiles`): the log is rewritten at the
-/// next barrier, the thread's index rows are rebuilt from it with their old pages overwritten and the WAL emptied, and the
-/// cwd's persisted prompts take the marker. The model context still reads the prompt whole for the process.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_model_context_keeps_it() {
+const MARKED_CODE: &str = "482913";
+
+async fn thread_store_over(data: &std::path::Path) -> Arc<super::StoreThreads> {
     use mixdog_core_api::domain::mock::MockOwnership;
-    const CODE: &str = "482913";
-    let data = tempfile::tempdir().expect("data dir");
     let tokens = mixdog_rt::testing::tokens();
-    let root = data.path().to_path_buf();
+    let root = data.to_path_buf();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
         mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
     })
@@ -4684,13 +4618,37 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     .await
     .expect("job ran")
     .expect("index");
-    let threads = Arc::new(
-        super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"),
-    );
+    Arc::new(super::StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"))
+}
+
+fn holds_marked_code(path: &std::path::Path) -> bool {
+    std::fs::read(path).is_ok_and(|bytes| bytes.windows(MARKED_CODE.len()).any(|w| w == MARKED_CODE.as_bytes()))
+}
+
+fn files_holding_marked_code(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if holds_marked_code(&path) {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_model_context_keeps_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = thread_store_over(data.path()).await;
     let rig = Rig::new();
     let deps = rig.deps_parts(threads.clone());
     assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": MARKED_CODE } } });
     let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
     rig.set_script(Arc::new(move |run| {
         let (body, fill) = (body.clone(), fill.clone());
@@ -4704,70 +4662,37 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     }));
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
-    let prompt = format!("{CODE} is the code from the mail");
+    let prompt = format!("{MARKED_CODE} is the code from the mail");
     turn(&handle, &prompt, "op-1").await;
     let cwd = handle.cell.header.load_full()["cwd"].as_str().map(str::to_owned).expect("cwd");
     let history = rig.prompts.file(&cwd).expect("a prompt history file");
-    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
-    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
-        let mut out = Vec::new();
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
-            }
-        }
-        out
-    };
-    // The log was rewritten at the barrier after the mark, inside the turn; the index rows follow the projector; the
-    // prompt history is written on the durability lane and tells the rig each time.
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     threads.projected().await;
-    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds(&history)).then_some(())).await;
-    let held: Vec<_> = files(data.path()).into_iter().filter(|path| holds(path)).collect();
+    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds_marked_code(&history)).then_some(())).await;
+    let held = files_holding_marked_code(data.path());
     assert!(held.is_empty(), "files holding the value: {held:?}");
     let context = directory.model_context(&handle.id).read().await.expect("context");
     let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
     assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
     assert!(std::fs::read_to_string(&history).expect("history").contains("[redacted] is the code from the mail"));
-    // The history a client is sent after the mark: the thread's own lists take the marker too.
     let list = eventually_on!(&[&handle.cell.stepped], || {
         let list = prompt_list(&handle);
-        list.iter().all(|entry| !entry.contains(CODE)).then_some(list)
+        list.iter().all(|entry| !entry.contains(MARKED_CODE)).then_some(list)
     })
     .await;
     assert_eq!(list, ["[redacted] is the code from the mail"]);
-    // What a client (the desktop, or a paired phone through the relay: the same `thread/read`) reads after the mark once
-    // the thread is loaded again from its stored files. The live view of the still-loaded thread keeps its rows as sent,
-    // as Node's does.
     let restarted = SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone())));
     let reread = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
     let read = reread.request(request("thread/read", json!({ "threadId": handle.id }), "op-read")).await.expect("thread/read");
     let Reply::Value(read) = read else { panic!("thread/read answers a value") };
     let read = serde_json::to_string(&read).expect("json");
-    assert!(!read.contains(CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
+    assert!(!read.contains(MARKED_CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
 }
 
-/// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
-/// grandchild's mark is carried to the child whose report quoted it and on to the parent (`carry`, as the worker's turn
-/// sets it up), and each of them, idle, rewrites its log, index rows and prompt history as for a mark of its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain() {
-    use mixdog_core_api::domain::mock::MockOwnership;
-    const CODE: &str = "482913";
     let data = tempfile::tempdir().expect("data dir");
-    let tokens = mixdog_rt::testing::tokens();
-    let root = data.path().to_path_buf();
-    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-    })
-    .expect("lane")
-    .await
-    .expect("job ran")
-    .expect("index");
-    let threads = Arc::new(
-        super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"),
-    );
+    let threads = thread_store_over(data.path()).await;
     let rig = Rig::new();
     let deps = rig.deps_parts(threads.clone());
     assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
@@ -4789,33 +4714,17 @@ async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain
     }));
     let directory = SessionDirectory::new(Arc::new(deps));
     let (parent, child, grandchild) = (start_thread(&directory).await, start_thread(&directory).await, start_thread(&directory).await);
-    // The reports as delivered before the mark: the child's quoted the value to the parent, the grandchild's to the child.
-    turn(&parent, &format!("the child reported {CODE}"), "op-p").await;
-    turn(&child, &format!("the grandchild reported {CODE}"), "op-c").await;
+    turn(&parent, &format!("the child reported {MARKED_CODE}"), "op-p").await;
+    turn(&child, &format!("the grandchild reported {MARKED_CODE}"), "op-c").await;
     let all = [&parent, &child, &grandchild];
     eventually_on!(&[&parent.cell.stepped, &child.cell.stepped], || all.iter().all(|h| idle(h)).then_some(())).await;
     threads.projected().await;
-    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
-    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
-        let mut out = Vec::new();
-        let mut stack = vec![dir.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
-            }
-        }
-        out
-    };
-    let held = || files(data.path()).into_iter().filter(|path| holds(path)).collect::<Vec<_>>();
+    let held = || files_holding_marked_code(data.path());
     assert!(!held().is_empty(), "the reports are stored before the mark");
-    // As each worker's turn sets it up (`TurnRunner::run`), then the grandchild marks the value.
     marks.carry(&grandchild.id, &child.id);
     marks.carry(&child.id, &parent.id);
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": MARKED_CODE } } });
     assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
-    // The files are read after the index holds every write acked so far: the rewrite's index rows are projected behind their ack and
-    // nothing signals the projection, so a probe woken only by the owners' steps and the prompt history read the index before it
-    // had them and then waited for a wake that never came.
     super::testing::awaiting(|| format!("until no file holds the value: {:?}", held()), async {
         let wakes = [&parent.cell.stepped, &child.cell.stepped, &grandchild.cell.stepped, &*rig.prompts_wrote];
         loop {
@@ -4832,7 +4741,7 @@ async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain
     })
     .await;
     assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
-    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
+    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), MARKED_CODE), "[redacted]", "the parent holds the mark");
 }
 
 /// `thread/reactions/set`: the reaction is stored on the user's message (an amend of its row), a
@@ -5648,10 +5557,6 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     assert_eq!(runs_started(&rig, &parked.id), 0);
 }
 
-/// D-downloads-1, held at the purge: while an explicit delete's purge is held at its first hook, the store's list row is already gone
-/// (`summary`, which the phone grants' catalog reads, `CatalogSessions::has/row`) and the delete has told `tombstoned`, whose production
-/// seam ends the conversation's phone downloads (`purge.rs` `tombstoned` -> `ThreadDeletions::tell` -> `WorkspaceService::session_removed`,
-/// `compose_flip.rs` `on_gone`); `thread/deleted` waits for the purge.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_explicit_delete_ends_downloads_at_its_tombstone_before_the_purge_finishes() {
     use mixdog_core_api::domain::mock::MockOwnership;
@@ -5944,10 +5849,6 @@ async fn shutdown_waits_for_close_work_of_a_thread_already_evicted() {
     assert_eq!(lock(&rig.closes.seen).len(), 1, "shutdown joined the evicted thread's ingest");
 }
 
-/// A header saved before transcript epochs existed (a provider state, no `transcriptEpoch`) is named an epoch when its next turn
-/// saves, and keeps its provider state: the state is not invalid for this build (a Responses slot is read from its own wire's key
-/// and used only while its model and message count fit the transcript, a Gemini entry only under its credential fingerprint, and a
-/// pool account is sent only a state stamped as its own, which an older state never is), so the mint is not a reset.
 #[tokio::test(start_paused = true)]
 async fn a_header_without_an_epoch_is_named_one_and_keeps_its_provider_state() {
     let rig = Rig::new();
@@ -6007,10 +5908,6 @@ async fn the_prefix_guard_goes_with_the_actor_incarnation_that_kept_it() {
     assert_eq!(*lock(&seen), [None, kept, None, None], "first run, the same actor's next run, the run after an unload, the run after an unwind");
 }
 
-/// One actor never has two runs between a guard lookup and its save: a prompt sent while a run is between them is queued,
-/// and its run looks the guard up only after the first run kept its own (`RunSlot` is set at admission and cleared by
-/// the run task's `RunEnded`, sent after the driver saved the guard; every start passes `turn_busy`). So the slot's `keep`
-/// has one writer at a time, and the second run's baseline is the first run's guard.
 #[tokio::test(start_paused = true)]
 async fn a_second_run_looks_up_the_prefix_guard_only_after_the_first_kept_its_own() {
     let rig = Rig::new();
@@ -6048,10 +5945,6 @@ async fn a_second_run_looks_up_the_prefix_guard_only_after_the_first_kept_its_ow
     assert_eq!(*lock(&seen), [None, kept]);
 }
 
-/// The feed a `thread/resume` reply hands the server counts the subscription the server attaches: the watched thread is
-/// off the idle clock (`unwatchedRetained`). Its detach counts once (a second detach of it counts nothing while another view
-/// stays); the last view leaving retains the thread for the idle delay, a resume meanwhile starts the delay over
-/// (`idleClock.refresh`), and a whole delay unwatched unloads it.
 #[tokio::test(start_paused = true)]
 async fn a_resumed_subscription_keeps_the_thread_off_the_idle_clock_and_its_last_detach_retains_it() {
     use mixdog_core_api::FeedSource;
@@ -6156,6 +6049,61 @@ async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
     assert!(directory.handle(&handle.id).is_some(), "not before the delay");
     tokio::time::advance(Duration::from_secs(2)).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+/// What the process remembers of a thread's surface (`NewThreadTools::unloaded`) is let go each time the thread's slot
+/// leaves the directory, whichever way it leaves: the idle unload, the idle sweep's tombstone, a delete. A thread that is
+/// still loaded has let go of nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_way_a_thread_leaves_the_directory_lets_go_of_its_surface_memory() {
+    use mixdog_store::schema::record::Header;
+    #[derive(Default)]
+    struct Tools(Mutex<Vec<ThreadId>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+            Ok(header.clone())
+        }
+        fn unloaded(&self, thread: &ThreadId) {
+            lock(&self.0).push(thread.clone());
+        }
+    }
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let tools = Arc::new(Tools::default());
+    let mut deps = rig.deps_parts(store);
+    deps.new_tools = tools.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let let_go = |id: &ThreadId| lock(&tools.0).iter().filter(|left| *left == id).count();
+    let live = CancellationToken::new();
+    // A thread that ran a turn and then unloaded for want of a subscriber: its id and the activity a sweep reads of it.
+    let unloaded = || async {
+        let handle = start_thread(&directory).await;
+        let id = handle.id.clone();
+        turn(&handle, "hello", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+        assert_eq!(let_go(&id), 0, "a loaded thread has let go of nothing");
+        subscribe(&handle);
+        left_idle(&handle).await;
+        eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+        handle.inbox.closed().await;
+        (id, read)
+    };
+
+    let (swept, read) = unloaded().await;
+    assert_eq!(let_go(&swept), 1, "the idle unload");
+    assert!(directory.close_stored(swept.as_str(), read, &live).await.expect("close"));
+    assert_eq!(let_go(&swept), 2, "the sweep loaded it again and its tombstone took the slot");
+
+    let (deleted, read) = unloaded().await;
+    assert!(directory.delete_stored(deleted.as_str(), read, &[], &live).await.expect("delete"));
+    assert_eq!(let_go(&deleted), 2, "the delete loaded it again and its mark took the slot");
+
+    let kept = start_thread(&directory).await;
+    assert_eq!(let_go(&kept.id), 0, "another thread, still loaded, keeps what it has");
 }
 
 /// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the

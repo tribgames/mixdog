@@ -1,12 +1,4 @@
-//! The workbook editor against real Microsoft Excel. Every test is `#[ignore]`: it starts Excel, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test excel_edit_live -- --ignored`) on a Windows machine with Excel and
-//! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
-//!
-//! A new workbook in a background session is edited through the registered editor with the argument sets of the live Excel
-//! tests of the PowerShell host (cells, a typed-text case, a block, styles, a merge, widths, panes, a chart, page setup, a header),
-//! and the workbook is read back through the registered reader. The twin comparison with the PowerShell host (responses equal after
-//! normalisation, the saved file equal after OOXML normalisation, wall time not above the host's) is the recorded scenario set of
-//! `tests/scenarios/excel-edit.json`.
+//! Ignored: starts Excel; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::PathBuf;

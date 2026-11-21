@@ -1,17 +1,3 @@
-//! The ledger's query API on its lanes (RL §7.2, §8.3): reads never go through the writer and
-//! never run on an async task.
-//!
-//! * `io-interactive` serves reads whose cost is bounded by their shape: aggregate tables
-//!   restricted by a day range, one page of the request log, a session's sums, the cached
-//!   rollup days.
-//! * `io-maintenance` serves reads that visit an unbounded number of rows: a rollup cut below
-//!   whole days (it folds the period's retained events), the hour view, and the quota history
-//!   (every reading of a window plus the fitted split, which is also CPU-heavy).
-//!
-//! Every read runs as one lane job on its own read-only connection, so a slow quota fit can
-//! never delay a request-log page, and the WAL snapshot a read sees is never blocked by the
-//! writer. A full lane answers [`LedgerError::Busy`] at once instead of queueing without bound.
-
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

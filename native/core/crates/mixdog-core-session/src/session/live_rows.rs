@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use mixdog_agent::env::CompactEvent;
 use mixdog_agent::env::CompactStatus;
 use mixdog_agent::env::CompactTrigger;
+use mixdog_core_api::domain::provider::Usage;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
@@ -210,6 +211,46 @@ pub(crate) fn compact_event_detail(event: &CompactEvent) -> String {
 mod tests {
     use super::*;
 
+    fn report(usage: Usage) -> super::super::run::UsageReport {
+        super::super::run::UsageReport {
+            iteration: 0,
+            usage,
+            model: "m".into(),
+            requested_model: "m".into(),
+            delta_tool_calls: 0,
+            request_ms: 0,
+            delta_prompt: 1000,
+            send_tools: Vec::new(),
+            reasoning_tokens: None,
+            reasoning_tokens_complete: true,
+            outgoing: Vec::new().into(),
+            sent_at_ms: 0,
+            input_excludes_cache: false,
+            tail_book: None,
+        }
+    }
+
+    #[test]
+    fn a_multi_hop_usage_bills_the_sum_and_measures_the_context_on_the_first_hop() {
+        let usage = Usage {
+            input_tokens: 1000,
+            output_tokens: 50,
+            cache_read_tokens: 900,
+            raw: Some(json!({ "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
+            ..Usage::default()
+        };
+        let row = usage_delta("s", &report(usage), 5);
+        assert_eq!((&row["deltaInput"], &row["deltaPrompt"], &row["deltaCachedRead"]), (&json!(1000), &json!(1000), &json!(900)));
+        assert_eq!((&row["contextInputTokens"], &row["contextPromptTokens"], &row["contextCachedReadTokens"]), (&json!(300), &json!(300), &json!(300)));
+    }
+
+    #[test]
+    fn a_single_hop_usage_measures_the_context_on_what_was_billed() {
+        let usage = Usage { input_tokens: 1000, cache_read_tokens: 900, raw: Some(json!({ "initialPromptTokenCount": 1000 })), ..Usage::default() };
+        let row = usage_delta("s", &report(usage), 5);
+        assert_eq!((&row["contextInputTokens"], &row["contextPromptTokens"], &row["contextCachedReadTokens"]), (&json!(1000), &json!(1000), &json!(900)));
+    }
+
     #[test]
     fn notices_read_as_nodes_polish() {
         for (raw, want) in [
@@ -289,9 +330,24 @@ pub(crate) fn compact_usage_delta(session_id: &str, report: &super::run::Compact
         "ts": ts,
     })
 }
-/// `usageDeltaEvent` of one model call, in Node's key order. The provider facts Rust's `Usage`
-/// does not carry read as Node's defaults: the prompt and its cache split are known, and the
-/// context figures are the billed ones (`contextInputTokens ?? inputTokens`).
+// A long-decode turn bills every hop, but the context holds only the first hop's prompt plus what was generated
+// (`normalizeGeminiUsage`'s `contextInputTokens` / `contextCachedTokens`): the billing delta keeps the summed counts and the
+// context figures take the first hop's, which the provider's usage carries as `initialPromptTokenCount`.
+fn first_hop_context(usage: &Usage, delta_prompt: u64) -> (Usage, u64) {
+    let mut context = usage.clone();
+    let mut context_prompt = delta_prompt;
+    if let Some(raw) = usage.raw.as_ref() {
+        let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let initial = count("initialPromptTokenCount");
+        if initial > 0 && initial < usage.input_tokens {
+            context.input_tokens = initial;
+            context_prompt = initial;
+            context.cache_read_tokens = count("initialCachedContentTokenCount").min(initial);
+        }
+    }
+    (context, context_prompt)
+}
+
 pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts: i64) -> Value {
     let usage = &report.usage;
     let tools: Vec<Value> = report
@@ -305,21 +361,7 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
             out
         })
         .collect();
-    // A long-decode turn bills every hop, but the context holds only the first hop's prompt plus what was generated
-    // (`normalizeGeminiUsage`'s `contextInputTokens` / `contextCachedTokens`): the billing delta keeps the summed counts and the
-    // context figures take the first hop's, which the provider's usage carries as `initialPromptTokenCount`.
-    let mut context = usage.clone();
-    let mut context_prompt = report.delta_prompt;
-    if let Some(raw) = usage.raw.as_ref() {
-        let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let initial = count("initialPromptTokenCount");
-        if initial > 0 && initial < usage.input_tokens {
-            context.input_tokens = initial;
-            // The summed prompt is the bill; the context's prompt is the first hop's.
-            context_prompt = initial;
-            context.cache_read_tokens = count("initialCachedContentTokenCount").min(initial);
-        }
-    }
+    let (context, context_prompt) = first_hop_context(usage, report.delta_prompt);
     json!({
         "sessionId": session_id,
         "iterationIndex": report.iteration,

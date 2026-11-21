@@ -1,9 +1,3 @@
-//! `announceSettingsChange` (`session-runtime/boot/providers.mjs`): the step that announces a settings change to the attached surfaces.
-//! Node runs it from `applyConfigChange` (`config-lifecycle.mjs`) when `diffConfigSnapshots` finds `settings` changed: the stored
-//! settings root without its `desktop` section, and the secret change tokens, differ from what this runtime last applied
-//! (`configChangeSnapshot`, `config-change-effects.mjs`). The baseline is the configuration at boot. A rewrite of identical content,
-//! a change of the `desktop` section alone, and a token refresh nobody announced are not settings changes.
-
 use std::sync::Arc;
 
 use mixdog_core_config::config::Config;
@@ -87,10 +81,6 @@ mod tests {
         assert_eq!(removed(serde_json::json!({ "notifications": { "migratedAt": 1 } }), "notifications"), (serde_json::json!({}), true));
     }
 
-    /// The Rust config holds the keys the Node desktop keeps in its own files (a greeting record, the notification store's stamp, the remote
-    /// activation time, the `desktop` section); the Node daemon's settings root has none of them, so writing one announces nothing. A write of
-    /// the `agent` section does. (The real-turn harness's Rust daemon announced twice where Node announced once: a catalog read recorded
-    /// `agents.greeted` while the thread was created.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn only_the_settings_node_stores_in_its_config_are_settings_changes() {
         let dir = tempfile::tempdir().expect("dir");
@@ -262,10 +252,6 @@ const CONFIG_CHANGE_DEBOUNCE: std::time::Duration = std::time::Duration::from_mi
 /// How long a settings call waits for the threads to show its change. A thread shows it from its mailbox, also mid-turn, so only a
 /// wedged thread reaches this.
 const SHOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-/// Resolves once every following thread has shown the count announced when it was called; a thread that is closing, crashed or
-/// gone (its feed dropped) is not waited for. At [`SHOWN_DEADLINE`] it resolves all the same, logging each thread still behind: Node
-/// answers a settings write without waiting for any session (config-writers.mjs:67-75 debounces the save behind the answer), so a
-/// slow thread never turns that answer into an error.
 async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>) -> Result<(), String> {
     let target = *announced.borrow();
     let followers = {

@@ -1,9 +1,3 @@
-//! What the Anthropic, OpenAI and OpenAI-compatible streams read off their decoded events: which are model output and which
-//! are item boundaries. The idle, first-output and first-byte windows themselves are the model-exchange driver's
-//! ([`crate::transport::model_driver`]); the windows come from [`policy`](crate::providers::google::cache::policy)
-//! (`sse_idle_ms`, `semantic_idle_ms`, `ws_semantic_idle_ms`), which is `None` when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the
-//! provider's stream policy off, and the driver's fallback then takes over.
-
 use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::StreamEvent;
 

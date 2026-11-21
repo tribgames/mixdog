@@ -267,8 +267,7 @@ impl Pass {
             return Ok(Outcome::Cancelled);
         }
         let selected = bounded!(self, "route", self.host.route(id));
-        let selected_provider = if selected.provider.is_empty() { entry.provider.clone() } else { selected.provider };
-        let selected_model = if selected.model.is_empty() { entry.model.clone() } else { selected.model };
+        let (selected_provider, selected_model) = (pick(selected.provider, &entry.provider), pick(selected.model, &entry.model));
         if selected_provider != provider || selected_model != model {
             // The reading belongs to the old route. Preserve the reservation and check the
             // selected route on the normal busy-recheck cadence.

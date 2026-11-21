@@ -249,8 +249,15 @@ async fn a_request_is_bound_to_the_desktop_that_bound_its_page() {
     }
     desk.reply("secret_bind", Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })));
     assert_eq!(host.browser(&thread, "secret_bind", bind, &mixdog_rt::CancellationToken::new()).await, Err(HostCommandError::NoHost));
+}
 
-    // `secret_input` answers the outcome only; every other command goes to the host as it is.
+#[tokio::test]
+async fn secret_input_answers_the_outcome_only_and_every_other_command_goes_to_the_host_as_it_is() {
+    let desk = Desk::new();
+    let (slots, fill) = browser_fill(&desk, open());
+    let thread = ThreadId::from("S1");
+    let inner = Page::answering(Ok(json!({})));
+    let host = SecretHostCommands::new(inner.clone(), Arc::new(fill));
     slots.discard(ID);
     desk.reply("secret_bind", Ok(json!({ "origin": "https://example.com", "form": "password" })));
     host.browser(&thread, "secret_bind", json!({ "request_id": ID }), &mixdog_rt::CancellationToken::new()).await.unwrap();
@@ -663,11 +670,6 @@ async fn an_expired_value_leaves_memory_without_any_later_operation() {
     assert!(slots.inner.state().bindings.is_empty());
     drop(slots);
 }
-/// Each browser command of a secret request leaves its `browser_timing` row, as Node's bridge client traced its
-/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`,
-/// and leaves the one `secret_input` row Node does, with the answer that ended it. A row holds the action and the timing the
-/// desktop answered with, never the value. A pre-check the changed claim refused leaves a row with no answer; with no desktop
-/// at all nothing was sent and there is none.
 #[tokio::test]
 async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
     let rows: Arc<Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();

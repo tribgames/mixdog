@@ -67,10 +67,6 @@ impl Host {
         Ok(())
     }
 
-    /// Whether the theme outlives this action: input that ran, or a hold an
-    /// earlier action began, keeps the blanked cursor for a sequence that
-    /// continues or a held pointer; a refusal before any input hands it
-    /// straight back.
     fn theme_kept(&self, run: &ThemeRun) -> bool {
         let request = self.current_request();
         let holds = request.bool_true("input_continues") || (request.bool_true("hold_pointer") && run.applied);

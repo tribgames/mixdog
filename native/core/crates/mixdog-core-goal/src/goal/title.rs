@@ -1,4 +1,4 @@
-//! `goal-title.mjs`: background title generation for a Goal objective. One job per session; a
+//! Background title generation for a Goal objective. One job per session; a
 //! newer objective supersedes the running job, and the title only lands when the stored Goal
 //! still has the objective it was drawn from.
 

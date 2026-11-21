@@ -1,19 +1,6 @@
 //! `Apply-PowerPointOperation` of `office-com-host.ps1`: the 46 operations on a deck, registered as the `pptx`
 //! [`FormatEditor`].
 //!
-//! * [`layout`]: `PowerPoint-Layout`, a layout by index, name or type.
-//! * [`text`]: `replace_text`, `set_text`, `fit_text` and the text helpers (paragraphs, alignment, anchor, font faces).
-//! * [`shapes`]: text boxes and shapes, their shadow, `Clamp-Unit`, deleting, stacking, aligning, grouping, hyperlinks and the
-//!   ink a fill carries.
-//! * [`tables`]: `add_table`, `set_table_data` and `set_table_cell_style`.
-//! * [`images`]: `Add-PptImage` and the picture and media operations.
-//! * [`slides`]: the slide operations, notes, comments and provenance.
-//! * [`footer`]: the footer and the slide number.
-//! * [`template`]: `fill_template` over the text ranges of a deck.
-//! * [`chart_data`]: the chart data sheet, the Excel it starts and its cleanup.
-//! * [`chart_window`]: the hidden window a chart needs.
-//! * [`charts`]: the chart operations.
-//!
 //! Every operation answers one record in the key order the script writes it, and a refusal is the script's text. A property
 //! read of the request is a PowerShell property read (a missing one is `$null`), a cast is PowerShell's cast, and a step the
 //! script wraps in `try { } catch { }` is wrapped here and its failure ignored: the replayed call logs hold the port to the same

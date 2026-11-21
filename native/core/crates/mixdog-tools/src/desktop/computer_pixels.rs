@@ -484,6 +484,10 @@ mod tests {
         assert_eq!(recognizer.1.lock().unwrap().clone(), vec![(Some("en-US".to_owned()), 300)]);
         let ToolPart::Text(listed) = &parts[2] else { panic!("the recognized text after the image") };
         assert!(listed.contains(&format!("[ocr:{}:1] Text \"Save\"", frame.id)), "{listed}");
+    }
+
+    #[test]
+    fn a_vision_display_capture_reports_no_accessibility_read() {
         let vision = run(capture_display(
             &Desktop::new(displays(), reply()),
             &blobs(),
@@ -497,7 +501,10 @@ mod tests {
         let ToolPart::Text(vision) = &vision[0] else { panic!("text first") };
         let vision: Value = serde_json::from_str(vision).unwrap();
         assert_eq!((vision["accessibility_status"].clone(), vision.get("elements").cloned()), (json!("not_requested"), None));
-        // A recognizer that fails leaves the capture whole and says why.
+    }
+
+    #[test]
+    fn a_failing_recognizer_leaves_the_display_capture_whole_and_says_why() {
         let broken = Recognizer(Err(ComputerError::Failed { code: "x".into(), message: "OCR offline".into() }), Default::default());
         let (parts, _) = run(capture_display(
             &Desktop::new(displays(), reply()),

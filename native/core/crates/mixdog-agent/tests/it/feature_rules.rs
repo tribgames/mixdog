@@ -82,6 +82,24 @@ fn a_named_preset_is_the_route_a_spawned_worker_runs_on_and_remembers_where_it_c
 }
 
 #[test]
+fn a_spawn_that_names_its_model_runs_on_it_directly_with_the_pickers_defaults_under_what_it_asked() {
+    let config = json!({});
+    let config = config.as_object().unwrap();
+    let defaults = json!({ "effort": "high", "fast": true });
+    let args = json!({ "agent": "worker", "provider": "openai", "model": "gpt-x", "modelDefaults": defaults });
+    let spawn = resolve_agent_spawn_preset(config, &args, &[]).unwrap();
+    assert_eq!(spawn.preset_name, json!("__direct__"));
+    assert_eq!(spawn.preset["id"], json!("__direct__"));
+    assert_eq!((&spawn.preset["provider"], &spawn.preset["model"]), (&json!("openai"), &json!("gpt-x")));
+    assert_eq!((&spawn.preset["effort"], &spawn.preset["fast"]), (&json!("high"), &json!(true)));
+    assert!(spawn.preset.get("fallbacks").is_none());
+    let asked =
+        json!({ "agent": "worker", "provider": "openai", "model": "gpt-x", "modelDefaults": defaults, "effort": "low", "fast": false, "autoEffort": false });
+    let spawn = resolve_agent_spawn_preset(config, &asked, &[]).unwrap();
+    assert_eq!((&spawn.preset["effort"], &spawn.preset["fast"], &spawn.preset["autoEffort"]), (&json!("low"), &json!(false), &json!(false)));
+}
+
+#[test]
 fn a_spawn_with_no_route_to_run_on_fails_naming_what_is_missing() {
     let config = json!({ "presets": [{ "id": "mine", "provider": "openai", "model": "gpt-x" }] });
     let config = config.as_object().unwrap();

@@ -1,9 +1,6 @@
-//! Background input a standard dialog would not act on: an inactive dialog
-//! without its control named, and dialog-manager keys (Enter, Esc, Space,
-//! Tab) sent as messages (backgroundDialogInputError,
-//! input/background-dialog-input.ts:38-65). A modal dialog routes keys through
-//! the dialog manager of the thread holding the input focus, so a message to
-//! an unfocused dialog is discarded and a default button is never pressed.
+//! A modal dialog routes keys through the dialog manager of the thread holding
+//! the input focus, so a message to an unfocused dialog is discarded and a
+//! default button is never pressed.
 
 use super::super::native;
 use crate::platform::Wid;

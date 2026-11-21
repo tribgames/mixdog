@@ -45,8 +45,8 @@ pub struct PartMeter {
 pub trait MediaMeter: Send + Sync {
     fn part(&self, part: &ContentPart) -> PartMeter;
 
-    /// How many tokens [`Self::part`] overstates a PDF part for a provider that takes PDFs as text (`fileDescriptorAllowance` as a native
-    /// document less as extracted text); 0 for every other part.
+    /// How many tokens [`Self::part`] overstates a PDF part for a provider that takes PDFs as text (its native-document
+    /// allowance less the extracted-text allowance); 0 for every other part.
     fn text_pdf_discount(&self, part: &ContentPart) -> u64 {
         let _ = part;
         0
@@ -54,8 +54,7 @@ pub trait MediaMeter: Send + Sync {
 
     /// Reads from the store what pricing `messages` needs (the facts of the stored attachments
     /// they carry, the text of the stored text attachments). A meter with nothing to read has
-    /// nothing to do. `Err` is a read that failed for now (Node's synchronous read throws it out of
-    /// the pricing); a blob that is gone for good is priced as gone.
+    /// nothing to do. `Err` is a read that failed for now; a blob that is gone for good is priced as gone.
     async fn prepare(&self, messages: &[AgentMessage]) -> Result<(), String> {
         let _ = messages;
         Ok(())

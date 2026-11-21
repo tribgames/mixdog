@@ -26,6 +26,7 @@ use serde_json::json;
 use super::error::protocol_error;
 use super::error::trailer_error;
 use super::schema::ChatResponse;
+use super::schema::ChatToolCall;
 use super::schema::stop;
 use crate::providers::connect::frame::FrameReader;
 use crate::providers::connect::invalid_tool_args_marker;
@@ -116,6 +117,19 @@ impl DevinDecoder {
     }
 
     fn apply(&mut self, msg: ChatResponse, events: &mut Vec<StreamEvent>) {
+        self.note_served_model(&msg, events);
+        if self.message_id.is_empty() && !msg.message_id.is_empty() {
+            self.message_id = msg.message_id.clone();
+        }
+        if msg.stop_reason != 0 {
+            self.stop_reason = msg.stop_reason;
+        }
+        self.report_billing(&msg, events);
+        self.apply_content(msg.delta_thinking, msg.delta_signature, msg.delta_signature_type, msg.delta_text, events);
+        self.apply_tool_calls(msg.delta_tool_calls, events);
+    }
+
+    fn note_served_model(&mut self, msg: &ChatResponse, events: &mut Vec<StreamEvent>) {
         let model = (!msg.actual_model_uid.is_empty())
             .then_some(msg.actual_model_uid.as_str())
             .or_else(|| self.served.is_none().then_some(self.assigned.as_deref()).flatten());
@@ -125,14 +139,11 @@ impl DevinDecoder {
             self.served = Some(model.to_owned());
             events.push(StreamEvent::ServedModel(model.to_owned()));
         }
-        if self.message_id.is_empty() && !msg.message_id.is_empty() {
-            self.message_id = msg.message_id;
-        }
-        if msg.stop_reason != 0 {
-            self.stop_reason = msg.stop_reason;
-        }
+    }
+
+    fn report_billing(&mut self, msg: &ChatResponse, events: &mut Vec<StreamEvent>) {
         let reported_usage = msg.usage.is_some();
-        if let Some(stats) = msg.usage {
+        if let Some(stats) = &msg.usage {
             let read = stats.cache_read_tokens;
             let write = stats.cache_write_tokens;
             self.usage = Some(Usage {
@@ -178,7 +189,10 @@ impl DevinDecoder {
             }
             events.push(StreamEvent::Usage(usage));
         }
-        if !msg.delta_thinking.is_empty() {
+    }
+
+    fn apply_content(&mut self, thinking: String, signature: String, signature_type: String, text: String, events: &mut Vec<StreamEvent>) {
+        if !thinking.is_empty() {
             if !self.in_thinking {
                 self.signatures.push(String::new());
             }
@@ -187,36 +201,39 @@ impl DevinDecoder {
                 self.reasoning_started = true;
                 events.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
             }
-            self.thinking.push_str(&msg.delta_thinking);
-            events.push(StreamEvent::ReasoningDelta(msg.delta_thinking));
+            self.thinking.push_str(&thinking);
+            events.push(StreamEvent::ReasoningDelta(thinking));
         }
         // Signatures stream as deltas and may arrive after the thinking they
         // sign: every fragment extends the latest block's signature.
-        if !msg.delta_signature.is_empty() {
+        if !signature.is_empty() {
             if self.signatures.is_empty() {
                 self.signatures.push(String::new());
             }
             if let Some(last) = self.signatures.last_mut() {
-                last.push_str(&msg.delta_signature);
+                last.push_str(&signature);
             }
         }
-        if !msg.delta_signature_type.is_empty() {
-            self.signature_type = msg.delta_signature_type;
+        if !signature_type.is_empty() {
+            self.signature_type = signature_type;
         }
-        if !msg.delta_text.is_empty() {
+        if !text.is_empty() {
             self.in_thinking = false;
             if !self.text_started {
                 self.text_started = true;
                 events.push(StreamEvent::ItemStart { kind: ItemKind::Text, phase: None });
             }
             self.exposure.text_emitted = true;
-            events.push(StreamEvent::TextDelta(msg.delta_text));
+            events.push(StreamEvent::TextDelta(text));
         }
-        if !msg.delta_tool_calls.is_empty() {
+    }
+
+    fn apply_tool_calls(&mut self, delta_calls: Vec<ChatToolCall>, events: &mut Vec<StreamEvent>) {
+        if !delta_calls.is_empty() {
             self.in_thinking = false;
         }
         let mut reported = false;
-        for call in msg.delta_tool_calls {
+        for call in delta_calls {
             let id = if call.id.is_empty() {
                 match self.active_call {
                     Some(at) => self.calls[at].id.clone(),
@@ -407,8 +424,44 @@ fn parse_call_arguments(args: &str) -> Value {
 
 #[cfg(test)]
 mod progress_tests {
-    use super::super::schema::ChatToolCall;
     use super::*;
+
+    #[test]
+    fn one_frame_reports_its_served_model_billing_reasoning_and_text_in_order() {
+        use super::super::schema::ModelUsageStats;
+
+        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
+        let mut events = Vec::new();
+        decoder.apply(
+            ChatResponse {
+                actual_model_uid: "served".into(),
+                usage: Some(ModelUsageStats { input_tokens: 7, output_tokens: 3, ..ModelUsageStats::default() }),
+                credit_cost: 5,
+                delta_thinking: "hm".into(),
+                delta_signature: "sig".into(),
+                delta_text: "hi".into(),
+                ..ChatResponse::default()
+            },
+            &mut events,
+        );
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|event| match event {
+                StreamEvent::ServedModel(_) => "served",
+                StreamEvent::Usage(_) => "usage",
+                StreamEvent::ItemStart { kind: ItemKind::Reasoning, .. } => "reasoning-start",
+                StreamEvent::ReasoningDelta(_) => "reasoning",
+                StreamEvent::ItemStart { kind: ItemKind::Text, .. } => "text-start",
+                StreamEvent::TextDelta(_) => "text",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["served", "usage", "reasoning-start", "reasoning", "text-start", "text"]);
+        let Some(StreamEvent::Usage(usage)) = events.iter().find(|e| matches!(e, StreamEvent::Usage(_))) else { unreachable!() };
+        assert_eq!((usage.input_tokens, usage.output_tokens), (7, 3));
+        assert_eq!(usage.raw.as_ref().unwrap()["credits"]["cost"], 5);
+        assert_eq!(decoder.signatures, ["sig"]);
+    }
 
     fn message(wire: &Value) -> ChatResponse {
         let text = |key: &str| wire.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();

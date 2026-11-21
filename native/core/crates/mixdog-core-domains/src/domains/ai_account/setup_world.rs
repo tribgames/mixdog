@@ -1,11 +1,7 @@
-//! The production [`SetupBuilder`]: `providerSetup(displayConfig(), options)` over the machine.
-//! [`provider_setup`] builds the rows from a synchronous [`SetupWorld`]; what the rows read is
-//! asynchronous (the keychain, the OAuth credential files, the gcloud login, the local runtime), so
-//! it is read first, on the lanes, into a [`PrefetchedWorld`], and the rows are built from that.
-//!
-//! Only what the options ask for is read: with `check_secrets` false no secret and no credential
-//! file is touched, and with `detect_local` false the local runtime is not probed. A read that never
-//! ran (a vault lane that dropped the job) fails the build instead of reading as "no key".
+//! The production [`SetupBuilder`]. The rows read asynchronous state, so it is read first into a
+//! [`PrefetchedWorld`]. With `check_secrets` false no secret or credential file is touched, and with
+//! `detect_local` false the local runtime is not probed. A read that never ran (a vault lane that
+//! dropped the job) fails the build instead of reading as "no key".
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -178,56 +174,63 @@ impl SetupGatherer {
             }
         }
         if options.check_secrets {
-            world.keychain = self.keychain.status();
-            let custom: Vec<&String> = providers.keys().filter(|id| id.starts_with("custom-")).collect();
-            for id in API_IDS.iter().copied().chain(custom.iter().map(|id| id.as_str())) {
-                let account = api_key_account(id);
-                let (stored, fallback) = self.secret(&account).await?;
-                if stored {
-                    world.stored.insert(account.clone());
-                }
-                if fallback {
-                    world.fallback.insert(account);
-                }
-            }
-            for id in API_IDS {
-                if self.keys.has(id).await.map_err(vault_failure)? {
-                    world.key_present.insert(id.to_owned());
-                }
-            }
-            for id in custom {
-                // Additional keys by id only; a roster that could not be read lists none, as in Node.
-                match self.accounts.custom_key_ids(id).await {
-                    Ok(ids) => {
-                        world.key_ids.insert(id.clone(), ids);
-                    }
-                    Err(error) if error.unrun() => return Err(Failure::error(error.to_string())),
-                    Err(_) => {}
-                }
-            }
-            if let Some(key) = self.keys.get("vertex-ai").await.map_err(vault_failure)? {
-                world.vertex_key_project = parse_service_account(&key).ok().map(|c| c.project_id).filter(|p| !p.is_empty());
-            }
-            let project = world.vertex_project.clone().unwrap_or_default();
-            world.vertex_adc = Some(self.builder.adc_describe(&project, false).await);
+            self.read_api_credentials(&mut world, &providers).await?;
         }
+        self.read_oauth(&mut world, options.check_secrets).await?;
+        if options.detect_local {
+            world.local = self.local.status().await;
+        }
+        Ok(world)
+    }
+
+    async fn read_api_credentials(&self, world: &mut PrefetchedWorld, providers: &serde_json::Map<String, Value>) -> Result<(), Failure> {
+        world.keychain = self.keychain.status();
+        let custom: Vec<&String> = providers.keys().filter(|id| id.starts_with("custom-")).collect();
+        for id in API_IDS.iter().copied().chain(custom.iter().map(|id| id.as_str())) {
+            let account = api_key_account(id);
+            let (stored, fallback) = self.secret(&account).await?;
+            if stored {
+                world.stored.insert(account.clone());
+            }
+            if fallback {
+                world.fallback.insert(account);
+            }
+        }
+        for id in API_IDS {
+            if self.keys.has(id).await.map_err(vault_failure)? {
+                world.key_present.insert(id.to_owned());
+            }
+        }
+        for id in custom {
+            match self.accounts.custom_key_ids(id).await {
+                Ok(ids) => {
+                    world.key_ids.insert(id.clone(), ids);
+                }
+                Err(error) if error.unrun() => return Err(Failure::error(error.to_string())),
+                Err(_) => {}
+            }
+        }
+        if let Some(key) = self.keys.get("vertex-ai").await.map_err(vault_failure)? {
+            world.vertex_key_project = parse_service_account(&key).ok().map(|c| c.project_id).filter(|p| !p.is_empty());
+        }
+        let project = world.vertex_project.clone().unwrap_or_default();
+        world.vertex_adc = Some(self.builder.adc_describe(&project, false).await);
+        Ok(())
+    }
+
+    async fn read_oauth(&self, world: &mut PrefetchedWorld, check_secrets: bool) -> Result<(), Failure> {
         let developer = (self.developer)();
         for id in PROVIDERS {
             if !oauth_available(id, &developer) {
                 continue;
             }
             world.oauth_ids.insert(id);
-            if options.check_secrets
-                && let Some(provider) = self.providers.iter().find(|p| p.id() == id)
-            {
+            if check_secrets && let Some(provider) = self.providers.iter().find(|p| p.id() == id) {
                 let account = self.account_of(id).await?;
                 world.oauth_described.insert(id, provider.describe(&account).await);
             }
         }
-        if options.detect_local {
-            world.local = self.local.status().await;
-        }
-        Ok(world)
+        Ok(())
     }
 
     /// The account the provider's roster has selected (`currentProviderAccountId`).

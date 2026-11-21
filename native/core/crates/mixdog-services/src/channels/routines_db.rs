@@ -1,7 +1,6 @@
-//! Every routine (schedule and webhook) one bot owns, deleted as its bot is deleted
-//! (routines-db.mjs `deleteRoutinesOwnedBy`). One state transaction over both stores, keyed by
-//! the rows' current owner: it removes all of them with their run state and the webhooks'
-//! delivery logs, or — failing — none; a row moved to another bot is never matched.
+//! One state transaction over both stores, keyed by the rows' current owner: it removes every
+//! routine a bot owns with its run state and the webhooks' delivery logs, or none; a row moved
+//! to another bot is never matched.
 
 use mixdog_store::sqlite::DbError;
 use mixdog_store::state::CoreState;

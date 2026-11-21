@@ -1,11 +1,4 @@
-//! The Windows layer against the real operating system and, where the cases need it, a real Microsoft Office. Every test
-//! is `#[ignore]`: it drives windows (hides them, moves the foreground) and starts Office, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test platform_live -- --ignored`) on a Windows machine, and the Office cases only
-//! with `MIXDOG_TEST_LIVE_OFFICE=1`.
-//!
-//! Office is started by a Windows PowerShell child that opens a visible Excel and Word with a document each, plus a second
-//! Excel process, and ends them when its stdin closes. (The late-bound dispatch layer of this crate is a separate unit; the
-//! child stands in for it, so these cases hold the ROT and window answers independent of it.)
+//! Ignored: starts Office; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::Path;
@@ -160,36 +153,28 @@ fn found_dispatch(platform: &WindowsPlatform, path: &str) -> bool {
     platform.try_get_running_file(path).and_then(|object| object.downcast::<IUnknown>().ok()).is_some_and(|unknown| unknown.cast::<IDispatch>().is_ok())
 }
 
-#[tokio::test]
-#[ignore = "starts Excel and Word and moves windows; needs MIXDOG_TEST_LIVE_OFFICE=1"]
-async fn the_running_object_table_and_the_windows_of_a_live_office() {
-    if !live_office() {
-        return;
-    }
-    let dir = scratch("office");
-    let office = Office::start(&dir).await;
-    let platform = WindowsPlatform::new().expect("platform");
-
-    // The ROT lookup: a differently-cased path and a file: URI both find the open workbook and document.
+fn rot_finds_an_open_file_by_cased_path_and_file_uri(platform: &WindowsPlatform, office: &Office, dir: &Path) {
     let upper = office.excel_book.display().to_string().to_uppercase();
     let uri = format!("file:///{}", office.word_doc.display().to_string().replace('\\', "/").replace(' ', "%20"));
-    assert!(found_dispatch(&platform, &upper));
-    assert!(found_dispatch(&platform, &uri));
-    assert!(!found_dispatch(&platform, &dir.join("absent.xlsx").display().to_string()));
+    assert!(found_dispatch(platform, &upper));
+    assert!(found_dispatch(platform, &uri));
+    assert!(!found_dispatch(platform, &dir.join("absent.xlsx").display().to_string()));
+}
 
-    // The second Excel process registers its workbook only when asked.
+fn a_second_excel_registers_its_workbook_only_when_asked(platform: &WindowsPlatform, office: &Office) {
     let mut seen = false;
     for _ in 0..20 {
         platform.register_excel_instances();
-        if found_dispatch(&platform, &office.second_book.display().to_string()) {
+        if found_dispatch(platform, &office.second_book.display().to_string()) {
             seen = true;
             break;
         }
         platform.sleep(500);
     }
     assert!(seen, "the second instance's workbook is visible to the ROT after RegisterExcelInstances");
+}
 
-    // Windows: find, describe, activate, restore, hide.
+fn a_word_window_is_found_described_activated_and_hidden(platform: &WindowsPlatform) {
     let before = platform.foreground_window();
     let word = platform.find_window_by_class_and_title("opusapp", "doc");
     assert_ne!(word, 0, "Word's window is found by class and title part");
@@ -213,8 +198,9 @@ async fn the_running_object_table_and_the_windows_of_a_live_office() {
     }
     assert_eq!(remaining, 0, "every window of the instance is hidden");
     assert!(!platform.window_visible(word));
+}
 
-    // File-AppearsOpen: true while the workbook is open, false after the child closed it.
+async fn a_workbook_appears_open_until_excel_closes_it(platform: &WindowsPlatform, office: Office) {
     assert!(platform.file_appears_open(&office.excel_book));
     let book = office.excel_book.clone();
     office.finish().await;
@@ -227,5 +213,20 @@ async fn the_running_object_table_and_the_windows_of_a_live_office() {
         platform.sleep(500);
     }
     assert!(!open, "the workbook is free once Excel closed it");
+}
+
+#[tokio::test]
+#[ignore = "starts Excel and Word and moves windows; needs MIXDOG_TEST_LIVE_OFFICE=1"]
+async fn the_running_object_table_and_the_windows_of_a_live_office() {
+    if !live_office() {
+        return;
+    }
+    let dir = scratch("office");
+    let office = Office::start(&dir).await;
+    let platform = WindowsPlatform::new().expect("platform");
+    rot_finds_an_open_file_by_cased_path_and_file_uri(&platform, &office, &dir);
+    a_second_excel_registers_its_workbook_only_when_asked(&platform, &office);
+    a_word_window_is_found_described_activated_and_hidden(&platform);
+    a_workbook_appears_open_until_excel_closes_it(&platform, office).await;
     mixdog_testkit::remove_dir_all(&dir);
 }

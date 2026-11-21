@@ -634,14 +634,6 @@ impl AccountRotation {
         true
     }
 
-    /// Before the pool moves a send to an account it does not prefer (the selected one, or the session's under the
-    /// headroom policy), re-measures the usable accounts whose reading is older than [`FALLBACK_READING_MAX_AGE_MS`],
-    /// paced per account like every probe. Returns whether it measured any.
-    ///
-    /// Not Node's: there the fallback is chosen on whatever the roster last recorded, and an account nobody used for a
-    /// day is offered with the reading of a day ago. A spent one then costs a refused request and another switch; a
-    /// fresh reading that shows a full window keeps the request from being sent to it at all, and lets the headroom
-    /// ranking see every candidate. The same reason other clients read each candidate's usage as they rank them.
     async fn measure_fallback_candidates(&self, provider: &str, pool: &Pool, excluded: &HashSet<String>, model: &str) -> bool {
         let now = self.now();
         let due: Vec<&Account> = {
@@ -678,7 +670,7 @@ impl AccountRotation {
         error: Option<ProviderError>,
         ids: Option<&[String]>,
     ) -> Result<(), PoolError> {
-        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
+        let pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;
         let model = ctx.model.as_str();
         let (rows, _, now, all) = self.roster_exhaustion(&pool, model, &ledger.evidenced, ids);
         let first = ids.and_then(|i| i.first().cloned()).or_else(|| pool.selected_id.clone()).unwrap_or_else(|| "default".into());
@@ -710,7 +702,7 @@ impl AccountRotation {
         }
         ledger.waited_ms += wait;
         let lifted = self.now();
-        for row in self.store.pool(provider).await?.accounts {
+        for row in unless_cancelled(ctx, self.store.pool(provider)).await??.accounts {
             if ledger.cooled.contains(&row.id) && cooling_until(&row, model) <= lifted {
                 ledger.cooled.remove(&row.id);
                 ledger.attempted.remove(&row.id);
@@ -807,7 +799,7 @@ impl AccountRotation {
             if ctx.cancel.is_cancelled() {
                 return Err(PoolError::of(Cause::Cancelled));
             }
-            let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
+            let pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;
             if pool.accounts.is_empty() {
                 // A custom provider's key has no plan meter to consult.
                 if !is_custom_key_provider(provider)
@@ -913,7 +905,7 @@ impl AccountRotation {
             }
             last_error = Some(failed.error);
             switched = true;
-            refusal_scoped = self.exhausted_for_model_only(provider, Some(&row.id), model, ctx.plan_meters_apply).await?;
+            refusal_scoped = unless_cancelled(ctx, self.exhausted_for_model_only(provider, Some(&row.id), model, ctx.plan_meters_apply)).await??;
             let reason = if verdict.evidence {
                 "Quota exhausted"
             } else if verdict.account_blocked {
@@ -923,10 +915,18 @@ impl AccountRotation {
             };
             sender.notify(Stage::Reconnecting { message: format!("{reason} — switching to the next account"), wait_ms: None, retry_at: None });
         }
-        let pool = self.pool_for_service(provider, ctx.plan_meters_apply).await?;
+        let pool = unless_cancelled(ctx, self.pool_for_service(provider, ctx.plan_meters_apply)).await??;
         // Node: `lastError || new Error('Provider account attempts exhausted.')`.
         let last = last_error.map_or_else(|| Cause::Message(ATTEMPTS_EXHAUSTED.into()), Cause::Provider);
         Err(self.exhausted_send_error(provider, &pool, model, &ledger.evidenced, Some(last), None))
+    }
+}
+
+/// `read` unless the send is cancelled first: a roster read waits for room on its lane, a cancelled send does not.
+async fn unless_cancelled<T>(ctx: &SendContext, read: impl Future<Output = T>) -> Result<T, PoolError> {
+    tokio::select! {
+        () = ctx.cancel.cancelled() => Err(PoolError::of(Cause::Cancelled)),
+        read = read => Ok(read),
     }
 }
 

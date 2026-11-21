@@ -1,11 +1,3 @@
-//! The reminder block of a user turn (Node `buildUserTurn`, `session/manager/ask-turn-prepare.mjs:147-246`).
-//!
-//! One builder: every reminder a turn can carry is read here, in Node's order (workflow switch, prompt settings,
-//! orchestration mode, agent list, working folder, worktree setup, current time, deferred-tool delta, Goal,
-//! todo start), joined into the one block that trails the human's words, and carried by the user message together
-//! with the meta the reminders leave on it. [`Reminders::revisions`] is what the actor acknowledges once the turn
-//! was accepted (`session::reminders::acknowledge`, `ask-turn-settle.mjs:148-164`).
-
 pub(crate) mod clock;
 pub(crate) mod deferred;
 pub(crate) mod listing;

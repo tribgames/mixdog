@@ -299,11 +299,30 @@ pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result
     }
     assert_reachable(ctx, &abs).await?;
     let full = abs.as_path().to_path_buf();
-    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| guard_real_target(&full)).map_err(|_| cancelled())?;
-    match job.await.map_err(|_| cancelled())? {
+    match on_interactive(ctx, move || guard_real_target(&full)).await? {
         Some(text) => Err(refuse(text)),
         None => Ok(abs),
     }
+}
+
+fn link_spelling(target: &Path) -> String {
+    let spelling = fwd(target);
+    if !cfg!(windows) {
+        return spelling;
+    }
+    if let Some(share) = spelling.strip_prefix("//?/UNC/") {
+        format!("//{share}")
+    } else if let Some(drive) = spelling.strip_prefix("//?/")
+        && drive.as_bytes().get(1) == Some(&b':')
+    {
+        drive.to_owned()
+    } else {
+        spelling
+    }
+}
+
+fn refused_link_target(path: &Path, refusal: &str, shown: &str) -> Option<String> {
+    target_refusal(path, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {}", fwd(path))))
 }
 
 /// Node `symlinkTargetGuard` (read-single-guards.mjs): where `full` really lives, when that is a UNC share, a Windows
@@ -329,24 +348,14 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
                 let Ok(target) = std::fs::read_link(path) else {
                     return Some(format!("Error: cannot verify symbolic link for read: {shown}"));
                 };
-                let mut spelling = fwd(&target);
-                if cfg!(windows) {
-                    if let Some(share) = spelling.strip_prefix("//?/UNC/") {
-                        spelling = format!("//{share}");
-                    } else if let Some(drive) = spelling.strip_prefix("//?/")
-                        && drive.as_bytes().get(1) == Some(&b':')
-                    {
-                        spelling = drive.to_owned();
-                    }
-                }
+                let spelling = link_spelling(&target);
                 if let Some(refusal) = super::read_paths::string_guard(&spelling) {
-                    let candidate = Path::new(&spelling);
-                    return target_refusal(candidate, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {spelling}")));
+                    return refused_link_target(Path::new(&spelling), &refusal, shown);
                 }
                 let target = path.parent().unwrap_or(path).join(if cfg!(windows) { PathBuf::from(spelling) } else { target });
                 let target = mixdog_workspace::pathguard::lexical(&target);
                 if let Some(refusal) = super::read_paths::string_guard(&fwd(&target)) {
-                    return target_refusal(&target, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {}", fwd(&target))));
+                    return refused_link_target(&target, &refusal, shown);
                 }
                 next_link = Some(target.join(full.strip_prefix(path).ok()?));
                 break;
@@ -359,7 +368,7 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
             }
             None => {
                 if let Some(reason) = super::read_paths::string_guard(&fwd(&full)) {
-                    return target_refusal(&full, shown).or_else(|| Some(format!("Error: {reason}: {shown} → {}", fwd(&full))));
+                    return refused_link_target(&full, &reason, shown);
                 }
                 // Native canonicalization also identifies a mapped share when the path was reached through a link.
                 if followed && let Ok(real) = mixdog_workspace::pathguard::canonical(&full) {
@@ -395,8 +404,18 @@ pub(super) fn target_refusal(real: &Path, shown: &str) -> Option<String> {
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn symlink_refusal(ctx: &ToolContext, abs: &AbsPath, shown: &str) -> Result<Option<String>, ToolError> {
     let (full, shown) = (abs.as_path().to_path_buf(), shown.to_owned());
-    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| symlink_target_refusal(&full, &shown)).map_err(|_| cancelled())?;
-    job.await.map_err(|_| cancelled())
+    on_interactive(ctx, move || symlink_target_refusal(&full, &shown)).await
+}
+
+/// Runs a step of the call as a job on the interactive lane. A busy lane is waited for, in order. A step that did not run
+/// answers the call's cancellation when that is why, else what the lane said.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn on_interactive<R: Send + 'static>(ctx: &ToolContext, work: impl FnOnce() -> R + Send + 'static) -> Result<R, ToolError> {
+    let unrun = |said: String| {
+        if ctx.cancel.is_cancelled() { cancelled() } else { fail(ToolErrorCode::Io { os_code: None }, format!("Error: the file step did not run: {said}")) }
+    };
+    let job = ctx.io.interactive.submit_wait(&ctx.cancel, move |_| work()).await.map_err(|refused| unrun(refused.to_string()))?;
+    job.await.map_err(|dropped| unrun(dropped.to_string()))
 }
 
 /// `urlAsPathMessage`'s answer, as the tool words it.
@@ -433,8 +452,7 @@ pub(crate) async fn assert_reachable(ctx: &ToolContext, path: &AbsPath) -> Resul
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn real_target_on_lane(ctx: &ToolContext, full: &Path) -> Result<Option<PathBuf>, ToolError> {
     let target = full.to_path_buf();
-    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| real_target(&target)).map_err(|_| cancelled())?;
-    job.await.map_err(|_| cancelled())
+    on_interactive(ctx, move || real_target(&target)).await
 }
 
 /// The locks `edit` takes: the target and where it really lives, so two routes to one file (a

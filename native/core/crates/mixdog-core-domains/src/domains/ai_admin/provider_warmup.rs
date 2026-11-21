@@ -1,18 +1,13 @@
-//! The provider initialization warm: Node's `scheduleProviderWarmup` (`warmup/provider-warmups.mjs`) with the timer
-//! discipline of `warmup/timer-arm.mjs`.
+//! The provider initialization warm.
 //!
-//! Triggers, each Node's:
-//! * boot: `scheduleProviderWarmup()` once the runtime is up ([`ProviderWarmup::start`]);
-//! * the first turn settling: `turn-settle.mjs` reschedules it once per process ([`ProviderWarmup::first_turn_settled`]);
-//! * a wake (a turn ended, a session create settled, a catalog refresh settled): a parked run re-checks on its own tick
-//!   ([`ProviderWarmup::wake`]).
+//! Triggers: boot ([`ProviderWarmup::start`]); the first turn settling, once per process
+//! ([`ProviderWarmup::first_turn_settled`]); a wake ([`ProviderWarmup::wake`]): a parked run re-checks on its own tick.
 //!
 //! A run before the first turn is deferred (unless `MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN`), a busy runtime parks it;
 //! otherwise it awaits the keychain prewarm, reloads the full config and readies the configured providers.
 //!
-//! Switches (`runtime-tunables.mjs`): `providerWarmupEnabled` is opt-in (`MIXDOG_ENABLE_PROVIDER_WARMUP`,
-//! `MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN` or either warm-up delay set, and not `MIXDOG_DISABLE_PROVIDER_WARMUP`);
-//! `MIXDOG_PROVIDER_WARMUP_DELAY_MS` (default 1 500, 0 to 60 000).
+//! Switches: the warm-up is opt-in (`MIXDOG_ENABLE_PROVIDER_WARMUP`, `MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN` or either
+//! warm-up delay set, and not `MIXDOG_DISABLE_PROVIDER_WARMUP`); `MIXDOG_PROVIDER_WARMUP_DELAY_MS` (default 1 500, 0 to 60 000).
 
 use std::sync::Arc;
 use std::sync::Mutex;

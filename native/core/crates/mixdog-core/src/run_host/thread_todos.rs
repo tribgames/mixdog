@@ -1,13 +1,3 @@
-//! The real [`TodoStore`]: the session's list, kept on the session header as Node keeps it on the
-//! session record (`session.todo = { phases, updatedAt }`, `runtime-core/todo-list.mjs`).
-//!
-//! Reads normalize what is stored the way `todoPhases` does (the stored record is untrusted);
-//! an update computes its list from the header and commits `todo` and `updatedAt` as one header
-//! change the session actor applies only while `todo` is still what the list was computed from
-//! (the actor is the owner, as Node's synchronous session update is), so two `todo` calls never
-//! lose each other's write: the loser computes again from the winner's list.
-//! A thread's wait on the user (`noteTodoUserWait`) is in memory like Node's: the turn itself is.
-
 use mixdog_core_ports::ports::todo_list::list_of;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -98,10 +88,6 @@ mod tests {
         (ThreadTodos::new(threads.clone(), rig.clock.clone()), threads, thread, rig)
     }
 
-    /// The tool's operations through the production `run` and `ThreadTodos::update` over `SessionThreads`: a commit
-    /// leaves the list and the session's `updatedAt` at the call's time, a refusal leaves the header as it was. (The
-    /// tool takes Node's `init`/`append`/`rm` by item wording beside `set`/`advance` and step numbers. What a stored
-    /// list reads as, and a cleared one, are still Node's, above and below.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_operation_commits_the_record_or_leaves_it() {
         let at: i64 = 1_234_567;
@@ -163,15 +149,19 @@ mod tests {
                 (want, got) => panic!("{name}: wanted {want:?}, got {got:?}"),
             }
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn clearing_the_list_stamps_the_session_from_the_clock() {
+        let at: i64 = 1_234_567;
+        let two = json!({ "phases": [{ "name": "Tasks", "tasks": [{ "content": "A", "status": "in_progress" }, { "content": "B", "status": "pending" }] }], "updatedAt": 5 });
         let (todos, threads, thread, rig) = store(json!({ "todo": two })).await;
-        // A clear is stamped from the clock: drive it to `at`.
         rig.clock.0.store(at as u64, std::sync::atomic::Ordering::SeqCst);
         todos.update(&thread, &mut |_| Ok(TodoList::default())).await.expect("clear");
         let header = threads.header(&thread).await.expect("header");
         assert_eq!((&header["todo"], &header["updatedAt"]), (&Value::Null, &json!(at)));
     }
-    /// `commitPhases` / `clearTodo`: `session.todo = { phases, updatedAt }` with the session's
-    /// `updatedAt` set beside it; a cleared list is `todo: null`.
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_update_commits_the_record_and_a_cleared_list_is_null() {
         let (todos, threads, thread, rig) = store(json!({})).await;

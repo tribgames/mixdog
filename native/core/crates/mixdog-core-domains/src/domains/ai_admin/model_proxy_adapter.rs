@@ -1,16 +1,12 @@
-//! The server's stand-in for a PC provider in the model-proxy client mode (`MIXDOG_MODEL_PROXY=client`, DS §12.4): Node's
-//! `ModelProxyProvider` (model-proxy-provider.mjs). It holds no credentials and opens no model connection: every attempt is
-//! one call of the PC's provider of the same name ([`remote_send`]), whose events stream back as this attempt's. The
-//! registry wraps it as any provider (usage accounting, the image guard); the session's loop, tools and recoveries run here.
+//! The server's stand-in for a PC provider in the model-proxy client mode (`MIXDOG_MODEL_PROXY=client`).
+//! It holds no credentials and opens no model connection: every attempt is one call of the PC's provider
+//! of the same name ([`remote_send`]), whose events stream back as this attempt's.
 //!
-//! - The PC's broker runs the provider's own retry ladder, once, so a failure that comes back is final for the ladder:
-//!   every one is marked `should_retry: Some(false)`, as a provider-owned recovery marks the failure it surfaced, and the
-//!   session's loop never multiplies the PC's budget. Its recoveries that change the request (a compaction, an image strip,
-//!   a replay without provider state) still run here.
-//! - A retry on the PC voids what its failed attempt streamed (`AttemptDiscarded`). The PC retries only an attempt that
-//!   showed nothing (`StandardRetryDecider`: text or reasoning emitted, a tool started or dispatched surface), so the events
-//!   that would change this attempt's answer are held until the PC's attempt shows output or ends, and a discard drops them.
-//! - A request whose transcript a session here owns goes as a session send: its prompt cache is judged here, by its owner.
+//! - A failure that comes back is final for the PC's retry ladder, so every one is marked
+//!   `should_retry: Some(false)`; recoveries that change the request still run here.
+//! - A retry on the PC voids what its failed attempt streamed (`AttemptDiscarded`): events that would
+//!   change this attempt's answer are held until the PC's attempt shows output or ends.
+//! - A request whose transcript a session here owns goes as a session send, its prompt cache judged here.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};

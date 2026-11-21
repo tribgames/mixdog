@@ -305,7 +305,13 @@ pub async fn graph_supports_scan(processes: &Processes, bin: &Path, cwd: &Path, 
     graph_supports_scan_within(processes, bin, cwd, Some(PROBE_TIMEOUT), cancel).await
 }
 
-pub(crate) async fn graph_supports_scan_within(processes: &Processes, bin: &Path, cwd: &Path, deadline: Option<Duration>, cancel: Option<&CancellationToken>) -> bool {
+pub(crate) async fn graph_supports_scan_within(
+    processes: &Processes,
+    bin: &Path,
+    cwd: &Path,
+    deadline: Option<Duration>,
+    cancel: Option<&CancellationToken>,
+) -> bool {
     if let Some(cached) = probe_cache().lock().unwrap().get(bin) {
         return *cached;
     }
@@ -374,10 +380,6 @@ fn scan_digests(matches: &[Value]) -> HashMap<String, String> {
     matches.iter().filter_map(|m| Some((m["file"].as_str()?.to_owned(), m["fix"]["scanned"].as_str()?.to_owned()))).collect()
 }
 
-/// Refines the history-comment matches from the bytes the scanner parsed: a file that no longer
-/// hashes to the scanner's digest gives no source, so its comment fixes are withheld. A fix the
-/// refinement rebuilt (a merged comment range) was computed from those bytes and takes the file's
-/// digest; with no digest it is stale. Without `fix` nothing is written, so nothing is stamped.
 fn refine_scanned(matches: Vec<Value>, fix: bool, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Vec<Value> {
     let digests = scan_digests(&matches);
     let mut refined = refine_history_comment_matches(matches, &|f: &str| read(f).filter(|bytes| digests.get(f).is_none_or(|d| *d == sha256_hex(bytes))));

@@ -1,10 +1,3 @@
-//! Accepting a prompt into a turn is one revision a client sees: the user row and the turn's running state (busy, its spinner,
-//! `turn/started`) come together, for a direct start and for a queued prompt the drain takes (Node's `drain.mjs` `presentBatch`
-//! pushes the rows and `runTurn` sets `busy` in the same synchronous chain, one `flushImmediate`). No client holds an accepted
-//! prompt's row with the session idle: neither the feed at any publication (the phone's `thread/frame`) nor between the row
-//! and the turn's busy runtime, nor a snapshot taken while the start is still on its way to the disk. A drained prompt leaves
-//! the client's queue in that same revision, so no client holds it in neither the queue nor the rows.
-
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -356,10 +349,6 @@ async fn a_drained_prompt_deferred_behind_the_idle_clear_leaves_the_queue_on_its
     assert_eq!(idle_with_row(&rig, &handle, "second"), Vec::<String>::new());
 }
 
-/// Controls arrive while a drained start reads its input's facts (the interactive io lane held): a stop finds no turn to
-/// stop yet, and a new prompt is queued. Nothing deadlocks: once the read ends, the drained prompt leaves the queue, the new
-/// prompt's queueing (accepted before the start's row, which waited for the read) follows, then the row and the running turn,
-/// in accept order and in one publication; the new prompt runs next.
 #[tokio::test(start_paused = true)]
 async fn controls_during_a_drained_starts_read_are_handled_and_shown_in_order() {
     let rig = Rig::new();

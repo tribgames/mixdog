@@ -145,40 +145,43 @@ pub fn normalize_models(configs: &CliModelConfigs) -> Vec<ModelRow> {
         if uid.is_empty() || is_fusion_pairing(uid) || !seen.insert(uid.to_owned()) {
             continue;
         }
-        let router = is_router(config);
-        // Harness-less routers need AssignModel; harness-backed composites
-        // are themselves chat uids.
-        let assign_model_router = router && config.harness_uids.is_empty();
-        let images = if config.has_features { config.info_supports_images } else { config.supports_images };
-        specs.push(Spec {
-            id: uid.to_owned(),
-            name: match js_trim(&config.label) {
-                "" => uid.to_owned(),
-                label => label.to_owned(),
-            },
-            description: js_trim(&config.description).to_owned(),
-            reasoning: config.supports_thinking,
-            images: images && !IMAGE_BLIND_UIDS.contains(&uid),
-            // Router configs ship no features; Cascade serves only
-            // tool-calling models.
-            supports_tools: if config.has_features { config.supports_tool_calls } else { true },
-            supports_parallel_tool_calls: config.supports_parallel_tool_calls,
-            cost: model_cost(config),
-            context_window: positive(config.max_tokens).unwrap_or(DEFAULT_CONTEXT_WINDOW),
-            max_tokens: positive(config.info_max_output_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
-            router: assign_model_router,
-            request_model_id: None,
-            thinking: None,
-            is_provider_default: uid == account_default,
-        });
+        specs.push(config_spec(config, uid, account_default));
         // A router dispatches; it is never an effort tier of a family.
-        if !router {
+        if !is_router(config) {
             collect_lane(&mut lanes, config, uid);
         }
     }
     let mut rows: Vec<ModelRow> = collapse_all(specs, lanes, account_default).into_iter().map(into_row).collect();
     rows.sort_by(|a, b| locale_compare(&a.id, &b.id));
     rows
+}
+
+fn config_spec(config: &ClientModelConfig, uid: &str, account_default: &str) -> Spec {
+    // Harness-less routers need AssignModel; harness-backed composites
+    // are themselves chat uids.
+    let assign_model_router = is_router(config) && config.harness_uids.is_empty();
+    let images = if config.has_features { config.info_supports_images } else { config.supports_images };
+    Spec {
+        id: uid.to_owned(),
+        name: match js_trim(&config.label) {
+            "" => uid.to_owned(),
+            label => label.to_owned(),
+        },
+        description: js_trim(&config.description).to_owned(),
+        reasoning: config.supports_thinking,
+        images: images && !IMAGE_BLIND_UIDS.contains(&uid),
+        // Router configs ship no features; Cascade serves only
+        // tool-calling models.
+        supports_tools: if config.has_features { config.supports_tool_calls } else { true },
+        supports_parallel_tool_calls: config.supports_parallel_tool_calls,
+        cost: model_cost(config),
+        context_window: positive(config.max_tokens).unwrap_or(DEFAULT_CONTEXT_WINDOW),
+        max_tokens: positive(config.info_max_output_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
+        router: assign_model_router,
+        request_model_id: None,
+        thinking: None,
+        is_provider_default: uid == account_default,
+    }
 }
 
 fn into_row(spec: Spec) -> ModelRow {
@@ -247,6 +250,20 @@ mod tests {
         assert!(rows[0].is_default);
         assert_eq!(rows[0].context_window, 100_000);
         assert_eq!(rows[0].max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    #[test]
+    fn a_thinking_twin_collapses_into_its_base_with_off_on_the_base_and_efforts_on_the_twin() {
+        let mut twin = config("pairx-thinking");
+        twin.supports_thinking = true;
+        let rows = normalize_models(&CliModelConfigs { configs: vec![config("other"), config("pairx"), twin], default_model_uid: String::new() });
+        let ids: Vec<_> = rows.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["other", "pairx"]);
+        let row = &rows[1];
+        assert!(row.reasoning);
+        assert_eq!(row.reasoning_levels, ["none", "minimal", "low", "medium", "high"]);
+        assert_eq!(row.effort_uids[0], ("none".to_owned(), "pairx".to_owned()));
+        assert!(row.effort_uids[1..].iter().all(|(_, uid)| uid == "pairx-thinking"));
     }
 
     #[test]

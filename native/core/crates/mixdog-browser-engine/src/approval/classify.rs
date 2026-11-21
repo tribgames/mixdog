@@ -1,9 +1,3 @@
-//! Owner: s4-engine-approval
-//! Which Browser Use steps ask, and what the person is shown: the classes of `action-approval.ts` (`submit`, `post`, `upload`,
-//! `confirm`, and the payment floor of `payment-evidence.ts`), no class added. Whether an ask is then let through (a standing
-//! allow, an unattended run, "Allow all actions", a session grant) is not decided here: the core gate decides it from the
-//! [`BrowserApprovalPrompt`] through [`crate::ApprovalPort`].
-//!
 //! The flow of a step that may ask: [`plan`] (the operator's policy and the command say whether it asks at all), then the
 //! caller reads what the plan names (upload files through `binding::resolve_upload_files`, the receiving frame, the payment
 //! evidence of the page when [`AskPlan::probes_payment`]), then [`classify`] makes the ask and its [`Binding`]; after the

@@ -482,6 +482,36 @@ pub struct HostComputerCommandResult {
     pub error: Option<String>,
 }
 
+/// Params of `host/computer/processFate` (core -> host): the OS's answer about one process on the desktop's machine, read by the
+/// desktop's own computer host, so the core can bind a saved-login owner to its process when the desktop runs the commands.
+/// `created` is the process's creation time (a FILETIME as decimal text; empty: whichever process has `pid` now).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerProcessFateParams {
+    pub pid: u64,
+    pub created: String,
+}
+
+/// What the OS says of the process: `unknown` is never read as ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HostComputerProcessState {
+    Running,
+    Ended,
+    Unknown,
+}
+
+/// Result of `host/computer/processFate`: the process's state and its creation time when it could be read (empty otherwise).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerProcessFateResult {
+    pub state: HostComputerProcessState,
+    pub created: String,
+}
+
 /// Params of `host/computer/scopeReport` (desktop -> core notification): a revoked scope's report changed after the answer to
 /// `host/computer/revokeScopes` (its snapshot): an ordinary release or a compensation returned, an executor ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

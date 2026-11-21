@@ -546,6 +546,21 @@ mod tests {
     }
 
     #[test]
+    fn a_link_blocks_the_install_it_stands_for_and_the_ones_that_could_reach_through_it() {
+        let entry =
+            LockfileFolder { dir: "packages/a".into(), stack: "js", manager: "npm", artefact: "node_modules", lockfile: None, requirements: Vec::new() };
+        let named = Install { tools: vec!["npm"], args: strings(&["ci"]), follow_up: None, env: None };
+        let links = strings(&["node_modules"]);
+        let own = unprepared_note(&entry, true, &named, &[], &links).unwrap();
+        assert!(own.starts_with("node_modules in packages/a is a link, not an install of its own"), "{own}");
+        let shared = unprepared_note(&entry, true, &named, &strings(&["packages/a/node_modules"]), &links).unwrap();
+        assert!(shared.contains("shared from the main checkout by .worktreeinclude"), "{shared}");
+        let other = unprepared_note(&entry, false, &named, &[], &links).unwrap();
+        assert!(other.starts_with("packages/a was not prepared while node_modules is a link"), "{other}");
+        assert!(unprepared_note(&entry, false, &named, &[], &[]).is_none());
+    }
+
+    #[test]
     fn commands_are_quoted_the_way_the_node_display_does() {
         assert_eq!(display_line("\"/x/npm\"", &strings(&["ci", "a b"])), "\"/x/npm\" ci \"a b\"");
         assert_eq!(parse_int("2.1.0"), Some(2));
@@ -621,6 +636,36 @@ mod tests {
     }
 }
 
+/// Why `entry` is left alone while a link stands where its artefact (`linked`) or any artefact (`links`) is: the note, or `None`
+/// when nothing blocks its install.
+fn unprepared_note(entry: &LockfileFolder, linked: bool, named: &Install, shared: &[String], links: &[String]) -> Option<String> {
+    let where_ = folder_label(&entry.dir);
+    let first = named.tools[0];
+    if linked && shared.contains(&artefact_rel(&entry.dir, entry.artefact)) {
+        return Some(format!("{} in {where_} {}.", entry.artefact, shared_clause(1)));
+    }
+    if linked {
+        return Some(format!(
+            "{} in {where_} is a link, not an install of its own; {where_} was not prepared (replace it with `{}` there if tests need it).",
+            entry.artefact,
+            command_line(first, named)
+        ));
+    }
+    let others: Vec<&String> = links.iter().filter(|rel| !shared.contains(rel)).collect();
+    if !others.is_empty() {
+        let list = others.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+        return Some(format!(
+            "{where_} was not prepared while {list} {} an install could reach through (run `{}` there once replaced if tests need it).",
+            if others.len() > 1 { "are links" } else { "is a link" },
+            command_line(first, named)
+        ));
+    }
+    if !links.is_empty() {
+        return Some(format!("{where_} was not prepared; {} {}.", links.join(", "), shared_clause(links.len())));
+    }
+    None
+}
+
 /// What the first turn still has to do in the worktree folder: the installs and one note per
 /// folder it leaves alone (nothing found, tool not on PATH, an artefact that is a link).
 pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input: PlanInput) -> Result<DependencyPlan, ScmFailure> {
@@ -643,30 +688,8 @@ pub async fn plan_dependency_setup(scm: &Scm, cancel: &CancellationToken, input:
         }
         let Some(named) = install(scm, cancel, entry, &cwd, None).await? else { continue };
         let first = named.tools[0];
-        if info.is_some() && input.shared.contains(&artefact_rel(&entry.dir, entry.artefact)) {
-            plan.notes.push(format!("{} in {where_} {}.", entry.artefact, shared_clause(1)));
-            continue;
-        }
-        if info.is_some() {
-            plan.notes.push(format!(
-                "{} in {where_} is a link, not an install of its own; {where_} was not prepared (replace it with `{}` there if tests need it).",
-                entry.artefact,
-                command_line(first, &named)
-            ));
-            continue;
-        }
-        let others: Vec<&String> = links.iter().filter(|rel| !input.shared.contains(rel)).collect();
-        if !others.is_empty() {
-            let list = others.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
-            plan.notes.push(format!(
-                "{where_} was not prepared while {list} {} an install could reach through (run `{}` there once replaced if tests need it).",
-                if others.len() > 1 { "are links" } else { "is a link" },
-                command_line(first, &named)
-            ));
-            continue;
-        }
-        if !links.is_empty() {
-            plan.notes.push(format!("{where_} was not prepared; {} {}.", links.join(", "), shared_clause(links.len())));
+        if let Some(note) = unprepared_note(entry, info.is_some(), &named, &input.shared, &links) {
+            plan.notes.push(note);
             continue;
         }
         let candidates: Vec<&'static str> = named.tools.clone();

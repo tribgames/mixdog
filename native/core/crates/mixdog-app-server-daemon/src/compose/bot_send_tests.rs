@@ -1,7 +1,3 @@
-//! A bot's `session action=send` through the daemon's own composition: the `session` tool of the composed tool pool, the task-report
-//! host `real_core` wires behind it, and the session directory's real turns over a provider answering on a loopback port. The answer
-//! promises a report (`reportsBack: true`), and that promise holds: the sent turn runs to its final answer and the report of it reaches
-//! the bot's home chat.
 #![allow(clippy::disallowed_methods, reason = "test setup: writes the settings a user's setup would have")]
 
 use std::time::Duration;
@@ -107,22 +103,13 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
         LIMIT,
         compose(
             &tokens,
-            ComposeConfig {
-                rebuild: Default::default(),
-                data_dir: data.clone(),
-                user_data_dir: dir.path().join("userdata"),
-                runtime_root: dir.path().join("runtime"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                outgoing: mixdog_app_server::Outgoing::new(),
-                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
+            tests::config_without_postgres(
+                &data,
+                dir.path(),
+                crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
                 stop,
-                catalog_http: crate::compose_test_support::offline_http(),
-                pg_install: Some(Arc::new(|_| {
-                    Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the send test installs no PostgreSQL".into())) })
-                })),
-            },
+                "the send test installs no PostgreSQL",
+            ),
         ),
     )
     .await
@@ -192,9 +179,49 @@ async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_h
     };
     use futures::FutureExt;
     let result = std::panic::AssertUnwindSafe(outcome).catch_unwind().await;
-    tokio::time::timeout(LIMIT, core.stop("session send test")).await.expect("the core stopped within the limit");
+    let stuck = diagnosed_stop(&core).await;
     server.abort();
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
     }
+    assert!(stuck.is_empty(), "the stop phases that did not end within {STEP_LIMIT:?}: {stuck:?}");
+}
+
+/// Diagnostic bound of each phase of [`diagnosed_stop`].
+const STEP_LIMIT: Duration = Duration::from_secs(10);
+
+async fn timed(name: &'static str, step: impl std::future::Future<Output = ()>, stuck: &mut Vec<&'static str>) {
+    let began = std::time::Instant::now();
+    match tokio::time::timeout(STEP_LIMIT, step).await {
+        Ok(()) => eprintln!("[stop-diag] `{name}` ended in {:?}", began.elapsed()),
+        Err(_) => {
+            eprintln!("[stop-diag] `{name}` did not end within {STEP_LIMIT:?}");
+            stuck.push(name);
+        }
+    }
+}
+
+/// Diagnostic: `ComposedCore::stop` phase by phase and step by step, each timed on stderr under [`STEP_LIMIT`], so the one that does
+/// not end is named.
+async fn diagnosed_stop(core: &ComposedCore) -> Vec<&'static str> {
+    let mut stuck = Vec::new();
+    core.set_stop_reason("session send test");
+    core.run_final_barriers();
+    timed("close_ext_host", core.close_ext_host(), &mut stuck).await;
+    let steps = std::mem::take(&mut *core.stop_steps.steps.lock().unwrap());
+    for (name, step) in steps {
+        timed(name, step, &mut stuck).await;
+    }
+    timed(
+        "managed process drain",
+        async {
+            let outcome = core.local_processes.shutdown().await;
+            eprintln!("[stop-diag] managed process drain: {outcome:?}");
+        },
+        &mut stuck,
+    )
+    .await;
+    timed("flush at exit", flush_at_exit(&core.log, &core.real.gateway_usage), &mut stuck).await;
+    core.stop.cancel();
+    stuck
 }

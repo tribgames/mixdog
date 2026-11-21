@@ -1,6 +1,3 @@
-//! Subscription quota history (`usage-ledger-quota.mjs`): what a provider's own usage meter
-//! read over time, next to the token records that moved it.
-//!
 //! `quota_samples` keeps one row per distinct reading of one limit window (provider · account ·
 //! label). A repeat of the reading only extends `seen_until`, so a row is a value plus the span
 //! over which it was confirmed, and the time between rows is time nobody measured. Each rise
@@ -349,6 +346,13 @@ struct Instance {
 /// Readings grouped into limit windows. A run that never left zero is idle — no window was
 /// open — and only fills the measured time between the windows around it.
 fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
+    let mut instances = group_instances(rows);
+    mark_open_window(&mut instances, now);
+    place_windows(&mut instances, label, now);
+    instances
+}
+
+fn group_instances(rows: &[Row]) -> Vec<Instance> {
     let mut groups: Vec<Vec<Row>> = Vec::new();
     for row in rows {
         let new_group = match groups.last().and_then(|g| g.last()) {
@@ -362,7 +366,7 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
             group.push(*row);
         }
     }
-    let mut instances: Vec<Instance> = groups
+    groups
         .into_iter()
         .map(|group| {
             let first = group[0];
@@ -386,9 +390,12 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
                 ..Instance::default()
             }
         })
-        .collect();
-    // After a reset, early or on time, the meter reads zero until the next request: that last
-    // run is the window open now, not a gap between windows.
+        .collect()
+}
+
+/// After a reset, early or on time, the meter reads zero until the next request: that last run is the window open
+/// now, not a gap between windows.
+fn mark_open_window(instances: &mut [Instance], now: f64) {
     let any_active = instances.iter().any(|i| !i.idle);
     if let Some(latest) = instances.last_mut()
         && latest.idle
@@ -397,6 +404,10 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
     {
         latest.idle = false;
     }
+}
+
+/// Each window's span: its clock started at its opening, and an idle run fills the time between the windows around it.
+fn place_windows(instances: &mut [Instance], label: &str, now: f64) {
     let mut previous_end = f64::NEG_INFINITY;
     for index in 0..instances.len() {
         if instances[index].idle {
@@ -416,7 +427,7 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
         previous_end = instance.end_ms;
     }
     let mut before = f64::NEG_INFINITY;
-    for instance in &mut instances {
+    for instance in instances.iter_mut() {
         if instance.idle {
             instance.start_ms = max(instance.rows[0].ts, before);
         } else {
@@ -431,7 +442,6 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
             after = instance.start_ms;
         }
     }
-    instances
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -616,6 +626,32 @@ fn legacy_account_owner(conn: &Connection, provider: &str) -> Result<Option<Stri
     Ok(best.map(|(_, account)| account))
 }
 
+/// Anthropic's scoped weekly labels are model-family limits, not the whole subscription: the model prefix such a
+/// label selects, else "".
+fn model_family_scope(selection: &Selection) -> String {
+    if selection.provider == "anthropic-oauth" && selection.label.starts_with("7D ") {
+        let tail = mixdog_js::js_trim(&selection.label[3..]).to_lowercase();
+        let separators = mixdog_js::JsRegex::new_static(r"[\s_]+", "g");
+        format!("claude-{}", separators.replace_all_with(&tail, |_| "-".to_string()))
+    } else {
+        String::new()
+    }
+}
+
+/// The best (lowest) origin rank of each day and model of the provider, keyed `day\0model`.
+fn best_origin_ranks(conn: &Connection, provider: &str, from_ms: f64, to_ms: f64) -> Result<HashMap<String, Option<f64>>> {
+    let mut best: HashMap<String, Option<f64>> = HashMap::new();
+    let mut ranks = conn.prepare_cached("SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model")?;
+    let rows = ranks.query_map(params![provider, day_key(from_ms as i64), day_key(to_ms as i64)], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?))
+    })?;
+    for row in rows {
+        let (day, model, rank) = row?;
+        best.insert(format!("{day}\u{0}{model}"), rank);
+    }
+    Ok(best)
+}
+
 /// The provider account's token records in [from_ms, to_ms], summed per minute and model,
 /// keeping the best-ranked origin per day and model like the usage rollups. Records without an
 /// account belong to the legacy owner only, or to every account while no record names one.
@@ -626,14 +662,7 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
         Some(o) if *o != selection.account => selection.account.as_str(),
         _ => "",
     };
-    // Anthropic's scoped weekly labels are model-family limits, not the whole subscription.
-    let scope = if provider == "anthropic-oauth" && selection.label.starts_with("7D ") {
-        let tail = mixdog_js::js_trim(&selection.label[3..]).to_lowercase();
-        let separators = mixdog_js::JsRegex::new_static(r"[\s_]+", "g");
-        format!("claude-{}", separators.replace_all_with(&tail, |_| "-".to_string()))
-    } else {
-        String::new()
-    };
+    let scope = model_family_scope(selection);
     let sql = format!(
         "WITH routes AS (
             SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank,
@@ -691,15 +720,7 @@ fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_
             })
         })?
         .collect::<std::result::Result<_, _>>()?;
-    let mut best: HashMap<String, Option<f64>> = HashMap::new();
-    let mut ranks = conn.prepare_cached("SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model")?;
-    let rows = ranks.query_map(params![provider, day_key(from_ms as i64), day_key(to_ms as i64)], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?))
-    })?;
-    for row in rows {
-        let (day, model, rank) = row?;
-        best.insert(format!("{day}\u{0}{model}"), rank);
-    }
+    let best = best_origin_ranks(conn, provider, from_ms, to_ms)?;
     let unmeasuring = is_unmeasuring_provider(provider);
     let mut events = Vec::with_capacity(raws.len());
     for row in raws {
@@ -851,10 +872,6 @@ struct Outside {
     cost_usd: Option<f64>,
 }
 
-/// Keeps observed quota and recorded dollars intact. Estimates probable outside use from priced
-/// history before allocating the remainder over Mixdog's requests; recent observations outweigh
-/// older ones. Each window continues from its earlier windows in `listed` (every non-idle
-/// window, oldest first), whose records `events` must cover.
 fn allocate_quota(all: &mut [Instance], instances: &[usize], events: &[Event], mixed: &[Span], listed: &[usize]) -> (Vec<f64>, Vec<Outside>) {
     let mut shares = vec![0.0f64; events.len()];
     let mut outside: Vec<Outside> = Vec::new();
@@ -1340,20 +1357,7 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     let listed: Vec<usize> = (0..instances.len()).filter(|&i| !instances[i].idle).collect();
     let mut range = Map::new();
     range.insert("firstDay".into(), day_key(rows[0].ts as i64).into());
-    let period: Option<(Value, f64, f64)> = if view == "window" {
-        window_period(&instances, &listed, query.anchor.as_deref()).map(|p| {
-            let from = p["fromMs"].as_f64().unwrap_or(0.0);
-            let to = p["toMs"].as_f64().unwrap_or(0.0);
-            (p, from, to)
-        })
-    } else {
-        let mut p = Map::new();
-        p.insert("view".into(), view.to_string().into());
-        p.insert("fromMs".into(), query.from_ms.map_or(Value::Null, js_number));
-        p.insert("toMs".into(), query.to_ms.map_or(Value::Null, js_number));
-        Some((Value::Object(p), query.from_ms.unwrap_or(0.0), query.to_ms.unwrap_or(0.0)))
-    };
-    let Some((period, period_from, period_to)) = period else {
+    let Some((period, period_from, period_to)) = history_period(query, view, &instances, &listed) else {
         base.insert("range".into(), Value::Object(range));
         base.insert("period".into(), Value::Null);
         return Ok(Value::Object(base));
@@ -1373,39 +1377,8 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     let shown_refs: Vec<&Instance> = shown.iter().map(|&i| &instances[i]).collect();
     let points = quota_points(&shown_refs);
 
-    let span = domain_to - domain_from;
-    let slot_ms = SLOT_MINUTES.iter().map(|m| m * MINUTE).find(|size| span / size <= MAX_SLOTS).unwrap_or_else(|| (span / MAX_SLOTS).ceil());
-    let mut slots: Vec<Slot> = Vec::new();
-    let mut start = domain_from;
-    while start < domain_to {
-        slots.push(Slot {
-            from_ms: start,
-            to_ms: min(start + slot_ms, domain_to),
-            future: start >= now,
-            usage: Usage::default(),
-            models: Ordered::default(),
-            outside: 0.0,
-            outside_cost_usd: 0.0,
-            outside_unpriced: 0.0,
-        });
-        start += slot_ms;
-    }
-    let last_slot = (slots.len() - 1) as f64;
-    let slot_at = |time: f64| min(last_slot, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
-    let mut totals = Usage::default();
-    let mut models: Ordered<Usage> = Ordered::default();
-    for (index, event) in events.iter().enumerate() {
-        if event.ts < domain_from || event.ts > domain_to {
-            continue;
-        }
-        let share = shares[index];
-        totals.add(event, share);
-        models.entry(&event.model, Usage::default).add(event, share);
-        let at = slot_at(event.ts);
-        let slot = &mut slots[at];
-        slot.usage.add(event, share);
-        slot.models.entry(&event.model, Usage::default).add(event, share);
-    }
+    let (mut slots, slot_ms) = quota_slots(domain_from, domain_to, now);
+    let (totals, models) = fold_events_into_slots(&events, &shares, &mut slots, domain_from, domain_to, slot_ms);
     let outside_total = spread_outside_usage(&outside, &mut slots, domain_from, domain_to, slot_ms);
     let cost_per_percent = period_quota_rate(&shown_refs, domain_from, domain_to);
     let outside_cost_usd = if cost_per_percent.is_none() || slots.iter().any(|s| s.outside_unpriced > 0.0) {
@@ -1465,25 +1438,81 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     let slot_values: Vec<Value> = slots.iter().map(|slot| slot_value(slot, &points, last_point as f64, &shown_refs)).collect();
     out.insert("slots".into(), Value::Array(slot_values));
     out.insert("modelSeries".into(), Value::Array(model_series(&slots, &shown_refs, &series_keys, now)));
-    // A period over several windows marks where each of them peaked.
-    out.insert(
-        "peaks".into(),
-        Value::Array(if view == "window" {
-            Vec::new()
-        } else {
-            peaks
-                .iter()
-                .map(|i| {
-                    let mut o = Map::new();
-                    o.insert("key".into(), i.key.clone().into());
-                    o.insert("peak".into(), js_number(round_to(i.peak, 1)));
-                    o.insert("peakAt".into(), js_number(i.peak_at));
-                    Value::Object(o)
-                })
-                .collect()
-        }),
-    );
+    out.insert("peaks".into(), Value::Array(if view == "window" { Vec::new() } else { peak_values(&peaks) }));
     Ok(Value::Object(out))
+}
+
+/// The period a history question covers and its bounds: the window `view: window` selects, or [from_ms, to_ms].
+fn history_period(query: &QuotaHistoryQuery, view: &str, instances: &[Instance], listed: &[usize]) -> Option<(Value, f64, f64)> {
+    if view == "window" {
+        window_period(instances, listed, query.anchor.as_deref()).map(|p| {
+            let from = p["fromMs"].as_f64().unwrap_or(0.0);
+            let to = p["toMs"].as_f64().unwrap_or(0.0);
+            (p, from, to)
+        })
+    } else {
+        let mut p = Map::new();
+        p.insert("view".into(), view.to_string().into());
+        p.insert("fromMs".into(), query.from_ms.map_or(Value::Null, js_number));
+        p.insert("toMs".into(), query.to_ms.map_or(Value::Null, js_number));
+        Some((Value::Object(p), query.from_ms.unwrap_or(0.0), query.to_ms.unwrap_or(0.0)))
+    }
+}
+
+/// Equal slots over the domain, and their width.
+fn quota_slots(domain_from: f64, domain_to: f64, now: f64) -> (Vec<Slot>, f64) {
+    let span = domain_to - domain_from;
+    let slot_ms = SLOT_MINUTES.iter().map(|m| m * MINUTE).find(|size| span / size <= MAX_SLOTS).unwrap_or_else(|| (span / MAX_SLOTS).ceil());
+    let mut slots: Vec<Slot> = Vec::new();
+    let mut start = domain_from;
+    while start < domain_to {
+        slots.push(Slot {
+            from_ms: start,
+            to_ms: min(start + slot_ms, domain_to),
+            future: start >= now,
+            usage: Usage::default(),
+            models: Ordered::default(),
+            outside: 0.0,
+            outside_cost_usd: 0.0,
+            outside_unpriced: 0.0,
+        });
+        start += slot_ms;
+    }
+    (slots, slot_ms)
+}
+
+/// Each event's share of the meter, added to its slot and to the totals of the domain and of its model.
+fn fold_events_into_slots(events: &[Event], shares: &[f64], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> (Usage, Ordered<Usage>) {
+    let last_slot = (slots.len() - 1) as f64;
+    let slot_at = |time: f64| min(last_slot, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
+    let mut totals = Usage::default();
+    let mut models: Ordered<Usage> = Ordered::default();
+    for (index, event) in events.iter().enumerate() {
+        if event.ts < domain_from || event.ts > domain_to {
+            continue;
+        }
+        let share = shares[index];
+        totals.add(event, share);
+        models.entry(&event.model, Usage::default).add(event, share);
+        let slot = &mut slots[slot_at(event.ts)];
+        slot.usage.add(event, share);
+        slot.models.entry(&event.model, Usage::default).add(event, share);
+    }
+    (totals, models)
+}
+
+/// A period over several windows marks where each of them peaked.
+fn peak_values(peaks: &[&Instance]) -> Vec<Value> {
+    peaks
+        .iter()
+        .map(|i| {
+            let mut o = Map::new();
+            o.insert("key".into(), i.key.clone().into());
+            o.insert("peak".into(), js_number(round_to(i.peak, 1)));
+            o.insert("peakAt".into(), js_number(i.peak_at));
+            Value::Object(o)
+        })
+        .collect()
 }
 
 /// What a window-list question names.

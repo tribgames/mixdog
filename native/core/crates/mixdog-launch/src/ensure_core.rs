@@ -1,9 +1,4 @@
-//! Launcher side of "attach or start" (`ensure-core.mjs`): reads discovery, starts a core when none runs, and waits until
-//! discovery says `serving` (lifecycle spec section 5.4: "launcher start = spawn detached -> discovery serving").
-//!
-//! Proxy: nothing about the system proxy is handed to the core. The core reads it itself (`mixdog_ai::netproxy`, which
-//! `mixdogd serve` composes at start-up through `NetworkProxy::new` over the process environment and `SystemProxy`), so the
-//! launcher starts it with the environment it has and adds nothing to it.
+//! Lifecycle spec section 5.4: "launcher start = spawn detached -> discovery serving".
 
 use std::ffi::OsString;
 use std::path::PathBuf;

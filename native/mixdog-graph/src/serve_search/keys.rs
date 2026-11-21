@@ -24,10 +24,6 @@ pub(super) struct FuzzyKey {
     pub(super) iglobs: Vec<String>,
 }
 
-/// Apply ordered request overrides during enumeration, before ignore rules.
-/// Keep directory exclusions exactly as requested so later positive rules
-/// can re-include children. The internal .git exclusion remains in force
-/// unless the operand explicitly targets that directory.
 pub(super) fn prune_globs(operand: &Path, parsed: &ParsedArgs) -> Vec<String> {
     let mut prune = parsed.globs.clone();
     if !path_has_segment(operand, ".git") {

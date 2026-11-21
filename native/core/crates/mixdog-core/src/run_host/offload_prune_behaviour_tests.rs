@@ -1,8 +1,3 @@
-//! The prune of tool-result sidecars after a compaction, through the core's commit of it: the session actor
-//! applies the result to an idle thread and the host prunes the thread's tool-result sidecars on disk against what the
-//! session then holds. A sidecar the kept transcript names, one reachable through an archive it names, one a queued
-//! message names, a young one, one reused by a turn just now and another session's stay; old ones nothing reaches go.
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -108,11 +103,6 @@ async fn a_committed_compaction_prunes_the_sidecars_nothing_the_session_holds_re
     assert_eq!(got, want);
 }
 
-/// The GitHub tool's raw output (`persistToolResultArtifactSync` on its `github-raw` channel) is a sidecar of the
-/// session's tool-result directory (`<data>/tool-results/<session>/<sha256>.txt`, the layout `ToolResultArtifacts`
-/// writes), so it is pruned like any other sidecar: one a compaction's save stopped naming
-/// goes at the next open when the process stopped before the prune, and one goes once a manual compaction that
-/// drops it is stored.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_github_raw_output_the_stored_transcript_no_longer_names_goes_at_the_open_and_after_the_compactions_save() {
     let data = tempfile::tempdir().expect("data dir");

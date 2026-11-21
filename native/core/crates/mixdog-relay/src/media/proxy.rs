@@ -1,11 +1,7 @@
-//! `/media/<assetId>?variant=&sid=&enc=&token=` (`handleMediaRequest` and its parts): the gallery's byte lane through the relay.
-//!
-//! The files live on the desktop, so the relay proxies: it forwards one `media-request` over the desktop leg and streams the
-//! `media-head`, `media-chunk`, `media-end` and `media-error` frames that come back straight into the HTTP response.
-//!
-//! One request is one [`MediaProxy::pump`] task-body: it owns the response, and everything that concerns the stream reaches it as
-//! an event in order (a frame of the desktop, the failure the hub raises when the leg goes). The hub's `MediaSlot` holds a marker
-//! per stream, which is what counts the streams of a desktop and what fails them when its leg is replaced or closes.
+//! `/media/<assetId>?variant=&sid=&enc=&token=`: forwards one `media-request` over the desktop leg and streams the `media-head`,
+//! `media-chunk`, `media-end` and `media-error` frames that come back into the HTTP response. One request is one
+//! [`MediaProxy::pump`] task; the hub's `MediaSlot` holds a marker per stream, which counts the streams of a desktop and fails
+//! them when its leg is replaced or closes.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -312,7 +308,6 @@ impl MediaProxy {
             bare(&mut response, 405);
             return;
         }
-        // Percent-decoding fails on malformed input (`/media/%`). That input arrives unauthenticated, so it becomes a response.
         let Some(pathname) = decode_uri_component(url.path()) else {
             let _ = end_text(&mut response, 400, "Bad request.", &[]);
             return;
@@ -328,9 +323,6 @@ impl MediaProxy {
             let _ = reject_unauthorized_text(&mut limiter, request.remote_address.as_deref(), &mut response);
             return;
         };
-        // The feature probe is answered for the DESKTOP that would produce the bytes. The relay serves ONE web bundle to every
-        // phone while installs update on their own schedule, so this relay is routinely newer than the desktop it is paired
-        // with: reporting the desktop's lane keeps that skew a plain answer instead of something the phone infers from a stall.
         if pathname == "/media/healthz" {
             let supported = self.hub.desktop_info(&device_id).is_some_and(|info| info.open && info.media_lane);
             answer_health(&mut response, supported);
@@ -340,8 +332,6 @@ impl MediaProxy {
             let _ = end_text(&mut response, 404, "Not found.", &[]);
             return;
         };
-        // Names the E2EE session whose media key sealed the bytes. It is the session's public handshake challenge: the relay
-        // forwards it as a label and never holds anything that could open the stream.
         let sid = query("sid");
         let enc = query("enc");
         if (!sid.is_empty() && !session_label_ok(&sid)) || !scheme_marker_ok(&enc) {
@@ -360,9 +350,24 @@ impl MediaProxy {
             "range": request.headers.get("range").unwrap_or_default(),
             "ifNoneMatch": request.headers.get("if-none-match").unwrap_or_default(),
         });
+        match self.admit(&device_id, &id, &frame) {
+            Ok(receiver) => self.pump(&device_id, &id, receiver, response).await,
+            Err(Refusal::Offline) => {
+                let _ = end_text(&mut response, 503, "Desktop offline.", &[]);
+            }
+            Err(Refusal::Unsupported) => {
+                let _ = end_text(&mut response, 503, "Desktop media lane unsupported.", &[]);
+            }
+            Err(Refusal::TooMany) => {
+                let _ = end_text(&mut response, 503, "Too many media streams.", &[("Retry-After", "1")]);
+            }
+        }
+    }
+
+    /// Counted, registered and asked in one step of the hub, so two requests cannot both take the last place.
+    fn admit(&self, device_id: &str, id: &str, frame: &Value) -> Result<UnboundedReceiver<Event>, Refusal> {
         let (sender, receiver) = unbounded_channel();
-        // Counted, registered and asked in one step of the hub, so two requests cannot both take the last place.
-        let admitted = self.hub.with_media(&device_id, |view| {
+        let admitted = self.hub.with_media(device_id, |view| {
             if !view.open {
                 return Err(Refusal::Offline);
             }
@@ -372,28 +377,12 @@ impl MediaProxy {
             if view.pending.len() >= self.options.max_streams {
                 return Err(Refusal::TooMany);
             }
-            view.pending.insert(id.clone(), Box::new(Marker(sender.clone())));
-            self.streams.insert(&device_id, &id, sender.clone());
-            send_json(&**view.socket, &frame);
+            view.pending.insert(id.to_owned(), Box::new(Marker(sender.clone())));
+            self.streams.insert(device_id, id, sender);
+            send_json(&**view.socket, frame);
             Ok(())
         });
-        match admitted.unwrap_or(Err(Refusal::Offline)) {
-            Ok(()) => {}
-            Err(Refusal::Offline) => {
-                let _ = end_text(&mut response, 503, "Desktop offline.", &[]);
-                return;
-            }
-            Err(Refusal::Unsupported) => {
-                let _ = end_text(&mut response, 503, "Desktop media lane unsupported.", &[]);
-                return;
-            }
-            Err(Refusal::TooMany) => {
-                let _ = end_text(&mut response, 503, "Too many media streams.", &[("Retry-After", "1")]);
-                return;
-            }
-        }
-        drop(sender);
-        self.pump(&device_id, &id, receiver, response).await;
+        admitted.unwrap_or(Err(Refusal::Offline)).map(|()| receiver)
     }
 
     /// Takes the stream out of the table and the hub's slot; whether the hub still held it (a leg that went has emptied it).
@@ -426,7 +415,6 @@ impl MediaProxy {
                 biased;
                 event = events.recv() => {
                     let Some(Event::Frame(message)) = event else {
-                        // `failMediaPending`: the desktop vanished; the phone retries instead of hanging on an open socket.
                         self.release(device_id, id);
                         Self::end_response(&mut response, head, 503);
                         return;
@@ -437,7 +425,6 @@ impl MediaProxy {
                             timer = Box::pin(mixdog_rt::time::sleep_unrefed(self.options.stall_timeout));
                             let supplied = media_response_headers(message.get("headers"));
                             let pairs: Vec<(&str, &str)> = supplied.iter().map(|(name, value)| (*name, value.as_str())).collect();
-                            // A second head finds the first one sent: nothing to write.
                             let _ = response.write_head(upstream_status(message.get("status")), &pairs);
                         }
                         Some("media-chunk") => {
@@ -447,8 +434,6 @@ impl MediaProxy {
                             }
                             timer = Box::pin(mixdog_rt::time::sleep_unrefed(self.options.stall_timeout));
                             response.write(&decode_base64(data));
-                            // Byte-lane flow control: pause the producer once the response buffer fills, cut the stream once
-                            // it stops draining.
                             let buffered = response.writable_length();
                             if buffered > self.options.kill_bytes {
                                 let held = self.release(device_id, id);
@@ -479,7 +464,6 @@ impl MediaProxy {
                     }
                     return;
                 }
-                // A phone that scrolls away mid-clip must not leave the desktop pumping frames into a dead response.
                 () = response.closed() => {
                     if self.release(device_id, id) {
                         self.abort_upstream(device_id, id);

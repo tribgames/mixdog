@@ -1,6 +1,4 @@
-//! Inline-script hoisting (`shell-analysis.mjs` `planInlineScriptHoist`,
-//! `planLongInlineScriptFileTransport`, `planLongShellScriptFileTransport`,
-//! `bash-tool/inline-hoist.mjs`). `node -e "<body>"` / `python -c "<body>"` hand the script
+//! Inline-script hoisting. `node -e "<body>"` / `python -c "<body>"` hand the script
 //! through the host shell's quoting layer, where nested quotes and escapes are the measured top
 //! cause of inline-script failures. When the body is quote-LITERAL the same run is expressible as
 //! a file invocation, which has no quoting layer at all. The transform is refused whenever file

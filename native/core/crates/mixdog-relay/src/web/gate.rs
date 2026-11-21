@@ -1,12 +1,11 @@
-//! The pairing-gated static shell (`lib/relay-static-gate.mjs`, `serveStatic`): device routes, the public installability
-//! assets, the share-target fallback and the health probe. The branding files of [`PUBLIC_APP_ASSETS`] are served without the
-//! pairing gate because browsers fetch them without credentials; a 401 would silently downgrade "install app" to an icon-less
-//! shortcut. They carry no user data.
+//! The pairing-gated static shell: device routes, the public installability assets, the share-target fallback and the health
+//! probe. The branding files of [`PUBLIC_APP_ASSETS`] are served without the pairing gate because browsers fetch them without
+//! credentials; a 401 would silently downgrade "install app" to an icon-less shortcut. They carry no user data.
 //!
-//! Gate: an approved browser presents its per-browser token (`?token=`, else the cookie for plain asset requests). A
-//! container with no credential yet may still reach the shell through its device route (or the device cookie it was given
-//! there): that shell can only show the install guide and ask the desktop for approval, and the bundle behind it holds no
-//! user data. A caller with none of these sees 401, throttled to 429 by the unauthorized limiter.
+//! Gate: an approved browser presents its per-browser token (`?token=`, else the cookie for plain asset requests). A container
+//! with no credential yet may still reach the shell through its device route (or the device cookie it was given there): that shell
+//! can only show the install guide and ask the desktop for approval, and the bundle behind it holds no user data. A caller with
+//! none of these sees 401, throttled to 429 by the unauthorized limiter.
 
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -56,10 +55,8 @@ impl GateStore for DeviceStore {
     }
 }
 
-/// `shareTargetShell`: the installed app's share sheet posts to its service worker, which answers on the device. A share that
-/// still reaches the relay means no worker was active yet: reopening the app beats failing the share outright, even though
-/// the payload itself is lost with the request this relay never stores. The shell to reopen (`/` or `/d/<id>/`), empty when
-/// the request line is not a share-target path.
+/// The shell to reopen (`/` or `/d/<id>/`) for a share that still reaches the relay because no service worker was active yet; the
+/// payload itself is lost. Empty when the request line is not a share-target path.
 pub fn share_target_shell(request_target: &str) -> String {
     let Some((_, pathname)) = decoded_request_path(request_target) else { return String::new() };
     if pathname == "/share-target" {

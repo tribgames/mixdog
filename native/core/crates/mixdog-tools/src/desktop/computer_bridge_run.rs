@@ -462,7 +462,8 @@ impl ComputerBridgeRun {
         let lifecycle = LIFECYCLE_ACTIONS.contains(&action);
         let ordinary = action != "wait_for_user" && !lifecycle;
         let capacity = if lifecycle { LIFECYCLE_CAPACITY } else { ORDINARY_CAPACITY };
-        if self.active.load(Ordering::SeqCst) >= capacity {
+        // A detach is a release: the allowance never refuses it, or the owner would stay registered.
+        if action != OWNER_DETACH && self.active.load(Ordering::SeqCst) >= capacity {
             return Ok(refusal(CAPACITY_REFUSAL, 429));
         }
         // A saved-login fill counts as running from the moment it is accepted, before any queueing or target preparation, so its
@@ -1316,6 +1317,39 @@ mod tests {
             let _ = task.await;
         }
         assert_eq!(f.service.active.load(Ordering::SeqCst), 0);
+    }
+
+    /// An owner's detach is a release: it is answered and takes effect while the allowance is spent.
+    #[tokio::test]
+    async fn a_detach_is_never_refused_by_the_allowance() {
+        let f = Arc::new(fixture_with(Host { hang: true, ..Host::default() }, Saved::default()));
+        *locked(&f.host.fate) = "running".into();
+        run(&f, "s1", json!({ "action": "owner_attach", "runtime_id": OWNER, "pid": 4321 })).await;
+        let mut running = Vec::new();
+        for n in 0..ORDINARY_CAPACITY {
+            let (f, cancel) = (f.clone(), CancellationToken::new());
+            running.push((
+                tokio::spawn({
+                    let cancel = cancel.clone();
+                    async move { run_with(&f, &format!("s{n}"), "sig", json!({ "action": "capture", "app": "a" }), cancel).await }
+                }),
+                cancel,
+            ));
+        }
+        for _ in 0..200 {
+            if f.service.active.load(Ordering::SeqCst) == ORDINARY_CAPACITY {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let detached = run(&f, "s1", json!({ "action": "owner_detach", "runtime_id": OWNER })).await;
+        assert_eq!(detached["value"]["text"], json!("detached"));
+        for (task, cancel) in running {
+            cancel.cancel();
+            let _ = task.await;
+        }
+        let refused = run(&f, "s1", fill(1)).await;
+        assert_eq!(error_of(&refused), "saved_login_unavailable: this runtime holds no owner connection to the bridge; no input was sent");
     }
 
     /// The commands of one session run one at a time, in order; another session and `wait_for_user` do not wait.

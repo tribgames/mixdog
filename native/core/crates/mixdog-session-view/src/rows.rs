@@ -771,6 +771,38 @@ fn entries_object(entries: &[AggregateEntry]) -> Value {
     Value::Object(entries.iter().map(|entry| (entry.key.clone(), entry.to_value())).collect())
 }
 
+/// The result fields of one finished call of the card: the live card's from `toolResultDisplay`, a stored card's from `toolCallOutcome`.
+fn call_result_fields(item: Opt, name: &str, args: &Value, live: bool) -> Map<String, Value> {
+    let result_text = js_string(coalesce(fld(item, "result"), Some(&json!(""))));
+    let raw_result_text = js_string(coalesce(coalesce(fld(item, "rawResult"), fld(item, "result")), Some(&json!(""))));
+    let is_error = fld(item, "isError") == Some(&Value::Bool(true));
+    let mut fields = Map::new();
+    if live {
+        // The live card's result (`applyAggregateCallFields` of `toolResultDisplay`): the text a card shows (a command's body without its
+        // exit header, a failure as its presented error) beside the raw body.
+        let outcome = tool_result_display(&json!({ "isError": is_error }), &raw_result_text, name, &present_error);
+        let outcome_error = fld(Some(&outcome), "isError") == Some(&Value::Bool(true));
+        for key in ["isError", "isCallError", "isExitError", "exitCode"] {
+            put(&mut fields, key, fld(Some(&outcome), key));
+        }
+        put(&mut fields, "resultText", fld(Some(&outcome), "text"));
+        fields.insert("rawResultText".to_owned(), json!(raw_result_text));
+        let summary = if outcome_error { None } else { summarize_tool_result(name, args, &raw_result_text, outcome_error) };
+        fields.insert("summary".to_owned(), summary.map_or(Value::Null, Value::from));
+    } else {
+        let outcome = tool_call_outcome(&json!({ "isError": is_error, "toolName": name }), &result_text);
+        fields.insert("isError".to_owned(), json!(outcome.is_call_error));
+        fields.insert("isCallError".to_owned(), json!(outcome.is_call_error));
+        fields.insert("isExitError".to_owned(), json!(outcome.is_exit_error));
+        fields.insert("exitCode".to_owned(), outcome.exit_code.map_or(Value::Null, json_number));
+        fields.insert("resultText".to_owned(), json!(result_text));
+        fields.insert("rawResultText".to_owned(), json!(raw_result_text));
+        let summary = if !outcome.is_call_error && !js_trim(&result_text).is_empty() { summarize_tool_result(name, args, &result_text, false) } else { None };
+        fields.insert("summary".to_owned(), summary.map_or(Value::Null, Value::from));
+    }
+    fields
+}
+
 /// The card of one run, every pass over its members stepped: the per-member work (outcome, summary, category entries) and then the
 /// finalization (result patch and its members and detail line, last diff, loading targets, call ids, done categories, raw result).
 /// `live`: the card of a live turn (turn-aggregate-cards.mjs): its calls are keyed by their provider call id, it carries no `at` or
@@ -790,34 +822,7 @@ fn aggregate_row_steps(members: &[Member<'_>], live: bool, yield_point: &mut imp
             calls.push(call_record(member, live, None));
             continue;
         }
-        let result_text = js_string(coalesce(fld(item, "result"), Some(&json!(""))));
-        let raw_result_text = js_string(coalesce(coalesce(fld(item, "rawResult"), fld(item, "result")), Some(&json!(""))));
-        let is_error = fld(item, "isError") == Some(&Value::Bool(true));
-        let mut fields = Map::new();
-        if live {
-            // The live card's result (`applyAggregateCallFields` of `toolResultDisplay`): the text a card shows (a command's body without its
-            // exit header, a failure as its presented error) beside the raw body.
-            let outcome = tool_result_display(&json!({ "isError": is_error }), &raw_result_text, name, &present_error);
-            let outcome_error = fld(Some(&outcome), "isError") == Some(&Value::Bool(true));
-            for key in ["isError", "isCallError", "isExitError", "exitCode"] {
-                put(&mut fields, key, fld(Some(&outcome), key));
-            }
-            put(&mut fields, "resultText", fld(Some(&outcome), "text"));
-            fields.insert("rawResultText".to_owned(), json!(raw_result_text));
-            let summary = if outcome_error { None } else { summarize_tool_result(name, args, &raw_result_text, outcome_error) };
-            fields.insert("summary".to_owned(), summary.map_or(Value::Null, Value::from));
-        } else {
-            let outcome = tool_call_outcome(&json!({ "isError": is_error, "toolName": name }), &result_text);
-            fields.insert("isError".to_owned(), json!(outcome.is_call_error));
-            fields.insert("isCallError".to_owned(), json!(outcome.is_call_error));
-            fields.insert("isExitError".to_owned(), json!(outcome.is_exit_error));
-            fields.insert("exitCode".to_owned(), outcome.exit_code.map_or(Value::Null, json_number));
-            fields.insert("resultText".to_owned(), json!(result_text));
-            fields.insert("rawResultText".to_owned(), json!(raw_result_text));
-            let summary =
-                if !outcome.is_call_error && !js_trim(&result_text).is_empty() { summarize_tool_result(name, args, &result_text, false) } else { None };
-            fields.insert("summary".to_owned(), summary.map_or(Value::Null, Value::from));
-        }
+        let fields = call_result_fields(item, name, args, live);
         calls.push(call_record(member, live, Some(fields)));
     }
     let loading_targets = aggregate_loading_targets_steps(&calls, &mut *yield_point);
@@ -834,24 +839,50 @@ fn aggregate_row_steps(members: &[Member<'_>], live: bool, yield_point: &mut imp
     card.insert("name".to_owned(), json!("__aggregate__"));
     card.insert("args".to_owned(), Value::Object(args));
     if resolved_count < calls.len() {
-        card.insert("count".to_owned(), json!(calls.len()));
-        card.insert("completedCount".to_owned(), json!(resolved_count));
-        card.insert("categories".to_owned(), entries_object(&header));
-        let mut tool_members = aggregate_tool_members_steps(&calls, &mut *yield_point);
-        restore_member_metadata(&mut tool_members, members, &mut *yield_point);
-        card.insert("toolMembers".to_owned(), Value::Array(tool_members));
-        card.insert("aggregate".to_owned(), json!(true));
-        card.insert("result".to_owned(), Value::Null);
-        card.insert("rawResult".to_owned(), Value::Null);
-        card.insert("isError".to_owned(), json!(false));
-        card.insert("expanded".to_owned(), json!(false));
-        card.insert("headerFinalized".to_owned(), json!(false));
-        if defined(fld(first, "startedAt")) {
-            put(&mut card, "startedAt", fld(first, "startedAt"));
-        }
-        card.insert("deferredDisplayReady".to_owned(), json!(true));
-        return Value::Object(card);
+        return pending_aggregate_card(card, &header, &calls, members, resolved_count, yield_point);
     }
+    finished_aggregate_card(card, &header, &calls, members, live, yield_point)
+}
+
+/// The card of a run with calls still unresolved: the header and the members so far.
+fn pending_aggregate_card(
+    mut card: Map<String, Value>,
+    header: &[AggregateEntry],
+    calls: &[Value],
+    members: &[Member<'_>],
+    resolved_count: usize,
+    yield_point: &mut impl FnMut(),
+) -> Value {
+    let first = Some(members[0].row.value);
+    card.insert("count".to_owned(), json!(calls.len()));
+    card.insert("completedCount".to_owned(), json!(resolved_count));
+    card.insert("categories".to_owned(), entries_object(&header));
+    let mut tool_members = aggregate_tool_members_steps(&calls, &mut *yield_point);
+    restore_member_metadata(&mut tool_members, members, &mut *yield_point);
+    card.insert("toolMembers".to_owned(), Value::Array(tool_members));
+    card.insert("aggregate".to_owned(), json!(true));
+    card.insert("result".to_owned(), Value::Null);
+    card.insert("rawResult".to_owned(), Value::Null);
+    card.insert("isError".to_owned(), json!(false));
+    card.insert("expanded".to_owned(), json!(false));
+    card.insert("headerFinalized".to_owned(), json!(false));
+    if defined(fld(first, "startedAt")) {
+        put(&mut card, "startedAt", fld(first, "startedAt"));
+    }
+    card.insert("deferredDisplayReady".to_owned(), json!(true));
+    return Value::Object(card);
+}
+
+/// The card of a run whose calls all resolved: the result patch and its members and detail line, last diff, call ids, done categories and raw result.
+fn finished_aggregate_card(
+    mut card: Map<String, Value>,
+    header: &[AggregateEntry],
+    calls: &[Value],
+    members: &[Member<'_>],
+    live: bool,
+    yield_point: &mut impl FnMut(),
+) -> Value {
+    let first = Some(members[0].row.value);
     // Every pass over the members below steps with the same quantum: the helpers' stepped forms, and the two small ones here.
     let mut outcome_patch = aggregate_result_patch_steps(&calls, &calls, calls.len(), &mut *yield_point);
     if let Some(tool_members) = outcome_patch.get_mut("toolMembers").and_then(Value::as_array_mut) {
@@ -1044,7 +1075,6 @@ fn put_posted(out: &mut Map<String, Value>, posted: Opt, message_id: Opt) {
     }
 }
 
-/// `normalizeHandoffFiles` (handoff-artifacts.mjs).
 fn handoff_files(value: Opt) -> Vec<Value> {
     let Some(Value::Array(files)) = value else { return Vec::new() };
     files
@@ -1086,46 +1116,56 @@ fn routine_notice(ext: Opt, attachments: Opt) -> Map<String, Value> {
         return out;
     }
     if fld(routine, "kind") == Some(&json!("task")) {
-        let session = fld(routine, "target") == Some(&json!("session"));
-        let status = text(fld(routine, "status"));
-        let what = match status {
-            "started" => "started",
-            "blocked" => "waiting for confirmation",
-            other => other,
-        };
-        let summary = fld(routine, "summary");
-        let tail = if truthy(summary) { format!(" — {}", text(summary)) } else { String::new() };
-        out.insert("text".to_owned(), json!(format!("🛠 {} {what} · {}{tail}", if session { "Session" } else { "Agent task" }, text(fld(routine, "name")))));
-        out.insert("tone".to_owned(), json!(if status == "failed" { "warn" } else { "info" }));
-        let mut payload = Map::new();
-        payload.insert("kind".to_owned(), json!("task"));
-        put(&mut payload, "name", fld(routine, "name"));
-        put(&mut payload, "status", fld(routine, "status"));
-        put(&mut payload, "summary", summary);
-        put(&mut payload, "sessionId", fld(routine, "sessionId"));
-        if session {
-            payload.insert("target".to_owned(), json!("session"));
-        }
-        put_text(&mut payload, "agentId", fld(routine, "agentId"));
-        put_text(&mut payload, "sendId", fld(routine, "sendId"));
-        if let Some(Value::Array(ids)) = fld(routine, "sendIds")
-            && ids.len() > 1
-        {
-            put(&mut payload, "sendIds", fld(routine, "sendIds"));
-        }
-        let files = handoff_files(fld(routine, "files"));
-        if !files.is_empty() {
-            payload.insert("files".to_owned(), Value::Array(files));
-        }
-        put_text(&mut payload, "line", fld(routine, "line"));
-        out.insert("routine".to_owned(), Value::Object(payload));
-        let mut records = attachments.and_then(Value::as_array).cloned().unwrap_or_default();
-        if let Some(Value::Array(legacy)) = fld(ext, "attachments") {
-            records.extend(legacy.iter().cloned());
-        }
-        put_attachments(&mut out, Some(&Value::Array(records)));
-        return out;
+        return task_routine_notice(routine, ext, attachments);
     }
+    schedule_routine_notice(routine)
+}
+
+fn task_routine_notice(routine: Opt, ext: Opt, attachments: Opt) -> Map<String, Value> {
+    let mut out = Map::new();
+    let session = fld(routine, "target") == Some(&json!("session"));
+    let status = text(fld(routine, "status"));
+    let what = match status {
+        "started" => "started",
+        "blocked" => "waiting for confirmation",
+        other => other,
+    };
+    let summary = fld(routine, "summary");
+    let tail = if truthy(summary) { format!(" — {}", text(summary)) } else { String::new() };
+    out.insert("text".to_owned(), json!(format!("🛠 {} {what} · {}{tail}", if session { "Session" } else { "Agent task" }, text(fld(routine, "name")))));
+    out.insert("tone".to_owned(), json!(if status == "failed" { "warn" } else { "info" }));
+    let mut payload = Map::new();
+    payload.insert("kind".to_owned(), json!("task"));
+    put(&mut payload, "name", fld(routine, "name"));
+    put(&mut payload, "status", fld(routine, "status"));
+    put(&mut payload, "summary", summary);
+    put(&mut payload, "sessionId", fld(routine, "sessionId"));
+    if session {
+        payload.insert("target".to_owned(), json!("session"));
+    }
+    put_text(&mut payload, "agentId", fld(routine, "agentId"));
+    put_text(&mut payload, "sendId", fld(routine, "sendId"));
+    if let Some(Value::Array(ids)) = fld(routine, "sendIds")
+        && ids.len() > 1
+    {
+        put(&mut payload, "sendIds", fld(routine, "sendIds"));
+    }
+    let files = handoff_files(fld(routine, "files"));
+    if !files.is_empty() {
+        payload.insert("files".to_owned(), Value::Array(files));
+    }
+    put_text(&mut payload, "line", fld(routine, "line"));
+    out.insert("routine".to_owned(), Value::Object(payload));
+    let mut records = attachments.and_then(Value::as_array).cloned().unwrap_or_default();
+    if let Some(Value::Array(legacy)) = fld(ext, "attachments") {
+        records.extend(legacy.iter().cloned());
+    }
+    put_attachments(&mut out, Some(&Value::Array(records)));
+    out
+}
+
+fn schedule_routine_notice(routine: Opt) -> Map<String, Value> {
+    let mut out = Map::new();
     let webhook = fld(routine, "kind") == Some(&json!("webhook"));
     let failed = fld(routine, "status") == Some(&json!("failed"));
     let summary = if truthy(fld(routine, "summary")) { js_string(fld(routine, "summary")) } else { String::new() };
@@ -1220,42 +1260,42 @@ fn user_message_row(item: &Value, meta: Opt) -> Option<Map<String, Value>> {
             row.insert("steered".to_owned(), json!(true));
             Some(row)
         }
-        "task-notification" => {
-            // `completionCardFromExecution` (agent-envelope.mjs), from the typed execution record.
-            let exec = fld(ext, "execution");
-            let surface = if text(fld(exec, "surface")).is_empty() { "task".to_owned() } else { js_to_lowercase(text(fld(exec, "surface"))) };
-            let status = js_to_lowercase(text(fld(exec, "status")));
-            let result = text(body.get("text")).to_owned();
-            let mut args = Map::new();
-            args.insert("type".to_owned(), json!("result"));
-            if !status.is_empty() {
-                args.insert("status".to_owned(), json!(status));
-            }
-            put(&mut args, "task_id", fld(exec, "id"));
-            args.insert("surface".to_owned(), json!(surface));
-            let failed_status = matches!(status.as_str(), "failed" | "error" | "timeout" | "cancelled" | "canceled" | "killed");
-            let mut row = Map::new();
-            row.insert("kind".to_owned(), json!("tool"));
-            put(&mut row, "id", id);
-            put_text(&mut row, "messageId", message_id);
-            row.insert("name".to_owned(), json!(if ["agent", "shell", "web_search"].contains(&surface.as_str()) { surface.as_str() } else { "task" }));
-            row.insert("args".to_owned(), Value::Object(args));
-            row.insert("result".to_owned(), json!(result));
-            row.insert("rawResult".to_owned(), json!(result));
-            row.insert("isError".to_owned(), json!(failed_status || js_to_lowercase(&result).starts_with("error:")));
-            row.insert("expanded".to_owned(), json!(false));
-            row.insert("count".to_owned(), json!(1));
-            row.insert("completedCount".to_owned(), json!(1));
-            if is_number(fld(meta, "at")) {
-                for key in ["at", "startedAt", "completedAt"] {
-                    put(&mut row, key, fld(meta, "at"));
-                }
-            }
-            Some(row)
-        }
+        "task-notification" => Some(completion_card_row(id, message_id, meta, fld(ext, "execution"), text(body.get("text")))),
         // `import` renders verbatim, as a plain prompt
         _ => Some(body),
     }
+}
+
+/// `completionCardFromExecution` (agent-envelope.mjs), from the typed execution record.
+fn completion_card_row(id: Opt, message_id: Opt, meta: Opt, exec: Opt, result: &str) -> Map<String, Value> {
+    let surface = if text(fld(exec, "surface")).is_empty() { "task".to_owned() } else { js_to_lowercase(text(fld(exec, "surface"))) };
+    let status = js_to_lowercase(text(fld(exec, "status")));
+    let mut args = Map::new();
+    args.insert("type".to_owned(), json!("result"));
+    if !status.is_empty() {
+        args.insert("status".to_owned(), json!(status));
+    }
+    put(&mut args, "task_id", fld(exec, "id"));
+    args.insert("surface".to_owned(), json!(surface));
+    let failed_status = matches!(status.as_str(), "failed" | "error" | "timeout" | "cancelled" | "canceled" | "killed");
+    let mut row = Map::new();
+    row.insert("kind".to_owned(), json!("tool"));
+    put(&mut row, "id", id);
+    put_text(&mut row, "messageId", message_id);
+    row.insert("name".to_owned(), json!(if ["agent", "shell", "web_search"].contains(&surface.as_str()) { surface.as_str() } else { "task" }));
+    row.insert("args".to_owned(), Value::Object(args));
+    row.insert("result".to_owned(), json!(result));
+    row.insert("rawResult".to_owned(), json!(result));
+    row.insert("isError".to_owned(), json!(failed_status || js_to_lowercase(result).starts_with("error:")));
+    row.insert("expanded".to_owned(), json!(false));
+    row.insert("count".to_owned(), json!(1));
+    row.insert("completedCount".to_owned(), json!(1));
+    if is_number(fld(meta, "at")) {
+        for key in ["at", "startedAt", "completedAt"] {
+            put(&mut row, key, fld(meta, "at"));
+        }
+    }
+    row
 }
 
 /// A user message: its text parts form the prompt `text` (a pasted text is part of the prompt); an attachment part is a record of

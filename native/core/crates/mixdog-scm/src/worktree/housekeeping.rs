@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn a_prune_drops_only_the_admin_dir_of_a_gone_unlocked_checkout() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::golden_tests::real_tempdir();
         let common = dir.path().join("common");
         let gone = dir.path().join("gone");
         let admin = common.join("worktrees").join("a");
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn an_unrecorded_directory_link_is_found_and_a_recorded_one_is_not() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::golden_tests::real_tempdir();
         let checkout = dir.path().join("co");
         let target = dir.path().join("target");
         std::fs::create_dir_all(checkout.join("sub")).unwrap();
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_legacy_descriptor_retains_journals_before_and_after_runtime_adoption() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::golden_tests::real_tempdir();
         let checkout = dir.path().join("co");
         let root = checkout.join("proj");
         let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn a_store_with_any_entry_is_retained_and_a_missing_one_is_clear() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::golden_tests::real_tempdir();
         let checkout = dir.path().join("co");
         let root = checkout.join("proj");
         let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
@@ -415,9 +415,15 @@ impl Worktrees {
         let opened = self.scm().open(&repo_cwd(&entry), cancel).await?;
         let _lock = opened.lock_repository().await?;
         let needs_ready = matches!(action, RecoveryAction::Write | RecoveryAction::Restore);
-        let Some(mut record) = self.record(cancel, &entry.id).await?.filter(|r| !(needs_ready && r.state != "ready")) else {
+        let Some(record) = self.record(cancel, &entry.id).await?.filter(|r| !(needs_ready && r.state != "ready")) else {
             return Err(errors::missing(Some(entry.id.clone()), None, None));
         };
+        self.add_recovery_store(record, root, directory, cancel).await?;
+        run().await
+    }
+
+    /// Records the descriptor of the `root`/`directory` journal scope on `record`, pruning verifiably clear ones when the record is full.
+    async fn add_recovery_store(&self, mut record: WorktreeRecord, root: &Path, directory: &Path, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let descriptor = serde_json::json!({ "root": root, "directory": directory });
         let mut probe = record.clone();
         probe.extra.insert("editorRecoveryStores".into(), serde_json::json!([descriptor]));
@@ -452,7 +458,7 @@ impl Worktrees {
             record.extra.insert("editorRecoveryStores".into(), serde_json::Value::Array(stores));
             self.put_record(cancel, record).await?;
         }
-        run().await
+        Ok(())
     }
 
     /// The core's own journal stores (`mixdog_workspace::recovery::JOURNALS_DIR` of the data dir).

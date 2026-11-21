@@ -13412,6 +13412,12 @@
       "result": "HostComputerPermissionsResult"
     },
     {
+      "method": "host/computer/processFate",
+      "params": "HostComputerProcessFateParams",
+      "requires": "host.computer",
+      "result": "HostComputerProcessFateResult"
+    },
+    {
       "method": "host/computer/revokeScopes",
       "params": "HostComputerRevokeScopesParams",
       "requires": "host.computer",

@@ -81,10 +81,6 @@ struct Grant {
     cleanup: Option<Cleanup>,
 }
 
-/// A file the service staged for a phone's download (a folder's zip, an attachment's bytes): Node's `ExportRecord` made by
-/// `stageTemporaryDownload` (`file-downloads.ts:678-711`). It lives [`STAGED_TTL_MS`] from staging whether or not its download has ended,
-/// counts toward the device's [`MAX_STAGED_PER_DEVICE`], keeps the sweeper running, and its file goes when the sweep finds it expired and
-/// read by no grant or transfer, when room is made for a newer one, or when its device or conversation is revoked.
 struct Staged {
     owner: String,
     session: String,
@@ -1694,11 +1690,13 @@ fn prove_opened(file: &File, location: &Path) -> WsResult<()> {
     Ok(())
 }
 
-/// Node's `verifyLocation`: `changed` unless the open file itself lives at `location`. On Windows `location` must also still open as that
-/// very file (Node's locator opens it by that path and compares the file index), which a file deleted while open no longer does.
+/// Node's `verifyLocation`: `changed` unless the open file itself lives at `location`. `location` must also still open as that very file
+/// (Node's locator opens it by that path and compares the file index), which a file deleted while open no longer does: the name a
+/// handle reports (macOS `F_GETPATH`) can outlive an unlink, so it alone does not prove the file is still there.
 fn verify_location(file: &File, location: &Path) -> WsResult<()> {
-    #[cfg(windows)]
-    if crate::ident::path_id(location).ok() != crate::ident::file_id(file).ok() {
+    let named = crate::ident::stat_with_version(location).map_err(|_| download_changed())?.1;
+    let held = crate::ident::file_id(file).map_err(|_| download_changed())?;
+    if (named.dev, named.ino) != (held.volume, held.index) {
         return Err(download_changed());
     }
     match crate::ident::handle_path(file) {
@@ -2387,71 +2385,107 @@ mod tests {
         assert_eq!(writing.join().unwrap(), (false, false), "judged at the time it held the lock, not the time it began to wait");
     }
 
-    /// The scheduler publishes a lease's end at its deadline with no stream asking. A read renews the idle deadline, and the timer set
-    /// for the old one fires without ending it and sleeps on; the thirty minutes a transfer lives however active still end it; a
-    /// delivery's check renews nothing.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_scheduler_ends_a_lease_at_its_deadline_a_renewal_survives_a_stale_timer_and_the_maximum_wins() {
-        let dir = tempfile::tempdir().unwrap();
-        let manual = Manual::new();
-        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
-        let scheduler = tokio::spawn({
-            let (t, timer) = (t.clone(), manual.clone());
-            async move { t.run_lease_ends(&*timer).await }
-        });
-        let ended = |lease: &MediaLease| lease.ended.clone();
-        let within = |token: tokio_util::sync::CancellationToken| async move {
-            tokio::time::timeout(std::time::Duration::from_secs(5), token.cancelled()).await.is_ok()
-        };
-        let still = |token: tokio_util::sync::CancellationToken| async move {
-            tokio::time::timeout(std::time::Duration::from_millis(100), token.cancelled()).await.is_err()
-        };
-        let idle = LEASE_IDLE_MS as u64;
-        // An untouched lease ends at its idle deadline, with no call of any stream.
-        let untouched = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
-        let untouched = t.media_lease("phone", &untouched.media.asset_id).unwrap();
-        manual.asleep(1).await;
-        manual.advance(idle - 1);
-        assert!(still(ended(&untouched)).await);
-        manual.advance(1);
-        assert!(within(ended(&untouched)).await, "ended at its idle deadline");
-        // A read just before the deadline renews it; the stale timer fires at the old deadline and finds it moved.
-        let sleeps = || manual.sleeps.load(std::sync::atomic::Ordering::SeqCst);
-        let began = sleeps();
-        let renewed = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
-        let renewed = t.media_lease("phone", &renewed.media.asset_id).unwrap();
-        manual.asleep(began + 1).await;
-        manual.advance(idle - 1);
-        assert_eq!(t.read_media(&renewed, 0, 4).unwrap(), b"0123");
-        let before = sleeps();
-        manual.advance(1);
-        manual.asleep(before + 1).await;
-        assert!(still(ended(&renewed)).await, "the stale timer found the deadline moved and ended nothing");
-        // A delivery's check renews nothing: the lease still ends at the deadline the read set (2 * idle - 1 after it began).
-        assert!(t.media_commit(&renewed, &mut || {}));
-        manual.advance(idle - 2);
-        assert!(still(ended(&renewed)).await);
-        manual.advance(1);
-        assert!(within(ended(&renewed)).await, "ended at the deadline the read set");
-        // However active, the thirty minutes end it: a read every minute and a half keeps the idle time away.
-        let began = sleeps();
-        let busy = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
-        let busy = t.media_lease("phone", &busy.media.asset_id).unwrap();
-        manual.asleep(began + 1).await;
-        let step = idle - 30_000;
-        let mut left = LEASE_MAX_MS as u64;
-        while left > step {
-            manual.advance(step);
-            left -= step;
-            assert_eq!(t.read_media(&busy, 0, 4).unwrap(), b"0123");
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            assert!(!busy.ended.is_cancelled(), "alive with {left} ms to go");
-        }
-        manual.advance(left);
-        assert!(within(ended(&busy)).await, "the maximum lifetime ended it though it was never idle");
-        scheduler.abort();
+    struct SchedulerRig {
+        dir: tempfile::TempDir,
+        manual: Arc<Manual>,
+        t: Arc<Transfers>,
+        scheduler: tokio::task::JoinHandle<()>,
     }
 
+    impl SchedulerRig {
+        fn start() -> Self {
+            let manual = Manual::new();
+            let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+            let scheduler = tokio::spawn({
+                let (t, timer) = (t.clone(), manual.clone());
+                async move { t.run_lease_ends(&*timer).await }
+            });
+            Self { dir: tempfile::tempdir().unwrap(), manual, t, scheduler }
+        }
+
+        fn sleeps(&self) -> usize {
+            self.manual.sleeps.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        async fn lease(&self) -> MediaLease {
+            let began = self.sleeps();
+            let leased = self.t.begin_grant("device:phone", &grant_of(&self.t, self.dir.path(), "device:phone", "s1").grant_id).unwrap();
+            let lease = self.t.media_lease("phone", &leased.media.asset_id).unwrap();
+            self.manual.asleep(began + 1).await;
+            lease
+        }
+    }
+
+    impl Drop for SchedulerRig {
+        fn drop(&mut self) {
+            self.scheduler.abort();
+        }
+    }
+
+    async fn ends_within_seconds(lease: &MediaLease) -> bool {
+        tokio::time::timeout(std::time::Duration::from_secs(5), lease.ended.cancelled()).await.is_ok()
+    }
+
+    async fn stays_live(lease: &MediaLease) -> bool {
+        tokio::time::timeout(std::time::Duration::from_millis(100), lease.ended.cancelled()).await.is_err()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_scheduler_ends_an_untouched_lease_at_its_idle_deadline() {
+        let rig = SchedulerRig::start();
+        let lease = rig.lease().await;
+        rig.manual.advance(LEASE_IDLE_MS as u64 - 1);
+        assert!(stays_live(&lease).await);
+        rig.manual.advance(1);
+        assert!(ends_within_seconds(&lease).await, "ended at its idle deadline");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_read_renews_the_idle_deadline_and_the_stale_timer_ends_nothing() {
+        let rig = SchedulerRig::start();
+        let idle = LEASE_IDLE_MS as u64;
+        let lease = rig.lease().await;
+        rig.manual.advance(idle - 1);
+        assert_eq!(rig.t.read_media(&lease, 0, 4).unwrap(), b"0123");
+        let before = rig.sleeps();
+        rig.manual.advance(1);
+        rig.manual.asleep(before + 1).await;
+        assert!(stays_live(&lease).await, "the stale timer found the deadline moved and ended nothing");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_delivery_check_renews_nothing_so_the_lease_ends_at_the_deadline_the_read_set() {
+        let rig = SchedulerRig::start();
+        let idle = LEASE_IDLE_MS as u64;
+        let lease = rig.lease().await;
+        rig.manual.advance(idle - 1);
+        assert_eq!(rig.t.read_media(&lease, 0, 4).unwrap(), b"0123");
+        let before = rig.sleeps();
+        rig.manual.advance(1);
+        rig.manual.asleep(before + 1).await;
+        assert!(rig.t.media_commit(&lease, &mut || {}));
+        rig.manual.advance(idle - 2);
+        assert!(stays_live(&lease).await);
+        rig.manual.advance(1);
+        assert!(ends_within_seconds(&lease).await, "ended at the deadline the read set");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_maximum_lifetime_ends_a_lease_that_is_read_before_it_goes_idle() {
+        let rig = SchedulerRig::start();
+        let lease = rig.lease().await;
+        let step = LEASE_IDLE_MS as u64 - 30_000;
+        let mut left = LEASE_MAX_MS as u64;
+        while left > step {
+            rig.manual.advance(step);
+            left -= step;
+            assert_eq!(rig.t.read_media(&lease, 0, 4).unwrap(), b"0123");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            assert!(!lease.ended.is_cancelled(), "alive with {left} ms to go");
+        }
+        rig.manual.advance(left);
+        assert!(ends_within_seconds(&lease).await, "the maximum lifetime ended it though it was never idle");
+    }
     /// Every way a transfer leaves the table publishes its lease's end at once, and a lease that ends leaves the others working.
     #[test]
     fn every_way_out_of_the_table_ends_the_lease_event_and_others_keep_working() {
@@ -2537,11 +2571,6 @@ mod tests {
         assert_eq!((dir & 0o077, payload & 0o077), (0, 0), "no access for group or others");
     }
 
-    /// The sweeper's stop and an authorize's arm never lose the schedule (Node's `stopSweeperWhenIdle` and `addGrant` + `ensureSweeper` are
-    /// each one synchronous step, `file-downloads.ts:527-545`): the abort of the last grant has looked at what is held and found nothing,
-    /// and an authorize on another thread publishes its grant at that very moment. Either the authorize waits for the stop's step to end
-    /// (and then arms), or, without one step, it publishes and finds the old schedule still set, and the stop then clears it: a grant held
-    /// with no sweeper, which would outlive its 60 s until something armed it again.
     #[test]
     fn a_grant_published_while_the_sweeper_stops_keeps_the_sweeper_armed() {
         let dir = tempfile::tempdir().unwrap();
@@ -2757,10 +2786,6 @@ mod tests {
         t.revoke_owner("dev");
         assert!(range_of(&t, "other", &kept).is_ok());
     }
-    /// A deletion ends what the conversation held and nothing else, in every window, and the answer is Node's for the window: a begin or an
-    /// authorize that the deletion lands in the middle of is `unavailable` (`session deleted during begin` / `during authorize`), a call
-    /// that finds the grant or the transfer already gone is `expired` (`session deleted before begin`, `between ranges`). A conversation
-    /// that is gone stays gone, so each window has a conversation of its own.
     #[test]
     fn a_deleted_conversation_ends_its_grants_and_transfers_in_every_window() {
         let dir = tempfile::tempdir().unwrap();
@@ -2844,10 +2869,6 @@ mod tests {
         tokio::time::advance(std::time::Duration::from_millis(60_000)).await;
         assert_refused_as(t.begin_grant("dev", &second.grant_id).unwrap_err(), &frame_of_call("grant expiry", 3));
     }
-    /// A conversation a later publication lists again under the same id is a member again (Node's catalog is replaced at each publication,
-    /// `sessionRemoved` = seen and not in the latest one, `file-downloads.ts:449-450,468-472`): what was authorized before its removal stays
-    /// ended (`expired`, as Node's `session deleted before begin` begin), a call that marked before the removal is `expired`, no longer
-    /// `unavailable` (the generation moved, as for Node's revoked authorize, `unpair during authorize`), and a fresh authorize works.
     #[test]
     fn a_conversation_listed_again_takes_new_downloads_and_keeps_the_old_ones_ended() {
         let dir = tempfile::tempdir().unwrap();

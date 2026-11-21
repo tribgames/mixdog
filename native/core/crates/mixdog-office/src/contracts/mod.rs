@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn aliases_reach_the_operation_they_name() {
+    fn word_aliases_reach_the_operation_they_name() {
         let (outcome, aliased) = check(
             "docx",
             "mixdog-ooxml",
@@ -276,11 +276,34 @@ mod tests {
         assert_eq!(outcome, Ok(()));
         assert_eq!(aliased[0]["op"], "append_text");
         assert_eq!(aliased[1]["op"], "add_hyperlink");
+    }
+
+    #[test]
+    fn a_worksheet_hyperlink_alias_reaches_set_hyperlink() {
         let (_, worksheet) = check("xlsx", "mixdog-ooxml", json!([{ "op": "add_hyperlink", "range": "A1", "url": "https://example.com/ops" }]));
         assert_eq!(worksheet[0]["op"], "set_hyperlink");
+    }
+
+    #[test]
+    fn a_pdf_hyperlink_alias_reaches_add_link() {
         let (outcome, stamped) = check("pdf", "mixdog-pdf", json!([{ "op": "set_hyperlink", "page": 1, "find": "허브", "url": "https://example.com/ops" }]));
         assert_eq!(outcome, Ok(()));
         assert_eq!(stamped[0]["op"], "add_link");
+    }
+
+    #[test]
+    fn a_style_key_written_beside_the_operation_moves_into_its_properties() {
+        let (outcome, table) = check("docx", "mixdog-ooxml", json!([{ "op": "add_table", "values": [["a"]], "fontName": "Noto Sans KR" }]));
+        assert_eq!(outcome, Ok(()));
+        assert_eq!(table[0]["properties"], json!({ "fontName": "Noto Sans KR" }));
+        assert!(table[0].get("fontName").is_none());
+        let message = rejected(
+            "docx",
+            "mixdog-ooxml",
+            json!({ "op": "add_table", "values": [["a"]], "fontName": "Noto Sans KR", "properties": { "fontName": "Malgun Gothic" } }),
+        );
+        assert!(message.contains("unknown field(s): fontName."), "{message}");
+        assert!(message.contains("fontName is a properties key"), "{message}");
     }
 
     #[test]

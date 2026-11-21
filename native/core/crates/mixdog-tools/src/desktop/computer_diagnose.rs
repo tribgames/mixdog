@@ -214,6 +214,25 @@ impl ProcessComputerBackend {
     }
 
     /// `diagnose`: each probe answers in place, a failure is a finding and never an error out of the call (`diagnose-probes.ts`).
+    async fn platform_facts(&self, cancel: &CancellationToken) -> Result<(&'static str, Option<Value>, Option<Value>), ComputerError> {
+        match &self.linux {
+            Some(linux) => {
+                let readiness = computer_gnome::readiness(self.manager.clone(), (linux.env)()).await;
+                let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await?;
+                Ok(("linux", Some(computer_gnome::linux_permissions(&readiness)), Some(displays)))
+            }
+            // Where a desktop serves Computer its displays and the grants it reads are reported; a run without one leaves them out.
+            None => {
+                let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await;
+                let permissions = self.ask_desktop("host/computer/permissions", json!({}), cancel).await;
+                if matches!(displays, Err(ComputerError::Cancelled)) || matches!(permissions, Err(ComputerError::Cancelled)) {
+                    return Err(ComputerError::Cancelled);
+                }
+                Ok((platform(), permissions.ok().as_ref().and_then(grants), displays.ok()))
+            }
+        }
+    }
+
     pub(super) async fn diagnose(&self, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         self.peek_arrivals(cancel).await?;
         let probe = |outcome: Result<Map<String, Value>, ComputerError>| match outcome {
@@ -228,11 +247,7 @@ impl ProcessComputerBackend {
             Err(_) => None,
         };
         let requested = text(command, "window_id").to_owned();
-        let target = match &windows {
-            Some(windows) if requested.is_empty() => windows.iter().find(|window| window.focused),
-            Some(windows) => windows.iter().find(|window| window.id == requested),
-            None => None,
-        };
+        let target = computer_gnome::diagnosis_target(windows.as_deref(), &requested);
         let accessibility = match target {
             Some(target) => Some(probe(self.host_read("accessibility_probe", vec![("window_id", json!(target.id))], None, cancel).await)?),
             None => None,
@@ -242,22 +257,7 @@ impl ProcessComputerBackend {
         let ocr_extra = vec![("ocr_language", json!(ocr_language))];
         let ocr = probe(self.host_read("ocr_status", ocr_extra, None, cancel).await)?;
         let input = probe(self.host_read("input_idle_state", Vec::new(), None, cancel).await)?;
-        let (platform, permissions, displays) = match &self.linux {
-            Some(linux) => {
-                let readiness = computer_gnome::readiness(self.manager.clone(), (linux.env)()).await;
-                let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await?;
-                ("linux", Some(computer_gnome::linux_permissions(&readiness)), Some(displays))
-            }
-            // Where a desktop serves Computer its displays and the grants it reads are reported; a run without one leaves them out.
-            None => {
-                let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await;
-                let permissions = self.ask_desktop("host/computer/permissions", json!({}), cancel).await;
-                if matches!(displays, Err(ComputerError::Cancelled)) || matches!(permissions, Err(ComputerError::Cancelled)) {
-                    return Err(ComputerError::Cancelled);
-                }
-                (platform(), permissions.ok().as_ref().and_then(grants), displays.ok())
-            }
-        };
+        let (platform, permissions, displays) = self.platform_facts(cancel).await?;
         let report = computer_gnome::Diagnosis {
             platform,
             requested_window_id: &requested,

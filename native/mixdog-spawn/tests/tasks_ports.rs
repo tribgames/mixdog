@@ -71,6 +71,21 @@ async fn os_socket_table_lists_another_programs_listener() {
     let own_port = own.local_addr().unwrap().port();
     let m = manager();
     let h = handle("listener");
+    let port = spawn_listener(&m, &h).await;
+    let pid = m.info(&h).unwrap().pid;
+    let ports = sample_listening_ports().unwrap();
+    let theirs = ports.iter().find(|p| p.port == port).unwrap_or_else(|| panic!("port {port} not in {ports:?}"));
+    assert_eq!(theirs.pid, Some(pid), "{theirs:?}");
+    assert!(theirs.addresses.contains(&"127.0.0.1".to_owned()), "{theirs:?}");
+    assert!(theirs.process.is_some(), "{theirs:?}");
+    assert!(ports.iter().all(|p| p.port != own_port), "this process's own listener is left out");
+    m.kill(&h).unwrap();
+    let _ = collect(&m, &h).await;
+    let after = sample_listening_ports().unwrap();
+    assert!(after.iter().all(|p| p.port != port), "a closed listener left the table");
+}
+
+async fn spawn_listener(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u16 {
     let command = if cfg!(windows) {
         CommandSpec::Shell {
             script: "$l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); \
@@ -87,9 +102,9 @@ async fn os_socket_table_lists_another_programs_listener() {
             shell: None,
         }
     };
-    m.spawn(request(&h, command)).await.unwrap();
-    let port: u16 = tokio::time::timeout(Duration::from_secs(30), async {
-        let mut events = m.subscribe(&h, Some(0)).unwrap();
+    m.spawn(request(h, command)).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut events = m.subscribe(h, Some(0)).unwrap();
         let mut seen = String::new();
         loop {
             if let Some(mixdog_core_api::domain::process::ProcessEvent::Output { bytes, .. }) = events.next().await {
@@ -104,18 +119,7 @@ async fn os_socket_table_lists_another_programs_listener() {
         }
     })
     .await
-    .expect("the listener starts");
-    let pid = m.info(&h).unwrap().pid;
-    let ports = sample_listening_ports().unwrap();
-    let theirs = ports.iter().find(|p| p.port == port).unwrap_or_else(|| panic!("port {port} not in {ports:?}"));
-    assert_eq!(theirs.pid, Some(pid), "{theirs:?}");
-    assert!(theirs.addresses.contains(&"127.0.0.1".to_owned()), "{theirs:?}");
-    assert!(theirs.process.is_some(), "{theirs:?}");
-    assert!(ports.iter().all(|p| p.port != own_port), "this process's own listener is left out");
-    m.kill(&h).unwrap();
-    let _ = collect(&m, &h).await;
-    let after = sample_listening_ports().unwrap();
-    assert!(after.iter().all(|p| p.port != port), "a closed listener left the table");
+    .expect("the listener starts")
 }
 
 /// DS-PROC-7: subscribe starts sampling and pushes differences; unsubscribe stops the sampler
@@ -212,69 +216,89 @@ fn ids(rows: &[ShellJobRow]) -> Vec<&str> {
     rows.iter().map(|r| r.task_id.as_str()).collect()
 }
 
-/// DS-PROC-5: start / finish / stop / release of 20 jobs publishes the states the Node poller
-/// would have sampled — running jobs newest first, finished jobs newest finish first with their
-/// status and exit code, foreground commands absent until promoted — with no polling.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn job_strip_follows_twenty_jobs_without_polling() {
-    let baseline = thread_count();
-    let clock = Arc::new(AtomicU64::new(1_000_000));
-    let recorder = Arc::new(Recorder::default());
-    let tick = Arc::clone(&clock);
-    let registry = TaskRegistry::new(Arc::clone(&recorder) as Arc<dyn TaskPublisher>, move || tick.load(Ordering::SeqCst));
-    let manager = manager();
+struct Strip {
+    clock: Arc<AtomicU64>,
+    recorder: Arc<Recorder>,
+    registry: TaskRegistry,
+}
 
-    // Twenty background jobs, the last three backed by real processes.
-    let mut processes = Vec::new();
+impl Strip {
+    fn new() -> Self {
+        let clock = Arc::new(AtomicU64::new(1_000_000));
+        let recorder = Arc::new(Recorder::default());
+        let tick = Arc::clone(&clock);
+        let registry = TaskRegistry::new(Arc::clone(&recorder) as Arc<dyn TaskPublisher>, move || tick.load(Ordering::SeqCst));
+        Self { clock, recorder, registry }
+    }
+
+    fn last_state(&self) -> ShellJobsState {
+        self.recorder.threads.lock().unwrap().last().cloned().unwrap().1
+    }
+
+    fn published(&self) -> usize {
+        self.recorder.threads.lock().unwrap().len()
+    }
+}
+
+const FINISH_OUTCOMES: [TaskOutcome; 2] =
+    [TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) }, TaskOutcome { status: TaskStatus::Failed, exit_code: Some(2) }];
+
+/// DS-PROC-5: starting 20 jobs publishes the state the Node poller would have sampled, running jobs newest first, with
+/// no polling; a foreground command is absent until promoted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn job_strip_lists_started_jobs_newest_first_and_hides_foreground_until_promoted() {
+    let baseline = thread_count();
+    let strip = Strip::new();
     for i in 0..20u64 {
         let id = format!("t{i}");
-        let mut task = spec(&id, "th", 1_000_000 + i);
-        if i >= 17 {
-            let h = handle(&format!("job-{i}"));
-            manager.spawn(request(&h, shell("ping -n 60 127.0.0.1 >nul", "sleep 60"))).await.unwrap();
-            task.process = Some(h.clone());
-            processes.push(h);
-        }
-        registry.start(task).unwrap();
-        let (_, state) = recorder.threads.lock().unwrap().last().cloned().unwrap();
+        strip.registry.start(spec(&id, "th", 1_000_000 + i)).unwrap();
+        let state = strip.last_state();
         assert_eq!(state.count as u64, i + 1);
         assert_eq!(state.jobs[0].task_id, id, "newest first");
         assert_eq!(state.jobs.len() as u64, i + 1);
     }
-    assert_eq!(recorder.threads.lock().unwrap().len(), 20, "one state per transition");
-    assert_eq!(registry.host_state().count, 20);
-    assert_eq!(registry.start(spec("t0", "th", 5)), Err(TaskError::Exists));
+    assert_eq!(strip.published(), 20, "one state per transition");
+    assert_eq!(strip.registry.host_state().count, 20);
+    assert_eq!(strip.registry.start(spec("t0", "th", 5)), Err(TaskError::Exists));
 
-    // A foreground command is awaited in its own tool card: not listed, nothing published.
-    let published = recorder.threads.lock().unwrap().len();
+    let published = strip.published();
     let mut fg = spec("fg", "th", 1_000_100);
     fg.foreground = true;
-    registry.start(fg).unwrap();
-    assert_eq!(recorder.threads.lock().unwrap().len(), published);
-    assert!(!ids(&registry.thread_state("th").jobs).contains(&"fg"));
-    registry.promote("fg").unwrap();
-    let (_, state) = recorder.threads.lock().unwrap().last().cloned().unwrap();
+    strip.registry.start(fg).unwrap();
+    assert_eq!(strip.published(), published);
+    assert!(!ids(&strip.registry.thread_state("th").jobs).contains(&"fg"));
+    strip.registry.promote("fg").unwrap();
+    let state = strip.last_state();
     assert_eq!(state.jobs[0].task_id, "fg");
     assert_eq!(state.count, 21);
 
-    // Finish the first five, each differently.
+    wait_for(|| thread_count() <= baseline + 1);
+}
+
+/// Finished jobs are listed newest finish first with their status and exit code.
+#[test]
+fn job_strip_lists_finished_jobs_newest_finish_first_with_their_outcome() {
+    let strip = Strip::new();
+    for i in 0..5u64 {
+        strip.registry.start(spec(&format!("t{i}"), "th", 1_000_000 + i)).unwrap();
+    }
     let outcomes = [
-        TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) },
-        TaskOutcome { status: TaskStatus::Failed, exit_code: Some(2) },
+        FINISH_OUTCOMES[0],
+        FINISH_OUTCOMES[1],
         TaskOutcome::of_exit(&ProcessExit { status: ExitStatus::Code(1), killed: Some(KillReason::TimeLimit) }),
         TaskOutcome::of_exit(&ProcessExit { status: ExitStatus::Code(1), killed: Some(KillReason::Requested) }),
         TaskOutcome::of_exit(&ProcessExit { status: ExitStatus::Signal(9), killed: None }),
     ];
     for (i, outcome) in outcomes.iter().enumerate() {
-        clock.fetch_add(1000, Ordering::SeqCst);
-        registry.finish(&format!("t{i}"), *outcome).unwrap();
-        let (_, state) = recorder.threads.lock().unwrap().last().cloned().unwrap();
-        assert_eq!(state.count, 20 - i);
+        strip.clock.fetch_add(1000, Ordering::SeqCst);
+        strip.registry.finish(&format!("t{i}"), *outcome).unwrap();
+        let state = strip.last_state();
+        assert_eq!(state.count, 4 - i);
         assert!(!ids(&state.jobs).contains(&format!("t{i}").as_str()));
         assert_eq!(state.finished[0].task_id, format!("t{i}"), "newest finish first");
         assert_eq!(state.finished.len(), i + 1);
     }
-    let state = registry.thread_state("th");
+    let state = strip.registry.thread_state("th");
     let finished: Vec<(&str, Option<TaskStatus>, Option<i32>)> = state.finished.iter().map(|r| (r.task_id.as_str(), r.status, r.exit_code)).collect();
     assert_eq!(
         finished,
@@ -286,55 +310,84 @@ async fn job_strip_follows_twenty_jobs_without_polling() {
             ("t0", Some(TaskStatus::Completed), Some(0)),
         ]
     );
-    // Finishing twice changes nothing.
-    let published = recorder.threads.lock().unwrap().len();
-    registry.finish("t0", outcomes[1]).unwrap();
-    assert_eq!(recorder.threads.lock().unwrap().len(), published);
+    let published = strip.published();
+    strip.registry.finish("t0", outcomes[1]).unwrap();
+    assert_eq!(strip.published(), published, "finishing twice changes nothing");
+}
 
-    // Stop: terminate kills the real process tree; the exit finishes the task as cancelled/137.
+/// Stop: terminate kills the real process tree; the exit finishes the task as cancelled/137.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn job_strip_terminate_kills_the_process_and_finishes_the_task_cancelled() {
+    let strip = Strip::new();
+    let manager = manager();
+    let mut processes = Vec::new();
+    for i in 0..3u64 {
+        let h = handle(&format!("job-{i}"));
+        manager.spawn(request(&h, shell("ping -n 60 127.0.0.1 >nul", "sleep 60"))).await.unwrap();
+        let mut task = spec(&format!("t{i}"), "th", 1_000_000 + i);
+        task.process = Some(h.clone());
+        strip.registry.start(task).unwrap();
+        processes.push(h);
+    }
+    strip.registry.start(spec("plain", "th", 1_000_010)).unwrap();
     for (n, h) in processes.iter().enumerate() {
-        let task = format!("t{}", 17 + n);
-        registry.terminate(&task, &manager).unwrap();
+        let task = format!("t{n}");
+        strip.registry.terminate(&task, &manager).unwrap();
         let (_, exit) = collect(&manager, h).await;
         assert_eq!(exit.killed, Some(KillReason::Requested));
-        registry.finish(&task, TaskOutcome::of_exit(&exit)).unwrap();
-        let row = registry.get(&task).unwrap();
+        strip.registry.finish(&task, TaskOutcome::of_exit(&exit)).unwrap();
+        let row = strip.registry.get(&task).unwrap();
         assert_eq!((row.status, row.exit_code), (TaskStatus::Cancelled, Some(137)));
     }
-    assert_eq!(registry.terminate("t5", &manager), Err(TaskError::NoProcess));
-    assert_eq!(registry.terminate("nope", &manager), Err(TaskError::UnknownTask));
-    let state = registry.thread_state("th");
-    assert_eq!(state.count, 21 - 5 - 3);
-    assert_eq!(ids(&state.finished)[..3], ["t19", "t18", "t17"]);
+    assert_eq!(strip.registry.terminate("plain", &manager), Err(TaskError::NoProcess));
+    assert_eq!(strip.registry.terminate("nope", &manager), Err(TaskError::UnknownTask));
+    let state = strip.registry.thread_state("th");
+    assert_eq!(state.count, 1);
+    assert_eq!(ids(&state.finished)[..3], ["t2", "t1", "t0"]);
+}
 
-    // A killed command whose processes are not confirmed gone is listed again; its closed owner
-    // makes it orphaned for every thread of the host.
-    registry.set_termination_unconfirmed("t2", true).unwrap();
-    let host = registry.host_state();
-    assert!(ids(&host.jobs).contains(&"t2"));
+/// A killed command whose processes are not confirmed gone is listed again; its closed owner makes it orphaned for every
+/// thread of the host.
+#[test]
+fn job_strip_orphans_an_unconfirmed_job_when_its_owner_closes() {
+    let strip = Strip::new();
+    strip.registry.start(spec("t0", "th", 1_000_000)).unwrap();
+    strip.registry.finish("t0", FINISH_OUTCOMES[0]).unwrap();
+    strip.registry.set_termination_unconfirmed("t0", true).unwrap();
+    let host = strip.registry.host_state();
+    assert!(ids(&host.jobs).contains(&"t0"));
     assert!(host.orphaned.is_empty());
-    registry.owner_closed("th");
-    let host = registry.host_state();
-    assert_eq!(ids(&host.orphaned), vec!["t2"]);
-    registry.release("t2").unwrap();
-    assert!(registry.host_state().orphaned.is_empty());
-    assert_eq!(registry.release("t2"), Err(TaskError::UnknownTask));
+    strip.registry.owner_closed("th");
+    let host = strip.registry.host_state();
+    assert_eq!(ids(&host.orphaned), vec!["t0"]);
+    strip.registry.release("t0").unwrap();
+    assert!(strip.registry.host_state().orphaned.is_empty());
+    assert_eq!(strip.registry.release("t0"), Err(TaskError::UnknownTask));
+}
 
-    // Finished rows age out of the strip after 30 minutes, without a timer.
-    clock.fetch_add(FINISHED_RETENTION_MS + 1, Ordering::SeqCst);
-    assert!(registry.thread_state("th").finished.is_empty());
-    clock.store(1_000_000 + 5000, Ordering::SeqCst);
-    assert!(!registry.thread_state("th").finished.is_empty());
+/// Finished rows age out of the strip after 30 minutes, without a timer.
+#[test]
+fn job_strip_finished_rows_age_out_without_a_timer() {
+    let strip = Strip::new();
+    strip.registry.start(spec("t0", "th", 1_000_000)).unwrap();
+    strip.registry.finish("t0", FINISH_OUTCOMES[0]).unwrap();
+    strip.clock.fetch_add(FINISHED_RETENTION_MS + 1, Ordering::SeqCst);
+    assert!(strip.registry.thread_state("th").finished.is_empty());
+    strip.clock.store(1_000_000, Ordering::SeqCst);
+    assert!(!strip.registry.thread_state("th").finished.is_empty());
+}
 
-    // clean drops the finished rows and publishes once.
-    let before = recorder.threads.lock().unwrap().len();
-    registry.clean("th");
-    assert_eq!(recorder.threads.lock().unwrap().len(), before + 1);
-    assert!(registry.thread_state("th").finished.is_empty());
-    assert!(registry.list().iter().all(|r| r.status == TaskStatus::Running));
-
-    // The registry runs no thread of its own, and nothing asked for a job listing.
-    wait_for(|| thread_count() <= baseline + 1);
+#[test]
+fn job_strip_clean_drops_the_finished_rows_and_publishes_once() {
+    let strip = Strip::new();
+    strip.registry.start(spec("t0", "th", 1_000_000)).unwrap();
+    strip.registry.start(spec("t1", "th", 1_000_001)).unwrap();
+    strip.registry.finish("t0", FINISH_OUTCOMES[0]).unwrap();
+    let before = strip.published();
+    strip.registry.clean("th");
+    assert_eq!(strip.published(), before + 1);
+    assert!(strip.registry.thread_state("th").finished.is_empty());
+    assert!(strip.registry.list().iter().all(|r| r.status == TaskStatus::Running));
 }
 
 fn outcome_of(status: &str, exit_code: &Value) -> TaskOutcome {
@@ -400,31 +453,34 @@ fn job_strip_equals_the_node_poller_at_every_step() {
             "advance" => {}
             other => panic!("unknown op {other}"),
         }
-        // What the clients were last told, not a fresh read.
-        let mut told: std::collections::HashMap<String, ShellJobsState> = std::collections::HashMap::new();
-        for (thread, state) in recorder.threads.lock().unwrap().iter() {
-            told.insert(thread.clone(), state.clone());
-        }
-        let host = recorder.hosts.lock().unwrap().last().cloned().unwrap_or_default();
-        let node = &step["snapshot"];
-        for owner in &owners {
-            let want = &node["threads"][*owner];
-            let have = told.get(*owner).cloned().unwrap_or_default();
-            let jobs: Vec<(String, bool)> = have.jobs.iter().map(|j| (j.task_id.clone(), j.termination_unconfirmed)).collect();
-            let want_jobs: Vec<(String, bool)> =
-                want["jobs"].as_array().unwrap().iter().map(|j| (j["id"].as_str().unwrap().to_owned(), j["unconfirmed"] == json!(true))).collect();
-            assert_eq!(jobs, want_jobs, "step {n} ({}) jobs of {owner}", step["op"]);
-            let finished: Vec<Value> =
-                have.finished.iter().map(|f| json!([f.task_id, f.status.map(TaskStatus::as_str), f.exit_code, f.finished_at_ms])).collect();
-            assert_eq!(Value::Array(finished), want["finished"], "step {n} ({}) finished of {owner}", step["op"]);
-        }
-        let host_jobs: Vec<&str> = host.jobs.iter().map(|j| j.task_id.as_str()).collect();
-        let want_host: Vec<&str> = node["host"]["jobs"].as_array().unwrap().iter().map(|j| j.as_str().unwrap()).collect();
-        assert_eq!(host_jobs, want_host, "step {n} host jobs");
-        assert_eq!(host.count as u64, node["host"]["count"].as_u64().unwrap());
-        let orphaned: Vec<&str> = host.orphaned.iter().map(|j| j.task_id.as_str()).collect();
-        let want_orphaned: Vec<&str> = node["host"]["orphaned"].as_array().unwrap().iter().map(|j| j.as_str().unwrap()).collect();
-        assert_eq!(orphaned, want_orphaned, "step {n} orphaned");
+        assert_strip_matches(n, step, &owners, &recorder);
     }
     assert!(expiries >= 2, "the ticker delivered {expiries} expiries");
+}
+
+fn assert_strip_matches(n: usize, step: &Value, owners: &[&str], recorder: &Recorder) {
+    // What the clients were last told, not a fresh read.
+    let mut told: std::collections::HashMap<String, ShellJobsState> = std::collections::HashMap::new();
+    for (thread, state) in recorder.threads.lock().unwrap().iter() {
+        told.insert(thread.clone(), state.clone());
+    }
+    let host = recorder.hosts.lock().unwrap().last().cloned().unwrap_or_default();
+    let node = &step["snapshot"];
+    for owner in owners {
+        let want = &node["threads"][*owner];
+        let have = told.get(*owner).cloned().unwrap_or_default();
+        let jobs: Vec<(String, bool)> = have.jobs.iter().map(|j| (j.task_id.clone(), j.termination_unconfirmed)).collect();
+        let want_jobs: Vec<(String, bool)> =
+            want["jobs"].as_array().unwrap().iter().map(|j| (j["id"].as_str().unwrap().to_owned(), j["unconfirmed"] == json!(true))).collect();
+        assert_eq!(jobs, want_jobs, "step {n} ({}) jobs of {owner}", step["op"]);
+        let finished: Vec<Value> = have.finished.iter().map(|f| json!([f.task_id, f.status.map(TaskStatus::as_str), f.exit_code, f.finished_at_ms])).collect();
+        assert_eq!(Value::Array(finished), want["finished"], "step {n} ({}) finished of {owner}", step["op"]);
+    }
+    let host_jobs: Vec<&str> = host.jobs.iter().map(|j| j.task_id.as_str()).collect();
+    let want_host: Vec<&str> = node["host"]["jobs"].as_array().unwrap().iter().map(|j| j.as_str().unwrap()).collect();
+    assert_eq!(host_jobs, want_host, "step {n} host jobs");
+    assert_eq!(host.count as u64, node["host"]["count"].as_u64().unwrap());
+    let orphaned: Vec<&str> = host.orphaned.iter().map(|j| j.task_id.as_str()).collect();
+    let want_orphaned: Vec<&str> = node["host"]["orphaned"].as_array().unwrap().iter().map(|j| j.as_str().unwrap()).collect();
+    assert_eq!(orphaned, want_orphaned, "step {n} orphaned");
 }

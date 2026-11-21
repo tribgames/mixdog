@@ -33,8 +33,17 @@ pub fn action_input_contract(schema: &Value) -> String {
     if !shaped {
         return String::new();
     }
-    let input_of = |branch: &Value| at(branch, &["properties", "input"]).cloned().unwrap_or(Value::Null);
-    // Per field name, the distinct [enum, minimum, maximum] it has across the branches.
+    let variants = field_variants(branches);
+    let rows: Vec<String> = branches.iter().map(|branch| branch_row(branch, &variants)).collect();
+    format!("Allowed input by action (* required): {}.", rows.join("; "))
+}
+
+fn input_of(branch: &Value) -> Value {
+    at(branch, &["properties", "input"]).cloned().unwrap_or(Value::Null)
+}
+
+/// Per field name, the distinct [enum, minimum, maximum] it has across the branches.
+fn field_variants(branches: &[Value]) -> Vec<(String, Vec<Value>)> {
     let mut variants: Vec<(String, Vec<Value>)> = Vec::new();
     for branch in branches {
         for (name, field) in entries(&input_of(branch)["properties"]) {
@@ -49,35 +58,33 @@ pub fn action_input_contract(schema: &Value) -> String {
             }
         }
     }
-    let rows: Vec<String> = branches
-        .iter()
-        .map(|branch| {
-            let input = input_of(branch);
-            let required: Vec<&str> = input.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
-            let fields: Vec<String> = entries(&input["properties"])
-                .into_iter()
-                .map(|(name, field)| {
-                    let mut label = format!("{name}{}", if required.contains(&name.as_str()) { "*" } else { "" });
-                    let differs = variants.iter().find(|(known, _)| *known == name).is_some_and(|(_, seen)| seen.len() > 1);
-                    if differs {
-                        if let Some(Value::Array(values)) = field.get("enum").filter(|v| truthy(v)) {
-                            label += &format!("={}", values.iter().map(join_text).collect::<Vec<_>>().join("|"));
-                        }
-                        if let Some(minimum) = field.get("minimum") {
-                            label += &format!(">={}", mixdog_js::value_to_string(minimum));
-                        }
-                        if let Some(maximum) = field.get("maximum") {
-                            label += &format!("<={}", mixdog_js::value_to_string(maximum));
-                        }
-                    }
-                    label
-                })
-                .collect();
-            let actions = at(branch, &["properties", "action", "enum"]).and_then(Value::as_array).into_iter().flatten().map(join_text).collect::<Vec<_>>();
-            format!("{}({})", actions.join("/"), fields.join(","))
+    variants
+}
+
+fn branch_row(branch: &Value, variants: &[(String, Vec<Value>)]) -> String {
+    let input = input_of(branch);
+    let required: Vec<&str> = input.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+    let fields: Vec<String> = entries(&input["properties"])
+        .into_iter()
+        .map(|(name, field)| {
+            let mut label = format!("{name}{}", if required.contains(&name.as_str()) { "*" } else { "" });
+            let differs = variants.iter().find(|(known, _)| *known == name).is_some_and(|(_, seen)| seen.len() > 1);
+            if differs {
+                if let Some(Value::Array(values)) = field.get("enum").filter(|v| truthy(v)) {
+                    label += &format!("={}", values.iter().map(join_text).collect::<Vec<_>>().join("|"));
+                }
+                if let Some(minimum) = field.get("minimum") {
+                    label += &format!(">={}", mixdog_js::value_to_string(minimum));
+                }
+                if let Some(maximum) = field.get("maximum") {
+                    label += &format!("<={}", mixdog_js::value_to_string(maximum));
+                }
+            }
+            label
         })
         .collect();
-    format!("Allowed input by action (* required): {}.", rows.join("; "))
+    let actions = at(branch, &["properties", "action", "enum"]).and_then(Value::as_array).into_iter().flatten().map(join_text).collect::<Vec<_>>();
+    format!("{}({})", actions.join("/"), fields.join(","))
 }
 
 /// A per-action input union: the root's `action` enum and an `input` whose `anyOf` alternatives

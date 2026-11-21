@@ -1,8 +1,5 @@
-//! `assurance-rendered.mjs`: the review of rendered pages (the PNG of each page of a document, a worksheet print or a
-//! PDF): the ink metrics of every page, the faults they show (a blank page, content on the page edge, a flowing page
-//! that stops early, a sparse page, a worksheet scaled into a corner) and, after them, the aesthetic review of
-//! [`crate::aesthetics`]. Images are JSON objects the way Node held them: `data` (base64 PNG), `page` or `pages`,
-//! `width`, `height`, and the `pageImages` a contact sheet was composed from.
+//! Images are JSON objects: `data` (base64 PNG), `page` or `pages`, `width`, `height`, and the `pageImages` a contact sheet
+//! was composed from.
 
 use base64::Engine;
 use base64::alphabet;
@@ -189,7 +186,6 @@ fn rendered_page_metric(image: &Value) -> Result<Option<PageInk>, String> {
     let right_margin = if any_ink { max(0.0, canvas_width - max_x - step_size) / canvas_width } else { 1.0 };
     let any_body = body_max_y >= body_min_y;
     let body_vertical_span = if any_body { (body_max_y - body_min_y + step_size) / (body_bottom - body_top) } else { 0.0 };
-    // Where the body's ink stops, as a share of the body region (the running header and footer sit outside it).
     let body_end = if any_body { (1.0f64).min((body_max_y + step_size - body_top) / (body_bottom - body_top)) } else { 0.0 };
     Ok(Some(PageInk {
         page: page_numbers[0],
@@ -254,82 +250,81 @@ fn percent(share: f64) -> String {
     number_to_string(round(share * 100.0))
 }
 
-/// `reviewRenderedOfficePages(images, options)`: `{ ok, format, pages, aesthetics, issues }`. A flowing page that is
-/// not the last one ends its body early when the flow pushed a block it may not split (a table kept whole, a figure
-/// kept with its caption, a heading kept with the next block) onto the next page: the foot stands empty and the
-/// reader turns the page mid-thought. It is measured from the rendered ink, so it holds for Word and PDF alike;
-/// designed pages are composed, not flowed, and are left to the deck's own review. An image that cannot be decoded is
-/// an error, as it was a rejection in Node.
+/// The faults one page's ink shows in a docx, xlsx or pdf review: a blank page stops the rest; a flowing page that is not the
+/// last ends its body early when a block it may not split went to the next page; designed pages are left to the deck's review.
+fn page_faults(metric: &PageInk, format: &str, options: &RenderedOptions, last_page: f64) -> Vec<Value> {
+    let mut issues = Vec::new();
+    let forced_breaks = options.forced_break_pages.as_deref();
+    let forced = |page: f64| forced_breaks.is_some_and(|pages| pages.contains(&page));
+    let path = format!("/page[{}]", number_to_string(metric.page));
+    if metric.ink_coverage < 0.0015 {
+        issues.push(render_issue("blank_page", &path, "Rendered page is effectively blank.", "warning"));
+        return issues;
+    }
+    if format == "docx" && (metric.left_margin < 0.002 || metric.right_margin < 0.002) {
+        issues.push(render_issue(
+            "content_touches_page_edge",
+            &path,
+            "Rendered document content touches a horizontal page edge and may be clipped.",
+            "warning",
+        ));
+    }
+    let flowing = matches!(format, "docx" | "pdf") && !options.designed_pages;
+    let ends_before_forced_break = forced(metric.page + 1.0);
+    if flowing && metric.page > 1.0 && !ends_before_forced_break && metric.page < last_page && metric.body_end < PAGE_BODY_END_MIN {
+        let empty = percent(1.0 - metric.body_end);
+        let ignore = if forced_breaks.is_some() { "" } else { " If the next page opens with a deliberate forced break, ignore this." };
+        issues.push(render_issue(
+            "page_bottom_empty",
+            &path,
+            &format!(
+                "The body stops {}% of the way down page {} and the next page goes on: {empty}% of its body region stands empty. A block kept whole (a table, a figure with its caption, a heading kept with the next block) usually moved on; let a long table break across the page, move a shorter block up, or tighten what comes before.{ignore}",
+                percent(metric.body_end),
+                number_to_string(metric.page),
+            ),
+            "warning",
+        ));
+        return issues;
+    }
+    let deliberate_short = ends_before_forced_break || (forced(metric.page) && metric.page >= last_page);
+    if matches!(format, "docx" | "pdf")
+        && metric.page > 1.0
+        && !deliberate_short
+        && ((metric.ink_coverage < 0.025 && metric.vertical_span < 0.22) || (metric.body_vertical_span < 0.34 && metric.lower_body_ink_ratio < 0.08))
+    {
+        issues.push(render_issue(
+            "sparse_page",
+            &path,
+            &format!(
+                "Rendered body spans {}% of the body region; inspect paragraph flow and intentional whitespace.",
+                to_fixed(metric.body_vertical_span * 100.0, 1)
+            ),
+            "warning",
+        ));
+    }
+    if format == "xlsx"
+        && !options.small_worksheet
+        && metric.ink_coverage < 0.095
+        && ((metric.horizontal_span < 0.7 && metric.vertical_span < 0.5) || (metric.height > metric.width * 1.2 && metric.vertical_span < 0.3))
+    {
+        issues.push(render_issue("worksheet_print_too_small", &path, "Worksheet content is scaled into a small area of the rendered page.", "warning"));
+    }
+    issues
+}
+
+/// `{ ok, format, pages, aesthetics, issues }`; an image that cannot be decoded is an error.
 pub fn review_rendered_office_pages(images: &[Value], options: &RenderedOptions) -> Result<Value, String> {
     let normalized = js_to_lowercase(&options.format);
     let page_images = rendered_page_images(images);
     let last_page =
         if options.page_count.is_nan() || options.page_count == 0.0 { page_images.iter().flat_map(image_pages).fold(0.0, max) } else { options.page_count };
-    let forced_breaks = options.forced_break_pages.as_deref();
-    let forced = |page: f64| forced_breaks.is_some_and(|pages| pages.contains(&page));
     let mut pages = Vec::new();
     let mut issues = Vec::new();
     for image in &page_images {
         let Some(metric) = rendered_page_metric(image)? else { continue };
         pages.push(metric.to_value());
-        if !matches!(normalized.as_str(), "docx" | "xlsx" | "pdf") {
-            continue;
-        }
-        let path = format!("/page[{}]", number_to_string(metric.page));
-        if metric.ink_coverage < 0.0015 {
-            issues.push(render_issue("blank_page", &path, "Rendered page is effectively blank.", "warning"));
-            continue;
-        }
-        if normalized == "docx" && (metric.left_margin < 0.002 || metric.right_margin < 0.002) {
-            issues.push(render_issue(
-                "content_touches_page_edge",
-                &path,
-                "Rendered document content touches a horizontal page edge and may be clipped.",
-                "warning",
-            ));
-        }
-        let flowing = matches!(normalized.as_str(), "docx" | "pdf") && !options.designed_pages;
-        // The cover/title page is short by design, and a page followed by a deliberate forced break ends where the
-        // author ended it.
-        let ends_before_forced_break = forced(metric.page + 1.0);
-        if flowing && metric.page > 1.0 && !ends_before_forced_break && metric.page < last_page && metric.body_end < PAGE_BODY_END_MIN {
-            let empty = percent(1.0 - metric.body_end);
-            let ignore = if forced_breaks.is_some() { "" } else { " If the next page opens with a deliberate forced break, ignore this." };
-            issues.push(render_issue(
-                "page_bottom_empty",
-                &path,
-                &format!(
-                    "The body stops {}% of the way down page {} and the next page goes on: {empty}% of its body region stands empty. A block kept whole (a table, a figure with its caption, a heading kept with the next block) usually moved on; let a long table break across the page, move a shorter block up, or tighten what comes before.{ignore}",
-                    percent(metric.body_end),
-                    number_to_string(metric.page),
-                ),
-                "warning",
-            ));
-            continue;
-        }
-        // A short chapter is the author's: the page ends before a forced break, or it is the last page and opens with one.
-        let deliberate_short = ends_before_forced_break || (forced(metric.page) && metric.page >= last_page);
-        if matches!(normalized.as_str(), "docx" | "pdf")
-            && metric.page > 1.0
-            && !deliberate_short
-            && ((metric.ink_coverage < 0.025 && metric.vertical_span < 0.22) || (metric.body_vertical_span < 0.34 && metric.lower_body_ink_ratio < 0.08))
-        {
-            issues.push(render_issue(
-                "sparse_page",
-                &path,
-                &format!(
-                    "Rendered body spans {}% of the body region; inspect paragraph flow and intentional whitespace.",
-                    to_fixed(metric.body_vertical_span * 100.0, 1)
-                ),
-                "warning",
-            ));
-        }
-        if normalized == "xlsx"
-            && !options.small_worksheet
-            && metric.ink_coverage < 0.095
-            && ((metric.horizontal_span < 0.7 && metric.vertical_span < 0.5) || (metric.height > metric.width * 1.2 && metric.vertical_span < 0.3))
-        {
-            issues.push(render_issue("worksheet_print_too_small", &path, "Worksheet content is scaled into a small area of the rendered page.", "warning"));
+        if matches!(normalized.as_str(), "docx" | "xlsx" | "pdf") {
+            issues.extend(page_faults(&metric, &normalized, options, last_page));
         }
     }
     let aesthetics = review_rendered_office_aesthetics(&page_images, &normalized, &options.page_roles)?;

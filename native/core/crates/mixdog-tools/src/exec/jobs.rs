@@ -1,6 +1,6 @@
 //! The shell jobs of one runtime: one job per spawned process, filled by a collector running on
 //! an `mixdog-rt` lane from the process's event stream, written to its log files by a per-job
-//! writer (`spill::LogWriter`), and registered in WP-PROC's `TaskRegistry` (`native/mixdog-spawn/src/tasks.rs`), which owns
+//! writer (`spill::LogWriter`), and registered in the `TaskRegistry`, which owns
 //! the task rows and the shell-job strips. The jobs add what that registry does not hold: the
 //! captured output with its read cursors and the model-facing text.
 
@@ -93,8 +93,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// Pushed to the owner when a detached job finishes. Awaited in the completing job's task, so a
 /// slow consumer pushes back on the job instead of queueing behind it. `surface` is the
-/// completion's execution surface (`"shell"`, `"agent"`), given by the caller as today's
-/// `markCompletionEntry` meta `execution_surface`.
+/// completion's execution surface (`"shell"`, `"agent"`), given by the caller.
 #[async_trait::async_trait]
 pub trait TaskNotifier: Send + Sync {
     async fn finished(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String);
@@ -829,6 +828,41 @@ fn aligned(stream: &Stream, at: u64, label: Option<Label>) -> u64 {
     aligned_offset(stream.bytes(), stream.base, at, label.unwrap_or("utf-8"))
 }
 
+/// The unread part of one stream as a labelled section (none when it is empty), with the range it covered. A replay reads
+/// with a fresh cursor and leaves the stream's own where it was; otherwise the stream's cursor is taken out for the read
+/// and put back moved.
+fn read_stream(name: &str, stream: &mut Stream, log: &Path, options: &ReadOptions) -> (Option<(String, Piece<'static>)>, Range) {
+    let replay = options.tail;
+    let path = shown_path(log);
+    let mut cursor = if replay { Cursor::new(stream.oem) } else { std::mem::replace(&mut stream.cursor, Cursor::new(stream.oem)) };
+    let size = stream.end();
+    let label = stream.probe(&mut cursor.sniffer, options.terminal);
+    if let Some(label) = label
+        && !cursor.committed
+    {
+        cursor.committed = true;
+        cursor.decoder.force(label);
+    }
+    let read_end = if label.is_some() { size } else { cursor.sniffer.safe_end(size) };
+    let mut start = cursor.offset;
+    let mut earlier = String::new();
+    if replay && read_end - start > FULL_READ_BYTES as u64 {
+        start = aligned(stream, read_end - FULL_READ_BYTES as u64, label).min(read_end);
+        earlier = omission_marker(&Omitted { lines: stream.lines_before(start), bytes: start as usize, path: &path });
+        cursor.decoder = ShellStreamDecoder::new(stream.oem, label);
+    }
+    let flush = options.terminal && read_end == size;
+    let mut range = read_range(stream, &mut cursor, start, read_end, flush, label, &path);
+    if !replay {
+        cursor.offset = read_end;
+        cursor.dropped = None;
+        stream.cursor = cursor;
+    }
+    let piece = std::mem::replace(&mut range.piece, Piece::empty());
+    let section = (!piece.is_empty()).then(|| (format!("[{name}]\n{}", if earlier.is_empty() { String::new() } else { format!("{earlier}\n") }), piece));
+    (section, range)
+}
+
 /// `readRange`: `[start, end)` of `stream`, read with `cursor`. Of a range that starts before memory's `base`, the head
 /// and the newlines before `base` come from what the cursor kept as memory dropped them.
 fn read_range(stream: &Stream, cursor: &mut Cursor, start: u64, end: u64, flush: bool, label: Option<Label>, path: &str) -> Range {
@@ -1034,12 +1068,12 @@ async fn collect(
             }
         }
     }
-    // Bounded: a log whose writes stall past it is given up, and the job's results say from
-    // which byte it lacks output (`Job::log_note`).
+    finish_job(&job, exit, &runtime, logs).await;
+}
+
+/// Closes the logs, records how the job ended, and delivers the completion of a detached job.
+async fn finish_job(job: &Arc<Job>, exit: Option<ProcessExit>, runtime: &Arc<ExecRuntime>, logs: spill::LogWriter) {
     let _closed = logs.close(spill::LOG_STALL).await;
-    // Nothing writes the logs after this: their ownership record, which also says how the job ended
-    // (`completeShellJobRecord`), lets a sweep take them once they have aged. Bounded like the close: the job's end does not
-    // wait on a record write that stalls.
     let end = exit.as_ref().map_or_else(|| ExitFacts::failed(None), |e| job.facts_of(&job.state(), e));
     logs.mark_finished(spill::LOG_STALL, end.record(runtime.now_ms())).await;
     job.state().exit = exit;
@@ -1331,10 +1365,6 @@ impl Job {
         true
     }
 
-    /// Whether this job is a running background task that counts for `hasActiveBackgroundTasks`
-    /// on the shell surface: it moved to the background (a foreground command is no task) or
-    /// tracks a finished command's survivors. `awaited_only` leaves out the survivors (Node's
-    /// `detached` tasks).
     fn counts_as_active(&self, awaited_only: bool) -> bool {
         let state = self.state();
         (state.promoted_ms.is_some() || self.survivors) && !state.finished && !(awaited_only && self.survivors)
@@ -1408,43 +1438,8 @@ impl Job {
         let mut sections: Vec<(String, Piece<'static>)> = Vec::new();
         let state = &mut *state;
         for (name, stream, log) in [("stdout", &mut state.stdout, &self.stdout_log), ("stderr", &mut state.stderr, &self.stderr_log)] {
-            let path = shown_path(log);
-            // A replay reads with a fresh cursor and leaves the stream's own where it was (Node's `readShellTaskOutput`
-            // replays with a fresh map). Otherwise the stream's cursor is taken out for the read, which reads the stream
-            // beside it, and put back moved.
-            let mut cursor = if replay { Cursor::new(stream.oem) } else { std::mem::replace(&mut stream.cursor, Cursor::new(stream.oem)) };
-            let size = stream.end();
-            // The encoding is decided once, firmly (or when the task is terminal); until then
-            // only the ASCII prefix is read.
-            let label = stream.probe(&mut cursor.sniffer, options.terminal);
-            if let Some(label) = label
-                && !cursor.committed
-            {
-                cursor.committed = true;
-                cursor.decoder.force(label);
-            }
-            let read_end = if label.is_some() { size } else { cursor.sniffer.safe_end(size) };
-            let mut start = cursor.offset;
-            let mut earlier = String::new();
-            if replay && read_end - start > FULL_READ_BYTES as u64 {
-                start = aligned(stream, read_end - FULL_READ_BYTES as u64, label).min(read_end);
-                earlier = omission_marker(&Omitted { lines: stream.lines_before(start), bytes: start as usize, path: &path });
-                cursor.decoder = ShellStreamDecoder::new(stream.oem, label);
-            }
-            let flush = options.terminal && read_end == size;
-            let mut range = read_range(stream, &mut cursor, start, read_end, flush, label, &path);
-            // A read puts the stream's cursor back at `read_end`, which memory holds (an undecided encoding stops it within
-            // its window), so nothing dropped is kept for it. A replay's cursor is dropped.
-            if !replay {
-                cursor.offset = read_end;
-                cursor.dropped = None;
-                stream.cursor = cursor;
-            }
-            let piece = std::mem::replace(&mut range.piece, Piece::empty());
-            if !piece.is_empty() {
-                let prefix = format!("[{name}]\n{}", if earlier.is_empty() { String::new() } else { format!("{earlier}\n") });
-                sections.push((prefix, piece));
-            }
+            let (section, range) = read_stream(name, stream, log, &options);
+            sections.extend(section);
             growth.push(range);
         }
         let fixed: usize = sections.iter().map(|(p, _)| mixdog_js::utf16_len(p)).sum::<usize>() + 2 * sections.len().saturating_sub(1);
@@ -1472,9 +1467,8 @@ impl Job {
         if state.finished && !state.acknowledged { state.completion_output.clone() } else { None }
     }
 
-    /// `renderBackgroundTask`. `owner_tool`: the shell's own start notice; `result`: a task read.
-    /// How long a running job has been silent, as a warning once past the threshold
-    /// (`shellTaskSilenceNote`): derived on read from the last output, never fired by a timer.
+    /// How long a running job has been silent, as a warning once past the threshold:
+    /// derived on read from the last output, never fired by a timer.
     pub fn silence_note(&self, now_ms: u64) -> Option<String> {
         let state = self.state();
         if state.finished {
@@ -1489,6 +1483,7 @@ impl Job {
         now_ms.saturating_sub(since)
     }
 
+    /// `owner_tool`: the shell's own start notice; otherwise a task read.
     pub fn render(&self, owner_tool: bool, body: Option<&str>) -> String {
         self.render_with(owner_tool, body, None)
     }
@@ -1768,44 +1763,11 @@ impl ExecRuntime {
         review: Option<Arc<dyn TurnReviewApi>>,
         notify: Option<ToolNotify>,
     ) -> Result<Arc<Job>, ProcessError> {
-        let handle = request.handle.clone();
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let [stdout_log, stderr_log] = spill::log_paths(&self.config.spill_dir, &task_id);
         let logs = spill::LogWriter::new(self.config.lanes.pty, &stdout_log, &stderr_log);
-        // The expired logs of ended jobs go once per runtime, started with the first job (Node starts it as the first
-        // command spills), beside the command and never on its path (`sweepExpiredShellOutput`, started unawaited);
-        // shutdown waits for it. It cannot take a log being written: it goes by the ownership record, which the
-        // job's writer creates as running before its logs.
-        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
-            let (lane, dir) = (self.config.lanes.maintenance, self.config.spill_dir.clone());
-            let sweep = mixdog_rt::spawn("shell-log-sweep", TaskClass::Work, async move {
-                spill::sweep_expired(lane, &CancellationToken::new(), &dir).await;
-            });
-            *lock(&self.sweep) = Some(sweep);
-        }
-        let claimed = standby.filter(|parked| {
-            let claimed = processes.claim(parked, request.owner.clone(), request.time_limit).is_ok();
-            if !claimed {
-                let _ = processes.kill(parked);
-            }
-            claimed
-        });
-        // Subscribed as part of the spawn, before the child can write, so its output is taken from
-        // the first byte however late this task runs (the subscriber holds the replay ring's
-        // reader back). The job's writer creates the logs on its own io-pty thread (`collect`
-        // opens it); output that comes first waits in the writer's queue. The call's only
-        // io-spawn job is the spawn.
-        let (handle, source, pid) = match claimed {
-            Some(parked) => {
-                let source = processes.subscribe(&parked, Some(0))?;
-                let pid = processes.list().into_iter().find(|info| info.handle == parked).map_or(0, |info| info.pid);
-                (parked, source, pid)
-            }
-            None => {
-                let (spawned, source) = processes.spawn_subscribed(request).await?;
-                (handle, source, spawned.pid)
-            }
-        };
+        self.ensure_log_sweep();
+        let (handle, source, pid) = Self::spawn_or_claim(processes, request, standby).await?;
         let (settled, _) = watch::channel(false);
         let started_ms = self.now_ms();
         let oem = self.config.oem;
@@ -1846,6 +1808,42 @@ impl ExecRuntime {
         Ok(job)
     }
 
+    fn ensure_log_sweep(&self) {
+        if !self.swept.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            let (lane, dir) = (self.config.lanes.maintenance, self.config.spill_dir.clone());
+            let sweep = mixdog_rt::spawn("shell-log-sweep", TaskClass::Work, async move {
+                spill::sweep_expired(lane, &CancellationToken::new(), &dir).await;
+            });
+            *lock(&self.sweep) = Some(sweep);
+        }
+    }
+
+    async fn spawn_or_claim(
+        processes: &Arc<dyn ProcessManager>,
+        request: SpawnRequest,
+        standby: Option<ProcessHandle>,
+    ) -> Result<(ProcessHandle, Box<dyn EventSource<ProcessEvent>>, u32), ProcessError> {
+        let handle = request.handle.clone();
+        let claimed = standby.filter(|parked| {
+            let claimed = processes.claim(parked, request.owner.clone(), request.time_limit).is_ok();
+            if !claimed {
+                let _ = processes.kill(parked);
+            }
+            claimed
+        });
+        match claimed {
+            Some(parked) => {
+                let source = processes.subscribe_holding(&parked, Some(0))?;
+                let pid = processes.list().into_iter().find(|info| info.handle == parked).map_or(0, |info| info.pid);
+                Ok((parked, source, pid))
+            }
+            None => {
+                let (spawned, source) = processes.spawn_subscribed(request).await?;
+                Ok((handle, source, spawned.pid))
+            }
+        }
+    }
+
     fn purge_expired(&self, now: u64) {
         let aged: Vec<String> = lock(&self.jobs)
             .iter()
@@ -1879,35 +1877,12 @@ impl ExecRuntime {
     }
 
     /// A finished command left processes running: they become a tracked task under the same id,
-    /// finishing when the last of them exits (`trackSurvivingDescendants`). `None` without an
-    /// observer or survivors.
+    /// finishing when the last of them exits. `None` without an observer or survivors.
     pub fn track_survivors(self: &Arc<Self>, job: &Job) -> Option<(Arc<Job>, Survivors)> {
         let watch = self.config.survivors.clone()?;
         let survivors = watch.survivors(&job.handle)?;
         self.release(&job.id);
-        let (settled, _) = watch::channel(false);
-        let tracked = Arc::new(Job {
-            id: job.id.clone(),
-            command: job.command.clone(),
-            cwd: job.cwd.clone(),
-            owner: job.owner.clone(),
-            handle: job.handle.clone(),
-            pid: 0,
-            // The command's own start: Node's `trackSurvivingDescendants` hands its `startedAtMs` to the task.
-            started_ms: job.started_ms,
-            time_limit_ms: 0,
-            review: job.review.clone(),
-            stdout_log: job.stdout_log.clone(),
-            stderr_log: job.stderr_log.clone(),
-            logs: None,
-            wait_hits: AtomicU32::new(0),
-            survivors: true,
-            notify: job.notify.clone(),
-            recovered: None,
-            state: Mutex::new(JobState::new(self.config.oem)),
-            settled,
-        });
-        tracked.state().detached = true;
+        let tracked = self.survivors_job(job);
         lock(&self.jobs).insert(tracked.id.clone(), tracked.clone());
         let _ = self.config.tasks.start(TaskSpec {
             task_id: tracked.id.clone(),
@@ -1922,11 +1897,6 @@ impl ExecRuntime {
         });
         let (runtime, watched) = (self.clone(), tracked.clone());
         mixdog_rt::spawn("shell-survivors", TaskClass::Work, async move {
-            // The passive observation (`waitForShellDescendants`): the survivors are checked now and re-checked every
-            // `TERMINATION_RECHECK_MS`. A cancel whose kill could not confirm them gone keeps terminating on every pass
-            // (`sweep: () => cancelled`) while the row is held.
-            // Node's `run` passes no abort signal and ignores the boolean `waitForShellDescendants` answers, which is
-            // `false` only for an abort: this watch raises none, so whichever way the wait ends, the task ends.
             let never = CancellationToken::new();
             loop {
                 match mixdog_rt::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
@@ -1940,10 +1910,33 @@ impl ExecRuntime {
         Some((tracked, survivors))
     }
 
-    /// A cancel of a survivors task, before anything is signalled: its intent is latched and the registry state turns terminal
-    /// (`cancelBackgroundTask` flips the status ahead of the kill's outcome), with the row held until the processes are
-    /// confirmed gone. An exit event that arrives later can no longer mark the task completed. `false` when the task is
-    /// already terminal.
+    fn survivors_job(&self, job: &Job) -> Arc<Job> {
+        let (settled, _) = watch::channel(false);
+        let tracked = Arc::new(Job {
+            id: job.id.clone(),
+            command: job.command.clone(),
+            cwd: job.cwd.clone(),
+            owner: job.owner.clone(),
+            handle: job.handle.clone(),
+            pid: 0,
+            started_ms: job.started_ms,
+            time_limit_ms: 0,
+            review: job.review.clone(),
+            stdout_log: job.stdout_log.clone(),
+            stderr_log: job.stderr_log.clone(),
+            logs: None,
+            wait_hits: AtomicU32::new(0),
+            survivors: true,
+            notify: job.notify.clone(),
+            recovered: None,
+            state: Mutex::new(JobState::new(self.config.oem)),
+            settled,
+        });
+        tracked.state().detached = true;
+        tracked
+    }
+
+    /// `false` when the task is already terminal.
     pub(crate) fn cancel_survivors_intent(&self, job: &Job) -> bool {
         let mut state = job.state();
         if state.finished {
@@ -2070,11 +2063,9 @@ impl ExecRuntime {
         }
     }
 
-    /// `reconcileRecoveredShellJobCompletions`, once at start: every background job a runtime that is gone left running
-    /// (its record says it runs, this runtime does not hold it, and the job's own process is gone) ends as
-    /// failed, its record says so, and its owner gets the failed completion the way a finished background job's owner
-    /// does, unless the job's own process still exists (`isPidAlive(record.pid)`: it survived the restart); a job of this
-    /// runtime is held before its record is written. `alive` is whether a process exists.
+    /// Once at start: every background job a runtime that is gone left running (its record says it runs, this runtime
+    /// does not hold it, and the job's own process is gone) ends as failed, its record says so, and its owner gets the
+    /// failed completion. `alive` is whether a process exists.
     pub async fn reconcile_lost_jobs(&self, alive: &(dyn Fn(u32) -> bool + Sync)) {
         let cancel = CancellationToken::new();
         let records = spill::read_records(self.config.lanes.maintenance, &cancel, &self.config.spill_dir, None).await;

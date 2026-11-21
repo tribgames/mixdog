@@ -1,23 +1,9 @@
-// Project manifests read from the tree, not from the fileSet.
-//
-// This is the only part of the resolution layer that touches the filesystem:
-// pubspec/composer/tsconfig/package.json/Cargo.toml/go.mod declare where a
-// package's sources live, and the indexed resolvers need those declarations
-// before they can map a spec to a repo-relative path. Everything else in
-// `resolve` is pure string work over the fileSet.
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::paths::{is_same_or_under, path_join_norm, rel_dir, rel_strip_prefix};
 
-// JSON-with-comments stripper for `tsconfig.json` / `jsconfig.json` /
-// `package.json`: replaces `//` line comments and `/* */` block comments with
-// whitespace (newlines preserved) while passing string literals through
-// verbatim, so a `//` inside a quoted path survives. Source files are never
-// stripped any more — comments and string bodies are excluded from tokens,
-// symbols and search by the parse tree itself.
 fn strip_jsonc_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(text.len());

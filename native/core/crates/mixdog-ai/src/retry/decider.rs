@@ -95,11 +95,6 @@ impl RetryDecider for StandardRetryDecider {
             verdict: Verdict::Retry { delay, reason: reason_of(error), delivery: error.delivery },
             next: state.after_retry(error.kind, under, delay),
         };
-        // A per-status cap bounds the retries of that status. The state
-        // counts retries per kind, so a capped status is counted under its
-        // kind (a kind without its own schedule): cap 1 on 429 means one
-        // retry of the rate limit, then the error stands. Overload counts
-        // consecutive failures itself and takes no cap.
         let cap = status
             .and_then(|s| rules.caps.iter().find(|(capped, _)| *capped == s))
             .map(|(_, cap)| *cap)

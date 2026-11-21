@@ -1,7 +1,4 @@
-//! `shell-layout/row-budgets.mjs`: the rows every bottom-cluster surface reserves this render (prompt box, live meta band,
-//! queued band, welcome banner, floating panel) and the layout signature that names them. Also the two predicates the
-//! budgets need from other modules of the Node app: the live spinner meta visibility (`live-spinner-visibility.mjs`) and the
-//! `/btw` panel height (`btw-controller.mjs`).
+//! The rows every bottom-cluster surface reserves this render (prompt box, live meta band, queued band, welcome banner, floating panel) and the layout signature that names them.
 
 use mixdog_js::js_trim;
 use mixdog_markdown_ansi::measure::measure_markdown_rendered_rows;
@@ -98,10 +95,6 @@ fn prompt_box_budget(input_box_hidden: bool, value: &str, columns: usize, cache:
     PromptBudget { current_prompt_layout_rows, prompt_input_rows, prompt_box_rows: if input_box_hidden { 0 } else { 2 + prompt_input_rows } }
 }
 
-/// The text-entry panel's content is one prompt line (chrome + 1) for single-line prompts, or up to `PANEL_MAX_VISIBLE`
-/// wrapped rows for core memory add and edit, plus an optional borderless sign-in URL block under the panel (the manual
-/// OAuth URL). The floating container clips from the top, so under-reserving pushed the bordered title off the panel. The
-/// block gets only the rows the terminal leaves.
 struct TextEntryBudget {
     kind: String,
     multiline: bool,
@@ -123,10 +116,6 @@ fn text_entry_budget(input: &ShellLayoutInput, surfaces: &Surfaces, max_floating
     TextEntryBudget { kind, multiline, detail_text, detail_rows, url_max_rows, content_rows, rows: PANEL_CHROME_ROWS + content_rows + detail_rows }
 }
 
-/// Every queued command renders at its full wrapped height (the content width the promoted transcript user row wraps at),
-/// pinned above the prompt box with no extra top margin. Reserving the true height keeps a promotion from re-expanding the
-/// text mid-flight. If the whole queue would eat too much of the frame, it falls back to one compact row per entry so the
-/// input box never leaves the screen.
 struct QueuedBudget {
     full_rows: usize,
     row_budget: usize,
@@ -160,11 +149,6 @@ fn queued_budget(visible: bool, input: &ShellLayoutInput) -> QueuedBudget {
     QueuedBudget { full_rows, row_budget, compact, rows }
 }
 
-/// Welcome banner visibility, computed after the prompt and panel row math it depends on. The slash palette must not unmount
-/// the banner on the empty transcript: dropping the 11-row banner the moment `/` opened the palette (and remounting it on
-/// Esc) read as the whole top of the screen jumping on command-palette entry. The banner stays mounted through a slash
-/// session whenever the terminal is tall enough to hold banner, palette, prompt and statusline at once; short terminals yield
-/// the banner so the palette chrome never clips.
 struct WelcomeBudget {
     slash_keeps_banner: bool,
     show_banner: bool,

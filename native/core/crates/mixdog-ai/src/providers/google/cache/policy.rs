@@ -1,8 +1,3 @@
-//! The decision layer of Gemini explicit `cachedContents`
-//! (`gemini-cache-policy.mjs`, `gemini-cache.mjs`, `gemini-request-body.mjs`):
-//! tunables, prefix identity, whether a session's saved cache can be attached
-//! or reused, and the two request bodies. Pure functions of their inputs.
-
 use std::time::Duration;
 
 use mixdog_core_api::domain::keepalive::PingKeepalive;
@@ -344,10 +339,6 @@ pub struct Decision {
     pub can_reuse: bool,
 }
 
-/// `geminiCacheStateDecision`: whether the session's recorded cache can still
-/// be attached (live TTL, same model, credential and prefix) and whether it is
-/// fresh enough to reuse outright. Reuse needs TTL headroom (25% of the TTL,
-/// clamped to 10 s..6 min) so a cache never expires mid-request.
 pub fn decide(
     state: Option<&GeminiCacheState>,
     model: &str,

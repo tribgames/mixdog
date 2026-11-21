@@ -1,4 +1,4 @@
-//! One shape for every piece of shell output handed to an agent (`lib/shell-delivery.mjs`):
+//! One shape for every piece of shell output handed to an agent:
 //! ANSI stripped and `\r` frames folded, over-long lines cut, a whole body when short, else a
 //! head, an omission marker naming the full log, and a tail; harness-shaped tags escaped.
 //! Lengths and cut points count UTF-16 units, as Node does.

@@ -1,8 +1,3 @@
-//! The MCP sign-in and sign-out calls when the notice they post fails, or the session they address goes away during the
-//! awaited action, through the real call path: the real [`McpService`] over a scripted MCP runtime, the real session directory,
-//! actor, outbox and feed. A call answers the runtime's result or one error; the notice it posts shows to the session's current
-//! runtime only.
-
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 use std::task::Poll;

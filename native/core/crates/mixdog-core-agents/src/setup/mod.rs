@@ -255,6 +255,25 @@ fn applies_to(action: &str) -> &'static str {
     }
 }
 
+fn check_scope(scope: &CallerScope, action: &str, args: &Value) -> Result<(), PortError> {
+    match scope {
+        CallerScope::Agent { unattended: true, .. } if !UNATTENDED_OWN.contains(&action) => {
+            Err(PortError::Denied(format!("An unattended run cannot change settings (setup {action})")))
+        }
+        CallerScope::RoomMember => Err(PortError::Denied(format!("A group-room member cannot change settings (setup {action})"))),
+        CallerScope::Headless => Err(PortError::Denied(format!("A background run cannot change settings (setup {action})"))),
+        // `assertOwnAgentSettings`: another agent's thread changes only its own.
+        CallerScope::Agent { agent_id, .. } if OWN_AGENT.contains(&action) => {
+            let named = args.get("agent").map(mixdog_js::value_to_string).unwrap_or_default();
+            if mixdog_js::js_trim(&named) != agent_id.as_str() {
+                return Err(PortError::Denied(format!("This thread manages only its own agent's settings (setup {action})")));
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The voice receipt's own `appliesTo` (`setVoice`).
 const VOICE_APPLIES_TO: &str = "channel voice transcription and Desktop dictation now";
 
@@ -403,6 +422,25 @@ impl SetupService {
         self
     }
 
+    /// `assertAgentEditorAccess`: agent definitions change only from Mixy, the human's own session or one
+    /// acting as her.
+    async fn check_agent_editor(&self, scope: &CallerScope, acting: &str, action: &str, args: &Value) -> Result<(), PortError> {
+        if AGENT_DEFINITION.contains(&action)
+            && args.get("definitionKind").and_then(Value::as_str) == Some("agent")
+            && !matches!(scope, CallerScope::RoomMember | CallerScope::Headless)
+            && !matches!(scope, CallerScope::Agent { unattended: true, .. })
+        {
+            let acting = mixdog_js::js_trim(acting);
+            if !(*scope == CallerScope::Human && (acting.is_empty() || acting == MIXY_AGENT_ID)) {
+                let name = self.callers.mixy_name().await;
+                return Err(PortError::Denied(format!(
+                    "Only {name} (the representative agent) can create, edit or delete agents (setup {action}); ask the user to do it with {name} or in the Agents settings"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// `assertHeartbeatSetupAction` and `assertInteractiveCaller`.
     async fn authorize(&self, thread: &ThreadId, action: &str, args: &Value) -> Result<(), PortError> {
         if !READ_ONLY.contains(&action) {
@@ -413,40 +451,8 @@ impl SetupService {
                 Ok(acting) => (self.callers.scope(thread).await, acting),
                 Err(_) => (CallerScope::Headless, String::new()),
             };
-            // `assertAgentEditorAccess`: agent definitions change only from Mixy, the human's
-            // own session or one acting as her.
-            if AGENT_DEFINITION.contains(&action)
-                && args.get("definitionKind").and_then(Value::as_str) == Some("agent")
-                && !matches!(scope, CallerScope::RoomMember | CallerScope::Headless)
-                && !matches!(scope, CallerScope::Agent { unattended: true, .. })
-            {
-                let acting = mixdog_js::js_trim(&acting);
-                if !(scope == CallerScope::Human && (acting.is_empty() || acting == MIXY_AGENT_ID)) {
-                    let name = self.callers.mixy_name().await;
-                    return Err(PortError::Denied(format!(
-                        "Only {name} (the representative agent) can create, edit or delete agents (setup {action}); ask the user to do it with {name} or in the Agents settings"
-                    )));
-                }
-            }
-            match scope {
-                CallerScope::Agent { unattended: true, .. } if !UNATTENDED_OWN.contains(&action) => {
-                    return Err(PortError::Denied(format!("An unattended run cannot change settings (setup {action})")));
-                }
-                CallerScope::RoomMember => {
-                    return Err(PortError::Denied(format!("A group-room member cannot change settings (setup {action})")));
-                }
-                CallerScope::Headless => {
-                    return Err(PortError::Denied(format!("A background run cannot change settings (setup {action})")));
-                }
-                // `assertOwnAgentSettings`: another agent's thread changes only its own.
-                CallerScope::Agent { agent_id, .. } if OWN_AGENT.contains(&action) => {
-                    let named = args.get("agent").map(mixdog_js::value_to_string).unwrap_or_default();
-                    if mixdog_js::js_trim(&named) != agent_id {
-                        return Err(PortError::Denied(format!("This thread manages only its own agent's settings (setup {action})")));
-                    }
-                }
-                _ => {}
-            }
+            self.check_agent_editor(&scope, &acting, action, args).await?;
+            check_scope(&scope, action, args)?;
         }
         if self.callers.is_heartbeat(thread).await {
             let pauses = action == "set_automation_enabled" && args.get("enabled") == Some(&Value::Bool(false));
@@ -527,59 +533,64 @@ impl SetupService {
                     "appliedToCurrentSession": self.callers.settings_reach_session(call.thread).await,
                 }))
             }
-            "status" => {
-                let domain = args
-                    .get("domain")
-                    .map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned())
-                    .filter(|d| !d.is_empty())
-                    .unwrap_or_else(|| "summary".to_owned());
-                let Some(domain) = status::STATUS_DOMAINS.iter().copied().find(|name| *name == domain) else {
-                    return Err(invalid("domain", format!("domain must be one of {}", status::STATUS_DOMAINS.join(", "))));
-                };
-                let detail = args.get("detail") == Some(&Value::Bool(true));
-                let body = if domain == "capabilities" {
-                    status::capabilities()
-                } else if status::DESKTOP_DOMAINS.contains(&domain) {
-                    match self.desktop.request(call.thread, &serde_json::json!({ "action": "status", "domain": domain })).await? {
-                        DesktopAnswer::Done(done) => done,
-                        DesktopAnswer::Unclaimed(message) => return Err(PortError::Unavailable { capability: "desktop".into(), message }),
-                    }
-                } else {
-                    let reader = self.readers.get(domain).ok_or_else(|| PortError::Unavailable {
-                        capability: format!("setup.status.{domain}"),
-                        message: format!("the {domain} status reader is not wired"),
-                    })?;
-                    reader.read(domain, detail, call.thread).await?
-                };
-                // `{ domain, ...status }`
-                let mut out = Map::new();
-                out.insert("domain".into(), Value::String(domain.to_owned()));
-                if let Value::Object(fields) = body {
-                    out.extend(fields);
-                }
-                Ok(Value::Object(out))
-            }
-            "open" => {
-                let target = args.get("target").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
-                let Some((command, hint)) = OPEN_TARGETS.iter().find(|(name, _)| *name == target) else {
-                    let names: Vec<&str> = OPEN_TARGETS.iter().map(|(name, _)| *name).collect();
-                    return Err(invalid("target", format!("target must be one of {}", names.join(", "))));
-                };
-                let session = !call.thread.as_str().is_empty();
-                let handled = match &self.ui {
-                    Some(ui) if session => ui.open(call.thread, command).await,
-                    _ => false,
-                };
-                let note = if handled {
-                    "The attached app navigated to this surface; the user completes the step there.".to_owned()
-                } else {
-                    format!("No interactive UI is attached to this session. Tell the user where to go: {hint}")
-                };
-                Ok(serde_json::json!({ "opened": handled, "target": command, "note": note }))
-            }
+            "status" => self.read_status(call).await,
+            "open" => self.open_target(call).await,
             action if DESKTOP_ROUTED.contains(&action) => self.hosted(call).await,
             other => Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not served by the config actor") }),
         }
+    }
+
+    async fn read_status(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
+        let args = call.args;
+        let domain = args
+            .get("domain")
+            .map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned())
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| "summary".to_owned());
+        let Some(domain) = status::STATUS_DOMAINS.iter().copied().find(|name| *name == domain) else {
+            return Err(invalid("domain", format!("domain must be one of {}", status::STATUS_DOMAINS.join(", "))));
+        };
+        let detail = args.get("detail") == Some(&Value::Bool(true));
+        let body = if domain == "capabilities" {
+            status::capabilities()
+        } else if status::DESKTOP_DOMAINS.contains(&domain) {
+            match self.desktop.request(call.thread, &serde_json::json!({ "action": "status", "domain": domain })).await? {
+                DesktopAnswer::Done(done) => done,
+                DesktopAnswer::Unclaimed(message) => return Err(PortError::Unavailable { capability: "desktop".into(), message }),
+            }
+        } else {
+            let reader = self.readers.get(domain).ok_or_else(|| PortError::Unavailable {
+                capability: format!("setup.status.{domain}"),
+                message: format!("the {domain} status reader is not wired"),
+            })?;
+            reader.read(domain, detail, call.thread).await?
+        };
+        // `{ domain, ...status }`
+        let mut out = Map::new();
+        out.insert("domain".into(), Value::String(domain.to_owned()));
+        if let Value::Object(fields) = body {
+            out.extend(fields);
+        }
+        Ok(Value::Object(out))
+    }
+
+    async fn open_target(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
+        let target = call.args.get("target").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
+        let Some((command, hint)) = OPEN_TARGETS.iter().find(|(name, _)| *name == target) else {
+            let names: Vec<&str> = OPEN_TARGETS.iter().map(|(name, _)| *name).collect();
+            return Err(invalid("target", format!("target must be one of {}", names.join(", "))));
+        };
+        let session = !call.thread.as_str().is_empty();
+        let handled = match &self.ui {
+            Some(ui) if session => ui.open(call.thread, command).await,
+            _ => false,
+        };
+        let note = if handled {
+            "The attached app navigated to this surface; the user completes the step there.".to_owned()
+        } else {
+            format!("No interactive UI is attached to this session. Tell the user where to go: {hint}")
+        };
+        Ok(serde_json::json!({ "opened": handled, "target": command, "note": note }))
     }
 
     fn settings(&self) -> Result<&Settings, PortError> {

@@ -1,16 +1,11 @@
-//! The one async turn gate (hang audit F15/F17): first-come, first-served exclusion that a
-//! cancel token can always leave.
+//! The one async turn gate: first-come, first-served exclusion that a cancel token can always leave. Every entry takes the
+//! caller's [`CancellationToken`]:
 //!
-//! It replaces `tokio::sync::Mutex` (whose `lock().await` cannot be cancelled and whose guard
-//! tends to be held across long awaits). Every entry takes the caller's [`CancellationToken`]:
+//! - a waiter whose token fires leaves the queue at once, whoever holds the gate and however stuck that holder is;
+//! - [`Gate::run`] also races the critical section against the same token, so a stuck holder is dropped by the cancel and its
+//!   turn passes to the next waiter.
 //!
-//! - a waiter whose token fires leaves the queue at once, whoever holds the gate and however
-//!   stuck that holder is;
-//! - [`Gate::run`] also races the critical section against the same token, so a holder that is
-//!   stuck is dropped by the cancel and its turn passes to the next waiter.
-//!
-//! The queue underneath is [`SerialChain`] (std mutex taken for a few instructions, never across
-//! an await). Keep the guarded section short: state belongs in a `std::sync::Mutex` read and
+//! The queue underneath is [`SerialChain`]. Keep the guarded section short: state belongs in a `std::sync::Mutex` read and
 //! written between awaits, and the gate only orders the steps that must not interleave.
 
 use std::future::Future;

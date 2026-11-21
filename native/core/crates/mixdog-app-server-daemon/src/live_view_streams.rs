@@ -222,6 +222,47 @@ struct Subscription {
     takeover: Option<Value>,
 }
 
+impl Subscription {
+    fn new(options: &StreamOptions) -> Self {
+        Self {
+            max_width: options.max_width,
+            max_height: options.max_height,
+            expiry: (0, 0),
+            slot: None,
+            inflight: None,
+            sent_at: 0.0,
+            retry: None,
+            images: true,
+            awaiting_fit: false,
+            fit_asked: false,
+            takeover: None,
+        }
+    }
+
+    /// Take-over intent lasts as long as the subscription: a renewal that omits `fit` keeps it.
+    fn renew(&mut self, options: StreamOptions) {
+        match options.fit {
+            Fit::Release => {
+                self.takeover = None;
+                self.fit_asked = false;
+                self.awaiting_fit = false;
+            }
+            Fit::Viewport(fit) => {
+                if self.takeover.is_none() {
+                    self.takeover = Some(fit);
+                }
+            }
+            Fit::Absent => {}
+        }
+        if self.takeover.is_some() && !self.fit_asked {
+            self.fit_asked = true;
+            self.awaiting_fit = true;
+        }
+        self.max_width = options.max_width;
+        self.max_height = options.max_height;
+    }
+}
+
 /// Ordered like JavaScript `Map`s: insertion order, a removal keeps the others' order.
 #[derive(Default)]
 struct State {
@@ -493,61 +534,25 @@ impl BrowserStreams {
         if !self.deps.allowed(client) {
             return Err(VIEW_NOT_ALLOWED.to_owned());
         }
-        {
-            if state.subscriptions(session).is_none() {
-                state.sessions.push((session.to_owned(), Vec::new()));
-            }
-            let is_new = state.subscription(session, client).is_none();
-            if is_new {
-                let subscription = Subscription {
-                    max_width: options.max_width,
-                    max_height: options.max_height,
-                    expiry: (0, 0),
-                    slot: None,
-                    inflight: None,
-                    sent_at: 0.0,
-                    retry: None,
-                    images: true,
-                    awaiting_fit: false,
-                    fit_asked: false,
-                    takeover: None,
-                };
-                if let Some(subscriptions) = state.subscriptions(session) {
-                    subscriptions.push((client.to_owned(), subscription));
-                }
-            }
+        if state.subscriptions(session).is_none() {
+            state.sessions.push((session.to_owned(), Vec::new()));
+        }
+        let is_new = state.subscription(session, client).is_none();
+        if is_new && let Some(subscriptions) = state.subscriptions(session) {
+            subscriptions.push((client.to_owned(), Subscription::new(&options)));
+        }
+        if let Some(subscription) = state.subscription(session, client) {
+            subscription.renew(options);
+        }
+        self.arm_expiry(&mut state, session, client);
+        let told = state.subscriptions(session).map(|subscriptions| largest(subscriptions));
+        effects.push(Effect::Request(session.to_owned(), told));
+        let cached = state.latest.get(session).cloned();
+        if is_new && let Some(cached) = cached {
             if let Some(subscription) = state.subscription(session, client) {
-                // Take-over intent lasts as long as the subscription: a renewal that omits `fit` keeps it.
-                match options.fit {
-                    Fit::Release => {
-                        subscription.takeover = None;
-                        subscription.fit_asked = false;
-                        subscription.awaiting_fit = false;
-                    }
-                    Fit::Viewport(fit) => {
-                        if subscription.takeover.is_none() {
-                            subscription.takeover = Some(fit);
-                        }
-                    }
-                    Fit::Absent => {}
-                }
-                if subscription.takeover.is_some() && !subscription.fit_asked {
-                    subscription.fit_asked = true;
-                    subscription.awaiting_fit = true;
-                }
-                subscription.max_width = options.max_width;
-                subscription.max_height = options.max_height;
+                subscription.slot = Some(cached);
             }
-            self.arm_expiry(&mut state, session, client);
-            let told = state.subscriptions(session).map(|subscriptions| largest(subscriptions));
-            effects.push(Effect::Request(session.to_owned(), told));
-            let cached = state.latest.get(session).cloned();
-            if is_new && let Some(cached) = cached {
-                if let Some(subscription) = state.subscription(session, client) {
-                    subscription.slot = Some(cached);
-                }
-                self.flush(&mut state, session, client, &mut effects);
-            }
+            self.flush(&mut state, session, client, &mut effects);
         }
         self.commit(state, effects);
         Ok(())

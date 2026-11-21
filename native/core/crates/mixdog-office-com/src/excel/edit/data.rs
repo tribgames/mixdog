@@ -68,6 +68,22 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
     if present(op, "hasHeader") {
         has_header = flag(op, "hasHeader");
     }
+    let (key_column, declared) = sort_key_column(&sheet, &target, op)?;
+    if key_column < 1 || key_column > columns_of(&target)? {
+        return Err(Error::host(format!("XLSX sort_range by \"{declared}\" is outside {}; name a column the range covers.", text_of(op, "range"))));
+    }
+    refuse_unsortable(&target, op, has_header)?;
+    let descending = text::to_lower_invariant(&text_of(op, "order")).starts_with("desc");
+    let sort_order = if descending { 2 } else { 1 };
+    let header_flag = if has_header { 1 } else { 2 };
+    let key_range = get_with(&target, "Columns", &[Com::I4(key_column)])?;
+    target.call_member("Sort", &[key_range, Com::I4(sort_order), Com::Null, Com::Null, Com::I4(1), Com::Null, Com::I4(1), Com::I4(header_flag)])?;
+    Ok(record_of("sort_range", true, vec![("range", Value::String(text_of(op, "range"))), ("order", Value::string(if descending { "desc" } else { "asc" }))]))
+}
+
+/// The 1-based key column within `target` and the key as the request declared it (`by`, else `column`): a column letter, a
+/// header, or the first column when none is given or no header matches.
+fn sort_key_column(sheet: &Com, target: &Com, op: &Value) -> Result<(i32, String)> {
     let mut key_column = 1;
     let mut declared = text_of(op, "by").trim().to_owned();
     if declared.is_empty() {
@@ -75,12 +91,12 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
     }
     if !declared.is_empty() {
         if is_match(&declared, "^[A-Za-z]{1,3}$")? {
-            let named = get_with(&sheet, "Columns", &[com_text(declared.to_ascii_uppercase())])?;
+            let named = get_with(sheet, "Columns", &[com_text(declared.to_ascii_uppercase())])?;
             key_column = int_of_com(&named.member("Column")?)? - int_of_com(&target.member("Column")?)? + 1;
         } else {
             let mut index = 1;
-            while index <= columns_of(&target)? {
-                let header = string_of_com(&get_with(&target, "Cells", &[Com::I4(1), Com::I4(index)])?.member("Text")?);
+            while index <= columns_of(target)? {
+                let header = string_of_com(&get_with(target, "Cells", &[Com::I4(1), Com::I4(index)])?.member("Text")?);
                 if convert::equals(&Value::String(header.trim().to_owned()), &Value::String(declared.clone())) {
                     key_column = index;
                     break;
@@ -89,11 +105,12 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
             }
         }
     }
-    if key_column < 1 || key_column > columns_of(&target)? {
-        return Err(Error::host(format!("XLSX sort_range by \"{declared}\" is outside {}; name a column the range covers.", text_of(op, "range"))));
-    }
-    // The two refusals of the portable writer, so a sheet sorts the same way on either backend: a filtered row would keep its flag
-    // while the values move under it, and a merged cell cannot travel with one row.
+    Ok((key_column, declared))
+}
+
+/// The two refusals of the portable writer, so a sheet sorts the same way on either backend: a filtered row would keep its flag
+/// while the values move under it, and a merged cell cannot travel with one row.
+fn refuse_unsortable(target: &Com, op: &Value, has_header: bool) -> Result<()> {
     let first_data_row = if has_header { 2 } else { 1 };
     let mut withheld: Vec<i32> = Vec::new();
     let mut index = first_data_row;
@@ -116,12 +133,7 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
             text_of(op, "range")
         )));
     }
-    let descending = text::to_lower_invariant(&text_of(op, "order")).starts_with("desc");
-    let sort_order = if descending { 2 } else { 1 };
-    let header_flag = if has_header { 1 } else { 2 };
-    let key_range = get_with(&target, "Columns", &[Com::I4(key_column)])?;
-    target.call_member("Sort", &[key_range, Com::I4(sort_order), Com::Null, Com::Null, Com::I4(1), Com::Null, Com::I4(1), Com::I4(header_flag)])?;
-    Ok(record_of("sort_range", true, vec![("range", Value::String(text_of(op, "range"))), ("order", Value::string(if descending { "desc" } else { "asc" }))]))
+    Ok(())
 }
 
 /// `[int]$range.Columns.Count`.

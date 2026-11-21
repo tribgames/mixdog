@@ -243,6 +243,29 @@ fn paeth(left: u8, up: u8, upper_left: u8) -> u8 {
 
 /// Reads a PNG, Adam7-interlaced or not (every colour type and bit depth, palettes expanded, 16-bit stripped, alpha dropped). The
 /// workspace has no PNG crate (`png` is not in Cargo.lock), so the container is read here on `flate2`, which it has.
+/// The scanlines of one pass with their filters undone; `raw` starts at the pass's first filter byte. `None` for an unknown filter.
+fn unfilter(raw: &[u8], stride: usize, height: usize, step: usize) -> Option<Vec<u8>> {
+    let mut lines = vec![0u8; stride * height];
+    for row in 0..height {
+        let filter = raw[row * (stride + 1)];
+        let line = &raw[row * (stride + 1) + 1..(row + 1) * (stride + 1)];
+        for i in 0..stride {
+            let left = if i >= step { lines[row * stride + i - step] } else { 0 };
+            let up = if row > 0 { lines[(row - 1) * stride + i] } else { 0 };
+            let upper_left = if row > 0 && i >= step { lines[(row - 1) * stride + i - step] } else { 0 };
+            lines[row * stride + i] = line[i].wrapping_add(match filter {
+                0 => 0,
+                1 => left,
+                2 => up,
+                3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
+                4 => paeth(left, up, upper_left),
+                _ => return None,
+            });
+        }
+    }
+    Some(lines)
+}
+
 fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
     use std::io::Read;
     let fail = |reason: &str| PaintError::Decode(reason.to_owned());
@@ -306,24 +329,7 @@ fn decode_png(image: &[u8]) -> Result<Raster, PaintError> {
             continue;
         }
         let pass_stride = (pass_width * bits).div_ceil(8);
-        let mut lines = vec![0u8; pass_stride * pass_height];
-        for row in 0..pass_height {
-            let filter = raw[offset + row * (pass_stride + 1)];
-            let line = &raw[offset + row * (pass_stride + 1) + 1..offset + (row + 1) * (pass_stride + 1)];
-            for i in 0..pass_stride {
-                let left = if i >= step { lines[row * pass_stride + i - step] } else { 0 };
-                let up = if row > 0 { lines[(row - 1) * pass_stride + i] } else { 0 };
-                let upper_left = if row > 0 && i >= step { lines[(row - 1) * pass_stride + i - step] } else { 0 };
-                lines[row * pass_stride + i] = line[i].wrapping_add(match filter {
-                    0 => 0,
-                    1 => left,
-                    2 => up,
-                    3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
-                    4 => paeth(left, up, upper_left),
-                    _ => return Err(fail("png filter type is unknown")),
-                });
-            }
-        }
+        let lines = unfilter(&raw[offset..], pass_stride, pass_height, step).ok_or_else(|| fail("png filter type is unknown"))?;
         offset += (pass_stride + 1) * pass_height;
         if interlace == 0 {
             rows = lines;

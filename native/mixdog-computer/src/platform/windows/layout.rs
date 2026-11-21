@@ -1,7 +1,6 @@
-//! Characters on the foreground window's keyboard layout (TaggedKeys.cs:155-170).
-//! The worker asked VkKeyScan, which reads its own thread's layout; a
-//! resident helper's thread never follows the user's layout switch, so the
-//! foreground window's thread is asked first.
+//! VkKeyScan reads the calling thread's layout, and a resident helper's thread
+//! never follows the user's layout switch, so the foreground window's thread
+//! is asked first.
 
 use crate::keys::Mod;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardLayout, VkKeyScanExW};

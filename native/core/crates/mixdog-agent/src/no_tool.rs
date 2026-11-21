@@ -137,10 +137,6 @@ impl NoToolState {
         Some(format!("{kept}{tail}"))
     }
 
-    /// The terminal response of a turn that ended any other way gets the same
-    /// report as one that ended through [`Run::resolve_no_tool`]. An answer a
-    /// completion reminder cut short is dropped when the response answers
-    /// again; with no new answer it stands.
     pub(crate) fn finalize(&self, response: ModelResponse) -> ModelResponse {
         let answered = {
             let own = response.report_content.as_deref().unwrap_or(&response.content);
@@ -173,18 +169,11 @@ impl Run {
         }
     }
 
-    /// Records a mid-turn segment for the caller-facing aggregate and surfaces
-    /// it live. `committed` text is the just-committed message's own: a break
-    /// keeps the aggregate from running two messages together, whereas a part
-    /// that was cut off resumes right where it stopped.
     fn record_segment(&mut self, text: &str, committed: bool) {
         self.no_tool.parts.push(if committed { format!("{}\n\n", mixdog_js::js_trim_end(text)) } else { text.to_owned() });
         self.emit(RunEvent::AssistantText { text: text.to_owned(), committed });
     }
 
-    /// An answer the turn goes on past (queued input or a todo reminder
-    /// arrived after it) is committed like any segment and kept as part of the
-    /// turn's report.
     async fn keep_ended_answer(&mut self, response: &ModelResponse, has_content: bool) -> Result<bool, AgentError> {
         if !self.commit_intermediate(response).await? || !has_content {
             return Ok(false);
@@ -194,9 +183,6 @@ impl Run {
         Ok(true)
     }
 
-    /// A no-tool message ends the turn; earlier committed segments are
-    /// re-prepended so the caller receives the whole answer while history
-    /// keeps only the terminal segment.
     fn finish_turn(&mut self, response: ModelResponse) -> Outcome {
         if self.no_tool.parts.is_empty() {
             return Outcome::Break(Box::new(self.no_tool.finalize(response)));
@@ -264,12 +250,6 @@ impl Run {
         Ok(self.finish_turn(response))
     }
 
-    /// The Stop hooks, asked when the model ends its turn (Node asks them at settle and reads
-    /// nothing; owner-approved difference). A block with a reason keeps the answer and goes on with
-    /// the reason as a note, up to [`STOP_CONTINUATION_LIMIT`] times a turn. `true`: the turn goes on.
-    /// `ended` is the answer the turn would end with; `None` for an ending that cannot go on (output
-    /// limit exhausted, refusal, empty-nudge exhaustion, turn limit), where a block is ignored with a
-    /// warning.
     pub(crate) async fn hold_stop(&mut self, ended: Option<(&ModelResponse, bool)>) -> Result<bool, AgentError> {
         let Some(hooks) = self.env.hooks.clone() else { return Ok(false) };
         let active = self.no_tool.stop_continuations > 0;
@@ -303,11 +283,6 @@ impl Run {
         Ok(false)
     }
 
-    /// The single rule for every turn the provider cut at its output ceiling,
-    /// with or without visible text. A turn that spent its whole budget would
-    /// repeat identically if re-sent unchanged, so each step changes the
-    /// request: escalate max_tokens once, then up to three resume prompts,
-    /// then end with a visible notice. Real progress resets the ladder.
     async fn resolve_output_limit(&mut self, response: ModelResponse, has_content: bool) -> Result<Outcome, AgentError> {
         if !self.no_tool.output_escalation_used && is_output_limit(response.stop.as_ref()) {
             self.no_tool.output_escalation_used = true;
@@ -405,10 +380,6 @@ impl Run {
         Ok(true)
     }
 
-    /// The agent contract requires a tool call or final handoff text, so a
-    /// public agent's empty turn is re-prompted with a bounded nudge. A model
-    /// that answers the same nudge with another empty turn is in a
-    /// deterministic livelock; that ends as an explicit empty termination.
     async fn nudge_empty_turn(&mut self, response: ModelResponse) -> Result<Outcome, AgentError> {
         self.no_tool.empty_nudge_streak += 1;
         let streak = self.no_tool.empty_nudge_streak;

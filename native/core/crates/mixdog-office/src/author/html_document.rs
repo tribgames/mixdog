@@ -1,13 +1,7 @@
-//! `authoring/html-document-author.mjs`: the `author` action for a Word or Excel target. An HTML document laid out by the shared
-//! browser and written as native Word (`docx_html_runner`) or Excel (`xlsx_html_runner`), landed over the target once it was
-//! written, then opened as an authored document: measured by the inline audit, rendered, and reviewed beside the browser's own
-//! picture of the same HTML (its print for a document, each sheet's section for a workbook).
-
 use std::path::Path;
 
 use mixdog_js::value_to_string;
 use mixdog_office_author::brief::{html_brief_script, parse_authoring_brief};
-use mixdog_office_author::html_browser::RunError;
 use mixdog_office_base::formats::document_format;
 use mixdog_office_base::values::truthy;
 use mixdog_raster::{Blend, Fit, Image, Overlay, Placement, ResizeOptions, composite, ops};
@@ -127,11 +121,43 @@ async fn run_kind<H: AuthorHost>(host: &H, format: &str, html: &str, staging: &P
     } else {
         host.run_xlsx_html(html, staging, target, call.signal).await
     };
-    match run {
-        Ok(run) => Ok(run),
-        Err(RunError::Cancelled) => Err(AuthorError::Abort("Office authoring was cancelled".to_owned())),
-        Err(RunError::Failed(message)) => Err(AuthorError::Failed(message)),
+    Ok(run?)
+}
+
+fn written_result(
+    session: &crate::session::SessionHandle,
+    target: &str,
+    source_path: &str,
+    run: &Value,
+    replaced_edits: Option<Value>,
+    audit: Option<&Value>,
+) -> Map<String, Value> {
+    let mut result = Map::new();
+    {
+        let held_session = lock(session);
+        result.insert("ok".into(), json!(true));
+        result.insert("session".into(), json!(held_session.id));
+        result.insert("mode".into(), json!(held_session.mode.as_str()));
+        result.insert("backend".into(), json!(held_session.backend.as_str()));
     }
+    result.insert("output".into(), json!(target));
+    if let Some(bytes) = run.get("bytes") {
+        result.insert("bytes".into(), bytes.clone());
+    }
+    result.insert("htmlSource".into(), json!(source_path));
+    if let Some(logs) = run.get("logs") {
+        result.insert("logs".into(), logs.clone());
+    }
+    if let Some(edits) = replaced_edits {
+        result.insert("replacedEdits".into(), edits);
+    }
+    if let Some(audit) = audit {
+        result.insert("audit".into(), audit.clone());
+    }
+    if let Some(elapsed) = run.get("elapsedMs") {
+        result.insert("elapsedMs".into(), elapsed.clone());
+    }
+    result
 }
 
 /// The `author` action for a `.docx` or `.xlsx` target (`authorHtmlDocument`).
@@ -140,7 +166,6 @@ pub async fn author_html_document<H: AuthorHost>(host: &H, args: &Value, call: &
     let format = document_format(&target)?;
     let Some(kind) = kind_of(format) else { return Err("author writes .pptx, .pdf, .docx, and .xlsx targets only".into()) };
     let source_path = format!("{target}.mixdog-source.html");
-    // Without a script the document is authored again from the HTML kept beside it.
     let from_source = script_of(args).is_empty();
     if from_source && !host.exists(Path::new(&source_path)).await {
         return Err(AuthorError::Failed(format!(
@@ -171,31 +196,7 @@ pub async fn author_html_document<H: AuthorHost>(host: &H, args: &Value, call: &
         lock(&session).authored.brief = Some(brief);
     }
     let audit = if flag_is(args, "audit", false) { None } else { host.inline_audit(&session, &[]).await };
-    let mut result = Map::new();
-    {
-        let held_session = lock(&session);
-        result.insert("ok".into(), json!(true));
-        result.insert("session".into(), json!(held_session.id));
-        result.insert("mode".into(), json!(held_session.mode.as_str()));
-        result.insert("backend".into(), json!(held_session.backend.as_str()));
-    }
-    result.insert("output".into(), json!(target));
-    if let Some(bytes) = run.get("bytes") {
-        result.insert("bytes".into(), bytes.clone());
-    }
-    result.insert("htmlSource".into(), json!(source_path));
-    if let Some(logs) = run.get("logs") {
-        result.insert("logs".into(), logs.clone());
-    }
-    if let Some(edits) = replaced_edits {
-        result.insert("replacedEdits".into(), edits);
-    }
-    if let Some(audit) = &audit {
-        result.insert("audit".into(), audit.clone());
-    }
-    if let Some(elapsed) = run.get("elapsedMs") {
-        result.insert("elapsedMs".into(), elapsed.clone());
-    }
+    let mut result = written_result(&session, &target, &source_path, &run, replaced_edits, audit.as_ref());
     let audit_failed = audit.as_ref().and_then(|audit| audit.get("status")).and_then(Value::as_str) == Some("fail");
     let audit_next = audit.as_ref().and_then(|audit| audit.get("nextAction")).map(value_to_string).unwrap_or_default();
     if flag_is(args, "render", false) {

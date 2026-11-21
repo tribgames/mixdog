@@ -1,8 +1,3 @@
-//! The local provider as one object: catalog, serialized request queue with idle unload, the
-//! llama-server child, shared installations, Hugging Face inspection and model maintenance
-//! (details, verify, repair, delete). Deleting or repairing a model never touches a loaded one
-//! that is answering a conversation.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -54,6 +49,29 @@ impl From<QueueError> for ProviderError {
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn llama_server_args(port: u16, api_key: &str, model: &str, alias: &str, context_window: i64) -> Vec<String> {
+    let mut args: Vec<String> = ["--host", "127.0.0.1", "--port"].map(String::from).to_vec();
+    args.push(port.to_string());
+    for (k, v) in [
+        ("--api-key", api_key),
+        ("--model", model),
+        ("--alias", alias),
+        ("--ctx-size", &context_window.to_string()),
+        ("--parallel", "1"),
+        ("--split-mode", "none"),
+        ("--main-gpu", "0"),
+        ("--n-gpu-layers", "99"),
+        ("--flash-attn", "on"),
+        ("--cache-type-k", "q8_0"),
+        ("--cache-type-v", "q8_0"),
+    ] {
+        args.push(k.into());
+        args.push(v.into());
+    }
+    args.extend(["--jinja", "--no-webui"].map(String::from));
+    args
+}
+
 fn remove_blocking(path: PathBuf) -> std::io::Result<()> {
     std::fs::remove_file(path)
 }
@@ -575,28 +593,7 @@ impl LocalProvider {
             },
             args: {
                 let model = weights.to_string_lossy().into_owned();
-                Box::new(move |port, key| {
-                    let mut a: Vec<String> = ["--host", "127.0.0.1", "--port"].map(String::from).to_vec();
-                    a.push(port.to_string());
-                    for (k, v) in [
-                        ("--api-key", key),
-                        ("--model", model.as_str()),
-                        ("--alias", id.as_str()),
-                        ("--ctx-size", &context_window.to_string()),
-                        ("--parallel", "1"),
-                        ("--split-mode", "none"),
-                        ("--main-gpu", "0"),
-                        ("--n-gpu-layers", "99"),
-                        ("--flash-attn", "on"),
-                        ("--cache-type-k", "q8_0"),
-                        ("--cache-type-v", "q8_0"),
-                    ] {
-                        a.push(k.into());
-                        a.push(v.into());
-                    }
-                    a.extend(["--jinja", "--no-webui"].map(String::from));
-                    a
-                })
+                Box::new(move |port, key| llama_server_args(port, key, &model, &id, context_window))
             },
         };
         self.server.ensure(spec, cancel).await.map_err(ProviderError::Failed)

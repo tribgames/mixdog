@@ -264,6 +264,22 @@ fn string_options(field: &Value) -> FormResult<Vec<String>> {
     }
 }
 
+/// What one `addFormField` call is making: the request, the name, the look and place of its widget and the face it is
+/// drawn with.
+struct NewField<'a> {
+    request: &'a Value,
+    name: &'a str,
+    spec: &'a WidgetSpec,
+    page: Ref,
+    font: &'a FormFont,
+}
+
+impl NewField<'_> {
+    fn get(&self, key: &str) -> Option<&Value> {
+        self.request.get(key)
+    }
+}
+
 /// Adds one field to the page it names. `font` is the face its appearance is drawn with: pdf-lib paints a widget
 /// the moment it is added, so a dropdown or list whose options are Korean needs the embedded face here, not only at
 /// save time (the default font, Helvetica, when none is given).
@@ -280,7 +296,6 @@ pub fn add_form_field(form: &mut PdfForm, doc: &mut PdfDocument, field: &Value, 
         Some(font) => font.clone(),
         None => form.default_font(doc)?,
     };
-    let border_width = number_or(get("borderWidth"), 1.0);
     let spec = WidgetSpec {
         x: to_number_of(get("x")),
         y: to_number_of(get("y")),
@@ -289,103 +304,17 @@ pub fn add_form_field(form: &mut PdfForm, doc: &mut PdfDocument, field: &Value, 
         text_color: colour(get("textColor"), "000000")?,
         background: colour(get("backgroundColor"), "FFFFFF")?,
         border_color: colour(get("borderColor"), "666666")?,
-        border_width,
+        border_width: number_or(get("borderWidth"), 1.0),
     };
     let name = js_string(get("name"));
     let field_type = js_to_lowercase(&if truthy(get("type")) { js_string(get("type")) } else { "text".to_owned() });
+    let new = NewField { request: field, name: &name, spec: &spec, page, font: &font };
     let control = match field_type.as_str() {
-        "checkbox" => {
-            let control = create_field(form, doc, FieldKind::Checkbox, &name)?;
-            let widget = new_widget(doc.store_mut(), control.reference, &spec, page);
-            push_array(doc.store_mut(), control.reference, "Kids", Obj::Ref(widget));
-            set_key(doc.store_mut(), widget, "AS", Obj::name("Off"));
-            draw_new_widget(doc, &control, widget, &font, Some("Yes"))?;
-            push_array(doc.store_mut(), page, "Annots", Obj::Ref(widget));
-            if checkbox_on(get("value")) {
-                form.check(doc, &control)?;
-            }
-            control
-        }
-        "dropdown" => {
-            let control = create_field(form, doc, FieldKind::Dropdown, &name)?;
-            form.add_options(doc, &control, &string_options(field)?)?;
-            add_text_widget(doc, &control, &spec, page, &font)?;
-            if truthy(get("editable")) {
-                form.set_choice_flag(doc, &control, FLAG_EDIT, true);
-            }
-            if !nullish(get("value")) {
-                form.select_choice(doc, &control, &[js_string(get("value"))])?;
-            }
-            control
-        }
-        "optionlist" => {
-            let control = create_field(form, doc, FieldKind::OptionList, &name)?;
-            form.add_options(doc, &control, &string_options(field)?)?;
-            add_text_widget(doc, &control, &spec, page, &font)?;
-            let values = match get("value") {
-                value if nullish(value) => Vec::new(),
-                Some(value) => choice_values_of(value),
-                None => Vec::new(),
-            };
-            if truthy(get("multiselect")) || values.len() > 1 {
-                form.set_choice_flag(doc, &control, FLAG_MULTI_SELECT, true);
-            }
-            if !values.is_empty() {
-                form.select_choice(doc, &control, &values)?;
-            }
-            control
-        }
-        "radio" => {
-            let control = create_field(form, doc, FieldKind::Radio, &name)?;
-            if let Some(Value::Array(options)) = get("options").filter(|value| truthy(Some(*value))) {
-                for option in options {
-                    let value = option.get("value").filter(|entry| !entry.is_null()).unwrap_or(option);
-                    let at = |key: &str| {
-                        let own = option.get(key).filter(|entry| !entry.is_null());
-                        to_number_of(own.or_else(|| get(key)))
-                    };
-                    let placed = WidgetSpec { x: at("x"), y: at("y"), ..spec.clone() };
-                    let widget = new_widget(doc.store_mut(), control.reference, &placed, page);
-                    let state = add_radio_widget(doc.store_mut(), control.reference, widget, &value_to_string(value))?;
-                    set_key(doc.store_mut(), widget, "AS", Obj::name("Off"));
-                    draw_new_widget(doc, &control, widget, &font, Some(&state))?;
-                    push_array(doc.store_mut(), page, "Annots", Obj::Ref(widget));
-                }
-            }
-            if !nullish(get("value")) {
-                form.select_radio(doc, &control, &js_string(get("value")))?;
-            }
-            control
-        }
-        _ => {
-            let control = create_field(form, doc, FieldKind::Text, &name)?;
-            add_text_widget(doc, &control, &spec, page, &font)?;
-            // A box tall enough for two lines of body text is a box for a paragraph (a reason, a comment). An explicit
-            // multiline: false keeps one line.
-            let multiline = match get("multiline") {
-                Some(value) if !value.is_null() => truthy(Some(value)),
-                _ => spec.height >= MULTILINE_MIN_HEIGHT,
-            };
-            if multiline {
-                form.enable_multiline(doc, &control);
-            }
-            let max_length = to_number_of(get("maxLength"));
-            if max_length > 0.0 {
-                form.set_max_length(doc, &control, floor(max_length))?;
-            }
-            // The auto size fits a multiline value to the box height and drops the lines that do not fit; a fixed
-            // body size keeps every line.
-            let font_size = to_number_of(get("fontSize"));
-            if font_size > 0.0 {
-                form.set_font_size(doc, &control, font_size)?;
-            } else if multiline {
-                form.set_font_size(doc, &control, 11.0)?;
-            }
-            if !nullish(get("value")) {
-                form.set_text(doc, &control, Some(&js_string(get("value"))))?;
-            }
-            control
-        }
+        "checkbox" => add_checkbox(form, doc, &new)?,
+        "dropdown" => add_dropdown(form, doc, &new)?,
+        "optionlist" => add_option_list(form, doc, &new)?,
+        "radio" => add_radio_group(form, doc, &new)?,
+        _ => add_text_field(form, doc, &new)?,
     };
     if truthy(get("required")) {
         set_flag_to(doc.store_mut(), control.reference, FLAG_REQUIRED, true);
@@ -393,14 +322,105 @@ pub fn add_form_field(form: &mut PdfForm, doc: &mut PdfDocument, field: &Value, 
     if truthy(get("readOnly")) {
         set_flag_to(doc.store_mut(), control.reference, FLAG_READ_ONLY, true);
     }
-    // The caption is also the field's tooltip (/TU): what a screen reader announces and what a later filler reads as
-    // the field's label, instead of its internal name.
     let label = if nullish(get("label")) { String::new() } else { js_string(get("label")) };
     let label = js_trim(&label);
     if !label.is_empty() {
         set_key(doc.store_mut(), control.reference, "TU", text_object(label));
     }
     Ok(())
+}
+
+fn add_checkbox(form: &mut PdfForm, doc: &mut PdfDocument, new: &NewField<'_>) -> FormResult<Field> {
+    let control = create_field(form, doc, FieldKind::Checkbox, new.name)?;
+    let widget = new_widget(doc.store_mut(), control.reference, new.spec, new.page);
+    push_array(doc.store_mut(), control.reference, "Kids", Obj::Ref(widget));
+    set_key(doc.store_mut(), widget, "AS", Obj::name("Off"));
+    draw_new_widget(doc, &control, widget, new.font, Some("Yes"))?;
+    push_array(doc.store_mut(), new.page, "Annots", Obj::Ref(widget));
+    if checkbox_on(new.get("value")) {
+        form.check(doc, &control)?;
+    }
+    Ok(control)
+}
+
+fn add_dropdown(form: &mut PdfForm, doc: &mut PdfDocument, new: &NewField<'_>) -> FormResult<Field> {
+    let control = create_field(form, doc, FieldKind::Dropdown, new.name)?;
+    form.add_options(doc, &control, &string_options(new.request)?)?;
+    add_text_widget(doc, &control, new.spec, new.page, new.font)?;
+    if truthy(new.get("editable")) {
+        form.set_choice_flag(doc, &control, FLAG_EDIT, true);
+    }
+    if !nullish(new.get("value")) {
+        form.select_choice(doc, &control, &[js_string(new.get("value"))])?;
+    }
+    Ok(control)
+}
+
+fn add_option_list(form: &mut PdfForm, doc: &mut PdfDocument, new: &NewField<'_>) -> FormResult<Field> {
+    let control = create_field(form, doc, FieldKind::OptionList, new.name)?;
+    form.add_options(doc, &control, &string_options(new.request)?)?;
+    add_text_widget(doc, &control, new.spec, new.page, new.font)?;
+    let values = match new.get("value") {
+        value if nullish(value) => Vec::new(),
+        Some(value) => choice_values_of(value),
+        None => Vec::new(),
+    };
+    if truthy(new.get("multiselect")) || values.len() > 1 {
+        form.set_choice_flag(doc, &control, FLAG_MULTI_SELECT, true);
+    }
+    if !values.is_empty() {
+        form.select_choice(doc, &control, &values)?;
+    }
+    Ok(control)
+}
+
+fn add_radio_group(form: &mut PdfForm, doc: &mut PdfDocument, new: &NewField<'_>) -> FormResult<Field> {
+    let control = create_field(form, doc, FieldKind::Radio, new.name)?;
+    if let Some(Value::Array(options)) = new.get("options").filter(|value| truthy(Some(*value))) {
+        for option in options {
+            let value = option.get("value").filter(|entry| !entry.is_null()).unwrap_or(option);
+            let at = |key: &str| {
+                let own = option.get(key).filter(|entry| !entry.is_null());
+                to_number_of(own.or_else(|| new.get(key)))
+            };
+            let placed = WidgetSpec { x: at("x"), y: at("y"), ..new.spec.clone() };
+            let widget = new_widget(doc.store_mut(), control.reference, &placed, new.page);
+            let state = add_radio_widget(doc.store_mut(), control.reference, widget, &value_to_string(value))?;
+            set_key(doc.store_mut(), widget, "AS", Obj::name("Off"));
+            draw_new_widget(doc, &control, widget, new.font, Some(&state))?;
+            push_array(doc.store_mut(), new.page, "Annots", Obj::Ref(widget));
+        }
+    }
+    if !nullish(new.get("value")) {
+        form.select_radio(doc, &control, &js_string(new.get("value")))?;
+    }
+    Ok(control)
+}
+
+fn add_text_field(form: &mut PdfForm, doc: &mut PdfDocument, new: &NewField<'_>) -> FormResult<Field> {
+    let control = create_field(form, doc, FieldKind::Text, new.name)?;
+    add_text_widget(doc, &control, new.spec, new.page, new.font)?;
+    let multiline = match new.get("multiline") {
+        Some(value) if !value.is_null() => truthy(Some(value)),
+        _ => new.spec.height >= MULTILINE_MIN_HEIGHT,
+    };
+    if multiline {
+        form.enable_multiline(doc, &control);
+    }
+    let max_length = to_number_of(new.get("maxLength"));
+    if max_length > 0.0 {
+        form.set_max_length(doc, &control, floor(max_length))?;
+    }
+    let font_size = to_number_of(new.get("fontSize"));
+    if font_size > 0.0 {
+        form.set_font_size(doc, &control, font_size)?;
+    } else if multiline {
+        form.set_font_size(doc, &control, 11.0)?;
+    }
+    if !nullish(new.get("value")) {
+        form.set_text(doc, &control, Some(&js_string(new.get("value"))))?;
+    }
+    Ok(control)
 }
 
 /// `addToPage` of a text field, dropdown or option list: the widget, drawn with the font, on the page.

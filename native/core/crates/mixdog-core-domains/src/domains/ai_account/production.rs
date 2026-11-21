@@ -1,19 +1,6 @@
-//! The production wiring of [`ProviderAdmin`]: the OAuth providers' credential modules
-//! ([`OAuthProvider`]), the gcloud-login check ([`VertexAdc`]) and [`ProviderAdmin::production`],
-//! which builds the admin over the instances the registry, the builder and the host already hold.
-//! Each of those exists once: the admin takes the builder, the registry, the vault, the account
-//! store and the refresh flow it is given and builds nothing of its own beyond these adapters.
-//!
-//! What an [`OAuthProvider`] does per provider (`providers/*-oauth*.mjs`):
-//! * `describe(account)` is [`describe_oauth`] over the account's credential file as the
-//!   provider's loader reads it ([`load_oauth_credentials`]), read on the interactive lane.
-//! * `forget(account)` is `forget<Provider>OAuthCredentials`: Anthropic removes only the
-//!   `claudeAiOauth` key of the account's file, Antigravity overwrites the file with `{}`, every
-//!   other provider deletes the file; `{ removed }` says whether anything was there. Node's
-//!   Anthropic candidates are the one file of the bound account, the path variable or the default:
-//!   the CLI's own `~/.claude` file is never read or cleared (golden `oauth-forget`).
-//! * `login_flow(account)` is the provider's interactive login writing the account's file; Devin's
-//!   is the PKCE sign-in of `providers/devin/login.rs` (Node's admin has one: `loginDevinOAuth`).
+//! `forget(account)` per provider: Anthropic removes only the `claudeAiOauth` key of the account's file, Antigravity
+//! overwrites the file with `{}`, every other provider deletes the file; `{ removed }` says whether anything was there.
+//! The CLI's own `~/.claude` file is never read or cleared (golden `oauth-forget`).
 
 use std::path::PathBuf;
 use std::sync::Arc;

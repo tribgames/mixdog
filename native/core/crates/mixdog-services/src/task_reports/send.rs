@@ -314,23 +314,13 @@ impl TaskSends {
         let accepted = match turn.submit(prompt, through).await {
             Ok(accepted) => accepted,
             Err(error) => {
-                turn.unwatch();
-                turn.disown(std::slice::from_ref(&id)).await;
-                if notify {
-                    turn.drop_watch().await;
-                }
+                turn.abandon(notify).await;
                 return Err(error);
             }
         };
         let taken = accepted.is_some();
         match accepted {
-            None => {
-                turn.unwatch();
-                turn.disown(std::slice::from_ref(&id)).await;
-                if notify {
-                    turn.drop_watch().await;
-                }
-            }
+            None => turn.abandon(notify).await,
             Some(ended) => {
                 turn.claim().await;
                 let settling = Arc::clone(&turn);
@@ -430,6 +420,14 @@ impl SendTurn {
     fn unwatch(&self) {
         if let Some(subscription) = self.subscription.lock().expect("send subscription").take() {
             subscription.abort();
+        }
+    }
+
+    async fn abandon(&self, notify: bool) {
+        self.unwatch();
+        self.disown(std::slice::from_ref(&self.id)).await;
+        if notify {
+            self.drop_watch().await;
         }
     }
 

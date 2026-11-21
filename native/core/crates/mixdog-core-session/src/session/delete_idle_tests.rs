@@ -122,10 +122,6 @@ fn live_of(name: &str) -> Option<Live> {
     }
 }
 
-/// The paths that start a turn behind the ask lock besides a submit — an approval answer that
-/// resumes it (`approveSession`) and a materialization for a Goal or quota resume
-/// (`materializeSession`) — are admitted starts: refused while an idle delete fences the thread, and
-/// they hold the idle delete off (`turn-starting`) while they run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approval_answers_and_materializations_pass_the_turn_gate() {
     use mixdog_core_api::ids::ServerRequestId;
@@ -268,10 +264,6 @@ async fn a_favorite_after_the_judgment_refuses_the_idle_delete() {
     assert!(world.directory.is_open(&world.handle.id), "the session stays");
 }
 
-/// A favorite the session accepted whose save is still owed when the idle delete arrives: the delete sees it (the accepted header,
-/// not the shown one), refuses, and the favorite lands. The favorite is written as `setSessionFavorite` writes it
-/// (`ThreadSettings::update_header`, through `patch_header_if`): a conditional patch, which the outbox shows (applies to the state
-/// `cell.header` publishes) only once durable, so while its save is held neither the shown header nor the store holds it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_favorite_accepted_but_not_yet_saved_refuses_the_idle_delete() {
     use mixdog_store::schema::blob::Slot;

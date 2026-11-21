@@ -213,6 +213,22 @@ where
     assert!(report.failures.is_empty(), "{report}");
 }
 
+/// Runs `future` to its end on a current-thread runtime of its own, as the CLI's runtime runs the shutdown of `mixdog exec`, while the
+/// composition it acts on lives on the test's multi-thread runtime.
+#[allow(clippy::disallowed_methods, reason = "test harness: the thread of the runtime the production caller owns")]
+pub async fn on_current_thread<F>(future: F) -> F::Output
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("the shutdown's runtime");
+        drop(tx.send(runtime.block_on(future)));
+    });
+    rx.await.expect("the shutdown's thread ends with an answer")
+}
+
 /// The test's path as libtest names it (`module_path!()` without the crate).
 fn test_path(module: &str, name: &str) -> String {
     format!("{}::{name}", module.split_once("::").map_or(module, |(_, path)| path))

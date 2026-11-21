@@ -578,7 +578,7 @@ impl<'a> Evaluator<'a> {
         let xref = self.xref;
         loop {
             xref.guard().tick()?;
-            let Some((code, mut args)) = pre.read(sm)? else {
+            let Some((code, args)) = pre.read(sm)? else {
                 return Ok(());
             };
             match code {
@@ -615,52 +615,8 @@ impl<'a> Evaluator<'a> {
                     let outcome = self.build_paint_image_xobject(resources, &image, true, op_list, key.as_deref(), scope);
                     self.swallow("inline image", outcome)?;
                 }
-                Code::ShowText => {
-                    if sm.state.font.is_none() {
-                        self.ensure_state_font()?;
-                        continue;
-                    }
-                    let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
-                }
-                Code::ShowSpacedText => {
-                    if sm.state.font.is_none() {
-                        self.ensure_state_font()?;
-                        continue;
-                    }
-                    let mut items = Vec::new();
-                    if let Some(Obj::Array(array)) = args.first() {
-                        for item in array.iter() {
-                            match item {
-                                Obj::Str(_) => items.extend(self.handle_text(Some(item), &sm.state).into_iter().map(TextItem::Glyph)),
-                                Obj::Num(n) => items.push(TextItem::Adjust(*n)),
-                                _ => {}
-                            }
-                        }
-                    }
-                    op_list.add_op(Op::ShowText(items));
-                }
-                Code::NextLineShowText => {
-                    if sm.state.font.is_none() {
-                        self.ensure_state_font()?;
-                        continue;
-                    }
-                    op_list.add_op(Op::Param(ParamOp::NextLine, Vec::new()));
-                    let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
-                }
-                Code::NextLineSetSpacingShowText => {
-                    if sm.state.font.is_none() {
-                        self.ensure_state_font()?;
-                        continue;
-                    }
-                    op_list.add_op(Op::Param(ParamOp::NextLine, Vec::new()));
-                    let word = args.remove(0);
-                    op_list.add_op(Op::Param(ParamOp::SetWordSpacing, vec![word]));
-                    let character = args.remove(0);
-                    op_list.add_op(Op::Param(ParamOp::SetCharSpacing, vec![character]));
-                    let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
+                Code::ShowText | Code::ShowSpacedText | Code::NextLineShowText | Code::NextLineSetSpacingShowText => {
+                    self.show_text(code, args, &sm.state, op_list)?;
                 }
                 Code::SetTextRenderingMode => {
                     sm.state.text_rendering_mode = number_at(&args, 0) as i64;
@@ -707,29 +663,7 @@ impl<'a> Evaluator<'a> {
                     op_list.add_op(Self::rgb_op(fill, hex));
                 }
                 Code::SetFillColorN | Code::SetStrokeColorN => {
-                    let fill = code == Code::SetFillColorN;
-                    let current = if fill { sm.state.pattern_fill_color_space.clone() } else { sm.state.pattern_stroke_color_space.clone() };
-                    let Some(space) = current else {
-                        if let Some(values) = all_numbers(&args) {
-                            let hex = ColorSpace::gray().get_rgb_hex(&values, 0)?;
-                            op_list.add_op(Self::rgb_op(fill, hex));
-                        } else {
-                            op_list.add_op(if fill { Op::SetFillTransparent } else { Op::SetStrokeTransparent });
-                        }
-                        continue;
-                    };
-                    if space.name() == "Pattern" {
-                        if args.is_empty() {
-                            continue;
-                        }
-                        self.handle_color_n(fill, args, &space, resources, op_list, scope, seen)?;
-                        continue;
-                    }
-                    let Some(values) = all_numbers(&args) else {
-                        continue;
-                    };
-                    let hex = space.get_rgb_hex(&values, 0)?;
-                    op_list.add_op(Self::rgb_op(fill, hex));
+                    self.set_color_n(code == Code::SetFillColorN, args, &sm.state, resources, op_list, scope, seen)?;
                 }
                 Code::ShadingFill => {
                     let outcome = self.shading_operand(&args[0], resources, scope);
@@ -776,32 +710,7 @@ impl<'a> Evaluator<'a> {
                 | Code::EoFillStroke
                 | Code::CloseFillStroke
                 | Code::CloseEoFillStroke
-                | Code::EndPath => {
-                    let state = &mut sm.state;
-                    if matches!(code, Code::CloseStroke | Code::CloseFillStroke | Code::CloseEoFillStroke) {
-                        state.path_buffer.push(f64::from(DRAW_CLOSE_PATH));
-                    }
-                    let paint = match code {
-                        Code::Stroke => PaintOp::Stroke,
-                        Code::CloseStroke => PaintOp::CloseStroke,
-                        Code::Fill => PaintOp::Fill,
-                        Code::EoFill => PaintOp::EoFill,
-                        Code::FillStroke => PaintOp::FillStroke,
-                        Code::EoFillStroke => PaintOp::EoFillStroke,
-                        Code::CloseFillStroke => PaintOp::CloseFillStroke,
-                        Code::CloseEoFillStroke => PaintOp::CloseEoFillStroke,
-                        _ => PaintOp::EndPath,
-                    };
-                    if state.path_buffer.is_empty() {
-                        op_list.add_op(Op::ConstructPath { paint, path: None });
-                    } else {
-                        let data: Vec<f32> = state.path_buffer.iter().map(|&v| v as f32).collect();
-                        let min_max = state.path_min_max;
-                        state.path_buffer.clear();
-                        state.path_min_max = BBOX_INIT;
-                        op_list.add_op(Op::ConstructPath { paint, path: Some(PathData { data, min_max }) });
-                    }
-                }
+                | Code::EndPath => Self::paint_path(code, &mut sm.state, op_list),
                 Code::SetTextMatrix => {
                     let values: Vec<f64> = (0..6).map(|i| number_at(&args, i)).collect();
                     op_list.add_op(Op::SetTextMatrix(f32_array::<6>(&values)));
@@ -809,29 +718,7 @@ impl<'a> Evaluator<'a> {
                 Code::MarkPoint | Code::MarkPointProps | Code::BeginCompat | Code::EndCompat => {}
                 Code::BeginMarkedContentProps => {
                     *marked += 1;
-                    let Some(tag) = args.first().and_then(Obj::as_name).map(str::to_owned) else {
-                        tracing::warn!("Expected name for beginMarkedContentProps arg0.");
-                        op_list.add_op(Op::BeginMarkedContentProps { tag: "OC".to_owned(), data: MarkedData::OptionalContent(None) });
-                        continue;
-                    };
-                    if tag == "OC" {
-                        let props = args.get(1).cloned().unwrap_or(Obj::Null);
-                        match self.parse_marked_content_props(&props, resources) {
-                            Ok(data) => op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(data) }),
-                            Err(e) if e.is_fatal() => return Err(e),
-                            Err(e) if self.ignore_errors => {
-                                tracing::warn!("getOperatorList - ignoring beginMarkedContentProps: \"{e}\".");
-                                op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(None) });
-                            }
-                            Err(e) => return Err(e),
-                        }
-                        continue;
-                    }
-                    let mcid = match args.get(1) {
-                        Some(Obj::Dict(dict)) => xref.get(dict, "MCID")?,
-                        _ => Obj::Null,
-                    };
-                    op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::Mcid(mcid) });
+                    self.begin_marked_content_props(&args, resources, op_list)?;
                 }
                 Code::BeginMarkedContent => {
                     if args.iter().any(is_dict) {
@@ -906,6 +793,126 @@ impl<'a> Evaluator<'a> {
 
     fn rgb_op(fill: bool, hex: String) -> Op {
         if fill { Op::SetFillRgbColor(hex) } else { Op::SetStrokeRgbColor(hex) }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_color_n(
+        &mut self,
+        fill: bool,
+        args: Vec<Obj>,
+        state: &EvalState,
+        resources: &Arc<Dict>,
+        op_list: &mut OperatorList,
+        scope: &mut Scope,
+        seen: &[String],
+    ) -> Result<()> {
+        let current = if fill { state.pattern_fill_color_space.clone() } else { state.pattern_stroke_color_space.clone() };
+        let Some(space) = current else {
+            if let Some(values) = all_numbers(&args) {
+                let hex = ColorSpace::gray().get_rgb_hex(&values, 0)?;
+                op_list.add_op(Self::rgb_op(fill, hex));
+            } else {
+                op_list.add_op(if fill { Op::SetFillTransparent } else { Op::SetStrokeTransparent });
+            }
+            return Ok(());
+        };
+        if space.name() == "Pattern" {
+            if args.is_empty() {
+                return Ok(());
+            }
+            return self.handle_color_n(fill, args, &space, resources, op_list, scope, seen);
+        }
+        let Some(values) = all_numbers(&args) else {
+            return Ok(());
+        };
+        let hex = space.get_rgb_hex(&values, 0)?;
+        op_list.add_op(Self::rgb_op(fill, hex));
+        Ok(())
+    }
+
+    fn paint_path(code: Code, state: &mut EvalState, op_list: &mut OperatorList) {
+        if matches!(code, Code::CloseStroke | Code::CloseFillStroke | Code::CloseEoFillStroke) {
+            state.path_buffer.push(f64::from(DRAW_CLOSE_PATH));
+        }
+        let paint = match code {
+            Code::Stroke => PaintOp::Stroke,
+            Code::CloseStroke => PaintOp::CloseStroke,
+            Code::Fill => PaintOp::Fill,
+            Code::EoFill => PaintOp::EoFill,
+            Code::FillStroke => PaintOp::FillStroke,
+            Code::EoFillStroke => PaintOp::EoFillStroke,
+            Code::CloseFillStroke => PaintOp::CloseFillStroke,
+            Code::CloseEoFillStroke => PaintOp::CloseEoFillStroke,
+            _ => PaintOp::EndPath,
+        };
+        if state.path_buffer.is_empty() {
+            op_list.add_op(Op::ConstructPath { paint, path: None });
+        } else {
+            let data: Vec<f32> = state.path_buffer.iter().map(|&v| v as f32).collect();
+            let min_max = state.path_min_max;
+            state.path_buffer.clear();
+            state.path_min_max = BBOX_INIT;
+            op_list.add_op(Op::ConstructPath { paint, path: Some(PathData { data, min_max }) });
+        }
+    }
+
+    fn begin_marked_content_props(&self, args: &[Obj], resources: &Arc<Dict>, op_list: &mut OperatorList) -> Result<()> {
+        let Some(tag) = args.first().and_then(Obj::as_name).map(str::to_owned) else {
+            tracing::warn!("Expected name for beginMarkedContentProps arg0.");
+            op_list.add_op(Op::BeginMarkedContentProps { tag: "OC".to_owned(), data: MarkedData::OptionalContent(None) });
+            return Ok(());
+        };
+        if tag == "OC" {
+            let props = args.get(1).cloned().unwrap_or(Obj::Null);
+            match self.parse_marked_content_props(&props, resources) {
+                Ok(data) => op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(data) }),
+                Err(e) if e.is_fatal() => return Err(e),
+                Err(e) if self.ignore_errors => {
+                    tracing::warn!("getOperatorList - ignoring beginMarkedContentProps: \"{e}\".");
+                    op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(None) });
+                }
+                Err(e) => return Err(e),
+            }
+            return Ok(());
+        }
+        let mcid = match args.get(1) {
+            Some(Obj::Dict(dict)) => self.xref.get(dict, "MCID")?,
+            _ => Obj::Null,
+        };
+        op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::Mcid(mcid) });
+        Ok(())
+    }
+
+    fn show_text(&self, code: Code, mut args: Vec<Obj>, state: &EvalState, op_list: &mut OperatorList) -> Result<()> {
+        if state.font.is_none() {
+            return self.ensure_state_font();
+        }
+        if matches!(code, Code::NextLineShowText | Code::NextLineSetSpacingShowText) {
+            op_list.add_op(Op::Param(ParamOp::NextLine, Vec::new()));
+        }
+        if code == Code::NextLineSetSpacingShowText {
+            let word = args.remove(0);
+            op_list.add_op(Op::Param(ParamOp::SetWordSpacing, vec![word]));
+            let character = args.remove(0);
+            op_list.add_op(Op::Param(ParamOp::SetCharSpacing, vec![character]));
+        }
+        let items = if code == Code::ShowSpacedText {
+            let mut items = Vec::new();
+            if let Some(Obj::Array(array)) = args.first() {
+                for item in array.iter() {
+                    match item {
+                        Obj::Str(_) => items.extend(self.handle_text(Some(item), state).into_iter().map(TextItem::Glyph)),
+                        Obj::Num(n) => items.push(TextItem::Adjust(*n)),
+                        _ => {}
+                    }
+                }
+            }
+            items
+        } else {
+            self.handle_text(args.first(), state).into_iter().map(TextItem::Glyph).collect()
+        };
+        op_list.add_op(Op::ShowText(items));
+        Ok(())
     }
 
     // ---- colour spaces -------------------------------------------------------------------------------------------
@@ -1766,10 +1773,6 @@ impl<'a> Evaluator<'a> {
         Ok(Arc::new(LoadedFont { loaded_name, font: Some(font), type3 }))
     }
 
-    /// `TranslatedFont.loadType3Data`: every `CharProcs` stream is read into an operator list by an evaluator that
-    /// does not ignore errors; one that fails is an empty glyph. The colour operators of a glyph that declares its
-    /// bounds (`d1`) are removed (it is painted in the text colour), and a glyph box far larger than the font's
-    /// own, or any glyph box when the font has none, becomes the font's box.
     fn load_type3_data(&mut self, dict: &Arc<Dict>, font: &Arc<dyn super::FontObject>, resources: &Arc<Dict>, seen: &[String]) -> Result<Type3Data> {
         let xref = self.xref;
         let Obj::Dict(char_procs) = xref.get(dict, "CharProcs")? else {

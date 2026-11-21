@@ -166,31 +166,33 @@ impl Rearm {
         }
     }
 
+    fn progress_payload(&self, answer: &Answer) -> Value {
+        let (watch, session) = (&self.watch, &self.watch.task_session_id);
+        let mut payload = Map::new();
+        payload.insert("runId".into(), json!(progress_run_id(session, &answer.id)));
+        payload.insert("taskSessionId".into(), json!(session));
+        payload.insert("title".into(), json!(watch.title));
+        payload.insert("status".into(), json!("working"));
+        payload.insert("text".into(), json!(answer.text));
+        payload.insert("progressWatchId".into(), json!(watch.run_id));
+        payload.insert("answerId".into(), json!(answer.id));
+        if watch.target_session {
+            payload.insert("target".into(), json!("session"));
+        }
+        if watch.hop > 0.0 {
+            payload.insert("hop".into(), mixdog_js::json_number(watch.hop));
+        }
+        payload.extend(self.sender_field());
+        Value::Object(payload)
+    }
+
     fn start_follow(self: &Arc<Self>) -> Arc<Follow> {
         let watch = &self.watch;
         let interim: Option<super::follow::InterimFn> = (!self.quiet).then(|| {
             let this = Arc::clone(self);
             Arc::new(move |answer: Answer| -> BoxFuture<'static, Result<(), String>> {
                 let this = Arc::clone(&this);
-                Box::pin(async move {
-                    let (watch, session) = (&this.watch, this.watch.task_session_id.clone());
-                    let mut payload = Map::new();
-                    payload.insert("runId".into(), json!(progress_run_id(&session, &answer.id)));
-                    payload.insert("taskSessionId".into(), json!(session));
-                    payload.insert("title".into(), json!(watch.title));
-                    payload.insert("status".into(), json!("working"));
-                    payload.insert("text".into(), json!(answer.text));
-                    payload.insert("progressWatchId".into(), json!(watch.run_id));
-                    payload.insert("answerId".into(), json!(answer.id));
-                    if watch.target_session {
-                        payload.insert("target".into(), json!("session"));
-                    }
-                    if watch.hop > 0.0 {
-                        payload.insert("hop".into(), mixdog_js::json_number(watch.hop));
-                    }
-                    payload.extend(this.sender_field());
-                    this.host.deliver(&watch.agent_id, Value::Object(payload)).await
-                })
+                Box::pin(async move { this.host.deliver(&this.watch.agent_id, this.progress_payload(&answer)).await })
             }) as super::follow::InterimFn
         });
         let this = Arc::clone(self);

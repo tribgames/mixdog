@@ -543,15 +543,15 @@ pub struct Ticket(pub u64);
 /// A message could not be committed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommitError {
-    /// The attachment store could not run the read the message's classification needs: nothing
+    /// The attachment read the message's classification needs never ran, for the lane's reason: nothing
     /// was queued.
-    StoreUnavailable,
+    StoreUnavailable(crate::compact::blob_reads::StoreUnavailable),
 }
 
 impl std::fmt::Display for CommitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::StoreUnavailable => f.write_str("the attachment store is unavailable; the message was not committed"),
+            Self::StoreUnavailable(unavailable) => write!(f, "{unavailable}; the message was not committed"),
         }
     }
 }

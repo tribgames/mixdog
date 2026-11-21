@@ -1,8 +1,3 @@
-//! The daemon's stores behind the task-report host (`TaskReportHost` over `SessionStore` and
-//! `AgentRegistry`, `createAgentTaskSessions`' defaults in `agent-task-sessions.mjs`): the session
-//! directory (stored messages, runtimes, the queue, completion delivery, a turn's files) and the
-//! agent registry, job board and Agents pool (the pending-work reads, the restart failures).
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;

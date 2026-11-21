@@ -1,22 +1,28 @@
-//! The real [`PromptSources`]: Node's outside loaders over the Rust folders and services.
+//! The real [`PromptSources`]: the outside loaders over the folders and services.
 //!
-//! Every method here does blocking file work, so a `RealSources` exists only inside an
-//! io-interactive lane job: it borrows the lane's [`InLane`] proof (as `agents::files` and
-//! `config::agent_routes` do) and the host composes the prompt inside that job.
+//! The reads and the composition run apart. [`SourceFacts::read`], in an io-interactive lane job,
+//! reads through a [`FileReads`] what the composition's source calls ([`SourceWants`]) ask of the
+//! disk and takes the facts they need from the lane (the bot store, Mixy's folder and name, the PATH
+//! lookups); a `RealSources` answers from the [`FileSnapshot`] and the facts, so the composition runs
+//! on a compute lane. A file or fact the assembly asks for that was not read is a gap, which fails it.
 //!
 //! Three observations need a child process (`git status`, `git check-ignore`, and the POSIX
 //! login-shell probe), which the process service runs and a sync composition cannot await.
-//! Node itself separates them (`prewarmGitStartupProbes`): the host's async prewarm fills
-//! [`StartupObservations`] and the composition reads the finished answers. An absent entry reads
-//! as a probe that failed, exactly as Node renders one.
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: a RealSources lives inside an io-interactive job")]
+//! The host's async prewarm fills [`StartupObservations`] and the composition reads the finished
+//! answers. An absent entry reads as a probe that failed.
+//!
+//! [`FileReads`]: super::source_files::FileReads
+//! [`FileSnapshot`]: super::source_files::FileSnapshot
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the PATH lookups run in SourceFacts::read, an io-interactive lane job")]
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::PoisonError;
 
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
@@ -32,6 +38,9 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use super::probes::StartupObservations;
+use super::source_files::Entry;
+use super::source_files::InstructionHead;
+use super::source_files::PromptFiles;
 use super::sources::PromptSources;
 use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
@@ -48,7 +57,7 @@ const PROFILE_FILES: [&str; 3] = ["agent.json", "AGENT.md", "PERSONA.md"];
 const BOTS_DIR: &str = "bots";
 const PERSONA_MAX_UTF16: usize = 4000;
 const PERSONA_TRUNCATION_MARKER: &str = "\n\n[persona truncated]";
-const INSTRUCTION_FILE_MAX_BYTES: usize = 32 * 1024;
+pub(super) const INSTRUCTION_FILE_MAX_BYTES: usize = 32 * 1024;
 const TRUNCATED_MARK: &str = "\n\n[... truncated]";
 const CWD_STARTUP_ENTRY_LIMIT: usize = 40;
 const PART_SEPARATOR: &str = "\n\n---\n\n";
@@ -72,15 +81,166 @@ pub struct HostFacts<'a> {
     pub stored_instruction_files: Option<&'a Value>,
 }
 
+/// The source calls one composition makes, each with the arguments it makes it with: what its read step reads for.
+#[derive(Debug, Clone, Default)]
+pub struct SourceWants {
+    /// `role_catalog(..)`.
+    pub role_catalog: bool,
+    /// `mixy_role_section()`.
+    pub mixy_role: bool,
+    /// `persona_section(agent)`.
+    pub persona: Option<String>,
+    /// `agent_mode_identity_line(agent)`.
+    pub identity: Option<String>,
+    /// `agent_profile_revision(agent, mixy)`.
+    pub profile_revision: Option<(String, bool)>,
+    /// `shell_tools_line()`.
+    pub shell_tools: bool,
+    /// `git_line(cwd)`.
+    pub git: Option<Option<String>>,
+    /// `cwd_entries(cwd)`.
+    pub cwd_entries: Option<String>,
+    /// `instruction_files(config_mode, cwd)`.
+    pub instruction_files: Option<(Option<Value>, Option<String>)>,
+}
+
+/// The answers a composition needs that only the lane can give, taken by [`SourceFacts::read`] as its reads ask
+/// for them. A fact the assembly asks for and the read step did not take is a gap ([`SourceFacts::gap`]).
+#[derive(Debug, Default)]
+pub struct SourceFacts {
+    /// `readBotMigration(dataDir)` found the finished split: the bot store is active.
+    bot_store: OnceLock<bool>,
+    /// `mixyIdentityDir(dataDir)`.
+    mixy_dir: OnceLock<PathBuf>,
+    /// `mixyDisplayName()`.
+    mixy_name: OnceLock<String>,
+    /// `isStoreBot(agent)` per agent asked about.
+    store_bots: Mutex<HashMap<String, bool>>,
+    /// `gitExecutablePresent`.
+    git_present: OnceLock<bool>,
+    /// The shell-tools line (`describeShellToolsStartupState`).
+    shell_tools: OnceLock<String>,
+    gap: OnceLock<String>,
+}
+
+impl SourceFacts {
+    /// Reads, through `files`, what the source calls of `wants` ask of the disk, and takes the facts they need.
+    pub fn read(lane: &InLane<InteractiveIo>, files: &dyn PromptFiles, host: HostFacts<'_>, observed: &StartupObservations, wants: &SourceWants) -> Self {
+        let facts = Self::default();
+        RealSources { files, facts: &facts, host, observed, lane: Some(lane) }.read_files(wants);
+        facts
+    }
+
+    /// The first fact asked for that the read step did not take.
+    pub fn gap(&self) -> Option<&str> {
+        self.gap.get().map(String::as_str)
+    }
+}
+
 pub struct RealSources<'a> {
-    lane: &'a InLane<InteractiveIo>,
+    files: &'a dyn PromptFiles,
+    facts: &'a SourceFacts,
     host: HostFacts<'a>,
     observed: &'a StartupObservations,
+    /// Set in the read step only: a fact not taken yet is taken on it.
+    lane: Option<&'a InLane<InteractiveIo>>,
 }
 
 impl<'a> RealSources<'a> {
-    pub fn new(lane: &'a InLane<InteractiveIo>, host: HostFacts<'a>, observed: &'a StartupObservations) -> Self {
-        Self { lane, host, observed }
+    pub fn new(files: &'a dyn PromptFiles, facts: &'a SourceFacts, host: HostFacts<'a>, observed: &'a StartupObservations) -> Self {
+        Self { files, facts, host, observed, lane: None }
+    }
+
+    /// The reads of [`SourceFacts::read`]: what each wanted source call asks of the files.
+    fn read_files(&self, wants: &SourceWants) {
+        if wants.role_catalog {
+            for dir in self.section_dirs() {
+                for entry in self.files.entries(&dir).unwrap_or_default() {
+                    if let Some((_, file)) = role_file(&dir, &entry) {
+                        self.files.read(&file);
+                    }
+                }
+            }
+            let rules_dir = self.hidden_rules_dir();
+            for file in self.hidden_rule_files() {
+                self.files.read(&rules_dir.join(file));
+            }
+        }
+        if wants.mixy_role {
+            self.files.read(&self.mixy_dir().join("AGENT.md"));
+        }
+        if let Some(dir) = wants.persona.as_deref().filter(|agent| valid_agent_id(agent)).and_then(|agent| self.profile_dir(agent)) {
+            self.files.read(&dir.join("PERSONA.md"));
+        }
+        match wants.identity.as_deref() {
+            Some("lead") => {
+                self.mixy_name();
+            }
+            Some(agent) if valid_agent_id(agent) => {
+                if let Some(dir) = self.profile_dir(agent) {
+                    self.files.read(&dir.join("agent.json"));
+                }
+            }
+            _ => {}
+        }
+        if let Some((agent, mixy)) = &wants.profile_revision {
+            for (_, dir) in self.revision_dirs(agent, *mixy) {
+                for file in PROFILE_FILES {
+                    self.files.read(&dir.join(file));
+                }
+            }
+        }
+        if wants.shell_tools {
+            self.shell_tools();
+        }
+        if let Some(cwd) = &wants.git
+            && self.git_present()
+            && let Some((_, Some(git_dir))) = self.files.repository_root(&shown_cwd(cwd.as_deref()))
+        {
+            self.files.read(&git_dir.join("HEAD"));
+        }
+        if let Some(directory) = wants.cwd_entries.as_deref().and_then(listing_dir)
+            && let Some(entries) = self.files.entries(&directory)
+            && entries.iter().any(|entry| entry.name != ".git")
+        {
+            self.files.repository_root(&directory.to_string_lossy());
+        }
+        if let Some((config_mode, cwd)) = &wants.instruction_files {
+            for (path, root) in self.instruction_candidates(self.instruction_kinds(config_mode.as_ref()), cwd.as_deref()) {
+                self.files.instruction_head(&path, root.as_deref());
+            }
+        }
+    }
+
+    /// A fact: the one the read step took, else taken now in the read step; asked for in the assembly without having
+    /// been taken, it is a gap.
+    fn fact<T: Clone + Default>(&self, cell: &OnceLock<T>, what: &str, take: impl FnOnce(&InLane<InteractiveIo>) -> T) -> T {
+        if let Some(value) = cell.get() {
+            return value.clone();
+        }
+        match self.lane {
+            Some(lane) => cell.get_or_init(|| take(lane)).clone(),
+            None => {
+                self.facts.gap.get_or_init(|| what.to_owned());
+                T::default()
+            }
+        }
+    }
+
+    fn bot_store(&self) -> bool {
+        self.fact(&self.facts.bot_store, "whether the bot store is active", |lane| bot_migration(lane, self.host.data_dir).is_some())
+    }
+
+    fn git_present(&self) -> bool {
+        self.fact(&self.facts.git_present, "whether git is on PATH", |_| {
+            self.observed.git_present(self.host.path_env, || find_path_executable("git", self.host.path_env).is_some())
+        })
+    }
+
+    fn shell_tools(&self) -> String {
+        self.fact(&self.facts.shell_tools, "the shell-tools line", |_| {
+            self.observed.shell_tools(self.host.path_env, || windows_shell_tools_line(self.host.path_env))
+        })
     }
 
     fn agents_dir(&self) -> PathBuf {
@@ -89,15 +249,50 @@ impl<'a> RealSources<'a> {
 
     /// `mixyIdentityDir(dataDir)`.
     fn mixy_dir(&self) -> PathBuf {
-        mixy_identity_dir(self.lane, self.host.data_dir)
+        self.fact(&self.facts.mixy_dir, "Mixy's folder", |lane| mixy_identity_dir(lane, self.host.data_dir))
     }
 
     /// `storeBotDir(agent)`: the bot's own folder, `None` for an agent that is no store bot.
     fn store_bot_dir(&self, agent: &str) -> Option<PathBuf> {
-        is_store_bot(self.lane, self.host.data_dir, agent).then(|| self.host.data_dir.join(BOTS_DIR).join(agent))
+        let mut store_bots = self.facts.store_bots.lock().unwrap_or_else(PoisonError::into_inner);
+        let store_bot = match (store_bots.get(agent), self.lane) {
+            (Some(store_bot), _) => *store_bot,
+            (None, Some(lane)) => *store_bots.entry(agent.to_owned()).or_insert_with(|| is_store_bot(lane, self.host.data_dir, agent)),
+            (None, None) => {
+                self.facts.gap.get_or_init(|| format!("whether {agent} is a store bot"));
+                false
+            }
+        };
+        store_bot.then(|| self.host.data_dir.join(BOTS_DIR).join(agent))
     }
 
-    /// `agentProfileRevision(agent, { mixy })` (`role-instructions.mjs`): the files an agent's prompt sections are read
+    /// The folder an agent's persona and manifest are read from: its own (Mixy's, a store bot's), else the first
+    /// profile root holding its `AGENT.md`.
+    fn profile_dir(&self, agent: &str) -> Option<PathBuf> {
+        let own = if agent == "lead" { Some(self.mixy_dir()) } else { self.store_bot_dir(agent) };
+        own.or_else(|| {
+            [self.agents_dir(), self.host.plugin_root.join("agents")]
+                .into_iter()
+                .map(|root| root.join(agent))
+                .find(|dir| self.files.exists(&dir.join("AGENT.md")))
+        })
+    }
+
+    /// The `(root, folder)` pairs a profile stamp hashes; none where the stamp reads no file.
+    fn revision_dirs(&self, agent: &str, mixy: bool) -> Vec<(PathBuf, PathBuf)> {
+        if !valid_agent_id(agent) || (agent == "lead" && !mixy) {
+            return Vec::new();
+        }
+        let roots = [self.agents_dir(), self.host.plugin_root.join("agents")];
+        let mut dirs: Vec<(PathBuf, PathBuf)> = roots.iter().map(|root| (root.clone(), root.join(agent))).collect();
+        let own = if agent == "lead" { Some(self.mixy_dir()) } else { self.store_bot_dir(agent) };
+        if let Some(own) = own.filter(|own| *own != roots[0].join(agent)) {
+            dirs.push((own.clone(), own));
+        }
+        dirs
+    }
+
+    /// The files an agent's prompt sections are read
     /// from (its `agent.json`, `AGENT.md` and `PERSONA.md` in the data folder and the shipped tree, and a store bot's or
     /// Mixy's own folder) as one hash, so an edit of any of them is another stamp. A coding Lead (`lead` outside Mixy's
     /// own thread) embeds no profile file, so its stamp is a constant. Empty for an invalid id.
@@ -109,19 +304,11 @@ impl<'a> RealSources<'a> {
             return CODING_LEAD_PROFILE_REVISION.to_owned();
         }
         let mut hash = Sha256::new();
-        let mut take = |root: &Path, dir: &Path| {
+        for (root, dir) in self.revision_dirs(agent, mixy) {
             for file in PROFILE_FILES {
-                let text = read_safe(&dir.join(file)).unwrap_or_else(|| "\u{1}".to_owned());
+                let text = read_safe(self.files, &dir.join(file)).unwrap_or_else(|| "\u{1}".to_owned());
                 hash.update(format!("{}\0{file}\0{text}\0", root.display()));
             }
-        };
-        let roots = [self.agents_dir(), self.host.plugin_root.join("agents")];
-        for root in &roots {
-            take(root, &root.join(agent));
-        }
-        let own = if agent == "lead" { Some(self.mixy_dir()) } else { self.store_bot_dir(agent) };
-        if let Some(own) = own.filter(|own| *own != roots[0].join(agent)) {
-            take(&own, &own);
         }
         hash.finalize().iter().take(12).map(|byte| format!("{byte:02x}")).collect()
     }
@@ -129,7 +316,7 @@ impl<'a> RealSources<'a> {
     /// `agentSectionDirs(pluginRoot)`, in precedence order.
     fn section_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = vec![self.host.plugin_root.join("agents"), self.agents_dir()];
-        if bot_migration(self.lane, self.host.data_dir).is_some() {
+        if self.bot_store() {
             dirs.push(self.host.data_dir.join(BOTS_DIR));
         }
         dirs
@@ -137,55 +324,104 @@ impl<'a> RealSources<'a> {
 
     /// `agentManifest(agent)`.
     fn manifest(&self, agent: &str) -> serde_json::Map<String, Value> {
-        let parse = |dir: &Path| {
-            let text = read_safe(&dir.join("agent.json")).unwrap_or_else(|| "{}".to_owned());
-            // A name or job a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
-            serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&text)).ok().and_then(|value| value.as_object().cloned()).unwrap_or_default()
-        };
-        if let Some(own) = self.store_bot_dir(agent) {
-            return parse(&own);
-        }
-        for root in [self.agents_dir(), self.host.plugin_root.join("agents")] {
-            let dir = root.join(agent);
-            if dir.join("AGENT.md").exists() {
-                return parse(&dir);
-            }
-        }
-        serde_json::Map::new()
+        let Some(dir) = self.profile_dir(agent) else { return serde_json::Map::new() };
+        let text = read_safe(self.files, &dir.join("agent.json")).unwrap_or_else(|| "{}".to_owned());
+        // A name or job a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+        serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&text)).ok().and_then(|value| value.as_object().cloned()).unwrap_or_default()
     }
 
     /// `mixyDisplayName()`.
     fn mixy_name(&self) -> String {
-        mixy_display_name(self.lane, self.host.data_dir)
+        self.fact(&self.facts.mixy_name, "Mixy's name", |lane| mixy_display_name(lane, self.host.data_dir))
     }
 
-    /// `findRepositoryRoot(startDirectory)`: the root and the git directory holding `HEAD`.
-    fn repository_root(&self, start: &str) -> Option<(PathBuf, Option<PathBuf>)> {
-        let mut current = std::path::absolute(if start.is_empty() { "." } else { start }).ok()?;
-        for _ in 0..64 {
-            let marker = current.join(".git");
-            if let Ok(stats) = fs::metadata(&marker) {
-                let git_dir = if stats.is_dir() { Some(marker) } else { linked_git_dir(&marker, &current) };
-                return Some((current, git_dir));
-            }
-            current = current.parent()?.to_path_buf();
+    /// The shipped hidden-agent rules folder.
+    fn hidden_rules_dir(&self) -> PathBuf {
+        self.host.plugin_root.join("rules").join("agent")
+    }
+
+    /// The hidden-agent rule files of [`Self::hidden_rules_dir`], in file-name order.
+    fn hidden_rule_files(&self) -> Vec<String> {
+        let mut files: Vec<String> = self
+            .files
+            .entries(&self.hidden_rules_dir())
+            .map(|entries| entries.into_iter().map(|e| e.name.to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        files.retain(|file| file.ends_with(".md") && file != "AGENT.md");
+        files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+        files
+    }
+
+    /// The instruction-file kinds the mode reads: none when they are off.
+    fn instruction_kinds(&self, config_mode: Option<&Value>) -> &'static [&'static str] {
+        let mode = if self.host.instruction_files_forced_off { "off".to_owned() } else { self.instruction_files_mode(config_mode) };
+        match mode.as_str() {
+            "all" => &["agents", "claude"],
+            "agents" => &["agents"],
+            "claude" => &["claude"],
+            _ => &[],
         }
+    }
+
+    /// The instruction files `kinds` name, in the home folder and in `cwd`, with the root each must stay inside.
+    fn instruction_candidates(&self, kinds: &[&str], cwd: Option<&str>) -> Vec<(PathBuf, Option<PathBuf>)> {
+        let file = |kind: &str| if kind == "agents" { "AGENTS.md" } else { "CLAUDE.md" };
+        let global_dir = |kind: &str| if kind == "agents" { ".codex" } else { ".claude" };
+        let mut candidates: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
+        if !self.host.home_dir.as_os_str().is_empty() {
+            let home = std::path::absolute(self.host.home_dir).unwrap_or_else(|_| self.host.home_dir.to_path_buf());
+            candidates.extend(kinds.iter().map(|kind| (home.join(global_dir(kind)).join(file(kind)), None)));
+        }
+        if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
+            let root = std::path::absolute(cwd).unwrap_or_else(|_| PathBuf::from(cwd));
+            candidates.extend(kinds.iter().map(|kind| (root.join(file(kind)), Some(root.clone()))));
+        }
+        candidates
+    }
+}
+
+/// The role a section folder's entry defines and the file its text is in: a folder's `AGENT.md`, or a `.md` file itself.
+fn role_file(dir: &Path, entry: &Entry) -> Option<(String, PathBuf)> {
+    let kind = entry.kind?;
+    let file_name = entry.name.to_string_lossy().into_owned();
+    if kind.dir {
+        let path = dir.join(&entry.name).join("AGENT.md");
+        Some((file_name, path))
+    } else if kind.file && file_name.ends_with(".md") {
+        Some((file_name.strip_suffix(".md").unwrap_or(&file_name).to_owned(), dir.join(&entry.name)))
+    } else {
         None
     }
+}
 
-    /// `findPathExecutable(name)` on this host: the hit text Node returns.
-    fn path_executable(&self, name: &str) -> Option<String> {
-        find_path_executable(name, self.host.path_env)
+/// The folder `git_line` describes: `cwd`, else the process's own.
+fn shown_cwd(cwd: Option<&str>) -> String {
+    cwd.map_or_else(|| std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default(), str::to_owned)
+}
+
+/// The folder `cwd_entries` lists.
+fn listing_dir(cwd: &str) -> Option<PathBuf> {
+    std::path::absolute(if cwd.is_empty() { "." } else { cwd }).ok()
+}
+
+/// The Windows shell-tools line, from PATH; POSIX waits for the host's login-shell probe to be recorded.
+fn windows_shell_tools_line(path_env: &str) -> Option<String> {
+    if !cfg!(windows) {
+        return None;
     }
+    let found: HashSet<&str> =
+        SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|name| find_path_executable(name, path_env).is_some_and(|hit| !store_stub(&hit))).collect();
+    let list = |present: bool| {
+        let names: Vec<&str> = SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|n| found.contains(n) == present).collect();
+        if names.is_empty() { "(none)".to_owned() } else { names.join(" ") }
+    };
+    Some(format!("- Shell tools at startup: {}; absent: {}.", list(true), list(false)))
 }
 
 /// `readSafe(path)`: the trimmed text, `None` when absent, unreadable or blank. A file of nothing but NUL bytes and
 /// blanks, what a crash leaves of data that never reached disk (`holdsNoData`), is no text either.
-fn read_safe(path: &Path) -> Option<String> {
-    if !path.exists() {
-        return None;
-    }
-    let text = fs::read(path).ok()?;
+fn read_safe(files: &dyn PromptFiles, path: &Path) -> Option<String> {
+    let text = files.read(path)?;
     if text.iter().all(|byte| matches!(byte, 0 | b' ' | b'\t' | b'\n' | b'\r')) {
         return None;
     }
@@ -209,16 +445,9 @@ fn role_section(name: &str, body: &str) -> String {
     format!("## {name}\n\n{body}")
 }
 
-fn linked_git_dir(marker: &Path, root: &Path) -> Option<PathBuf> {
-    let text = fs::read_to_string(marker).ok()?;
-    let target = text.lines().find_map(|line| line.strip_prefix("gitdir:"))?;
-    let target = js_trim(target);
-    (!target.is_empty()).then(|| std::path::absolute(root.join(target)).ok()).flatten()
-}
-
 /// `_headBranch`: the branch a `ref: refs/heads/<branch>` HEAD names.
-fn head_branch(git_dir: &Path) -> Option<String> {
-    let head = fs::read_to_string(git_dir.join("HEAD")).ok()?;
+fn head_branch(files: &dyn PromptFiles, git_dir: &Path) -> Option<String> {
+    let head = String::from_utf8(files.read(&git_dir.join("HEAD"))?).ok()?;
     let rest = js_trim(&head).strip_prefix("ref:")?.trim_start_matches(is_js_space).strip_prefix("refs/heads/")?;
     (!rest.is_empty() && !rest.contains(['\n', '\r', '\u{2028}', '\u{2029}'])).then(|| rest.to_owned())
 }
@@ -358,86 +587,35 @@ fn first_of_run(text: &str, at: usize) -> usize {
 
 /// `skipNote(path, reason)`: Node writes it to stderr; here it is a log line. A file that is
 /// absent, or a path through a file or onto a directory, is silent.
-fn skipped(path: &Path, error: &std::io::Error) {
+fn skipped(path: &Path, kind: std::io::ErrorKind, message: &str) {
     use std::io::ErrorKind::IsADirectory;
     use std::io::ErrorKind::NotADirectory;
     use std::io::ErrorKind::NotFound;
-    if !matches!(error.kind(), NotFound | NotADirectory | IsADirectory) {
+    if !matches!(kind, NotFound | NotADirectory | IsADirectory) {
         // Node's reason is `error.code`; libuv names a refused open `EACCES` on Unix and `EPERM` on Windows. Any other fault has no
         // code name here and shows its message.
-        let reason = match error.kind() {
-            std::io::ErrorKind::PermissionDenied if cfg!(windows) => "EPERM".to_owned(),
-            std::io::ErrorKind::PermissionDenied => "EACCES".to_owned(),
-            _ => error.to_string(),
+        let reason = match kind {
+            std::io::ErrorKind::PermissionDenied if cfg!(windows) => "EPERM",
+            std::io::ErrorKind::PermissionDenied => "EACCES",
+            _ => message,
         };
         mixdog_rt::node_stderr!("[instruction-files] skipped {}: {reason}", path.display());
     }
 }
 
-/// `openSync(path, O_RDONLY | O_NONBLOCK)`.
-fn open_nonblocking(path: &Path) -> std::io::Result<fs::File> {
-    let mut options = fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    options.open(path)
-}
-/// `readInstructionFile({ path, root })`.
-fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
-    let real = match fs::canonicalize(path) {
-        Ok(real) => real,
-        Err(error) => {
-            skipped(path, &error);
-            return String::new();
-        }
-    };
-    if let Some(root) = root {
-        let real_root = match fs::canonicalize(root) {
-            Ok(real_root) => real_root,
-            Err(error) => {
-                skipped(path, &error);
-                return String::new();
-            }
-        };
-        if !real.starts_with(&real_root) {
+fn read_instruction_file(files: &dyn PromptFiles, path: &Path, root: Option<&Path>) -> String {
+    match files.instruction_head(path, root) {
+        InstructionHead::Bytes(head) => bounded_text(&head),
+        InstructionHead::NotAFile => String::new(),
+        InstructionHead::Outside => {
             mixdog_rt::node_stderr!("[instruction-files] skipped {}: resolves outside its root", path.display());
-            return String::new();
+            String::new()
+        }
+        InstructionHead::Failed { kind, message } => {
+            skipped(path, kind, &message);
+            String::new()
         }
     }
-    // The type is checked before the open: opening a FIFO for reading blocks until a writer
-    // appears. The open itself is non-blocking and the opened file's type is checked once more.
-    match fs::metadata(&real) {
-        Ok(stats) if !stats.is_file() => return String::new(),
-        Ok(_) => {}
-        Err(error) => {
-            skipped(path, &error);
-            return String::new();
-        }
-    }
-    let file = match open_nonblocking(&real) {
-        Ok(file) => file,
-        Err(error) => {
-            skipped(path, &error);
-            return String::new();
-        }
-    };
-    match file.metadata() {
-        Ok(stats) if !stats.is_file() => return String::new(),
-        Ok(_) => {}
-        Err(error) => {
-            skipped(path, &error);
-            return String::new();
-        }
-    }
-    let mut head = Vec::new();
-    if let Err(error) = file.take((INSTRUCTION_FILE_MAX_BYTES + 3 + 1) as u64).read_to_end(&mut head) {
-        skipped(path, &error);
-        return String::new();
-    }
-    bounded_text(&head)
 }
 
 #[cfg(all(test, unix))]
@@ -446,6 +624,7 @@ mod fifo_tests {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
+    use super::super::source_files::LiveFiles;
     use super::read_instruction_file;
 
     /// A FIFO named like an instruction file has no content and does not block the composition
@@ -456,27 +635,19 @@ mod fifo_tests {
         let fifo = dir.path().join("AGENTS.md");
         let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        assert_eq!(read_instruction_file(&fifo, Some(dir.path())), "");
+        assert_eq!(read_instruction_file(&LiveFiles, &fifo, Some(dir.path())), "");
     }
 }
 
-impl PromptSources for RealSources<'_> {
-    fn role_catalog(&self, agent: Option<&str>, _provider: Option<&str>) -> String {
-        let agent = agent.filter(|agent| !agent.is_empty());
+impl RealSources<'_> {
+    /// One `## name` section per agent folder or `.md` file of the section folders, by name.
+    fn agent_role_sections(&self) -> Vec<String> {
         let mut by_name: HashMap<String, String> = HashMap::new();
         for dir in self.section_dirs() {
-            let Ok(entries) = fs::read_dir(&dir) else { continue };
-            for entry in entries.flatten() {
-                let file_name = entry.file_name().to_string_lossy().into_owned();
-                let Ok(kind) = entry.file_type() else { continue };
-                let (name, raw) = if kind.is_dir() {
-                    (file_name.clone(), read_safe(&entry.path().join("AGENT.md")))
-                } else if kind.is_file() && file_name.ends_with(".md") {
-                    (file_name.strip_suffix(".md").unwrap_or(&file_name).to_owned(), read_safe(&entry.path()))
-                } else {
-                    (String::new(), None)
-                };
-                let Some(raw) = raw else { continue };
+            let Some(entries) = self.files.entries(&dir) else { continue };
+            for entry in entries {
+                let Some((name, file)) = role_file(&dir, &entry) else { continue };
+                let Some(raw) = read_safe(self.files, &file) else { continue };
                 if name.is_empty() || name == "lead" {
                     continue;
                 }
@@ -491,16 +662,15 @@ impl PromptSources for RealSources<'_> {
         }
         let mut names: Vec<&String> = by_name.keys().collect();
         names.sort();
-        let sections: Vec<String> = names.into_iter().map(|name| by_name[name].clone()).collect();
+        names.into_iter().map(|name| by_name[name].clone()).collect()
+    }
 
-        let rules_dir = self.host.plugin_root.join("rules").join("agent");
-        let mut files: Vec<String> =
-            fs::read_dir(&rules_dir).map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
-        files.retain(|file| file.ends_with(".md") && file != "AGENT.md");
-        files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    /// The shipped hidden-agent rule files as `(name, body)`, in file-name order.
+    fn hidden_rule_bodies(&self) -> Vec<(String, String)> {
+        let rules_dir = self.hidden_rules_dir();
         let mut hidden: Vec<(String, String)> = Vec::new();
-        for file in files {
-            let Some(raw) = read_safe(&rules_dir.join(&file)) else { continue };
+        for file in self.hidden_rule_files() {
+            let Some(raw) = read_safe(self.files, &rules_dir.join(&file)) else { continue };
             let (_, body) = read_document(&raw);
             if body.is_empty() {
                 continue;
@@ -509,7 +679,15 @@ impl PromptSources for RealSources<'_> {
             let stem = if stem.len() < file.len() && stem.starts_with('-') { &stem[1..] } else { file.as_str() };
             hidden.push((stem.strip_suffix(".md").unwrap_or(stem).to_owned(), body));
         }
+        hidden
+    }
+}
 
+impl PromptSources for RealSources<'_> {
+    fn role_catalog(&self, agent: Option<&str>, _provider: Option<&str>) -> String {
+        let agent = agent.filter(|agent| !agent.is_empty());
+        let sections = self.agent_role_sections();
+        let hidden = self.hidden_rule_bodies();
         let (rules, roles): (Vec<String>, Vec<String>) = match agent {
             None => (hidden.iter().map(|(n, b)| role_section(n, b)).collect(), sections),
             Some(agent) if hidden_agent_traits(agent).is_some_and(|(kind, _)| kind.as_deref() == Some("maintenance")) => {
@@ -530,7 +708,7 @@ impl PromptSources for RealSources<'_> {
     }
 
     fn mixy_role_section(&self) -> String {
-        let raw = read_safe(&self.mixy_dir().join("AGENT.md")).unwrap_or_default();
+        let raw = read_safe(self.files, &self.mixy_dir().join("AGENT.md")).unwrap_or_default();
         let (_, body) = read_document(&raw);
         let text = js_trim(&body);
         if text.is_empty() { String::new() } else { format!("# Agent Role Catalog\n\n{}", role_section("lead", text)) }
@@ -540,22 +718,9 @@ impl PromptSources for RealSources<'_> {
         if !valid_agent_id(agent) {
             return String::new();
         }
-        let is_lead = agent == "lead";
-        let own = if is_lead { Some(self.mixy_dir()) } else { self.store_bot_dir(agent) };
-        let persona_of = |dir: &Path| truncate_persona(&read_safe(&dir.join("PERSONA.md")).unwrap_or_default());
-        if let Some(own) = own {
-            let persona = persona_of(&own);
-            return if persona.is_empty() { String::new() } else { persona_section(&persona) };
-        }
-        for root in [self.agents_dir(), self.host.plugin_root.join("agents")] {
-            let dir = root.join(agent);
-            if !dir.join("AGENT.md").exists() {
-                continue;
-            }
-            let persona = persona_of(&dir);
-            return if persona.is_empty() { String::new() } else { persona_section(&persona) };
-        }
-        String::new()
+        let Some(dir) = self.profile_dir(agent) else { return String::new() };
+        let persona = truncate_persona(&read_safe(self.files, &dir.join("PERSONA.md")).unwrap_or_default());
+        if persona.is_empty() { String::new() } else { persona_section(&persona) }
     }
 
     fn agent_mode_identity_line(&self, agent: &str) -> String {
@@ -582,31 +747,19 @@ impl PromptSources for RealSources<'_> {
     }
 
     fn shell_tools_line(&self) -> String {
-        // Windows walks PATH here; POSIX waits for the host's login-shell probe to be recorded.
-        self.observed.shell_tools(self.host.path_env, || {
-            if !cfg!(windows) {
-                return None;
-            }
-            let found: HashSet<&str> =
-                SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|name| self.path_executable(name).is_some_and(|hit| !store_stub(&hit))).collect();
-            let list = |present: bool| {
-                let names: Vec<&str> = SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|n| found.contains(n) == present).collect();
-                if names.is_empty() { "(none)".to_owned() } else { names.join(" ") }
-            };
-            Some(format!("- Shell tools at startup: {}; absent: {}.", list(true), list(false)))
-        })
+        self.shell_tools()
     }
     fn git_line(&self, cwd: Option<&str>) -> String {
-        if !self.observed.git_present(self.host.path_env, || self.path_executable("git").is_some()) {
+        if !self.git_present() {
             return "- Git startup state: git is not installed here; git tool calls fail until something installs it.".to_owned();
         }
-        let shown = cwd.map_or_else(|| std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default(), str::to_owned);
-        let Some((root, git_dir)) = self.repository_root(&shown) else {
+        let shown = shown_cwd(cwd);
+        let Some((root, git_dir)) = self.files.repository_root(&shown) else {
             return format!(
                 "- Git startup state: {shown} was not inside a git repository at startup; git commands that require one fail until a repository exists."
             );
         };
-        let branch = git_dir.as_deref().and_then(head_branch);
+        let branch = git_dir.as_deref().and_then(|git_dir| head_branch(self.files, git_dir));
         let root_text = root.to_string_lossy().into_owned();
         let state = self.observed.change_state(&root_text).map(|state| format!("; {state}")).unwrap_or_default();
         let branch = branch.map_or_else(|| " with a detached HEAD".to_owned(), |b| format!(" on branch {b}"));
@@ -614,16 +767,15 @@ impl PromptSources for RealSources<'_> {
     }
 
     fn cwd_entries(&self, cwd: &str) -> String {
-        let Ok(directory) = std::path::absolute(if cwd.is_empty() { "." } else { cwd }) else { return String::new() };
-        let Ok(read) = fs::read_dir(&directory) else { return String::new() };
-        let entries: Vec<(String, bool)> =
-            read.flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.file_type().is_ok_and(|t| t.is_dir()))).collect();
+        let Some(directory) = listing_dir(cwd) else { return String::new() };
+        let Some(read) = self.files.entries(&directory) else { return String::new() };
+        let entries: Vec<(String, bool)> = read.into_iter().map(|e| (e.name.to_string_lossy().into_owned(), e.kind.is_some_and(|kind| kind.dir))).collect();
         if entries.is_empty() {
             return "- Cwd entries at startup: none (empty directory).".to_owned();
         }
         let candidates: Vec<&(String, bool)> = entries.iter().filter(|(name, _)| name != ".git").collect();
         let directory_text = directory.to_string_lossy().into_owned();
-        let ignored = if candidates.is_empty() || self.repository_root(&directory_text).is_none() {
+        let ignored = if candidates.is_empty() || self.files.repository_root(&directory_text).is_none() {
             HashSet::new()
         } else {
             let listed: Vec<String> = candidates.iter().map(|(name, _)| name.clone()).collect();
@@ -641,28 +793,10 @@ impl PromptSources for RealSources<'_> {
     }
 
     fn instruction_files(&self, config_mode: Option<&Value>, cwd: Option<&str>) -> String {
-        let mode = if self.host.instruction_files_forced_off { "off".to_owned() } else { self.instruction_files_mode(config_mode) };
-        let kinds: &[&str] = match mode.as_str() {
-            "all" => &["agents", "claude"],
-            "agents" => &["agents"],
-            "claude" => &["claude"],
-            _ => &[],
-        };
-        let file = |kind: &str| if kind == "agents" { "AGENTS.md" } else { "CLAUDE.md" };
-        let global_dir = |kind: &str| if kind == "agents" { ".codex" } else { ".claude" };
-        let mut candidates: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
-        if !self.host.home_dir.as_os_str().is_empty() {
-            let home = std::path::absolute(self.host.home_dir).unwrap_or_else(|_| self.host.home_dir.to_path_buf());
-            candidates.extend(kinds.iter().map(|kind| (home.join(global_dir(kind)).join(file(kind)), None)));
-        }
-        if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
-            let root = std::path::absolute(cwd).unwrap_or_else(|_| PathBuf::from(cwd));
-            candidates.extend(kinds.iter().map(|kind| (root.join(file(kind)), Some(root.clone()))));
-        }
         let mut seen = HashSet::new();
         let mut sections = Vec::new();
-        for (path, root) in candidates {
-            let content = read_instruction_file(&path, root.as_deref());
+        for (path, root) in self.instruction_candidates(self.instruction_kinds(config_mode), cwd) {
+            let content = read_instruction_file(self.files, &path, root.as_deref());
             if content.is_empty() || !seen.insert(content.clone()) {
                 continue;
             }

@@ -1,9 +1,3 @@
-//! A conversation's attachments by id: the desktop residual service's view of a session ([`DesktopAttachmentHost`], Node's
-//! `session-attachments.ts` `AttachmentHost`) and, over the same reader, the blob domain's `attachment` transfer source
-//! (`SessionAttachments::named`). One rule names them (`desktop_residual::session_attachments`, `transcript-file-links.ts`) over
-//! the rows the transcript shows: the loaded thread's acked view is read first as the transcript window; a compaction or the
-//! window's edge can leave an id only the session's whole stored history names, which is read next.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -47,14 +41,15 @@ impl mixdog_core_domains::domains::desktop_residual::AttachmentHost for DesktopA
         use mixdog_store::blobs::BlobError;
         let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?;
         let store = self.store.clone();
-        let read =
-            mixdog_core_base::support::on_lane(self.interactive, &tokio_util::sync::CancellationToken::new(), move |lane| match store.read(lane, &digest) {
+        let read = mixdog_core_base::support::on_lane_wait(self.interactive, &tokio_util::sync::CancellationToken::new(), move |lane| {
+            match store.read(lane, &digest) {
                 Ok(bytes) => Some(bytes),
                 // A stored file that fails its hash is still handed over as stored: the caller's own integrity check names it `changed`.
                 Err(BlobError::Corrupt { .. }) => std::fs::read(store.path(&digest)).ok(),
                 Err(_) => None,
-            })
-            .await;
+            }
+        })
+        .await;
         read.ok().flatten()
     }
 }

@@ -118,6 +118,39 @@ enum Attempt {
     Held(PathBuf, String),
 }
 
+/// `${pid}.${randomBytes(8).toString('hex')}`: sixteen hex digits after the pid.
+fn new_token() -> String {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let unique = (nanos as u64) ^ COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    format!("{}.{unique:016x}", std::process::id())
+}
+
+async fn try_create(lane: MaintenanceIo, dir: &Path, target: &Path, token: &str, cancel: &CancellationToken) -> Result<Attempt, ScmFailure> {
+    let (root, owned, mine) = (dir.to_path_buf(), target.to_path_buf(), token.to_owned());
+    on_lane(lane, cancel, move || -> std::io::Result<Attempt> {
+        ensure_private_dir(&root)?;
+        let file = lock_file_for(&root, &owned);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&file) {
+            Ok(mut created) => {
+                use std::io::Write;
+                if let Err(error) = created.write_all(mine.as_bytes()) {
+                    drop(created);
+                    let _ = std::fs::remove_file(&file);
+                    return Err(error);
+                }
+                Ok(Attempt::Taken(file))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let held = read_token(&file);
+                Ok(Attempt::Held(file, held))
+            }
+            Err(error) => Err(error),
+        }
+    })
+    .await?
+    .map_err(|error| ScmFailure::git(format!("Error: advisory lock: {error}")))
+}
 impl PathLock {
     /// `withAdvisoryLocks([target])`: waits for a live holder (up to Node's 5 s), reclaims a dead one's.
     pub(crate) async fn acquire(lane: MaintenanceIo, target: &Path, cancel: &CancellationToken) -> Result<Self, ScmFailure> {
@@ -126,39 +159,13 @@ impl PathLock {
 
     /// `acquireAdvisoryLock`, step for step (`advisory-lock.mjs:124-199`).
     async fn acquire_in(lane: MaintenanceIo, dir: &Path, target: &Path, timeout: Duration, cancel: &CancellationToken) -> Result<Self, ScmFailure> {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        // `${pid}.${randomBytes(8).toString('hex')}`: sixteen hex digits after the pid.
-        let unique = (nanos as u64) ^ COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        let token = format!("{}.{unique:016x}", std::process::id());
+        let token = new_token();
         let deadline = std::time::Instant::now() + timeout;
         let mut stale_retry_used = false;
         let timed_out =
             |file: &Path, pid: i64| ScmFailure::git(format!("Error: advisory lock timeout: {} ({}) held by pid {pid}", target.display(), file.display()));
         loop {
-            let (root, owned, mine) = (dir.to_path_buf(), target.to_path_buf(), token.clone());
-            let attempt = on_lane(lane, cancel, move || -> std::io::Result<Attempt> {
-                ensure_private_dir(&root)?;
-                let file = lock_file_for(&root, &owned);
-                match std::fs::OpenOptions::new().write(true).create_new(true).open(&file) {
-                    Ok(mut created) => {
-                        use std::io::Write;
-                        if let Err(error) = created.write_all(mine.as_bytes()) {
-                            drop(created);
-                            let _ = std::fs::remove_file(&file);
-                            return Err(error);
-                        }
-                        Ok(Attempt::Taken(file))
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                        let held = read_token(&file);
-                        Ok(Attempt::Held(file, held))
-                    }
-                    Err(error) => Err(error),
-                }
-            })
-            .await?
-            .map_err(|error| ScmFailure::git(format!("Error: advisory lock: {error}")))?;
+            let attempt = try_create(lane, dir, target, &token, cancel).await?;
             let (file, held) = match attempt {
                 Attempt::Taken(file) => return Ok(Self { file, token }),
                 Attempt::Held(file, held) => (file, held),

@@ -1,8 +1,3 @@
-//! `desktop-session-metadata.json` (SPEC §4.11): titles, names, archive/favorite/retire
-//! stamps, legacy project assignments and read cursors, read exactly as the desktop's
-//! `readSessionMetadata` reads them, then handed to the session conversion item as one
-//! `meta` change per session.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;

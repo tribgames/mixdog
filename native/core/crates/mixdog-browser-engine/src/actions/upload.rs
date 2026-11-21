@@ -1,16 +1,8 @@
-//! Owner: s4-engine-actions-upload
-//! Putting files on the page (`ref-upload.ts`, decision half; the dispatch half is the host's `host/browser/upload`). A file-input
-//! ref takes the files directly, any other ref is clicked to open its picker (and a zone that never shows one takes them as a
-//! drop), and no ref answers the picker the page already opened. The engine reads the files and the page, picks the route, binds
-//! the dispatch to what the person approved (document, URL, receiving frame; the files are the canonical paths the approval
-//! bound), and reads what the host reports back: whether the page's file input now holds the files.
-//!
 //! The host decides between `fileInput`, `pickerClick` and `drop` for a ref when it dispatches (a click that opens no picker
 //! falls to a drop, with the drop guards of `assets/page/file-drop.js` on its side); the route sent is the engine's reading of
 //! the element, and `chooser` is the only one that takes no ref.
 
 use std::fmt;
-use std::path::Path;
 
 use mixdog_app_protocol::v2::browser_engine::BrowserPendingFileChooser;
 use mixdog_app_protocol::v2::browser_engine::BrowserUploadReceiver;
@@ -22,6 +14,8 @@ use mixdog_app_protocol::v2::browser_engine::Precondition;
 use mixdog_rt::CancellationToken;
 use serde::Deserialize;
 
+use crate::approval::binding::UploadPathFault;
+use crate::approval::binding::bind_upload_files;
 use crate::approval::binding::precondition;
 use crate::approval::classify::origin_of_url;
 use crate::error::HostCallError;
@@ -31,9 +25,6 @@ use crate::refs::access::RefError;
 use crate::refs::access::RefTarget;
 use crate::refs::access::call_ref;
 use crate::types::Binding;
-
-/// The most files one upload holds.
-const MAX_UPLOAD_FILES: usize = 10;
 
 /// What a dispatch that finds the receiving chooser no longer the approved one fails with.
 pub const UPLOAD_TARGET_CHANGED: &str = "upload target changed; nothing was dispatched";
@@ -200,8 +191,80 @@ fn decided_against(facts: &PageFacts) -> Precondition {
     }
 }
 
+impl std::error::Error for UploadError {}
+
+async fn check_paths(disk: &dyn FilePort, paths: &[String]) -> Result<(), UploadError> {
+    bind_upload_files(disk, paths).await.map(drop).map_err(|fault| {
+        UploadError::Invalid(match fault {
+            UploadPathFault::Count => "upload requires 1\u{2013}10 file paths".to_owned(),
+            UploadPathFault::NotAbsolute(path) => format!("upload path must be absolute: {path}"),
+            UploadPathFault::Unreadable(path) => format!("upload path cannot be read: {path}"),
+            UploadPathFault::NotFile(path) => format!("upload path is not a file: {path}"),
+        })
+    })
+}
+
+/// The open chooser takes the files under its own key, which the approval's key must equal when one bound the dispatch. Returns the
+/// key the upload carries; `expect` is bound to it.
+fn chooser_key(facts: &PageFacts, approved_key: &str, file_count: usize, expect: &mut Precondition) -> Result<String, UploadError> {
+    let chooser = chooser_of(facts)?;
+    if chooser.mode == CHOOSER_SINGLE && file_count > 1 {
+        return Err(UploadError::Invalid("the open file chooser accepts a single file".to_owned()));
+    }
+    if !approved_key.is_empty() && chooser.receiver_key != approved_key {
+        return Err(UploadError::Failed(UPLOAD_TARGET_CHANGED.to_owned()));
+    }
+    let key = if approved_key.is_empty() { chooser.receiver_key.clone() } else { approved_key.to_owned() };
+    expect.receiver_key = (!key.is_empty()).then(|| key.clone());
+    Ok(key)
+}
+
+/// Hand `paths` to the page. `approved` is what the person approved (`None` when the step asked nobody): the dispatch carries its
+/// document, URL and receiving frame as a precondition the host checks right before each dispatch, so a page that moved on is
+/// refused there (-32010) and nothing is sent. The paths are the canonical ones the approval bound.
+pub async fn upload_files(
+    host: &dyn BrowserHost,
+    disk: &dyn FilePort,
+    target: &UploadTarget<'_>,
+    paths: &[String],
+    facts: &PageFacts,
+    approved: Option<&Binding>,
+    cancel: &CancellationToken,
+) -> Result<UploadOutcome, UploadError> {
+    check_paths(disk, paths).await?;
+    let mut expect = approved.map_or_else(|| decided_against(facts), precondition);
+    let approved_key = approved.map(|binding| binding.receiver_key.as_str()).unwrap_or_default();
+    let (route, receiver_key) = match target.ref_id {
+        None => (BrowserUploadRoute::Chooser, chooser_key(facts, approved_key, paths.len(), &mut expect)?),
+        Some(ref_id) => {
+            // A ref's frame key is the host's own reading of the document, not a chooser's: the host compares it where it
+            // dispatches, so it travels as the upload's `receiverKey` and not in the precondition.
+            expect.receiver_key = None;
+            expect.snapshot_id = Some(target.snapshot_id.to_owned());
+            let ref_target = RefTarget { page_id: target.page_id, snapshot_id: target.snapshot_id, ref_id, expect: Some(&expect) };
+            let read = probe(host, &ref_target, cancel).await?;
+            (choose_route(true, read.file_input), approved_key.to_owned())
+        }
+    };
+    let params = HostBrowserUploadParams {
+        page_id: target.page_id.to_owned(),
+        route,
+        snapshot_id: target.ref_id.map(|_| target.snapshot_id.to_owned()),
+        ref_id: target.ref_id.map(str::to_owned),
+        files: paths.to_vec(),
+        receiver_key,
+        expect,
+    };
+    let result = host.upload(params, cancel).await?;
+    if !result.dispatched {
+        return Err(UploadError::Failed("the files were not handed to the page".to_owned()));
+    }
+    Ok(UploadOutcome { route, files: paths.len(), verified: result.verified, receiver: result.receiver, facts: result.facts })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::path::PathBuf;
 
     use async_trait::async_trait;
@@ -443,79 +506,4 @@ mod tests {
         let error = run(&host, target(None), &[A], &facts, None).await.expect_err("not dispatched");
         assert_eq!(error.to_string(), "the files were not handed to the page");
     }
-}
-
-impl std::error::Error for UploadError {}
-/// 1 to 10 absolute paths of regular files (`assertUploadPaths`).
-async fn check_paths(disk: &dyn FilePort, paths: &[String]) -> Result<(), UploadError> {
-    if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
-        return Err(UploadError::Invalid("upload requires 1\u{2013}10 file paths".to_owned()));
-    }
-    for path in paths {
-        if !mixdog_js::nodepath::is_absolute_host(path) {
-            return Err(UploadError::Invalid(format!("upload path must be absolute: {path}")));
-        }
-        let facts = disk.stat(Path::new(path)).await;
-        if !facts.exists {
-            return Err(UploadError::Invalid(format!("upload path cannot be read: {path}")));
-        }
-        if !facts.is_file {
-            return Err(UploadError::Invalid(format!("upload path is not a file: {path}")));
-        }
-    }
-    Ok(())
-}
-/// Hand `paths` to the page. `approved` is what the person approved (`None` when the step asked nobody): the dispatch carries its
-/// document, URL and receiving frame as a precondition the host checks right before each dispatch, so a page that moved on is
-/// refused there (-32010) and nothing is sent. The paths are the canonical ones the approval bound.
-pub async fn upload_files(
-    host: &dyn BrowserHost,
-    disk: &dyn FilePort,
-    target: &UploadTarget<'_>,
-    paths: &[String],
-    facts: &PageFacts,
-    approved: Option<&Binding>,
-    cancel: &CancellationToken,
-) -> Result<UploadOutcome, UploadError> {
-    check_paths(disk, paths).await?;
-    let mut expect = approved.map_or_else(|| decided_against(facts), precondition);
-    let approved_key = approved.map(|binding| binding.receiver_key.as_str()).unwrap_or_default();
-    let (route, receiver_key) = match target.ref_id {
-        None => {
-            let chooser = chooser_of(facts)?;
-            if chooser.mode == CHOOSER_SINGLE && paths.len() > 1 {
-                return Err(UploadError::Invalid("the open file chooser accepts a single file".to_owned()));
-            }
-            if !approved_key.is_empty() && chooser.receiver_key != approved_key {
-                return Err(UploadError::Failed(UPLOAD_TARGET_CHANGED.to_owned()));
-            }
-            // The host compares this against the chooser it holds: it is the chooser's key (or the approved one it must equal).
-            let key = if approved_key.is_empty() { chooser.receiver_key.clone() } else { approved_key.to_owned() };
-            expect.receiver_key = (!key.is_empty()).then(|| key.clone());
-            (BrowserUploadRoute::Chooser, key)
-        }
-        Some(ref_id) => {
-            // A ref's frame key is the host's own reading of the document, not a chooser's: the host compares it where it
-            // dispatches, so it travels as the upload's `receiverKey` and not in the precondition.
-            expect.receiver_key = None;
-            expect.snapshot_id = Some(target.snapshot_id.to_owned());
-            let ref_target = RefTarget { page_id: target.page_id, snapshot_id: target.snapshot_id, ref_id, expect: Some(&expect) };
-            let read = probe(host, &ref_target, cancel).await?;
-            (choose_route(true, read.file_input), approved_key.to_owned())
-        }
-    };
-    let params = HostBrowserUploadParams {
-        page_id: target.page_id.to_owned(),
-        route,
-        snapshot_id: target.ref_id.map(|_| target.snapshot_id.to_owned()),
-        ref_id: target.ref_id.map(str::to_owned),
-        files: paths.to_vec(),
-        receiver_key,
-        expect,
-    };
-    let result = host.upload(params, cancel).await?;
-    if !result.dispatched {
-        return Err(UploadError::Failed("the files were not handed to the page".to_owned()));
-    }
-    Ok(UploadOutcome { route, files: paths.len(), verified: result.verified, receiver: result.receiver, facts: result.facts })
 }

@@ -225,6 +225,31 @@ fn first_finite(value: &Value, paths: &[&[&str]]) -> u64 {
     0
 }
 
+fn cache_read_tokens(usage: &Value, compat: bool) -> u64 {
+    if compat {
+        first_nonzero(
+            usage,
+            &[
+                &["prompt_tokens_details", "cached_tokens"],
+                &["input_tokens_details", "cached_tokens"],
+                &["prompt_cache_hit_tokens"],
+                &["cached_prompt_text_tokens"],
+                &["cached_tokens"],
+            ],
+        )
+    } else {
+        first_finite(
+            usage,
+            &[
+                &["input_tokens_details", "cached_tokens"],
+                &["prompt_tokens_details", "cached_tokens"],
+                &["inputTokensDetails", "cachedTokens"],
+                &["promptTokensDetails", "cachedTokens"],
+            ],
+        )
+    }
+}
+
 fn usage_from(usage: &Value, service_tier: Option<&str>, compat: bool) -> Usage {
     let mut raw = usage.clone();
     if let (Some(tier), Some(map)) = (service_tier, raw.as_object_mut()) {
@@ -237,30 +262,7 @@ fn usage_from(usage: &Value, service_tier: Option<&str>, compat: bool) -> Usage 
     Usage {
         input_tokens: total("input_tokens", "prompt_tokens"),
         output_tokens: total("output_tokens", "completion_tokens"),
-        // The Responses collectors read the first finite figure (`extractCachedTokens`, a reported 0 ends the search); the
-        // compatible collector the first positive one (`extractCompatCachedTokens`), with a top-level `cached_tokens` too.
-        cache_read_tokens: if compat {
-            first_nonzero(
-                usage,
-                &[
-                    &["prompt_tokens_details", "cached_tokens"],
-                    &["input_tokens_details", "cached_tokens"],
-                    &["prompt_cache_hit_tokens"],
-                    &["cached_prompt_text_tokens"],
-                    &["cached_tokens"],
-                ],
-            )
-        } else {
-            first_finite(
-                usage,
-                &[
-                    &["input_tokens_details", "cached_tokens"],
-                    &["prompt_tokens_details", "cached_tokens"],
-                    &["inputTokensDetails", "cachedTokens"],
-                    &["promptTokensDetails", "cachedTokens"],
-                ],
-            )
-        },
+        cache_read_tokens: cache_read_tokens(usage, compat),
         cache_write_tokens: first_finite(
             usage,
             &[
@@ -423,6 +425,32 @@ impl Citations {
             "source": if own_source.is_empty() { fallback_source.to_owned() } else { own_source },
             "provider": if provider.is_empty() { "xai".to_owned() } else { provider },
         }));
+    }
+}
+
+fn compat_search_action_sources(item: &Value, citations: &mut Citations) {
+    let action = item.get("action").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let query = js_text(&action, &["query"]);
+    for source in action.get("sources").and_then(Value::as_array).into_iter().flatten() {
+        citations.compat(source, &query, "web_search_call");
+    }
+    let url = js_text(&action, &["url"]);
+    if !url.is_empty() {
+        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
+    }
+    for url in action.get("urls").and_then(Value::as_array).into_iter().flatten() {
+        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
+    }
+}
+
+fn compat_item_citations(item: &Value, citations: &mut Citations) {
+    for citation in item.get("citations").and_then(Value::as_array).into_iter().flatten() {
+        citations.compat(citation, "", "");
+    }
+    for part in item.get("content").and_then(Value::as_array).into_iter().flatten() {
+        for annotation in part.get("annotations").and_then(Value::as_array).into_iter().flatten() {
+            citations.compat(annotation, "", "annotation");
+        }
     }
 }
 
@@ -1149,13 +1177,8 @@ impl ResponsesDecoder {
     /// (Node `stopReason: null`), `MaxTokens` for `incomplete`; a refusal
     /// overrides either.
     fn finish_turn(&mut self, response: &Value, stop: Option<StopReason>, out: &mut Vec<StreamEvent>) {
-        // The turn is over: nothing is held back any more.
         let tail = self.leak.flush();
         self.relay_leak(tail, true, out);
-        // The compatible collector returns `state.content || responseOutputText(response)`: a turn whose text the
-        // guard suppressed whole is returned with the response's own output text.
-        // A recovered call ran live; the list the turn returns is `dedupeToolCallList` over what was collected, in
-        // occurrence order, the compatible collector's native calls ahead of the recovered ones.
         if self.listed.iter().any(|entry| entry.leaked) {
             let mut listed = std::mem::take(&mut self.listed);
             if self.collector() == Collector::Compat {
@@ -1169,7 +1192,6 @@ impl ResponsesDecoder {
                 out.push(StreamEvent::FinalContent(output_text));
             }
         }
-        // The model that answered (`state.model || useModel`, `response?.model || useModel`): the one the response named.
         if self.model.is_none() {
             self.model = Some(str_of(response, "model").to_owned()).filter(|m| !m.is_empty());
         }
@@ -1178,9 +1200,6 @@ impl ResponsesDecoder {
         }
         self.search_sources(response, out);
         let service_tier = self.reported_tier(response);
-        // The response's own items in arrival order, reasoning included
-        // verbatim (ids, summaries, encrypted content): the one envelope the
-        // next request replays (Node `createProviderReplay(owner, responseItems)`).
         if !self.outcome.output_items.is_empty() {
             out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.replay_owner.clone(), items: Value::Array(self.outcome.output_items.clone()) }));
         }
@@ -1207,8 +1226,6 @@ impl ResponsesDecoder {
             );
             out.push(StreamEvent::ProviderState(with_slot(report.prior.as_ref(), &report.spec, slot)));
         }
-        // The HTTP/SSE collector returns the response's id (`responseId: state.responseId || undefined`,
-        // response-outcome.mjs:87), the first one the stream named.
         if self.collector() == Collector::HttpSse
             && let Some(id) = self.outcome.response_id.clone().or_else(|| Some(str_of(response, "id").to_owned())).filter(|id| !id.is_empty())
         {
@@ -1224,11 +1241,6 @@ impl ResponsesDecoder {
         out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
     }
 
-    /// The search calls and cited sources the turn returns (Node `webSearchCalls`, `citations`). The HTTP/SSE collector
-    /// keeps every `web_search_call` item (`pushWebSearchCall`, response-items.mjs:52-58) and the URL annotations of the
-    /// terminal bundle's messages (`pushOutputTextAnnotations`, text-relay.mjs:19-31); the compatible one reads both
-    /// from the final response (`collectCompatResponseSearchSources`, openai-compat-wire.mjs:333-381). The WebSocket
-    /// collector returns neither. A search call is reported as a `ServerToolBlock` of type `web_search_call`.
     fn search_sources(&self, response: &Value, out: &mut Vec<StreamEvent>) {
         let collector = self.collector();
         if collector == Collector::WebSocket {
@@ -1252,32 +1264,13 @@ impl ResponsesDecoder {
                     "action": item.get("action").filter(|a| !a.is_null()).cloned().unwrap_or(Value::Null),
                 })));
                 if collector == Collector::Compat {
-                    let action = item.get("action").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({}));
-                    let query = js_text(&action, &["query"]);
-                    for source in action.get("sources").and_then(Value::as_array).into_iter().flatten() {
-                        citations.compat(source, &query, "web_search_call");
-                    }
-                    let url = js_text(&action, &["url"]);
-                    if !url.is_empty() {
-                        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
-                    }
-                    for url in action.get("urls").and_then(Value::as_array).into_iter().flatten() {
-                        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
-                    }
+                    compat_search_action_sources(item, &mut citations);
                 }
             }
             if collector == Collector::Compat {
-                for citation in item.get("citations").and_then(Value::as_array).into_iter().flatten() {
-                    citations.compat(citation, "", "");
-                }
-                for part in item.get("content").and_then(Value::as_array).into_iter().flatten() {
-                    for annotation in part.get("annotations").and_then(Value::as_array).into_iter().flatten() {
-                        citations.compat(annotation, "", "annotation");
-                    }
-                }
+                compat_item_citations(item, &mut citations);
             }
         }
-        // `absorbCompletedMessage`: the terminal bundle's messages only.
         if collector == Collector::HttpSse {
             for item in bundle.iter().filter(|item| str_of(item, "type") == "message") {
                 for part in item.get("content").and_then(Value::as_array).into_iter().flatten() {

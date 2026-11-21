@@ -685,8 +685,6 @@ pub fn resolve_cell_styles(styles_xml: &str) -> Vec<Value> {
             if !xf.vertical.is_empty() {
                 style.insert("verticalAlignment".to_owned(), Value::from(xf.vertical.as_str()));
             }
-            // A wrapped cell grows down, never across: the fit audit skips it by this flag, and without it every wrapped
-            // description in an issue log was reported as a label cut at its column edge.
             if xf.wrap_text {
                 style.insert("wrapText".to_owned(), json!(true));
             }

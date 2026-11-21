@@ -1,13 +1,3 @@
-//! The host of the hosted web search (`createNativeWebSearch`'s `deps` of `session-runtime/boot/
-//! providers.mjs:201-222`) over the daemon's resident services.
-//!
-//! Node builds `getRoute` / `getSession` per runtime (`rt.route`, `rt.session`), and a web search
-//! reads the asking runtime's (`runtime-tool-routing.mjs`'s `runNativeWebSearch`). A daemon hosts
-//! every conversation, so the asking call's thread picks the route cell and the session. What Node
-//! reads from its registry and provider caches is read from the same places as the model list and
-//! the web-search rows (`web_search_models`): a provider's cached model info is its listing of the
-//! model in the catalog snapshot, and `getModelMetadataSync` is the catalog's merged metadata.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

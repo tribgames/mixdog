@@ -198,31 +198,57 @@ fn lenient_decision(result: &Value) -> ToolApprovalDecision {
 /// card did not offer (or any scope of a refusal) is `once`, and a permission or connector scope
 /// only when it was one of the choices. Any other request keeps the decision, without a scope it
 /// did not offer. A decision is never refused for what it chose: Node drops it.
+fn card_field<'a>(ask: &'a ApprovalAsk, key: &str) -> Option<&'a Value> {
+    ask.payload.as_object()?.get(key)
+}
+
+fn editable_edits(ask: &ApprovalAsk, decision: &ToolApprovalDecision) -> std::collections::BTreeMap<String, String> {
+    let editable = card_field(ask, "outbound").and_then(|outbound| outbound.get("editable")).and_then(Value::as_array);
+    editable
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|name| {
+            let text = decision.edited_args.as_ref()?.get(name)?;
+            Some((name.to_owned(), mixdog_js::slice_utf16(text, PAYLOAD_LIMIT)))
+        })
+        .collect()
+}
+
+fn scope_choices<'a>(ask: &'a ApprovalAsk, kind: &str) -> Vec<&'a str> {
+    match kind {
+        "permission" => card_field(ask, "permission")
+            .and_then(|permission| permission.get("scopes"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|scope| scope.get("id").and_then(Value::as_str))
+            .collect(),
+        "connector" => card_field(ask, "connector")
+            .and_then(|connector| connector.get("choices"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn normalize_decision(ask: &ApprovalAsk, mut decision: ToolApprovalDecision) -> ToolApprovalDecision {
-    let payload = ask.payload.as_object();
-    let field = |key: &str| payload.and_then(|fields| fields.get(key));
     let polarity = decision.approved;
-    let Some(offered) = field("remember").and_then(Value::as_array) else {
+    let Some(offered) = card_field(ask, "remember").and_then(Value::as_array) else {
         decision.remember = decision.remember.filter(|scope| polarity && (*scope == ApprovalRemember::Once || ask.remember.contains(scope)));
         return decision;
     };
-    let kind = field("kind").and_then(Value::as_str).filter(|kind| HUMAN_REQUEST_KINDS.contains(kind)).unwrap_or("approval");
+    let kind = card_field(ask, "kind").and_then(Value::as_str).filter(|kind| HUMAN_REQUEST_KINDS.contains(kind)).unwrap_or("approval");
     let allowed = responses_of(kind);
     let fallback = if polarity { allowed[0] } else { allowed[allowed.len() - 1] };
     let asked = decision.response.filter(|response| allowed.contains(response));
     let mut response = asked.filter(|asked| grants(*asked) == polarity).unwrap_or(fallback);
     let mut edited = None;
     if response == HumanGateResponse::EditAndApprove {
-        let editable = field("outbound").and_then(|outbound| outbound.get("editable")).and_then(Value::as_array);
-        let edits: std::collections::BTreeMap<String, String> = editable
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .filter_map(|name| {
-                let text = decision.edited_args.as_ref()?.get(name)?;
-                Some((name.to_owned(), mixdog_js::slice_utf16(text, PAYLOAD_LIMIT)))
-            })
-            .collect();
+        let edits = editable_edits(ask, &decision);
         if edits.is_empty() {
             response = HumanGateResponse::Approve;
         } else {
@@ -233,23 +259,7 @@ fn normalize_decision(ask: &ApprovalAsk, mut decision: ToolApprovalDecision) -> 
     decision.edited_args = edited;
     let listed = |scope: ApprovalRemember| offered.iter().any(|name| name.as_str() == Some(remember_name(scope)));
     decision.remember = Some(decision.remember.filter(|scope| polarity && listed(*scope)).unwrap_or(ApprovalRemember::Once));
-    let choices: Vec<&str> = match kind {
-        "permission" => field("permission")
-            .and_then(|permission| permission.get("scopes"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|scope| scope.get("id").and_then(Value::as_str))
-            .collect(),
-        "connector" => field("connector")
-            .and_then(|connector| connector.get("choices"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect(),
-        _ => Vec::new(),
-    };
+    let choices = scope_choices(ask, kind);
     decision.scope = decision.scope.filter(|scope| polarity && choices.contains(&scope.as_str()));
     decision
 }
@@ -405,6 +415,42 @@ mod tests {
             json!({"approved": true, "response": "approve", "remember": "once"})
         );
         assert_eq!(decided(json!(true))["approved"], json!(true));
+    }
+
+    fn decided_on(payload: Value, answer: Value) -> Value {
+        let thread = ThreadId::from("t");
+        let mut book = ApprovalBook::default();
+        let aid = ApprovalId(1);
+        let mut card = ask(vec![]);
+        card.payload = payload;
+        book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 1000), TurnId::from("r"), None);
+        let accepted = book.validate(&aid.request_id(), &answer, device(), 1, Origin::Local).unwrap().expect("never refused");
+        let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
+        serde_json::to_value(decision).unwrap()
+    }
+
+    #[test]
+    fn an_edit_and_approve_keeps_only_the_cards_editable_fields_and_falls_back_to_approve_without_any() {
+        let card = json!({"kind": "outbound", "remember": ["once"], "outbound": {"editable": ["body", "subject"]}});
+        assert_eq!(
+            decided_on(card.clone(), json!({"approved": true, "response": "edit-and-approve", "editedArgs": {"body": "hi", "other": "x"}})),
+            json!({"approved": true, "response": "edit-and-approve", "editedArgs": {"body": "hi"}, "remember": "once"})
+        );
+        assert_eq!(
+            decided_on(card, json!({"approved": true, "response": "edit-and-approve", "editedArgs": {"other": "x"}})),
+            json!({"approved": true, "response": "approve", "remember": "once"})
+        );
+    }
+
+    #[test]
+    fn a_permission_or_connector_scope_survives_only_when_offered_and_approved() {
+        let permission = json!({"kind": "permission", "remember": ["once"], "permission": {"scopes": [{"id": "project"}, {"id": "user"}]}});
+        assert_eq!(decided_on(permission.clone(), json!({"approved": true, "scope": "project"}))["scope"], json!("project"));
+        assert_eq!(decided_on(permission.clone(), json!({"approved": true, "scope": "global"})).get("scope"), None);
+        assert_eq!(decided_on(permission, json!({"approved": false, "scope": "project"})).get("scope"), None);
+        let connector = json!({"kind": "connector", "remember": ["once"], "connector": {"choices": ["work"]}});
+        assert_eq!(decided_on(connector.clone(), json!({"approved": true, "scope": "work"}))["scope"], json!("work"));
+        assert_eq!(decided_on(connector, json!({"approved": true, "scope": "home"})).get("scope"), None);
     }
 
     /// A close or abort answers the waiting run `interrupted` at once; the durable record

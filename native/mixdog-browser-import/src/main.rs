@@ -111,11 +111,6 @@ async fn main() {
     }
 }
 
-/// Cheap structural checks only: non-empty, bounded, and exactly one normal
-/// path component. Whether the id really names a directory directly inside
-/// `User Data` is decided by canonicalization in
-/// [`cookies::resolve_profile_dir`], which also covers `..`, drive tricks and
-/// junctions.
 fn valid_profile_id(value: &str) -> bool {
     let mut components = Path::new(value).components();
     !value.is_empty() && value.len() <= MAX_PROFILE_ID_LEN && matches!(components.next(), Some(std::path::Component::Normal(_))) && components.next().is_none()

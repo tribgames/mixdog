@@ -1,20 +1,8 @@
-//! "Commit the selected files", assembled in a scratch index instead of the user's. The commit
-//! is built from HEAD plus the work-tree content of the selected paths in a throwaway index
-//! file outside the repository (`GIT_INDEX_FILE`), and the only write to the user's index
-//! happens after the commit object exists and the branch has moved. In order:
-//!
-//! 1. resolve the selection against status, the index and the repository's own path list;
-//! 2. `read-tree HEAD` and `add --all --force -- <selection>` into the scratch index;
-//! 3. `pre-commit`, then the message hooks through `COMMIT_EDITMSG`, then message cleanup;
-//! 4. `write-tree`, refuse a tree that carries paths outside the selection;
-//! 5. `commit-tree`, then `update-ref HEAD <new> <old>` (compare-and-swap);
-//! 6. `post-commit`, then `reset -- <paths>` on the user's index for the committed paths that
-//!    still are what the commit was built from.
-//!
-//! Everything before step 5's `update-ref` touches only the scratch index and the object
-//! database, so an interrupted run leaves the index, HEAD and every ref as they were: there is
-//! nothing to journal. The index itself is only ever written by git (`reset`, under git's own
-//! `index.lock`), never by this code.
+//! "Commit the selected files", assembled in a scratch index instead of the user's: the commit is built from HEAD plus the
+//! work-tree content of the selected paths in a throwaway index file outside the repository (`GIT_INDEX_FILE`), and the only write
+//! to the user's index happens after the commit object exists and the branch has moved, by git itself (`reset`, under git's own
+//! `index.lock`). Everything before `update-ref HEAD <new> <old>` (compare-and-swap) touches only the scratch index and the object
+//! database, so an interrupted run leaves the index, HEAD and every ref as they were.
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "every blocking std::fs call in this module is the body of a lane job")]
 
@@ -338,39 +326,8 @@ impl Repo {
             let entry = entries.get(matched.as_str()).copied();
             selected.push((matched, entry));
         }
-        if !unknown.is_empty() {
-            return Err(not_in_repository(&unknown));
-        }
-        if !ambiguous.is_empty() {
-            return Err(ScmFailure::refused(
-                "PATH_AMBIGUOUS",
-                format!("More than one file matches {}. Select it again from Source Control.", listed(&ambiguous)),
-            ));
-        }
-        let conflicted: Vec<String> = selected.iter().filter_map(|(_, entry)| entry.filter(|e| e.conflicted).map(|e| e.path.clone())).collect();
-        if !conflicted.is_empty() {
-            return Err(ScmFailure::refused("PATH_CONFLICTED", format!("Resolve the conflict in {} before committing it.", listed(&conflicted))));
-        }
-        if !status.operation.is_empty() {
-            return Err(ScmFailure::refused(
-                "OPERATION_IN_PROGRESS",
-                format!("A {} is in progress. Continue or abort it before committing files.", status.operation),
-            ));
-        }
-        let mut specs: Vec<String> = Vec::new();
-        for (path, entry) in selected {
-            let primary = entry.map_or(path, |e| e.path.clone());
-            if !specs.contains(&primary) {
-                specs.push(primary);
-            }
-            // A rename is one change: both halves, whichever form was passed.
-            if let Some(old) = entry.and_then(|e| e.old_path.clone())
-                && !specs.contains(&old)
-            {
-                specs.push(old);
-            }
-        }
-        Ok(specs)
+        refuse_selection(&unknown, &ambiguous, &selected, &status.operation)?;
+        Ok(selection_specs(selected))
     }
 
     async fn hook(&self, index_file: &Path, enabled: bool, name: &str, args: &[&str], advisory: bool) -> Result<(), ScmFailure> {
@@ -469,38 +426,18 @@ impl Repo {
         self.scm.git.text(&self.cancel, self.root()?, args, &options).await
     }
 
+    async fn head_commit(&self, root: &Path) -> Result<Option<String>, ScmFailure> {
+        let found = self.scm.git.outcome(&self.cancel, root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
+        Ok(found.success().then(|| found.stdout_text().trim().to_owned()))
+    }
+
     async fn commit_through_scratch_index(&self, message: &str, specs: &[String], addable: &[String]) -> Result<String, ScmFailure> {
         let root = self.root()?.to_path_buf();
         let git_dir = self.identity.git_dir.clone();
         // Config git validates before it runs anything is validated first too: an unusable
         // `commit.cleanup` must not cost a hook run.
         let cleanup = self.cleanup_mode().await?;
-        // Before a hook runs and before HEAD moves: a lock found only at the refresh would
-        // leave a commit on the branch whose repair could not run.
-        let lock = git_dir.join("index.lock");
-        match std::fs::symlink_metadata(&lock) {
-            Ok(_) => {
-                return Err(ScmFailure::refused(
-                    "INDEX_LOCK_HELD",
-                    format!(
-                        "Another Git process is using this repository, or an earlier one was interrupted: \"{}\" already exists. Nothing was committed — wait for that process to finish, or, if no Git process is running, delete \"{}\" and commit again.",
-                        lock.display(),
-                        lock.display()
-                    ),
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(ScmFailure::refused(
-                    "INDEX_LOCK_UNKNOWN",
-                    format!(
-                        "Git's index lock \"{}\" could not be checked, so another Git process using this repository cannot be ruled out: {error}. Nothing was committed — restore access to that file, then commit again.",
-                        lock.display()
-                    ),
-                ));
-            }
-        }
-        // Hooks decide this commit, so their availability is settled before anything is built.
+        ensure_no_index_lock(&git_dir)?;
         let hooks = self.hook_runner_available().await?;
         let present = self.present_hooks().await?;
         if !hooks && !present.is_empty() {
@@ -512,10 +449,7 @@ impl Repo {
         // Only a repository that defines a hook running before the commit is watched for index
         // writes; without one, an entry that changes meanwhile belongs to somebody else.
         let watched = hooks && present.iter().any(|name| *name != "post-commit");
-        let head = {
-            let found = self.scm.git.outcome(&self.cancel, &root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
-            found.success().then(|| found.stdout_text().trim().to_owned())
-        };
+        let head = self.head_commit(&root).await?;
         let prefixes: Vec<String> = specs.iter().map(|spec| comparable(spec)).collect();
         let index_before = self.index_snapshot().await?;
         // A killed commit never ran its cleanup: every commit sweeps the dead processes' leftovers.
@@ -540,25 +474,9 @@ impl Repo {
         self.hook(&index_file, hooks, "pre-commit", &[], false).await?;
         let edited = self.message_through_hooks(&index_file, hooks, message).await?;
         let cleaned = self.clean_message(&cleanup, &edited).await?;
-        // indexAfterHooks is read whether or not the repository is watched; only the comparison depends on it.
         let after = self.index_snapshot().await?;
         if watched {
-            let touched: Vec<String> = after
-                .iter()
-                .filter(|(path, entry)| index_before.get(*path) != Some(entry))
-                .map(|(path, _)| path.clone())
-                .chain(index_before.keys().filter(|path| !after.contains_key(*path)).cloned())
-                .collect();
-            let strays = outside(&prefixes, touched);
-            if !strays.is_empty() {
-                return Err(ScmFailure::refused(
-                    "HOOK_TOUCHED_INDEX",
-                    format!(
-                        "A commit hook changed the staged entry for {}, which was not selected. Nothing was committed; review the index before retrying.",
-                        listed(&strays)
-                    ),
-                ));
-            }
+            refuse_hook_index_writes(&prefixes, &index_before, &after)?;
         }
         if cleaned.trim().is_empty() {
             return Err(ScmFailure::invalid("message", "a commit message"));
@@ -596,9 +514,7 @@ impl Repo {
         // of being overwritten, and the empty value demands that an unborn branch still be.
         let old = head.clone().unwrap_or_default();
         if let Err(failure) = git.text(&self.cancel, &root, &["update-ref", "-m", &reflog, "HEAD", &commit, &old], &RunOptions::default()).await {
-            let now = git.outcome(&self.cancel, &root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
-            let current = now.success().then(|| now.stdout_text().trim().to_owned());
-            if current != head {
+            if self.head_commit(&root).await? != head {
                 return Err(ScmFailure::refused(
                     "REF_MOVED",
                     "Another commit landed on this branch while this one was being prepared. Nothing was committed — refresh Source Control and commit again.",
@@ -647,26 +563,34 @@ impl Repo {
         Ok(nul_records(&raw).map(str::to_owned).collect())
     }
 
-    /// Moves the user's index entries of the committed paths to the new commit (refreshCommittedPaths,
-    /// git-commit-transaction.ts:1010): `index.lock` is created exclusively and held from the comparison to the publication, so a
-    /// stage another process makes in between is never read and overwritten. A path is refreshed only while its entry still is
-    /// what the commit was built from: anything staged underneath meanwhile is left alone and reported. The refresh is made on a
-    /// copy of the index, and the copy's bytes are written into the lock and renamed onto the index.
+    async fn reset_copy_of_index(&self, commit: &str, refreshable: &[&String], index_path: &Path, staging: &Path) -> Result<Vec<u8>, String> {
+        let (from, to) = (index_path.to_path_buf(), staging.to_path_buf());
+        on_lane(self.scm.lane, &self.cancel, move || match std::fs::copy(&from, &to) {
+            // A repository with no index file yet starts from an empty one.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            other => other,
+        })
+        .await
+        .map_err(|failure| failure.to_string())?
+        .map_err(|error| error.to_string())?;
+        let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
+        let mut args = vec!["reset", "--quiet", commit, "--"];
+        args.extend(specs.iter().map(String::as_str));
+        let options = RunOptions { index_file: Some(staging.to_path_buf()), ..RunOptions::default() };
+        self.scm.git.text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options).await.map_err(|failure| failure.to_string())?;
+        #[cfg(test)]
+        commit_gate::between_read_and_replace(&self.identity.git_dir).await;
+        let read = staging.to_path_buf();
+        on_lane(self.scm.lane, &self.cancel, move || std::fs::read(read)).await.map_err(|failure| failure.to_string())?.map_err(|error| error.to_string())
+    }
+
+    /// Moves the user's index entries of the committed paths to the new commit: `index.lock` is created exclusively and held
+    /// from the comparison to the publication, so a stage another process makes in between is never read and overwritten. A path
+    /// is refreshed only while its entry still is what the commit was built from: anything staged underneath meanwhile is left
+    /// alone and reported.
     async fn refresh_committed_paths(&self, commit: &str, changed: &[String], built_from: &HashMap<String, String>, scratch: &Path) -> Result<(), ScmFailure> {
         let short = &commit[..commit.len().min(7)];
-        let refresh_failure = |paths: &[&String], detail: String| {
-            let listed: Vec<String> = paths.iter().take(10).map(|p| (*p).clone()).collect();
-            let recovery: Vec<String> = listed.iter().map(|p| format!("\"{}\"", literal(p))).collect();
-            ScmFailure::refused(
-                "INDEX_REFRESH_FAILED",
-                format!(
-                    "Commit {short} was created, but the index entries for {} could not be refreshed: {detail}. Run \"git reset {short} -- {}\" to finish it{}",
-                    listed.join(", "),
-                    recovery.join(" "),
-                    if paths.len() > 10 { ", then the remaining paths the same way." } else { "." }
-                ),
-            )
-        };
+        let refresh_failure = |paths: &[&String], detail: String| index_refresh_failure(short, paths, detail);
         let everything: Vec<&String> = changed.iter().collect();
         let index_path = self.identity.git_dir.join("index");
         let lock_path = self.identity.git_dir.join("index.lock");
@@ -699,36 +623,7 @@ impl Repo {
             if refreshable.is_empty() {
                 return Ok(moved);
             }
-            let staging = scratch.join("refresh.index");
-            let (from, to) = (index_path.clone(), staging.clone());
-            let refreshed: Result<Vec<u8>, String> = async {
-                on_lane(self.scm.lane, &self.cancel, move || match std::fs::copy(&from, &to) {
-                    // A repository with no index file yet simply starts from an empty one.
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
-                    other => other,
-                })
-                .await
-                .map_err(|failure| failure.to_string())?
-                .map_err(|error| error.to_string())?;
-                let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
-                let mut args = vec!["reset", "--quiet", commit, "--"];
-                args.extend(specs.iter().map(String::as_str));
-                let options = RunOptions { index_file: Some(staging.clone()), ..RunOptions::default() };
-                self.scm
-                    .git
-                    .text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options)
-                    .await
-                    .map_err(|failure| failure.to_string())?;
-                // Node's commitRefreshProbe.betweenReadAndReplace (git-commit-transaction.ts): the window in which the lock is held.
-                #[cfg(test)]
-                commit_gate::between_read_and_replace(&self.identity.git_dir).await;
-                let read = staging.clone();
-                on_lane(self.scm.lane, &self.cancel, move || std::fs::read(read))
-                    .await
-                    .map_err(|failure| failure.to_string())?
-                    .map_err(|error| error.to_string())
-            }
-            .await;
+            let refreshed = self.reset_copy_of_index(commit, &refreshable, &index_path, &scratch.join("refresh.index")).await;
             let updated = refreshed.map_err(|detail| refresh_failure(&refreshable, detail))?;
             // Every byte on disk and verified before anything is published.
             let (mut file, target) = (lock.take().expect("the lock is held"), index_path.clone());
@@ -764,6 +659,95 @@ impl Repo {
         }
         Ok(())
     }
+}
+
+fn index_refresh_failure(short: &str, paths: &[&String], detail: String) -> ScmFailure {
+    let listed: Vec<String> = paths.iter().take(10).map(|p| (*p).clone()).collect();
+    let recovery: Vec<String> = listed.iter().map(|p| format!("\"{}\"", literal(p))).collect();
+    ScmFailure::refused(
+        "INDEX_REFRESH_FAILED",
+        format!(
+            "Commit {short} was created, but the index entries for {} could not be refreshed: {detail}. Run \"git reset {short} -- {}\" to finish it{}",
+            listed.join(", "),
+            recovery.join(" "),
+            if paths.len() > 10 { ", then the remaining paths the same way." } else { "." }
+        ),
+    )
+}
+
+fn refuse_selection(unknown: &[String], ambiguous: &[String], selected: &[(String, Option<&GitFileEntry>)], operation: &str) -> Result<(), ScmFailure> {
+    if !unknown.is_empty() {
+        return Err(not_in_repository(unknown));
+    }
+    if !ambiguous.is_empty() {
+        return Err(ScmFailure::refused("PATH_AMBIGUOUS", format!("More than one file matches {}. Select it again from Source Control.", listed(ambiguous))));
+    }
+    let conflicted: Vec<String> = selected.iter().filter_map(|(_, entry)| entry.filter(|e| e.conflicted).map(|e| e.path.clone())).collect();
+    if !conflicted.is_empty() {
+        return Err(ScmFailure::refused("PATH_CONFLICTED", format!("Resolve the conflict in {} before committing it.", listed(&conflicted))));
+    }
+    if !operation.is_empty() {
+        return Err(ScmFailure::refused("OPERATION_IN_PROGRESS", format!("A {operation} is in progress. Continue or abort it before committing files.")));
+    }
+    Ok(())
+}
+
+fn selection_specs(selected: Vec<(String, Option<&GitFileEntry>)>) -> Vec<String> {
+    let mut specs: Vec<String> = Vec::new();
+    for (path, entry) in selected {
+        let primary = entry.map_or(path, |e| e.path.clone());
+        if !specs.contains(&primary) {
+            specs.push(primary);
+        }
+        if let Some(old) = entry.and_then(|e| e.old_path.clone())
+            && !specs.contains(&old)
+        {
+            specs.push(old);
+        }
+    }
+    specs
+}
+
+fn ensure_no_index_lock(git_dir: &Path) -> Result<(), ScmFailure> {
+    let lock = git_dir.join("index.lock");
+    match std::fs::symlink_metadata(&lock) {
+        Ok(_) => Err(ScmFailure::refused(
+            "INDEX_LOCK_HELD",
+            format!(
+                "Another Git process is using this repository, or an earlier one was interrupted: \"{}\" already exists. Nothing was committed — wait for that process to finish, or, if no Git process is running, delete \"{}\" and commit again.",
+                lock.display(),
+                lock.display()
+            ),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ScmFailure::refused(
+            "INDEX_LOCK_UNKNOWN",
+            format!(
+                "Git's index lock \"{}\" could not be checked, so another Git process using this repository cannot be ruled out: {error}. Nothing was committed — restore access to that file, then commit again.",
+                lock.display()
+            ),
+        )),
+    }
+}
+
+fn refuse_hook_index_writes(prefixes: &[String], before: &HashMap<String, String>, after: &HashMap<String, String>) -> Result<(), ScmFailure> {
+    let touched: Vec<String> = after
+        .iter()
+        .filter(|(path, entry)| before.get(*path) != Some(entry))
+        .map(|(path, _)| path.clone())
+        .chain(before.keys().filter(|path| !after.contains_key(*path)).cloned())
+        .collect();
+    let strays = outside(prefixes, touched);
+    if strays.is_empty() {
+        return Ok(());
+    }
+    Err(ScmFailure::refused(
+        "HOOK_TOUCHED_INDEX",
+        format!(
+            "A commit hook changed the staged entry for {}, which was not selected. Nothing was committed; review the index before retrying.",
+            listed(&strays)
+        ),
+    ))
 }
 
 impl Scratch {

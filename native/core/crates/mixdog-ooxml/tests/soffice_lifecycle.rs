@@ -1,10 +1,4 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "fixtures are read and written directly and the fake program is a process of its own")]
-//! `portable-soffice-lifecycle.test.mjs` and `portable-soffice-stderr.test.mjs` against `mixdog_ooxml::soffice::run`: a run that is
-//! cancelled or out of time is reported only after its process has exited (and, on Windows, the processes it started with it), a
-//! failed run reports a bounded slice of stderr, and the exit of the program is told as Node tells it.
-//!
-//! The fake LibreOffice is this test program itself: the `fake_*` tests below do nothing unless the run's environment names a job,
-//! and the test starts the program with `--exact fake_...` so it does that job (they are ignored, so a plain run skips them).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

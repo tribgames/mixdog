@@ -1,13 +1,4 @@
 //! One OCR engine per language set and cache, shared by the callers that use it at once (`pdf/ocr-engine.mjs`).
-//!
-//! Starting the engine includes the first-use download of the recognition program and of each language's data, so the
-//! start is a task of its own: ending it (a stalled start, a cancelled call, the last caller letting go) drops the future
-//! that holds the downloads and the program, which closes them. Callers that arrive while it starts share that start; the
-//! engine ends when the last caller releases it, and every page it still owes then fails with the reason it ended.
-//!
-//! The engine itself is a [`EngineProcess`] that a [`EngineStarter`] makes. The real one ([`ManagedTesseract`]) runs the
-//! managed Tesseract program once per page, one page at a time, and kills it when the page is cancelled or the engine
-//! ends; a test gives the registry a starter of its own.
 
 use std::collections::HashMap;
 use std::future::Future;

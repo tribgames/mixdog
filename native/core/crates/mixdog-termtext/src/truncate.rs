@@ -131,52 +131,60 @@ pub fn truncate_with(text: &str, columns: usize, options: TruncateOptions<'_>) -
     if columns == 1 {
         return options.truncation_character.to_owned();
     }
-    let mut ellipsis = options.truncation_character.to_owned();
-    let (length_i, columns_i) = (signed(length), signed(columns));
+    let ellipsis = options.truncation_character.to_owned();
     match options.position {
-        TruncatePosition::Start => {
-            if options.prefer_truncation_on_space {
-                let nearest = index_of_nearest_space(text, length_i - columns_i + 1, true);
-                let right = slice_ansi(text, offset(nearest), Some(length));
-                return prepend_with_inherited_style_from_start(&ellipsis, js_trim_end(js_trim_start(&right)));
-            }
-            if options.space {
-                ellipsis.push(' ');
-            }
-            let right = slice_ansi(text, offset(length_i - columns_i + signed(width(&ellipsis))), Some(length));
-            prepend_with_inherited_style_from_start(&ellipsis, &right)
-        }
-        TruncatePosition::Middle => {
-            if options.space {
-                ellipsis = format!(" {ellipsis} ");
-            }
-            let half = columns / 2;
-            let half_i = signed(half);
-            if options.prefer_truncation_on_space {
-                let first = index_of_nearest_space(text, half_i, false);
-                let second = index_of_nearest_space(text, length_i - (columns_i - half_i) + 1, true);
-                let tail = slice_ansi(text, offset(second), Some(length));
-                return format!("{}{ellipsis}{}", slice_ansi(text, 0, Some(offset(first))), js_trim_end(js_trim_start(&tail)));
-            }
-            format!(
-                "{}{ellipsis}{}",
-                slice_ansi(text, 0, Some(half)),
-                slice_ansi(text, offset(length_i - (columns_i - half_i) + signed(width(&ellipsis))), Some(length))
-            )
-        }
-        TruncatePosition::End => {
-            if options.prefer_truncation_on_space {
-                let nearest = index_of_nearest_space(text, columns_i - 1, false);
-                let left = slice_ansi(text, 0, Some(offset(nearest)));
-                return append_with_inherited_style_from_end(&left, &ellipsis);
-            }
-            if options.space {
-                ellipsis = format!(" {ellipsis}");
-            }
-            let left = slice_ansi(text, 0, Some(offset(columns_i - signed(width(&ellipsis)))));
-            append_with_inherited_style_from_end(&left, &ellipsis)
-        }
+        TruncatePosition::Start => truncate_start(text, columns, length, ellipsis, &options),
+        TruncatePosition::Middle => truncate_middle(text, columns, length, ellipsis, &options),
+        TruncatePosition::End => truncate_end(text, columns, ellipsis, &options),
     }
+}
+
+fn truncate_start(text: &str, columns: usize, length: usize, mut ellipsis: String, options: &TruncateOptions<'_>) -> String {
+    let (length_i, columns_i) = (signed(length), signed(columns));
+    if options.prefer_truncation_on_space {
+        let nearest = index_of_nearest_space(text, length_i - columns_i + 1, true);
+        let right = slice_ansi(text, offset(nearest), Some(length));
+        return prepend_with_inherited_style_from_start(&ellipsis, js_trim_end(js_trim_start(&right)));
+    }
+    if options.space {
+        ellipsis.push(' ');
+    }
+    let right = slice_ansi(text, offset(length_i - columns_i + signed(width(&ellipsis))), Some(length));
+    prepend_with_inherited_style_from_start(&ellipsis, &right)
+}
+
+fn truncate_middle(text: &str, columns: usize, length: usize, mut ellipsis: String, options: &TruncateOptions<'_>) -> String {
+    let (length_i, columns_i) = (signed(length), signed(columns));
+    if options.space {
+        ellipsis = format!(" {ellipsis} ");
+    }
+    let half = columns / 2;
+    let half_i = signed(half);
+    if options.prefer_truncation_on_space {
+        let first = index_of_nearest_space(text, half_i, false);
+        let second = index_of_nearest_space(text, length_i - (columns_i - half_i) + 1, true);
+        let tail = slice_ansi(text, offset(second), Some(length));
+        return format!("{}{ellipsis}{}", slice_ansi(text, 0, Some(offset(first))), js_trim_end(js_trim_start(&tail)));
+    }
+    format!(
+        "{}{ellipsis}{}",
+        slice_ansi(text, 0, Some(half)),
+        slice_ansi(text, offset(length_i - (columns_i - half_i) + signed(width(&ellipsis))), Some(length))
+    )
+}
+
+fn truncate_end(text: &str, columns: usize, mut ellipsis: String, options: &TruncateOptions<'_>) -> String {
+    let columns_i = signed(columns);
+    if options.prefer_truncation_on_space {
+        let nearest = index_of_nearest_space(text, columns_i - 1, false);
+        let left = slice_ansi(text, 0, Some(offset(nearest)));
+        return append_with_inherited_style_from_end(&left, &ellipsis);
+    }
+    if options.space {
+        ellipsis = format!(" {ellipsis}");
+    }
+    let left = slice_ansi(text, 0, Some(offset(columns_i - signed(width(&ellipsis)))));
+    append_with_inherited_style_from_end(&left, &ellipsis)
 }
 
 /// `cliTruncate(text, columns, { position })`: the ellipsis is U+2026.

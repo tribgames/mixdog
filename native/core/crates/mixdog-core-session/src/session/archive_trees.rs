@@ -1,18 +1,3 @@
-//! Archives of a session together with its sub-agent sessions, through the one archive authority
-//! ([`mixdog_store::archive_state`]): Node's `setSessionArchived` changed the parent and its descendants in one operation of its
-//! archive map, persisted by one atomic file replacement (`desktop-session-metadata.ts:133`, `session-metadata-file.ts:150`). Here a
-//! tree is one transaction of the authority: a crash leaves it wholly archived or untouched, and no member is ever marked first and
-//! taken back after.
-//!
-//! The user's own archive and restore ([`ArchiveTrees::set_manual`]) are always admitted. The session auto-retention's archive is
-//! prepared first ([`ArchiveTrees::prepare`]): the exact tree is read from the parent/owner adjacency of the agent-only sessions, every
-//! member is held by its own actor (a [`Reserved`] member: the idle deadline leaves it loaded, and every attach and every step that
-//! moved what the archive judged moves its [`RetentionMark`]), and the caller judges the session again with the tree held. The
-//! commit ([`ArchiveTrees::commit`]) is admitted on the state writer, after its queue and lock waits, only while every hold is
-//! unmoved, no member's entry changed, no create could have joined the tree, no quota resume waits on a member, and the [`Admit`]
-//! (the sweep's stop, its cancellation, the policy it judged under) still holds; the entries of every member and the op record of
-//! the outcome are then one transaction. Nothing a foreground operation does waits for a preparation or is refused by one.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;

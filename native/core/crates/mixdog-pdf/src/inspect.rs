@@ -394,6 +394,22 @@ fn page_text(document: &Document, fonts: &FontLoader, number: u64, watch: &Watch
     Ok(content_text(&content))
 }
 
+/// `end` moved forward to a char boundary of `text`: up to three bytes past the cut keep the complete scalar there.
+fn char_boundary_from(text: &str, mut end: usize) -> usize {
+    while !text.is_char_boundary(end) {
+        end += 1;
+    }
+    end
+}
+
+/// The page heading and the page's text cut to `remaining` bytes of the output budget, without copying the whole page.
+fn page_chunk(body: &str, page: u64, remaining: f64) -> Bounded {
+    let head = format!("--- Page {page} ---\n");
+    let text = if body.is_empty() { "(no extractable text on this page)" } else { body };
+    let end = char_boundary_from(text, (remaining as usize).min(text.len()));
+    bounded_utf8(&(head + &text[..end]), remaining)
+}
+
 fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch: &Watch, bound_page_text: bool) -> Result<Inspection, InspectError> {
     let count = page_count as f64;
     let (range_from, range_to) = options.page_range.map_or((f64::NAN, f64::NAN), |range| (range.from, range.to));
@@ -417,24 +433,9 @@ fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch
         let has_text_layer = page_has_text_layer(&body);
         let separator_bytes = if chunks.is_empty() { 0 } else { 2 };
         let remaining = byte_limit - bytes as f64 - separator_bytes as f64;
-        let bounded = if remaining > 0.0 {
-            let head = format!("--- Page {page} ---\n");
-            let text = if body.is_empty() { "(no extractable text on this page)" } else { &body };
-            // Up to three more bytes retain the complete scalar at the cut, without copying the whole page.
-            let mut end = (remaining as usize).min(text.len());
-            while !text.is_char_boundary(end) {
-                end += 1;
-            }
-            Some(bounded_utf8(&(head + &text[..end]), remaining))
-        } else {
-            None
-        };
+        let bounded = (remaining > 0.0).then(|| page_chunk(&body, page, remaining));
         if bound_page_text {
-            // Keep one whole scalar beyond the display budget so the tool can still report a cut.
-            let mut end = (byte_limit as usize).saturating_add(1).min(body.len());
-            while !body.is_char_boundary(end) {
-                end += 1;
-            }
+            let end = char_boundary_from(&body, (byte_limit as usize).saturating_add(1).min(body.len()));
             if end < body.len() {
                 body = body[..end].to_owned();
             }

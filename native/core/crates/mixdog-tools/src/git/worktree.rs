@@ -553,39 +553,7 @@ async fn list_rows(env: &Env<'_>, cwd: &Path) -> Result<Vec<JsonValue>, Failure>
         None => Vec::new(),
     };
     let ours: Vec<Object> = managed.into_iter().map(object).collect();
-    let mut rows: Vec<JsonValue> = ours
-        .iter()
-        .map(|row| {
-            let mut out = Object::new();
-            for key in ["id", "path"] {
-                if let Some(v) = row.get(key) {
-                    out.insert(key.into(), v.clone());
-                }
-            }
-            out.insert("branch".into(), row.get("branch").cloned().unwrap_or(JsonValue::Null));
-            let get = |key: &str| row.get(key).cloned().unwrap_or(JsonValue::Null);
-            if str_field(row, "kind") == Some("snapshot") {
-                out.insert("snapshot".into(), json!(true));
-                if let Some(v) = row.get("baseCommit") {
-                    out.insert("commit".into(), v.clone());
-                }
-                out.insert("holderSessionId".into(), get("holderSessionId"));
-            } else {
-                out.insert("ownerSessionId".into(), get("ownerSessionId"));
-                out.insert("mergeTarget".into(), get("mergeTarget"));
-            }
-            if let Some(v) = row.get("state") {
-                out.insert("state".into(), v.clone());
-            }
-            if let Some(v) = row.get("ownerLive").filter(|v| v.is_boolean()) {
-                out.insert("ownerLive".into(), v.clone());
-            }
-            if lead && let Some(v) = row.get("removable").filter(|v| v.is_boolean()) {
-                out.insert("removable".into(), v.clone());
-            }
-            JsonValue::Object(out)
-        })
-        .collect();
+    let mut rows: Vec<JsonValue> = ours.iter().map(|row| managed_row(row, lead)).collect();
     if repo.is_none() {
         return Ok(rows);
     }
@@ -600,28 +568,70 @@ async fn list_rows(env: &Env<'_>, cwd: &Path) -> Result<Vec<JsonValue>, Failure>
         if ours.iter().any(|row| str_field(row, "path").is_some_and(|p| same_path(p, &worktree.path))) {
             continue;
         }
-        let mut out = Object::new();
-        out.insert("path".into(), json!(worktree.path));
-        out.insert("branch".into(), json!(worktree.branch));
-        if worktree.detached {
-            out.insert("head".into(), json!(worktree.head));
-        }
-        out.insert("unmanaged".into(), json!(true));
-        if worktree.prunable.as_deref().is_some_and(|p| !p.is_empty()) {
-            out.insert("prunable".into(), json!(true));
-        }
-        listed.push(JsonValue::Object(out));
+        listed.push(unmanaged_row(&worktree));
     }
     Ok(listed)
 }
+
+fn managed_row(row: &Object, lead: bool) -> JsonValue {
+    let mut out = Object::new();
+    for key in ["id", "path"] {
+        if let Some(v) = row.get(key) {
+            out.insert(key.into(), v.clone());
+        }
+    }
+    out.insert("branch".into(), row.get("branch").cloned().unwrap_or(JsonValue::Null));
+    let get = |key: &str| row.get(key).cloned().unwrap_or(JsonValue::Null);
+    if str_field(row, "kind") == Some("snapshot") {
+        out.insert("snapshot".into(), json!(true));
+        if let Some(v) = row.get("baseCommit") {
+            out.insert("commit".into(), v.clone());
+        }
+        out.insert("holderSessionId".into(), get("holderSessionId"));
+    } else {
+        out.insert("ownerSessionId".into(), get("ownerSessionId"));
+        out.insert("mergeTarget".into(), get("mergeTarget"));
+    }
+    if let Some(v) = row.get("state") {
+        out.insert("state".into(), v.clone());
+    }
+    if let Some(v) = row.get("ownerLive").filter(|v| v.is_boolean()) {
+        out.insert("ownerLive".into(), v.clone());
+    }
+    if lead && let Some(v) = row.get("removable").filter(|v| v.is_boolean()) {
+        out.insert("removable".into(), v.clone());
+    }
+    JsonValue::Object(out)
+}
+
+fn unmanaged_row(worktree: &GitWorktree) -> JsonValue {
+    let mut out = Object::new();
+    out.insert("path".into(), json!(worktree.path));
+    out.insert("branch".into(), json!(worktree.branch));
+    if worktree.detached {
+        out.insert("head".into(), json!(worktree.head));
+    }
+    out.insert("unmanaged".into(), json!(true));
+    if worktree.prunable.as_deref().is_some_and(|p| !p.is_empty()) {
+        out.insert("prunable".into(), json!(true));
+    }
+    JsonValue::Object(out)
+}
 // ---- raw `git worktree …` ------------------------------------------------------------------
 
-async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
+struct AddArgs {
+    branch: Option<String>,
+    reset: bool,
+    detach: bool,
+    path: String,
+    commitish: Option<String>,
+}
+
+fn parse_add_args(args: &[String]) -> Result<AddArgs, Failure> {
     let mut branch: Option<String> = None;
     let mut reset = false;
     let mut detach = false;
     let mut positional: Vec<String> = Vec::new();
-    let args = &plan.args[1..];
     let mut index = 0;
     while index < args.len() {
         let value = args[index].as_str();
@@ -659,7 +669,60 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     if detach && branch.is_some() {
         return Err(plain("git worktree add: --detach excludes -b/-B"));
     }
-    if !env.is_lead().await && !detach {
+    Ok(AddArgs { branch, reset, detach, path, commitish })
+}
+
+async fn add_snapshot(env: &Env<'_>, services: &Arc<WorktreeServices>, plan: &Plan, wanted: &str, tx_id: &str, mapped: Object) -> Result<String, Failure> {
+    let Some(commit) = commit_in(env, &plan.cwd, wanted).await else {
+        return Err(plain(format!("git worktree add: {wanted} is not a commit")));
+    };
+    // Held by the calling session and removed when its turn settles.
+    let entry = services.worktrees.create_worker_snapshot(&env.session_id, &plan.cwd, &commit, tx_id, env.confirm_large, env.cancel()).await?;
+    let entry = object(entry);
+    let mut out = mapped;
+    out.insert("snapshot".into(), json!(true));
+    for (key, from) in [("path", "path"), ("commit", "baseCommit"), ("worktreeId", "id")] {
+        if let Some(v) = entry.get(from) {
+            out.insert(key.into(), v.clone());
+        }
+    }
+    out.insert(
+        "note".into(),
+        json!("Managed read-only snapshot at the path above (not the one requested); it is removed when this turn ends, and changes made in it are discarded. The session did not move."),
+    );
+    Ok(ok_json(out))
+}
+
+/// The branch a managed worktree checks out, whether it is created, and its start commit.
+async fn branch_to_check_out(env: &Env<'_>, plan: &Plan, args: AddArgs) -> Result<(String, bool, Option<String>), Failure> {
+    let AddArgs { branch, reset, path, commitish, .. } = args;
+    let Some(requested) = branch else {
+        // git's convenience: no branch named, so the branch is the commit-ish (an existing
+        // local branch) or the path's last segment.
+        let chosen = commitish.unwrap_or_else(|| basename(&resolve(&plan.cwd, &path)));
+        let create = !local_branch_exists(env, &plan.cwd, &chosen).await;
+        let start_point = if create { commit_in(env, &plan.cwd, "HEAD").await } else { None };
+        return Ok((chosen, create, start_point));
+    };
+    if local_branch_exists(env, &plan.cwd, &requested).await {
+        return Err(plain(if reset {
+            format!(
+                "git worktree add: -B would reset the existing branch {requested}; managed worktrees never reset a branch (omit -B to check it out as it is)"
+            )
+        } else {
+            format!("git worktree add: a branch named '{requested}' already exists (omit -b to check it out)")
+        }));
+    }
+    let from = commitish.clone().unwrap_or_else(|| "HEAD".to_owned());
+    let Some(start) = commit_in(env, &plan.cwd, &from).await else {
+        return Err(plain(format!("git worktree add: {} is not a commit", commitish.unwrap_or_else(|| "undefined".to_owned()))));
+    };
+    Ok((requested, true, Some(start)))
+}
+
+async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
+    let args = parse_add_args(&plan.args[1..])?;
+    if !env.is_lead().await && !args.detach {
         return Err(plain(
             "git worktree add belongs to the Lead session; a delegated worker may only make a read-only snapshot: git worktree add --detach <path> [<commit>]",
         ));
@@ -668,13 +731,13 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
         return Err(plain(format!("git worktree add: {} is not a git repository", plan.cwd.display())));
     }
     let tx_id = tx_id_of(env, &plan.command);
-    let mapped = request(vec![("mapped", json!(plan.command)), ("requestedPath", json!(resolve(&plan.cwd, &path).to_string_lossy()))]);
+    let mapped = request(vec![("mapped", json!(plan.command)), ("requestedPath", json!(resolve(&plan.cwd, &args.path).to_string_lossy()))]);
     // A detached checkout, or a commit-ish that names no local branch: a snapshot.
     let mut snapshot_commit: Option<String> = None;
-    if detach {
-        snapshot_commit = Some(commitish.clone().unwrap_or_else(|| "HEAD".to_owned()));
-    } else if branch.is_none()
-        && let Some(c) = &commitish
+    if args.detach {
+        snapshot_commit = Some(args.commitish.clone().unwrap_or_else(|| "HEAD".to_owned()));
+    } else if args.branch.is_none()
+        && let Some(c) = &args.commitish
         && !local_branch_exists(env, &plan.cwd, c).await
     {
         snapshot_commit = Some(c.clone());
@@ -683,53 +746,9 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
         return Err(plain("git worktree add: managed worktrees are unavailable in this runtime"));
     };
     if let Some(wanted) = snapshot_commit {
-        let Some(commit) = commit_in(env, &plan.cwd, &wanted).await else {
-            return Err(plain(format!("git worktree add: {wanted} is not a commit")));
-        };
-        // Held by the calling session and removed when its turn settles.
-        let entry = services.worktrees.create_worker_snapshot(&env.session_id, &plan.cwd, &commit, &tx_id, env.confirm_large, env.cancel()).await?;
-        let entry = object(entry);
-        let mut out = mapped;
-        out.insert("snapshot".into(), json!(true));
-        for (key, from) in [("path", "path"), ("commit", "baseCommit"), ("worktreeId", "id")] {
-            if let Some(v) = entry.get(from) {
-                out.insert(key.into(), v.clone());
-            }
-        }
-        out.insert(
-            "note".into(),
-            json!("Managed read-only snapshot at the path above (not the one requested); it is removed when this turn ends, and changes made in it are discarded. The session did not move."),
-        );
-        return Ok(ok_json(out));
+        return add_snapshot(env, services, plan, &wanted, &tx_id, mapped).await;
     }
-    let target_branch: String;
-    let create: bool;
-    let start_point: Option<String>;
-    if let Some(requested) = branch {
-        if local_branch_exists(env, &plan.cwd, &requested).await {
-            return Err(plain(if reset {
-                format!(
-                    "git worktree add: -B would reset the existing branch {requested}; managed worktrees never reset a branch (omit -B to check it out as it is)"
-                )
-            } else {
-                format!("git worktree add: a branch named '{requested}' already exists (omit -b to check it out)")
-            }));
-        }
-        let from = commitish.clone().unwrap_or_else(|| "HEAD".to_owned());
-        let Some(start) = commit_in(env, &plan.cwd, &from).await else {
-            return Err(plain(format!("git worktree add: {} is not a commit", commitish.unwrap_or_else(|| "undefined".to_owned()))));
-        };
-        target_branch = requested;
-        create = true;
-        start_point = Some(start);
-    } else {
-        // git's convenience: no branch named, so the branch is the commit-ish (an existing
-        // local branch) or the path's last segment.
-        let chosen = commitish.clone().unwrap_or_else(|| basename(&resolve(&plan.cwd, &path)));
-        create = !local_branch_exists(env, &plan.cwd, &chosen).await;
-        start_point = if create { commit_in(env, &plan.cwd, "HEAD").await } else { None };
-        target_branch = chosen;
-    }
+    let (target_branch, create, start_point) = branch_to_check_out(env, plan, args).await?;
     let record = services
         .worktrees
         .create(

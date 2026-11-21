@@ -1,7 +1,6 @@
 //! `turn-credential <user-id> [offset-ms]`: prints `<username> <credential>` for a short-lived TURN credential minted from the
-//! secret in `TURN_AUTH_SECRET`, as `verify-turn.sh` needs for `turnutils_uclient`. The clock is read as now plus `offset-ms`
-//! (default 0), so a negative offset yields an expired credential. The secret is read from the environment only, never from
-//! an argument, so it does not appear in a process listing.
+//! secret in `TURN_AUTH_SECRET`. The clock is read as now plus `offset-ms` (default 0), so a negative offset yields an expired
+//! credential. The secret is read from the environment only, never from an argument, so it does not appear in a process listing.
 
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};

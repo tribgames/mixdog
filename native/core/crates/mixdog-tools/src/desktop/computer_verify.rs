@@ -336,6 +336,21 @@ async fn verify(reader: &dyn Reader, command: &Map<String, Value>, cancel: &Canc
     } else {
         Status::Unsatisfied
     };
+    let report = Report { decision, window_id, stable_samples, needs_text, target_closed, gave_up };
+    Ok(verdict_payload(&report, &predicates, &state, started).to_string())
+}
+
+struct Report<'a> {
+    decision: Status,
+    window_id: Option<&'a str>,
+    stable_samples: u64,
+    needs_text: bool,
+    target_closed: bool,
+    gave_up: Option<GiveUp>,
+}
+
+fn verdict_payload(report: &Report<'_>, predicates: &[Map<String, Value>], state: &State, started: Instant) -> Value {
+    let Report { decision, window_id, stable_samples, needs_text, target_closed, gave_up } = *report;
     let mut payload = Map::new();
     payload.insert("ok".into(), json!(decision == Status::Satisfied));
     payload.insert("action".into(), json!("verify"));
@@ -374,7 +389,7 @@ async fn verify(reader: &dyn Reader, command: &Map<String, Value>, cancel: &Canc
         predicates.iter().zip(&state.statuses).map(|(predicate, status)| json!({ "predicate": predicate, "status": status.as_str() })).collect();
     payload.insert("results".into(), json!(results));
     payload.insert("timings_ms".into(), json!({ "total_ms": started.elapsed().as_millis() as u64 }));
-    Ok(Value::Object(payload).to_string())
+    Value::Object(payload)
 }
 
 /// `verify`: polls `window_predicates` and replies the verdict.

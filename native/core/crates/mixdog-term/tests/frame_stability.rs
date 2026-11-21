@@ -1,9 +1,3 @@
-//! The frame writer's output replayed into the VT test grid: what `scripts/tui-frame-harness.mjs` asserted of Ink's
-//! incremental log-update (a marker line keeps its absolute row from frame to frame, frames that shrink leave nothing
-//! behind, a frame one row shorter than the screen does not move the bottom rows, a resize repaints cleanly), plus the
-//! properties the cell diff adds: the screen always equals the frame, an unchanged frame writes nothing, every frame
-//! is one synchronized update, and a style never leaks into cells an erase leaves.
-
 use mixdog_term::frame::{Cell, Color, CursorPos, FrameWriter, Grid, Rgb, Style};
 use mixdog_term::testing::VtGrid;
 

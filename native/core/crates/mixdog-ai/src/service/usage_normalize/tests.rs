@@ -75,13 +75,8 @@ fn with_pinned_families(name: &str, mut output: Value) -> Value {
     output
 }
 
-/// Each reading of the two usage endpoints as the documented rules normalise it (Node 1.4.5
-/// `normalizeOpenAIWhamUsage` / `normalizeAnthropicUsage`): window labels from the window length, percentages and
-/// credits rounded, the extra-limit windows scoped to their models, the spend balance in major units, and no result
-/// for a reading that has no window or balance. The text is compared, so the field order is part of the rule.
-#[test]
-fn the_wham_and_anthropic_readings_normalise_to_their_documented_windows_and_balances() {
-    let cases: [(&str, &str, &str, Option<&str>); 10] = [
+fn usage_reading_cases() -> [(&'static str, &'static str, &'static str, Option<&'static str>); 10] {
+    [
         (
             "wham-plain",
             "wham",
@@ -141,8 +136,11 @@ fn the_wham_and_anthropic_readings_normalise_to_their_documented_windows_and_bal
             ),
         ),
         ("anth-empty", "anthropic", r#"{"foo":1}"#, None),
-    ];
-    for (name, which, input, output) in cases {
+    ]
+}
+
+fn assert_readings_normalise(source: &str) {
+    for (name, which, input, output) in usage_reading_cases().into_iter().filter(|case| case.1 == source) {
         let input: Value = serde_json::from_str(input).unwrap();
         let got = match which {
             "wham" => normalize_openai_wham_usage(&input, NOW),
@@ -151,4 +149,14 @@ fn the_wham_and_anthropic_readings_normalise_to_their_documented_windows_and_bal
         let want = output.map(|text| with_pinned_families(name, serde_json::from_str::<Value>(text).unwrap()).to_string());
         assert_eq!(got.map(|v| v.to_string()), want, "{name}");
     }
+}
+
+#[test]
+fn the_wham_readings_normalise_to_their_documented_windows_and_balances() {
+    assert_readings_normalise("wham");
+}
+
+#[test]
+fn the_anthropic_readings_normalise_to_their_documented_windows_and_balances() {
+    assert_readings_normalise("anthropic");
 }

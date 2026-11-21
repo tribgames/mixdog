@@ -157,10 +157,6 @@ fn foreground_recovery(code: &str, target: &str) -> Option<Recovery> {
 fn recovery_for_code(code: &str, args: &Value) -> Option<Recovery> {
     let target = target_label(args);
     match code {
-        // An admission/worker-budget refusal, before this request dispatches input.
-        // Node's error-recovery.mjs leaves it unadorned: the original message says
-        // which capacity was exhausted. Do not invent cleanup, takeover, or a new
-        // capture request while the command/worker/user-wait budget is already full.
         "computer_capacity_exhausted" => return None,
         "computer_background_cleanup_unconfirmed" => {
             return recovery(

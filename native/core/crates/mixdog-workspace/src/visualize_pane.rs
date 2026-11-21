@@ -141,47 +141,53 @@ pub fn private_copy(root: &Path, rel: &str) -> WsResult<PrivateCopy> {
     let base = COPIES_ROOT.get_or_init(|| std::env::temp_dir().join(format!("mixdog-authorized-copies-{}", uuid::Uuid::new_v4()))).clone();
     std::fs::create_dir_all(&base).at("mkdir", &base)?;
     let staging = base.join(format!("{}.part", uuid::Uuid::new_v4()));
-    let mut hash = Sha256::new();
-    {
-        let mut out = std::fs::File::create_new(&staging).at("open", &staging)?;
-        let mut buffer = vec![0_u8; 64 * 1024];
-        let mut total = 0_u64;
-        loop {
-            let read = std::io::Read::read(&mut opened.file, &mut buffer).at("read", &absolute)?;
-            if read == 0 {
-                break;
-            }
-            total += read as u64;
-            if total > COPY_MAX_BYTES {
-                let _ = std::fs::remove_file(&staging);
-                return Err(WsError::plain("This file is too large to preview remotely."));
-            }
-            hash.update(&buffer[..read]);
-            std::io::Write::write_all(&mut out, &buffer[..read]).at("write", &staging)?;
-        }
-        if let Ok(modified) = meta.modified() {
-            let _ = out.set_modified(modified);
-        }
-    }
+    let mut hash = stream_to_staging(&mut opened.file, &absolute, &staging, &meta)?;
     let mtime = mtime_ms(&meta);
     hash.update(format!("\0{mtime}\0{name}").as_bytes());
     let key: String = hex(&hash.finalize()).chars().take(32).collect();
-    let dir = base.join(key);
+    publish_copy(&staging, base.join(key), name)
+}
+
+fn stream_to_staging(source: &mut std::fs::File, absolute: &Path, staging: &Path, meta: &std::fs::Metadata) -> WsResult<Sha256> {
+    let mut hash = Sha256::new();
+    let mut out = std::fs::File::create_new(staging).at("open", staging)?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let read = std::io::Read::read(source, &mut buffer).at("read", absolute)?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if total > COPY_MAX_BYTES {
+            let _ = std::fs::remove_file(staging);
+            return Err(WsError::plain("This file is too large to preview remotely."));
+        }
+        hash.update(&buffer[..read]);
+        std::io::Write::write_all(&mut out, &buffer[..read]).at("write", staging)?;
+    }
+    if let Ok(modified) = meta.modified() {
+        let _ = out.set_modified(modified);
+    }
+    Ok(hash)
+}
+
+fn publish_copy(staging: &Path, dir: PathBuf, name: String) -> WsResult<PrivateCopy> {
     let mut held = copies();
     let users = held.get_or_insert_with(Default::default).entry(dir.clone()).or_insert(0);
     if *users == 0 {
         // No one holds a folder of this name: it is made fresh, so nothing left behind can stand in for the copy.
         let _ = std::fs::remove_dir_all(&dir);
-        let made = std::fs::create_dir(&dir).at("mkdir", &dir).and_then(|()| std::fs::rename(&staging, dir.join(&name)).at("rename", &dir));
+        let made = std::fs::create_dir(&dir).at("mkdir", &dir).and_then(|()| std::fs::rename(staging, dir.join(&name)).at("rename", &dir));
         if let Err(error) = made {
-            let _ = std::fs::remove_file(&staging);
+            let _ = std::fs::remove_file(staging);
             if let Some(map) = held.as_mut() {
                 map.remove(&dir);
             }
             return Err(error);
         }
     } else {
-        let _ = std::fs::remove_file(&staging);
+        let _ = std::fs::remove_file(staging);
     }
     if let Some(users) = held.as_mut().and_then(|map| map.get_mut(&dir)) {
         *users += 1;

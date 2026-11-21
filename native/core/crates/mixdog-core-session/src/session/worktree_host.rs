@@ -1,5 +1,4 @@
-//! What the workspace transitions need from the session runtime (Node's hooks of
-//! `createWorkspaceTransitions`). The composition implements [`WorkspaceHost`] over the session
+//! What the workspace transitions need from the session runtime. The composition implements [`WorkspaceHost`] over the session
 //! directory, the agent registry and the shell-job registry; the transitions stay independent
 //! of the actor.
 
@@ -126,7 +125,7 @@ pub trait WorkspaceHost: Send + Sync + 'static {
     /// it changed.
     async fn apply(&self, session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure>;
 
-    /// `retargetWorkers`: move an idle worker of the Lead to `cwd` (its cwd and prompt context; the Lead's own runtime
+    /// Move an idle worker of the Lead to `cwd` (its cwd and prompt context; the Lead's own runtime
     /// effects do not apply). The undo restores it.
     async fn retarget_worker(&self, worker_id: &str, cwd: &str, moved: Option<Move>) -> Result<Undo, ScmFailure>;
 

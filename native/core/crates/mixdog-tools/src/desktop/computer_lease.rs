@@ -203,6 +203,9 @@ mod tests {
         async fn spawn(&self, _: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
             Err(ProcessError::UnknownHandle)
         }
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(&self, _: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             Err(ProcessError::UnknownHandle)
         }

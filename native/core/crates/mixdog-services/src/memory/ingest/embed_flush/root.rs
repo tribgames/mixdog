@@ -1,7 +1,6 @@
-//! Root-entry embedding (`memory-embed.mjs` `flushEmbeddingDirty`, `syncBatchEmbeddings`,
-//! `rootEmbedText`, `sweepRootEmbedText`; `memory.mjs` `startRootEmbedSweep`): chunk roots
-//! without a vector are embedded newest first in `FOR UPDATE SKIP LOCKED` batches, and a paced
-//! sweep replaces the vectors made under the older root text.
+//! Root-entry embedding: chunk roots without a vector are embedded newest first in
+//! `FOR UPDATE SKIP LOCKED` batches, and a paced sweep replaces the vectors made under the
+//! older root text.
 //!
 //! Each batch owns its row locks until `COMMIT`/`ROLLBACK`, so the work runs on one claimed
 //! connection. A connection whose transaction state is unknown is destroyed, never pooled.
@@ -126,18 +125,43 @@ struct Update {
     content: Option<String>,
 }
 
+/// Writes each vector where the root's text is unchanged since it was read: one VALUES update, never split
+/// by a cancel checkpoint. `replace` overwrites an existing vector instead of filling a missing one. Answers the
+/// ids written.
+async fn write_root_vectors(client: &deadpool_postgres::Object, updates: &[Update], replace: bool) -> Result<Vec<i64>, FlushFailure> {
+    let values: Vec<String> = (0..updates.len())
+        .map(|i| {
+            let base = i * 5;
+            format!("(${}::bigint, ${}::text::halfvec, ${}::text, ${}::text, ${}::text)", base + 1, base + 2, base + 3, base + 4, base + 5)
+        })
+        .collect();
+    let sql = format!(
+        "UPDATE entries AS e SET embedding = t.vector
+         FROM (VALUES {}) AS t(id, vector, element, summary, content)
+         WHERE e.id = t.id AND e.is_root = 1
+           AND e.embedding IS {}NULL
+           AND e.element IS NOT DISTINCT FROM t.element
+           AND e.summary IS NOT DISTINCT FROM t.summary
+           AND e.content IS NOT DISTINCT FROM t.content
+         RETURNING e.id",
+        values.join(","),
+        if replace { "NOT " } else { "" }
+    );
+    let params: Vec<Param<'_>> = updates.iter().flat_map(|u| [&u.id as Param<'_>, &u.vector, &u.element, &u.summary, &u.content]).collect();
+    Ok(client.query(&sql, &params).await?.iter().map(|row| row.get::<_, i64>(0)).collect())
+}
+
 impl RawEmbedFlush {
-    /// Node's `onnxRuntimeSupported()` gate: a process with no embedding provider (the runtime is
-    /// unsupported on this platform) embeds nothing, and a root written without a vector is kept.
+    /// A process with no embedding provider (the ONNX runtime is unsupported on this platform) embeds
+    /// nothing, and a root written without a vector is kept.
     fn embeds(&self) -> bool {
         self.provider.is_some() && onnx_runtime_supported()
     }
 
-    /// `flushEmbeddingDirty`: embeds roots that have no vector, newest first, until none are left
-    /// or the deadline passes. Callers that ask while a flush runs share it (the first caller's
-    /// `cancel` governs it). The flight is a keyed slot of the database's owner (`_flushInFlight`): the registry publishes the key before the work is
-    /// built and retires it with the slot, however the work ends (completed, destroyed by the runtime, revoked, or refused at activation), so neither a
-    /// waiter that stopped waiting nor a refused start leaves it cached, and no caller lock is re-taken to forget it.
+    /// Embeds roots that have no vector, newest first, until none are left or the deadline
+    /// passes. Callers that ask while a flush runs share it (the first caller's `cancel`
+    /// governs it). The flight is a keyed slot of the database's owner, retired with the slot
+    /// however the work ends.
     pub async fn flush_roots(self: &Arc<Self>, cancel: &CancellationToken) -> Result<RootFlush, FlushFailure> {
         check(cancel)?;
         if !self.embeds() {
@@ -317,27 +341,7 @@ impl RawEmbedFlush {
         if updates.is_empty() {
             return Ok(Vec::new());
         }
-        // The VALUES update is one statement; it is not split by a cancel checkpoint.
-        let values: Vec<String> = (0..updates.len())
-            .map(|i| {
-                let base = i * 5;
-                format!("(${}::bigint, ${}::text::halfvec, ${}::text, ${}::text, ${}::text)", base + 1, base + 2, base + 3, base + 4, base + 5)
-            })
-            .collect();
-        let sql = format!(
-            "UPDATE entries AS e SET embedding = t.vector
-             FROM (VALUES {}) AS t(id, vector, element, summary, content)
-             WHERE e.id = t.id AND e.is_root = 1
-               AND e.embedding IS {}NULL
-               AND e.element IS NOT DISTINCT FROM t.element
-               AND e.summary IS NOT DISTINCT FROM t.summary
-               AND e.content IS NOT DISTINCT FROM t.content
-             RETURNING e.id",
-            values.join(","),
-            if replace { "NOT " } else { "" }
-        );
-        let params: Vec<Param<'_>> = updates.iter().flat_map(|u| [&u.id as Param<'_>, &u.vector, &u.element, &u.summary, &u.content]).collect();
-        let written: Vec<i64> = client.query(&sql, &params).await?.iter().map(|row| row.get::<_, i64>(0)).collect();
+        let written = write_root_vectors(client, &updates, replace).await?;
         check(cancel)?;
         if written.len() < updates.len() {
             self.report_skipped(client, &updates, &written).await?;
@@ -378,11 +382,11 @@ impl RawEmbedFlush {
         Ok(())
     }
 
-    /// `sweepRootEmbedText`: one paced step. Existing vectors stay searchable until replaced: the
-    /// step claims the next roots below the stored cursor that still HAVE a vector, embeds their
-    /// current text, replaces each vector only where the text is unchanged, and advances the cursor
-    /// in the same transaction. The meta row lock serializes concurrent sweepers; any failure rolls
-    /// back both vectors and cursor. Roots without a vector are left to the ordinary flush.
+    /// One paced step of the root-text sweep: claims the next roots below the stored cursor that
+    /// still have a vector, replaces each vector with one of the current text where the text is
+    /// unchanged, and advances the cursor in the same transaction. The meta row lock serializes
+    /// concurrent sweepers; a failure rolls back vectors and cursor. Roots without a vector are
+    /// left to the ordinary flush.
     pub async fn sweep_root_text(&self, batch: usize, cancel: &CancellationToken) -> Result<SweepStep, FlushFailure> {
         check(cancel)?;
         let finished = SweepStep { claimed: 0, replaced: 0, done: true };

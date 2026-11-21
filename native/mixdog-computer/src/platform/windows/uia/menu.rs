@@ -78,91 +78,121 @@ impl Uia {
                 *root = None;
                 continue;
             }
-            let scope = match root {
-                Some(root) => root.clone(),
-                None => self.root_of(window.handle)?,
-            };
-            let mut candidates = menu_candidates(&self.automation, &scope, segment, index > 0);
-            if candidates.is_empty() && index > 0 {
-                // A submenu may live outside the parent item's subtree, but it
-                // must still belong to this window's owned popup chain.
-                for popup in native::related_windows(window.handle) {
-                    if popup == window.handle || !native::is_owned_by(popup, window.handle) {
-                        continue;
-                    }
-                    if let Ok(popup_root) = self.root_of(popup) {
-                        candidates.extend(menu_candidates(&self.automation, &popup_root, segment, true));
-                    }
-                }
-            }
-            if candidates.is_empty() {
-                // A wrong path and a popup chain that closed under the person's
-                // own click fail alike, so the count that separates them travels.
-                let owned = native::related_windows(window.handle).len();
-                return Err(format!("menu_path_not_found: no enabled menu entry named '{segment}' after {}; owned_popups={owned}", walked.join(" > ")));
-            }
-            if candidates.len() > 1 {
-                return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", candidates.len()));
-            }
-            let element = candidates.remove(0);
-            let owner = top_window(&self.automation, &element);
-            if owner != window.handle && !native::is_owned_by(owner, window.handle) {
-                return Err("menu_target_mismatch: menu element no longer belongs to the requested window".into());
-            }
-            // A refusal before the level's reads; each action below is arbitrated by the port on its own.
-            authorize()?;
-            // SAFETY: plain property read on a live element.
-            if !unsafe { element.CurrentIsEnabled() }.map_or(true, |flag| flag.as_bool()) {
-                return Err(format!("menu_item_disabled: '{segment}' is disabled"));
-            }
+            let element = self.resolve_level(window, root.as_ref(), segment, index > 0, walked, authorize)?;
             walked.push(segment);
             let last = index == path.len() - 1;
-            let act = |action: A11y<'_>| -> Result<(), String> {
-                authorize()?;
-                self.port.accessibility(window.handle, action)
-            };
-            // SAFETY: plain pattern queries and reads on a live element; every action goes through the port.
-            unsafe {
-                if last {
-                    if let Ok(invoke) = element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-                        act(A11y::Invoke(&invoke))?;
-                        return Ok(MenuOutcome { path: "uia_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) });
-                    }
-                    if let Ok(toggle) = element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
-                        let before = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
-                        act(A11y::Toggle(&toggle))?;
-                        let after = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
-                        return Ok(MenuOutcome {
-                            path: "uia_menu_toggle",
-                            verified: before != after,
-                            message: format!("toggled menu path: {} from {before} to {after}", walked.join(" > ")),
-                        });
-                    }
-                    return Err(format!("menu_item_not_invokable: '{segment}' exposes no menu action"));
-                }
-                let opened_by_expand = match element.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
-                    Ok(expand) => {
-                        if expand.CurrentExpandCollapseState().map_or(true, |state| state != ExpandCollapseState_Expanded) {
-                            act(A11y::Expand(&expand))?;
-                        }
-                        true
-                    }
-                    Err(_) => false,
-                };
-                if !opened_by_expand {
-                    match element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-                        Ok(invoke) => {
-                            act(A11y::Invoke(&invoke))?;
-                        }
-                        Err(_) => return Err(format!("menu_expand_unavailable: '{segment}' cannot be opened through accessibility")),
-                    }
-                }
+            if let Some(outcome) = self.act_on_level(window, &element, segment, last, walked, authorize)? {
+                return Ok(outcome);
             }
             std::thread::sleep(std::time::Duration::from_millis(120));
             *opened += 1;
             *root = Some(element);
         }
         unreachable!("a menu path has at least one segment")
+    }
+
+    /// The one enabled entry named `segment` in this level of the window's own menu tree, authorized and not yet acted on.
+    fn resolve_level(
+        &self,
+        window: &WindowInfo,
+        root: Option<&IUIAutomationElement>,
+        segment: &str,
+        submenu: bool,
+        walked: &[&str],
+        authorize: crate::platform::Authorize<'_>,
+    ) -> Result<IUIAutomationElement, String> {
+        let scope = match root {
+            Some(root) => root.clone(),
+            None => self.root_of(window.handle)?,
+        };
+        let mut candidates = menu_candidates(&self.automation, &scope, segment, submenu);
+        if candidates.is_empty() && submenu {
+            // A submenu may live outside the parent item's subtree, but it
+            // must still belong to this window's owned popup chain.
+            for popup in native::related_windows(window.handle) {
+                if popup == window.handle || !native::is_owned_by(popup, window.handle) {
+                    continue;
+                }
+                if let Ok(popup_root) = self.root_of(popup) {
+                    candidates.extend(menu_candidates(&self.automation, &popup_root, segment, true));
+                }
+            }
+        }
+        if candidates.is_empty() {
+            // A wrong path and a popup chain that closed under the person's
+            // own click fail alike, so the count that separates them travels.
+            let owned = native::related_windows(window.handle).len();
+            return Err(format!("menu_path_not_found: no enabled menu entry named '{segment}' after {}; owned_popups={owned}", walked.join(" > ")));
+        }
+        if candidates.len() > 1 {
+            return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", candidates.len()));
+        }
+        let element = candidates.remove(0);
+        let owner = top_window(&self.automation, &element);
+        if owner != window.handle && !native::is_owned_by(owner, window.handle) {
+            return Err("menu_target_mismatch: menu element no longer belongs to the requested window".into());
+        }
+        // A refusal before the level's reads; each action below is arbitrated by the port on its own.
+        authorize()?;
+        // SAFETY: plain property read on a live element.
+        if !unsafe { element.CurrentIsEnabled() }.map_or(true, |flag| flag.as_bool()) {
+            return Err(format!("menu_item_disabled: '{segment}' is disabled"));
+        }
+        Ok(element)
+    }
+
+    /// Invokes or toggles the last entry of the path (`Some` outcome); opens an earlier one (`None`).
+    fn act_on_level(
+        &self,
+        window: &WindowInfo,
+        element: &IUIAutomationElement,
+        segment: &str,
+        last: bool,
+        walked: &[&str],
+        authorize: crate::platform::Authorize<'_>,
+    ) -> Result<Option<MenuOutcome>, String> {
+        let act = |action: A11y<'_>| -> Result<(), String> {
+            authorize()?;
+            self.port.accessibility(window.handle, action)
+        };
+        // SAFETY: plain pattern queries and reads on a live element; every action goes through the port.
+        unsafe {
+            if last {
+                if let Ok(invoke) = element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
+                    act(A11y::Invoke(&invoke))?;
+                    return Ok(Some(MenuOutcome { path: "uia_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) }));
+                }
+                if let Ok(toggle) = element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
+                    let before = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
+                    act(A11y::Toggle(&toggle))?;
+                    let after = toggle_label(toggle.CurrentToggleState().unwrap_or_default());
+                    return Ok(Some(MenuOutcome {
+                        path: "uia_menu_toggle",
+                        verified: before != after,
+                        message: format!("toggled menu path: {} from {before} to {after}", walked.join(" > ")),
+                    }));
+                }
+                return Err(format!("menu_item_not_invokable: '{segment}' exposes no menu action"));
+            }
+            let opened_by_expand = match element.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
+                Ok(expand) => {
+                    if expand.CurrentExpandCollapseState().map_or(true, |state| state != ExpandCollapseState_Expanded) {
+                        act(A11y::Expand(&expand))?;
+                    }
+                    true
+                }
+                Err(_) => false,
+            };
+            if !opened_by_expand {
+                match element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
+                    Ok(invoke) => {
+                        act(A11y::Invoke(&invoke))?;
+                    }
+                    Err(_) => return Err(format!("menu_expand_unavailable: '{segment}' cannot be opened through accessibility")),
+                }
+            }
+        }
+        Ok(None)
     }
 }
 

@@ -604,6 +604,19 @@ impl ImportRecord for Node {
     }
 }
 
+/// What a generation processed of the hints: a file with a node was parsed now or vouched for by its artifact's
+/// receipt; a file with no entry in the inventory contributes no record; an unverified one earns nothing.
+fn processed_hints(hints: &Receipts, nodes: &[Node], entries: &[Entry]) -> Receipts {
+    let in_graph: HashSet<&str> = nodes.iter().map(|node| node.rel.as_str()).collect();
+    let in_inventory: HashSet<&str> = entries.iter().map(|entry| entry.identity.as_str()).collect();
+    let with_node: HashSet<&str> = entries.iter().filter(|entry| in_graph.contains(entry.rel.as_str())).map(|entry| entry.identity.as_str()).collect();
+    hints
+        .iter()
+        .filter(|(id, _)| with_node.contains(id.as_str()) || !in_inventory.contains(id.as_str()))
+        .map(|(id, revision)| (id.clone(), *revision))
+        .collect()
+}
+
 /// The import edges Node's graph takes from the `mixdog-graph` binary's records (graph-binary.mjs
 /// `_fileInfoFromRustRecord`): the binary's own `resolve_and_link` over every indexed file, with the project's
 /// manifests (go.mod, tsconfig/jsconfig, package.json workspaces, Cargo.toml, composer, pubspec) read under `root`.
@@ -989,16 +1002,7 @@ impl Graph {
         // Cached files that no longer match are not needed past here.
         drop(previous);
         let kept = nodes.len();
-        // What this generation processed of the hints: a file with a node was parsed now or vouched for by its artifact's
-        // receipt; a file with no entry in the inventory contributes no record; an unverified one earns nothing.
-        let in_graph: HashSet<&str> = nodes.iter().map(|node| node.rel.as_str()).collect();
-        let in_inventory: HashSet<&str> = entries.iter().map(|entry| entry.identity.as_str()).collect();
-        let with_node: HashSet<&str> = entries.iter().filter(|entry| in_graph.contains(entry.rel.as_str())).map(|entry| entry.identity.as_str()).collect();
-        let receipts: Receipts = hints
-            .iter()
-            .filter(|(id, _)| with_node.contains(id.as_str()) || !in_inventory.contains(id.as_str()))
-            .map(|(id, revision)| (id.clone(), *revision))
-            .collect();
+        let receipts = processed_hints(hints, &nodes, entries);
         let started = std::time::Instant::now();
         let inputs = link_stable(root, &mut nodes)?;
         super::cache::note(|t| t.link_ms += super::cache::elapsed_ms(started));
@@ -1012,25 +1016,29 @@ impl Graph {
         graph.signature = inventory_signature(entries);
         graph.receipts = receipts;
         if let Some(cache) = cache {
-            let carried_lookups = base.and_then(|b| cache.carry_lookups(key, b.signature, graph.signature));
-            let lookups = match carried_lookups {
-                Some(lookups) => lookups,
-                None => {
-                    let measured = || (graph.base_bytes(key, unchanged), graph.token_index_bytes());
-                    let lookups = cache.lookups_for(key, graph.signature, measured);
-                    // The query starts: it awaits the graph's token index (symbol-index.mjs `_ensureTokenIndex`), which a
-                    // prune from here on counts.
-                    lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).queried = true;
-                    lookups
-                }
-            };
-            for node in &graph.nodes {
-                let _ = node.runtime.set(lookups.clone());
-            }
-            graph.lookups = lookups;
+            graph.attach_lookups(key, base, cache);
         }
         super::cache::note(|t| t.assemble_ms += super::cache::elapsed_ms(started));
         Ok(Arc::new(graph))
+    }
+
+    fn attach_lookups(&mut self, key: &str, base: Option<&Graph>, cache: &GraphCache) {
+        let carried_lookups = base.and_then(|b| cache.carry_lookups(key, b.signature, self.signature));
+        let lookups = match carried_lookups {
+            Some(lookups) => lookups,
+            None => {
+                let measured = || (self.base_bytes(key, self.unchanged), self.token_index_bytes());
+                let lookups = cache.lookups_for(key, self.signature, measured);
+                // The query starts: it awaits the graph's token index (symbol-index.mjs `_ensureTokenIndex`), which a
+                // prune from here on counts.
+                lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).queried = true;
+                lookups
+            }
+        };
+        for node in &self.nodes {
+            let _ = node.runtime.set(lookups.clone());
+        }
+        self.lookups = lookups;
     }
 
     /// What a reader of the answer is told when files could not be verified: how many and which first.

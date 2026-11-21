@@ -1,8 +1,3 @@
-//! Provider-specific Chat Completions request fields: reasoning control,
-//! sampling, output limit and `tool_choice`. Each rule is selected by a field
-//! of the profile's [`ChatDialect`]; nothing reads the provider name or the
-//! model id (a model's capability comes from the listing, PW §10.B).
-
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_protocol::{JsonObject, JsonValue};
 use serde_json::json;

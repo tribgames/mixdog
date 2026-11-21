@@ -1,11 +1,3 @@
-//! Input delivered to one window as messages, without taking the foreground
-//! or moving the person's pointer. A target that cannot take messages is
-//! refused before anything is sent.
-//!
-//! This file holds the message transport the routes share; the routes are
-//! pointer.rs (pointer, wheel, drag), keyboard.rs (keys, text), holds.rs
-//! (keeping the target inactive) and dialog.rs (standard dialogs).
-
 mod dialog;
 mod drops;
 mod holds;

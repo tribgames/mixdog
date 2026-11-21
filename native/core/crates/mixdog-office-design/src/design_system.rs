@@ -66,25 +66,41 @@ fn semantic_entry(name: &str, detail: (&str, Value), composition: Value, binding
     Value::Object(entry)
 }
 
+fn expand_native_design(format: &str, design_request: &Value, operations: &[Value]) -> Result<Value, String> {
+    let design = native_office_design(format, design_request)?;
+    let content = prop(&design, "content");
+    let mut bound = Vec::with_capacity(operations.len());
+    for operation in operations {
+        bound.push(bind_office_content(operation, content)?.operation);
+    }
+    Ok(json!({
+        "operations": bound,
+        "semantic": [],
+        "design": native_design_receipt(&design),
+        "content": summarize_office_content_model(content),
+        "composition": summarize_office_compositions(format, None),
+    }))
+}
+
+/// Writes the operation that makes the sheet exist in a fresh workbook: the first composed sheet renames the default
+/// one, a later one not yet seen is added.
+fn claim_sheet(output: &mut Vec<Value>, composed_sheets: &mut HashSet<String>, sheet_name: &str) {
+    let key = js_to_lowercase(sheet_name);
+    if composed_sheets.is_empty() {
+        output.push(json!({ "op": "rename_sheet", "name": sheet_name }));
+    } else if !composed_sheets.contains(&key) {
+        output.push(json!({ "op": "add_sheet", "name": sheet_name }));
+    }
+    composed_sheets.insert(key);
+}
+
 /// `expandOfficeDesignOperations(request)`: `{ operations, semantic, design, content, composition }`. The errors are
 /// the texts of the ones Node throws.
 pub fn expand_office_design_operations(request: &ExpandRequest<'_>) -> Result<Value, String> {
     let format = js_to_lowercase(request.format);
     let operations: &[Value] = array_of(Some(request.operations)).map_or(&[], Vec::as_slice);
     if uses_native_office_design(&format, request.design, operations) {
-        let design = native_office_design(&format, request.design)?;
-        let content = prop(&design, "content");
-        let mut bound = Vec::with_capacity(operations.len());
-        for operation in operations {
-            bound.push(bind_office_content(operation, content)?.operation);
-        }
-        return Ok(json!({
-            "operations": bound,
-            "semantic": [],
-            "design": native_design_receipt(&design),
-            "content": summarize_office_content_model(content),
-            "composition": summarize_office_compositions(&format, None),
-        }));
+        return expand_native_design(&format, request.design, operations);
     }
     let resolved = resolve_office_design(&format, request.design, request.library)?;
     let creative = direct_office_story(&format, request.operations, &resolved);
@@ -119,13 +135,7 @@ pub fn expand_office_design_operations(request: &ExpandRequest<'_>) -> Result<Va
             // name and later sheets are created.
             let sheet_name = first_text(&[prop(&content_operation, "sheet"), Some(&json!("Sheet1"))]);
             if fresh_workbook {
-                let key = js_to_lowercase(&sheet_name);
-                if composed_sheets.is_empty() {
-                    output.push(json!({ "op": "rename_sheet", "name": sheet_name }));
-                } else if !composed_sheets.contains(&key) {
-                    output.push(json!({ "op": "add_sheet", "name": sheet_name }));
-                }
-                composed_sheets.insert(key);
+                claim_sheet(&mut output, &mut composed_sheets, &sheet_name);
             }
             output.extend(expand_xlsx_sheet(&content_operation, &design, Some(&composition))?);
             semantic.push(semantic_entry(&name, ("sheet", json!(sheet_name)), composition, bound.binding));
@@ -170,6 +180,64 @@ fn nullish_or(block: &Value, key: &str, fallback: Value) -> Value {
     prop(block, key).filter(|written| !written.is_null()).cloned().unwrap_or(fallback)
 }
 
+fn style_pdf_block(block: &Value, design: &Value, heading_index: &mut u32) -> Value {
+    let colors = opt_prop(prop(design, "tokens"), "colors");
+    let color = |key: &str| opt_prop(colors, key);
+    let size_of = |key: &str| opt_prop(prop(design, "format"), key);
+    // `String(block?.type || 'paragraph').toLowerCase()`: not trimmed, so a type written with spaces is no block type
+    // the preset styles.
+    let type_name = js_to_lowercase(&first_text(&[prop(block, "type"), Some(&json!("paragraph"))]));
+    match type_name.as_str() {
+        "heading" => {
+            *heading_index += 1;
+            let written_level = to_number_of(prop(block, "level"));
+            let level = if written_level.is_nan() { 0.0 } else { written_level };
+            let title = level == 1.0 || (level == 0.0 && *heading_index == 1);
+            let heading_size = if title {
+                size_of("title").cloned()
+            } else if level >= 3.0 {
+                Some(json_number(math::round(to_number_of(size_of("heading")) * 0.85 * 2.0) / 2.0))
+            } else {
+                size_of("heading").cloned()
+            };
+            let mut styled = spread(block);
+            put(&mut styled, "size", or_else(block, "size", heading_size.as_ref()));
+            put(&mut styled, "color", or_else(block, "color", if title { color("ink") } else { color("accent") }));
+            styled.insert("after".into(), nullish_or(block, "after", json!(if title { 18 } else { 10 })));
+            Value::Object(styled)
+        }
+        "paragraph" => {
+            let mut styled = spread(block);
+            put(&mut styled, "size", or_else(block, "size", size_of("body")));
+            put(&mut styled, "color", or_else(block, "color", color("ink")));
+            put(&mut styled, "lineHeight", or_else(block, "lineHeight", Some(&json_number(to_number_of(size_of("body")) * 1.5))));
+            styled.insert("after".into(), nullish_or(block, "after", json!(8)));
+            Value::Object(styled)
+        }
+        "table" => {
+            let mut styled = spread(block);
+            put(&mut styled, "color", or_else(block, "color", color("ink")));
+            put(&mut styled, "headerFill", or_else(block, "headerFill", color("inverse")));
+            put(&mut styled, "headerColor", or_else(block, "headerColor", color("onInverse")));
+            put(&mut styled, "zebraFill", or_else(block, "zebraFill", color("surface")));
+            put(&mut styled, "borderColor", or_else(block, "borderColor", color("surface2")));
+            Value::Object(styled)
+        }
+        "cover" | "stats" | "quote" => {
+            let mut styled = spread(block);
+            put(&mut styled, "accent", or_else(block, "accent", color("accent")));
+            Value::Object(styled)
+        }
+        "callout" => {
+            let mut styled = spread(block);
+            put(&mut styled, "labelColor", or_else(block, "labelColor", color("accent")));
+            put(&mut styled, "fill", or_else(block, "fill", color("surface")));
+            Value::Object(styled)
+        }
+        _ => block.clone(),
+    }
+}
+
 /// `applyPdfDesign(blocks, designRequest, { library })`: `{ blocks, properties, design }`. A native request
 /// (no profile) gets the blocks as written and no properties.
 pub fn apply_pdf_design(blocks: &[Value], design_request: &Value, library: Option<&Value>) -> Result<Value, String> {
@@ -184,70 +252,9 @@ pub fn apply_pdf_design(blocks: &[Value], design_request: &Value, library: Optio
     let colors = opt_prop(prop(&design, "tokens"), "colors");
     let color = |key: &str| opt_prop(colors, key);
     let type_tokens = opt_prop(prop(&design, "tokens"), "typography");
-    let format = prop(&design, "format");
-    let size_of = |key: &str| opt_prop(format, key);
+    let size_of = |key: &str| opt_prop(prop(&design, "format"), key);
     let mut heading_index = 0u32;
-    let styled: Vec<Value> = blocks
-        .iter()
-        .map(|block| {
-            // `String(block?.type || 'paragraph').toLowerCase()`: not trimmed, so a type written with spaces is no
-            // block type the preset styles.
-            let type_name = js_to_lowercase(&first_text(&[prop(block, "type"), Some(&json!("paragraph"))]));
-            match type_name.as_str() {
-                "heading" => {
-                    heading_index += 1;
-                    let written_level = to_number_of(prop(block, "level"));
-                    let level = if written_level.is_nan() { 0.0 } else { written_level };
-                    let title = level == 1.0 || (level == 0.0 && heading_index == 1);
-                    let heading_size = if title {
-                        size_of("title").cloned()
-                    } else if level >= 3.0 {
-                        Some(json_number(math::round(to_number_of(size_of("heading")) * 0.85 * 2.0) / 2.0))
-                    } else {
-                        size_of("heading").cloned()
-                    };
-                    let mut styled = spread(block);
-                    put(&mut styled, "size", or_else(block, "size", heading_size.as_ref()));
-                    // Only the document title is set apart; counted by position, the first of two level-2 headings
-                    // under a cover came out in ink and the second in accent.
-                    put(&mut styled, "color", or_else(block, "color", if title { color("ink") } else { color("accent") }));
-                    styled.insert("after".into(), nullish_or(block, "after", json!(if title { 18 } else { 10 })));
-                    Value::Object(styled)
-                }
-                "paragraph" => {
-                    let mut styled = spread(block);
-                    put(&mut styled, "size", or_else(block, "size", size_of("body")));
-                    put(&mut styled, "color", or_else(block, "color", color("ink")));
-                    put(&mut styled, "lineHeight", or_else(block, "lineHeight", Some(&json_number(to_number_of(size_of("body")) * 1.5))));
-                    styled.insert("after".into(), nullish_or(block, "after", json!(8)));
-                    Value::Object(styled)
-                }
-                "table" => {
-                    let mut styled = spread(block);
-                    put(&mut styled, "color", or_else(block, "color", color("ink")));
-                    put(&mut styled, "headerFill", or_else(block, "headerFill", color("inverse")));
-                    put(&mut styled, "headerColor", or_else(block, "headerColor", color("onInverse")));
-                    put(&mut styled, "zebraFill", or_else(block, "zebraFill", color("surface")));
-                    put(&mut styled, "borderColor", or_else(block, "borderColor", color("surface2")));
-                    Value::Object(styled)
-                }
-                // The anatomy blocks carry the preset's accent too: left to the writer's default they drew a teal
-                // cover rule and teal figures under the preset's green headings.
-                "cover" | "stats" | "quote" => {
-                    let mut styled = spread(block);
-                    put(&mut styled, "accent", or_else(block, "accent", color("accent")));
-                    Value::Object(styled)
-                }
-                "callout" => {
-                    let mut styled = spread(block);
-                    put(&mut styled, "labelColor", or_else(block, "labelColor", color("accent")));
-                    put(&mut styled, "fill", or_else(block, "fill", color("surface")));
-                    Value::Object(styled)
-                }
-                _ => block.clone(),
-            }
-        })
-        .collect();
+    let styled: Vec<Value> = blocks.iter().map(|block| style_pdf_block(block, &design, &mut heading_index)).collect();
     let mut properties = Map::new();
     put(&mut properties, "margin", size_of("margin").cloned());
     put(&mut properties, "background", color("canvas").cloned());

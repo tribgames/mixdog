@@ -1,10 +1,8 @@
-//! The context-pressure state of a session (`loop/compact-policy.mjs`, and the checkpoint
-//! restore in `manager/turn-checkpoint-context.mjs`): the usage snapshot and the provider
-//! baseline that later pressure checks add growth estimates to.
+//! The context-pressure state of a session: the usage snapshot and the provider baseline that
+//! later pressure checks add growth estimates to.
 //!
-//! Node mutates the session object; here every operation is a pure function from the session
-//! header (its fields under Node's own names) to a [`HeaderPatch`], which the store applies as
-//! one header change: `unset` keys are removed first, then `set` is merged.
+//! Every operation is a pure function from the session header to a [`HeaderPatch`], which the store
+//! applies as one header change: `unset` keys are removed first, then `set` is merged.
 
 use std::sync::LazyLock;
 
@@ -576,20 +574,7 @@ pub fn restore_turn_checkpoint_context_state(
 /// The restore over any message form: `exact` signs a slice of `messages` the way
 /// `contextMessagesSignature` does.
 fn restore_with<M, E>(header: &Header, messages: &[M], checkpoint: &Value, exact: &dyn Fn(&[M]) -> Result<String, E>, now: f64) -> Result<Restored, E> {
-    let state = checkpoint.get("contextState").filter(|s| truthy(Some(s)));
-    let raw_used = number(state.and_then(|s| s.get("usedTokens")));
-    let mut usable = None;
-    if let Some(s) = state
-        && s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
-        && raw_used.is_finite()
-        && raw_used >= 0.0
-        && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
-        && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
-        && slice_matches(messages, s, exact)?
-    {
-        usable = Some(s);
-    }
-    let Some(state) = usable else {
+    let Some(state) = usable_context_state(header, messages, checkpoint, exact)? else {
         if legacy_baseline_matches(header, messages, exact)? {
             let mut patch = HeaderPatch::default();
             patch.remove("contextPressureUnanchoredAfterRestart");
@@ -598,11 +583,35 @@ fn restore_with<M, E>(header: &Header, messages: &[M], checkpoint: &Value, exact
         }
         return Ok(Restored { anchored: false, patch: mark_unanchored_context(header).unwrap_or_default() });
     };
-
     let count = non_negative_count(state.get("committedPrefixCount")).unwrap_or(0) + non_negative_count(state.get("turnMessageCount")).unwrap_or(0);
+    let prefix_signature = exact(&messages[..count])?;
+    Ok(Restored { anchored: true, patch: baseline_patch(header, state, count, prefix_signature, now) })
+}
+
+fn usable_context_state<'a, M, E>(
+    header: &Header,
+    messages: &[M],
+    checkpoint: &'a Value,
+    exact: &dyn Fn(&[M]) -> Result<String, E>,
+) -> Result<Option<&'a Value>, E> {
+    let state = checkpoint.get("contextState").filter(|s| truthy(Some(s)));
+    let raw_used = number(state.and_then(|s| s.get("usedTokens")));
+    let Some(s) = state else {
+        return Ok(None);
+    };
+    let usable = s.get("version").and_then(Value::as_u64) == Some(TURN_CONTEXT_STATE_VERSION)
+        && raw_used.is_finite()
+        && raw_used >= 0.0
+        && string_or_empty(s.get("provider")) == string_or_empty(header.get("provider"))
+        && string_or_empty(s.get("model")) == string_or_empty(header.get("model"))
+        && slice_matches(messages, s, exact)?;
+    Ok(usable.then_some(s))
+}
+
+fn baseline_patch(header: &Header, state: &Value, count: usize, prefix_signature: String, now: f64) -> HeaderPatch {
+    let raw_used = number(state.get("usedTokens"));
     let used = round(raw_used).max(0.0);
     let output = rounded_count(state.get("outputTokens"));
-    let prefix_signature = exact(&messages[..count])?;
     let updated_at = round(if number_or_zero(state.get("updatedAt")) != 0.0 { number_or_zero(state.get("updatedAt")) } else { now }).max(0.0);
     let post_compact = state.get("kind").and_then(Value::as_str) == Some("post_compact");
 
@@ -656,5 +665,5 @@ fn restore_with<M, E>(header: &Header, messages: &[M], checkpoint: &Value, exact
     }
     patch.remove("contextPressureUnanchoredAfterRestart");
     patch.remove("contextPressureUnanchoredReason");
-    Ok(Restored { anchored: true, patch })
+    patch
 }

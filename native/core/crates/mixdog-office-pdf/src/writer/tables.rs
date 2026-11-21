@@ -1,5 +1,4 @@
-//! The table block of `pdf-writer.mjs` (`tableRows`, `tableLayout`, `drawTableRow`, `drawTableBlock`): natural column
-//! widths, figure columns set right, cells wrapped inside their column with the row growing to the tallest cell, a bold
+//! The table block: natural column widths, figure columns set right, cells wrapped inside their column with the row growing to the tallest cell, a bold
 //! header on a rule, hairlines between the rows, a repeated header on every page, a caption that travels with the table
 //! and no single orphan row or line at a page edge.
 
@@ -63,6 +62,44 @@ struct TableLayout {
     border_color: [f64; 3],
 }
 
+/// Declared weights where the block gives one per column, else widths that follow the text, the Word writer's rule
+/// (`natural_column_widths`), shared out over the table's width.
+fn column_widths(
+    block: &Value,
+    rows: &[Vec<String>],
+    columns: usize,
+    width: f64,
+    font_size: f64,
+    leads: &[f64],
+    face_of: &dyn Fn(usize) -> Arc<Face>,
+) -> WriterResult<Vec<f64>> {
+    let failure = RefCell::new(None);
+    let measure = |text: &str, row_index: usize, column: usize| -> f64 {
+        match face_of(row_index).width(text, font_size) {
+            Ok(wide) => wide + PADDING * 2.0 + leads[column],
+            Err(error) => {
+                failure.borrow_mut().get_or_insert(error);
+                0.0
+            }
+        }
+    };
+    let weights: Vec<f64> = match block.get("columnWidths") {
+        Some(Value::Array(items)) if items.len() == columns => items
+            .iter()
+            .map(|value| {
+                let weight = to_number(value);
+                max(0.0, if weight.is_nan() { 0.0 } else { weight })
+            })
+            .collect(),
+        _ => natural_column_widths(rows, measure, width).unwrap_or_else(|| vec![1.0; columns]),
+    };
+    if let Some(error) = failure.into_inner() {
+        return Err(error.into());
+    }
+    let weight_sum: f64 = weights.iter().sum();
+    let total_weight = if weight_sum == 0.0 { columns as f64 } else { weight_sum };
+    Ok(weights.iter().map(|weight| width * (weight / total_weight)).collect())
+}
 fn table_layout(flow: &Flow, block: &Value, rows: &[Vec<String>]) -> WriterResult<TableLayout> {
     // headers:false is a table with no header row (a totals block under the line items); otherwise the first row (the
     // headers, or rows[0] when none are given) is the header.
@@ -83,34 +120,7 @@ fn table_layout(flow: &Flow, block: &Value, rows: &[Vec<String>]) -> WriterResul
         .enumerate()
         .map(|(column, alignment)| if column > 0 && alignments[column - 1] == "right" && alignment != "right" { PADDING } else { 0.0 })
         .collect();
-    // Undeclared widths follow the text, the Word writer's rule (naturalColumnWidths).
-    let failure = RefCell::new(None);
-    let measure = |text: &str, row_index: usize, column: usize| -> f64 {
-        match face_of(row_index).width(text, font_size) {
-            Ok(wide) => wide + PADDING * 2.0 + leads[column],
-            Err(error) => {
-                failure.borrow_mut().get_or_insert(error);
-                0.0
-            }
-        }
-    };
-    let declared = block.get("columnWidths");
-    let weights: Vec<f64> = match declared {
-        Some(Value::Array(items)) if items.len() == columns => items
-            .iter()
-            .map(|value| {
-                let weight = to_number(value);
-                max(0.0, if weight.is_nan() { 0.0 } else { weight })
-            })
-            .collect(),
-        _ => natural_column_widths(rows, measure, width).unwrap_or_else(|| vec![1.0; columns]),
-    };
-    if let Some(error) = failure.into_inner() {
-        return Err(error.into());
-    }
-    let weight_sum: f64 = weights.iter().sum();
-    let total_weight = if weight_sum == 0.0 { columns as f64 } else { weight_sum };
-    let cell_widths: Vec<f64> = weights.iter().map(|weight| width * (weight / total_weight)).collect();
+    let cell_widths = column_widths(block, rows, columns, width, font_size, &leads, &face_of)?;
     let min_row_height = num_or(block.get("rowHeight"), 24.0);
     // The space over a row's first line and under its last: a one-line row's text centred in the row, and every row
     // after it keeps the same inset, so a wrapped row grows by its lines and nothing else.
@@ -150,53 +160,13 @@ fn table_layout(flow: &Flow, block: &Value, rows: &[Vec<String>]) -> WriterResul
 }
 
 fn draw_table_row(flow: &mut Flow, block: &Value, layout: &TableLayout, row_index: usize) -> WriterResult<()> {
-    let LaidRow { cells, height, face } = &layout.laid_out[row_index];
-    let height = *height;
+    let height = layout.laid_out[row_index].height;
     let is_header = layout.header && row_index == 0;
     let is_total = layout.total && row_index == layout.laid_out.len() - 1;
     let top = flow.y;
     let mut x = layout.x0;
-    for (column, lines) in cells.iter().enumerate() {
-        let fill: Option<&Value> = if is_header {
-            layout.header_fill.as_ref()
-        } else if row_index % 2 == 0 {
-            block.get("zebraFill")
-        } else {
-            None
-        };
-        let fill = fill.filter(|value| truthy(value));
-        if layout.grid || fill.is_some() {
-            let color = match fill {
-                Some(fill) => Some(parse_color(&value_to_string(fill))?),
-                None => None,
-            };
-            flow.page().draw_rectangle(&RectStyle {
-                x,
-                y: top - height,
-                width: layout.cell_widths[column],
-                height,
-                color,
-                border_color: layout.grid.then_some(layout.border_color),
-                border_width: if layout.grid { 0.5 } else { 0.0 },
-                ..RectStyle::default()
-            });
-        }
-        // The Word writer's anatomy: a body row reads from its first line (every cell starts it at the same height,
-        // where a one-line cell centred beside a wrapped one had floated between its two lines) and the header sits on
-        // its rule.
-        let text_top = if is_header { top - (height - layout.inset - lines.len() as f64 * layout.line_height) } else { top - layout.inset };
-        let right = layout.alignments[column] == "right";
-        let tint = if is_header && truthy(block.get("headerColor").unwrap_or(&Value::Null)) {
-            text_or(block.get("headerColor"), "")
-        } else {
-            text_or(block.get("color"), "")
-        };
-        let tint = parse_color(&tint)?;
-        for (line_index, line) in lines.iter().enumerate() {
-            let text_left = if right { layout.cell_widths[column] - PADDING - face.width(line, layout.font_size)? } else { PADDING + layout.leads[column] };
-            let line_y = text_top - line_index as f64 * layout.line_height - layout.font_size * 0.78 - (layout.line_height - layout.font_size) / 2.0;
-            flow.page().draw_text(line, x + max(PADDING * 0.5, text_left), line_y, layout.font_size, face, tint)?;
-        }
+    for column in 0..layout.laid_out[row_index].cells.len() {
+        draw_table_cell(flow, block, layout, row_index, column, x)?;
         x += layout.cell_widths[column];
     }
     let (x0, width, border) = (layout.x0, layout.width, layout.border_color);
@@ -214,6 +184,55 @@ fn draw_table_row(flow: &mut Flow, block: &Value, layout: &TableLayout, row_inde
     Ok(())
 }
 
+/// One cell of the row at the cursor: its fill and grid box, then its wrapped lines.
+fn draw_table_cell(flow: &mut Flow, block: &Value, layout: &TableLayout, row_index: usize, column: usize, x: f64) -> WriterResult<()> {
+    let LaidRow { cells, height, face } = &layout.laid_out[row_index];
+    let lines = &cells[column];
+    let height = *height;
+    let is_header = layout.header && row_index == 0;
+    let top = flow.y;
+    let fill: Option<&Value> = if is_header {
+        layout.header_fill.as_ref()
+    } else if row_index % 2 == 0 {
+        block.get("zebraFill")
+    } else {
+        None
+    };
+    let fill = fill.filter(|value| truthy(value));
+    if layout.grid || fill.is_some() {
+        let color = match fill {
+            Some(fill) => Some(parse_color(&value_to_string(fill))?),
+            None => None,
+        };
+        flow.page().draw_rectangle(&RectStyle {
+            x,
+            y: top - height,
+            width: layout.cell_widths[column],
+            height,
+            color,
+            border_color: layout.grid.then_some(layout.border_color),
+            border_width: if layout.grid { 0.5 } else { 0.0 },
+            ..RectStyle::default()
+        });
+    }
+    // The Word writer's anatomy: a body row reads from its first line (every cell starts it at the same height,
+    // where a one-line cell centred beside a wrapped one had floated between its two lines) and the header sits on
+    // its rule.
+    let text_top = if is_header { top - (height - layout.inset - lines.len() as f64 * layout.line_height) } else { top - layout.inset };
+    let right = layout.alignments[column] == "right";
+    let tint = if is_header && truthy(block.get("headerColor").unwrap_or(&Value::Null)) {
+        text_or(block.get("headerColor"), "")
+    } else {
+        text_or(block.get("color"), "")
+    };
+    let tint = parse_color(&tint)?;
+    for (line_index, line) in lines.iter().enumerate() {
+        let text_left = if right { layout.cell_widths[column] - PADDING - face.width(line, layout.font_size)? } else { PADDING + layout.leads[column] };
+        let line_y = text_top - line_index as f64 * layout.line_height - layout.font_size * 0.78 - (layout.line_height - layout.font_size) / 2.0;
+        flow.page().draw_text(line, x + max(PADDING * 0.5, text_left), line_y, layout.font_size, face, tint)?;
+    }
+    Ok(())
+}
 /// The last row a page break may not separate from the one at `index`, the Word writer's rule: the header travels with
 /// the first two rows and the last two rows travel together, and a table of six rows or fewer moves whole.
 fn table_keep_through(count: usize, index: usize) -> usize {
@@ -288,5 +307,35 @@ mod tests {
         assert_eq!(table_rows(&block), vec![vec!["Item", "Cost"], vec!["a", "1"], vec!["b"], vec!["", "2.5"]]);
         assert_eq!(table_rows(&json!({ "headers": false, "rows": [["x"]] })), vec![vec!["x"]]);
         assert!(table_rows(&json!({ "rows": [] })).is_empty());
+    }
+
+    fn drawn(block: &Value) -> Flow {
+        use mixdog_pdf::Ref;
+        use mixdog_pdf::embed::{Font, StandardFontName};
+        use mixdog_pdf::write::PdfDocument;
+        let face = |key: &str, name, number| Face { font: Font::standard(name), key: key.to_owned(), reference: Ref::new(number, 0) };
+        let (font, bold) = (face("F1", StandardFontName::Helvetica, 1), face("F2", StandardFontName::HelveticaBold, 2));
+        let mut flow = Flow::new(PdfDocument::create(), [595.0, 842.0], 54.0, font, bold, None, None).unwrap();
+        draw_table_block(&mut flow, block, None).unwrap();
+        flow
+    }
+
+    #[test]
+    fn a_table_has_a_banded_header_on_a_rule_and_hairlines_between_rows() {
+        let flow = drawn(&json!({ "headers": ["Item", "Cost"], "rows": [["Pens", "1,200"], ["Ink", "300"]] }));
+        let content = &flow.pages[0].content;
+        assert!((flow.y - (842.0 - 54.0 - 3.0 * 24.0 - 12.0)).abs() < 1e-9);
+        assert_eq!(content.matches(" re\n").count(), 2, "the header band, one per cell");
+        assert_eq!(content.matches(" m\n").count(), 3, "the header rule and a hairline under each row");
+        assert_eq!(content.matches(" Tj\n").count(), 6);
+    }
+
+    #[test]
+    fn a_grid_table_boxes_every_cell_and_a_total_row_gets_a_stronger_rule_over_it() {
+        let grid = drawn(&json!({ "headers": ["A", "B"], "rows": [["1", "2"]], "grid": true }));
+        assert_eq!(grid.pages[0].content.matches(" re\n").count(), 4);
+        assert_eq!(grid.pages[0].content.matches(" m\n").count(), 1, "only the header rule");
+        let total = drawn(&json!({ "headers": ["A", "B"], "rows": [["1", "2"], ["3", "4"]], "totalRow": true }));
+        assert_eq!(total.pages[0].content.matches(" m\n").count(), 4);
     }
 }

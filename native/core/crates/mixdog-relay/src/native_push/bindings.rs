@@ -1,8 +1,7 @@
-//! The desktop-leg side of native push (`native-push-legs.mjs`). A token is a delivery destination, not something one
-//! desktop owns: one phone paired with several PCs hands the same installation token to each of them. Every desktop
-//! therefore holds its OWN association (token -> device, client, platform), made over its authenticated leg for one of ITS
-//! OWN paired clients and checked against the device store on every send. A desktop sends only through an association it
-//! holds, and unbind and revoke only ever remove that desktop's associations.
+//! A token is a delivery destination, not something one desktop owns: one phone paired with several PCs hands the same token to
+//! each. Every desktop holds its OWN association (token -> device, client, platform), made over its authenticated leg for one of
+//! ITS OWN paired clients and checked against the device store on every send. A desktop sends only through an association it
+//! holds, and unbind and revoke remove only that desktop's associations.
 //!
 //! The table is `Map<token, Map<'deviceId\nclientId', association>>`.
 

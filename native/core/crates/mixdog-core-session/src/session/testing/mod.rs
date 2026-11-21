@@ -771,11 +771,6 @@ impl ThreadStore for MemStore {
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    /// As the index's `offload_referencers`: every other thread not deleted whose set (its header's, else a current
-    /// scan's, else any earlier scan's) names `id`, and every one whose header holds no set without a scan at its
-    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order, or
-    /// only the first damaged session while one is; an error naming the first copy naming `id` this boot is still
-    /// making.
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
         use mixdog_store::offload_sources as sets;
         let damaged = lock(&self.damaged).first().cloned();
@@ -1005,10 +1000,6 @@ impl ThreadStore for MemStore {
     }
 }
 
-/// A [`ThreadStore`] that records the name of every call made through it, and forwards the call. The recording is the
-/// body of the one macro that forwards the methods, so a method added to the trait does not compile here until it is
-/// listed, and a listed one is recorded: a test that asserts the store was not called, or lists the calls, cannot miss
-/// a route to the store whatever the store behind it counts.
 pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
@@ -1506,10 +1497,6 @@ impl Feed for RecFeed {
     }
 }
 
-/// The turns' workspace admissions: `admit:<thread>` when one is admitted, `release:<thread>`
-/// when its guard drops; `refuse` answers the next admission with that failure instead. The
-/// workspace gate records `<thread>:<submission id>:<prompt>` in `prepared`; `refuse_prepare`
-/// answers the next gate with that failure instead.
 #[derive(Default)]
 pub struct TestAdmission {
     pub seen: Arc<Mutex<Vec<String>>>,
@@ -2013,22 +2000,73 @@ impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
     }
 }
 
-/// The agent-status signals, in order: `approval:<id>`, `record:<id>`.
+/// The agent-status signals, in order: `approval:<id>`, `record:<id>` and `rows:<id>` (a worker-row write). A held
+/// session's record and row signals are owed to its hold, whose end is counted in `.3`.
 #[derive(Default)]
-pub struct TestSignals(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+pub struct TestSignals(pub Mutex<Vec<String>>, pub tokio::sync::Notify, pub Arc<super::agent_activity::SignalHolds>, pub Arc<HeldAnnouncements>);
+
+/// How many times a hold's end announced what it was owed.
+#[derive(Default)]
+pub struct HeldAnnouncements {
+    pub count: std::sync::atomic::AtomicUsize,
+    pub told: tokio::sync::Notify,
+}
+
+impl HeldAnnouncements {
+    pub fn count(&self) -> usize {
+        self.count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Returns once at least `count` were made.
+    pub async fn reached(&self, count: usize) {
+        loop {
+            let told = self.told.notified();
+            tokio::pin!(told);
+            told.as_mut().enable();
+            if self.count() >= count {
+                return;
+            }
+            told.await;
+        }
+    }
+}
+
+impl TestSignals {
+    fn told(&self, signal: String) {
+        lock(&self.0).push(signal);
+        self.1.notify_waiters();
+    }
+}
+
+impl super::agent_registry::signals::StatusSignals for TestSignals {
+    fn worker_rows(&self, session: &str) {
+        if !self.2.defer(session) {
+            self.told(format!("rows:{session}"));
+        }
+    }
+    fn hold(&self, sessions: &[String]) -> Box<dyn Send> {
+        super::agent_activity::AgentSignals::hold(self, sessions)
+    }
+}
 
 impl super::agent_activity::AgentSignals for TestSignals {
     fn approval_wait(&self, session: &str) {
-        lock(&self.0).push(format!("approval:{session}"));
-        self.1.notify_waiters();
+        self.told(format!("approval:{session}"));
     }
     fn agent_turn_aborted(&self, session: &str) {
-        lock(&self.0).push(format!("agent-abort:{session}"));
-        self.1.notify_waiters();
+        self.told(format!("agent-abort:{session}"));
     }
     fn session_record(&self, session: &str) {
-        lock(&self.0).push(format!("record:{session}"));
-        self.1.notify_waiters();
+        if !self.2.defer(session) {
+            self.told(format!("record:{session}"));
+        }
+    }
+    fn hold(&self, sessions: &[String]) -> Box<dyn Send> {
+        let announced = self.3.clone();
+        Box::new(self.2.hold(sessions, move || {
+            announced.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            announced.told.notify_waiters();
+        }))
     }
 }
 
@@ -2085,10 +2123,6 @@ impl super::agent_activity::AgentStatus for TestAgents {
     }
 }
 
-/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`; the
-/// sessions whose MCP scope was released are kept apart, in order. The last three are what the
-/// idle delete asks of its runtime: the session it has current, whether the caller gave no
-/// `isHostedBusy` guard, and whether a hosting runtime holds input for the session.
 #[derive(Default)]
 pub struct Deletes(
     pub Mutex<Vec<String>>,
@@ -2528,10 +2562,7 @@ impl mixdog_agent::compact::pressure::ImageIdentities for TextOnly {
     }
 }
 
-/// How long a wait for a signal may last before the wait is the test's failure. It is measured on the machine's clock, never the
-/// runtime's: a paused runtime clock moves only when the test advances it (or by itself when the runtime is idle, which is not
-/// time passing for the awaited work), so a deadline on it would say nothing about the signal. A wait ends on its signal; this is
-/// only the failure path of a signal that never comes, so it is never what makes a test pass.
+/// Measured on the machine's clock: a paused runtime clock moves only when the test advances it, so it cannot bound a wait.
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A running deadline: a thread that reports `DEADLINE` of the machine's time after it started, and ends at once when the
@@ -2589,10 +2620,6 @@ impl mixdog_ai::registry::accounting::UsagePricing for NoPricing {
     }
 }
 
-/// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
-/// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the thread actor's steps, the
-/// directory losing a thread, the delete log), each registered before the probe runs so no change between probe and wait is
-/// missed. A probe that never holds fails by the deadline of `awaiting`, with `what` (`eventually_on!` names the probe itself).
 pub async fn eventually_on_awaiting<T>(what: impl FnOnce() -> String, wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
     awaiting(what, async {
         loop {

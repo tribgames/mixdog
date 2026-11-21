@@ -259,9 +259,14 @@ fn word_table_paragraph_properties(properties: &Value, keep_next: bool) -> Strin
             String::new()
         },
         if keep_next { "<w:keepNext/>".to_owned() } else { String::new() },
-        format!("<w:spacing{after} w:line=\"{}\" w:lineRule=\"exact\"/>", number_to_string(math::round(size * 1.3 * 20.0))),
+        format!("<w:spacing{after} w:line=\"{}\" w:lineRule=\"exact\"/>", number_to_string(exact_line_pitch_twips(size))),
     ]
     .concat()
+}
+
+/// The exact line pitch of a table cell set at `size` points, in twips.
+pub fn exact_line_pitch_twips(size: f64) -> f64 {
+    math::round(size * 1.3 * 20.0)
 }
 
 /// `wordJustification(alignment)`: an alignment as Word's w:jc spells it, for a paragraph and for a column's cells. The file
@@ -358,12 +363,8 @@ const CELL_PADDING_POINTS: f64 = 10.8;
 /// What a measure of text width answers to: the width in px of one line set in a face, or the reason it cannot be measured.
 pub type MeasureText<'a, E> = &'a mut dyn FnMut(&str, &FontSpec) -> Result<f64, E>;
 
-/// `naturalTableColumnWidths(values, properties, available)`: column widths, in points, for a table the caller gave no
-/// widths, across the text width (`natural_column_widths`), measured in the table's own face. The widths are always
-/// written: a grid without them spans the page in the LibreOffice preview and shrinks to its text in Word. `None` when the
-/// table has no column or nothing is available.
-pub fn natural_table_column_widths<E>(values: &Value, properties: &Value, available: f64, measure: MeasureText<'_, E>) -> Result<Option<Vec<f64>>, E> {
-    let rows: Vec<Vec<String>> = values
+fn table_text_rows(values: &Value) -> Vec<Vec<String>> {
+    values
         .as_array()
         .map(|rows| {
             rows.iter()
@@ -374,14 +375,26 @@ pub fn natural_table_column_widths<E>(values: &Value, properties: &Value, availa
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    let name = if present(properties.get("fontName")) {
+        .unwrap_or_default()
+}
+
+fn table_face_name(properties: &Value) -> String {
+    if present(properties.get("fontName")) {
         string_or_empty(properties.get("fontName"))
     } else if present(properties.get("fontNameEastAsia")) {
         string_or_empty(properties.get("fontNameEastAsia"))
     } else {
         "Calibri".to_owned()
-    };
+    }
+}
+
+/// `naturalTableColumnWidths(values, properties, available)`: column widths, in points, for a table the caller gave no
+/// widths, across the text width (`natural_column_widths`), measured in the table's own face. The widths are always
+/// written: a grid without them spans the page in the LibreOffice preview and shrinks to its text in Word. `None` when the
+/// table has no column or nothing is available.
+pub fn natural_table_column_widths<E>(values: &Value, properties: &Value, available: f64, measure: MeasureText<'_, E>) -> Result<Option<Vec<f64>>, E> {
+    let rows = table_text_rows(values);
+    let name = table_face_name(properties);
     let base_size = if num(properties.get("fontSize")) > 0.0 { num(properties.get("fontSize")) } else { 11.0 };
     let header_bold = table_header_bold(properties, rows.len());
     let headers = table_header_rows(properties, rows.len());
@@ -508,6 +521,30 @@ fn truthy_number(value: Option<f64>) -> Option<f64> {
     value.filter(|number| *number != 0.0 && !number.is_nan())
 }
 
+/// A page break never strands a table's edge: the header travels with the first two rows and the last two rows travel together;
+/// a table of six rows or fewer moves whole. The last row is held to what follows only when keepWithNext asks.
+fn row_kept_with_next(properties: &Value, row: usize, rows: usize, headers: usize) -> bool {
+    if row + 1 < rows { rows <= 6 || row <= headers || row + 2 == rows } else { present(properties.get("keepWithNext")) }
+}
+
+/// The opening of a row: a header row repeats on every page a table breaks across, and a row height is a minimum.
+fn table_row_open(repeats_as_header: bool, height: Option<f64>) -> String {
+    let properties = [
+        if repeats_as_header { "<w:tblHeader/>".to_owned() } else { String::new() },
+        match truthy_number(height) {
+            Some(height) => format!("<w:trHeight w:val=\"{}\" w:hRule=\"atLeast\"/>", twips_text(height)),
+            None => String::new(),
+        },
+    ]
+    .concat();
+    if properties.is_empty() { "<w:tr>".to_owned() } else { format!("<w:tr><w:trPr>{properties}</w:trPr>") }
+}
+
+/// A cell's text as runs: a line break in the text is a `<w:br/>`, since Word collapses a literal newline inside one text element.
+fn cell_text_runs(text: &str) -> String {
+    split_lines(text).iter().enumerate().map(|(index, line)| format!("{}{}", if index > 0 { "<w:br/>" } else { "" }, word_text_element(line, false))).collect()
+}
+
 /// `wordTableXml(operation, { available })`: the table an operation (`values`, `rows`, `columns`, `properties`) describes.
 /// `available` is the text width, in points, of the section the table lands in; `measure` answers the width in px of a line
 /// in a face, for the column widths of a table that names none.
@@ -532,8 +569,6 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
         .and_then(Value::as_array)
         .map(|list| list.iter().map(|value| justification_of(Some(value))).collect())
         .unwrap_or_default();
-    // The header row is set apart by weight, on both backends, unless the caller says otherwise; a header a reader cannot
-    // tell from the data is not one.
     let header_bold = table_header_bold(properties, rows);
     let headers = table_header_rows(properties, rows);
     let row_run_properties =
@@ -541,37 +576,18 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
     let total_border =
         format!("<w:tcBorders><w:top w:val=\"single\" w:sz=\"{TOTAL_ROW_RULE_SIZE}\" w:space=\"0\" w:color=\"{TOTAL_ROW_RULE_COLOR}\"/></w:tcBorders>");
     let gutters = if layout { Vec::new() } else { gutter_columns(properties) };
-    // A page break never strands a table's edge: the header travels with the first two rows and the last two rows travel
-    // together (widow and orphan control, row by row); a table of six rows or fewer moves whole, as a split one is reported;
-    // a longer one still breaks between those rows. keepWithNext holds the last row to what follows (its caption): gluing
-    // every row instead carried a 25-row table whole to the next page and left half a page blank.
-    let kept_row = |row: usize| {
-        if row + 1 < rows { rows <= 6 || row <= headers || row + 2 == rows } else { present(properties.get("keepWithNext")) }
-    };
-    let paragraph_properties = |row: usize| word_table_paragraph_properties(&row_type_properties(properties, row), kept_row(row));
+    let paragraph_properties =
+        |row: usize| word_table_paragraph_properties(&row_type_properties(properties, row), row_kept_with_next(properties, row, rows, headers));
     let grid: String = (0..columns)
         .map(|column| match truthy_number(widths.get(column).copied()) {
             Some(width) => format!("<w:gridCol w:w=\"{}\"/>", twips_text(width)),
             None => "<w:gridCol/>".to_owned(),
         })
         .collect();
-    // The first row is the table's header: a table that breaks across pages carries it onto every continuation page, the way
-    // a reader expects, unless the caller says the row is data.
     let repeat_header = properties.get("repeatHeader") != Some(&Value::Bool(false));
     let mut body = String::new();
     for row in 0..rows {
-        let row_properties = [
-            if row < headers && repeat_header { "<w:tblHeader/>".to_owned() } else { String::new() },
-            match truthy_number(heights.get(row).copied()) {
-                Some(height) => format!("<w:trHeight w:val=\"{}\" w:hRule=\"atLeast\"/>", twips_text(height)),
-                None => String::new(),
-            },
-        ]
-        .concat();
-        body.push_str("<w:tr>");
-        if !row_properties.is_empty() {
-            body.push_str(&format!("<w:trPr>{row_properties}</w:trPr>"));
-        }
+        body.push_str(&table_row_open(row < headers && repeat_header, heights.get(row).copied()));
         for column in 0..columns {
             let cell = values.get(row).and_then(|cells| cells.get(column)).filter(|cell| !cell.is_null());
             let text = cell.map(value_to_string).unwrap_or_default();
@@ -579,22 +595,11 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
                 Some(width) => format!("<w:tcW w:w=\"{}\" w:type=\"dxa\"/>", twips_text(width)),
                 None => String::new(),
             };
-            // A cell written with line breaks keeps them: Word collapses a literal newline inside one text element, so a
-            // step's title and its date used to run together on a single line.
-            let runs: String = split_lines(&text)
-                .iter()
-                .enumerate()
-                .map(|(index, line)| format!("{}{}", if index > 0 { "<w:br/>" } else { "" }, word_text_element(line, false)))
-                .collect();
-            // Schema order inside pPr: style and spacing before justification.
+            let runs = cell_text_runs(&text);
             let justification = justifications.get(column).copied().filter(|value| !value.is_empty());
             let cell_paragraph_properties =
                 format!("{}{}", paragraph_properties(row), justification.map(|value| format!("<w:jc w:val=\"{value}\"/>")).unwrap_or_default());
             let cell_run_properties = row_run_properties(row);
-            // A row reads from its top: a label beside a two-line note starts on the note's first line, where the bottom
-            // edge put it on the last. The header row sits on its rule (its bottom edge), so a header that wraps stands on
-            // the same line as the ones beside it. The exact line pitch keeps a Latin-only figure and a Hangul label on one
-            // baseline either way; set_table_cell_style verticalAlignment overrides per cell.
             let margins =
                 if layout { flush_cell_margins(column == 0, column + 1 == columns) } else { gutter_margin(gutters.get(column).copied().unwrap_or(false)) };
             let edge = if row < headers && header_bold { "bottom" } else { "top" };
@@ -1137,10 +1142,7 @@ fn paragraph_indent_xml(properties: &Value) -> String {
     }
     let twips = |points: f64| number_to_string(math::max(0.0, math::round(points * 20.0)));
     let side = |value: Option<&Value>, name: &str| value.map(|value| format!(" w:{name}=\"{}\"", twips(num(Some(value))))).unwrap_or_default();
-    // A negative first line hangs out to the left of the lines under it ("(1)" or "1." with the wrapped words set under the
-    // words, not under the mark), as Word takes a negative FirstLineIndent through COM. The file spells it w:hanging: a
-    // w:firstLine never goes below zero, and clamped there the mark sat inside the indent and every wrapped line started
-    // under it.
+    // A negative first line is spelled w:hanging: w:firstLine never goes below zero.
     let first = num(first_line);
     let first_text = match first_line {
         None => String::new(),

@@ -440,6 +440,25 @@ pub struct Attach<'a> {
     pub state: &'a GeminiCacheState,
 }
 
+fn antigravity_envelope(request: &ModelRequest, id: &str, project: &str, mut inner: Value) -> Value {
+    let contents = inner["contents"].as_array().cloned().unwrap_or_default();
+    inner["sessionId"] = json!(session_id(&contents));
+    let mut envelope = json!({
+            "project": project,
+            "model": id,
+            "request": inner,
+            "requestType": "agent",
+            "userAgent": "antigravity",
+            "requestId": format!("agent-{}", request.options.send_identity.get_or_mint(uuid_v4)),
+    });
+    if project.is_empty()
+        && let Some(map) = envelope.as_object_mut()
+    {
+        map.shift_remove("project");
+    }
+    envelope
+}
+
 impl GoogleCodec {
     /// The Gemini-shaped request object, before any endpoint envelope.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
@@ -477,7 +496,7 @@ impl GoogleCodec {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn wire_at(&self, request: &ModelRequest, inner: &Value, cache: Option<Attach<'_>>, global: bool) -> Result<WireRequest, ProviderError> {
         let id = self.model_id(&request.model)?;
-        let mut inner = match cache {
+        let inner = match cache {
             Some(attach) => {
                 let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
                 let mut body = cached_body(attach.name, attach.state, contents, inner.get("generationConfig"));
@@ -488,9 +507,6 @@ impl GoogleCodec {
             }
             None => inner.clone(),
         };
-        // Node's own spelling (`geminiApiHeaders`, gemini.mjs:94; `_sendGemini`, vertex-ai.mjs:355-358), which undici
-        // keeps on the wire.
-        // Antigravity's (`antigravity-oauth.mjs:166-172`) is spelled the same way.
         let content_type = "Content-Type";
         let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
@@ -506,31 +522,13 @@ impl GoogleCodec {
                 (format!("{base}/publishers/google/models/{}:streamGenerateContent?alt=sse", path_segment(id)), inner)
             }
             Target::Antigravity { origin, project, client_version } => {
-                // antigravity-oauth.mjs:166-172: the bearer leads the head (its slot, filled where the request is
-                // authorized), and a Claude model gets the interleaved-thinking beta.
                 headers.insert(0, ("Authorization".into(), String::new()));
                 headers.push(("Accept".into(), "text/event-stream".into()));
                 headers.push(("User-Agent".into(), antigravity_user_agent(&client_version.get())));
                 if super::request::antigravity_claude(id) {
                     headers.push(("anthropic-beta".into(), "interleaved-thinking-2025-05-14".into()));
                 }
-                let contents = inner["contents"].as_array().cloned().unwrap_or_default();
-                inner["sessionId"] = json!(session_id(&contents));
-                let mut envelope = json!({
-                        "project": project,
-                        "model": id,
-                        "request": inner,
-                        "requestType": "agent",
-                        "userAgent": "antigravity",
-                        "requestId": format!("agent-{}", request.options.send_identity.get_or_mint(uuid_v4)),
-                });
-                // An account with no project sends none (`JSON.stringify` drops an undefined `project`).
-                if project.is_empty()
-                    && let Some(map) = envelope.as_object_mut()
-                {
-                    map.shift_remove("project");
-                }
-                (format!("{origin}/v1internal:streamGenerateContent?alt=sse"), envelope)
+                (format!("{origin}/v1internal:streamGenerateContent?alt=sse"), antigravity_envelope(request, id, project, inner))
             }
         };
         let body = serde_json::to_vec(&body).map_err(|e| {

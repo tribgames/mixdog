@@ -135,7 +135,7 @@ fn stamp(conn: &Connection) -> Result<String> {
 
 /// Appends every queued record of `group` in one transaction and answers each caller with the
 /// outcomes of its own records. Returns the records that were new, in commit order.
-fn commit_records(conn: &mut Connection, marks: &mixdog_rt::WriteMarks, group: Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)>) -> Vec<UsageRecord> {
+fn commit_records(conn: &mut Connection, marks: &mixdog_rt::WriteMarks, group: RecordGroup) -> Vec<UsageRecord> {
     let all: Vec<UsageRecord> = group.iter().flat_map(|(rows, _, _)| rows.clone()).collect();
     let outcomes = append_rows(conn, &all);
     let inserted = all.iter().zip(&outcomes).filter(|(_, o)| matches!(o, Appended::Inserted)).map(|(row, _)| row.clone()).collect();
@@ -277,13 +277,45 @@ fn apply(conn: &mut Connection, snapshot: &Snapshot, late: &[Late]) -> Result<Ap
     Ok(applied)
 }
 
+type RecordGroup = Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)>;
+
+/// Records queued behind `first` share its transaction, up to the row cap; a command of another
+/// kind ends the group and is held so order is kept.
+fn take_record_group(commands: &mpsc::Receiver<Command>, held: &mut Option<Command>, first: (Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)) -> RecordGroup {
+    let mut total = first.0.len();
+    let mut group = vec![first];
+    loop {
+        match commands.try_recv() {
+            Ok(Command::Record { rows, reply, mark }) if total + rows.len() <= MAX_APPEND_ROWS => {
+                total += rows.len();
+                group.push((rows, reply, mark));
+            }
+            Ok(other) => {
+                *held = Some(other);
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+    group
+}
+
+fn read_or_write_note(conn: &Connection, key: &'static str, value: Option<String>) -> Result<Option<String>> {
+    use crate::db::OptionalExtension as _;
+    match value {
+        Some(value) => conn
+            .execute("INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", crate::db::params![key, value])
+            .map(|_| None)
+            .map_err(Into::into),
+        None => conn.query_row("SELECT value FROM metadata WHERE key = ?1", [key], |r| r.get(0)).optional().map_err(Into::into),
+    }
+}
+
 fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context) {
     let mut held: Option<Command> = None;
     let mut build = Build { complete: sums_complete(&conn).unwrap_or(true), flight: None, blocked: false, waiters: Vec::new() };
-    // Rollup days to recompute: at boot, and after a commit. The owner reads at startup itself, so boot is not a change
-    // to tell it of; `moved` is what a commit or repair changed since the owner was last told.
-    let mut stale = context.changed.is_some();
-    let mut moved = false;
+    let mut days_stale = context.changed.is_some();
+    let mut owner_unaware = false;
     loop {
         let command = match held.take() {
             Some(command) => command,
@@ -294,14 +326,11 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                     build.dispatch(&context);
                     continue;
                 }
-                Err(TryRecvError::Empty) => match (&context.changed, stale) {
+                Err(TryRecvError::Empty) => match (&context.changed, days_stale) {
                     (Some(changed), true) => {
-                        // Idle: one bounded step of the rollup-day recompute; the owner is told
-                        // once no day is stale. Appends coalesce into one call. A failure waits
-                        // for the next commit to retry.
-                        stale = match maintain_usage(&mut conn, now_ms()) {
+                        days_stale = match maintain_usage(&mut conn, now_ms()) {
                             Ok(true) => {
-                                if std::mem::take(&mut moved) {
+                                if std::mem::take(&mut owner_unaware) {
                                     changed.usage_changed();
                                 }
                                 false
@@ -321,28 +350,12 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
         build.blocked = false;
         match command {
             Command::Record { rows, reply, mark } => {
-                let mut total = rows.len();
-                let mut group = vec![(rows, reply, mark)];
-                // Records queued behind it share the transaction, up to its row cap; a command
-                // of another kind ends the group so order is kept.
-                loop {
-                    match commands.try_recv() {
-                        Ok(Command::Record { rows, reply, mark }) if total + rows.len() <= MAX_APPEND_ROWS => {
-                            total += rows.len();
-                            group.push((rows, reply, mark));
-                        }
-                        Ok(other) => {
-                            held = Some(other);
-                            break;
-                        }
-                        Err(_) => break,
-                    }
-                }
+                let group = take_record_group(&commands, &mut held, (rows, reply, mark));
                 let inserted = commit_records(&mut conn, &context.marks, group);
                 build.note_committed(&conn, &inserted);
                 if context.changed.is_some() && !inserted.is_empty() {
-                    stale = true;
-                    moved = true;
+                    days_stale = true;
+                    owner_unaware = true;
                 }
             }
             Command::Quota { samples, reply, mark } => {
@@ -360,8 +373,8 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                     flight.stale = true;
                 }
                 if context.changed.is_some() && applied.as_ref().is_ok_and(|r| !r.conflict) {
-                    stale = true;
-                    moved = true;
+                    days_stale = true;
+                    owner_unaware = true;
                 }
                 reply.send(applied);
             }
@@ -378,21 +391,13 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                     flight.stale = true;
                 }
                 if context.changed.is_some() && applied.as_ref().is_ok_and(|outcome| outcome.changed) {
-                    stale = true;
-                    moved = true;
+                    days_stale = true;
+                    owner_unaware = true;
                 }
                 reply.send(applied);
             }
             Command::Note { key, value, reply } => {
-                use crate::db::OptionalExtension as _;
-                let done = match value {
-                    Some(value) => conn
-                        .execute("INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", crate::db::params![key, value])
-                        .map(|_| None)
-                        .map_err(Into::into),
-                    None => conn.query_row("SELECT value FROM metadata WHERE key = ?1", [key], |r| r.get(0)).optional().map_err(Into::into),
-                };
-                reply.send(done);
+                reply.send(read_or_write_note(&conn, key, value));
             }
             Command::SumsBuilt { reply } => {
                 if build.complete {

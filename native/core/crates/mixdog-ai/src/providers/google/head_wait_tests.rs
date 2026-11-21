@@ -1,8 +1,3 @@
-//! The response-head timer of the Gemini-wire routes and the OpenAI-compatible chat route: a request whose head does not
-//! come in its first-byte window is a `headers`-phase timeout on the provider's own ladder (`gemini.mjs:795-807`,
-//! `antigravity-transport.mjs:220-253`, `openai-compat-chat-send.mjs:174-181`), and the head that does come tells the run
-//! (`onStreamDelta('transport')`).
-
 use std::sync::Arc;
 use std::time::Duration;
 

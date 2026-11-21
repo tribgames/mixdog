@@ -27,7 +27,7 @@ struct Fixture {
 
 fn fixture(test: &str, name: &str, content: &[u8]) -> Fixture {
     static NUMBER: AtomicUsize = AtomicUsize::new(0);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("preview-render").join(format!("{test}-{}", NUMBER.fetch_add(1, Ordering::SeqCst)));
+    let dir = PathBuf::from(mixdog_testkit::target_tmpdir!()).join("preview-render").join(format!("{test}-{}", NUMBER.fetch_add(1, Ordering::SeqCst)));
     if mixdog_testkit::exists(&dir) {
         mixdog_testkit::remove_dir_all(&dir);
     }

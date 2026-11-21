@@ -384,14 +384,16 @@ async fn a_stop_is_answered_ahead_of_sixty_four_reads_in_flight_and_every_read_i
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_same_op_from_another_connection_is_answered_once() {
+async fn the_same_op_from_another_connection_is_refused_and_the_prompt_runs_once() {
     let world = World::started(echo()).await;
     let (mut first, mut second) = (world.client(1).await, world.client(2).await);
     world.call(&mut first, 1, "thread/resume", resume()).await;
     let answered = world.submit(&mut first, 2, "same-local-id", "once").await;
+    assert_eq!(answered["result"]["kind"], "started", "{answered}");
     first.until("the run's end", |frames| ran(frames, 1)).await;
+    // A replay is answered to the audience that began the op: another connection is not that audience.
     let again = world.submit(&mut second, 1, "same-local-id", "once").await;
-    assert_eq!(answered["result"], again["result"]);
+    assert_eq!(again["error"]["data"]["reason"], "opIdConflict", "{again}");
     let read = world.call(&mut first, 3, "thread/read", json!({})).await;
     assert_eq!(rows(&read["result"]["items"]), [user("once"), agent("re: once")], "the prompt is stored and run once");
 }

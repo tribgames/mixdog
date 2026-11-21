@@ -39,7 +39,7 @@ fn template_repo() -> std::path::PathBuf {
     if template.join("repo").join(".git").is_dir() {
         return template;
     }
-    let building = tempfile::tempdir().unwrap();
+    let building = real_tempdir();
     build_fixture_repo(&building.path().join("repo"));
     let staged = building.keep();
     if std::fs::rename(&staged, &template).is_ok() {
@@ -66,8 +66,13 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
     }
 }
 
+/// A temporary folder at its real path: the stores and the registry keep the real path of a folder, and a test names it through its own.
+pub(crate) fn real_tempdir() -> tempfile::TempDir {
+    tempfile::Builder::new().tempdir_in(mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).unwrap()).unwrap()
+}
+
 pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     // The plain spelling of the folder, as git names it and as every caller of the core passes it (not the verbatim `\\?\` one).
     let canonical = std::fs::canonicalize(dir.path()).unwrap();
     let repo = std::path::PathBuf::from(canonical.to_string_lossy().trim_start_matches(r"\\?\")).join("repo");
@@ -276,6 +281,16 @@ impl mixdog_core_api::domain::process::ProcessManager for SlowStatus {
     > {
         self.inner.subscribe(handle, from_seq)
     }
+    fn subscribe_holding(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
+        self.inner.subscribe_holding(handle, from_seq)
+    }
 
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.write_stdin(handle, bytes).await
@@ -379,7 +394,7 @@ async fn claiming_the_setup_detaches_an_old_dependency_link_without_touching_the
     let (_guard, repo, _head) = fixture_repo();
     std::fs::create_dir_all(repo.join("node_modules").join("pkg")).unwrap();
     std::fs::write(repo.join("node_modules").join("pkg").join("x.txt"), "kept\n").unwrap();
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let created = worktrees
@@ -433,8 +448,40 @@ impl crate::worktree::settings::SettingsSource for TinyThreshold {
     }
 }
 
+fn carry_request(repo: &std::path::Path) -> crate::worktree::manager::CreateRequest {
+    crate::worktree::manager::CreateRequest {
+        project_path: repo.to_path_buf(),
+        session_id: "s1".into(),
+        runtime_token: "rt".into(),
+        tx_id: "t1".into(),
+        name_hint: "carry it".into(),
+        ..Default::default()
+    }
+}
+
 #[tokio::test]
-async fn creation_asks_before_a_large_repo_and_before_pending_changes_and_carries_them_faithfully() {
+async fn creation_in_a_repository_over_the_size_threshold_waits_for_the_users_yes() {
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    let data = real_tempdir();
+    let large = Worktrees::new(scm(), data.path().to_path_buf()).with_settings(std::sync::Arc::new(TinyThreshold));
+    let refused = large.create_full(carry_request(&repo), &CancellationToken::new()).await.unwrap_err();
+    assert_eq!(refused.code(), Some(crate::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM));
+}
+
+#[tokio::test]
+async fn creation_asking_what_to_do_with_pending_changes_refuses_while_the_project_folder_has_changes() {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    let data = real_tempdir();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let asked = worktrees.create_full(CreateRequest { carry: Some("ask".into()), ..carry_request(&repo) }, &CancellationToken::new()).await.unwrap_err();
+    assert_eq!(asked.code(), Some("WORKTREE_DIRTY_CHOICE"));
+}
+
+#[tokio::test]
+async fn creation_carries_pending_changes_and_the_env_file_and_the_recovery_ref_restores_them() {
     use crate::worktree::manager::CreateRequest;
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, head) = fixture_repo();
@@ -443,26 +490,10 @@ async fn creation_asks_before_a_large_repo_and_before_pending_changes_and_carrie
     let exclude = repo.join(".git").join("info").join("exclude");
     std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
     std::fs::write(&exclude, ".env\n").unwrap();
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
-    let request = CreateRequest {
-        project_path: repo.clone(),
-        session_id: "s1".into(),
-        runtime_token: "rt".into(),
-        tx_id: "t1".into(),
-        name_hint: "carry it".into(),
-        ..CreateRequest::default()
-    };
-
-    // A repository over the size threshold waits for the user's yes.
-    let large = Worktrees::new(scm(), data.path().to_path_buf()).with_settings(std::sync::Arc::new(TinyThreshold));
-    let refused = large.create_full(request.clone(), &cancel).await.unwrap_err();
-    assert_eq!(refused.code(), Some(crate::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM));
-
+    let request = carry_request(&repo);
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
-    // `ask` refuses while the project folder has changes, naming them.
-    let asked = worktrees.create_full(CreateRequest { carry: Some("ask".into()), ..request.clone() }, &cancel).await.unwrap_err();
-    assert_eq!(asked.code(), Some("WORKTREE_DIRTY_CHOICE"));
 
     let before_status = git(&repo, &["status", "--porcelain"]);
     assert!(before_status.contains("a.txt") && before_status.contains("new.txt"));
@@ -580,7 +611,7 @@ async fn next_state(session: &dyn mixdog_core_api::domain::login::LoginSession) 
 async fn a_login_flow_shows_its_code_to_a_reconnect_and_finishes_when_gh_exits() {
     use mixdog_core_api::domain::login::LoginFlow;
     use mixdog_core_api::domain::login::LoginState;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let (finish, finished) = tokio::sync::watch::channel(false);
     let flow = login_with(login_shim(dir.path(), true), std::sync::Arc::new(AuthOkWhenOpen(finished)));
     let session = flow.start().await.unwrap();
@@ -606,7 +637,7 @@ async fn a_login_flow_shows_its_code_to_a_reconnect_and_finishes_when_gh_exits()
 async fn cancelling_a_login_flow_ends_it_and_a_second_start_supersedes_the_first() {
     use mixdog_core_api::domain::login::LoginFlow;
     use mixdog_core_api::domain::login::LoginState;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let flow = login_for(login_shim(dir.path(), false));
     let first = flow.start().await.unwrap();
     loop {
@@ -635,7 +666,7 @@ async fn a_login_flow_that_stalls_or_overruns_fails_with_nodes_text() {
     use mixdog_core_api::domain::login::LoginFailure;
     use mixdog_core_api::domain::login::LoginFlow;
     use mixdog_core_api::domain::login::LoginState;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let silent = dir.path().join(if cfg!(windows) { "silent.cmd" } else { "silent.sh" });
     std::fs::write(&silent, if cfg!(windows) { "@echo off\r\nping -n 30 127.0.0.1 >nul\r\n" } else { "#!/bin/sh\nsleep 30\n" }).unwrap();
     #[cfg(unix)]
@@ -717,7 +748,7 @@ async fn the_branch_menu_checks_out_merges_and_deletes_through_one_guarded_path(
     let (_guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
 
@@ -797,7 +828,7 @@ async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_re
     let (_guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let scm = scm();
     let worktrees = Worktrees::new(scm.clone(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
@@ -837,7 +868,7 @@ async fn two_worktrees()
     let (guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let mut made = Vec::new();
@@ -882,7 +913,7 @@ async fn a_store_spelled_through_a_link_removes_its_worktree_and_git_registratio
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
     // The data dir is a link (a junction on Windows) to the real folder: git records real paths.
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let (real, linked) = (data.path().join("real"), data.path().join("linked"));
     std::fs::create_dir_all(&real).unwrap();
     link_dir(&real, &linked);
@@ -1323,7 +1354,7 @@ async fn an_automatic_removal_whose_final_check_runs_out_of_time_is_kept_busy() 
 /// a directory is not aged by this test, so the cutoff is moved instead.
 #[test]
 fn an_ownerless_directory_ages_out_after_an_hour() {
-    let root = tempfile::tempdir().unwrap();
+    let root = real_tempdir();
     let path = root.path().join("mixdog-commit-nobody-1");
     std::fs::create_dir(&path).unwrap();
     let now = std::time::SystemTime::now();
@@ -1410,11 +1441,6 @@ async fn review_pages_come_from_the_cache_and_follow_the_work_tree() {
     other.worktree_token.push('x');
     assert!(matches!(scm.inspector.review_page(&other, None, None).unwrap(), Cached::Pending { .. }));
 }
-/// G10 / DS-SCM-4: a replayed day of turns, edits and window focus changes. The client model
-/// reads a review page only when a published review key differs from the last one it saw, so
-/// the reads it makes can never exceed the updates it received; the server side must not
-/// inspect the repository for anything that changed nothing (focus, idle, a turn ending, a
-/// publish after an unchanged tree).
 #[tokio::test]
 async fn g10_a_replayed_day_has_no_periodic_review_reads_and_inspects_only_on_change() {
     use mixdog_core_api::domain::repo::Cached;
@@ -1490,7 +1516,7 @@ async fn a_worker_snapshot_is_held_by_a_lease_and_removed_when_its_turn_settles(
     let (_guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let entry = worktrees.create_worker_snapshot("worker-1", &repo, "HEAD", "tx-1", false, &cancel).await.unwrap();
@@ -1527,7 +1553,7 @@ async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_s
     use crate::worktree::manager::CreateRequest;
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     // The owner-lease directory is a file: the creation fails after the checkout, its lock and
@@ -1587,6 +1613,16 @@ impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
     > {
         self.inner.subscribe(handle, from_seq)
     }
+    fn subscribe_holding(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
+        self.inner.subscribe_holding(handle, from_seq)
+    }
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.write_stdin(handle, bytes).await
     }
@@ -1626,7 +1662,7 @@ async fn taken_folder_outcome(clashes: usize, branch: Option<&str>) -> Value {
     // makes `feature/login` an impossible ref (a branch is a file where a directory is needed), so git
     // would refuse before making it and the golden's leftover branch could never appear.
     git(&repo, &["branch", "-D", "feature"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let processes = std::sync::Arc::new(TakesTheFolder { inner: TestProcesses::shared(), left: clashes.into() });
     let scm = Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())));
@@ -1667,7 +1703,7 @@ async fn taken_folder_outcome(clashes: usize, branch: Option<&str>) -> Value {
 /// folder's path written `<folder>`.
 async fn inspect_refusal(folder: &Path) -> Value {
     use crate::worktree::manager::Worktrees;
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let failure = worktrees.inspect_repo(folder, &CancellationToken::new()).await.unwrap_err();
     let mixdog_core_api::CoreError::DomainError { code, message, detail, .. } = mixdog_core_api::CoreError::from(failure) else { panic!("not a domain error") };
@@ -1803,6 +1839,16 @@ impl mixdog_core_api::domain::process::ProcessManager for HangsOnLock {
     > {
         self.inner.subscribe(handle, from_seq)
     }
+    fn subscribe_holding(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
+        self.inner.subscribe_holding(handle, from_seq)
+    }
     async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
         self.inner.write_stdin(handle, bytes).await
     }
@@ -1838,7 +1884,7 @@ async fn a_creation_that_dies_midway_leaves_a_ledger_and_the_sessions_next_creat
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
     commit_all(&repo);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let processes = std::sync::Arc::new(HangsOnLock { inner: TestProcesses::shared(), hang: true.into() });
     let scm =
@@ -1882,7 +1928,7 @@ async fn a_new_transaction_of_a_session_that_retains_a_worktree_returns_it() {
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
     commit_all(&repo);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let request =
@@ -1903,7 +1949,7 @@ async fn a_missing_base_branch_is_refused_and_a_start_commit_is_resolved() {
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
     commit_all(&repo);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), tx_id: "t1".into(), name_hint: "x".into(), ..CreateRequest::default() };
@@ -1957,7 +2003,7 @@ async fn ownership_survives_a_project_folder_that_is_gone() {
     commit_all(&repo);
     let linked = guard.path().join("linked");
     git(&repo, &["worktree", "add", "-q", "-b", "side", &linked.to_string_lossy()]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let request = CreateRequest {
@@ -1987,7 +2033,7 @@ async fn a_snapshot_is_deleted_under_the_cross_process_lock_of_its_folder() {
     use crate::worktree::path_lock::PathLock;
     let (_guard, repo, _head) = fixture_repo();
     commit_all(&repo);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = std::sync::Arc::new(Worktrees::new(scm(), data.path().to_path_buf()));
     let cancel = CancellationToken::new();
     let holder = crate::worktree::ownership::Owner { session_id: "holder-1".into(), runtime_token: "runtime-1".into(), pid: Some(std::process::id()) };
@@ -2008,7 +2054,7 @@ async fn a_snapshot_is_deleted_under_the_cross_process_lock_of_its_folder() {
 
 #[test]
 fn a_review_revision_names_the_file_identity_or_deleted() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     std::fs::write(dir.path().join("a.txt"), "abc").unwrap();
     let revision = crate::inspect::status::worktree_revision(dir.path(), "a.txt");
     assert!(revision.starts_with("3:"), "size first: {revision}");
@@ -2104,7 +2150,7 @@ async fn staging_unstaging_reverting_and_tagging_change_the_repository_as_asked(
 async fn a_snapshot_is_locked_for_its_holder_and_leased_to_it() {
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let holder = crate::worktree::ownership::Owner { session_id: "holder-1".into(), runtime_token: "runtime-1".into(), pid: Some(std::process::id()) };
@@ -2133,7 +2179,7 @@ async fn a_snapshot_is_locked_for_its_holder_and_leased_to_it() {
 async fn a_snapshot_whose_lease_cannot_be_written_is_rolled_back_whole() {
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let cancel = CancellationToken::new();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let facts = worktrees.inspect_repo(&repo, &cancel).await.unwrap();
@@ -2155,7 +2201,7 @@ async fn a_transaction_of_another_session_is_refused_with_a_revision_conflict() 
     let (_guard, repo, _head) = fixture_repo();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     let request = CreateRequest {
@@ -2197,7 +2243,7 @@ fn the_commit_scratch_sweep_removes_dead_owners_and_stale_unowned_entries_only()
         (format!("mixdog-other-{dead}-old"), false, 72 * HOUR, true),
         ("unrelated".to_owned(), true, 72 * HOUR, true),
     ];
-    let root = tempfile::tempdir().unwrap();
+    let root = real_tempdir();
     let now = std::time::SystemTime::now();
     for (name, folder, age, _) in &entries {
         let path = root.path().join(name);
@@ -2318,7 +2364,7 @@ async fn a_taken_folder_reserves_the_next_free_name_once() {
 /// details name the folder.
 #[tokio::test]
 async fn inspecting_a_folder_that_cannot_host_worktrees_refuses_with_a_code_text_and_details() {
-    let root = tempfile::tempdir().unwrap();
+    let root = real_tempdir();
     let (plain, bare, empty) = (root.path().join("plain"), root.path().join("bare"), root.path().join("empty"));
     for folder in [&plain, &bare, &empty] {
         std::fs::create_dir_all(folder).unwrap();
@@ -2345,7 +2391,7 @@ async fn every_spelling_of_a_folder_resolves_to_its_one_canonical_path() {
     use crate::worktree::manager::Worktrees;
     use mixdog_workspace::pathguard::canonical_path;
     use std::os::windows::process::CommandExt;
-    let scratch = tempfile::tempdir().unwrap();
+    let scratch = real_tempdir();
     let verbatim = std::fs::canonicalize(scratch.path()).unwrap();
     let base = std::path::PathBuf::from(verbatim.to_string_lossy().trim_start_matches(r"\\?\")).join("Long Folder Name");
     let repo = base.join("repo");
@@ -2378,7 +2424,7 @@ async fn every_spelling_of_a_folder_resolves_to_its_one_canonical_path() {
     if has_short {
         same_repo.push(format!("{short}\\repo"));
     }
-    let data = tempfile::tempdir().unwrap();
+    let data = real_tempdir();
     let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
     let cancel = CancellationToken::new();
     for input in same_repo {
@@ -2415,4 +2461,60 @@ async fn every_spelling_of_a_folder_resolves_to_its_one_canonical_path() {
         let path = serde_json::to_value(detail).unwrap()["projectPath"].as_str().map(str::to_owned);
         assert_eq!(path.as_deref(), Some(named.as_str()), "{input}");
     }
+}
+
+#[tokio::test]
+async fn a_conflicting_merge_names_its_files_and_leaves_the_project_folder_untouched() {
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    std::fs::write(repo.join("c.txt"), "base\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    git(&repo, &["checkout", "-q", "-b", "topic"]);
+    std::fs::write(repo.join("c.txt"), "topic\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "topic"]);
+    git(&repo, &["checkout", "-q", "main"]);
+    std::fs::write(repo.join("c.txt"), "main\n").unwrap();
+    git(&repo, &["commit", "-q", "-am", "main"]);
+    let before = git(&repo, &["rev-parse", "HEAD"]);
+    let merged = scm().merge_branch_into_checkout(&CancellationToken::new(), &repo, "topic", Some("main"), true, None).await.unwrap();
+    assert!(!merged.merged && merged.commit.is_none());
+    assert_eq!(merged.conflicts, Some(vec!["c.txt".to_owned()]));
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), before);
+    assert_eq!(git(&repo, &["status", "--porcelain"]).trim(), "");
+}
+
+#[tokio::test]
+async fn a_reconcile_reaps_a_snapshot_whose_holder_is_gone_and_keeps_one_a_command_runs_in() {
+    use crate::worktree::reconcile::ReconcileOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let project = std::path::Path::new(&made[0].project_path);
+    let idle = worktrees.create_worker_snapshot("idle", project, "HEAD", "tx-1", false, &cancel).await.unwrap();
+    let busy = worktrees.create_worker_snapshot("busy", project, "HEAD", "tx-2", false, &cancel).await.unwrap();
+    let (idle_path, busy_path) = (std::path::PathBuf::from(idle["path"].as_str().unwrap()), std::path::PathBuf::from(busy["path"].as_str().unwrap()));
+    let lease = worktrees.ledger().admit(&busy_path).unwrap();
+    let report = worktrees.reconcile(&ReconcileOptions::default(), &cancel).await.unwrap();
+    assert!(report.removed.contains(&idle["id"].as_str().unwrap().to_owned()), "{report:?}");
+    assert!(!idle_path.exists());
+    assert!(busy_path.exists());
+    assert!(report.kept.iter().any(|k| k["id"] == busy["id"] && k["reason"] == "snapshot-in-use"), "{:?}", report.kept);
+    drop(lease);
+}
+
+#[tokio::test]
+async fn a_reconcile_puts_back_an_interrupted_automatic_removal_and_never_resumes_it() {
+    use crate::worktree::reconcile::ReconcileOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let second = &made[1];
+    let mut record = worktrees.record(&cancel, &second.id).await.unwrap().unwrap();
+    record.state = "deleting".into();
+    record.extra.insert("deleting".into(), serde_json::json!({ "automatic": true, "remaining": [], "undo": { "links": true, "lock": null } }));
+    worktrees.put_record(&cancel, record).await.unwrap();
+    let report = worktrees.reconcile(&ReconcileOptions::default(), &cancel).await.unwrap();
+    assert!(report.kept.iter().any(|k| k["id"] == second.id.as_str() && k["reason"] == "incomplete"), "{:?}", report.kept);
+    assert!(report.removed.is_empty());
+    assert!(std::path::Path::new(&second.path).exists());
+    let record = worktrees.record(&cancel, &second.id).await.unwrap().unwrap();
+    assert_eq!((record.state.as_str(), record.extra["removalIncomplete"]["reason"].as_str()), ("ready", Some("interrupted")));
 }

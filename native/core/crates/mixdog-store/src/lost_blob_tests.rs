@@ -247,10 +247,6 @@ async fn a_fork_keeps_its_base_until_both_are_purged() {
     assert_eq!(purged, ["b1", "f1"]);
 }
 
-/// A census of an earlier build deleted the session's header blob and its newest checkpoint's state: the open folds the
-/// log from its start and takes the header from the older checkpoint, and a rebuilt index lists the session whole.
-/// Without that checkpoint too, the header is unrecoverable: the open names the missing blob, and the rebuilt index
-/// lists the session as damaged with every row it still holds.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_whose_blobs_a_census_deleted_opens_from_what_is_left() {
     let env = Env::new();
@@ -353,18 +349,21 @@ async fn a_lost_nested_body_marks_the_session_damaged_at_rebuild() {
     assert!(damage.contains(lost_entry.as_str()) && damage.contains(lost_detail.as_str()), "{damage}");
     drop(rebuilt);
 }
-/// The rebuild reports its sessions done and total as it runs, and ends at the total; an open that needs no rebuild
-/// leaves the progress absent.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rebuild_reports_its_sessions_and_a_plain_open_reports_none() {
+/// A data dir holding three closed sessions' logs and blobs and no index.
+async fn three_sessions_without_an_index() -> tempfile::TempDir {
     let env = Env::new();
     for id in ["s1", "s2", "s3"] {
         let w = env.create(id, session(id, None, json!({"title": "t"}))).await;
         drop(env.commit(w, vec![item("a", "one"), meta("note", &big("a body out of line"))]).await);
     }
     env.store.close();
-    let whole = copy_data(&env.data);
-    let open = |data: PathBuf, progress: Arc<RebuildProgress>| {
+    copy_data(&env.data)
+}
+
+/// `SqliteStore::open_reporting` of `data` as a maintenance job.
+async fn open_reporting(data: &Path, progress: &Arc<RebuildProgress>) -> SqliteStore {
+    let (data, progress) = (data.to_path_buf(), progress.clone());
+    tokio::task::spawn_blocking(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let _job = tokens()
             .maintenance_io
@@ -373,7 +372,15 @@ async fn a_rebuild_reports_its_sessions_and_a_plain_open_reports_none() {
             })
             .expect("lane");
         rx.recv().unwrap().expect("opens")
-    };
+    })
+    .await
+    .unwrap()
+}
+
+/// The rebuild reports its sessions done and total as it runs, and ends at the total.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rebuild_reports_its_sessions_done_and_ends_at_the_total() {
+    let whole = three_sessions_without_an_index().await;
     let rebuilding = Arc::new(RebuildProgress::default());
     let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     rebuilding.on_change(Box::new({
@@ -383,38 +390,35 @@ async fn a_rebuild_reports_its_sessions_and_a_plain_open_reports_none() {
         }
     }));
     assert_eq!(rebuilding.snapshot(), None, "nothing before a rebuild");
-    let rebuilt = tokio::task::spawn_blocking({
-        let (data, rebuilding) = (whole.path().to_path_buf(), rebuilding.clone());
-        move || open(data, rebuilding)
-    })
-    .await
-    .unwrap();
+    let rebuilt = open_reporting(whole.path(), &rebuilding).await;
     assert_eq!(rebuilding.snapshot(), Some((3, 3)), "it ends at the total");
     assert_eq!(told.load(std::sync::atomic::Ordering::SeqCst), 4, "told when it began and as each of the three sessions finished");
     rebuilt.reconciled().await.unwrap();
     rebuilt.close();
+}
+
+/// An open that needs no rebuild leaves the progress absent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_of_an_intact_index_reports_no_rebuild() {
+    let whole = three_sessions_without_an_index().await;
+    let rebuilt = open_reporting(whole.path(), &Arc::new(RebuildProgress::default())).await;
+    rebuilt.reconciled().await.unwrap();
+    rebuilt.close();
     let plain = Arc::new(RebuildProgress::default());
-    let reopened = tokio::task::spawn_blocking({
-        let (data, plain) = (whole.path().to_path_buf(), plain.clone());
-        move || open(data, plain)
-    })
-    .await
-    .unwrap();
+    let reopened = open_reporting(whole.path(), &plain).await;
     assert_eq!(plain.snapshot(), None, "an intact index is not rebuilt");
     reopened.close();
+}
 
-    std::fs::write(whole.path().join(INDEX_FILE), []).unwrap();
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_schema_with_intact_identity_is_rebuilt_from_the_logs() {
+    let whole = three_sessions_without_an_index().await;
     let blank = rusqlite::Connection::open(whole.path().join(INDEX_FILE)).unwrap();
     blank.pragma_update(None, "application_id", crate::schema::sql::INDEX_APPLICATION_ID).unwrap();
     blank.pragma_update(None, "user_version", crate::schema::sql::INDEX_USER_VERSION).unwrap();
     drop(blank);
     let empty = Arc::new(RebuildProgress::default());
-    let recovered = tokio::task::spawn_blocking({
-        let (data, empty) = (whole.path().to_path_buf(), empty.clone());
-        move || open(data, empty)
-    })
-    .await
-    .unwrap();
+    let recovered = open_reporting(whole.path(), &empty).await;
     assert_eq!(empty.snapshot(), Some((3, 3)), "an empty schema with intact identity cannot stand in for the logs");
     recovered.close();
 }

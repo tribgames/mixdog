@@ -82,9 +82,24 @@ fn push_table(
     state.table += 1;
     let table = state.table;
     let column_widths = widths.or_else(|| table_widths(columns, variant));
+    let properties = table_properties(design, variant, values.len(), column_widths, table_style);
+    output.push(json!({ "op": "add_table", "values": values, "properties": properties.into_value() }));
+    output.push(json!({ "op": "fit_table", "table": table }));
+    state.paragraph += 1;
+    let spacer = Props::new()
+        .opt("name", face_of(design, "body"))
+        .num("size", 1.0)
+        .opt("color", color(design, "canvas"))
+        .num("spacingBefore", 2.0)
+        .num("spacingAfter", if variant == "callout" { 10.0 } else { 2.0 })
+        .num("lineSpacing", 2.0);
+    output.push(json!({ "op": "append_text", "text": "\u{00A0}", "style": "Normal", "properties": spacer.into_value() }));
+    (table, columns)
+}
+
+fn table_properties(design: &Value, variant: &str, row_count: usize, column_widths: Option<Vec<f64>>, table_style: &str) -> Props {
     let boxed = BOXED_VARIANTS.contains(&variant);
-    let body = format_of(design, "body");
-    let size = math::max(9.0, body - 0.5);
+    let size = math::max(9.0, format_of(design, "body") - 0.5);
     let mut properties = Props::new();
     if boxed || !table_style.is_empty() {
         properties = properties.set("style", if table_style.is_empty() { "Table Grid" } else { table_style });
@@ -98,32 +113,16 @@ fn push_table(
     if let Some(widths) = column_widths {
         properties = properties.set("columnWidths", Value::Array(widths.into_iter().map(num).collect()));
     }
-    // The cells hold one exact line and no paragraph spacing, so the row's floor is the air around the centred text.
-    // A roadmap row is a step, not a header: a 92 pt band pushed a three-step plan onto a page of its own, with the
-    // first step repeated at the top as though it were the header row.
     let roadmap = variant == "roadmap";
     let height = if roadmap { 40.0 } else { math::round(size * 1.3 + 7.0) };
-    properties = properties.set("rowHeights", Value::Array(values.iter().map(|_| num(height)).collect()));
+    properties = properties.set("rowHeights", Value::Array((0..row_count).map(|_| num(height)).collect()));
     if roadmap {
         properties = properties.set("repeatHeader", false);
     }
     if boxed {
         properties = properties.set("borders", table_borders(design));
     }
-    properties = properties.set("alignment", "center");
-    output.push(json!({ "op": "add_table", "values": values, "properties": properties.into_value() }));
-    output.push(json!({ "op": "fit_table", "table": table }));
-    state.paragraph += 1;
-    // A callout is a block of its own: at 2 pt the summary's box sat on the metric strip under it as one slab.
-    let spacer = Props::new()
-        .opt("name", face_of(design, "body"))
-        .num("size", 1.0)
-        .opt("color", color(design, "canvas"))
-        .num("spacingBefore", 2.0)
-        .num("spacingAfter", if variant == "callout" { 10.0 } else { 2.0 })
-        .num("lineSpacing", 2.0);
-    output.push(json!({ "op": "append_text", "text": "\u{00A0}", "style": "Normal", "properties": spacer.into_value() }));
-    (table, columns)
+    properties.set("alignment", "center")
 }
 
 /// The points a one-line label takes at its size: Hangul, kana, and Han a full em, the rest about half of one.
@@ -200,6 +199,27 @@ pub fn add_docx_decision_callout(output: &mut Vec<Value>, state: &mut DocxState,
     );
 }
 
+fn strip_label_style(design: &Value, face: &str) -> Props {
+    Props::new()
+        .opt("fillColor", color(design, "inverse"))
+        .opt("color", color(design, "onInverse"))
+        .opt("fontName", face_of(design, face))
+        .num("fontSize", 8.5)
+        .set("bold", true)
+        .set("horizontalAlignment", "center")
+        .set("verticalAlignment", "center")
+}
+
+fn strip_detail_style(design: &Value, fill: &str) -> Props {
+    Props::new()
+        .opt("fillColor", color(design, fill))
+        .opt("color", color(design, "muted"))
+        .opt("fontName", face_of(design, "body"))
+        .num("fontSize", 8.5)
+        .set("horizontalAlignment", "center")
+        .set("verticalAlignment", "center")
+}
+
 /// The digits a strip figure keeps after the point when its number format names them (`/\.(0+)/`): none named means
 /// every digit the number has, up to 20.
 fn figure_fraction_digits(format: &str) -> Option<usize> {
@@ -238,28 +258,7 @@ fn en_us_number(value: f64, grouping: bool, min_fraction: usize, max_fraction: u
         (digits[..point as usize].to_owned(), digits[point as usize..].to_owned())
     };
     if fraction.len() > max_fraction {
-        let round_up = fraction.as_bytes()[max_fraction] >= b'5';
-        fraction.truncate(max_fraction);
-        if round_up {
-            let mut all: Vec<u8> = whole.bytes().chain(fraction.bytes()).collect();
-            let mut at = all.len();
-            loop {
-                if at == 0 {
-                    all.insert(0, b'1');
-                    break;
-                }
-                at -= 1;
-                if all[at] == b'9' {
-                    all[at] = b'0';
-                } else {
-                    all[at] += 1;
-                    break;
-                }
-            }
-            let split = all.len() - fraction.len();
-            whole = String::from_utf8_lossy(&all[..split]).into_owned();
-            fraction = String::from_utf8_lossy(&all[split..]).into_owned();
-        }
+        (whole, fraction) = round_half_up(&whole, &fraction, max_fraction);
     }
     while fraction.len() > min_fraction && fraction.ends_with('0') {
         fraction.pop();
@@ -267,26 +266,48 @@ fn en_us_number(value: f64, grouping: bool, min_fraction: usize, max_fraction: u
     while fraction.len() < min_fraction {
         fraction.push('0');
     }
-    let whole = if grouping {
-        let mut grouped = String::new();
-        for (index, digit) in whole.chars().enumerate() {
-            if index > 0 && (whole.len() - index) % 3 == 0 {
-                grouped.push(',');
-            }
-            grouped.push(digit);
-        }
-        grouped
-    } else {
-        whole
-    };
+    let whole = if grouping { group_thousands(&whole) } else { whole };
     if fraction.is_empty() { format!("{sign}{whole}") } else { format!("{sign}{whole}.{fraction}") }
 }
 
-/// `metricValueText`: a figure in the strip is read beside the same figure in the prose, so it is written the same
-/// way: grouped thousands, and the metric's own number format where it carries one (the spreadsheet composer already
-/// honours it). Without this a bound fact printed as 47210 next to "47,210건" in the paragraph below. The unit belongs
-/// to the figure it counts: "12명" reads as one number, while a unit parked on the detail row left an orphan word
-/// under an empty band.
+/// The decimal digits `whole.fraction` cut to `max_fraction` fraction digits, the last kept one rounded up when the
+/// first dropped one is 5 or more.
+fn round_half_up(whole: &str, fraction: &str, max_fraction: usize) -> (String, String) {
+    let round_up = fraction.as_bytes()[max_fraction] >= b'5';
+    let kept = &fraction[..max_fraction];
+    if !round_up {
+        return (whole.to_owned(), kept.to_owned());
+    }
+    let mut all: Vec<u8> = whole.bytes().chain(kept.bytes()).collect();
+    let mut at = all.len();
+    loop {
+        if at == 0 {
+            all.insert(0, b'1');
+            break;
+        }
+        at -= 1;
+        if all[at] == b'9' {
+            all[at] = b'0';
+        } else {
+            all[at] += 1;
+            break;
+        }
+    }
+    let split = all.len() - kept.len();
+    (String::from_utf8_lossy(&all[..split]).into_owned(), String::from_utf8_lossy(&all[split..]).into_owned())
+}
+
+fn group_thousands(whole: &str) -> String {
+    let mut grouped = String::new();
+    for (index, digit) in whole.chars().enumerate() {
+        if index > 0 && (whole.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
 fn metric_value_text(entry: &Value) -> Result<String, String> {
     let unit = js_trim(&text(prop(entry, "unit"))).to_owned();
     // A Korean counter closes on the figure (12명); a Latin unit takes the space it is read with (47,210 orders).
@@ -329,20 +350,7 @@ pub fn add_docx_metric_strip(output: &mut Vec<Value>, state: &mut DocxState, met
     let emphasized = entries.iter().position(|entry| prop(entry, "emphasis") == Some(&Value::Bool(true))).map_or(1, |index| index + 1);
     let body = format_of(design, "body");
     for column in 1..=columns {
-        style_cell(
-            output,
-            table,
-            1,
-            column,
-            Props::new()
-                .opt("fillColor", color(design, "inverse"))
-                .opt("color", color(design, "onInverse"))
-                .opt("fontName", face_of(design, "data"))
-                .num("fontSize", 8.5)
-                .set("bold", true)
-                .set("horizontalAlignment", "center")
-                .set("verticalAlignment", "center"),
-        );
+        style_cell(output, table, 1, column, strip_label_style(design, "data"));
         let lead = column == emphasized;
         style_cell(
             output,
@@ -361,19 +369,7 @@ pub fn add_docx_metric_strip(output: &mut Vec<Value>, state: &mut DocxState, met
         if !has_details {
             continue;
         }
-        style_cell(
-            output,
-            table,
-            3,
-            column,
-            Props::new()
-                .opt("fillColor", color(design, if column % 2 == 0 { "canvas" } else { "surface" }))
-                .opt("color", color(design, "muted"))
-                .opt("fontName", face_of(design, "body"))
-                .num("fontSize", 8.5)
-                .set("horizontalAlignment", "center")
-                .set("verticalAlignment", "center"),
-        );
+        style_cell(output, table, 3, column, strip_detail_style(design, if column % 2 == 0 { "canvas" } else { "surface" }));
     }
     Ok(true)
 }
@@ -448,9 +444,8 @@ fn cell_of(row: &Value, index: usize) -> Option<&Value> {
     row.as_array().and_then(|cells| cells.get(index))
 }
 
-/// The metrics variant of a section table drawn as a strip: its header over every figure ("증차 후: 7분"). Turned into
-/// a strip, the table dropped its header row, and "7분" under "18분" no longer said what it was. Answers whether the
-/// table qualified (three to five rows of three cells under the header).
+/// Draws a metrics table as a strip, its header over every figure; answers whether the table qualified (three to five
+/// rows of three cells under the header).
 fn add_metrics_scorecard(output: &mut Vec<Value>, state: &mut DocxState, values: &[Value], design: &Value) -> bool {
     let metric_rows: Vec<&Value> = values.iter().skip(1).take(5).filter(|row| row.as_array().is_some_and(|cells| cells.len() >= 3)).collect();
     if metric_rows.len() < 3 {
@@ -469,20 +464,7 @@ fn add_metrics_scorecard(output: &mut Vec<Value>, state: &mut DocxState, values:
     let (table, columns) = push_table(output, state, &scorecard, design, "scorecard", None, "");
     let body = format_of(design, "body");
     for column in 1..=columns {
-        style_cell(
-            output,
-            table,
-            1,
-            column,
-            Props::new()
-                .opt("fillColor", color(design, "inverse"))
-                .opt("color", color(design, "onInverse"))
-                .opt("fontName", face_of(design, "body"))
-                .num("fontSize", 8.5)
-                .set("bold", true)
-                .set("horizontalAlignment", "center")
-                .set("verticalAlignment", "center"),
-        );
+        style_cell(output, table, 1, column, strip_label_style(design, "body"));
         style_cell(
             output,
             table,
@@ -497,19 +479,7 @@ fn add_metrics_scorecard(output: &mut Vec<Value>, state: &mut DocxState, values:
                 .set("horizontalAlignment", "center")
                 .set("verticalAlignment", "center"),
         );
-        style_cell(
-            output,
-            table,
-            3,
-            column,
-            Props::new()
-                .opt("fillColor", color(design, if column % 2 == 0 { "surface" } else { "canvas" }))
-                .opt("color", color(design, "muted"))
-                .opt("fontName", face_of(design, "body"))
-                .num("fontSize", 8.5)
-                .set("horizontalAlignment", "center")
-                .set("verticalAlignment", "center"),
-        );
+        style_cell(output, table, 3, column, strip_detail_style(design, if column % 2 == 0 { "surface" } else { "canvas" }));
     }
     true
 }

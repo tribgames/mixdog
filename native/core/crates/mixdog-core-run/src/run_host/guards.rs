@@ -98,8 +98,7 @@ pub fn carries_todo_start(message: &JsonValue) -> bool {
 
 /// `todoStartReminder`: a delegated agent received a new brief with no open list — the hidden
 /// reminder trailing that prompt, once per prompt. `has_todo_tool` is whether its tools include
-/// the todo tool; `hidden_agent` whether its role is a hidden one. The rule text alone was read
-/// past on short multi-ask briefs, so the brief itself carries the nudge.
+/// the todo tool; `hidden_agent` whether its role is a hidden one.
 pub fn todo_start_reminder(delegated: bool, hidden_agent: bool, has_todo_tool: bool, open_items: usize) -> Option<String> {
     if !delegated || hidden_agent || !has_todo_tool || open_items > 0 {
         return None;

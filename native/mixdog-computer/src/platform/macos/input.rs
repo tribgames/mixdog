@@ -1,7 +1,4 @@
-//! Synthesized input. Every event carries this process's marker in its
-//! source user-data field so the observer can tell it from the user's, and
-//! carries the modifier flags this process holds, since posted events do not
-//! inherit them.
+//! Posted events do not inherit modifier flags, so each carries the flags this process holds.
 
 use super::ffi::*;
 use crate::keys::{Key, KeySink, Mod, Named};

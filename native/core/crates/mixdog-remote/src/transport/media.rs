@@ -139,12 +139,6 @@ impl<L: MediaLink> Inner<L> {
         self.generation.load(Ordering::Acquire)
     }
 
-    /// Resolves on the first notification after `seen` (at once if one already came) or on an
-    /// abort. Subscribed before the check, so nothing between can be lost.
-    ///
-    /// The wait is also the stream's authority's: the credential's end or its lease's end releases it (the stream is aborted), so
-    /// a pump parked for room that never returns is not kept with its source. Both the wake and the end are subscribed before the
-    /// predicates are tested; the end is persistent, so one published before the subscription releases the wait at once.
     async fn changed(&self, stream: &Stream, seen: u64) {
         let mut wake = stream.wake.subscribe();
         let authority = self.authority(stream);
@@ -321,6 +315,26 @@ impl<L: MediaLink> MediaOutput for StreamOutput<L> {
     }
 }
 
+impl<L: MediaLink> Inner<L> {
+    async fn serve(self: Arc<Self>, id: String, stream: Arc<Stream>, asset_id: String, variant: String, range: String, enc: String) {
+        let mut out = StreamOutput { inner: self.clone(), stream: stream.clone() };
+        if ALLOWED_VARIANTS.contains(&variant.as_str()) {
+            let request = MediaRequest { id: id.clone(), asset_id, variant, method: "GET".to_owned(), range, sid: String::new(), enc };
+            let session = MediaSession { media_key: self.media_key, device: self.device.clone(), revocation: self.revocation.clone() };
+            serve_media_window(self.sources.as_ref(), &request, &session, &mut out).await;
+        } else {
+            out.head(404).await;
+            out.end().await;
+        }
+        let mut state = self.state();
+        if state.streams.get(&id).is_some_and(|current| Arc::ptr_eq(current, &stream)) {
+            state.streams.remove(&id);
+        }
+        drop(state);
+        self.activity.notify_waiters();
+    }
+}
+
 impl<L: MediaLink> TransportMedia<L> {
     pub fn new(link: Arc<L>, sources: Arc<dyn MediaSources>, media_key: Option<[u8; 32]>, device: Option<String>) -> Self {
         Self::under(link, sources, media_key, device, Revocation::default())
@@ -363,20 +377,16 @@ impl<L: MediaLink> TransportMedia<L> {
                 Inner::<L>::abort(&active);
                 state = inner.state();
             }
-            // The phone stopped waiting: its refusal need not be sent.
             if let Some(at) = queued {
                 state.refusals.remove(at);
             }
             return true;
         }
         let Media::Request { asset_id, variant, range, enc, .. } = message else { return true };
-        // An id is one stream for its whole life; a repeat is ignored.
         if state.closed || active.is_some() || queued.is_some() {
             return true;
         }
         if state.streams.len() >= MAX_MEDIA_STREAMS {
-            // As the relay refuses a 33rd stream before any head (503). Nothing is allocated for
-            // it but its id in the bounded refusal queue.
             if state.refusals.len() >= MAX_MEDIA_STREAMS {
                 drop(state);
                 inner.close();
@@ -384,8 +394,6 @@ impl<L: MediaLink> TransportMedia<L> {
                 return true;
             }
             state.refusals.push(id);
-            // Claimed here, under the lock that checked it: a second overflow before the pump task
-            // runs must not start another pump for the same queue head (Node sets it before yielding).
             let start = !std::mem::replace(&mut state.refusing, true);
             drop(state);
             if start {
@@ -397,26 +405,7 @@ impl<L: MediaLink> TransportMedia<L> {
         let stream = Stream::new(&id);
         state.streams.insert(id.clone(), stream.clone());
         drop(state);
-        let inner = inner.clone();
-        tokio::spawn(async move {
-            let mut out = StreamOutput { inner: inner.clone(), stream: stream.clone() };
-            // The relay's own route check (asset id shape, known variants), which answers 404 on
-            // the HTTP lane before the desktop is asked.
-            if ALLOWED_VARIANTS.contains(&variant.as_str()) {
-                let request = MediaRequest { id: id.clone(), asset_id, variant, method: "GET".to_owned(), range, sid: String::new(), enc };
-                let session = MediaSession { media_key: inner.media_key, device: inner.device.clone(), revocation: inner.revocation.clone() };
-                serve_media_window(inner.sources.as_ref(), &request, &session, &mut out).await;
-            } else {
-                out.head(404).await;
-                out.end().await;
-            }
-            let mut state = inner.state();
-            if state.streams.get(&id).is_some_and(|current| Arc::ptr_eq(current, &stream)) {
-                state.streams.remove(&id);
-            }
-            drop(state);
-            inner.activity.notify_waiters();
-        });
+        tokio::spawn(inner.clone().serve(id, stream, asset_id, variant, range, enc));
         true
     }
 

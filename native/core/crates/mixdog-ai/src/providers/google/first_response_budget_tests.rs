@@ -1,9 +1,3 @@
-//! Replays `first-response-budgets` (the budget each provider states, one environment per case): the settings Node reads
-//! from the environment (`FirstByteSettings::from_env` over the recorded variables), then the real adapters'
-//! `first_response_budget`, compared whole. Vertex AI states one for a Flex route only; Antigravity one per model family
-//! on the same-host ladder the variables set (`policy::antigravity_with`); Mimo one over its profile's ladder, held to the
-//! environment's ceiling; the other OpenAI-compatible providers none.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

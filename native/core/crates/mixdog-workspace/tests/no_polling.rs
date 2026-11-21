@@ -1,9 +1,4 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-//! DS-WS-5: no polling. With a watch, a search session and a download open, the core runs no
-//! lane job at all while nothing happens (a `stat` would be one), and an external write
-//! reaches the subscriber as `fs/changed` within 400 ms. It counts the lane jobs the core starts (the
-//! `count-jobs` feature), which must be exactly zero over the idle run. The default run idles 20 s;
-//! the gate sets `MIXDOG_IDLE_SECS=600` for the full ten minutes.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,12 +30,6 @@ use tokio_util::sync::CancellationToken;
 
 use mixdog_workspace::lanes::idle_window_violation;
 use mixdog_workspace::lanes::job_snapshot;
-
-// The count is of lane jobs this crate started: the clippy ban on `std::fs` sends the crate's
-// blocking file-system bodies to lane jobs, and each is submitted through `lanes::counted`. A
-// file-system call from a thread outside a lane job (the notify backend's own watch thread, the
-// store's writer thread) is not seen; see the report. Each reading is one atomic snapshot of
-// started and running together.
 
 struct NoGit;
 
@@ -135,7 +124,6 @@ async fn idle_run(idle: Duration) {
         if conn.drain_text().iter().any(|f| f.contains("fs/changed") && f.contains("main.rs")) {
             break started.elapsed();
         }
-        assert!(started.elapsed() < Duration::from_secs(3), "no fs/changed after an external write");
         mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
     assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}");

@@ -854,11 +854,6 @@ fn word_name_sets_the_latin_face_alone_and_leaves_the_hangul_face_to_name_east_a
     assert!(!matches(r#"w:eastAsia="(?:Batang|바탕)""#, "", &fonts), "{fonts}");
 }
 
-// A row names its cells as it stands: a merge across columns moves the later cells left, so a header merged left to right lost its
-// last label, and Word said only that the collection has no such member, in the UI language. A report's metric strip is a table
-// too: "table 1, row 4" named it where the results table was meant. Word said only that the collection has no such member and the
-// portable writer added a row to the strip; both now refuse it with the table's size and first words, and a table the document
-// lacks lists the ones it holds.
 #[test]
 #[ignore = "starts Microsoft Word; MIXDOG_TEST_LIVE_OFFICE=1"]
 fn word_a_row_or_table_the_document_lacks_is_refused_with_the_tables_it_holds_as_the_portable_writer_says_it() {

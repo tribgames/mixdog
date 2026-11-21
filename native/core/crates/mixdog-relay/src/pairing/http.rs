@@ -1,8 +1,6 @@
-//! `/pair-code/resolve`, `/pair-code/presence`, `/pair-code/support` (`handlePairCodeRequest`), and the desktop's `pair-code-request`
-//! and `pair-code-clear` frames. None of them grants access: the code only lets the following claim say "entered a code" on the
-//! approval dialog, and the desktop still decides.
-//!
-//! The phone app reads exactly these shapes (200, 404 and 429; anything else it shows as "update the PC").
+//! `/pair-code/resolve`, `/pair-code/presence`, `/pair-code/support`, and the desktop's `pair-code-request` and `pair-code-clear`
+//! frames. None of them grants access: the code only lets the following claim say "entered a code" on the approval dialog, and the
+//! desktop still decides. The phone app reads exactly these shapes (200, 404 and 429; anything else it shows as "update the PC").
 
 use serde_json::{Map, Value, json};
 

@@ -1,10 +1,4 @@
-//! The shared render browser as the Office engine's HTML routes lease it (`installSharedBrowser` and `sharedBrowserProvider` of
-//! `src/ext-host/methods.mjs` and `render-browser.mjs`).
-//!
-//! The worker owns no browser: the pool does, and hands its DevTools endpoint to the call that asks (`NEED_BROWSER`). The engine is
-//! one per process while a browser request belongs to one call, so the call that is running puts its context here for as long as
-//! it runs, and a lease asks the pool through that context. The pool answers once per call; the authoring CDP client connects to
-//! the endpoint, works in a browser context of its own and closes it, so the browser outlives every call.
+//! The worker owns no browser: the pool hands its DevTools endpoint to the call that asks (`NEED_BROWSER`), once per call.
 
 use std::sync::Arc;
 use std::sync::Mutex;

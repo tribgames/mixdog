@@ -135,6 +135,37 @@ fn apply_document_acceptance(handle: &SessionHandle, args: &Value, review: &mut 
     Some(visual)
 }
 
+/// A reused preview is the render the caller already received with its token; only pixels this call produced are new.
+fn new_review_images(reviewed: Option<&Value>) -> Vec<Value> {
+    match reviewed {
+        Some(reviewed) if reviewed.pointer("/preview/reused") != Some(&Value::Bool(true)) => {
+            reviewed.get("_images").and_then(Value::as_array).cloned().unwrap_or_default()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The issues that hold the file: those `blocks_finalize` names, plus the errors of a designed-pages audit (`frame_top`). On an
+/// authored document the errors and warnings that do not block are recorded on the review as `advisoryIssues`.
+fn settle_blocking_issues(review: &mut Option<Value>, fail_on: &str, authored: bool, frame_top: Option<&[Value]>) -> Vec<Value> {
+    let issues_after: Vec<Value> = review.as_ref().and_then(|review| review.get("issuesAfter")).and_then(Value::as_array).cloned().unwrap_or_default();
+    let blocked: Vec<bool> = issues_after.iter().map(|issue| blocks_finalize(issue, fail_on, authored)).collect();
+    let mut blocking_issues: Vec<Value> = issues_after.iter().zip(&blocked).filter(|(_, blocked)| **blocked).map(|(issue, _)| issue.clone()).collect();
+    if let Some(frame_top) = frame_top {
+        blocking_issues.extend(frame_top.iter().filter(|issue| issue.get("severity").and_then(Value::as_str) == Some("error")).cloned());
+    }
+    if authored && let Some(fields) = review.as_mut().and_then(Value::as_object_mut) {
+        let advisory: Vec<Value> = issues_after
+            .iter()
+            .zip(&blocked)
+            .filter(|(issue, blocked)| !**blocked && matches!(issue.get("severity").and_then(Value::as_str), Some("error" | "warning")))
+            .map(|(issue, _)| issue.clone())
+            .collect();
+        fields.insert("advisoryIssues".to_owned(), Value::Array(advisory));
+    }
+    blocking_issues
+}
+
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `reviewForFinalize(session, args, cwd, { timedStep, failOn, authored })`.
     pub(crate) async fn review_for_finalize(
@@ -154,17 +185,8 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             metrics.record("review", started);
             Some(outcome?)
         };
-        // A reused preview is the render the caller already received with its token; only pixels this call produced are new evidence
-        // worth sending again.
-        let review_images: Vec<Value> = match &reviewed {
-            Some(reviewed) if reviewed.pointer("/preview/reused") != Some(&Value::Bool(true)) => {
-                reviewed.get("_images").and_then(Value::as_array).cloned().unwrap_or_default()
-            }
-            _ => Vec::new(),
-        };
+        let review_images = new_review_images(reviewed.as_ref());
         let mut review = reviewed.clone();
-        // A PDF of designed pages is reviewed as the deck it was measured as, and so is a Word document or workbook written to a
-        // brief: five scores, a note, and checks from the brief per page.
         let (format, frame, brief_present, frame_top, review_token) = {
             let session = lock(handle);
             (
@@ -182,22 +204,7 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         if let Some(fields) = review.as_mut().and_then(Value::as_object_mut) {
             fields.shift_remove("_images");
         }
-        let issues_after: Vec<Value> = review.as_ref().and_then(|review| review.get("issuesAfter")).and_then(Value::as_array).cloned().unwrap_or_default();
-        let blocked: Vec<bool> = issues_after.iter().map(|issue| blocks_finalize(issue, fail_on, authored)).collect();
-        let mut blocking_issues: Vec<Value> = issues_after.iter().zip(&blocked).filter(|(_, blocked)| **blocked).map(|(issue, _)| issue.clone()).collect();
-        // Its measured audit ran on the deck at author time; an error it found holds the file as it would the deck.
-        if frame {
-            blocking_issues.extend(frame_top.iter().filter(|issue| issue.get("severity").and_then(Value::as_str) == Some("error")).cloned());
-        }
-        if authored && let Some(fields) = review.as_mut().and_then(Value::as_object_mut) {
-            let advisory: Vec<Value> = issues_after
-                .iter()
-                .zip(&blocked)
-                .filter(|(issue, blocked)| !**blocked && matches!(issue.get("severity").and_then(Value::as_str), Some("error" | "warning")))
-                .map(|(issue, _)| issue.clone())
-                .collect();
-            fields.insert("advisoryIssues".to_owned(), Value::Array(advisory));
-        }
+        let blocking_issues = settle_blocking_issues(&mut review, fail_on, authored, frame.then_some(frame_top.as_slice()));
         Ok(ReviewStage {
             reviewed,
             review,
@@ -219,10 +226,6 @@ mod tests {
         json!({ "severity": "warning", "code": code, "source": source })
     }
 
-    // Port of `a drawing that hides cells or another drawing holds finalize even on an authored document`
-    // (core/office-finalize/review-stage.test.mjs): a chart over the figures it was drawn from passed finalize on an authored
-    // workbook, whose warnings are the model's call; a drawing that hides cells or another drawing holds the file back on every
-    // document, other warnings do not.
     #[test]
     fn a_drawing_that_hides_cells_or_another_drawing_holds_finalize_even_on_an_authored_document() {
         assert!(blocks_finalize(&warning("drawing_covers_cells", "format-review"), "error", true));
@@ -231,6 +234,29 @@ mod tests {
         assert!(!blocks_finalize(&json!({ "severity": "info", "code": "drawing_overlap" }), "error", true), "an info note never holds");
         assert!(blocks_finalize(&warning("label_truncated", "column-fit"), "warning", false));
         assert!(!blocks_finalize(&warning("low_contrast", "text-metrics"), "warning", true));
+    }
+
+    #[test]
+    fn blocking_issues_hold_the_file_and_an_authored_document_keeps_the_rest_as_advisory() {
+        let blocker = json!({ "severity": "error", "code": "a" });
+        let advisory = warning("label_truncated", "column-fit");
+        let mut review = Some(json!({ "issuesAfter": [blocker, advisory, json!({ "severity": "info" })] }));
+        let held = settle_blocking_issues(&mut review, "error", true, None);
+        assert_eq!(held, [blocker]);
+        assert_eq!(review.as_ref().expect("review")["advisoryIssues"], json!([advisory]));
+        let frame = [json!({ "severity": "error", "code": "frame" }), json!({ "severity": "warning", "code": "w" })];
+        let mut plain = Some(json!({ "issuesAfter": [] }));
+        assert_eq!(settle_blocking_issues(&mut plain, "error", false, Some(&frame)), [frame[0].clone()]);
+        assert!(plain.expect("review").get("advisoryIssues").is_none());
+    }
+
+    #[test]
+    fn a_reused_preview_sends_no_images_again() {
+        let fresh = json!({ "_images": [{ "page": 1 }] });
+        assert_eq!(new_review_images(Some(&fresh)), [json!({ "page": 1 })]);
+        let reused = json!({ "preview": { "reused": true }, "_images": [{ "page": 1 }] });
+        assert!(new_review_images(Some(&reused)).is_empty());
+        assert!(new_review_images(None).is_empty());
     }
 
     #[test]

@@ -499,6 +499,54 @@ fn empty_path_reason(cwd: &Path, path: &str, listing: &Listing, listed: usize, f
     }
 }
 
+/// `(language, files)` of the files with a known language, most files first, ties by id.
+fn language_counts(files: &[String], language_of: &impl Fn(&str) -> String) -> Vec<(String, usize)> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for rel in files {
+        let language = language_of(rel);
+        if language.is_empty() {
+            continue;
+        }
+        match counts.iter_mut().find(|(l, _)| *l == language) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((language, 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| mixdog_js::locale_compare(&a.0, &b.0)));
+    counts
+}
+
+/// `(path, reason)` for each requested path holding no file of a known (and requested) language.
+async fn empty_path_reasons(
+    processes: &Processes,
+    cwd: &Path,
+    paths: &[String],
+    filtered: &[String],
+    language_filter: &[String],
+    listing: Listing,
+    language_of: &impl Fn(&str) -> String,
+) -> Result<Vec<(String, String)>, String> {
+    let empty: Vec<(String, usize)> = paths
+        .iter()
+        .filter(|p| !filtered.iter().any(|f| !language_of(f).is_empty() && within_scope(f, std::slice::from_ref(*p))))
+        .map(|p| (p.clone(), listing.files.iter().filter(|f| within_scope(f, std::slice::from_ref(p))).count()))
+        .collect();
+    if empty.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (root, filter) = (cwd.to_owned(), !language_filter.is_empty());
+    on_lane(processes.durability(), move || {
+        empty
+            .into_iter()
+            .map(|(p, n)| {
+                let why = empty_path_reason(&root, &p, &listing, n, filter);
+                (p, why)
+            })
+            .collect()
+    })
+    .await
+    .map_err(|_| "the requested paths that yield no file could not be examined: their lane did not run the check".to_owned())
+}
 /// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
 /// map to languages by extension: the graph binary's table wins when available, with the static
 /// registry covering formatter-only extensions the binary does not parse.
@@ -516,40 +564,9 @@ pub async fn detect_languages(
     let files = listing.files.clone();
     let filtered: Vec<String> =
         if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
-    let mut counts: Vec<(String, usize)> = Vec::new();
-    for rel in &filtered {
-        let language = language_of(rel);
-        if language.is_empty() {
-            continue;
-        }
-        match counts.iter_mut().find(|(l, _)| *l == language) {
-            Some((_, n)) => *n += 1,
-            None => counts.push((language, 1)),
-        }
-    }
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| mixdog_js::locale_compare(&a.0, &b.0)));
-    // A requested path yields a file when it holds a file of a known (and requested) language.
-    let empty: Vec<(String, usize)> = paths
-        .iter()
-        .filter(|p| !filtered.iter().any(|f| !language_of(f).is_empty() && within_scope(f, std::slice::from_ref(*p))))
-        .map(|p| (p.clone(), listing.files.iter().filter(|f| within_scope(f, std::slice::from_ref(p))).count()))
-        .collect();
+    let counts = language_counts(&filtered, &language_of);
     let links = listing.links.clone();
-    let empty_paths = if empty.is_empty() {
-        Vec::new()
-    } else {
-        let (root, filter) = (cwd.to_owned(), !language_filter.is_empty());
-        let reasons = on_lane(processes.durability(), move || {
-            empty
-                .into_iter()
-                .map(|(p, n)| {
-                    let why = empty_path_reason(&root, &p, &listing, n, filter);
-                    (p, why)
-                })
-                .collect()
-        });
-        reasons.await.map_err(|_| "the requested paths that yield no file could not be examined: their lane did not run the check".to_owned())?
-    };
+    let empty_paths = empty_path_reasons(processes, cwd, paths, &filtered, language_filter, listing, &language_of).await?;
     Ok(Detected {
         languages: counts,
         files: filtered,

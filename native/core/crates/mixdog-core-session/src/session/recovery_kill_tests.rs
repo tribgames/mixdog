@@ -115,19 +115,7 @@ async fn recovery_kill_child() {
     let dir = PathBuf::from(std::env::var(DIR).expect("the data dir"));
     let rig = Rig::new();
     let committed = Arc::new(tokio::sync::Notify::new());
-    let told = committed.clone();
-    rig.set_script(Arc::new(move |run| {
-        let told = told.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let call =
-                json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
-            let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
-            run.port.commit_item(item).await.expect("commit");
-            told.notify_one();
-            std::future::pending::<RunOutcome>().await
-        })
-    }));
+    dies_after_call(&rig, "call_1", committed.clone());
     if stage == "seed" {
         let directory = SessionDirectory::new(rig.deps_on(real_store(&dir).await));
         let handle = start_thread(&directory).await;
@@ -155,34 +143,35 @@ async fn recovery_kill_child() {
     let directory = SessionDirectory::new(Arc::new(deps));
     let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     if stage == "verify" {
-        let read = CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") };
-        let Reply::Value(read) = reopened.request(read).await.expect("read") else { panic!("a value") };
-        let messages = read["messages"].as_array().expect("messages");
-        let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
-        assert_eq!(
-            shown,
-            [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")],
-            "{read}"
-        );
-        // A client attaching now is sent the recovered turn in its feed: the call closed as cancelled and the cancelled end of the turn
-        // (Node shows the stored restart line as a cancelled end, `restore.mjs` `isTranscriptCancelledStatusText`), each once.
-        let connection = MockConnection::new(ConnectionId(1), MockLimits::default());
-        let source: Arc<dyn FeedSource> = reopened.clone();
-        let attached = mixdog_core_api::feed::subscribe(&source, SubscriptionId::from("sub1"), Window::LastItems(50), None, &connection).expect("attach");
-        connection.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
-        let snapshot = connection
-            .drain_text()
-            .iter()
-            .filter_map(|text| serde_json::from_str::<serde_json::Value>(text.split_once(':').expect("a rendered frame").1).ok())
-            .find(|frame| frame["method"] == "thread/snapshot")
-            .expect("the attach is answered with a snapshot");
-        let items = snapshot["params"]["items"].as_array().expect("the snapshot's items");
-        let count = |wanted: &dyn Fn(&serde_json::Value) -> bool| items.iter().filter(|item| wanted(item)).count();
-        let said = |item: &serde_json::Value, text: &str| item.to_string().contains(text);
-        assert_eq!(count(&|item| item["type"] == "toolCall" && said(item, "Cancelled")), 1, "the cancelled call once: {items:?}");
-        assert_eq!(count(&|item| item["type"] == "turnEnd" && item["status"] == "cancelled"), 1, "the cancelled end of the turn once: {items:?}");
+        assert_recovered_once(&reopened).await;
     }
     say("DONE");
+}
+
+/// The recovered conversation reads as the cancelled result and the restart line once each, and a client attaching now is sent
+/// the call closed as cancelled and the cancelled end of the turn, each once (Node shows the stored restart line as a cancelled
+/// end, `restore.mjs` `isTranscriptCancelledStatusText`).
+async fn assert_recovered_once(reopened: &Arc<super::SessionHandle>) {
+    let read = CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(read) = reopened.request(read).await.expect("read") else { panic!("a value") };
+    let messages = read["messages"].as_array().expect("messages");
+    let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
+    assert_eq!(shown, [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")], "{read}");
+    let connection = MockConnection::new(ConnectionId(1), MockLimits::default());
+    let source: Arc<dyn FeedSource> = reopened.clone();
+    let attached = mixdog_core_api::feed::subscribe(&source, SubscriptionId::from("sub1"), Window::LastItems(50), None, &connection).expect("attach");
+    connection.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    let snapshot = connection
+        .drain_text()
+        .iter()
+        .filter_map(|text| serde_json::from_str::<serde_json::Value>(text.split_once(':').expect("a rendered frame").1).ok())
+        .find(|frame| frame["method"] == "thread/snapshot")
+        .expect("the attach is answered with a snapshot");
+    let items = snapshot["params"]["items"].as_array().expect("the snapshot's items");
+    let count = |wanted: &dyn Fn(&serde_json::Value) -> bool| items.iter().filter(|item| wanted(item)).count();
+    let said = |item: &serde_json::Value, text: &str| item.to_string().contains(text);
+    assert_eq!(count(&|item| item["type"] == "toolCall" && said(item, "Cancelled")), 1, "the cancelled call once: {items:?}");
+    assert_eq!(count(&|item| item["type"] == "turnEnd" && item["status"] == "cancelled"), 1, "the cancelled end of the turn once: {items:?}");
 }
 #[allow(clippy::disallowed_methods, reason = "the parent starts the child from this test binary")]
 fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>) -> Ended {
@@ -290,10 +279,6 @@ fn a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open() {
     }
     panic!("the recovery never ended within 64 points");
 }
-/// The process is killed again during a recovery that an earlier kill had cut: at every pair of write points (the first kill at the
-/// `first`-th write of the first recovery, the second at the `second`-th write of the next), the open after the second kill still
-/// leaves the cancelled result, the restart line and the cancelled end once each, in the conversation and in what an attaching client is
-/// sent.
 #[test]
 fn a_second_kill_during_the_recovery_leaves_each_row_once() {
     let mut pairs = 0;

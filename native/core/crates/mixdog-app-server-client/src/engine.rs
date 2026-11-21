@@ -489,12 +489,8 @@ impl Client {
     }
 }
 
-/// The tool approval the core sends is the card Node's engine produced (`name`, `args`, `kind` of the hook request: `approval`,
-/// `outbound`, or a human gate's `secret`, `takeover`, `permission`, `connector`, and the whole card under `card`), which the
-/// desktop and the phone read; the typed `ToolApprovalRequestParams` names the same request by `tool`, `request` and the tool's
-/// class. The reader fills in what the typed view needs from the card, so a request the core really sends is a request here (a
-/// frame the typed view refused left every approval of a terminal session unanswerable, the turn waiting on a card nobody was
-/// shown). The card itself travels whole in `request`.
+/// The core's tool approval is the card Node's engine produced (`name`, `args`, `kind`, the whole card under `card`); the typed
+/// `ToolApprovalRequestParams` names the same request by `tool`, `request` and the tool's class. The card travels whole in `request`.
 fn conform_tool_approval(frame: &mut Json) {
     if frame.get("method").and_then(Json::as_str) != Some("item/tool/requestApproval") {
         return;
@@ -715,82 +711,95 @@ impl Inner {
 
     async fn fold_item(&self, item: FoldItem) {
         match item {
-            FoldItem::Connection { n, cur_gen } => {
-                if self.lock().generation != cur_gen {
-                    return;
-                }
-                if n.method == wire::SERVER_REQUEST_RESOLVED {
-                    match n.params.clone().map(serde_json::from_value::<ServerRequestResolvedParams>) {
-                        Some(Ok(p)) => {
-                            self.lock().server_requests.retain(|(r, _)| *r.id() != p.request_id);
-                            self.emit(ClientEvent::ServerRequestResolved(p));
-                        }
-                        _ => self.emit(ClientEvent::ProtocolViolation("bad serverRequest/resolved".into())),
-                    }
-                } else {
-                    self.emit(ClientEvent::Notification(n));
-                }
-            }
-            FoldItem::Feed { n, f, snapshot, cur_gen } => {
-                let mut failed = Vec::new();
-                let params = match self.resolve_blobs(n.params.clone().unwrap_or(Json::Null), &mut failed).await {
-                    Ok(p) => p,
-                    Err(_) => return,
-                };
-                for error in failed {
-                    self.emit(ClientEvent::BlobUnavailable { feed: f.clone(), error });
-                }
-                let mut resolved = n;
-                resolved.params = Some(params.clone());
-                let mut passthrough = None;
-                {
-                    let mut guard = self.lock();
-                    if guard.generation != cur_gen {
-                        return;
-                    }
-                    let scoped = guard.scoped.contains(f.id.as_str());
-                    let st = &mut guard.store;
-                    if scoped {
-                        passthrough = Some(resolved);
-                    } else if f.id.as_str() == APP_FEED_ID {
-                        st.app = Some(f);
-                        if snapshot {
-                            match serde_json::from_value::<AppSnapshotParams>(params) {
-                                Ok(p) => {
-                                    st.sections.clear();
-                                    for u in p.sections {
-                                        self.apply_section(st, u);
-                                    }
-                                }
-                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad app/snapshot: {e}"))),
-                            }
-                        } else if is_section_method(&resolved.method) {
-                            match serde_json::from_value::<SectionUpdate>(params) {
-                                Ok(u) => self.apply_section(st, u),
-                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad section update: {e}"))),
-                            }
-                        } else {
-                            passthrough = Some(resolved);
-                        }
-                    } else {
-                        let reducer = &self.opts.thread_reducer;
-                        let state = if snapshot {
-                            reducer.as_ref().map_or_else(|| params.clone(), |r| r.initial(&params))
-                        } else if let Some(prev) = st.threads.get(f.id.as_str()) {
-                            reducer.as_ref().map_or_else(|| prev.state.clone(), |r| r.apply(&prev.state, &resolved))
-                        } else {
-                            return;
-                        };
-                        let id = f.id.to_string();
-                        st.threads.insert(id.clone(), ThreadFold { feed: f, state });
-                        let _ = self.store_changes.send(StoreChange::Thread { thread_id: id });
-                    }
-                }
-                if let Some(n) = passthrough {
-                    self.emit(ClientEvent::Notification(n));
-                }
-            }
+            FoldItem::Connection { n, cur_gen } => self.fold_connection_notification(n, cur_gen),
+            FoldItem::Feed { n, f, snapshot, cur_gen } => self.fold_feed_notification(n, f, snapshot, cur_gen).await,
         }
+    }
+
+    fn fold_connection_notification(&self, n: RpcNotification, cur_gen: u64) {
+        if self.lock().generation != cur_gen {
+            return;
+        }
+        if n.method == wire::SERVER_REQUEST_RESOLVED {
+            match n.params.clone().map(serde_json::from_value::<ServerRequestResolvedParams>) {
+                Some(Ok(p)) => {
+                    self.lock().server_requests.retain(|(r, _)| *r.id() != p.request_id);
+                    self.emit(ClientEvent::ServerRequestResolved(p));
+                }
+                _ => self.emit(ClientEvent::ProtocolViolation("bad serverRequest/resolved".into())),
+            }
+        } else {
+            self.emit(ClientEvent::Notification(n));
+        }
+    }
+
+    async fn fold_feed_notification(&self, n: RpcNotification, f: FeedStamp, snapshot: bool, cur_gen: u64) {
+        let mut failed = Vec::new();
+        let params = match self.resolve_blobs(n.params.clone().unwrap_or(Json::Null), &mut failed).await {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        for error in failed {
+            self.emit(ClientEvent::BlobUnavailable { feed: f.clone(), error });
+        }
+        let mut resolved = n;
+        resolved.params = Some(params.clone());
+        let passthrough = {
+            let mut guard = self.lock();
+            if guard.generation != cur_gen {
+                return;
+            }
+            let scoped = guard.scoped.contains(f.id.as_str());
+            let st = &mut guard.store;
+            if scoped {
+                Some(resolved)
+            } else if f.id.as_str() == APP_FEED_ID {
+                self.fold_app_notification(st, f, snapshot, params, resolved)
+            } else {
+                self.fold_thread_notification(st, f, snapshot, &params, &resolved);
+                None
+            }
+        };
+        if let Some(n) = passthrough {
+            self.emit(ClientEvent::Notification(n));
+        }
+    }
+
+    fn fold_app_notification(&self, st: &mut StoreData, f: FeedStamp, snapshot: bool, params: Json, resolved: RpcNotification) -> Option<RpcNotification> {
+        st.app = Some(f);
+        if snapshot {
+            match serde_json::from_value::<AppSnapshotParams>(params) {
+                Ok(p) => {
+                    st.sections.clear();
+                    for u in p.sections {
+                        self.apply_section(st, u);
+                    }
+                }
+                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad app/snapshot: {e}"))),
+            }
+        } else if is_section_method(&resolved.method) {
+            match serde_json::from_value::<SectionUpdate>(params) {
+                Ok(u) => self.apply_section(st, u),
+                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad section update: {e}"))),
+            }
+        } else {
+            return Some(resolved);
+        }
+        None
+    }
+
+    fn fold_thread_notification(&self, st: &mut StoreData, f: FeedStamp, snapshot: bool, params: &Json, resolved: &RpcNotification) {
+        let reducer = &self.opts.thread_reducer;
+        let state = if snapshot {
+            reducer.as_ref().map_or_else(|| params.clone(), |r| r.initial(params))
+        } else if let Some(prev) = st.threads.get(f.id.as_str()) {
+            reducer.as_ref().map_or_else(|| prev.state.clone(), |r| r.apply(&prev.state, resolved))
+        } else {
+            return;
+        };
+        let id = f.id.to_string();
+        st.threads.insert(id.clone(), ThreadFold { feed: f, state });
+        let _ = self.store_changes.send(StoreChange::Thread { thread_id: id });
     }
 
     // ── op reconciliation (protocol.md §9) ──
@@ -1075,21 +1084,7 @@ impl Driver {
         }
         if m.get("method").and_then(Json::as_str).is_some() {
             if m.get("id").is_some() {
-                let mut m = m;
-                conform_tool_approval(&mut m);
-                match serde_json::from_value::<ServerRequest>(m) {
-                    Ok(r) => {
-                        // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
-                        // method the protocol does not list does not parse, so it is never held: the TS client's `isOfferedRequest`).
-                        // The address is taken here, on decode: the socket this frame came in on, whenever its handler runs.
-                        let address = ReplyAddress { attachment: self.inner.lock().attachment(), request_id: r.id().clone() };
-                        if r.requires().is_none() {
-                            self.inner.lock().server_requests.push((r.clone(), address.clone()));
-                        }
-                        self.inner.emit(ClientEvent::ServerRequest(r, address));
-                    }
-                    Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!("bad server request: {e}"))),
-                }
+                self.on_server_request(m);
             } else {
                 match serde_json::from_value::<RpcNotification>(m) {
                     Ok(n) => self.on_notification(n).await,
@@ -1098,6 +1093,27 @@ impl Driver {
             }
             return;
         }
+        self.on_response(m).await;
+    }
+
+    fn on_server_request(&self, mut m: Json) {
+        conform_tool_approval(&mut m);
+        match serde_json::from_value::<ServerRequest>(m) {
+            Ok(r) => {
+                // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
+                // method the protocol does not list does not parse, so it is never held: the TS client's `isOfferedRequest`).
+                // The address is taken here, on decode: the socket this frame came in on, whenever its handler runs.
+                let address = ReplyAddress { attachment: self.inner.lock().attachment(), request_id: r.id().clone() };
+                if r.requires().is_none() {
+                    self.inner.lock().server_requests.push((r.clone(), address.clone()));
+                }
+                self.inner.emit(ClientEvent::ServerRequest(r, address));
+            }
+            Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!("bad server request: {e}"))),
+        }
+    }
+
+    async fn on_response(&mut self, m: Json) {
         // RFC 6455: 1007 for a payload that does not decode, 1002 for a sequence violation.
         let Some(id) = m.get("id").and_then(Json::as_u64).filter(|id| self.pending.contains_key(id)) else {
             return self.violation(1002, "response to unknown request").await;
@@ -1118,34 +1134,41 @@ impl Driver {
         self.count_response(p.cls);
         let result = m.get("result").cloned().unwrap_or(Json::Null);
         if let Some(hook) = &p.hook {
-            let (feed_id, thread) = match hook {
-                Hook::Attach { feed_id, thread } => (feed_id, thread.as_ref()),
-                Hook::Scoped { feed_id } => (feed_id, None),
-            };
-            // `system/ports/subscribe` answers with the subscription itself, every other subscribing call wraps it.
-            let wrapped = result.get("subscription");
-            let Some(s) = (match hook {
-                Hook::Scoped { .. } => Some(wrapped.unwrap_or(&result)),
-                Hook::Attach { .. } => wrapped,
-            })
-            .and_then(|s| serde_json::from_value::<Subscription>(s.clone()).ok()) else {
+            if !self.record_subscription(hook, &result) {
                 let _ = p.reply.send(Err(ClientError::ProtocolViolation("response without subscription".into())));
                 return;
-            };
-            let mut sh = self.inner.lock();
-            sh.recv.insert(feed_id.clone(), (s.epoch.to_string(), s.start_seq.saturating_sub(1)));
-            match (thread, hook) {
-                (Some((id, w)), _) => match sh.subs.iter_mut().find(|(t, _)| t == id) {
-                    Some(e) => e.1 = w.clone(),
-                    None => sh.subs.push((id.clone(), w.clone())),
-                },
-                (None, Hook::Scoped { .. }) => {
-                    sh.scoped.insert(feed_id.clone());
-                }
-                (None, Hook::Attach { .. }) => sh.app_subscribed = true,
             }
         }
         let _ = p.reply.send(Ok(result));
+    }
+
+    fn record_subscription(&self, hook: &Hook, result: &Json) -> bool {
+        let (feed_id, thread) = match hook {
+            Hook::Attach { feed_id, thread } => (feed_id, thread.as_ref()),
+            Hook::Scoped { feed_id } => (feed_id, None),
+        };
+        // `system/ports/subscribe` answers with the subscription itself, every other subscribing call wraps it.
+        let wrapped = result.get("subscription");
+        let Some(s) = (match hook {
+            Hook::Scoped { .. } => Some(wrapped.unwrap_or(result)),
+            Hook::Attach { .. } => wrapped,
+        })
+        .and_then(|s| serde_json::from_value::<Subscription>(s.clone()).ok()) else {
+            return false;
+        };
+        let mut sh = self.inner.lock();
+        sh.recv.insert(feed_id.clone(), (s.epoch.to_string(), s.start_seq.saturating_sub(1)));
+        match (thread, hook) {
+            (Some((id, w)), _) => match sh.subs.iter_mut().find(|(t, _)| t == id) {
+                Some(e) => e.1 = w.clone(),
+                None => sh.subs.push((id.clone(), w.clone())),
+            },
+            (None, Hook::Scoped { .. }) => {
+                sh.scoped.insert(feed_id.clone());
+            }
+            (None, Hook::Attach { .. }) => sh.app_subscribed = true,
+        }
+        true
     }
 
     fn count_response(&self, cls: Option<RequestClass>) {

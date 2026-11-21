@@ -1,13 +1,8 @@
-//! The home delivery's thread store over the session directory (`HomeThreads`): what Node's
-//! `agent-home-delivery.mjs` reads and writes through `loadSession`, `saveSessionAsync` and
-//! `isSessionTurnInFlight`.
-//!
-//! Node pushes the rows onto the live session object and then stores it; here the rows are the
+//! The home delivery's thread store over the session directory (`HomeThreads`). The rows are the
 //! room-row append of the thread (`thread/roomRows/append`: stored as rows of no turn, shown
 //! live, skipped when their `meta.transcript.messageId` is already held), which is durable when
 //! it answers, so a later `append` with no rows has nothing left to store. `updatedAt` is
-//! stamped by that append at the time it lands (the delivery passes `Date.now()` for the same
-//! instant).
+//! stamped by that append at the time it lands.
 
 use std::sync::Arc;
 
@@ -19,7 +14,6 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
-use mixdog_rt::LaneToken;
 use mixdog_services::bots::delivery::env::{HomeThreads, ThreadSnapshot};
 use serde_json::{Value, json};
 
@@ -48,13 +42,9 @@ impl DirectoryHomeThreads {
         let deps = self.directory.deps();
         deps.store.unheld().await;
         let (store, id) = (deps.store.clone(), thread.clone());
-        let read = deps
-            .lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| store.read_header(lane, &id))
-            .map_err(|error| error.to_string())?
+        let read = mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &id))
             .await
-            .map_err(|_| "the header read was dropped".to_string())?;
+            .map_err(|error| error.to_string())?;
         match read {
             Ok(header) => Ok(Some(header)),
             Err(CoreError::ThreadNotFound { .. }) => Ok(None),

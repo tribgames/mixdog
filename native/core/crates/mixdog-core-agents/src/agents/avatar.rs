@@ -258,6 +258,36 @@ pub(super) fn poster_file(file: &str) -> String {
 
 /// `avatarUpdate(value, dir)`: the `avatar` of a save as the record to store and the images to
 /// write; `null` clears it.
+/// The file each state keeps: a stored name stays, an upload is named by its content and queued in `writes` with its poster.
+fn stage_state_images(requested: &Value, writes: &mut Vec<ImageWrite>) -> Result<Map<String, Value>, String> {
+    let mut states = Map::new();
+    for state in STATES {
+        let entry = match requested.get(state) {
+            None | Some(Value::Null) => continue,
+            Some(Value::String(file)) => {
+                if !file.is_empty() {
+                    states.insert(state.into(), json!(file));
+                }
+                continue;
+            }
+            Some(entry) => entry,
+        };
+        let label = format!("agent avatar {state} image");
+        let (bytes, info) = image_upload(entry.get("data"), &label)?;
+        let file = format!("{state}-{}.{}", sha12(&bytes), info.format);
+        writes.push(ImageWrite { path: state_path(&file), bytes });
+        if info.animated {
+            let (poster, poster_info) = image_upload(entry.get("poster"), &format!("{label}'s first frame"))?;
+            if poster_info.format != "png" || poster_info.animated {
+                return Err(format!("{label}'s first frame must be a still PNG"));
+            }
+            writes.push(ImageWrite { path: state_path(&poster_file(&file)), bytes: poster });
+        }
+        states.insert(state.into(), json!(file));
+    }
+    Ok(states)
+}
+
 pub(super) fn avatar_update(value: &Value, dir: &std::path::Path) -> Result<AvatarUpdate, String> {
     if value.is_null() {
         return Ok(AvatarUpdate { avatar: None, writes: Vec::new() });
@@ -271,33 +301,7 @@ pub(super) fn avatar_update(value: &Value, dir: &std::path::Path) -> Result<Avat
     };
     let mut writes: Vec<ImageWrite> = Vec::new();
     let avatar = if custom.get("kind").and_then(Value::as_str) == Some("custom") && custom.get("states").is_some_and(Value::is_object) {
-        let mut states = Map::new();
-        for state in STATES {
-            let entry = custom["states"].get(state);
-            match entry {
-                None | Some(Value::Null) => continue,
-                Some(Value::String(file)) => {
-                    if !file.is_empty() {
-                        states.insert(state.into(), json!(file));
-                    }
-                    continue;
-                }
-                Some(_) => {}
-            }
-            let entry = entry.unwrap_or(&Value::Null);
-            let label = format!("agent avatar {state} image");
-            let (bytes, info) = image_upload(entry.get("data"), &label)?;
-            let file = format!("{state}-{}.{}", sha12(&bytes), info.format);
-            writes.push(ImageWrite { path: state_path(&file), bytes });
-            if info.animated {
-                let (poster, poster_info) = image_upload(entry.get("poster"), &format!("{label}'s first frame"))?;
-                if poster_info.format != "png" || poster_info.animated {
-                    return Err(format!("{label}'s first frame must be a still PNG"));
-                }
-                writes.push(ImageWrite { path: state_path(&poster_file(&file)), bytes: poster });
-            }
-            states.insert(state.into(), json!(file));
-        }
+        let states = stage_state_images(&custom["states"], &mut writes)?;
         normalize_agent_avatar(&json!({ "kind": "custom", "states": states })).ok_or("agent avatar needs an idle image")?
     } else {
         normalize_agent_avatar(custom).ok_or("agent avatar must be a known mascot or an uploaded image")?

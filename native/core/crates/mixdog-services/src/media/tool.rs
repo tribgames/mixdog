@@ -653,6 +653,27 @@ impl MediaToolService {
         (self.now)()
     }
 
+    async fn wait_for_job(&self, started: Value, kind: &str, lane_id: &str, cancel: &CancellationToken) -> Done<Value> {
+        let timeout_ms: i64 = if kind == "video" { 900_000 } else { 180_000 };
+        let deadline = self.now() + timeout_ms;
+        let mut job = started;
+        let job_id = text(&job, "id");
+        let waiting = WaitingJob { graph: self.graph.as_ref(), id: &job_id, cancel };
+        while job.get("status").and_then(Value::as_str) == Some("running") {
+            if cancel.is_cancelled() {
+                return Err(ToolFailure::new("generation canceled"));
+            }
+            if self.now() > deadline {
+                return Err(ToolFailure::new(format!("generation is still running after {}s on {lane_id}; poll media status job:{job_id}", timeout_ms / 1000))
+                    .with("job", json!(job_id)));
+            }
+            mixdog_rt::time::sleep(self.poll).await;
+            job = self.graph.get(&job_id).unwrap_or(job);
+        }
+        drop(waiting);
+        Ok(job)
+    }
+
     async fn generate(&self, args: &Value, cwd: &Path, session_id: &str, cancel: &CancellationToken) -> Done<Value> {
         let kind = clean(args.get("kind"));
         if !MEDIA_KINDS.contains(&kind.as_str()) {
@@ -750,23 +771,8 @@ impl MediaToolService {
             );
             return Ok(Value::Object(out));
         }
-        let timeout_ms: i64 = if kind == "video" { 900_000 } else { 180_000 };
-        let deadline = self.now() + timeout_ms;
-        let mut job = started;
-        let job_id = text(&job, "id");
-        let waiting = WaitingJob { graph: self.graph.as_ref(), id: &job_id, cancel };
-        while job.get("status").and_then(Value::as_str) == Some("running") {
-            if cancel.is_cancelled() {
-                return Err(ToolFailure::new("generation canceled"));
-            }
-            if self.now() > deadline {
-                return Err(ToolFailure::new(format!("generation is still running after {}s on {lane_id}; poll media status job:{job_id}", timeout_ms / 1000))
-                    .with("job", json!(job_id)));
-            }
-            mixdog_rt::time::sleep(self.poll).await;
-            job = self.graph.get(&job_id).unwrap_or(job);
-        }
-        drop(waiting);
+        let job_id = text(&started, "id");
+        let job = self.wait_for_job(started, &kind, &lane_id, cancel).await?;
         let asset_id = text(&job, "assetId");
         if job.get("status").and_then(Value::as_str) != Some("done") || !truthy(job.get("assetId")) {
             let why = if truthy(job.get("error")) { text(&job, "error") } else { text(&job, "status") };

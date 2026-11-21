@@ -1,25 +1,18 @@
-//! The effort judge: Node's `judgeTurn` for a turn and for a tool-result step (Node's step path
-//! calls `judgeTurn` too), with Node's waits ([`JudgeTiming`]). Every answer comes within those
-//! waits: a model that is not installed or being installed, a load failure, a run error, a busy
-//! queue, a missed deadline and a worker that dies or panics all answer a skip, which leaves the
-//! turn at its default effort and the step at the effort in force.
+//! Every answer comes within the waits of [`JudgeTiming`]: a model that is not installed or being
+//! installed, a load failure, a run error, a busy queue, a missed deadline and a worker that dies or
+//! panics all answer a skip, which leaves the turn at its default effort and the step at the effort
+//! in force.
 //!
-//! The model load, its warm-up and every inference run on the judge's own thread
-//! ([`JudgeWorker`], Node's judge worker): normal priority, one judgment at a time
-//! per model instance, never behind the shared CPU lanes. Whether the model is
-//! installed and trained on steps is read as a byte-bounded job on the interactive
-//! read lane; only installs and their hash checks use the CPU bulk lane, which Node
-//! also runs off its worker. The model lives in a host process of its own ([`host`](crate::effort_judge::host)):
-//! a native fault in inference ends that process, not the core, and the next request starts a fresh one.
-//! It loads at the first judgment of a turn (nothing loads it at a daemon start or a session open) and is unloaded after [`KEEP_WARM`] without a judgment
-//! (never under a request, a load or a turn's lease: [`EffortJudgeModel::hold_warm`]); the first turn after
-//! such an unload waits for the reload ([`RELOAD_WAIT`]). A failed load is remembered until the model
-//! is installed or repaired, so a broken model cannot add a load to every step.
+//! The model load, its warm-up and every inference run on the judge's own thread ([`JudgeWorker`]),
+//! one judgment at a time per model instance, never behind the shared CPU lanes; the model lives in a
+//! host process of its own ([`host`](crate::effort_judge::host)). It loads at the first judgment of a
+//! turn and is unloaded after [`KEEP_WARM`] without a judgment (never under a request, a load or a
+//! turn's lease: [`EffortJudgeModel::hold_warm`]); the first turn after such an unload waits for the
+//! reload ([`RELOAD_WAIT`]). A failed load is remembered until the model is installed or repaired.
 //!
-//! Install triggers, as Node has them: the first judged step of the instance
-//! refreshes a model that is not the current release (in the background, the
-//! step does not wait); a load failure verifies the files against the manifest
-//! once and fetches only the damaged ones.
+//! The first judged step of the instance refreshes a model that is not the current release in the
+//! background; a failed load verifies the files against the manifest once and fetches only the
+//! damaged ones.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -483,10 +476,10 @@ impl EffortJudgeModel {
         self.model.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Node's `shutdownEffortJudge`: the thread taking jobs is let go and the model with it. Nothing
-    /// waits for the thread: its waiters answer "effort judge exited" now, its running inference is
-    /// stopped, and it drops its model on itself (the session's drop joins its intra-op threads,
-    /// which no async worker may wait for) once its job returns.
+    /// The thread taking jobs is let go and the model with it. Nothing waits for the thread: its
+    /// waiters answer "effort judge exited" now, its running inference is stopped, and it drops its
+    /// model on itself once its job returns (the session's drop joins its intra-op threads, which no
+    /// async worker may wait for).
     fn let_go(&self) {
         // In this order: a load that answers in between sees the leave and stores nothing.
         self.worker.leave();
@@ -580,10 +573,9 @@ impl EffortJudgeModel {
     }
 
     /// Loads the model unless the thread taking jobs has it (or it failed); callers hold the `turn`
-    /// gate. Answers the generation of the thread holding it. A model that is not installed is not
-    /// remembered: an install can follow. A thread that cannot take the job is not remembered
-    /// either; a load failure is, a panicking load included. A load answered after the judge let
-    /// its thread go (shutdown, new files) stores nothing.
+    /// gate. Answers the generation of the thread holding it. Only a load failure (a panicking load
+    /// included) is remembered; not-installed and a thread that cannot take the job are not. A load
+    /// answered after the judge let its thread go stores nothing.
     async fn ensure_loaded(self: &Arc<Self>) -> Result<u64, JudgeError> {
         if let Some(outcome) = self.loaded() {
             return outcome;
@@ -630,14 +622,9 @@ impl EffortJudgeModel {
         }
     }
 
-    /// Node's `judgeTurn` (`judge-client.mjs:336-379` at `bb8c5e3b7`): the probabilities and the
-    /// milliseconds from sending, or why the judge cannot answer in time. Same order of checks as
-    /// Node's: a platform without a binding, an install in progress, a missing model, a recent load
-    /// failure, a load that outlasts the cold wait, a queue that outlasts the queue wait, an answer
-    /// that outlasts the deadline. Every wait is on the judge's alarm, armed before what it waits for.
-    ///
-    /// A request that finds its thread unloaded for being idle (Node's `retiredIdle`) is asked again
-    /// from the start, and so answered by a fresh load.
+    /// The probabilities and the milliseconds from sending, or why the judge cannot answer in time.
+    /// A request that finds its thread unloaded for being idle is asked again from the start, and so
+    /// answered by a fresh load.
     async fn ask(self: &Arc<Self>, ask: Ask, timing: JudgeTiming) -> Result<(Vec<f64>, u64), JudgeError> {
         let ask = Arc::new(ask);
         loop {
@@ -650,6 +637,13 @@ impl EffortJudgeModel {
     }
 
     async fn ask_once(self: &Arc<Self>, ask: &Arc<Ask>, timing: JudgeTiming) -> Result<(Vec<f64>, u64), Stop> {
+        self.admit().await?;
+        let unloaded_before = self.idle.retired.load(Ordering::Acquire);
+        self.await_ready(timing).await?;
+        self.judge_resident(ask, timing, unloaded_before).await
+    }
+
+    async fn admit(self: &Arc<Self>) -> Result<(), Stop> {
         if !self.config.runtime_supported() {
             return Err(JudgeError::Unsupported.into());
         }
@@ -662,7 +656,10 @@ impl EffortJudgeModel {
             Ok(false) => return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()).into()),
             Err(error) => return Err(JudgeError::Run(error.to_string()).into()),
         }
-        let unloaded_before = self.idle.retired.load(Ordering::Acquire);
+        Ok(())
+    }
+
+    async fn await_ready(self: &Arc<Self>, timing: JudgeTiming) -> Result<(), Stop> {
         if !self.is_ready() {
             if let Some(why) = self.recent_load_failure(timing.retry) {
                 return Err(JudgeError::Load(why).into());
@@ -687,8 +684,7 @@ impl EffortJudgeModel {
             match loaded {
                 Some(Ok(Ok(()))) => {}
                 Some(Ok(Err(error @ (JudgeError::NotInstalled(_) | JudgeError::Installing | JudgeError::Unsupported)))) => return Err(error.into()),
-                // Node's `waitReady` answered false: the wait ran out, the load failed or the worker
-                // was ended (`:351-352`).
+                // The wait ran out, the load failed or the worker was ended.
                 _ => {
                     let why = self.last_error();
                     return Err(if why.is_empty() { JudgeError::Warming } else { JudgeError::Load(raw_load_message(&why).to_owned()) }.into());
@@ -697,21 +693,24 @@ impl EffortJudgeModel {
         } else {
             self.touch_idle();
         }
+        Ok(())
+    }
+
+    async fn judge_resident(self: &Arc<Self>, ask: &Arc<Ask>, timing: JudgeTiming, unloaded_before: u64) -> Result<(Vec<f64>, u64), Stop> {
         let exited = || {
             if self.idle.retired.load(Ordering::Acquire) > unloaded_before { Stop::Retry } else { Stop::Fail(JudgeError::Worker(EXITED.to_owned())) }
         };
-        // Node's `target`: the thread whose model is ready as the judgment arrives.
         let Some(Ok(target)) = self.loaded() else { return Err(exited()) };
         let queue = deadline(&*self.alarm, timing.queue);
         // The place in the queue is taken on the first poll, in arrival order; a judgment that is
-        // still waiting when the queue wait runs out leaves the queue unsent (Node's `abandoned`).
+        // still waiting when the queue wait runs out leaves the queue unsent.
         let entered = tokio::select! {
             biased;
             entered = self.turn.enter(&self.cancel) => entered,
             () = queue => return Err(JudgeError::Busy.into()),
         };
         let Ok(turn) = entered else { return Err(JudgeError::Worker(EXITED.to_owned()).into()) };
-        // A thread let go while the judgment waited: Node's `worker !== target || !ready`.
+        // A thread let go while the judgment waited.
         if !matches!(self.loaded(), Some(Ok(generation)) if generation == target) {
             return Err(exited());
         }
@@ -725,7 +724,7 @@ impl EffortJudgeModel {
             Ask::Step(input) => resident(seat)?.probs(input),
         };
         // Sent, the judgment holds the queue until its thread answers or is let go, whether or not
-        // its caller still waits: Node sends the next request only then (`queueTail`, `:360`).
+        // its caller still waits.
         mixdog_rt::spawn("services.effort-judge.judgment", TaskClass::Work, async move {
             let answer = this.worker.judge(target, job).await.and_then(|probs| probs);
             // A host that died under the request is gone: the next request starts a fresh one, now,

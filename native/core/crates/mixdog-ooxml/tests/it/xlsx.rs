@@ -40,6 +40,22 @@ fn cells_keep_their_types_and_a_formula_is_stored_with_its_text() {
 }
 
 #[test]
+fn a_range_of_texts_is_stored_as_the_dates_and_figures_they_type_as_under_their_formats() {
+    let doc = Doc::named("xlsx", "Plan");
+    doc.apply(json!([{ "op": "set_range", "sheet": "Plan", "range": "A1:D1", "values": [["2026-09-30", "15%", "1,234", "007"]] }]));
+    let snapshot = doc.snapshot();
+    let at = |reference: &str| cell(&snapshot, "Plan", reference).expect("cell").clone();
+    assert_eq!(at("A1")["value"], json!(46295));
+    assert_eq!(at("A1")["style"]["numberFormat"], json!("yyyy-mm-dd"));
+    assert_eq!(at("B1")["value"], json!(0.15));
+    assert_eq!(at("B1")["style"]["numberFormat"], json!("0%"));
+    assert_eq!(at("C1")["value"], json!(1234));
+    assert_eq!(at("C1")["style"]["numberFormat"], json!("#,##0"));
+    assert_eq!(at("D1")["value"], json!("007"));
+    doc.assert_valid();
+}
+
+#[test]
 fn recalculating_fills_the_cached_value_of_a_formula() {
     let doc = ledger();
     assert_eq!(cell(&doc.snapshot(), "Plan", "B4").expect("B4")["cacheState"], json!("missing"));
@@ -144,33 +160,61 @@ fn layout_operations_write_their_sheet_elements() {
 }
 
 #[test]
-fn visibility_names_protection_hyperlinks_validation_and_conditional_formats_are_recorded() {
+fn a_hidden_sheet_and_a_hidden_row_are_recorded() {
     let doc = ledger();
     doc.apply(json!([
         { "op": "add_sheet", "name": "Checks" },
         { "op": "set_sheet_visibility", "sheet": "Checks", "visibility": "hidden" },
-        { "op": "define_name", "name": "Tax", "refersTo": "=Plan!$B$4" },
-        { "op": "protect_sheet", "sheet": "Plan" },
-        { "op": "set_hyperlink", "sheet": "Plan", "cell": "A2", "address": "https://example.com/a?b=1&c=2", "text": "Example" },
-        { "op": "add_validation", "sheet": "Plan", "range": "A2:A3", "formula1": "Tea,Mug" },
-        { "op": "add_conditional_format", "sheet": "Plan", "range": "B2:B3", "formula": "=B2>3", "fillColor": "FFC7CE" },
         { "op": "set_row_visibility", "sheet": "Plan", "row": 3, "visible": false }
     ]));
+    assert!(doc.part("xl/workbook.xml").contains("state=\"hidden\""));
+    assert!(doc.part("xl/worksheets/sheet1.xml").contains("hidden=\"1\""));
+    assert_eq!(doc.snapshot()["sheets"][0]["hiddenRows"], json!([3]));
+    doc.assert_valid();
+}
+
+#[test]
+fn a_defined_name_is_recorded_and_deleted() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "define_name", "name": "Tax", "refersTo": "=Plan!$B$4" }]));
     let workbook = doc.part("xl/workbook.xml");
-    assert!(workbook.contains("state=\"hidden\"") && workbook.contains("<definedName name=\"Tax\"") && workbook.contains("Plan!$B$4"), "{workbook}");
-    let sheet = doc.part("xl/worksheets/sheet1.xml");
-    assert!(
-        sheet.contains("<sheetProtection") && sheet.contains("<hyperlink ") && sheet.contains("<dataValidation ") && sheet.contains("<conditionalFormatting")
-    );
-    assert!(sheet.contains("hidden=\"1\""));
+    assert!(workbook.contains("<definedName name=\"Tax\"") && workbook.contains("Plan!$B$4"), "{workbook}");
+    doc.apply(json!([{ "op": "delete_name", "name": "Tax" }]));
+    assert!(!doc.part("xl/workbook.xml").contains("<definedName name=\"Tax\""));
+    doc.assert_valid();
+}
+
+#[test]
+fn sheet_protection_is_recorded_and_removed() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "protect_sheet", "sheet": "Plan" }]));
+    assert!(doc.part("xl/worksheets/sheet1.xml").contains("<sheetProtection"));
+    doc.apply(json!([{ "op": "unprotect_sheet", "sheet": "Plan" }]));
+    assert!(!doc.part("xl/worksheets/sheet1.xml").contains("<sheetProtection"));
+    doc.assert_valid();
+}
+
+#[test]
+fn a_hyperlink_is_an_external_relationship_of_the_sheet() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "set_hyperlink", "sheet": "Plan", "cell": "A2", "address": "https://example.com/a?b=1&c=2", "text": "Example" }]));
+    assert!(doc.part("xl/worksheets/sheet1.xml").contains("<hyperlink "));
     assert!(doc.part("xl/worksheets/_rels/sheet1.xml.rels").contains("https://example.com/a?b=1&amp;c=2"));
+    doc.assert_valid();
+}
+
+#[test]
+fn a_validation_and_a_conditional_format_are_recorded() {
+    let doc = ledger();
+    doc.apply(json!([
+        { "op": "add_validation", "sheet": "Plan", "range": "A2:A3", "formula1": "Tea,Mug" },
+        { "op": "add_conditional_format", "sheet": "Plan", "range": "B2:B3", "formula": "=B2>3", "fillColor": "FFC7CE" }
+    ]));
+    let sheet = doc.part("xl/worksheets/sheet1.xml");
+    assert!(sheet.contains("<dataValidation ") && sheet.contains("<conditionalFormatting"));
     let entry = doc.snapshot()["sheets"][0].clone();
-    assert_eq!(entry["hiddenRows"], json!([3]));
     assert_eq!(entry["validations"].as_array().expect("validations").len(), 1);
     assert_eq!(entry["conditionalFormats"].as_array().expect("formats").len(), 1);
-    doc.apply(json!([{ "op": "delete_name", "name": "Tax" }, { "op": "unprotect_sheet", "sheet": "Plan" }]));
-    assert!(!doc.part("xl/workbook.xml").contains("<definedName name=\"Tax\""));
-    assert!(!doc.part("xl/worksheets/sheet1.xml").contains("<sheetProtection"));
     doc.assert_valid();
 }
 
@@ -184,6 +228,48 @@ fn a_chart_adds_its_part_drawing_and_relationships() {
     assert!(chart.contains("<c:barChart>") && chart.contains("Quantities") && chart.contains("Plan!$B$2:$B$3"), "{chart}");
     assert_eq!(count(&doc.part("xl/drawings/drawing1.xml"), "<c:chart "), 1);
     assert!(doc.part("[Content_Types].xml").contains("/xl/charts/chart1.xml"));
+    doc.assert_valid();
+}
+
+#[test]
+fn a_sort_over_hidden_rows_is_refused() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "set_row_visibility", "sheet": "Plan", "row": 3, "visible": false }]));
+    let error = doc.try_apply(json!([{ "op": "sort_range", "sheet": "Plan", "range": "A1:B3", "by": "B" }])).expect_err("a refusal");
+    assert!(error.starts_with("XLSX sort_range would move values under hidden row 3"), "{error}");
+}
+
+#[test]
+fn a_sort_through_a_merged_cell_is_refused() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "merge_cells", "sheet": "Plan", "range": "A2:B2" }]));
+    let error = doc.try_apply(json!([{ "op": "sort_range", "sheet": "Plan", "range": "A1:B3", "by": "B" }])).expect_err("a refusal");
+    assert!(error.starts_with("XLSX sort_range cannot move rows through the merged cell A2:B2"), "{error}");
+}
+
+#[test]
+fn a_pivot_takes_the_number_format_of_its_source_column() {
+    let doc = ledger();
+    doc.apply(json!([
+        { "op": "set_style", "sheet": "Plan", "range": "B2:B3", "properties": { "numberFormat": "#,##0.00" } },
+        { "op": "add_pivot_table", "sheet": "Plan", "source": "A1:B3", "rows": ["Item"], "values": ["Qty"], "destination": "H2" }
+    ]));
+    let table = doc.part("xl/pivotTables/pivotTable1.xml");
+    assert!(table.contains("<dataField") && table.contains("numFmtId=\"164\""), "{table}");
+    assert!(doc.part("xl/styles.xml").contains("<numFmt numFmtId=\"164\" formatCode=\"#,##0.00\"/>"));
+    let sheet = doc.part("xl/worksheets/sheet1.xml");
+    let at = sheet.find("<c r=\"I3\"").expect("a pivot data cell");
+    assert!(sheet[at..].split('>').next().unwrap_or("").contains(" s=\""), "{sheet}");
+    doc.assert_valid();
+}
+
+#[test]
+fn a_chart_plotted_by_rows_cites_each_row_as_a_series() {
+    let doc = ledger();
+    doc.apply(json!([{ "op": "add_chart", "sheet": "Plan", "chartType": "column", "range": "A1:B3", "plotBy": "rows" }]));
+    let chart = doc.part("xl/charts/chart1.xml");
+    assert!(chart.contains("Plan!$B$1:$B$1") && chart.contains("Plan!$B$2:$B$2") && chart.contains("Plan!$B$3:$B$3"), "{chart}");
+    assert!(chart.contains("Plan!$A$2") && chart.contains("Plan!$A$3"), "{chart}");
     doc.assert_valid();
 }
 

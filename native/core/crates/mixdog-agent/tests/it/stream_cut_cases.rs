@@ -1,9 +1,3 @@
-//! A model response stream cut by a connection-level HTTP/2 error (`TransportFault::H2GoAway`: the connection ended, so every
-//! stream on it failed with it) after the response was accepted. What the loop does with it follows what the stream had
-//! exposed when it was cut: nothing shown is retried in place; shown output is replayed only once the owner withdrew it,
-//! else the turn continues from the shown text (the product's owner offers no withdrawal); a tool input cut mid-stream is
-//! replayed with the split-call notice; a call the stream dispatched never runs twice.
-
 use mixdog_core_api::domain::provider::ConnectionInfo;
 use mixdog_core_api::domain::provider::Exposure;
 

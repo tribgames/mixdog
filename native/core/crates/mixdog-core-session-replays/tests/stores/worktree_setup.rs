@@ -22,6 +22,7 @@ use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
 use serde_json::Value;
 
+use mixdog_core_session::session::delete::DeleteSeams;
 use mixdog_core_session::session::worktree::RunOptions;
 use mixdog_core_session::session::worktree::SetupEvent;
 use mixdog_core_session::session::worktree::SetupReport;
@@ -370,11 +371,29 @@ async fn a_gateway_route_clear_keeps_what_node_keeps() {
     }
 }
 
-/// `deleteSession`'s outside world over the real services, in Node's calls: the session's own
-/// background work is cancelled silently (not another session's), its gateway route goes (not
-/// another session's), the app feed hears `thread/deleted`, and its worktree cleanups stop.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() {
+struct DeleteWorld {
+    deletion: mixdog_core_session::session::purge::SessionDeletion,
+    stopped: Arc<Mutex<Vec<String>>>,
+    shells: Arc<DeleteShells>,
+    cancelled: Arc<Mutex<Vec<Option<String>>>>,
+    routes_file: PathBuf,
+    route: Value,
+    conn: mixdog_core_api::mock::MockConnection,
+    _data: tempfile::TempDir,
+    _rig: mixdog_core_session::session::worktree::worktree_tests::Rig,
+}
+
+#[derive(Default)]
+struct DeleteShells(Mutex<Vec<String>>);
+impl mixdog_core_session::session::shell_jobs::OwnedShells for DeleteShells {
+    fn cancel_owned(&self, owner: &mixdog_core_api::ids::ThreadId) {
+        self.0.lock().unwrap().push(owner.as_str().to_owned());
+    }
+}
+
+/// `deleteSession`'s outside world over the real services: two sessions with a background job and a gateway route each, an app feed
+/// with a subscriber, and the worktree maintenance.
+fn delete_world() -> DeleteWorld {
     use mixdog_agent::agent_tool::board::JobBoard;
     use mixdog_agent::agent_tool::board::JobMeta;
     use mixdog_agent::agent_tool::board::NewJob;
@@ -382,8 +401,6 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     use mixdog_core_api::mock::MockConnection;
     use mixdog_core_api::mock::MockFeed;
     use mixdog_core_api::mock::MockLimits;
-
-    use mixdog_core_session::session::delete::DeleteSeams;
 
     let board = JobBoard::new(Arc::new(BoardClock), None, None);
     let stopped: Arc<Mutex<Vec<String>>> = Arc::default();
@@ -423,14 +440,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
             Ok(String::new())
         }
     }
-    #[derive(Default)]
-    struct Shells(Mutex<Vec<String>>);
-    impl mixdog_core_session::session::shell_jobs::OwnedShells for Shells {
-        fn cancel_owned(&self, owner: &mixdog_core_api::ids::ThreadId) {
-            self.0.lock().unwrap().push(owner.as_str().to_owned());
-        }
-    }
-    let shells = Arc::new(Shells::default());
+    let shells = Arc::new(DeleteShells::default());
     let rig = rig();
     let cancelled = Arc::new(Mutex::new(Vec::new()));
     let data = tempfile::tempdir().unwrap();
@@ -451,19 +461,39 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
         read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)),
         agents: None,
     };
+    DeleteWorld { deletion, stopped, shells, cancelled, routes_file, route, conn, _data: data, _rig: rig }
+}
 
-    deletion.release_session_work("sess_gone", "desktop-session-delete").await;
-    assert_eq!(*stopped.lock().unwrap(), ["sess_gone"]);
-    assert_eq!(*shells.0.lock().unwrap(), ["sess_gone"], "the session's shells go with its work");
-    // Gone when the release returns, as Node's synchronous clear is.
-    let left: Value = serde_json::from_str(&std::fs::read_to_string(&routes_file).unwrap()).unwrap();
-    assert_eq!(left["sessions"], json!({ "sess_kept": route }));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_cancels_the_sessions_own_background_work_and_shells_only() {
+    let world = delete_world();
+    world.deletion.release_session_work("sess_gone", "desktop-session-delete").await;
+    assert_eq!(*world.stopped.lock().unwrap(), ["sess_gone"]);
+    assert_eq!(*world.shells.0.lock().unwrap(), ["sess_gone"], "the session's shells go with its work");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_removes_the_sessions_gateway_route_before_the_release_returns() {
+    let world = delete_world();
+    world.deletion.release_session_work("sess_gone", "desktop-session-delete").await;
+    let left: Value = serde_json::from_str(&std::fs::read_to_string(&world.routes_file).unwrap()).unwrap();
+    assert_eq!(left["sessions"], json!({ "sess_kept": world.route }));
     assert_eq!((left["version"].clone(), left["sessionHosts"].clone()), (json!(2), json!({})));
-    deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("sess_gone"));
-    conn.drain_text_until(|texts| texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"sess_gone"}"#))).await;
-    deletion.release_deleted_worktree("sess_gone").await;
-    assert_eq!(*cancelled.lock().unwrap(), [Some("sess_gone".to_owned())]);
-    deletion.forget_session_search("sess_gone");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_tells_the_app_feed_thread_deleted() {
+    let world = delete_world();
+    world.deletion.thread_deleted(&mixdog_core_api::ids::ThreadId::from("sess_gone"));
+    world.conn.drain_text_until(|texts| texts.iter().any(|t| t.contains(r#""method":"thread/deleted","params":{"threadId":"sess_gone"}"#))).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delete_stops_the_sessions_worktree_cleanups() {
+    let world = delete_world();
+    world.deletion.release_deleted_worktree("sess_gone").await;
+    assert_eq!(*world.cancelled.lock().unwrap(), [Some("sess_gone".to_owned())]);
+    world.deletion.forget_session_search("sess_gone");
 }
 
 /// The daemon's jobs: the startup reconcile runs at once and logs what it did; the cleanup task

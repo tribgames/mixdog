@@ -453,6 +453,21 @@ fn live_of(object: &Obj) -> Result<&LiveObject, ComError> {
     object.backend().as_any().downcast_ref::<LiveObject>().ok_or_else(|| bad_argument("only an object of this backend can be passed to a COM call"))
 }
 
+/// The value for an interface pointer found in a VARIANT or SAFEARRAY: a new reference (`AddRef`), `Null` for a null pointer.
+///
+/// # Safety
+/// `raw` is null or a valid COM interface pointer.
+unsafe fn interface_value(raw: *mut c_void, is_dispatch: bool) -> Value {
+    // SAFETY: the caller guarantees the pointer.
+    match unsafe { Iface::from_raw_add_ref(raw) } {
+        None => Value::Null,
+        Some(iface) => {
+            let object = Obj::new(Rc::new(LiveObject::new(iface, is_dispatch)));
+            if is_dispatch { Value::Dispatch(object) } else { Value::Unknown(object) }
+        }
+    }
+}
+
 /// What a VARIANT holds, by value; a `VT_BYREF` is read through. An interface in it is cloned (`AddRef`), the VARIANT
 /// stays as it was and its owner still clears it.
 pub fn from_variant(variant: &Variant) -> Result<Value, ComError> {
@@ -496,16 +511,7 @@ pub fn from_variant(variant: &Variant) -> Result<Value, ComError> {
                 if scode == DISP_E_PARAMNOTFOUND { Value::Missing } else { Value::Error(scode) }
             }
             VT_BOOL => Value::Bool((if byref { *(place as *const i16) } else { data.boolean }) != 0),
-            VT_DISPATCH | VT_UNKNOWN => {
-                let raw = if byref { *(place as *const *mut c_void) } else { data.ptr };
-                match Iface::from_raw_add_ref(raw) {
-                    None => Value::Null,
-                    Some(iface) => {
-                        let object = Obj::new(Rc::new(LiveObject::new(iface, base == VT_DISPATCH)));
-                        if base == VT_DISPATCH { Value::Dispatch(object) } else { Value::Unknown(object) }
-                    }
-                }
-            }
+            VT_DISPATCH | VT_UNKNOWN => interface_value(if byref { *(place as *const *mut c_void) } else { data.ptr }, base == VT_DISPATCH),
             VT_DECIMAL => {
                 let raw = if byref { *(place as *const RawDecimal) } else { *(variant as *const Variant as *const RawDecimal) };
                 Value::Decimal(Decimal { negative: raw.sign & 0x80 != 0, scale: raw.scale, hi32: raw.hi32, lo64: raw.lo64 })
@@ -565,16 +571,7 @@ fn read_safearray(array: *mut c_void) -> Result<SafeArray, ComError> {
                 VT_UI4 | VT_UINT => Ok(Value::UI4(*(data as *const u32).add(index))),
                 VT_I8 => Ok(Value::I8(*(data as *const i64).add(index))),
                 VT_UI8 => Ok(Value::UI8(*(data as *const u64).add(index))),
-                VT_DISPATCH | VT_UNKNOWN => {
-                    let raw = *(data as *const *mut c_void).add(index);
-                    Ok(match Iface::from_raw_add_ref(raw) {
-                        None => Value::Null,
-                        Some(iface) => {
-                            let object = Obj::new(Rc::new(LiveObject::new(iface, vt == VT_DISPATCH)));
-                            if vt == VT_DISPATCH { Value::Dispatch(object) } else { Value::Unknown(object) }
-                        }
-                    })
-                }
+                VT_DISPATCH | VT_UNKNOWN => Ok(interface_value(*(data as *const *mut c_void).add(index), vt == VT_DISPATCH)),
                 other => Err(bad_argument(format!("a SAFEARRAY of element type {other} cannot be read"))),
             };
             match element {
@@ -701,11 +698,9 @@ impl LiveObject {
         }
     }
 
-    /// A property PowerPoint's `Invoke` does not find (the `HWND` of its application: `GetIDsOfNames` gives an id, `Invoke` answers
-    /// DISP_E_MEMBERNOTFOUND for it) is read through the vtable of the interface the type library names, the way a
-    /// binding to the primary interop assembly reads it: the dual interface is taken from the object's type information, the
-    /// member found by name among its functions, its slot taken from the function's `oVft`, and the interface asked of the object
-    /// by the identifier the type information gives. Only a property read with no argument that returns a 32-bit integer.
+    /// PowerPoint's `GetIDsOfNames` gives an id for the `HWND` of its application but `Invoke` answers DISP_E_MEMBERNOTFOUND:
+    /// the property is read through the vtable of the dual interface the type information names (member found by name, slot
+    /// from `oVft`). Only an argument-less property read returning a 32-bit integer.
     fn vtable_long_get(dispatch: &Iface, name: &str) -> Option<i32> {
         use windows::Win32::System::Com::IDispatch;
         use windows::Win32::System::Com::INVOKE_PROPERTYGET;

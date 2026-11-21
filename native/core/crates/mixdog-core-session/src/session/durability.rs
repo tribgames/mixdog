@@ -84,23 +84,36 @@ type RetryDone = Result<(), BarrierError>;
 /// The one job in flight: queued on io-durability (a full queue is waited out, never refused) and run.
 type InFlight = futures::future::BoxFuture<'static, Done>;
 
-/// `job` queued on `lane`, waiting for room, and its result; `Err` when it can never run (the lane has no healthy worker),
-/// which the task treats as a job that was dropped unrun.
-async fn queued<R: Send + 'static>(
-    lane: DurabilityIo,
-    job: impl FnOnce(&mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static,
-) -> Result<R, mixdog_rt::JobDropped> {
+/// `job` queued on `lane`, waiting for room, and its result; `Err` when it did not end with one, naming why ([`unrun`]).
+async fn queued<R: Send + 'static>(lane: DurabilityIo, job: impl FnOnce(&mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, BarrierError> {
+    // The writer's own jobs: nothing cancels them, only the lane ending.
     let handle: Result<JobHandle<R>, _> = lane.submit_wait(&CancellationToken::new(), job).await;
     match handle {
-        Ok(handle) => handle.await,
-        Err(error) => {
-            tracing::warn!("an io-durability job could not be queued: {error:?}");
-            Err(match error {
-                mixdog_rt::SubmitWaitError::ShutDown(_) => mixdog_rt::JobDropped::ShutDown,
-                _ => mixdog_rt::JobDropped::Dropped,
-            })
-        }
+        Ok(handle) => handle.await.map_err(|dropped| unrun(Unrun::Dropped(dropped))),
+        Err(refused) => Err(unrun(Unrun::Refused(refused))),
     }
+}
+
+/// Why an io-durability job gave no result.
+enum Unrun {
+    Refused(mixdog_rt::SubmitWaitError),
+    Dropped(mixdog_rt::JobDropped),
+}
+
+/// A job the io-durability lane gave no result for. One it never ran applied nothing: the batch fails, naming the cause.
+/// One that was dropped while it may have run (a panic) is not known to have written nothing: indeterminate.
+fn unrun(why: Unrun) -> BarrierError {
+    use mixdog_rt::JobDropped;
+    use mixdog_rt::SubmitWaitError;
+    let cause = match why {
+        Unrun::Refused(SubmitWaitError::Full(_)) => "laneFull",
+        Unrun::Refused(SubmitWaitError::ShutDown(_)) | Unrun::Dropped(JobDropped::ShutDown) => "laneShutDown",
+        Unrun::Refused(SubmitWaitError::Wedged(_)) | Unrun::Dropped(JobDropped::Wedged) => "laneWedged",
+        Unrun::Refused(SubmitWaitError::Cancelled) | Unrun::Dropped(JobDropped::Cancelled) => "cancelled",
+        Unrun::Dropped(JobDropped::NotStarted) => "laneNotStarted",
+        Unrun::Dropped(JobDropped::Dropped) => return BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "jobDropped".into() },
+    };
+    BarrierError::failed(cause)
 }
 
 /// One unit of the queue: written whole in one commit, never split across two.
@@ -132,11 +145,6 @@ pub(crate) struct DurabilityTask {
 
 fn lost() -> BarrierError {
     BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "writerLost".into() }
-}
-
-/// A job the io-durability lane never ran: nothing of it was applied.
-fn unrun() -> BarrierError {
-    BarrierError::failed("laneFull")
 }
 
 impl DurabilityTask {
@@ -250,9 +258,8 @@ impl DurabilityTask {
         let msg = match done {
             Done::Commit { result, generation, units } => {
                 // A job that never ran wrote nothing and left the writer in its slot: the batch fails as not applied,
-                // naming the lane, and the writer takes the next batch (a lost writer failed every later turn).
-                let result = result.unwrap_or_else(|_| Err(unrun()));
-                match result {
+                // naming the cause, and the writer takes the next batch (a lost writer failed every later turn).
+                match result.and_then(|done| done) {
                     Ok(ordinals) => FromDurability::Acked {
                         generation,
                         ordinals: units.iter().flat_map(|unit| unit.records.iter().map(|(id, _, _)| *id)).zip(ordinals).collect(),
@@ -265,11 +272,11 @@ impl DurabilityTask {
                     }
                 }
             }
-            Done::Retry(result) => FromDurability::Retried(result.unwrap_or_else(|_| Err(unrun()))),
+            Done::Retry(result) => FromDurability::Retried(result.and_then(|done| done)),
             // An unrun rewrite left the log as it was; the mark's journal entry stays and the next start redoes it.
             Done::Redact(result) => {
-                if result.is_err() {
-                    tracing::warn!(thread = %self.thread, "the log's sensitive rewrite never ran: the io-durability lane could not take it");
+                if let Err(error) = result {
+                    tracing::warn!(thread = %self.thread, "the log's sensitive rewrite gave no result on the io-durability lane: {error:?}");
                 }
                 FromDurability::Redacted
             }
@@ -290,9 +297,9 @@ impl DurabilityTask {
 pub(crate) static FAILURE_SENT: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
 
 enum Done {
-    Commit { result: Result<CommitDone, mixdog_rt::JobDropped>, generation: u64, units: Vec<Unit> },
-    Retry(Result<RetryDone, mixdog_rt::JobDropped>),
-    Redact(Result<(), mixdog_rt::JobDropped>),
+    Commit { result: Result<CommitDone, BarrierError>, generation: u64, units: Vec<Unit> },
+    Retry(Result<RetryDone, BarrierError>),
+    Redact(Result<(), BarrierError>),
 }
 
 async fn wait(in_flight: &mut Option<InFlight>) -> Done {
@@ -357,4 +364,131 @@ fn commit(lane: &mixdog_rt::InLane<DurabilityIo>, store: &dyn ThreadStore, threa
 
 fn lock(slot: &Slot) -> std::sync::MutexGuard<'_, Log> {
     slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod lane_cause_tests {
+    use std::sync::mpsc as gate;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use mixdog_rt::Backend;
+    use mixdog_rt::LaneFull;
+    use mixdog_rt::LaneKind;
+    use mixdog_rt::LaneWedged;
+    use mixdog_rt::TaskClass;
+    use mixdog_rt::exec::PoolParams;
+    use mixdog_rt::exec::RtConfig;
+
+    use super::super::seams::EncodedRecord;
+    use super::super::testing::MemStore;
+    use super::*;
+
+    /// Longer than any lane's lease.
+    const PAST_ANY_LEASE: Duration = Duration::from_secs(601);
+    /// Only detects a hung test.
+    const WAIT: Duration = Duration::from_secs(60);
+
+    fn session_record() -> (CommitRecord, usize) {
+        let value = serde_json::json!({"k":"session","v":2,"id":"unrun","log_id":"4f1c2a9e0b7d3c5a6e8f9012","header":{"inline":{"title":"t"}}});
+        let record: mixdog_store::schema::record::Record = serde_json::from_value(value).expect("a record");
+        let encoded = EncodedRecord(mixdog_store::encode::encode_record(record.clone()).expect("encodes"));
+        let bytes = encoded.bytes();
+        (CommitRecord { record: Arc::new(record), encoded }, bytes)
+    }
+
+    fn not_applied(cause: &str) -> BarrierError {
+        BarrierError::failed(cause)
+    }
+
+    /// A batch admitted on io-durability and drained when the lane loses its last healthy worker, then a retry the
+    /// wedged lane refuses: both fail as not applied naming the wedge (never `laneFull`), and nothing reaches the store.
+    #[test]
+    fn a_batch_and_a_retry_the_wedged_lane_never_ran_fail_not_applied_naming_the_wedge() {
+        let mut config = RtConfig::for_cores(8);
+        config.durability_io = PoolParams::fixed(1, 2, 3);
+        let (executors, tokens) = mixdog_rt::exec::boot(config).expect("boot");
+        let rt = executors.handle(TaskClass::Work);
+        let lane = tokens.durability_io;
+        let never = CancellationToken::new();
+        let (started_tx, started) = gate::channel::<()>();
+        let hold = |release: gate::Receiver<()>| {
+            let started = started_tx.clone();
+            lane.submit(&never, move |_| {
+                started.send(()).unwrap();
+                let _ = release.recv_timeout(WAIT);
+            })
+            .unwrap()
+        };
+        // The only worker is stuck, then its replacement: the next sweep leaves no healthy worker.
+        let (release_a, a_gate) = gate::channel();
+        let a = hold(a_gate);
+        started.recv_timeout(WAIT).expect("the first stuck job starts");
+        executors.sweep_leases(Instant::now() + PAST_ANY_LEASE);
+        let (release_b, b_gate) = gate::channel();
+        let b = hold(b_gate);
+        started.recv_timeout(WAIT).expect("the replacement's stuck job starts");
+
+        let store = Arc::new(MemStore::default());
+        let thread = ThreadId::from("unrun-batch");
+        let (to_tx, to_rx) = mpsc::channel(8);
+        let (from_tx, mut from_rx) = mpsc::channel(8);
+        let task = DurabilityTask::new(thread.clone(), store.clone(), lane, 1 << 20, LogInit::Create, to_rx, from_tx);
+        let _task = rt.spawn(task.run());
+        let (record, bytes) = session_record();
+        rt.block_on(to_tx.send(ToDurability::Append { generation: 1, records: vec![(1, record, bytes)] })).unwrap();
+        let deadline = Instant::now() + WAIT;
+        while executors.diagnostics().lanes.iter().find(|l| l.kind == LaneKind::DurabilityIo).unwrap().queue_depth == 0 {
+            assert!(Instant::now() < deadline, "the batch's job reaches the lane");
+            std::thread::yield_now();
+        }
+
+        executors.sweep_leases(Instant::now() + PAST_ANY_LEASE);
+        let next = |from_rx: &mut mpsc::Receiver<FromDurability>| loop {
+            match rt.block_on(async { mixdog_rt::time::timeout(WAIT, from_rx.recv()).await }).expect("the task answers").expect("open") {
+                FromDurability::Pending(_) => continue,
+                other => break other,
+            }
+        };
+        match next(&mut from_rx) {
+            FromDurability::Failed { generation, entries, error } => {
+                assert_eq!((generation, entries, error), (1, vec![1], not_applied("laneWedged")));
+            }
+            _ => panic!("the batch fails"),
+        }
+        rt.block_on(to_tx.send(ToDurability::Retry)).unwrap();
+        match next(&mut from_rx) {
+            FromDurability::Retried(result) => assert_eq!(result, Err(not_applied("laneWedged"))),
+            _ => panic!("the retry answers"),
+        }
+        assert!(store.log_ids().is_empty(), "no write reached the store");
+
+        drop((release_a, release_b));
+        rt.block_on(async {
+            assert_eq!(a.await, Ok(()));
+            assert_eq!(b.await, Ok(()));
+        });
+    }
+
+    /// Each way the lane gives no result reaches the actor as its own cause; a job that may have run is indeterminate.
+    #[test]
+    fn every_unrun_cause_reaches_the_actor_and_a_lost_result_stays_indeterminate() {
+        use mixdog_rt::JobDropped;
+        use mixdog_rt::SubmitWaitError;
+        let lane = LaneKind::DurabilityIo;
+        let cases = [
+            (Unrun::Refused(SubmitWaitError::ShutDown(lane)), not_applied("laneShutDown")),
+            (Unrun::Dropped(JobDropped::ShutDown), not_applied("laneShutDown")),
+            (Unrun::Refused(SubmitWaitError::Wedged(LaneWedged { lane })), not_applied("laneWedged")),
+            (Unrun::Dropped(JobDropped::Wedged), not_applied("laneWedged")),
+            (Unrun::Refused(SubmitWaitError::Cancelled), not_applied("cancelled")),
+            (Unrun::Dropped(JobDropped::Cancelled), not_applied("cancelled")),
+            (Unrun::Dropped(JobDropped::NotStarted), not_applied("laneNotStarted")),
+            (Unrun::Refused(SubmitWaitError::Full(LaneFull { lane })), not_applied("laneFull")),
+            (Unrun::Dropped(JobDropped::Dropped), BarrierError::Indeterminate { io_kind: "writerLost".into(), cause: "jobDropped".into() }),
+        ];
+        for (why, error) in cases {
+            assert_eq!(unrun(why), error);
+        }
+    }
 }

@@ -1,8 +1,3 @@
-//! The stand-in model provider: an HTTP server on a loopback port that answers each `POST .../v1/messages` with the next
-//! scripted reply as an Anthropic event stream, delta by delta, with the pauses the script asks for (the core is pointed at
-//! it through the provider's `baseURL`). A request that arrives when nothing is scripted gets a one-word answer, so a call
-//! the test did not plan for (a title, a summary) never blocks the turn.
-
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};

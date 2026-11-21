@@ -1,11 +1,3 @@
-//! `session action=bots` (`createBotStatus` of `bot-status.mjs`): the state of the user's bots,
-//! read on demand. One line per bot (its home chat, last activity and latest line, whether it
-//! works now, approvals waiting, routines and what needs attention); with one bot (`session_id`:
-//! its id or chat id) its routines, held requests and recent sessions. Read-only over the bot
-//! definitions, the session catalog with its live overlay, the report watches of task turns, the
-//! held requests of unattended runs, the live approval cards and the automation store.
-//! Replayed against Node's answers: `fixtures/session-tool-control/golden.json` (`bots-*`).
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -281,16 +273,12 @@ fn text_of_kind(value: Option<&Value>) -> String {
     value.map_or_else(|| "undefined".to_owned(), value_to_string)
 }
 
-/// `botState(bot, ctx)`: everything known about one bot.
-fn bot_state(bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> State {
-    let home_id = agent_home_session_id(&bot.id);
-    let owned = ctx.owned.get(&bot.id).cloned().unwrap_or_default();
-    let home = home_id.as_ref().and_then(|id| ctx.rows.get(id)).cloned();
-    // Work this bot sent that is running now (`handedBy`); a turn the user typed is the user's.
-    let sent_work = |row: Option<&Row>| {
-        is_working(row)
-            && row.and_then(|row| row.get("handedBy")).and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(&bot.id)))
-    };
+/// Work this bot sent that is running now (`handedBy`); a turn the user typed is the user's.
+fn sent_work(bot: &Bot, row: Option<&Row>) -> bool {
+    is_working(row) && row.and_then(|row| row.get("handedBy")).and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(&bot.id)))
+}
+
+fn running_tasks(bot: &Bot, ctx: &Ctx, home_id: Option<&String>, owned: &[Row]) -> Vec<Task> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut add_task = |id: String, title: Option<Value>, at: f64| match tasks.iter_mut().find(|task| task.id == id) {
         None => tasks.push(Task { id, title, at }),
@@ -307,27 +295,23 @@ fn bot_state(bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> State {
         }
         add_task(text_of(task), watch.get("title").cloned(), number_or_zero(watch.get("at")));
     }
-    for row in &owned {
+    for row in owned {
         let id = text_of(row.get("id"));
-        if Some(&id) == home_id.as_ref() || room_member_of_session(&id).is_some() || !sent_work(Some(row)) {
+        if Some(&id) == home_id || room_member_of_session(&id).is_some() || !sent_work(bot, Some(row)) {
             continue;
         }
         add_task(id, row.get("title").cloned(), number_or_zero(row.get("createdAt")));
     }
-    let mut running = tasks;
-    running.sort_by(|left, right| left.at.total_cmp(&right.at).then_with(|| js_cmp(&left.id, &right.id)));
-    let held: Vec<Value> = ctx.held.iter().filter(|entry| str_of(entry, "agentId") == Some(bot.id.as_str())).cloned().collect();
-    let approvals = held.len() + home_id.iter().map(String::as_str).chain(running.iter().map(|task| task.id.as_str())).filter(|id| approval(id)).count();
-    let mut routines: Vec<Value> = ctx.routines.iter().filter(|routine| owner_of(routine) == bot.id).cloned().collect();
-    routines.sort_by(|left, right| match (left.get("name").and_then(Value::as_str), right.get("name").and_then(Value::as_str)) {
-        (Some(left), Some(right)) => js_cmp(left, right),
-        _ => std::cmp::Ordering::Equal,
-    });
+    tasks.sort_by(|left, right| left.at.total_cmp(&right.at).then_with(|| js_cmp(&left.id, &right.id)));
+    tasks
+}
+
+fn attention_flags(bot: &Bot, approvals: usize, routines: &[Value]) -> Vec<String> {
     let mut flags = Vec::new();
     if approvals > 0 {
         flags.push(format!("{} waiting", plural(approvals, "approval")));
     }
-    for routine in &routines {
+    for routine in routines {
         let trouble = routine_trouble(routine);
         if !trouble.is_empty() {
             flags.push(format!("{} {}", quoted(routine.get("name"), 20), trouble.join(", ")));
@@ -336,7 +320,24 @@ fn bot_state(bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> State {
     if bot.disabled {
         flags.push("disabled".to_owned());
     }
-    let working = is_working(home.as_ref()) || running.iter().any(|task| sent_work(ctx.rows.get(&task.id)));
+    flags
+}
+
+/// `botState(bot, ctx)`: everything known about one bot.
+fn bot_state(bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> State {
+    let home_id = agent_home_session_id(&bot.id);
+    let owned = ctx.owned.get(&bot.id).cloned().unwrap_or_default();
+    let home = home_id.as_ref().and_then(|id| ctx.rows.get(id)).cloned();
+    let running = running_tasks(bot, ctx, home_id.as_ref(), &owned);
+    let held: Vec<Value> = ctx.held.iter().filter(|entry| str_of(entry, "agentId") == Some(bot.id.as_str())).cloned().collect();
+    let approvals = held.len() + home_id.iter().map(String::as_str).chain(running.iter().map(|task| task.id.as_str())).filter(|id| approval(id)).count();
+    let mut routines: Vec<Value> = ctx.routines.iter().filter(|routine| owner_of(routine) == bot.id).cloned().collect();
+    routines.sort_by(|left, right| match (left.get("name").and_then(Value::as_str), right.get("name").and_then(Value::as_str)) {
+        (Some(left), Some(right)) => js_cmp(left, right),
+        _ => std::cmp::Ordering::Equal,
+    });
+    let flags = attention_flags(bot, approvals, &routines);
+    let working = is_working(home.as_ref()) || running.iter().any(|task| sent_work(bot, ctx.rows.get(&task.id)));
     let last_at = activity_of(home.as_ref());
     State { bot: bot.clone(), home_id, home, owned, running, held, approvals, routines, flags, working, last_at }
 }
@@ -497,6 +498,53 @@ async fn overview(sources: &dyn BotSources, listing: &dyn SessionListing, own: &
     fit_page(result, &[("bots", "more", states.len(), 1)])
 }
 
+fn session_entry(row: &Row, state: &State, bot: &Bot, ctx: &Ctx, approval: &dyn Fn(&str) -> bool) -> Value {
+    let id = text_of(row.get("id"));
+    let preview = row.get("lastMessagePreview").filter(|p| truthy(Some(p))).or_else(|| row.get("preview"));
+    let at = activity_of(Some(row));
+    let kind = if Some(&id) == state.home_id.as_ref() {
+        "chat"
+    } else if room_member_of_session(&id).is_some() {
+        "room"
+    } else {
+        "task"
+    };
+    let title = one_line(row.get("title"));
+    let title = if !title.is_empty() {
+        title
+    } else if kind == "chat" {
+        bot.name.clone()
+    } else {
+        id.clone()
+    };
+    let mut out = Map::new();
+    out.insert("id".into(), row.get("id").cloned().unwrap_or(Value::Null));
+    out.insert("kind".into(), json!(kind));
+    out.insert("title".into(), json!(quoted_text(&title, 80)));
+    if at != 0.0 {
+        out.insert("last".into(), json!(ago(at, ctx.at)));
+    }
+    if !one_line(preview).is_empty() {
+        out.insert("preview".into(), json!(quoted(preview, PREVIEW_LIMIT)));
+    }
+    if is_working(Some(row)) {
+        out.insert("working".into(), json!(true));
+    }
+    if approval(&id) {
+        out.insert("approvalWaiting".into(), json!(true));
+    }
+    Value::Object(out)
+}
+
+fn held_line(entry: &Value, now: f64) -> String {
+    let run = entry.get("run");
+    let run_name = run.and_then(|run| run.get("name"));
+    let run = if truthy(run_name) { format!(" in {} {}", text_of_kind(run.and_then(|run| run.get("kind"))), quoted(run_name, 40)) } else { String::new() };
+    let expires = epoch(entry.get("expiresAt"));
+    let expires = if expires != 0.0 { format!(", expires {}", until(expires, now)) } else { String::new() };
+    cut(&format!("{} {}{run}{expires}", quoted(entry.get("kind"), 20), quoted(entry.get("tool"), 60)), 160)
+}
+
 async fn detail(sources: &dyn BotSources, listing: &dyn SessionListing, target: &str, own: &str, limit: usize) -> Result<Value, String> {
     let id = agent_id_of_home_session(target).filter(|id| !id.is_empty()).unwrap_or_else(|| target.to_owned());
     if !own.is_empty() && id != own {
@@ -513,62 +561,9 @@ async fn detail(sources: &dyn BotSources, listing: &dyn SessionListing, target: 
     known.sort_by(|left, right| {
         activity_of(Some(right)).total_cmp(&activity_of(Some(left))).then_with(|| js_cmp(&text_of(left.get("id")), &text_of(right.get("id"))))
     });
-    let sessions: Vec<Value> = known
-        .iter()
-        .take(limit)
-        .map(|row| {
-            let id = text_of(row.get("id"));
-            let preview = row.get("lastMessagePreview").filter(|p| truthy(Some(p))).or_else(|| row.get("preview"));
-            let at = activity_of(Some(row));
-            let kind = if Some(&id) == state.home_id.as_ref() {
-                "chat"
-            } else if room_member_of_session(&id).is_some() {
-                "room"
-            } else {
-                "task"
-            };
-            let title = one_line(row.get("title"));
-            let title = if !title.is_empty() {
-                title
-            } else if kind == "chat" {
-                bot.name.clone()
-            } else {
-                id.clone()
-            };
-            let mut out = Map::new();
-            out.insert("id".into(), row.get("id").cloned().unwrap_or(Value::Null));
-            out.insert("kind".into(), json!(kind));
-            out.insert("title".into(), json!(quoted_text(&title, 80)));
-            if at != 0.0 {
-                out.insert("last".into(), json!(ago(at, ctx.at)));
-            }
-            if !one_line(preview).is_empty() {
-                out.insert("preview".into(), json!(quoted(preview, PREVIEW_LIMIT)));
-            }
-            if is_working(Some(row)) {
-                out.insert("working".into(), json!(true));
-            }
-            if approval(&id) {
-                out.insert("approvalWaiting".into(), json!(true));
-            }
-            Value::Object(out)
-        })
-        .collect();
+    let sessions: Vec<Value> = known.iter().take(limit).map(|row| session_entry(row, &state, &bot, &ctx, &approval)).collect();
     let routines: Vec<Value> = state.routines.iter().take(MAX_ROUTINES).map(|routine| json!(routine_detail(routine, ctx.at))).collect();
-    let held: Vec<Value> = state
-        .held
-        .iter()
-        .take(MAX_HELD)
-        .map(|entry| {
-            let run = entry.get("run");
-            let run_name = run.and_then(|run| run.get("name"));
-            let run =
-                if truthy(run_name) { format!(" in {} {}", text_of_kind(run.and_then(|run| run.get("kind"))), quoted(run_name, 40)) } else { String::new() };
-            let expires = epoch(entry.get("expiresAt"));
-            let expires = if expires != 0.0 { format!(", expires {}", until(expires, ctx.at)) } else { String::new() };
-            json!(cut(&format!("{} {}{run}{expires}", quoted(entry.get("kind"), 20), quoted(entry.get("tool"), 60)), 160))
-        })
-        .collect();
+    let held: Vec<Value> = state.held.iter().take(MAX_HELD).map(|entry| json!(held_line(entry, ctx.at))).collect();
     let mut result = Map::new();
     result.insert("bot".into(), json!(bot_line(&state, ctx.at)));
     let (routines_shown, held_shown, sessions_shown) = (routines.len(), held.len(), sessions.len());

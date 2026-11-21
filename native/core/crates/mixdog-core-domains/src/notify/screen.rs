@@ -1,5 +1,4 @@
-//! The sessions the desktop UI is looking at (`ui/screenSessions/changed`, Node's
-//! `isSessionOnScreen` of `screen-sessions.ts`). Each notification carries the whole effective
+//! The sessions the desktop UI is looking at (`ui/screenSessions/changed`). Each notification carries the whole effective
 //! set (focus, visibility and minimize already applied by the host); the latest one wins, and a
 //! detached UI is an empty set.
 

@@ -615,10 +615,6 @@ fn sheet_entry(book: &Com, sheet: &Com, payload: &Value, window: Option<Window<'
     entry.set("freezePanes", freeze_panes);
     entry.set("autoFilter", auto_filter);
     entry.set("protection", protection);
-    // A sheet past 500 cells reads its first rows up to that many cells and says it was cut, as the portable reader pages
-    // it: it had read none, and every review of cells (the header, the hierarchy, the formulas) passed a large sheet on
-    // Excel unread.
-    // Where the sheet's rows end, past the page the cells were read from.
     let last_row = int_of(&used.member("Row")?)? + dimension_count(&used, "Rows")? - 1;
     let (cells, truncated, total) = match &window {
         Some(window) => {

@@ -36,7 +36,8 @@ async fn fill(cache: &dyn ResultReuse, cwd: &std::path::Path, path: &str, body: 
 
 #[allow(clippy::disallowed_methods, reason = "test setup lays out its files")]
 fn workspace(files: &[(&str, &str)]) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("a workspace");
+    let dir =
+        tempfile::Builder::new().tempdir_in(mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).expect("the temp folder")).expect("a workspace");
     for (name, text) in files {
         std::fs::write(dir.path().join(name), text).expect("a file");
     }

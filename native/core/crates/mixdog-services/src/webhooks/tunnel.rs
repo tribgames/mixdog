@@ -1,5 +1,4 @@
-//! What the webhook relay leg carries (`webhook/relay-tunnel.mjs`, `relay-tunnel/local-forward.mjs`,
-//! `relay-tunnel/limits.mjs`): a request frame from the relay is validated, replayed against the
+//! What the webhook relay leg carries: a request frame from the relay is validated, replayed against the
 //! local [`WebhookListener`](super::listener::WebhookListener), and the response goes back as an
 //! `http-response` frame. The socket, identity and redial loop are the connection half of the
 //! tunnel; none of it lives here. The replay is a hyper HTTP/1.1 client connection.
@@ -90,48 +89,57 @@ pub fn normalize_request_frame(frame: &Value) -> Result<HookFrame, String> {
         Some(Value::String(path)) if utf16_len(path) <= 4096 && valid_path(path) => path.clone(),
         _ => return Err(invalid("invalid webhook relay path")),
     };
+    let headers = match object.get("headers") {
+        Some(Value::Object(input)) => normalize_headers(input)?,
+        _ => Vec::new(),
+    };
+    let body = decode_body(object.get("body"))?;
+    Ok(HookFrame { id, path, headers, body })
+}
+
+fn normalize_headers(input: &Map<String, Value>) -> Result<Vec<(String, Vec<String>)>, String> {
     let mut headers = Vec::new();
     let mut header_bytes = 0;
-    if let Some(Value::Object(input)) = object.get("headers") {
-        for (raw_name, raw_value) in input {
-            let name = raw_name.to_lowercase();
-            if HOP_HEADERS.contains(&name.as_str()) {
-                continue;
-            }
-            if !token_name(&name) {
-                return Err(invalid("invalid webhook relay header name"));
-            }
-            let values: Vec<String> = match raw_value {
-                Value::Array(list) => list.iter().map(value_to_string).collect(),
-                other => vec![value_to_string(other)],
-            };
-            if values.iter().any(|v| v.contains(['\r', '\n']) || utf16_len(v) > 8192) {
-                return Err(invalid("invalid webhook relay header value"));
-            }
-            header_bytes += utf16_len(&name) + values.iter().map(|v| utf16_len(v)).sum::<usize>();
-            if header_bytes > MAX_HOOK_HEADER_BYTES {
-                return Err(invalid("webhook relay headers exceed limit"));
-            }
-            headers.push((name, values));
+    for (raw_name, raw_value) in input {
+        let name = raw_name.to_lowercase();
+        if HOP_HEADERS.contains(&name.as_str()) {
+            continue;
         }
+        if !token_name(&name) {
+            return Err(invalid("invalid webhook relay header name"));
+        }
+        let values: Vec<String> = match raw_value {
+            Value::Array(list) => list.iter().map(value_to_string).collect(),
+            other => vec![value_to_string(other)],
+        };
+        if values.iter().any(|v| v.contains(['\r', '\n']) || utf16_len(v) > 8192) {
+            return Err(invalid("invalid webhook relay header value"));
+        }
+        header_bytes += utf16_len(&name) + values.iter().map(|v| utf16_len(v)).sum::<usize>();
+        if header_bytes > MAX_HOOK_HEADER_BYTES {
+            return Err(invalid("webhook relay headers exceed limit"));
+        }
+        headers.push((name, values));
     }
-    let encoded = match object.get("body") {
+    Ok(headers)
+}
+
+fn decode_body(field: Option<&Value>) -> Result<Option<Vec<u8>>, String> {
+    let encoded = match field {
         None | Some(Value::Null) => String::new(),
         Some(other) => value_to_string(other),
     };
     if encoded.len() > MAX_TUNNEL_BODY_BYTES.div_ceil(3) * 4 || (!encoded.is_empty() && !well_formed_base64(&encoded)) {
         return Err(invalid("invalid webhook relay body"));
     }
-    let body = if encoded.is_empty() {
-        None
-    } else {
-        let bytes = LENIENT.decode(encoded.as_bytes()).map_err(|_| invalid("invalid webhook relay body"))?;
-        if bytes.len() > MAX_TUNNEL_BODY_BYTES {
-            return Err(invalid("webhook relay body exceeds limit"));
-        }
-        Some(bytes)
-    };
-    Ok(HookFrame { id, path, headers, body })
+    if encoded.is_empty() {
+        return Ok(None);
+    }
+    let bytes = LENIENT.decode(encoded.as_bytes()).map_err(|_| invalid("invalid webhook relay body"))?;
+    if bytes.len() > MAX_TUNNEL_BODY_BYTES {
+        return Err(invalid("webhook relay body exceeds limit"));
+    }
+    Ok(Some(bytes))
 }
 
 #[derive(Serialize)]

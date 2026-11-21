@@ -1,11 +1,3 @@
-//! What the turn review is given by the Office tool (the port of `src/runtime/office/office-turn-review.slow.test.mjs`, the part the
-//! worker owns): the files a call wrote are that call's own changes with their exact bytes before and after, a sibling that changed
-//! while the call ran is not among them, a call that only reads writes nothing, and putting each file's first "before" back (what
-//! Undo does) restores the original bytes and removes the file the turn created.
-//!
-//! The review and its Undo are the thread layer's (`mixdog-core-review`); this test proves the receipts it is fed over the real pool
-//! and worker process. The receipts' chunks are read by their byte counts: a side larger than one frame arrives as several chunks.
-
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -24,7 +16,7 @@ use serde_json::json;
 
 fn pool() -> ExtHostPool {
     ExtHostPool::new(ExtHostConfig {
-        program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
+        program: PathBuf::from(mixdog_testkit::bin_exe!("ext_worker_dev")),
         args: Vec::new(),
         workers: 1,
         pending_cap: 64,

@@ -1,17 +1,13 @@
-//! The settings pickers (`src/tui/app/settings-picker.mjs`, `settings-picker/*`, `maintenance-pickers.mjs`,
-//! `maintenance-pickers/*`): Settings (rows from one snapshot, toggles, listed cyclers, navigation), Update, Auto-clear,
-//! Profile and Developer.
+//! The settings pickers: Settings (rows from one snapshot, toggles, listed cyclers, navigation), Update, Auto-clear, Profile and Developer.
 //!
 //! Each picker is a [`PickerController`]: the panel it painted is data ([`panel::Panel`]) and the keys on it are its methods,
-//! which find the row by its `value`. The Node callbacks that settled later (a write's ack, a repaint after it) run as plain
-//! steps after the store call, each guarded exactly as the Node ones were: the claim it was bound to ([`host::Own::defer`])
-//! must still hold, so a write acking after Esc never re-opens the dismissed panel. [`open`] is what the application's
-//! opener for [`Opener::Settings`], [`Opener::AutoClear`], [`Opener::Profile`], [`Opener::Update`] and [`Opener::Developer`]
-//! calls; a picker that returns to Settings (`returnTo`) re-opens it through the host's opener the same way.
+//! which find the row by its `value`. A write's ack and the repaint after it run as plain steps after the store call, each guarded by
+//! the claim it was bound to ([`host::Own::defer`]), so a write acking after Esc never re-opens the dismissed panel. [`open`] is what the
+//! application's opener for [`Opener::Settings`], [`Opener::AutoClear`], [`Opener::Profile`], [`Opener::Update`] and
+//! [`Opener::Developer`] calls; a picker that returns to Settings (`returnTo`) re-opens it through the host's opener the same way.
 //!
-//! What the pickers it opens receive is in their options (`returnTo: "settings"`, `returnLabel`, `returnOnNestedCancel`,
-//! `onAfterSelect: "settings"`, `handoffPanel`, `continueLabel`, `continueDescription`, `onCancel: "settings"`): the name of
-//! the picker to come back to where Node passed the function that opened it.
+//! The options of the pickers it opens (`returnTo: "settings"`, `returnLabel`, `returnOnNestedCancel`, `onAfterSelect: "settings"`,
+//! `handoffPanel`, `continueLabel`, `continueDescription`, `onCancel: "settings"`) name the picker to come back to.
 
 pub mod auto_clear;
 pub mod developer;

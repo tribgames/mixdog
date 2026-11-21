@@ -373,7 +373,15 @@ impl BridgeFiles {
     fn new_at(dir: PathBuf, io: MaintenanceIo, now_ms: Box<dyn Fn() -> f64 + Send + Sync>) -> Arc<Self> {
         let slot = || Slot { advert: Advert::Missing, failed: false, timer: false, loading: false, again: false };
         let slots = FEATURES.iter().map(|id| (*id, slot())).collect();
-        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), attaching: tokio::sync::Mutex::new(()), now_ms, applied: tokio::sync::watch::channel(0).0 })
+        Arc::new(Self {
+            dir,
+            io,
+            slots: Mutex::new(slots),
+            watching: Mutex::new(None),
+            attaching: tokio::sync::Mutex::new(()),
+            now_ms,
+            applied: tokio::sync::watch::channel(0).0,
+        })
     }
 
     #[cfg(test)]

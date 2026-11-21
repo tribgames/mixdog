@@ -105,10 +105,6 @@ impl ReadTool {
     }
 }
 
-/// One requested window; `offset` is 0-based. `ranged` is Node's `hasRangeArgs` (the call named an
-/// offset or a limit, so the answer carries a window footer and no smart elision), `full` its
-/// `full:true`, and `base` the coordinate base of the continuation offsets the answer names:
-/// 1 for the public `file_path` form, 0 for the executor's own `path`.
 struct Entry {
     path: String,
     offset: u64,
@@ -216,94 +212,57 @@ fn valid_window(offset: Option<i64>, limit: Option<i64>) -> Option<(u64, u64)> {
     }
 }
 
+fn bad_read(field: &str, reason: &str, text: String) -> ToolError {
+    invalid(field, reason, format!("Error: {text}"))
+}
+
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
-    let bad = |field: &str, reason: &str, text: String| invalid(field, reason, format!("Error: {text}"));
-    // `normalizePublicReadTargets`: the public form is `file_path`; the executor's own `path`
-    // (see `read_legacy`) beside it is refused. A call without `file_path` never reaches here.
-    let Some(raw) = args.get("file_path") else {
-        return Err(invalid("file_path", "required", "Error: read requires \"path\" (or alias file_path)."));
+fn parse_target(args: &JsonValue, index: usize, target: &JsonValue, (default_offset, default_limit): (i64, i64)) -> Result<BEntry, ToolError> {
+    let shape = || bad_read("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?, tail?}}", index + 1));
+    let (path, offset, limit, tail) = match target {
+        JsonValue::String(s) => (s.as_str(), None, None, None),
+        JsonValue::Object(o) => {
+            if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit" | "tail")) {
+                return Err(shape());
+            }
+            match o.get("file_path").and_then(JsonValue::as_str) {
+                Some(p) => (p, o.get("offset"), o.get("limit"), o.get("tail")),
+                None => return Err(shape()),
+            }
+        }
+        _ => return Err(shape()),
     };
-    if args.get("path").is_some() {
-        return Err(bad("path", "both", "read accepts file_path or legacy path, not both".to_owned()));
+    if path.is_empty() {
+        return Err(shape());
     }
-    let (targets, batch): (Vec<&JsonValue>, bool) = match raw {
-        JsonValue::Array(items) => (items.iter().collect(), true),
-        JsonValue::String(_) => (vec![raw], false),
-        _ => return Err(bad("file_path", "type", "read arg \"file_path\" must be a path string or an array of targets".to_owned())),
-    };
-    if targets.is_empty() {
-        return Err(bad("file_path", "empty", "read arg \"file_path\" must contain at least 1 target".to_owned()));
-    }
-    let range = || bad("offset", "range", format!("read {WINDOW_RANGE_TEXT}"));
-    let default_offset = window_value(args.get("offset"), 1, false);
-    let default_limit = window_value(args.get("limit"), GUARD_DEFAULT_LIMIT as i64, true);
-    if valid_window(default_offset, default_limit).is_none() {
-        return Err(range());
-    }
-    let mut entries = Vec::new();
     let pages = args.get("pages").cloned();
-    for (index, target) in targets.iter().enumerate() {
-        let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?, tail?}}", index + 1));
-        let (path, offset, limit, tail) = match target {
-            JsonValue::String(s) => (s.as_str(), None, None, None),
-            JsonValue::Object(o) => {
-                if o.keys().any(|k| !matches!(k.as_str(), "file_path" | "offset" | "limit" | "tail")) {
-                    return Err(shape());
-                }
-                match o.get("file_path").and_then(JsonValue::as_str) {
-                    Some(p) => (p, o.get("offset"), o.get("limit"), o.get("tail")),
-                    None => return Err(shape()),
-                }
-            }
-            _ => return Err(shape()),
-        };
-        // Node's isNonEmptyString: a blank path is a path, and the read reports it.
-        if path.is_empty() {
-            return Err(shape());
+    if let Some(tail) = tail.or_else(|| args.get("tail")) {
+        if offset.or_else(|| args.get("offset")).is_some() {
+            return Err(bad_read(
+                "offset",
+                "tail",
+                format!("read target {} tail cannot be combined with offset (tail is counted from the end of the file)", index + 1),
+            ));
         }
-        // `tail` names the whole window (the last N lines), so a limit has nothing left to say.
-        if let Some(tail) = tail.or_else(|| args.get("tail")) {
-            if offset.or_else(|| args.get("offset")).is_some() {
-                return Err(bad(
-                    "offset",
-                    "tail",
-                    format!("read target {} tail cannot be combined with offset (tail is counted from the end of the file)", index + 1),
-                ));
-            }
-            let Some(n) = as_int(tail).filter(|n| (1..=MAX_WINDOW).contains(n)) else {
-                return Err(bad("tail", "range", format!("read target {} tail must be an integer from 1 to {MAX_WINDOW}", index + 1)));
-            };
-            entries.push(BEntry {
-                path: path.to_owned(),
-                offset: Some(0.0),
-                limit: Some(n as f64),
-                tail: Some(n as u64),
-                pages: pages.clone(),
-                ..BEntry::default()
-            });
-            continue;
-        }
-        let named = |own: Option<&JsonValue>, key: &str, unset: bool| own.or_else(|| args.get(key)).is_some_and(|v| !(unset && as_int(v) == Some(0)));
-        let injected = !named(offset, "offset", false) && !named(limit, "limit", true);
-        let offset = window_value(offset, default_offset.expect("validated"), false);
-        let limit = window_value(limit, default_limit.expect("validated"), true);
-        let Some((offset, limit)) = valid_window(offset, limit) else {
-            return Err(bad("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
+        let Some(n) = as_int(tail).filter(|n| (1..=MAX_WINDOW).contains(n)) else {
+            return Err(bad_read("tail", "range", format!("read target {} tail must be an integer from 1 to {MAX_WINDOW}", index + 1)));
         };
-        entries.push(BEntry {
-            path: path.to_owned(),
-            offset: Some(offset as f64),
-            limit: Some(limit as f64),
-            injected,
-            pages: pages.clone(),
-            ..BEntry::default()
-        });
+        return Ok(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), pages, ..BEntry::default() });
     }
-    // The cap counts distinct files, not windows; files past it are named to the caller.
+    let named = |own: Option<&JsonValue>, key: &str, unset: bool| own.or_else(|| args.get(key)).is_some_and(|v| !(unset && as_int(v) == Some(0)));
+    let injected = !named(offset, "offset", false) && !named(limit, "limit", true);
+    let offset = window_value(offset, default_offset, false);
+    let limit = window_value(limit, default_limit, true);
+    let Some((offset, limit)) = valid_window(offset, limit) else {
+        return Err(bad_read("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
+    };
+    Ok(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), injected, pages, ..BEntry::default() })
+}
+
+fn cap_distinct_files(entries: &mut Vec<BEntry>) -> Vec<String> {
     let mut kept: Vec<String> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
-    for e in &entries {
+    for e in entries.iter() {
         if kept.contains(&e.path) {
             continue;
         }
@@ -314,8 +273,36 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         }
     }
     entries.retain(|e| kept.contains(&e.path));
-    // `executeModeRead`: the single form keeps its `mode` and `n`; its window (always present here) then drops a
-    // head/tail/summary glance, while count and hex still answer by their own tools.
+    skipped
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
+    let Some(raw) = args.get("file_path") else {
+        return Err(invalid("file_path", "required", "Error: read requires \"path\" (or alias file_path)."));
+    };
+    if args.get("path").is_some() {
+        return Err(bad_read("path", "both", "read accepts file_path or legacy path, not both".to_owned()));
+    }
+    let (targets, batch): (Vec<&JsonValue>, bool) = match raw {
+        JsonValue::Array(items) => (items.iter().collect(), true),
+        JsonValue::String(_) => (vec![raw], false),
+        _ => return Err(bad_read("file_path", "type", "read arg \"file_path\" must be a path string or an array of targets".to_owned())),
+    };
+    if targets.is_empty() {
+        return Err(bad_read("file_path", "empty", "read arg \"file_path\" must contain at least 1 target".to_owned()));
+    }
+    let default_offset = window_value(args.get("offset"), 1, false);
+    let default_limit = window_value(args.get("limit"), GUARD_DEFAULT_LIMIT as i64, true);
+    if valid_window(default_offset, default_limit).is_none() {
+        return Err(bad_read("offset", "range", format!("read {WINDOW_RANGE_TEXT}")));
+    }
+    let defaults = (default_offset.expect("validated"), default_limit.expect("validated"));
+    let mut entries = Vec::new();
+    for (index, target) in targets.iter().enumerate() {
+        entries.push(parse_target(args, index, target, defaults)?);
+    }
+    let skipped = cap_distinct_files(&mut entries);
     if !batch && let Some(e) = entries.first_mut() {
         e.mode = arg_str(args, "mode").map(str::to_owned);
         e.n = args.get("n").filter(|v| !v.is_null()).cloned();
@@ -346,15 +333,7 @@ impl ReadTool {
         }
         let mut public = parse_public(&args)?;
         for e in &mut public.entries {
-            let path = normalize_input_path(&e.path);
-            if let Some((file, start, end)) = line_coordinate(ctx, &path).await? {
-                if e.injected && windows_colon_coordinate(&path) {
-                    e.offset = Some((start - 1) as f64);
-                    e.limit = Some((end.unwrap_or(start) - start + 1) as f64);
-                    e.injected = false;
-                }
-                e.path = file;
-            }
+            apply_public_coordinate(ctx, e).await?;
         }
         if let Some(state) = &self.state {
             state.ensure_scope(&scope_of(ctx)).await;
@@ -364,14 +343,10 @@ impl ReadTool {
             return self.run_top(ctx, e, 1).await;
         }
         let results = self.pipeline(ctx, public.entries, true, output_max_bytes(), true, 1).await?;
-        if args.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
-            return incomplete_text_output(rejected(&results));
+        if let Some(refused) = refused_partial(args.get("reject_partial"), &results) {
+            return refused;
         }
-        let mut parts = if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
-            render_rich(&results)
-        } else {
-            vec![ToolPart::Text(rows_for_model(&render_text(&results)))]
-        };
+        let mut parts = batch_parts(&results);
         if !public.skipped.is_empty() {
             let note =
                 format!("[skipped {} more file(s) over the per-call limit: {} — read them in another call]", public.skipped.len(), public.skipped.join(", "));
@@ -385,6 +360,213 @@ impl ReadTool {
         let complete = public.skipped.is_empty() && !is_incomplete(&results);
         Ok(ToolOutput { parts, meta: (!complete).then(|| serde_json::json!({ "complete": false })), ..ToolOutput::default() })
     }
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn apply_public_coordinate(ctx: &ToolContext, e: &mut BEntry) -> Result<(), ToolError> {
+    let path = normalize_input_path(&e.path);
+    if let Some((file, start, end)) = line_coordinate(ctx, &path).await? {
+        if e.injected && windows_colon_coordinate(&path) {
+            e.offset = Some((start - 1) as f64);
+            e.limit = Some((end.unwrap_or(start) - start + 1) as f64);
+            e.injected = false;
+        }
+        e.path = file;
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn legacy_batch_entry(ctx: &ToolContext, map: &read_legacy::Obj, item: &JsonValue, object: bool, injected: bool) -> Result<BEntry, ToolError> {
+    let pick = |k: &str| -> Option<&JsonValue> { if object { item.get(k) } else { map.get(k) }.filter(|v| !v.is_null()) };
+    let (raw_path, alias) = match item {
+        JsonValue::Object(o) => match (o.get("path").and_then(JsonValue::as_str), o.get("file_path").and_then(JsonValue::as_str)) {
+            (Some(p), _) => (p, false),
+            (None, Some(p)) => (p, !p.is_empty()),
+            (None, None) => ("", false),
+        },
+        JsonValue::String(s) if !object => (s.as_str(), false),
+        _ => ("", false),
+    };
+    let mode = pick("mode").and_then(JsonValue::as_str).map(str::to_owned);
+    let mut offset = pick("offset").and_then(JsonValue::as_f64);
+    let mut limit = pick("limit").and_then(JsonValue::as_f64);
+    if object
+        && alias
+        && let Some(o) = offset.filter(|o| o.is_finite() && *o > 0.0)
+    {
+        offset = Some(o.trunc() - 1.0);
+    }
+    let mut path = normalize_input_path(raw_path);
+    if let Some((stripped, start, end)) = line_coordinate(ctx, &path).await? {
+        if matches!(mode.as_deref(), None | Some("full")) && offset.is_none() {
+            offset = Some((start as f64 - 1.0).max(0.0));
+            if limit.is_none() {
+                limit = Some((end.unwrap_or(start) as f64 - start as f64 + 1.0).max(1.0));
+            }
+        }
+        path = stripped;
+    }
+    Ok(BEntry {
+        path,
+        mode,
+        n: pick("n").cloned(),
+        offset,
+        limit,
+        full: pick("full").and_then(JsonValue::as_bool),
+        tail: if object { item.get("tail").and_then(js_tail) } else { None },
+        injected,
+        ..BEntry::default()
+    })
+}
+
+fn pdf_pages_body(header: String, pages: Vec<(u64, String, bool)>, mut bodies: HashMap<u64, Scanned>) -> Body {
+    let mut text = header;
+    let mut blocks: Vec<ToolPart> = Vec::new();
+    let mut text_bytes = 0usize;
+    let flush = |text: &mut String, blocks: &mut Vec<ToolPart>, text_bytes: &mut usize| {
+        if !text.is_empty() {
+            let remaining = output_max_bytes().saturating_sub(*text_bytes).max(1);
+            *text_bytes = text_bytes.saturating_add(text.len());
+            blocks.push(ToolPart::Text(cap_pdf_text(std::mem::take(text), remaining)));
+        }
+    };
+    for (page, page_text, _) in pages {
+        let gap = if text.is_empty() { "" } else { "\n\n" };
+        match bodies.remove(&page) {
+            Some(Scanned::Image(image)) => {
+                text.push_str(&format!("{gap}--- Page {page} (scanned; page image follows) ---"));
+                flush(&mut text, &mut blocks, &mut text_bytes);
+                blocks.push(image);
+            }
+            body => {
+                let (tag, body) = match body {
+                    Some(Scanned::Note(shown)) => ("", shown),
+                    Some(Scanned::Ocr(read)) => (" (OCR of a scanned page)", read),
+                    None => ("", page_text),
+                    Some(Scanned::Image(_)) => unreachable!(),
+                };
+                text.push_str(&format!("{gap}--- Page {page}{tag} ---\n"));
+                let max = output_max_bytes().saturating_sub(text_bytes).max(1);
+                text.push_str(byte_prefix(&body, max.saturating_add(4).saturating_sub(text.len())));
+            }
+        }
+    }
+    flush(&mut text, &mut blocks, &mut text_bytes);
+    if blocks.len() == 1 && matches!(blocks.first(), Some(ToolPart::Text(_))) {
+        let Some(ToolPart::Text(text)) = blocks.pop() else { unreachable!() };
+        return Body::text(text);
+    }
+    Body { parts: blocks, rich: true, ..Body::default() }
+}
+
+fn notebook_null_property(key: &str) -> String {
+    format!("Error: ipynb parse failed — Cannot read properties of null (reading '{key}')")
+}
+
+fn notebook_code_cell(cell: &JsonValue, index: usize, full_path: &str) -> Result<(String, Vec<(&'static str, String)>), String> {
+    let mut block = notebook_text(cell.get("source")).unwrap_or_default();
+    let mut images: Vec<(&'static str, String)> = Vec::new();
+    for out in cell.get("outputs").and_then(JsonValue::as_array).map(Vec::as_slice).unwrap_or_default() {
+        if out.is_null() {
+            return Err(notebook_null_property("data"));
+        }
+        let data = out.get("data").filter(|d| js_truthy(d));
+        let field = |key: &str| data.and_then(|d| d.get(key)).filter(|v| js_truthy(v));
+        if let Some(raw) = field("text/plain").or_else(|| out.get("text").filter(|v| js_truthy(v))) {
+            let text = notebook_text(Some(raw)).unwrap_or_default();
+            let length = mixdog_js::utf16_len(&text);
+            if (raw.is_string() || raw.is_array()) && length > IPYNB_OUTPUT_MAX_CHARS {
+                block.push_str(&format!(
+                    "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
+                ));
+                continue;
+            }
+            block.push_str(&format!("\n# Output:\n{text}"));
+        } else if let Some((mime, raw)) = field("image/png").map(|v| ("image/png", v)).or_else(|| field("image/jpeg").map(|v| ("image/jpeg", v))) {
+            images.push((mime, notebook_text(Some(raw)).unwrap_or_default()));
+            block.push_str(&format!("\n# Output: [image output — cell {index}]"));
+        }
+    }
+    Ok((block, images))
+}
+
+fn read_cache_key(key_path: &str, v: &FileVersion, e: &Entry, mode: Mode) -> String {
+    let window_key = |n: u64| if e.ranged { n.to_string() } else { "d".to_owned() };
+    format!(
+        "read|{key_path}|{}|{}|{}|{}|{}|{}|base:{}|budget:{}",
+        v.mtime_ms,
+        v.ctime_ms.map_or_else(|| "-".to_owned(), |c| c.to_string()),
+        v.size,
+        window_key(e.offset),
+        window_key(e.limit),
+        if e.full { "f" } else { "s" },
+        e.base,
+        mode.max_output()
+    )
+}
+
+fn streamed_window(text: &str, e: &Entry, size: u64, mode: Mode) -> (String, SnapshotMeta) {
+    let (out, facts) = stream_window(text, size, e.offset, e.limit, mode.max_output(), e.base);
+    let ranges = if facts.first_emitted > 0 && facts.last_emitted > 0 {
+        vec![LineRange { start: facts.first_emitted, end: Some(facts.last_emitted) }]
+    } else {
+        Vec::new()
+    };
+    (out, SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read_stream_range") })
+}
+
+fn buffered_snapshot(text: &str, e: &Entry, facts: &WindowFacts) -> SnapshotMeta {
+    let full_view = e.offset == 0 && e.offset.saturating_add(e.limit) >= facts.line_count && !facts.byte_capped && !facts.elided;
+    let ranges = if full_view {
+        vec![LineRange::WHOLE]
+    } else if facts.elided {
+        facts.visible.clone()
+    } else if facts.rendered > 0 {
+        vec![LineRange { start: e.offset + 1, end: Some(facts.line_count.min(e.offset + facts.rendered)) }]
+    } else {
+        Vec::new()
+    };
+    SnapshotMeta {
+        ranges: Some(ranges),
+        content_hash: full_view.then(|| hash_text(text)),
+        file_line_count: Some(facts.line_count),
+        ..SnapshotMeta::new("read")
+    }
+}
+
+fn cut_caller_window(slot: &BEntry, body: CBody, object: bool, base: u64) -> CBody {
+    match &body {
+        CBody::Str(s) if object && slot.is_full_mode() && slot.needs_slice => {
+            let off = slot.orig_offset.map_or(0, |o| o.max(0.0) as u64);
+            let lim = match slot.orig_limit {
+                Some(0.0) => None,
+                Some(l) => Some(l.max(0.0) as u64),
+                None => Some(2000),
+            };
+            CBody::Str(slice_read_body(s, off, lim, base))
+        }
+        CBody::Str(s) if slot.tail.is_none() && slot.is_full_mode() && !slot.implicit() && slot.full != Some(true) => {
+            let (off, end) = slot.line_window();
+            match end.and_then(|end| cap_remaining(s, off, end - off, base)) {
+                Some(note) => CBody::Str(format!("{s}\n{note}")),
+                None => body,
+            }
+        }
+        _ => body,
+    }
+}
+
+fn batch_parts(results: &[Resolved]) -> Vec<ToolPart> {
+    if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
+        render_rich(results)
+    } else {
+        vec![ToolPart::Text(rows_for_model(&render_text(results)))]
+    }
+}
+
+fn refused_partial(reject_partial: Option<&JsonValue>, results: &[Resolved]) -> Option<ToolOutcome> {
+    (reject_partial == Some(&JsonValue::Bool(true)) && is_rejected(results)).then(|| incomplete_text_output(rejected(results)))
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
@@ -473,60 +655,14 @@ impl ReadTool {
         let object = matches!(items.first(), Some(JsonValue::Object(_)));
         let mut entries = Vec::with_capacity(items.len());
         for item in items {
-            let pick = |k: &str| -> Option<&JsonValue> { if object { item.get(k) } else { map.get(k) }.filter(|v| !v.is_null()) };
-            let (raw_path, alias) = match item {
-                JsonValue::Object(o) => match (o.get("path").and_then(JsonValue::as_str), o.get("file_path").and_then(JsonValue::as_str)) {
-                    (Some(p), _) => (p, false),
-                    (None, Some(p)) => (p, !p.is_empty()),
-                    (None, None) => ("", false),
-                },
-                JsonValue::String(s) if !object => (s.as_str(), false),
-                _ => ("", false),
-            };
-            let mode = pick("mode").and_then(JsonValue::as_str).map(str::to_owned);
-            let mut offset = pick("offset").and_then(JsonValue::as_f64);
-            let mut limit = pick("limit").and_then(JsonValue::as_f64);
-            // A per-entry `file_path` is 1-based, like the public form.
-            if object
-                && alias
-                && let Some(o) = offset.filter(|o| o.is_finite() && *o > 0.0)
-            {
-                offset = Some(o.trunc() - 1.0);
-            }
-            let mut path = normalize_input_path(raw_path);
-            if let Some((stripped, start, end)) = line_coordinate(ctx, &path).await? {
-                if matches!(mode.as_deref(), None | Some("full")) && offset.is_none() {
-                    offset = Some((start as f64 - 1.0).max(0.0));
-                    if limit.is_none() {
-                        limit = Some((end.unwrap_or(start) as f64 - start as f64 + 1.0).max(1.0));
-                    }
-                }
-                path = stripped;
-            }
-            let entry = BEntry {
-                path,
-                mode,
-                n: pick("n").cloned(),
-                offset,
-                limit,
-                full: pick("full").and_then(JsonValue::as_bool),
-                tail: if object { item.get("tail").and_then(js_tail) } else { None },
-                injected,
-                ..BEntry::default()
-            };
-            entries.push(entry);
+            entries.push(legacy_batch_entry(ctx, map, item, object, injected).await?);
         }
         let results = self.pipeline(ctx, entries, object, output_max_bytes(), true, 0).await?;
-        if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
-            return incomplete_text_output(rejected(&results));
+        if let Some(refused) = refused_partial(map.get("reject_partial"), &results) {
+            return refused;
         }
-        let parts = if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
-            render_rich(&results)
-        } else {
-            vec![ToolPart::Text(rows_for_model(&render_text(&results)))]
-        };
         let meta = is_incomplete(&results).then(|| serde_json::json!({ "complete": false }));
-        Ok(ToolOutput { parts, meta, ..ToolOutput::default() })
+        Ok(ToolOutput { parts: batch_parts(&results), meta, ..ToolOutput::default() })
     }
 
     /// `isWSL`, once: the environment, else the kernel's `/proc/version`.
@@ -547,15 +683,33 @@ impl ReadTool {
         };
         read_paths::set_wsl(version.as_deref());
     }
-    /// `splitJoinedPathScopes`: one string that joins several existing paths with commas or
-    /// whitespace is those paths, when every piece lies strictly inside the working directory.
+    async fn pieces_inside_cwd(ctx: &ToolContext, pieces: &[String]) -> bool {
+        let real = |path: std::path::PathBuf| async move {
+            mixdog_workspace::lanes::run(ctx.io.interactive, &ctx.cancel, move || mixdog_workspace::pathguard::canonical(&path).ok()).await.ok().flatten()
+        };
+        let root = real(ctx.cwd.as_path().to_path_buf()).await;
+        let mut inside = true;
+        for piece in pieces {
+            let piece = normalize_input_path(piece);
+            let target = match (&root, piece.as_str()) {
+                (_, "." | "..") | (None, _) => None,
+                (Some(_), _) => match resolve_path(&ctx.cwd, &piece) {
+                    Ok(abs) => real(abs.as_path().to_path_buf()).await,
+                    Err(_) => None,
+                },
+            };
+            inside &= match (&root, target) {
+                (Some(root), Some(target)) => target != *root && mixdog_workspace::pathguard::is_within(root, &target),
+                _ => false,
+            };
+        }
+        inside
+    }
+
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn split_joined_path_scopes(&self, ctx: &ToolContext, map: &mut read_legacy::Obj) -> Result<(), ToolError> {
         const LIMIT: usize = 10;
         let refuse = |text: String| invalid("path", "joined", text);
-        let real = |path: std::path::PathBuf| async move {
-            mixdog_workspace::lanes::run(ctx.io.interactive, &ctx.cancel, move || mixdog_workspace::pathguard::canonical(&path).ok()).await.ok().flatten()
-        };
         for key in ["path", "file_path"] {
             let Some(JsonValue::String(value)) = map.get(key) else { continue };
             let value = value.clone();
@@ -574,24 +728,7 @@ impl ReadTool {
             if !all_exist {
                 continue;
             }
-            // Containment is judged on the real targets: a link that leaves the directory is outside.
-            let root = real(ctx.cwd.as_path().to_path_buf()).await;
-            let mut inside = true;
-            for piece in &pieces {
-                let piece = normalize_input_path(piece);
-                let target = match (&root, piece.as_str()) {
-                    (_, "." | "..") | (None, _) => None,
-                    (Some(_), _) => match resolve_path(&ctx.cwd, &piece) {
-                        Ok(abs) => real(abs.as_path().to_path_buf()).await,
-                        Err(_) => None,
-                    },
-                };
-                inside &= match (&root, target) {
-                    (Some(root), Some(target)) => target != *root && mixdog_workspace::pathguard::is_within(root, &target),
-                    _ => false,
-                };
-            }
-            if !inside {
+            if !Self::pieces_inside_cwd(ctx, &pieces).await {
                 return Err(refuse(format!(
                     "Error: read arg \"{key}\" joins several paths in one string, and one is \".\", \"..\", a parent of the working directory or outside it, so it is not split automatically. To pass several paths, send an array (path[]), not a comma- or space-joined string."
                 )));
@@ -659,22 +796,9 @@ impl ReadTool {
             Ok(b) => b.bytes,
             Err(err) => return Err(read_failure(&err, &abs, &shown)),
         };
-        let content = match decode_for_read(&bytes) {
-            ReadText::Binary => return Ok(format!("Error: file appears to be binary (contains null bytes): {named}")),
-            ReadText::Text { text, utf16: true } => text,
-            ReadText::Text { utf16: false, .. } => {
-                let body = bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..]).unwrap_or(&bytes);
-                match std::str::from_utf8(body) {
-                    Ok(text) => text.to_owned(),
-                    // `streamHeadWindow`, the tail window, `countTextStatsStreaming` and the summary scan: a file of streaming
-                    // size is decoded with U+FFFD for its invalid bytes by every glance mode, as Node's streaming decoder
-                    // does, and is not refused.
-                    Err(_) if stat.len > READ_STREAM_RANGE_MIN_BYTES => String::from_utf8_lossy(body).into_owned(),
-                    Err(_) => {
-                        return Ok("Error: invalid UTF-8 in text file: The encoded data was not valid for encoding utf-8".to_owned());
-                    }
-                }
-            }
+        let content = match glance_content(&bytes, stat.len, &named) {
+            Ok(content) => content,
+            Err(refusal) => return Ok(refusal),
         };
         let streamed = stat.len > READ_STREAM_RANGE_MIN_BYTES;
         let window = |rows: (String, Option<read_legacy::Seen>), source: &str, observe: &mut (dyn FnMut(SnapshotMeta) + Send)| {
@@ -721,7 +845,6 @@ impl ReadTool {
         size: u64,
         observe: &mut (dyn FnMut(SnapshotMeta) + Send),
     ) -> Result<String, ToolError> {
-        const CHUNK: u64 = 1024 * 1024;
         let head = read_range(ctx, abs, shown, 0, size.min(64 * 1024)).await?;
         if mode == "tail" {
             let requested = read_legacy::mode_count(n, 20, 1, i64::MAX) as u64;
@@ -735,87 +858,99 @@ impl ReadTool {
         if utf16 {
             return Ok(format!("Error: UTF-16 file too large for this mode ({size} bytes exceeds {MAX_FILE_BYTES}-byte cap): {}", fwd(abs.as_path())));
         }
-        // The lines of the file, first to last, as `readline` gives them, until `visit` says stop.
-        let count_lines = || async move {
-            let (mut pos, mut lines, mut last) = (0_u64, 0_u64, None);
-            while pos < size {
-                let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
-                if chunk.is_empty() {
-                    break;
-                }
-                pos += chunk.len() as u64;
-                lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
-                last = chunk.last().copied();
-            }
-            Ok::<u64, ToolError>(lines + u64::from(last.is_some_and(|b| b != b'\n')))
-        };
         match mode {
-            "head" => {
-                let limit = read_legacy::mode_count(n, 20, 1, 2000) as usize;
-                let (mut reader, mut lines, mut pos) = (read_legacy::LineReader::default(), Vec::new(), 0_u64);
-                while pos < size && lines.len() < limit {
-                    let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    pos += chunk.len() as u64;
-                    reader.feed(&chunk, &mut lines, limit);
-                }
-                if lines.len() < limit {
-                    reader.finish(&mut lines);
-                }
-                let rendered = lines
-                    .iter()
-                    .enumerate()
-                    .map(|(i, l)| render_read_line(i as u64 + 1, if i == 0 { l.strip_prefix('\u{feff}').unwrap_or(l) } else { l }))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let out = read_legacy::cap_shell_output(&rendered);
-                if out == rendered && !lines.is_empty() {
-                    observe(SnapshotMeta {
-                        ranges: Some(vec![LineRange { start: 1, end: Some(lines.len() as u64) }]),
-                        ..SnapshotMeta::new("read_head_stream")
-                    });
-                }
-                Ok(out)
-            }
-            "count" => Ok(format!("lines\t{}\twords\t-\tbytes\t{size}\t(words skipped: file > cap)", count_lines().await?)),
+            "head" => Self::large_head(ctx, (abs, shown), size, read_legacy::mode_count(n, 20, 1, 2000) as usize, observe).await,
+            "count" => Ok(format!("lines\t{}\twords\t-\tbytes\t{size}\t(words skipped: file > cap)", Self::count_file_lines(ctx, abs, shown, size).await?)),
             _ => {
                 let limit = read_legacy::mode_count(n, 200, 1, 1000) as usize;
-                let stats = format!("lines\t{}\twords\t-\tbytes\t{size}", count_lines().await?);
+                let stats = format!("lines\t{}\twords\t-\tbytes\t{size}", Self::count_file_lines(ctx, abs, shown, size).await?);
                 observe(SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_summary") });
-                let (mut reader, mut symbols, mut pos, mut line_no) = (read_legacy::LineReader::default(), Vec::new(), 0_u64, 0_u64);
-                'file: while pos < size {
-                    let chunk = read_range(ctx, abs, shown, pos, CHUNK).await?;
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    pos += chunk.len() as u64;
-                    let mut lines = Vec::new();
-                    reader.feed(&chunk, &mut lines, usize::MAX);
-                    for line in lines {
-                        line_no += 1;
-                        let line = if line_no == 1 { line.strip_prefix('\u{feff}').unwrap_or(&line).to_owned() } else { line };
-                        if let Some(row) = read_legacy::symbol_row(line_no, &line, &render_read_line) {
-                            symbols.push(row);
-                            if symbols.len() >= limit {
-                                break 'file;
-                            }
-                        }
-                    }
-                }
-                if symbols.len() < limit {
-                    let mut last = Vec::new();
-                    reader.finish(&mut last);
-                    for line in last {
-                        if let Some(row) = read_legacy::symbol_row(line_no + 1, &line, &render_read_line) {
-                            symbols.push(row);
-                        }
-                    }
-                }
+                let symbols = Self::file_symbols(ctx, (abs, shown), size, limit).await?;
                 Ok(read_legacy::summary_render(named, &stats, symbols, limit))
             }
         }
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn count_file_lines(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64) -> Result<u64, ToolError> {
+        let (mut pos, mut lines, mut last) = (0_u64, 0_u64, None);
+        while pos < size {
+            let chunk = read_range(ctx, abs, shown, pos, HUGE_CHUNK).await?;
+            if chunk.is_empty() {
+                break;
+            }
+            pos += chunk.len() as u64;
+            lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
+            last = chunk.last().copied();
+        }
+        Ok(lines + u64::from(last.is_some_and(|b| b != b'\n')))
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn large_head(
+        ctx: &ToolContext,
+        (abs, shown): (&AbsPath, &str),
+        size: u64,
+        limit: usize,
+        observe: &mut (dyn FnMut(SnapshotMeta) + Send),
+    ) -> Result<String, ToolError> {
+        let (mut reader, mut lines, mut pos) = (read_legacy::LineReader::default(), Vec::new(), 0_u64);
+        while pos < size && lines.len() < limit {
+            let chunk = read_range(ctx, abs, shown, pos, HUGE_CHUNK).await?;
+            if chunk.is_empty() {
+                break;
+            }
+            pos += chunk.len() as u64;
+            reader.feed(&chunk, &mut lines, limit);
+        }
+        if lines.len() < limit {
+            reader.finish(&mut lines);
+        }
+        let rendered = lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| render_read_line(i as u64 + 1, if i == 0 { l.strip_prefix('\u{feff}').unwrap_or(l) } else { l }))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let out = read_legacy::cap_shell_output(&rendered);
+        if out == rendered && !lines.is_empty() {
+            observe(SnapshotMeta { ranges: Some(vec![LineRange { start: 1, end: Some(lines.len() as u64) }]), ..SnapshotMeta::new("read_head_stream") });
+        }
+        Ok(out)
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn file_symbols(ctx: &ToolContext, (abs, shown): (&AbsPath, &str), size: u64, limit: usize) -> Result<Vec<String>, ToolError> {
+        let (mut reader, mut symbols, mut pos, mut line_no) = (read_legacy::LineReader::default(), Vec::new(), 0_u64, 0_u64);
+        'file: while pos < size {
+            let chunk = read_range(ctx, abs, shown, pos, HUGE_CHUNK).await?;
+            if chunk.is_empty() {
+                break;
+            }
+            pos += chunk.len() as u64;
+            let mut lines = Vec::new();
+            reader.feed(&chunk, &mut lines, usize::MAX);
+            for line in lines {
+                line_no += 1;
+                let line = if line_no == 1 { line.strip_prefix('\u{feff}').unwrap_or(&line).to_owned() } else { line };
+                if let Some(row) = read_legacy::symbol_row(line_no, &line, &render_read_line) {
+                    symbols.push(row);
+                    if symbols.len() >= limit {
+                        break 'file;
+                    }
+                }
+            }
+        }
+        if symbols.len() < limit {
+            let mut last = Vec::new();
+            reader.finish(&mut last);
+            for line in last {
+                if let Some(row) = read_legacy::symbol_row(line_no + 1, &line, &render_read_line) {
+                    symbols.push(row);
+                }
+            }
+        }
+        Ok(symbols)
     }
     /// `openTextPathForReadMeta`'s missing-file message: the stat error, a near name, the siblings.
     async fn glance_not_found(ctx: &ToolContext, abs: &AbsPath, relative: bool) -> String {
@@ -846,6 +981,23 @@ impl ReadTool {
         siblings.sort_by_key(|n| read_paths::dir_order_key(n));
         siblings.truncate(12);
         format!("Error: ENOENT: no such file or directory, stat '{at}'{hint} Siblings: [{}].", siblings.join(", "))
+    }
+}
+
+/// The text a glance mode works over, or the refusal it answers with. A file of streaming size is decoded with U+FFFD
+/// for its invalid bytes, as Node's streaming decoder does, and is not refused.
+fn glance_content(bytes: &[u8], len: u64, named: &str) -> Result<String, String> {
+    match decode_for_read(bytes) {
+        ReadText::Binary => Err(format!("Error: file appears to be binary (contains null bytes): {named}")),
+        ReadText::Text { text, utf16: true } => Ok(text),
+        ReadText::Text { utf16: false, .. } => {
+            let body = bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..]).unwrap_or(bytes);
+            match std::str::from_utf8(body) {
+                Ok(text) => Ok(text.to_owned()),
+                Err(_) if len > READ_STREAM_RANGE_MIN_BYTES => Ok(String::from_utf8_lossy(body).into_owned()),
+                Err(_) => Err("Error: invalid UTF-8 in text file: The encoded data was not valid for encoding utf-8".to_owned()),
+            }
+        }
     }
 }
 
@@ -1159,10 +1311,6 @@ impl ReadTool {
         Ok(Some(Survey::Many { results, capped, partial }))
     }
 
-    /// The batch machinery (`executeBatchRead`): shape the entries, split the output budget over
-    /// the distinct disk reads, read each, and cut every caller's window back out of its read.
-    /// `object` entries (region objects, the public form) are merged and coalesced; a string batch
-    /// is read as it stands. `record` says whether what the reads saw reaches the session.
     fn pipeline<'a>(&'a self, ctx: &'a ToolContext, entries: Vec<BEntry>, object: bool, cap: usize, record: bool, base: u64) -> Pipeline<'a> {
         Box::pin(async move {
             let key = |p: &str| match resolve_path(&ctx.cwd, p) {
@@ -1185,10 +1333,6 @@ impl ReadTool {
             // window, order.
             let header_paths: Vec<&str> =
                 if object { firsts.iter().map(|i| slots[*i].path.as_str()).collect() } else { slots.iter().map(|s| s.path.as_str()).collect() };
-            // The budget is over the bytes the requested windows actually render, never an estimate from file size
-            // or the span between windows. Every distinct read is rendered once against the whole call budget; only
-            // when the sum passes it are the larger ones rendered again inside their water-filled share, so what a
-            // short window leaves goes to the others and each overflowing window ends on a complete line.
             let total = body_budget(&header_paths, cap);
             let window_offset = |s: &BEntry| if s.is_full_mode() { s.line_window().0 } else { 0 };
             let mut order: Vec<usize> = (0..firsts.len()).collect();
@@ -1248,27 +1392,7 @@ impl ReadTool {
                 .enumerate()
                 .map(|(i, slot)| {
                     let producer = map[i];
-                    let body = bodies[producer].clone().expect("every read ran").0;
-                    let body = match &body {
-                        CBody::Str(s) if object && slot.is_full_mode() && slot.needs_slice => {
-                            let off = slot.orig_offset.map_or(0, |o| o.max(0.0) as u64);
-                            let lim = match slot.orig_limit {
-                                Some(0.0) => None,
-                                Some(l) => Some(l.max(0.0) as u64),
-                                None => Some(2000),
-                            };
-                            CBody::Str(slice_read_body(s, off, lim, base))
-                        }
-                        // A window read on its own that the budget cut short names what is missing and the call for it.
-                        CBody::Str(s) if slot.tail.is_none() && slot.is_full_mode() && !slot.implicit() && slot.full != Some(true) => {
-                            let (off, end) = slot.line_window();
-                            match end.and_then(|end| cap_remaining(s, off, end - off, base)) {
-                                Some(note) => CBody::Str(format!("{s}\n{note}")),
-                                None => body,
-                            }
-                        }
-                        _ => body,
-                    };
+                    let body = cut_caller_window(slot, bodies[producer].clone().expect("every read ran").0, object, base);
                     let source = if object { &slots[firsts[producer]] } else { slot };
                     let path = if source.path.is_empty() { "(missing-path)".to_owned() } else { shown(&source.path) };
                     let huge_tail = slot.tail.filter(|_| matches!(&body, CBody::Str(s) if s.starts_with("... [tail of ")));
@@ -1456,52 +1580,10 @@ impl ReadTool {
         let key_path = super::read_state::canonical_key(&fwd(abs.as_path()));
         let version = FileVersion::of(&stat);
         let cacheable = stat.len <= CACHEABLE_BYTES;
-        // Decided departure from Node (`read-single-fast-paths.mjs`): an explicit read returns the requested body, never a
-        // `[file unchanged]` stub. A hash proves the file is unchanged, not that an earlier body is still in the model's
-        // context (compaction, rewind, repair, offload, a sub-agent). The edit-safety snapshots are still recorded below.
         // An extensionless attachment may be a document or image. Reuse the same signature read.
-        let mut signature = Vec::new();
-        if matches!(stat.kind, EntryKind::File) {
-            let by_extension = image_ext(raw);
-            if by_extension.is_none() && Path::new(raw).extension().is_none() && stat.len >= 5 {
-                signature =
-                    match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(IMAGE_SIGNATURE_BYTES) }))
-                        .await?
-                    {
-                        Ok(b) => b.bytes,
-                        Err(err) => return Err(fs_failure(&err, &shown)),
-                    };
-            }
-            if by_extension.is_some() || sniffed_image(&signature).is_some() {
-                let limit = if self.images.is_some() { IMAGE_WORKER_INPUT_LIMIT } else { IMAGE_MAX_BYTES as u64 };
-                let display = if by_extension.is_some() { shown.as_str() } else { raw };
-                let refused = |size| {
-                    let text = if self.images.is_some() {
-                        format!("Error: image \"{display}\" is {size} bytes, over the image worker's input limit ({limit} bytes). Resize before reading.")
-                    } else {
-                        image_inline_refusal(display, size)
-                    };
-                    Body { rich: true, ..Body::text(text) }
-                };
-                if stat.len > limit {
-                    // Keep filesystem access errors ahead of the media size refusal.
-                    if let Err(err) = guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(1) })).await? {
-                        return Err(fs_failure(&err, &shown));
-                    }
-                    return Ok(refused(stat.len));
-                }
-                let bytes =
-                    match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(limit + 1) })).await? {
-                        Ok(b) => b.bytes,
-                        Err(err) => return Err(fs_failure(&err, &shown)),
-                    };
-                if bytes.len() as u64 > limit {
-                    return Ok(refused(bytes.len() as u64));
-                }
-                if let Some(format) = by_extension.or_else(|| sniffed_image(&bytes)) {
-                    return self.image_body(ctx, display, bytes, format).await;
-                }
-            }
+        let (signature, image) = self.image_or_signature(ctx, &abs, &stat, raw, &shown).await?;
+        if let Some(image) = image {
+            return Ok(image);
         }
         if let Some(document) = document_kind(&signature, raw) {
             let prefix = if signature.is_empty() {
@@ -1525,20 +1607,7 @@ impl ReadTool {
                 None => self.read_huge(ctx, e, &abs, &shown, &stat, version, mode, head).await,
             };
         }
-        let window_key = |v: u64| if e.ranged { v.to_string() } else { "d".to_owned() };
-        let cache_key = version.filter(|_| e.tail.is_none()).map(|v| {
-            format!(
-                "read|{key_path}|{}|{}|{}|{}|{}|{}|base:{}|budget:{}",
-                v.mtime_ms,
-                v.ctime_ms.map_or_else(|| "-".to_owned(), |c| c.to_string()),
-                v.size,
-                window_key(e.offset),
-                window_key(e.limit),
-                if e.full { "f" } else { "s" },
-                e.base,
-                mode.max_output()
-            )
-        });
+        let cache_key = version.filter(|_| e.tail.is_none()).map(|v| read_cache_key(&key_path, &v, e, mode));
         let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
             Ok(b) => b.bytes,
             Err(err) => return Err(read_failure(&err, &abs, &shown)),
@@ -1600,35 +1669,70 @@ impl ReadTool {
         // decoded whole and read buffered, with its total in the footer.
         let stream = !utf16 && e.ranged && !e.full && (mode.force_stream() || stat.len > READ_STREAM_RANGE_MIN_BYTES);
         let (numbered, meta) = if stream {
-            let (out, facts) = stream_window(&text, stat.len, e.offset, e.limit, mode.max_output(), e.base);
-            let ranges = if facts.first_emitted > 0 && facts.last_emitted > 0 {
-                vec![LineRange { start: facts.first_emitted, end: Some(facts.last_emitted) }]
-            } else {
-                Vec::new()
-            };
-            (out, SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read_stream_range") })
+            streamed_window(&text, e, stat.len, mode)
         } else {
             let (out, facts) = buffered_window(&text, e, &shown, stat.len, mode.max_output());
-            let full_view = e.offset == 0 && e.offset.saturating_add(e.limit) >= facts.line_count && !facts.byte_capped && !facts.elided;
-            let ranges = if full_view {
-                vec![LineRange::WHOLE]
-            } else if facts.elided {
-                facts.visible.clone()
-            } else if facts.rendered > 0 {
-                vec![LineRange { start: e.offset + 1, end: Some(facts.line_count.min(e.offset + facts.rendered)) }]
-            } else {
-                Vec::new()
-            };
-            let meta = SnapshotMeta {
-                ranges: Some(ranges),
-                content_hash: full_view.then(|| hash_text(&text)),
-                file_line_count: Some(facts.line_count),
-                ..SnapshotMeta::new("read")
-            };
+            let meta = buffered_snapshot(&text, e, &facts);
             (out, meta)
         };
         cache(&numbered, &meta);
         Ok(Body::numbered(numbered, observe(meta), mode))
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn image_or_signature(
+        &self,
+        ctx: &ToolContext,
+        abs: &AbsPath,
+        stat: &mixdog_core_api::domain::fs::FileStat,
+        raw: &str,
+        shown: &str,
+    ) -> Result<(Vec<u8>, Option<Body>), ToolError> {
+        let mut signature = Vec::new();
+        if !matches!(stat.kind, EntryKind::File) {
+            return Ok((signature, None));
+        }
+        let by_extension = image_ext(raw);
+        if by_extension.is_none() && Path::new(raw).extension().is_none() && stat.len >= 5 {
+            signature =
+                match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(IMAGE_SIGNATURE_BYTES) }))
+                    .await?
+                {
+                    Ok(b) => b.bytes,
+                    Err(err) => return Err(fs_failure(&err, shown)),
+                };
+        }
+        if by_extension.is_none() && sniffed_image(&signature).is_none() {
+            return Ok((signature, None));
+        }
+        let limit = if self.images.is_some() { IMAGE_WORKER_INPUT_LIMIT } else { IMAGE_MAX_BYTES as u64 };
+        let display = if by_extension.is_some() { shown } else { raw };
+        let refused = |size| {
+            let text = if self.images.is_some() {
+                format!("Error: image \"{display}\" is {size} bytes, over the image worker's input limit ({limit} bytes). Resize before reading.")
+            } else {
+                image_inline_refusal(display, size)
+            };
+            Body { rich: true, ..Body::text(text) }
+        };
+        if stat.len > limit {
+            // Keep filesystem access errors ahead of the media size refusal.
+            if let Err(err) = guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(1) })).await? {
+                return Err(fs_failure(&err, shown));
+            }
+            return Ok((signature, Some(refused(stat.len))));
+        }
+        let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(limit + 1) })).await? {
+            Ok(b) => b.bytes,
+            Err(err) => return Err(fs_failure(&err, shown)),
+        };
+        if bytes.len() as u64 > limit {
+            return Ok((signature, Some(refused(bytes.len() as u64))));
+        }
+        if let Some(format) = by_extension.or_else(|| sniffed_image(&bytes)) {
+            return Ok((signature, Some(self.image_body(ctx, display, bytes, format).await?)));
+        }
+        Ok((signature, None))
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the filesystem-tool error contract")]
@@ -1704,9 +1808,17 @@ impl ReadTool {
             let meta = SnapshotMeta { ranges: Some(Vec::new()), ..SnapshotMeta::new("read_hex") };
             return Ok(Body { observed: observe(meta), ..Body::text(binary_preview(shown, preview, stat.len)) });
         }
-        let mut c = Collector::new(stat.len, e.offset, e.limit, mode.max_output(), e.base);
+        let (numbered, facts) = Self::collect_huge_window(ctx, abs, shown, stat.len, e, mode).await?;
+        let ranges = if facts.first_emitted > 0 { vec![LineRange { start: facts.first_emitted, end: Some(facts.last_emitted) }] } else { Vec::new() };
+        let meta = SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read") };
+        Ok(Body::numbered(numbered, observe(meta), mode))
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn collect_huge_window(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64, e: &Entry, mode: Mode) -> Result<(String, WindowFacts), ToolError> {
+        let mut c = Collector::new(size, e.offset, e.limit, mode.max_output(), e.base);
         let (mut pos, mut pending, mut pending_len) = (0_u64, Vec::<u8>::new(), 0_usize);
-        'file: while pos < stat.len && !c.done() {
+        'file: while pos < size && !c.done() {
             let chunk = read_range(ctx, abs, shown, pos, HUGE_CHUNK).await?;
             if chunk.is_empty() {
                 break;
@@ -1721,7 +1833,6 @@ impl ReadTool {
                 }
                 pending_len += body.len();
                 if ended {
-                    // A line over the collect cap keeps its first 50 KiB and no CR strip.
                     let keep = if pending_len > output_max_bytes() { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
                     c.push(keep);
                     pending.clear();
@@ -1736,10 +1847,7 @@ impl ReadTool {
             let keep = if pending_len > output_max_bytes() { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
             c.push(keep);
         }
-        let (numbered, facts) = c.finish();
-        let ranges = if facts.first_emitted > 0 { vec![LineRange { start: facts.first_emitted, end: Some(facts.last_emitted) }] } else { Vec::new() };
-        let meta = SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read") };
-        Ok(Body::numbered(numbered, observe(meta), mode))
+        Ok(c.finish())
     }
 
     /// One extension-pool call over `abs`, with access approved for only that path.
@@ -1776,9 +1884,6 @@ impl ReadTool {
         }
     }
 
-    /// `readMediaFile` for a document: a PDF through `extractPdfText`, an OOXML file through `extractOoxmlText`.
-    /// An OOXML answer that is not an error records the read; a PDF
-    /// read records none.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn document(
@@ -1815,12 +1920,6 @@ impl ReadTool {
         }))
     }
 
-    /// `extractPdfText` over the extension host's pdf.js: the pages argument checked, then the range it names, or
-    /// without one a PDF of up to `PDF_WHOLE_READ_MAX_PAGES` pages whole and a longer one's first pages. A short PDF
-    /// whole is the document itself for a session whose model sees images and whose provider takes PDFs natively
-    /// (`mode === 'image' && nativeDocument`, up to `MAX_PDF_BYTES`), else every page through the range path. `bytes`
-    /// carry the file signature. `text_only` is a batch's
-    /// `mediaTextOnly`. offset/limit do not apply.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn pdf(&self, ctx: &ToolContext, abs: &AbsPath, bytes: &[u8], size: u64, pages: Option<&JsonValue>, text_only: bool) -> Result<Body, ToolError> {
         let range = match parse_pages_arg(pages) {
@@ -1916,47 +2015,11 @@ impl ReadTool {
             .collect();
         drop(extracted);
         let scanned: Vec<u64> = pages.iter().filter(|(_, _, layer)| !layer).map(|(page, _, _)| *page).collect();
-        let mut bodies = self.scanned_page_bodies(ctx, abs, &scanned, text_only).await?;
+        let bodies = self.scanned_page_bodies(ctx, abs, &scanned, text_only).await?;
         let layer = if scanned.is_empty() { "every page has a text layer".to_owned() } else { format!("scanned (no text layer): {}", page_list(&scanned)) };
         let note = note.map(|note| format!(". {note}")).unwrap_or_default();
-        let mut text = format!("[PDF {}: pages {from}-{to} of {page_count}; {layer}{note}]", pdf_file_label(abs));
-        let mut blocks: Vec<ToolPart> = Vec::new();
-        let mut text_bytes = 0usize;
-        let flush = |text: &mut String, blocks: &mut Vec<ToolPart>, text_bytes: &mut usize| {
-            if !text.is_empty() {
-                let remaining = output_max_bytes().saturating_sub(*text_bytes).max(1);
-                *text_bytes = text_bytes.saturating_add(text.len());
-                blocks.push(ToolPart::Text(cap_pdf_text(std::mem::take(text), remaining)));
-            }
-        };
-        for (page, page_text, _) in pages {
-            let gap = if text.is_empty() { "" } else { "\n\n" };
-            match bodies.remove(&page) {
-                Some(Scanned::Image(image)) => {
-                    text.push_str(&format!("{gap}--- Page {page} (scanned; page image follows) ---"));
-                    flush(&mut text, &mut blocks, &mut text_bytes);
-                    blocks.push(image);
-                }
-                body => {
-                    let (tag, body) = match body {
-                        Some(Scanned::Note(shown)) => ("", shown),
-                        Some(Scanned::Ocr(read)) => (" (OCR of a scanned page)", read),
-                        None => ("", page_text),
-                        Some(Scanned::Image(_)) => unreachable!(),
-                    };
-                    text.push_str(&format!("{gap}--- Page {page}{tag} ---\n"));
-                    // Enough for the final UTF-8 cut and its marker, even if OCR returned much more.
-                    let max = output_max_bytes().saturating_sub(text_bytes).max(1);
-                    text.push_str(byte_prefix(&body, max.saturating_add(4).saturating_sub(text.len())));
-                }
-            }
-        }
-        flush(&mut text, &mut blocks, &mut text_bytes);
-        if blocks.len() == 1 && matches!(blocks.first(), Some(ToolPart::Text(_))) {
-            let Some(ToolPart::Text(text)) = blocks.pop() else { unreachable!() };
-            return Ok(Body::text(text));
-        }
-        Ok(Body { parts: blocks, rich: true, ..Body::default() })
+        let header = format!("[PDF {}: pages {from}-{to} of {page_count}; {layer}{note}]", pdf_file_label(abs));
+        Ok(pdf_pages_body(header, pages, bodies))
     }
 
     /// `scannedPageBodies`: each page without a text layer as its page image for a model that reads images
@@ -2062,10 +2125,6 @@ impl ReadTool {
         Ok(Ok(out))
     }
 
-    /// `extractIpynbText`: a read with a window is refused (cells are not line-addressable); one without renders the
-    /// cells, markdown as written and code fenced with its text outputs, the text capped at the read's output budget.
-    /// An image output is embedded after its cell when it can be resized, and stays a placeholder otherwise or in a
-    /// batch (`text_only`). Every `Error:` answer is a failed call.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn notebook(&self, ctx: &ToolContext, e: &Entry, abs: &AbsPath, size: u64, text_only: bool) -> Result<Body, ToolError> {
         let failed = |text: String| Ok(Body { error: true, ..Body::text(text) });
@@ -2084,9 +2143,8 @@ impl ReadTool {
         }
         let notebook: JsonValue = serde_json::from_str(&text).unwrap_or(JsonValue::Null);
         let full_path = abs.as_path().to_string_lossy().into_owned();
-        let property_of_null = |key: &str| format!("Error: ipynb parse failed — Cannot read properties of null (reading '{key}')");
         if notebook.is_null() {
-            return failed(property_of_null("cells"));
+            return failed(notebook_null_property("cells"));
         }
         let cells = notebook.get("cells").and_then(JsonValue::as_array).cloned().unwrap_or_default();
         // Blocks in notebook order: runs of rendered cells as one text, each embedded image after its cell.
@@ -2101,7 +2159,7 @@ impl ReadTool {
         };
         for (index, cell) in cells.iter().enumerate() {
             if cell.is_null() {
-                return failed(property_of_null("cell_type"));
+                return failed(notebook_null_property("cell_type"));
             }
             match cell.get("cell_type").and_then(JsonValue::as_str) {
                 Some("markdown") => {
@@ -2110,31 +2168,10 @@ impl ReadTool {
                     texts.push(source);
                 }
                 Some("code") => {
-                    let mut block = notebook_text(cell.get("source")).unwrap_or_default();
-                    let mut images: Vec<(&'static str, String)> = Vec::new();
-                    for out in cell.get("outputs").and_then(JsonValue::as_array).map(Vec::as_slice).unwrap_or_default() {
-                        if out.is_null() {
-                            return failed(property_of_null("data"));
-                        }
-                        let data = out.get("data").filter(|d| js_truthy(d));
-                        let field = |key: &str| data.and_then(|d| d.get(key)).filter(|v| js_truthy(v));
-                        if let Some(raw) = field("text/plain").or_else(|| out.get("text").filter(|v| js_truthy(v))) {
-                            let text = notebook_text(Some(raw)).unwrap_or_default();
-                            let length = mixdog_js::utf16_len(&text);
-                            if (raw.is_string() || raw.is_array()) && length > IPYNB_OUTPUT_MAX_CHARS {
-                                block.push_str(&format!(
-                                    "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
-                                ));
-                                continue;
-                            }
-                            block.push_str(&format!("\n# Output:\n{text}"));
-                        } else if let Some((mime, raw)) =
-                            field("image/png").map(|v| ("image/png", v)).or_else(|| field("image/jpeg").map(|v| ("image/jpeg", v)))
-                        {
-                            images.push((mime, notebook_text(Some(raw)).unwrap_or_default()));
-                            block.push_str(&format!("\n# Output: [image output — cell {index}]"));
-                        }
-                    }
+                    let (block, images) = match notebook_code_cell(cell, index, &full_path) {
+                        Ok(rendered) => rendered,
+                        Err(message) => return failed(message),
+                    };
                     let fenced = format!("```python\n{block}\n```");
                     text_len += mixdog_js::utf16_len(&fenced);
                     texts.push(fenced);
@@ -2674,25 +2711,44 @@ struct WindowFacts {
     last_emitted: u64,
 }
 
+fn buffered_facts(line_count: u64, rendered: u64, byte_capped: bool) -> WindowFacts {
+    WindowFacts { line_count, rendered, byte_capped, elided: false, visible: Vec::new(), first_emitted: 0, last_emitted: 0 }
+}
+
+fn unranged_window(rendered: String, e: &Entry, (total, shown_all): (u64, u64), file_size: u64, max: usize) -> (String, WindowFacts) {
+    if !e.full
+        && let Some((elided, visible)) = smart_read_truncate(&rendered, total, file_size)
+    {
+        return (elided, WindowFacts { elided: true, visible, ..buffered_facts(total, 0, false) });
+    }
+    if rendered.len() <= max {
+        return (rendered, buffered_facts(total, shown_all, false));
+    }
+    let mut slice = byte_prefix(&rendered, max);
+    let shown_lines = slice.matches('\n').count() as u64;
+    // Node appends its marker to the exact byte slice; dropping digits cut from the last row's line number is a
+    // deliberate difference in the returned text only, the continuation offset is the same.
+    if let Some(at) = slice.rfind('\n')
+        && !slice[at + 1..].contains('→')
+    {
+        slice = &slice[..at];
+    }
+    let of_file = if file_size > 0 { format!("{} KB file", ((file_size as f64 / 1024.0).round() as u64).max(1)) } else { String::new() };
+    let note = if of_file.is_empty() { String::new() } else { format!("{shown_lines} of {total} lines shown ({of_file})") };
+    let marker = cap_marker(&format_cap_size(max), &note, Some(e.offset + shown_lines + e.base), "");
+    (format!("{slice}\n\n{marker}"), buffered_facts(total, shown_lines, true))
+}
+
 /// The buffered read of a window (`renderReadWindow`): numbered rows with the total in the footer,
 /// cut by bytes (mid-row, as Node cuts) when they pass the output cap.
 fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usize) -> (String, WindowFacts) {
     let (offset, limit, base) = (e.offset, e.limit, e.base);
-    let facts = |line_count, rendered, byte_capped| WindowFacts {
-        line_count,
-        rendered,
-        byte_capped,
-        elided: false,
-        visible: Vec::new(),
-        first_emitted: 0,
-        last_emitted: 0,
-    };
     if text.is_empty() {
         let reminder = format!(
             "<system-reminder>File exists but has empty contents: {}</system-reminder>",
             shown.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
         );
-        return (reminder, facts(0, 0, false));
+        return (reminder, buffered_facts(0, 0, false));
     }
     let mut lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
     if let Some(first) = lines.first_mut() {
@@ -2706,7 +2762,7 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
     let end = if e.ranged { offset.saturating_add(limit).min(total) } else { total };
     let sliced: &[&str] = if offset < end { &lines[offset as usize..end as usize] } else { &[] };
     if e.ranged && sliced.is_empty() && offset >= total {
-        return (format!("(no lines in range; file has {total} lines)"), facts(total, 0, false));
+        return (format!("(no lines in range; file has {total} lines)"), buffered_facts(total, 0, false));
     }
     let rendered = sliced
         .iter()
@@ -2715,29 +2771,7 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
         .collect::<Vec<_>>()
         .join("\n");
     if !e.ranged {
-        // No footer. Only a call without `full` is elided in the middle; any is cut at the byte cap.
-        if !e.full
-            && let Some((elided, visible)) = smart_read_truncate(&rendered, total, file_size)
-        {
-            return (elided, WindowFacts { elided: true, visible, ..facts(total, 0, false) });
-        }
-        if rendered.len() > max {
-            let mut slice = byte_prefix(&rendered, max);
-            let shown_lines = slice.matches('\n').count() as u64;
-            // A cut inside the last row's line number leaves digits that would read as a row of content; drop them. Node
-            // appends its marker to the exact byte slice: this is a deliberate difference in the returned text only, the
-            // continuation offset is the same.
-            if let Some(at) = slice.rfind('\n')
-                && !slice[at + 1..].contains('→')
-            {
-                slice = &slice[..at];
-            }
-            let of_file = if file_size > 0 { format!("{} KB file", ((file_size as f64 / 1024.0).round() as u64).max(1)) } else { String::new() };
-            let note = if of_file.is_empty() { String::new() } else { format!("{shown_lines} of {total} lines shown ({of_file})") };
-            let marker = cap_marker(&format_cap_size(max), &note, Some(offset + shown_lines + base), "");
-            return (format!("{slice}\n\n{marker}"), facts(total, shown_lines, true));
-        }
-        return (rendered, facts(total, sliced.len() as u64, false));
+        return unranged_window(rendered, e, (total, sliced.len() as u64), file_size, max);
     }
     let (out, footer, shown_lines, capped) = if rendered.len() > max {
         // Only complete rows are delivered: the prefix ends at its last row break, so a row is never cut mid-line.
@@ -2752,7 +2786,7 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
         let next = (emitted_end < total).then_some(emitted_end + base);
         (rendered, window_marker("lines", offset + 1, emitted_end, Some(total), next, None), sliced.len() as u64, false)
     };
-    (format!("{out}{}{footer}", if out.is_empty() { "" } else { "\n" }), facts(total, shown_lines, capped))
+    (format!("{out}{}{footer}", if out.is_empty() { "" } else { "\n" }), buffered_facts(total, shown_lines, capped))
 }
 
 /// `streamSmartReadSummary` over a text held whole: the first 1200 and last 400 rows around a
@@ -3145,11 +3179,10 @@ mod office_text_tests {
         }
     }
 
-    #[tokio::test]
-    async fn a_docx_table_and_an_xlsx_grid_are_read_as_text() {
+    fn docx_with_table() -> Vec<u8> {
         let paragraph = |text: &str| format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
         let cell = |text: &str| format!("<w:tc>{}</w:tc>", paragraph(text));
-        let docx = package(&[(
+        package(&[(
             "word/document.xml",
             format!(
                 "<?xml version=\"1.0\"?><w:document xmlns:w=\"{WORD_NS}\"><w:body>{}<w:tbl><w:tr>{}{}{}</w:tr><w:tr>{}{}{}</w:tr></w:tbl>{}</w:body></w:document>",
@@ -3162,8 +3195,11 @@ mod office_text_tests {
                 cell("38,400,000원"),
                 paragraph("끝"),
             ),
-        )]);
-        let xlsx = package(&[
+        )])
+    }
+
+    fn xlsx_with_two_sheets() -> Vec<u8> {
+        package(&[
             (
                 "xl/workbook.xml",
                 format!(
@@ -3185,20 +3221,26 @@ mod office_text_tests {
                 ),
             ),
             ("xl/worksheets/sheet2.xml", format!("<?xml version=\"1.0\"?><worksheet xmlns=\"{SHEET_NS}\"><sheetData/></worksheet>")),
-        ]);
-        let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-office-text").join("ws")).unwrap();
-        let seeds = vec![("report.docx".to_owned(), docx.clone()), ("kpi.xlsx".to_owned(), xlsx.clone())];
-        let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
-        let host = Arc::new(OoxmlHost(vec![("report.docx", docx), ("kpi.xlsx", xlsx)])) as Arc<dyn ExtPool>;
-        let read = ReadTool::new(Some(host), None);
+        ])
+    }
 
-        // Which column a table value belongs to is the table's meaning: rows, not one value per line.
-        let (failed, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "report.docx" })).await);
+    async fn read_office(name: &'static str, package: Vec<u8>) -> (bool, String) {
+        let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-office-text").join("ws")).unwrap();
+        let ctx = context_seeded(&root, Arc::new(MockFileService::default()), vec![(name.to_owned(), package.clone())]).await;
+        let host = Arc::new(OoxmlHost(vec![(name, package)])) as Arc<dyn ExtPool>;
+        text_of(ReadTool::new(Some(host), None).call(&ctx, serde_json::json!({ "file_path": name })).await)
+    }
+
+    #[tokio::test]
+    async fn a_docx_table_is_read_as_rows() {
+        let (failed, text) = read_office("report.docx", docx_with_table()).await;
         assert!(!failed, "{text}");
         assert_eq!(text.split('\n').collect::<Vec<_>>(), ["조치", "항목\t수량\t월 비용", "야간 인력\t12명\t38,400,000원", "끝"]);
+    }
 
-        // A sheet reads as its grid: a formula as its cached value, an empty cell keeping its column, an empty sheet named.
-        let (failed, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "kpi.xlsx" })).await);
+    #[tokio::test]
+    async fn an_xlsx_sheet_is_read_as_its_grid() {
+        let (failed, text) = read_office("kpi.xlsx", xlsx_with_two_sheets()).await;
         assert!(!failed, "{text}");
         assert_eq!(
             text.split('\n').collect::<Vec<_>>(),

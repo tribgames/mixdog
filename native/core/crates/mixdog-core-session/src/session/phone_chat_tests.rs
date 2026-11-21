@@ -300,11 +300,6 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
     assert!(!timer_fired.load(std::sync::atomic::Ordering::SeqCst), "the 16 ms timer was not fired by the wait");
 }
-/// `a repeated submission id is one prompt` across a reload: the thread's actor is gone (an unload, a restart) before the
-/// client heard its answers, and the client's retries with the same ids answer as the first sends did, from what the thread
-/// stored, not from a row that happens to be in view: one that started directly, one that was queued and then started (its
-/// queue entry consumed), and one still queued. Each answers as an idempotent success and nothing is posted twice. The rows
-/// are the stored records' own (`RecordTranscript`), as the daemon converts them.
 #[tokio::test(start_paused = true)]
 async fn a_repeated_submission_id_is_one_prompt_after_a_reload() {
     let rig = Rig::new();

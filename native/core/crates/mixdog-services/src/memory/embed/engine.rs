@@ -96,9 +96,62 @@ fn session_providers(gpu: bool) -> Vec<ort::ep::ExecutionProviderDispatch> {
     providers
 }
 
+/// The graph's per-token output (`tokens` rows of `dims`) reduced to one L2-normalised vector.
+fn pool_and_normalize(data: &[f32], dims: usize, tokens: usize, pooling: Pooling) -> Vec<f32> {
+    let mut vector = vec![0f32; dims];
+    match pooling {
+        Pooling::Cls => vector.copy_from_slice(&data[..dims]),
+        Pooling::Mean => {
+            for token in 0..tokens {
+                for (k, slot) in vector.iter_mut().enumerate() {
+                    *slot += data[token * dims + k];
+                }
+            }
+            for slot in &mut vector {
+                *slot /= tokens as f32;
+            }
+        }
+    }
+    let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let norm = if norm == 0.0 { 1.0 } else { norm };
+    for slot in &mut vector {
+        *slot /= norm;
+    }
+    vector
+}
+
+/// Tokenizer and graph sessions, built on the model lane.
+fn open_sessions(tokenizer_path: &Path, max_length: usize, library: &Path, graph: &Path, count: usize, gpu: bool) -> Result<(Tokenizer, Vec<Session>)> {
+    let tokenizer = Tokenizer::load(tokenizer_path, max_length)?;
+    let environment = ort_environment(library)?;
+    let mut sessions = Vec::new();
+    for _ in 0..count {
+        let build = || -> ort::Result<Session> {
+            let mut builder = Session::builder(environment)?
+                .with_execution_providers(session_providers(gpu))?
+                .with_intra_threads(1)?
+                .with_inter_threads(1)?
+                .with_optimization_level(GraphOptimizationLevel::Level1)?
+                .with_memory_pattern(false)?;
+            builder.commit_from_file(graph)
+        };
+        // The worker reports onnxruntime's own text (`err.message`).
+        sessions.push(build().map_err(|error| MemoryError::Embedding(error.to_string()))?);
+    }
+    Ok((tokenizer, sessions))
+}
+
 #[cfg(test)]
 mod session_option_tests {
-    use super::session_providers;
+    use super::{Pooling, pool_and_normalize, session_providers};
+
+    #[test]
+    fn pooling_gives_a_unit_vector_from_the_first_token_or_the_token_mean() {
+        let data = [3.0, 0.0, 0.0, 4.0];
+        assert_eq!(pool_and_normalize(&data, 2, 2, Pooling::Cls), [1.0, 0.0]);
+        assert_eq!(pool_and_normalize(&data, 2, 2, Pooling::Mean), [0.6, 0.8]);
+        assert_eq!(pool_and_normalize(&[0.0, 0.0], 2, 1, Pooling::Cls), [0.0, 0.0]);
+    }
 
     #[test]
     fn the_cpu_provider_is_registered_so_its_arena_is_off() {
@@ -150,28 +203,9 @@ impl Embedder {
         let gpu = config::prefers_gpu(&model_id, std::env::var("MIXDOG_MEMORY_EMBED_DEVICE").ok().as_deref(), cfg!(windows));
         let count = config.sessions.max(1);
         let library = config.ort_library.clone();
-        let (tokenizer, sessions) = run_on_lane(config.lane, move || -> Result<(Tokenizer, Vec<Session>)> {
-            let tokenizer = Tokenizer::load(&tokenizer_path, max_length)?;
-            let environment = ort_environment(&library)?;
-            let mut sessions = Vec::new();
-            for _ in 0..count {
-                let build = || -> ort::Result<Session> {
-                    let providers = session_providers(gpu);
-                    let mut builder = Session::builder(environment)?
-                        .with_execution_providers(providers)?
-                        .with_intra_threads(1)?
-                        .with_inter_threads(1)?
-                        .with_optimization_level(GraphOptimizationLevel::Level1)?
-                        .with_memory_pattern(false)?;
-                    builder.commit_from_file(&graph)
-                };
-                // The worker reports onnxruntime's own text (`err.message`).
-                sessions.push(build().map_err(|error| MemoryError::Embedding(error.to_string()))?);
-            }
-            Ok((tokenizer, sessions))
-        })
-        .await
-        .map_err(|error| runtime_error("embedding load", error))??;
+        let (tokenizer, sessions) = run_on_lane(config.lane, move || open_sessions(&tokenizer_path, max_length, &library, &graph, count, gpu))
+            .await
+            .map_err(|error| runtime_error("embedding load", error))??;
         let with_type_ids = sessions[0].inputs().iter().any(|input| input.name() == "token_type_ids");
         Ok(Self {
             inner: Arc::new(Inner {
@@ -243,26 +277,7 @@ impl Embedder {
         if let Some(expected) = config::known_dims(&inner.model_id).filter(|expected| *expected != dims) {
             return Err(MemoryError::Embedding(format!("embedding dims invariant violation: model={} expected={expected} measured={dims}", inner.model_id)));
         }
-        let mut vector = vec![0f32; dims];
-        match inner.pooling {
-            Pooling::Cls => vector.copy_from_slice(&data[..dims]),
-            Pooling::Mean => {
-                for token in 0..n {
-                    for (k, slot) in vector.iter_mut().enumerate() {
-                        *slot += data[token * dims + k];
-                    }
-                }
-                for slot in &mut vector {
-                    *slot /= n as f32;
-                }
-            }
-        }
-        let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
-        let norm = if norm == 0.0 { 1.0 } else { norm };
-        for slot in &mut vector {
-            *slot /= norm;
-        }
-        Ok(vector)
+        Ok(pool_and_normalize(data, dims, n, inner.pooling))
     }
 
     /// The vector of one text; empty text has none.

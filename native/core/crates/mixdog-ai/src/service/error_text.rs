@@ -94,6 +94,7 @@ fn empty_cause_text(error: &ErrorView, delivery: DeliveryState) -> String {
     let kind = error.descriptor.as_ref().map_or("unknown", |d| d.kind.as_str());
     let reached = match delivery {
         DeliveryState::NotSent => "before the request was sent",
+        DeliveryState::NotProcessed => "before the provider processed the request",
         DeliveryState::Ambiguous => "while the request was in flight",
         DeliveryState::Accepted => "after the provider accepted the request",
     };

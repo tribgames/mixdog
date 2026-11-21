@@ -1,10 +1,3 @@
-//! Owner: s4-engine-actions-page
-//! Device emulation (`emulation-validation.ts` and the order of `emulation-overrides.ts`): viewport, touch, user agent, locale,
-//! timezone, media preferences, CPU, network conditions, geolocation and request headers. The compound command is validated before
-//! the host is asked for anything, so a rejected command never leaves the page half reset. The host turns the switches into its CDP
-//! overrides and keeps the siblings of a partial change (`host/browser/emulation`); what is decided here is what the command may
-//! ask, which switches it names (in the order the agent reads them back) and the words of the reply.
-//!
 //! A JSON `null` in a field is read as the field being absent: a client that lists every optional field with `null` asks for nothing
 //! by it.
 

@@ -1,14 +1,11 @@
 //! The engine's table of words and the lines built from it (`pdf/pdf-ocr.mjs`: `ocrTsvRows`, `parseOcrTsv`,
 //! `ocrTextLines`).
 //!
-//! Tesseract writes the table with a header row through its command line and without one through a library, so the
-//! reader accepts both: taking the first data row as a header dropped that word and left every lookup undefined, which is
-//! an empty result, not an error.
+//! Tesseract writes the table with a header row through its command line and without one through a library.
 //!
 //! A word box is where ink sits, not where a word begins and ends: Korean and CJK come back split at syllable boundaries
-//! ("출" "고" "율" for 출고율) while a real word break can measure a single pixel. Geometry therefore cannot rebuild the
-//! line, but the engine's own line text can: the rows and the text come back in the same order, so a line takes that text
-//! when it carries exactly the same characters, and falls back to its word boxes when it does not.
+//! ("출" "고" "율" for 출고율) while a real word break can measure a single pixel. The engine's own line text is in the same
+//! order as the rows, so a line takes it when it carries exactly the same characters.
 
 use std::collections::HashMap;
 

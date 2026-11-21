@@ -208,33 +208,7 @@ pub async fn select(req: &RunRequest) -> Result<Selection, String> {
     let shown =
         |path: &Path| path.strip_prefix(&cwd).map_or_else(|_| to_rel(&req.cwd, &path.to_string_lossy()), |rel| rel.to_string_lossy().replace('\\', "/"));
     let mut notes = Vec::new();
-    // One for each manifest cargo fmt runs from; a file's verdict comes only from its own.
-    let mut workspaces: Vec<Load> = Vec::new();
-    let mut by_manifest: HashMap<PathBuf, usize> = HashMap::new();
-    let mut owners = Vec::with_capacity(located.len());
-    for found in &located {
-        let Some(found) = found else {
-            owners.push(None);
-            continue;
-        };
-        let known = by_manifest
-            .get(&found.manifest)
-            .copied()
-            .or_else(|| workspaces.iter().position(|w| matches!(w, Load::Workspace(w) if w.manifests.contains(&found.manifest))));
-        let index = match known {
-            Some(index) => index,
-            None => {
-                let loaded = load(req, &found.manifest).await?;
-                if let Load::CannotLoad(why) = &loaded {
-                    notes.push(format!("cargo cannot load {}, so its files are formatted alone: {why}", shown(&found.manifest)));
-                }
-                workspaces.push(loaded);
-                workspaces.len() - 1
-            }
-        };
-        by_manifest.insert(found.manifest.clone(), index);
-        owners.push(Some(index));
-    }
+    let (workspaces, owners) = load_owners(req, &located, &shown, &mut notes).await?;
     let used: HashSet<usize> = owners.iter().flatten().copied().collect();
     let jobs = workspaces
         .iter()
@@ -265,4 +239,41 @@ pub async fn select(req: &RunRequest) -> Result<Selection, String> {
         notes.push("cargo fmt does not format the ignored files: a skip attribute leaves them out or no target reaches them".to_owned());
     }
     Ok(Selection { verdicts, notes })
+}
+
+/// One workspace load per manifest cargo fmt runs from, and for each located file the index of
+/// the load that decides it; a file's verdict comes only from its own.
+async fn load_owners(
+    req: &RunRequest,
+    located: &[Option<Located>],
+    shown: &impl Fn(&Path) -> String,
+    notes: &mut Vec<String>,
+) -> Result<(Vec<Load>, Vec<Option<usize>>), String> {
+    let mut workspaces: Vec<Load> = Vec::new();
+    let mut by_manifest: HashMap<PathBuf, usize> = HashMap::new();
+    let mut owners = Vec::with_capacity(located.len());
+    for found in located {
+        let Some(found) = found else {
+            owners.push(None);
+            continue;
+        };
+        let known = by_manifest
+            .get(&found.manifest)
+            .copied()
+            .or_else(|| workspaces.iter().position(|w| matches!(w, Load::Workspace(w) if w.manifests.contains(&found.manifest))));
+        let index = match known {
+            Some(index) => index,
+            None => {
+                let loaded = load(req, &found.manifest).await?;
+                if let Load::CannotLoad(why) = &loaded {
+                    notes.push(format!("cargo cannot load {}, so its files are formatted alone: {why}", shown(&found.manifest)));
+                }
+                workspaces.push(loaded);
+                workspaces.len() - 1
+            }
+        };
+        by_manifest.insert(found.manifest.clone(), index);
+        owners.push(Some(index));
+    }
+    Ok((workspaces, owners))
 }

@@ -701,6 +701,11 @@ pub trait NewThreadTools: Send + Sync + 'static {
     /// `thread` was seeded and then not created (`thread/start` failed in between): whatever the
     /// seed opened for it is released. Called once per such thread, never for a created one.
     fn abandon(&self, _thread: &ThreadId) {}
+
+    /// `thread`'s slot left the directory (it unloaded, was closed or deleted, its actor ended, or its open failed): what
+    /// this process remembered of its surface goes with it. A reload brings the surface to its key once more, as for a
+    /// thread first seen here.
+    fn unloaded(&self, _thread: &ThreadId) {}
 }
 
 /// A thread whose tools are being seeded, and whatever the seed opened for it. Dropped before

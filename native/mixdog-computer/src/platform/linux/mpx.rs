@@ -1,10 +1,3 @@
-//! Background input on X11 through a second master pointer and keyboard
-//! (XInput2 multi-pointer). The server generates its events like any
-//! device's, so toolkits accept them, while the user's own pointer, keyboard
-//! focus and window stacking stay where they are. The master is private to
-//! this process and removed when it ends; masters left behind by a host that
-//! was killed are removed by the next host or the abort cleanup.
-
 use super::keysym;
 use super::x11::X11;
 use crate::keys::{self, Key, KeySink, Mod};

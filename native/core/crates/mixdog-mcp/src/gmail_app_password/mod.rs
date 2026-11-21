@@ -317,6 +317,26 @@ struct Head {
     attachments: Vec<Attachment>,
 }
 
+async fn message_body(mailbox: &mut Mailbox<'_>, uid: u32, structure: &Node) -> Result<(String, Vec<String>), Fail> {
+    let (plain_node, html_node) = text_parts(structure);
+    let plain = match plain_node {
+        Some(node) => Some(part_text(mailbox, uid, node, READ_BYTES).await?),
+        None => None,
+    };
+    let html = match html_node {
+        Some(node) => Some(part_text(mailbox, uid, node, READ_BYTES).await?),
+        None => None,
+    };
+    let body = match (&plain, &html) {
+        (Some((value, _)), _) => mixdog_js::js_trim(value).to_owned(),
+        (None, Some((value, _))) => text::html_text(value),
+        (None, None) => String::new(),
+    };
+    let hrefs = html.as_ref().map(|(value, _)| text::html_links(value)).unwrap_or_default();
+    let links = text::message_links(plain.as_ref().map(|(value, complete)| (value.as_str(), *complete)), hrefs);
+    Ok((body, links))
+}
+
 async fn read_work(session: &mut Session, id: &str) -> Result<String, Fail> {
     let mut mailbox = Mailbox::new(session);
     mailbox.open_all_mail(true).await?;
@@ -329,22 +349,7 @@ async fn read_work(session: &mut Session, id: &str) -> Result<String, Fail> {
     let Some(message) = found.into_iter().next() else { return input(format!("No email with id {id}.")) };
     let envelope = message.envelope.clone().unwrap_or_default();
     let structure = message.structure.clone().unwrap_or_default();
-    let (plain_node, html_node) = text_parts(&structure);
-    let plain = match plain_node {
-        Some(node) => Some(part_text(&mut mailbox, message.uid, node, READ_BYTES).await?),
-        None => None,
-    };
-    let html = match html_node {
-        Some(node) => Some(part_text(&mut mailbox, message.uid, node, READ_BYTES).await?),
-        None => None,
-    };
-    let body = match (&plain, &html) {
-        (Some((value, _)), _) => mixdog_js::js_trim(value).to_owned(),
-        (None, Some((value, _))) => text::html_text(value),
-        (None, None) => String::new(),
-    };
-    let hrefs = html.as_ref().map(|(value, _)| text::html_links(value)).unwrap_or_default();
-    let links = text::message_links(plain.as_ref().map(|(value, complete)| (value.as_str(), *complete)), hrefs);
+    let (body, links) = message_body(&mut mailbox, message.uid, &structure).await?;
     let mut attachments = Vec::new();
     attachments_of(&structure, &mut attachments);
     let authentication = text::gmail_authentication(&String::from_utf8_lossy(&message.headers));

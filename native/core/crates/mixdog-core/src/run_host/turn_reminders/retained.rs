@@ -1,10 +1,3 @@
-//! A retried failed turn (`ask-turn-execute.mjs` `retainedUserTurn`, `agent-listing-notice.mjs:87`
-//! `withAgentListingNotice`): the failed turn's own message is resubmitted over the history before it, as it is, until
-//! the agents enabled now differ from what the conversation was told. Then its runtime context is replaced by the agent
-//! list reminder (an intact one is stripped first, `stripRuntimeUserContext`, and its prefix and suffix put back before
-//! the new reminder; a stale one is left as it is). Only its settings notice is acknowledged (`noticeRevision`, `ask-turn-execute.mjs:63`); every other reminder
-//! stays pending for the turn after.
-
 use mixdog_core_session::session::prompt_notice::Revisions;
 use mixdog_store::schema::record::Header;
 use serde_json::Map;

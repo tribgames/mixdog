@@ -60,24 +60,7 @@ impl MediaDefaultSetup {
         self.domains.call("media/setMediaPin", json!({ "input": input })).await.map_err(refused)
     }
 
-    async fn set_default(&self, args: &Value) -> Result<Value, PortError> {
-        let kind = args.get("kind").and_then(Value::as_str).filter(|kind| KINDS.contains(kind));
-        let Some(kind) = kind else {
-            return Err(failed(format!("kind must be one of {}", KINDS.join(", "))));
-        };
-        let wanted = args.get("lane");
-        // A blank lane returns the kind to Auto, as the Settings control does.
-        if clean(wanted).is_empty() {
-            if has_own(args, "model") || has_own(args, "accountId") {
-                return Err(failed("model and accountId need a lane"));
-            }
-            return Ok(json!({ "kind": kind, "media": self.pin(json!({ "kind": kind, "lane": "" })).await? }));
-        }
-        let lanes = self.domains.call("media/listMediaLanes", json!({})).await.map_err(refused)?;
-        let lane = lanes.as_array().into_iter().flatten().find(|row| row.get("id") == wanted);
-        let Some(lane) = lane else {
-            return Err(failed(format!("Unknown media lane \"{}\"; list lanes with the media tool", shown(wanted))));
-        };
+    async fn check_lane_offers(&self, args: &Value, kind: &str, lane: &Value) -> Result<(), PortError> {
         let id = shown(lane.get("id"));
         if !truthy(lane.get("authenticated")) {
             return Err(failed(format!("{} is not signed in; open providers first", shown(lane.get("label")))));
@@ -106,6 +89,28 @@ impl MediaDefaultSetup {
                 return Err(failed(format!("Unknown {} account \"{}\"; list accounts with status providers", shown(provider), shown(Some(account)))));
             }
         }
+        Ok(())
+    }
+
+    async fn set_default(&self, args: &Value) -> Result<Value, PortError> {
+        let kind = args.get("kind").and_then(Value::as_str).filter(|kind| KINDS.contains(kind));
+        let Some(kind) = kind else {
+            return Err(failed(format!("kind must be one of {}", KINDS.join(", "))));
+        };
+        let wanted = args.get("lane");
+        // A blank lane returns the kind to Auto, as the Settings control does.
+        if clean(wanted).is_empty() {
+            if has_own(args, "model") || has_own(args, "accountId") {
+                return Err(failed("model and accountId need a lane"));
+            }
+            return Ok(json!({ "kind": kind, "media": self.pin(json!({ "kind": kind, "lane": "" })).await? }));
+        }
+        let lanes = self.domains.call("media/listMediaLanes", json!({})).await.map_err(refused)?;
+        let lane = lanes.as_array().into_iter().flatten().find(|row| row.get("id") == wanted);
+        let Some(lane) = lane else {
+            return Err(failed(format!("Unknown media lane \"{}\"; list lanes with the media tool", shown(wanted))));
+        };
+        self.check_lane_offers(args, kind, lane).await?;
         let mut input = Map::new();
         input.insert("kind".into(), json!(kind));
         input.insert("lane".into(), wanted.cloned().unwrap_or(Value::Null));

@@ -1,20 +1,8 @@
-//! Who is asked about a Browser Use submit, post or upload, and what answers it without asking: the engine's [`ApprovalPort`] over
-//! the core's one approval path. The card is `item/browser/requestApproval` raised through the asking turn's approval gate
-//! (`orch::service::call_approvals`, else the session's own gate), the standing allows, the saved `block`s, the "Allow all
-//! actions" option and the session's allowances are read straight from the grant store and the session's registry per kind of step
-//! (one audit line per kind for the verdict the step ends in; a failed audit write decides nothing), and the card holds the
-//! human-only lock for as long as it is open.
-//!
-//! Outcome parity with the desktop's `approval-dialog.ts` for the same caller: a session that is no bot's own runs unasked; a bot's
-//! own session asks unless it holds a standing or session allowance for EVERY kind of the step; "Allow all actions" lets a bot's
-//! step run unasked (an operator `confirm` too) unless the bot blocks one of its kinds, which refuses it; a `confirm` or a payment
-//! (the page holds payment evidence) asks once, every time, and no grant of any kind covers it (an operator `confirm` of an unattended run asks in every
-//! session, a session that is no bot's own included). A command that carries the life mark of its session (the bridge's: the Node
-//! runtime hosts the session) is offered "allow for this session" under that mark. A session the core hosts that a schedule or
-//! webhook run owns (not a room member) is an unattended run exactly as the Node runtime marked it: a step is never asked, only the
-//! block of the bot that owns the run refuses it (a run with no owner is refused too), a payment is refused, and an operator
-//! `confirm` asks. An attended turn is asked as above. What the session's allowances (the registry the core knows) cover may only
-//! remove a repeat ask.
+//! The engine's [`ApprovalPort`] for Browser Use submit, post and upload steps, with the outcomes of the desktop's
+//! `approval-dialog.ts`: a session that is no bot's own runs unasked; a bot's own session asks unless it holds a standing or session
+//! allowance for EVERY kind of the step; "Allow all actions" runs a bot's step unasked unless the bot blocks one of its kinds; a
+//! `confirm` or a payment asks every time and no grant covers it. An unattended schedule or webhook run is never asked: only its
+//! owner bot's block (or a missing owner) refuses a step, a payment is refused, and an operator `confirm` asks.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -948,10 +936,6 @@ impl BrowserApprovals {
         std::iter::once(ApprovalRemember::Once).chain(session).chain([ApprovalRemember::Always]).collect()
     }
 
-    /// Whether the step runs, is refused or asks (`approval-dialog.ts`). The saved modes are read straight from the store, so no
-    /// line is written for a kind of a step that asks or for a step the option lets through where a block refuses it: the one
-    /// audit line per kind is written for the verdict the step ends in, and a failed write never decides it. A payment, an operator
-    /// `confirm` and a step with no kind that can be remembered ask once.
     async fn judge(
         &self,
         facts: &SessionFacts,

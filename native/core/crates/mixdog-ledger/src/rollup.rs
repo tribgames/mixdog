@@ -1,11 +1,3 @@
-//! How the ledger answers one rollup query (`usage-ledger-rollup.mjs` `rollupUsage`), in
-//! the order the answer is assembled: the query window, the hourly event rows of one day,
-//! the daily amounts folded into day / route / conversation buckets, premium-speed routes,
-//! output speed, session attribution, and the legacy whole-day documents.
-//!
-//! Every step reads the ledger and writes into the day map; nothing here mutates stored
-//! rows. Reads run on a reader snapshot.
-
 use serde_json::Map;
 use serde_json::Value;
 

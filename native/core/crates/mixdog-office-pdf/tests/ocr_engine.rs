@@ -1,8 +1,3 @@
-//! The OCR engine's lifecycle (`pdf/ocr-engine.test.mjs`) and what it installs: a stalled start or a cancelled call ends
-//! the engine at once (with any download it started), concurrent first calls share one start, a stalled first-use download
-//! is closed by a cancellation, and the language data and the program are fetched, verified and kept. The engine itself is
-//! a stand-in the registry is given; nothing here runs a real recognition program.
-
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -25,7 +20,7 @@ fn run<F: std::future::Future>(future: F) -> F::Output {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ocr-engine").join(name);
+    let dir = PathBuf::from(mixdog_testkit::target_tmpdir!()).join("ocr-engine").join(name);
     if mixdog_testkit::exists(&dir) {
         mixdog_testkit::remove_dir_all(&dir);
     }

@@ -1,8 +1,4 @@
-//! Mixdog's own ssh settings file and known_hosts, kept in the core's data folder.
-//!
-//! Every ssh Mixdog starts reads `-F <this config>`: it names Mixdog's known_hosts first (new pins land there, so the
-//! user's own files are never written) and the user's known_hosts files after it, then includes the user's
-//! `~/.ssh/config` for everything else. `-F` also reaches a ProxyJump hop's ssh, which `-o` would not.
+//! `-F` also reaches a ProxyJump hop's ssh, which `-o` would not.
 
 use std::io;
 use std::path::{Path, PathBuf};

@@ -1,4 +1,4 @@
-//! The supersession counter of the bottom surface (`app/panel-epoch.mjs`).
+//! The supersession counter of the bottom surface.
 //!
 //! Anything that hands surface ownership back to the user (closing a picker, cancelling a text-entry prompt, a newer
 //! submit of the same prompt) supersedes every deferred paint issued before it. Async work takes

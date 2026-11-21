@@ -5,7 +5,7 @@ use super::generic::{self, GenericRegion};
 use super::huffman::HuffmanTable;
 use super::image::Image;
 use super::refine::{self, RefinementRegion};
-use super::text::{Corner, IntStates, TextRegion, TextTables, symbol_code_length};
+use super::text::{Corner, IntStates, TextRegion, TextTables, reference_bitmap, symbol_code_length};
 use super::{BitStream, Context, Failure, Flow, Segment, SegmentResult, find_segment};
 use crate::codec::arith::{ArithCx, ArithDecoder, ArithIntDecoder};
 
@@ -81,6 +81,60 @@ struct SymbolDecoder<'a> {
 fn valid_symbol_size(value: u32) -> bool {
     let value = value as i32;
     (0..=MAX_SYMBOL_SIZE).contains(&value)
+}
+
+/// The export flags (T.88 6.5.10) of `total` symbols, read as alternating run lengths from `next_run`.
+fn export_flags(total: u32, mut next_run: impl FnMut() -> Option<u32>) -> Option<Vec<bool>> {
+    let mut flags = vec![false; total as usize];
+    let mut current = false;
+    let mut index = 0u32;
+    let mut steps = 0u64;
+    while index < total {
+        steps += 1;
+        if steps > 2 * u64::from(total) + 2 {
+            return None;
+        }
+        let end = index.checked_add(next_run()?)?;
+        if end > total {
+            return None;
+        }
+        flags[index as usize..end as usize].fill(current);
+        index = end;
+        current = !current;
+    }
+    Some(flags)
+}
+
+/// The collective bitmap of a height class (T.88 6.5.9) of `size` bytes: stored as it is when `size` is 0, else MMR
+/// coded. The outer `None` is a stream that ends early or cannot be decoded; the inner one a bitmap that cannot be
+/// allocated.
+fn read_collective_bitmap(stream: &mut BitStream, size: u32, total_width: u32, height_class: u32) -> Option<Option<Image>> {
+    let (w, h) = (total_width as i32, height_class as i32);
+    if size != 0 {
+        let region = GenericRegion { width: w, height: h, template: 0, tpgdon: false, skip: None, at: [0; 8] };
+        let decoded = region.decode_mmr(stream.data(), stream.bit_position()).map(|(image, bits)| {
+            stream.set_bit_position(bits);
+            image
+        });
+        stream.align_byte();
+        return decoded.map(Some);
+    }
+    let stride = (u64::from(total_width) + 7) / 8;
+    let bytes = stride * u64::from(height_class);
+    if u64::from(stream.byte_left()) < bytes {
+        return None;
+    }
+    let mut image = Image::new(w, h);
+    let start = stream.byte_index() as usize;
+    if let Some(image) = image.as_mut() {
+        let pitch = image.stride();
+        for row in 0..height_class as usize {
+            let from = start + row * stride as usize;
+            image.data_mut()[row * pitch..row * pitch + stride as usize].copy_from_slice(&stream.data()[from..from + stride as usize]);
+        }
+    }
+    stream.add_offset(bytes as u32);
+    Some(image)
 }
 
 /// The sub-image of the collective bitmap of a height class holding a symbol.
@@ -190,16 +244,9 @@ impl SymbolDecoder<'_> {
                             return None;
                         }
                         let known = self.known(&new, self.num_new as usize);
-                        let blank;
-                        let reference = match known[id as usize] {
-                            Symbol::Null => return None,
-                            Symbol::Empty => {
-                                blank = Image::new(1, 1)?;
-                                &blank
-                            }
-                            Symbol::Bitmap(image) => image,
-                        };
-                        let region = RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference, dx, dy, at: self.r_at };
+                        let reference = reference_bitmap(known[id as usize])?;
+                        let region =
+                            RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference: &reference, dx, dy, at: self.r_at };
                         Symbol::Bitmap(region.decode(decoder, gr)?)
                     } else {
                         Symbol::Null
@@ -208,25 +255,79 @@ impl SymbolDecoder<'_> {
                 decoded += 1;
             }
         }
-        let mut flags = vec![false; total as usize];
-        let mut current = false;
-        let mut index = 0u32;
-        let mut steps = 0u64;
-        while index < total {
-            steps += 1;
-            if steps > 2 * u64::from(total) + 2 {
-                return None;
-            }
-            let run = iaex.decode(decoder).unwrap_or(0) as u32;
-            let end = index.checked_add(run)?;
-            if end > total {
-                return None;
-            }
-            flags[index as usize..end as usize].fill(current);
-            index = end;
-            current = !current;
-        }
+        let flags = export_flags(total, || Some(iaex.decode(decoder).unwrap_or(0) as u32))?;
         self.export(new, &flags)
+    }
+
+    /// The symbol of `instances` aggregated (or, for one, refined) symbols in a Huffman-coded dictionary, `size` the
+    /// `(w, h)` the symbol's size; `decoded` symbols of `new` exist so far.
+    fn decode_huffman_aggregate(
+        &self,
+        stream: &mut BitStream,
+        gr: &mut [ArithCx],
+        new: &[Symbol],
+        decoded: usize,
+        instances: i32,
+        (w, h): (i32, i32),
+    ) -> Option<Symbol> {
+        let total = self.total();
+        let code_len = symbol_code_length(total).max(1);
+        if instances > 1 {
+            let known = self.known(new, decoded);
+            let count = known.len() as u32;
+            let region = TextRegion {
+                width: w,
+                height: h,
+                refine: true,
+                num_instances: instances as u32,
+                strips: 1,
+                symbols: &known,
+                symbol_codes: (0..count).map(|code| super::huffman::Code { len: code_len, code }).collect(),
+                def_pixel: false,
+                comb_op: super::image::ComposeOp::Or,
+                transposed: false,
+                ref_corner: Corner::TopLeft,
+                ds_offset: 0,
+                tables: Some(TextTables {
+                    fs: HuffmanTable::standard(6),
+                    ds: HuffmanTable::standard(8),
+                    dt: HuffmanTable::standard(11),
+                    rdw: HuffmanTable::standard(15),
+                    rdh: HuffmanTable::standard(15),
+                    rdx: HuffmanTable::standard(15),
+                    rdy: HuffmanTable::standard(15),
+                    rsize: HuffmanTable::standard(1),
+                }),
+                r_template: self.r_template,
+                r_at: self.r_at,
+            };
+            return Some(Symbol::Bitmap(region.decode_huffman(stream, gr)?));
+        }
+        if instances != 1 {
+            return Some(Symbol::Null);
+        }
+        let mut id = 0u32;
+        for _ in 0..code_len {
+            id = (id << 1) | stream.read_1bit()?;
+        }
+        let dx = HuffmanTable::standard(15).decode(stream)?.value()?;
+        let dy = HuffmanTable::standard(15).decode(stream)?.value()?;
+        let size = HuffmanTable::standard(1).decode(stream)?.value()?;
+        stream.align_byte();
+        let start = stream.byte_index();
+        if id >= total {
+            return None;
+        }
+        let known = self.known(new, self.num_new as usize);
+        let reference = reference_bitmap(known[id as usize])?;
+        let region = RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference: &reference, dx, dy, at: self.r_at };
+        let mut decoder = ArithDecoder::new(stream.data(), start);
+        let image = region.decode(&mut decoder, gr)?;
+        stream.end_arith(decoder.byte_index());
+        if size as u32 != stream.byte_index().wrapping_sub(start) {
+            return None;
+        }
+        Some(Symbol::Bitmap(image))
     }
 
     /// `DecodeHuffman`.
@@ -263,81 +364,7 @@ impl SymbolDecoder<'_> {
                 let (w, h) = (width as i32, height_class as i32);
                 if self.refagg {
                     let instances = tables.agg_inst.decode(stream)?.value()?;
-                    let symbol = if instances > 1 {
-                        let known = self.known(&new, decoded as usize);
-                        let count = known.len() as u32;
-                        // the codes of the symbols so far have the length the whole dictionary's symbol count needs
-                        let mut code_len = 1u32;
-                        while (1u64 << code_len) < u64::from(total) {
-                            code_len += 1;
-                        }
-                        let region = TextRegion {
-                            width: w,
-                            height: h,
-                            refine: true,
-                            num_instances: instances as u32,
-                            strips: 1,
-                            symbols: &known,
-                            symbol_codes: (0..count).map(|code| super::huffman::Code { len: code_len, code }).collect(),
-                            def_pixel: false,
-                            comb_op: super::image::ComposeOp::Or,
-                            transposed: false,
-                            ref_corner: Corner::TopLeft,
-                            ds_offset: 0,
-                            tables: Some(TextTables {
-                                fs: HuffmanTable::standard(6),
-                                ds: HuffmanTable::standard(8),
-                                dt: HuffmanTable::standard(11),
-                                rdw: HuffmanTable::standard(15),
-                                rdh: HuffmanTable::standard(15),
-                                rdx: HuffmanTable::standard(15),
-                                rdy: HuffmanTable::standard(15),
-                                rsize: HuffmanTable::standard(1),
-                            }),
-                            r_template: self.r_template,
-                            r_at: self.r_at,
-                        };
-                        Symbol::Bitmap(region.decode_huffman(stream, gr)?)
-                    } else if instances == 1 {
-                        let mut code_len = 1u32;
-                        while (1u64 << code_len) < u64::from(total) {
-                            code_len += 1;
-                        }
-                        let mut id = 0u32;
-                        for _ in 0..code_len {
-                            id = (id << 1) | stream.read_1bit()?;
-                        }
-                        let dx = HuffmanTable::standard(15).decode(stream)?.value()?;
-                        let dy = HuffmanTable::standard(15).decode(stream)?.value()?;
-                        let size = HuffmanTable::standard(1).decode(stream)?.value()?;
-                        stream.align_byte();
-                        let start = stream.byte_index();
-                        if id >= total {
-                            return None;
-                        }
-                        let known = self.known(&new, self.num_new as usize);
-                        let blank;
-                        let reference = match known[id as usize] {
-                            Symbol::Null => return None,
-                            Symbol::Empty => {
-                                blank = Image::new(1, 1)?;
-                                &blank
-                            }
-                            Symbol::Bitmap(image) => image,
-                        };
-                        let region = RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference, dx, dy, at: self.r_at };
-                        let mut decoder = ArithDecoder::new(stream.data(), start);
-                        let image = region.decode(&mut decoder, gr)?;
-                        stream.set_byte_index(decoder.byte_index());
-                        stream.align_byte();
-                        stream.add_offset(2);
-                        if size as u32 != stream.byte_index().wrapping_sub(start) {
-                            return None;
-                        }
-                        Symbol::Bitmap(image)
-                    } else {
-                        Symbol::Null
-                    };
+                    let symbol = self.decode_huffman_aggregate(stream, gr, &new, decoded as usize, instances, (w, h))?;
                     new[decoded as usize] = symbol;
                 } else {
                     widths[decoded as usize] = width;
@@ -347,64 +374,19 @@ impl SymbolDecoder<'_> {
             if !self.refagg {
                 let size = tables.bm_size.decode(stream)?.value()? as u32;
                 stream.align_byte();
-                let (w, h) = (total_width as i32, height_class as i32);
-                let collective = if size == 0 {
-                    let stride = (u64::from(total_width) + 7) / 8;
-                    let bytes = stride * u64::from(height_class);
-                    if u64::from(stream.byte_left()) < bytes {
-                        return None;
-                    }
-                    let mut image = Image::new(w, h);
-                    let start = stream.byte_index() as usize;
-                    if let Some(image) = image.as_mut() {
-                        let pitch = image.stride();
-                        for row in 0..height_class as usize {
-                            let from = start + row * stride as usize;
-                            image.data_mut()[row * pitch..row * pitch + stride as usize].copy_from_slice(&stream.data()[from..from + stride as usize]);
-                        }
-                    }
-                    stream.add_offset(bytes as u32);
-                    Some(image)
-                } else {
-                    let region = GenericRegion { width: w, height: h, template: 0, tpgdon: false, skip: None, at: [0; 8] };
-                    let image = region.decode_mmr(stream.data(), stream.bit_position());
-                    let collective = image.map(|(image, bits)| {
-                        stream.set_bit_position(bits);
-                        image
-                    });
-                    stream.align_byte();
-                    collective.map(Some)
-                };
-                let Some(collective) = collective else {
+                let Some(collective) = read_collective_bitmap(stream, size, total_width, height_class) else {
                     continue;
                 };
                 let mut x = 0i32;
                 for i in first..decoded {
                     let symbol_width = widths[i as usize];
-                    new[i as usize] = cut(collective.as_ref(), x, symbol_width as i32, h);
+                    new[i as usize] = cut(collective.as_ref(), x, symbol_width as i32, height_class as i32);
                     x = x.wrapping_add(symbol_width as i32);
                 }
             }
         }
         let table = HuffmanTable::standard(1);
-        let mut flags = vec![false; total as usize];
-        let mut current = false;
-        let mut index = 0u32;
-        let mut steps = 0u64;
-        while index < total {
-            steps += 1;
-            if steps > 2 * u64::from(total) + 2 {
-                return None;
-            }
-            let run = table.decode(stream)?.value()? as u32;
-            let end = index.checked_add(run)?;
-            if end > total {
-                return None;
-            }
-            flags[index as usize..end as usize].fill(current);
-            index = end;
-            current = !current;
-        }
+        let flags = export_flags(total, || Some(table.decode(stream)?.value()? as u32))?;
         self.export(new, &flags)
     }
 }

@@ -215,6 +215,23 @@ pub(crate) fn read_request_models(conn: &Connection, from_ms: i64, to_ms: i64) -
 /// `{requests, nextCursor}` for one page, read through the time-ordered indexes and stopping
 /// after the page: bounded by the page size, whatever the ledger holds.
 pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Result<Value> {
+    let (rows, more) = fetch_request_page(conn, query)?;
+    let mut route_cache: BTreeMap<i64, RouteInfo> = BTreeMap::new();
+    let mut requests = Vec::with_capacity(rows.len());
+    for row in &rows {
+        requests.push(request_value(conn, row, &mut route_cache)?);
+    }
+    let next = match rows.last() {
+        Some(last) if more => Value::from(format!("{}:{}", last.ts, hex(&last.id))),
+        _ => Value::Null,
+    };
+    let mut out = Map::new();
+    out.insert("requests".into(), Value::Array(requests));
+    out.insert("nextCursor".into(), next);
+    Ok(Value::Object(out))
+}
+
+fn fetch_request_page(conn: &Connection, query: &RequestQuery) -> Result<(Vec<Row>, bool)> {
     let limit = if query.limit > 0 { query.limit.min(MAX_PAGE) } else { DEFAULT_PAGE };
     let status = if REQUEST_STATUSES.contains(&query.status.as_str()) { query.status.as_str() } else { "" };
     let cursor = decode_cursor(query.cursor.as_deref());
@@ -256,69 +273,59 @@ pub(crate) fn read_request_rows(conn: &Connection, query: &RequestQuery) -> Resu
     };
     let more = rows.len() as i64 > limit;
     rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    Ok((rows, more))
+}
 
-    let mut route_cache: BTreeMap<i64, RouteInfo> = BTreeMap::new();
-    let mut requests = Vec::with_capacity(rows.len());
-    for row in &rows {
-        if let std::collections::btree_map::Entry::Vacant(slot) = route_cache.entry(row.route) {
-            let info = conn
-                .prepare_cached(ROUTE_INFO_SQL)?
-                .query_row([row.route], |r| {
-                    Ok(RouteInfo {
-                        provider: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                        model: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                        kind: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                        source_type: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                        cost_source: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                        input_unknown: r.get(5)?,
-                        output_unknown: r.get(6)?,
-                    })
+fn request_value(conn: &Connection, row: &Row, route_cache: &mut BTreeMap<i64, RouteInfo>) -> Result<Value> {
+    if let std::collections::btree_map::Entry::Vacant(slot) = route_cache.entry(row.route) {
+        let info = conn
+            .prepare_cached(ROUTE_INFO_SQL)?
+            .query_row([row.route], |r| {
+                Ok(RouteInfo {
+                    provider: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    model: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    kind: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    source_type: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    cost_source: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    input_unknown: r.get(5)?,
+                    output_unknown: r.get(6)?,
                 })
-                .optional()?
-                .unwrap_or_default();
-            slot.insert(info);
-        }
-        let route = &route_cache[&row.route];
-        let session: Option<String> = conn.prepare_cached(SESSION_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
-        let owner: Option<String> = conn.prepare_cached(OWNER_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
-        let non_empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
-        let duration = if row.duration_ms != 0.0 { row.duration_ms } else { row.elapsed_ms.unwrap_or(0.0) };
-        let mut out = Map::new();
-        out.insert("id".into(), Value::from(hex(&row.id)));
-        out.insert("ts".into(), Value::from(row.ts));
-        out.insert("provider".into(), Value::from(route.provider.as_str()));
-        out.insert("model".into(), Value::from(route.model.as_str()));
-        out.insert("requestedModel".into(), Value::from(non_empty(&row.requested_model).unwrap_or_else(|| route.model.clone())));
-        out.insert("requestedProvider".into(), text(non_empty(&row.requested_provider)));
-        out.insert("kind".into(), Value::from(route.kind.as_str()));
-        out.insert("sourceType".into(), Value::from(route.source_type.as_str()));
-        out.insert("costSource".into(), Value::from(route.cost_source.as_str()));
-        out.insert("sessionId".into(), text(session));
-        out.insert("ownerSessionId".into(), text(owner));
-        // Accounting uses zero placeholders. The request log must not turn them into readings.
-        let has_usage = route.cost_source != NO_USAGE_COST_SOURCE;
-        let output_known = has_usage && !route.output_unknown;
-        let prompt_known = output_known && !route.input_unknown && !is_unmeasuring_provider(&route.provider);
-        let measured = |known, tokens| if known { js_number(tokens) } else { Value::Null };
-        out.insert("input".into(), measured(prompt_known, row.input));
-        out.insert("output".into(), measured(output_known, row.output));
-        out.insert("cacheRead".into(), measured(prompt_known, row.cache_read));
-        out.insert("cacheWrite".into(), measured(prompt_known, row.cache_write));
-        out.insert("tokens".into(), measured(prompt_known, row.input + row.output + row.cache_read + row.cache_write));
-        out.insert("costUsd".into(), row.cost_usd.map_or(Value::Null, js_number));
-        out.insert("durationMs".into(), js_number(duration));
-        out.insert("ttftMs".into(), row.first_output_ms.map_or(Value::Null, js_number));
-        out.insert("attempts".into(), Value::from(row.attempts.filter(|a| *a != 0).unwrap_or(1)));
-        out.insert("status".into(), Value::from(non_empty(&row.status).unwrap_or_else(|| "completed".to_string())));
-        requests.push(Value::Object(out));
+            })
+            .optional()?
+            .unwrap_or_default();
+        slot.insert(info);
     }
-
-    let next = match rows.last() {
-        Some(last) if more => Value::from(format!("{}:{}", last.ts, hex(&last.id))),
-        _ => Value::Null,
-    };
+    let route = &route_cache[&row.route];
+    let session: Option<String> = conn.prepare_cached(SESSION_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
+    let owner: Option<String> = conn.prepare_cached(OWNER_SQL)?.query_row([row.session], |r| r.get(0)).optional()?;
+    let non_empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
+    let duration = if row.duration_ms != 0.0 { row.duration_ms } else { row.elapsed_ms.unwrap_or(0.0) };
     let mut out = Map::new();
-    out.insert("requests".into(), Value::Array(requests));
-    out.insert("nextCursor".into(), next);
+    out.insert("id".into(), Value::from(hex(&row.id)));
+    out.insert("ts".into(), Value::from(row.ts));
+    out.insert("provider".into(), Value::from(route.provider.as_str()));
+    out.insert("model".into(), Value::from(route.model.as_str()));
+    out.insert("requestedModel".into(), Value::from(non_empty(&row.requested_model).unwrap_or_else(|| route.model.clone())));
+    out.insert("requestedProvider".into(), text(non_empty(&row.requested_provider)));
+    out.insert("kind".into(), Value::from(route.kind.as_str()));
+    out.insert("sourceType".into(), Value::from(route.source_type.as_str()));
+    out.insert("costSource".into(), Value::from(route.cost_source.as_str()));
+    out.insert("sessionId".into(), text(session));
+    out.insert("ownerSessionId".into(), text(owner));
+    // Accounting uses zero placeholders. The request log must not turn them into readings.
+    let has_usage = route.cost_source != NO_USAGE_COST_SOURCE;
+    let output_known = has_usage && !route.output_unknown;
+    let prompt_known = output_known && !route.input_unknown && !is_unmeasuring_provider(&route.provider);
+    let measured = |known, tokens| if known { js_number(tokens) } else { Value::Null };
+    out.insert("input".into(), measured(prompt_known, row.input));
+    out.insert("output".into(), measured(output_known, row.output));
+    out.insert("cacheRead".into(), measured(prompt_known, row.cache_read));
+    out.insert("cacheWrite".into(), measured(prompt_known, row.cache_write));
+    out.insert("tokens".into(), measured(prompt_known, row.input + row.output + row.cache_read + row.cache_write));
+    out.insert("costUsd".into(), row.cost_usd.map_or(Value::Null, js_number));
+    out.insert("durationMs".into(), js_number(duration));
+    out.insert("ttftMs".into(), row.first_output_ms.map_or(Value::Null, js_number));
+    out.insert("attempts".into(), Value::from(row.attempts.filter(|a| *a != 0).unwrap_or(1)));
+    out.insert("status".into(), Value::from(non_empty(&row.status).unwrap_or_else(|| "completed".to_string())));
     Ok(Value::Object(out))
 }

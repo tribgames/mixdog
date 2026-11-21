@@ -63,8 +63,6 @@ impl OpenAiCodec {
                 push("x-client-request-id", ctx.request_id());
             }
             Target::Codex(identity) => {
-                // The handshake lists `originator` first (`openai-ws-pool.mjs:490`), the HTTP request the beta first
-                // (`openai-oauth-http-sse.mjs:76`).
                 if ws {
                     push("originator", CODEX_ORIGINATOR.into());
                 }
@@ -79,16 +77,11 @@ impl OpenAiCodec {
                 push("version", identity.version.get());
                 push("x-codex-beta-features", identity.beta_features.clone());
                 if ws {
-                    // The socket opens as a prewarm: one identity block, the
-                    // turn's own state travels in each frame's client_metadata.
                     let metadata = Metadata::of(request, &identity.installation_id, ctx.now_unix_ms(), true);
                     for (name, value) in metadata.handshake_headers(&request.model, tier) {
                         push(&name, value);
                     }
                 } else {
-                    // `_buildOpenAIHttpFallbackHeaders`: the three anchors carry the body's cache key; the thread's
-                    // window and metadata ride only the WebSocket.
-                    // `MIXDOG_OAI_STATELESS_HTTP` drops them (`statelessConversation`).
                     if !ctx.flag("MIXDOG_OAI_STATELESS_HTTP") {
                         let key = body_cache_key.unwrap_or_default().to_owned();
                         push("session_id", key.clone());

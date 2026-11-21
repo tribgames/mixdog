@@ -87,10 +87,6 @@ fn write(lane: &InLane<DurabilityIo>, path: &Path, content: &str) -> std::io::Re
     published
 }
 
-/// Publishes the finished `temp` at `path` create-only (a hard link, which fails when anything is there): the artifact
-/// never replaces a file. A file at `path` is judged as it is now: the same bytes are success; a data-free one (what a
-/// crash leaves) is set aside and the link retried once; anything else is foreign evidence and is left. A filesystem
-/// without hard links refuses the archive, since no create-only publish is available.
 fn publish(temp: &Path, path: &Path, content: &str) -> std::io::Result<()> {
     let mut repaired = false;
     loop {
@@ -110,10 +106,6 @@ fn publish(temp: &Path, path: &Path, content: &str) -> std::io::Result<()> {
     }
 }
 
-/// `v1.4.5`'s repair of a data-free artifact, without replacing a file it did not inspect: the file at `path` is moved
-/// to a name no one else knows, and only what was moved is judged. Data-free, it is deleted; anything else (a file
-/// written there since it was observed) is put back create-only for the caller to judge again, or, when `path` was
-/// taken meanwhile, kept at the set-aside name and the archive refused.
 fn set_aside_damaged(path: &Path, content: &str) -> std::io::Result<()> {
     let aside = unique_sibling(path, "damaged");
     std::fs::rename(path, &aside)?;

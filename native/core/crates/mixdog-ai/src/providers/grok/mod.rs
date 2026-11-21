@@ -1,10 +1,3 @@
-//! `grok-oauth`: the xAI Responses wire through the Grok CLI proxy
-//! (`cli-chat-proxy.grok.com`), signed in with the account's OAuth tokens.
-//!
-//! The wire is the xAI Responses codec of the compat family (its request
-//! body, stream decoding and error classification); this module owns what is
-//! Grok's: the proxy endpoint, the CLI identity headers that clear the
-//! proxy's version gate, and the credential.
 #![allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
 
 pub mod auth;

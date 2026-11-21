@@ -418,7 +418,7 @@ impl LineageIndex for NoIndex {
 
 /// Notes in `gone` the digest of a body read that failed because the blob is missing or corrupt (FORMAT.md §4.5): what a
 /// salvaging read takes as lost. Any other failure (an I/O error that may pass) is no loss and is not noted.
-pub(crate) fn note_loss(gone: &RefCell<Vec<Digest>>, digest: &Digest, error: &BlobError) {
+fn note_loss(gone: &RefCell<Vec<Digest>>, digest: &Digest, error: &BlobError) {
     if matches!(error, BlobError::Missing { .. } | BlobError::Corrupt { .. }) {
         gone.borrow_mut().push(digest.clone());
     }

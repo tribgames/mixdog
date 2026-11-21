@@ -174,7 +174,7 @@ fn cancelled_job_is_dropped_at_dequeue() {
     token.cancel();
     gate.open();
 
-    assert_eq!(block_on(queued), Err(JobDropped::Dropped));
+    assert_eq!(block_on(queued), Err(JobDropped::Cancelled));
     assert!(!ran.load(SeqCst), "a cancelled job must not run");
     for h in holders {
         block_on(h).unwrap();
@@ -221,7 +221,10 @@ fn a_panicking_job_resolves_dropped_and_the_lane_keeps_serving() {
     assert_eq!(failed, Err(JobDropped::Dropped));
     let after = block_on(tokens.cpu_bulk.submit(&CancellationToken::new(), |_| 5u32).ok().unwrap());
     assert_eq!(after, Ok(5));
-    assert!(lane_snapshot(LaneKind::CpuBulk).panicked >= 1);
+    // The handle resolves as the job unwinds; its thread counts the panic once the unwind is caught.
+    while lane_snapshot(LaneKind::CpuBulk).panicked == 0 {
+        std::thread::yield_now();
+    }
 }
 #[test]
 fn pty_lane_gives_each_job_a_thread_up_to_the_cap() {

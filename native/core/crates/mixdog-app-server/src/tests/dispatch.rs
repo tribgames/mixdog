@@ -24,12 +24,18 @@ use super::reason;
 use super::samples::Samples;
 use super::settle;
 
-/// Methods the server answers itself instead of passing to the core. `feed/subscribe` is here
-/// because the server resolves its `feedId` to a live scoped feed itself and answers
-/// `invalidParams{feedId}` for one nobody holds (the generic sample id names none); the
-/// subscribe tests cover it.
-const HANDLED_HERE: [&str; 9] =
-    ["initialize", "app/subscribe", "feed/subscribe", "feed/unsubscribe", "thread/unsubscribe", "op/status", "turn/interrupt", "turn/steer", "host/claim"];
+const HANDLED_HERE: [&str; 10] = [
+    "initialize",
+    "app/subscribe",
+    "feed/subscribe",
+    "feed/unsubscribe",
+    "feed/heads",
+    "thread/unsubscribe",
+    "op/status",
+    "turn/interrupt",
+    "turn/steer",
+    "host/claim",
+];
 
 #[tokio::test(start_paused = true)]
 async fn every_method_of_the_table_dispatches_to_the_mock_core() {
@@ -469,9 +475,6 @@ async fn queued_requests_of_a_closed_connection_never_run() {
     assert_eq!(gate.log()[2], "start project/touch:w3");
 }
 
-/// The lanes know nothing of a client's presence: a call queued for its turn is started when the turn comes, whatever became of its
-/// connection. Whether it then runs is the call's own queue's decision: a keyed call is discarded there (the test above), a call
-/// with no key (`thread/read`) reaches its handler and its answer has nowhere to go.
 /// 1.4.5 (`call-route.mjs` over `fair-call-scheduler.mjs`) passed no abort signal for a `POST /call`, so every queued call started, keyed or not.
 #[tokio::test(start_paused = true)]
 async fn a_call_queued_in_a_lane_for_a_client_that_leaves_still_starts_and_its_answer_is_dropped() {

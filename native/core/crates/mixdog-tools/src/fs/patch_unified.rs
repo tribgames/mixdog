@@ -13,6 +13,22 @@ pub(super) struct RawHunk {
     pub lines: Vec<String>,
 }
 
+impl RawHunk {
+    fn from_header(header: &str) -> Self {
+        let numbers = counted_numbers(header);
+        let (old_start, old_given, new_start, new_given) = numbers.unwrap_or((0, None, 0, None));
+        let mut hunk = Self { old_start, old_lines: old_given.unwrap_or(1), new_start, new_lines: new_given.unwrap_or(1), lines: Vec::new() };
+        // The unified format's quirk: with a zero count the first number is one lower than expected.
+        if hunk.old_lines == 0 && numbers.is_some() {
+            hunk.old_start += 1;
+        }
+        if hunk.new_lines == 0 && numbers.is_some() {
+            hunk.new_start += 1;
+        }
+        hunk
+    }
+}
+
 /// One file of the patch; a name is `None` when the patch never gave one.
 #[derive(Default)]
 pub(super) struct UFile {
@@ -172,19 +188,7 @@ impl Parser<'_> {
         let header_index = self.i;
         let header = self.lines[self.i];
         self.i += 1;
-        let numbers = counted_numbers(header);
-        let (old_start, old_given, new_start, new_given) = match numbers {
-            Some((os, ol, ns, nl)) => (os, ol, ns, nl),
-            None => (0, None, 0, None),
-        };
-        let mut hunk = RawHunk { old_start, old_lines: old_given.unwrap_or(1), new_start, new_lines: new_given.unwrap_or(1), lines: Vec::new() };
-        // The unified format's quirk: with a zero count the first number is one lower than expected.
-        if hunk.old_lines == 0 && numbers.is_some() {
-            hunk.old_start += 1;
-        }
-        if hunk.new_lines == 0 && numbers.is_some() {
-            hunk.new_start += 1;
-        }
+        let mut hunk = RawHunk::from_header(header);
         let (mut add, mut remove) = (0, 0);
         while self.i < self.lines.len() && (remove < hunk.old_lines || add < hunk.new_lines || self.lines[self.i].starts_with('\\')) {
             let line = self.lines[self.i];
@@ -214,8 +218,7 @@ impl Parser<'_> {
         if remove != hunk.old_lines {
             return Err(format!("Removed line count did not match for hunk at line {}", header_index + 1));
         }
-        if let Some(next) = self.line().filter(|l| !l.is_empty() && matches!(l.as_bytes()[0], b'+' | b' ' | b'-') && !is_file_header(l)) {
-            let _ = next;
+        if self.line().is_some_and(|l| !l.is_empty() && matches!(l.as_bytes()[0], b'+' | b' ' | b'-') && !is_file_header(l)) {
             return Err(format!(
                 "Hunk at line {} has more lines than expected (expected {} old lines and {} new lines)",
                 header_index + 1,
@@ -226,7 +229,26 @@ impl Parser<'_> {
         Ok(hunk)
     }
 
-    /// One file's section; `Ok(None)` when another file's header ended it before any content.
+    /// The `rename`/`copy` lines under a `diff --git` header, which name the sides the header itself cannot.
+    fn parse_git_extended(&mut self, file: &mut UFile) {
+        while let Some(ext) = self.line() {
+            if is_file_header(ext) || is_hunk_header(ext) || is_diff_header(ext) {
+                break;
+            }
+            for (prefix, side, mark) in [("rename from ", true, "a/"), ("rename to ", false, "b/"), ("copy from ", true, "a/"), ("copy to ", false, "b/")] {
+                if let Some(name) = ext.strip_prefix(prefix) {
+                    let named = format!("{mark}{}", unquote_if_quoted(name));
+                    if side {
+                        file.old_name = Some(named);
+                    } else {
+                        file.new_name = Some(named);
+                    }
+                }
+            }
+            self.i += 1;
+        }
+    }
+
     fn parse_index(&mut self, list: &mut Vec<UFile>) -> Result<(), String> {
         let mut file = UFile::default();
         let mut seen_diff_header = false;
@@ -245,24 +267,7 @@ impl Parser<'_> {
                     file.new_name = Some(new);
                 }
                 self.i += 1;
-                while let Some(ext) = self.line() {
-                    if is_file_header(ext) || is_hunk_header(ext) || is_diff_header(ext) {
-                        break;
-                    }
-                    for (prefix, side, mark) in
-                        [("rename from ", true, "a/"), ("rename to ", false, "b/"), ("copy from ", true, "a/"), ("copy to ", false, "b/")]
-                    {
-                        if let Some(name) = ext.strip_prefix(prefix) {
-                            let named = format!("{mark}{}", unquote_if_quoted(name));
-                            if side {
-                                file.old_name = Some(named);
-                            } else {
-                                file.new_name = Some(named);
-                            }
-                        }
-                    }
-                    self.i += 1;
-                }
+                self.parse_git_extended(&mut file);
                 continue;
             } else if is_diff_header(line) {
                 if seen_diff_header {

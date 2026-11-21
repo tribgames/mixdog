@@ -511,13 +511,13 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "a_wedged_stop_step_does_not_hold_the_headless_shutdown",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
                 core.on_stop("wedged", std::future::pending());
                 let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
                 let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
-                shutdown.run_with(budgets).await;
+                crate::compose_test_support::on_current_thread(async move { shutdown.run_with(budgets).await }).await;
             },
         );
     }
@@ -527,7 +527,7 @@ mod tests {
         crate::compose_test_support::in_child(
             module_path!(),
             "shutdown_stops_the_core_in_registration_order_and_refuses_new_clients",
-            tokio::runtime::Builder::new_current_thread(),
+            tokio::runtime::Builder::new_multi_thread(),
             |dir| async move {
                 let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
                 let order = Arc::new(Mutex::new(Vec::new()));
@@ -536,9 +536,14 @@ mod tests {
                     core.on_stop(name, async move { order.lock().unwrap().push(name) });
                 }
                 let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-                shutdown.run().await;
+                // The CLI awaits the shutdown on its current-thread runtime.
+                let shutdown = crate::compose_test_support::on_current_thread(async move {
+                    shutdown.run().await;
+                    shutdown
+                })
+                .await;
                 assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
-                shutdown.run().await;
+                crate::compose_test_support::on_current_thread(async move { shutdown.run().await }).await;
                 assert_eq!(order.lock().unwrap().len(), 3, "a second stop runs nothing again");
                 assert!(connector.open(&Target { id: "in-process".into() }).await.is_err());
             },

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-approval
-//! Who is asking (`approval-requester.ts`): the bot whose OWN session a session is, the name the card shows, and the chat the
+//! Who is asking: the bot whose OWN session a session is, the name the card shows, and the chat the
 //! card docks in. Read from the session roster and the agent pool the gate holds, passed in as plain rows. Only a bot's own
 //! session (its 1:1 home chat or its room member session) is a bot: a coding session, a task session, a sub-agent at any depth
 //! and an unknown id are none. The bot is read from the id alone, so it never depends on a catalog or on a lookup succeeding.

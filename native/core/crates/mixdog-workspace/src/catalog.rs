@@ -97,12 +97,7 @@ fn recency(entry: &ProjectEntry) -> Option<i64> {
     entry.last_selected_at.as_ref().and_then(positive).or_else(|| positive(&entry.added_at))
 }
 
-/// The rows after the registry `entries` joined the rows `rows`, as the rows to write and the paths to delete. The registry decides what is
-/// listed (as in the desktop): a registered path is a visible row of the registry's spelling and name, keeping its alias and a later
-/// recency; a row that only holds a preference of a path the registry does not have (no name: the migration made it from
-/// `desktop-projects.json`, where `add` and `rename` name the rows the core registers) becomes a tombstone, which keeps the alias
-/// and lists nothing. A selection of such a row in an earlier build (`touch`) does not register it: Node never listed the path, and
-/// a listed row is one the code graph trusts.
+/// The rows to write and the paths to delete once the registry `entries` joined the rows `rows`.
 fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, Vec<String>) {
     let (mut puts, mut deletes, mut matched) = (Vec::new(), Vec::new(), std::collections::HashSet::new());
     for entry in entries {

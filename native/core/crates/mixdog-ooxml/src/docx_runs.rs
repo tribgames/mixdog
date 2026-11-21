@@ -67,21 +67,7 @@ struct PendingRun {
 /// is identical, drops proofing markers and rsid attributes, and joins the text elements of each merged run. Rendering is
 /// unchanged; runs in different tracked-change wrappers are never merged because an element sits between them.
 pub fn normalize_docx_runs(xml: &str) -> NormalizedRuns {
-    let proof_err_removed = Cell::new(0_usize);
-    let rsid_stripped = Cell::new(0_usize);
-    let working = compiled(r"<w:proofErr\b[^>]*\/>", "g").replace_all_with(xml, |_| {
-        proof_err_removed.set(proof_err_removed.get() + 1);
-        String::new()
-    });
-    let rsid = compiled(r#"\s+w:rsid\w*="[^"]*""#, "g");
-    let working = compiled(r"<w:r(\s[^>]*)?>", "g").replace_all_with(&working, |found| {
-        let stripped = rsid.replace_all_with(found.get(1).unwrap_or(""), |_| {
-            rsid_stripped.set(rsid_stripped.get() + 1);
-            String::new()
-        });
-        let stripped = js_trim(&stripped);
-        format!("<w:r{}>", if stripped.is_empty() { String::new() } else { format!(" {stripped}") })
-    });
+    let (working, proof_err_removed, rsid_stripped) = strip_proofing_and_rsids(xml);
     let empty_properties = compiled(EMPTY_RUN_PROPERTIES, "");
     let run_pattern = compiled(WORD_RUN_SOURCE, "g");
     let open_pattern = word_run_open();
@@ -118,7 +104,26 @@ pub fn normalize_docx_runs(xml: &str) -> NormalizedRuns {
     }
     flush(&mut pending, &mut output, &mut text_merged);
     output.push_str(&working[cursor..]);
-    NormalizedRuns { xml: output, merged, text_merged, proof_err_removed: proof_err_removed.get(), rsid_stripped: rsid_stripped.get() }
+    NormalizedRuns { xml: output, merged, text_merged, proof_err_removed, rsid_stripped }
+}
+
+fn strip_proofing_and_rsids(xml: &str) -> (String, usize, usize) {
+    let proof_err_removed = Cell::new(0_usize);
+    let rsid_stripped = Cell::new(0_usize);
+    let working = compiled(r"<w:proofErr\b[^>]*\/>", "g").replace_all_with(xml, |_| {
+        proof_err_removed.set(proof_err_removed.get() + 1);
+        String::new()
+    });
+    let rsid = compiled(r#"\s+w:rsid\w*="[^"]*""#, "g");
+    let working = compiled(r"<w:r(\s[^>]*)?>", "g").replace_all_with(&working, |found| {
+        let stripped = rsid.replace_all_with(found.get(1).unwrap_or(""), |_| {
+            rsid_stripped.set(rsid_stripped.get() + 1);
+            String::new()
+        });
+        let stripped = js_trim(&stripped);
+        format!("<w:r{}>", if stripped.is_empty() { String::new() } else { format!(" {stripped}") })
+    });
+    (working, proof_err_removed.get(), rsid_stripped.get())
 }
 
 /// The self-closing paragraph-mark or row marker of one kind, optionally pinned to one reviewer.

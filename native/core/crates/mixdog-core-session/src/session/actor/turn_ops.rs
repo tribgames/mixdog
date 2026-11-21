@@ -158,10 +158,6 @@ impl SessionActor {
         }
     }
 
-    /// `compact(options)` of the session ops: refused while a turn runs; else the host compacts
-    /// (PreCompact behind its savings gate), a skipped result is the answer as it is, and any
-    /// other runs PostCompact, re-marks the Goal reminder (`compaction`: the compaction dropped
-    /// the Goal's tool results), re-arms the late tool announcements and answers the result.
     pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
         if self.ui_busy() {
             return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
@@ -257,10 +253,6 @@ impl SessionActor {
         RouteSwitchCompaction::Compact
     }
 
-    /// The idle auto-clear's gate on a turn about to start (`autoClearBeforeSubmit` for a user's turn, `autoClearBeforeWake` for a
-    /// completion wake): the auto-clear setting of the thread's route, and the activity stamp, when auto-clear is on and the thread
-    /// has sat idle for its window. `None` where the turn is none of the gate's: a runtime's own kickoff, a retry, a worker's or a
-    /// routine's turn, or a thread that is going. Reads nothing of the context meter: a start that fails this goes on at once.
     pub(super) fn idle_gate(&self, input: &TurnInput, wake: bool) -> Option<(super::super::idle_auto_clear::IdleConfig, f64, f64)> {
         use super::super::idle_auto_clear::idle_config_of;
         use super::super::idle_auto_clear::idle_window_elapsed;
@@ -354,10 +346,6 @@ impl SessionActor {
         self.scheduled_compaction_ended();
     }
 
-    /// `settleTurn`'s `runPendingCompact` (`compaction-gate.mjs`): the scheduled compaction runs
-    /// now, as `session.compact()` does, and what follows the turn waits on it: the queued work
-    /// and the Goal continuation, and every turn, clear, rewind or compaction asked meanwhile
-    /// (`afterCompaction`). Its failure breaks nothing (`.catch(() => {})`).
     pub(super) fn run_scheduled_compaction(&mut self, goal_active: bool) {
         let (tx, rx) = oneshot::channel();
         self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active });
@@ -404,14 +392,6 @@ impl SessionActor {
         self.try_unload();
     }
 
-    /// `retryBlocked()`: anything running, settling, closing or queued owns the session first.
-    /// Node's flags map as: `disposed` and a closed `admission` to a deleted or unloaded thread,
-    /// `settlement` to the quota settlement, `busy` to any turn state, `commandBusy` and
-    /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
-    /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
-    /// queue (`decisions.md`, "turn/retryFailed"). The model-scheduled compaction sets neither
-    /// flag (`compaction-gate.mjs` runs it in the runtime): a retry asked while it runs is admitted
-    /// and waits on its gate ([`Self::begin_retry`]); a retry it already holds is the queue.
     pub(super) fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
@@ -427,10 +407,6 @@ impl SessionActor {
         super::super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref()))
     }
 
-    /// `retryFailedTurn(sessionId, turnKey)` of the quota lane, first half: runs only while
-    /// `turnKey` is still the latest failed turn and nothing is running, settling or queued;
-    /// `false` when refused. `retainedRetryInput()` reads the model context, so the rest runs
-    /// when that read is back.
     fn retry_failed(&mut self, op: Option<OpId>, tx: Waiter, key: String) {
         if key.is_empty()
             || self.retry_blocked()
@@ -551,12 +527,6 @@ impl SessionActor {
         });
     }
 
-    /// A cancel of the quota resume (`cancelFor`, `cancelQuotaResume`: new user input, a clear, the explicit
-    /// cancel) takes effect at once, in memory, as Node's synchronous cancel does: the settlement's epoch
-    /// rises (a Goal resume that checks it is no longer current) and the queued entry reads as answered
-    /// (`quota_entry`), so a fire that comes before the store write lands, or after it failed, finds nothing
-    /// and no auto-resume runs. The store write follows and a failure of it is logged. The state stops showing
-    /// the resume at once too (`cancelQuotaResumeEntry` notifies `publishQuotaResume` synchronously).
     pub(super) fn quota_cancel_now(&mut self) {
         self.quota.settlement.raise_epoch();
         if let Some(entry) = self.deps.quota.goals.entry(self.id.as_str()) {
@@ -790,10 +760,6 @@ impl SessionActor {
         });
     }
 
-    /// `pushNotice(text, tone)` of the hosted runtime (`session-service.mjs`
-    /// `pushLiveSessionNotice`, `notice-surface.mjs`): the polished text shows as a muted
-    /// transcript notice row of no turn; the answer is the row's id, `null` for a text that
-    /// polishes to nothing.
     fn push_notice(&mut self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: mixdog_app_protocol::v2::params::ThreadPushNoticeParams = parse(&req.params, "ThreadPushNoticeParams")?;
         let value = super::super::live_rows::polish_notice_text(&params.text);
@@ -858,10 +824,6 @@ impl SessionActor {
         self.deleting || self.cell.closed.load(SeqCst) || self.ui_busy()
     }
 
-    /// The context is read: the result is applied when the context still starts with the snapshot
-    /// it was planned on, no turn began meanwhile and none runs; the rows a finished turn appended
-    /// meanwhile follow the compacted ones, in order (`appendedSinceSnapshot`). Anything else
-    /// leaves the conversation as it is (`Moved`).
     pub(super) fn compaction_rows(&mut self, done: CommitRows) {
         use super::super::turn_ops::CompactionCommit;
         let CommitRows { snapshot, mut compaction, header, begun, rows, tx } = done;

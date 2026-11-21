@@ -1,10 +1,3 @@
-//! Settings-gated tool availability for a live thread (Node `runtime-core/tool-availability.mjs`
-//! `stageToolAvailability`). A thread records the gates it was built with in `disallowedTools`;
-//! when a gate moves its conversation is never re-prefixed: an opened tool joins the late
-//! deferred catalog (`deferredLateToolCatalog`, never the boot catalog) and a closed one joins
-//! the enforced deny set. The next prompt's deferred-tools delta names both, and the prompt is
-//! folded at the next cache-cold point (`promptFoldPending`).
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -111,10 +104,6 @@ fn allowlist_excludes(session: &Header, name: &str) -> bool {
     !allowed.iter().any(|entry| mixdog_js::value_to_string(entry).to_lowercase() == wanted)
 }
 
-/// Brings `session`'s settings-gated tools to `feature_denied` (the live gate list) without
-/// touching its request prefix. `definitions` are the definitions `definitionsFor` can supply
-/// (a superset of [`missing_definitions`] is fine; only the missing names are taken). `Some` when a
-/// gate moved, `None` otherwise; `featureDeniedTools` is written either way, as Node does.
 pub fn stage_tool_availability(session: &mut Header, feature_denied: &[String], definitions: &[Value], now: i64) -> Option<Moved> {
     if !session.get("tools").is_some_and(Value::is_array) {
         return None;
@@ -161,10 +150,6 @@ pub fn stage_tool_availability(session: &mut Header, feature_denied: &[String], 
     Some(Moved { added, removed })
 }
 
-/// `stageConnectorAvailability(session)`: the connector tools the thread's agent policy and its
-/// project's switches let it run now, against the set it last held. The first call records the
-/// baseline (nothing is told); later moves join the pending deferred-tools delta. Connector
-/// switches gate MCP tools at call time; this tells the model. `Some` when the permitted set moved.
 pub fn stage_connector_availability(session: &mut Header, thread: &ThreadId, permissions: &dyn ConnectorPermissions, now: i64) -> Option<Moved> {
     if !session.get("tools").is_some_and(Value::is_array) {
         return None;

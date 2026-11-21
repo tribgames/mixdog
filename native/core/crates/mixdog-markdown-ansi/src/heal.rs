@@ -276,8 +276,9 @@ fn link_destination_end(text: &str, start: usize) -> Option<usize> {
 
 /// `healIncompleteLink`: the unfinished link or image at the end of the text closed as an inert link (an empty
 /// destination: a streamed URL never becomes clickable before its closing parenthesis arrives), an image as its alt.
-fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
-    let masked = mask_code(text);
+/// The outermost `[` still open at the end of `masked`, the `]` that closed it without a destination, and the bracket
+/// depth left open.
+fn open_link_bracket(masked: &str) -> (Option<usize>, Option<usize>, usize) {
     let bytes = masked.as_bytes();
     let mut open: Option<usize> = None;
     let mut depth = 0usize;
@@ -286,7 +287,7 @@ fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
     while index < bytes.len() {
         match bytes[index] {
             b'\\' => {
-                index += 1 + escaped_len(&masked, index + 1);
+                index += 1 + escaped_len(masked, index + 1);
                 continue;
             }
             b'[' => {
@@ -300,7 +301,7 @@ fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
                 if depth == 0 {
                     label = Some(index);
                     if bytes.get(index + 1) == Some(&b'(') {
-                        match link_destination_end(&masked, index + 1) {
+                        match link_destination_end(masked, index + 1) {
                             None => break,
                             Some(end) => index = end,
                         }
@@ -315,6 +316,13 @@ fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
         }
         index += 1;
     }
+    (open, label, depth)
+}
+
+fn heal_incomplete_link(text: &str, pending: PendingPath<'_>) -> String {
+    let masked = mask_code(text);
+    let bytes = masked.as_bytes();
+    let (open, label, depth) = open_link_bracket(&masked);
     let Some(open) = open else { return text.to_owned() };
     let caption = &text[open + 1..label.unwrap_or(text.len())];
     // Footnotes and task boxes are not unfinished inline links.

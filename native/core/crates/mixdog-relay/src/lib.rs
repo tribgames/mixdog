@@ -1,8 +1,7 @@
 //! The relay server: the Rust port of `apps/relay`. It pairs a phone or browser with a desktop leg and forwards their
 //! frames, serves the renderer and the install pages, and sends feedback mail and push notifications.
 //!
-//! The areas below are filled in by the tasks of the relay track; `config`, `ids`, `close_codes`, `rate_limit`, `js` and
-//! `logline` are the shared ground every area builds on. JSON and JavaScript string rules live in [`js`] only.
+//! JSON and JavaScript string rules live in [`js`] only.
 
 pub mod close_codes;
 pub mod config;

@@ -1,7 +1,6 @@
-//! The `/readyz` report (`lib/renderer-readiness.mjs`): whether the renderer the relay serves, and every retained release,
-//! is complete. A relay is ready only when the document names its build, every script, style, icon and imported worker the
-//! document or the manifest points at exists, and each release of the registry passes the same check. A broken old release
-//! would strand exactly the devices pinned to it, so any failure makes the whole relay not ready.
+//! The `/readyz` report: whether the renderer the relay serves, and every retained release, is complete. A relay is ready only
+//! when the document names its build, every script, style, icon and imported worker the document or the manifest points at
+//! exists, and each release of the registry passes the same check, because a broken old release would strand the devices pinned to it.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -85,10 +84,9 @@ fn extname(path: &str) -> &str {
     }
 }
 
-/// `resolveStaticTarget`: resolves a request path inside `root_dir`. A request for a precompressed `.br` or `.gz` sibling is
-/// missing (those answer through content negotiation on the asset's own URL), a path that escapes the root is forbidden,
-/// before and after links are followed, and a path that names no file falls back to the root's `index.html` only when it
-/// has no extension (or is `/index.html` itself): a missing file with an extension is missing, never the web app.
+/// Resolves a request path inside `root_dir`. A request for a precompressed `.br` or `.gz` sibling is missing (those answer through
+/// content negotiation on the asset's own URL), a path that escapes the root is forbidden, before and after links are followed,
+/// and a path that names no file falls back to the root's `index.html` only when it has no extension (or is `/index.html` itself).
 pub fn resolve_static_target(root_dir: &Path, pathname: &str) -> StaticResolution {
     if matches!(extname(pathname).to_ascii_lowercase().as_str(), ".br" | ".gz") {
         return StaticResolution::Missing;

@@ -105,6 +105,50 @@ fn start_word_record(document: &Obj) -> Option<Com> {
     start().ok()
 }
 
+/// What a failed batch is measured against.
+struct Baseline {
+    saved_before: bool,
+    fingerprint: String,
+    word_record: bool,
+}
+
+fn undo_failed_batch<P: WriteProof>(
+    actions: &Actions<'_, P>,
+    document: &Obj,
+    format: &str,
+    batch: &Batch<'_>,
+    operation_count: usize,
+    word_changed: bool,
+    baseline: &Baseline,
+) -> Result<(), Error> {
+    let live = batch.live;
+    // Word keeps an empty custom record off the undo stack, so Undo(1) after an operation that failed before touching
+    // the document took back the previous batch instead. Only a batch that changed something is undone.
+    if live && format == "docx" && baseline.word_record {
+        let touched = word_changed || if baseline.saved_before { !saved(document)? } else { actions.fingerprint_of(document, format)? != baseline.fingerprint };
+        if touched {
+            let _ = document.call("Undo", &[Com::I4(1)]);
+        }
+    } else if live && format == "pptx" && batch.allow_ui_activation {
+        let maximum_attempts = operation_count + 5;
+        let mut attempts = 0;
+        while attempts < maximum_attempts {
+            if actions.fingerprint_of(document, format)? == baseline.fingerprint {
+                break;
+            }
+            let undone = document
+                .get("Application")
+                .and_then(|application| application.member("CommandBars"))
+                .and_then(|bars| bars.call_member("ExecuteMso", &[Com::from("Undo")]));
+            if undone.is_err() {
+                break;
+            }
+            attempts += 1;
+        }
+    }
+    Ok(())
+}
+
 /// `Apply-Operations`: `{ results, undoUnits }`, or the failure `<op> failed at <location>: <message>` after the batch was
 /// taken back as far as the application allows.
 pub fn apply_operations<P: WriteProof>(
@@ -153,35 +197,8 @@ pub fn apply_operations<P: WriteProof>(
 
     let word_changed = results.iter().any(|entry| changed_of(entry).unwrap_or(true));
     if let Some(failure) = failure {
-        // Word keeps an empty custom record off the undo stack, so Undo(1) after an operation that failed before touching
-        // the document took back the previous batch instead. Only a batch that changed something is undone.
-        if live && format == "docx" && word_record.is_some() {
-            let touched = word_changed
-                || if saved_before {
-                    !saved(document).map_err(message)?
-                } else {
-                    actions.fingerprint_of(document, format).map_err(message)? != before_fingerprint
-                };
-            if touched {
-                let _ = document.call("Undo", &[Com::I4(1)]);
-            }
-        } else if live && format == "pptx" && batch.allow_ui_activation {
-            let maximum_attempts = queue.len() + 5;
-            let mut attempts = 0;
-            while attempts < maximum_attempts {
-                if actions.fingerprint_of(document, format).map_err(message)? == before_fingerprint {
-                    break;
-                }
-                let undone = document
-                    .get("Application")
-                    .and_then(|application| application.member("CommandBars"))
-                    .and_then(|bars| bars.call_member("ExecuteMso", &[Com::from("Undo")]));
-                if undone.is_err() {
-                    break;
-                }
-                attempts += 1;
-            }
-        }
+        let baseline = Baseline { saved_before, fingerprint: before_fingerprint, word_record: word_record.is_some() };
+        undo_failed_batch(actions, document, format, batch, queue.len(), word_changed, &baseline).map_err(message)?;
         return Err(failure);
     }
     // A batch that changed nothing (allowNoChange) left no record for a later rollback to take back.

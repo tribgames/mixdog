@@ -235,8 +235,11 @@ fn the_context_rows_follow_the_runtime_status_getters() {
     assert_eq!(panel.detail["lastApi"], json!({ "contextTokens": 50_000, "inputTokens": 6_000, "rawInputTokens": 6_000, "outputTokens": 900 }));
     assert_eq!(panel.detail["inspection"], status["inspection"]);
     assert_eq!(panel.detail["speed"], json!({ "outputTokensPerSecond": null }));
+}
 
-    // The inspector asks for the preview of an entry through the same read, with the entry and its revision.
+#[test]
+fn the_inspector_asks_for_the_preview_of_an_entry_with_the_entry_and_its_revision() {
+    let mut fake = Fake::new();
     fake.script("contextStatus", Ok(json!({ "inspection": { "preview": { "text": "hello", "truncated": false } } })));
     let outcome = inspect_preview(&mut fake, &json!("entry-1"), &json!(4));
     assert_eq!(outcome, InspectOutcome::Answer(Some(json!({ "text": "hello", "truncated": false }))));

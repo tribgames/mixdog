@@ -208,6 +208,123 @@ fn every_waiter_is_served_as_room_frees() {
     }
 }
 
+/// A caller waiting outside the full queue is cancelled, then the queue frees slots, and only then
+/// is the wait polled: it hears it was cancelled (not admitted, and not a lost result), and no slot
+/// stays reserved for it.
+#[test]
+fn a_caller_cancelled_outside_the_full_queue_before_capacity_frees_hears_cancelled() {
+    let _serial = serial();
+    let tokens = rt().1;
+    let gate = Gate::new();
+    let mut held = fill_lane(&gate);
+    for _ in 0..6 {
+        let gate = gate.clone();
+        held.push(tokens.cpu_bulk.submit(&CancellationToken::new(), move |_| gate.wait()).expect("below the far bound"));
+    }
+    assert!(tokens.cpu_bulk.submit(&CancellationToken::new(), |_| ()).is_err(), "the queue holds its far bound");
+    let cancel = CancellationToken::new();
+    let ran = Arc::new(AtomicBool::new(false));
+    let flag = ran.clone();
+    let mut waiting = Box::pin(tokens.cpu_bulk.submit_wait(&cancel, move |_| flag.store(true, SeqCst)));
+    block_on(async {
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+        assert!(polled.is_pending(), "the caller waits outside the full queue");
+    });
+    cancel.cancel();
+    gate.open();
+    for h in held {
+        block_on(h).unwrap();
+    }
+    assert_eq!(block_on(waiting).err(), Some(SubmitWaitError::Cancelled));
+    let lane = cpu_bulk();
+    assert_eq!((lane.queue_depth, lane.outside), (0, 0));
+    assert!(!ran.load(SeqCst));
+}
+
+fn cpu_bulk() -> mixdog_rt::exec::LaneSnapshot {
+    rt().0.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::CpuBulk).unwrap()
+}
+
+/// Polls `fut` once.
+fn poll_once<F: Future + Unpin>(fut: &mut F) -> std::task::Poll<F::Output> {
+    block_on(std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *fut).poll(cx))))
+}
+
+/// A job whose body holds a marker (its captures) and records whether it ran.
+fn captured() -> (Arc<()>, Arc<AtomicBool>, impl FnOnce(&mixdog_rt::InLane<mixdog_rt::CpuBulk>) + Send + 'static) {
+    let marker = Arc::new(());
+    let flag = Arc::new(AtomicBool::new(false));
+    let (keep, ran) = (marker.clone(), flag.clone());
+    (marker, flag, move |_: &mixdog_rt::InLane<mixdog_rt::CpuBulk>| {
+        let _keep = &keep;
+        ran.store(true, SeqCst);
+    })
+}
+
+/// Dropping a wait releases its job's captures at once wherever the job is: never polled (the
+/// future still owns it), beyond the far bound, or admitted while no thread took it yet and the
+/// wait was not polled since. No body runs. Dropping a returned handle withdraws nothing.
+#[test]
+fn a_dropped_wait_releases_its_job_and_a_dropped_handle_does_not() {
+    let _serial = serial();
+    let tokens = rt().1;
+    let cancel = CancellationToken::new();
+
+    let (marker, ran, body) = captured();
+    drop(tokens.cpu_bulk.submit_wait(&cancel, body));
+    assert_eq!((Arc::strong_count(&marker), ran.load(SeqCst)), (1, false), "never polled");
+
+    // Both threads held; eight queued jobs (the far bound) share a token the test cancels later.
+    let gate = Gate::new();
+    let (started_tx, started_rx) = mpsc::channel();
+    let running: Vec<_> = (0..2)
+        .map(|_| {
+            let (gate, started) = (gate.clone(), started_tx.clone());
+            tokens
+                .cpu_bulk
+                .submit(&CancellationToken::new(), move |_| {
+                    started.send(()).unwrap();
+                    gate.wait();
+                })
+                .unwrap()
+        })
+        .collect();
+    for _ in 0..2 {
+        started_rx.recv_timeout(Duration::from_secs(60)).expect("both cpu-bulk threads are held");
+    }
+    let queued_cancel = CancellationToken::new();
+    let queued: Vec<_> = (0..8).map(|_| tokens.cpu_bulk.submit(&queued_cancel, |_| ()).expect("below the far bound")).collect();
+
+    let (marker, ran, body) = captured();
+    let mut beyond = Box::pin(tokens.cpu_bulk.submit_wait(&cancel, body));
+    assert!(poll_once(&mut beyond).is_pending());
+    assert_eq!((Arc::strong_count(&marker), cpu_bulk().outside), (2, 1), "the lane holds the job beyond its bound");
+    drop(beyond);
+    assert_eq!((Arc::strong_count(&marker), ran.load(SeqCst), cpu_bulk().outside), (1, false, 0), "dropped beyond the bound");
+
+    // The queued jobs are cancelled: their places bring the late waiter inside and admit it, while
+    // both threads are still held and its wait is not polled. Dropping the wait then withdraws it.
+    let (late_marker, late_ran, late_body) = captured();
+    let mut late = Box::pin(tokens.cpu_bulk.submit_wait(&cancel, late_body));
+    assert!(poll_once(&mut late).is_pending());
+    queued_cancel.cancel();
+    assert_eq!((cpu_bulk().queue_depth, cpu_bulk().waiters, cpu_bulk().outside), (1, 0, 0), "admitted, not taken");
+    drop(late);
+    assert_eq!((Arc::strong_count(&late_marker), late_ran.load(SeqCst), cpu_bulk().queue_depth), (1, false, 0));
+    for handle in queued {
+        assert_eq!(block_on(handle), Err(mixdog_rt::JobDropped::Cancelled));
+    }
+    gate.open();
+    for handle in running {
+        block_on(handle).unwrap();
+    }
+
+    let (ran_tx, ran_rx) = mpsc::channel();
+    let handle = block_on(tokens.cpu_bulk.submit_wait(&cancel, move |_| ran_tx.send(()).unwrap())).expect("admitted on an idle lane");
+    drop(handle);
+    assert_eq!(ran_rx.recv_timeout(Duration::from_secs(60)), Ok(()), "a dropped handle does not withdraw its job");
+}
+
 #[test]
 fn a_job_cancelled_while_queued_still_resolves_dropped() {
     let _serial = serial();

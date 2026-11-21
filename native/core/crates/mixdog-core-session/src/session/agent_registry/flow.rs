@@ -1,8 +1,3 @@
-//! The session side of the agent tool's worker turns (WP-AGENT `agent_tool::flow::seams`): the
-//! worker's tag and agent, its row writes, the tool calls that started agent tasks, and the
-//! completions a worker or its owner is handed (Node `agent-tool/notify.mjs`,
-//! `notification-bus.mjs` `notifySessionCompletion`, `agent-task-starts.mjs`).
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -155,10 +150,6 @@ impl TurnSource for SessionDirectory {
 /// `NON_PERSISTENT_TOOL_STATUSES`.
 const NON_PERSISTENT: [&str; 3] = ["running", "pending", "queued"];
 
-/// `modelVisibleToolCompletionMessage(text, meta)` for the completions the core produces: a
-/// `<task-notification>` envelope persists as it is; a completion the model must not see (or one
-/// still running) yields nothing. The core's producers render envelopes only, so the legacy
-/// wrapper forms Node still converts never reach here.
 pub(crate) fn model_visible(text: &str, meta: &Value) -> Option<String> {
     let message = mixdog_js::js_trim(text);
     if message.is_empty() || meta.get("model_visible") == Some(&Value::Bool(false)) {
@@ -217,10 +208,6 @@ impl WorkerInbox for SessionCompletions {
 }
 
 impl OwnerNotify for SessionCompletions {
-    /// `notifyOwner` → `notifySessionCompletion(owner, text, meta)`: the owner's own id as the
-    /// caller, never a routing session. The live owner shows the card (a bodyless preview too);
-    /// the model-visible text is queued unless the owner is closed. `true` when the live owner
-    /// took it or it was queued.
     fn notify(&self, owner_session_id: &str, text: &str, meta: &Value) -> bool {
         let owner = clean_str(owner_session_id);
         if owner.is_empty() {
@@ -348,6 +335,37 @@ mod tests {
     impl RuntimeRelease for Released {
         fn release(&self, thread: &ThreadId, reason: &str) {
             self.0.lock().unwrap().push(format!("{thread} {reason}"));
+        }
+    }
+
+    fn worker_request(session: &ThreadId, prompt: &str, submission: &str, on_terminal_result: Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>) -> TurnRequest {
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        TurnRequest {
+            kind: TurnKind::Spawn,
+            session_id: session.as_str().to_owned(),
+            prompt: prompt.to_owned(),
+            attachments: Vec::new(),
+            context: None,
+            cwd: String::new(),
+            skill_selection: None,
+            hooks: TurnHooks {
+                submission_id: submission.into(),
+                notify: Arc::new(|_, _| true),
+                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+                on_terminal_result,
+            },
+            slot: None,
+        }
+    }
+
+    fn assistant_reply(iid: impl Into<String>, body: Value) -> crate::session::ItemCommit {
+        crate::session::ItemCommit {
+            iid: mixdog_core_api::ids::ItemId::from(iid.into()),
+            role: Some("assistant".into()),
+            model: true,
+            visible: true,
+            body,
+            prompt: None,
         }
     }
 
@@ -484,7 +502,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_worker_turn_runs_with_its_handoff_and_returns_the_final_result() {
         use crate::session::tests::start_thread;
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        use mixdog_agent::agent_tool::flow::seams::TurnKind;
 
         let rig = crate::session::testing::Rig::new();
         let seen: Arc<Mutex<Vec<(Option<String>, TurnKind, Option<String>, Value)>>> = Arc::default();
@@ -507,14 +525,7 @@ mod tests {
                         provider_error: None,
                     });
                 }
-                let reply = crate::session::ItemCommit {
-                    iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
-                    role: Some("assistant".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "assistant", "content": [{ "type": "text", "text": "worked" }] }),
-                    prompt: None,
-                };
+                let reply = assistant_reply(format!("a-{}", run.turn), json!({ "role": "assistant", "content": [{ "type": "text", "text": "worked" }] }));
                 run.port.commit_item(reply).await.expect("commit");
                 let result = TurnResult { content: "worked".into(), iterations: 1, ..Default::default() };
                 crate::session::RunOutcome::Completed(Box::new(result))
@@ -527,23 +538,15 @@ mod tests {
         let request = |prompt: &str, submission: &str| {
             let heard: Arc<Mutex<Vec<String>>> = Arc::default();
             let sink = heard.clone();
+            let on_terminal_result: Arc<dyn Fn(&TurnResult) + Send + Sync> =
+                Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.content.clone()));
             let request = TurnRequest {
-                kind: TurnKind::Spawn,
-                session_id: handle.id.as_str().to_owned(),
-                prompt: prompt.to_owned(),
                 attachments: vec![
                     json!({ "type": "image", "attachmentRef": "a".repeat(64), "mimeType": "image/png", "filename": "x.png", "sizeBytes": 5, "data": "dropped" }),
                 ],
                 context: Some(json!({ "k": 1 })),
-                cwd: String::new(),
                 skill_selection: Some("skills".into()),
-                hooks: TurnHooks {
-                    submission_id: submission.into(),
-                    notify: Arc::new(|_, _| true),
-                    on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
-                    on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.content.clone()))),
-                },
-                slot: None,
+                ..worker_request(&handle.id, prompt, submission, Some(on_terminal_result))
             };
             (request, heard)
         };
@@ -575,7 +578,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_workers_report_reaches_its_owner_with_the_workers_sensitive_values_as_the_marker() {
         use crate::session::tests::start_thread;
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         const CODE: &str = "482913";
 
         let rig = crate::session::testing::Rig::new();
@@ -585,15 +587,7 @@ mod tests {
                 let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
                 assert!(run.context.remember_sensitive(&[fill]));
                 let text = format!("filled {CODE}");
-                let reply = crate::session::ItemCommit {
-                    iid: mixdog_core_api::ids::ItemId::from("a-1"),
-                    role: Some("assistant".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "assistant", "content": text }),
-                    prompt: None,
-                };
-                run.port.commit_item(reply).await.expect("commit");
+                run.port.commit_item(assistant_reply("a-1", json!({ "role": "assistant", "content": text }))).await.expect("commit");
                 crate::session::RunOutcome::Completed(Box::new(TurnResult {
                     content: text.clone(),
                     report_content: Some(text),
@@ -607,22 +601,7 @@ mod tests {
         let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
         let heard: Arc<Mutex<Vec<TurnResult>>> = Arc::default();
         let sink = heard.clone();
-        let request = TurnRequest {
-            kind: TurnKind::Spawn,
-            session_id: worker.id.as_str().to_owned(),
-            prompt: "sign in".into(),
-            attachments: Vec::new(),
-            context: None,
-            cwd: String::new(),
-            skill_selection: None,
-            hooks: TurnHooks {
-                submission_id: "sub-1".into(),
-                notify: Arc::new(|_, _| true),
-                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
-                on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.clone()))),
-            },
-            slot: None,
-        };
+        let request = worker_request(&worker.id, "sign in", "sub-1", Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.clone()))));
         turns.carry_marks(worker.id.as_str(), owner.id.as_str());
         let result = turns.run_turn(request).await.expect("turn");
         let marked = "filled [redacted]";
@@ -637,7 +616,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup writes a fixture file")]
     async fn the_terminal_hook_hears_the_report_with_the_files_produced() {
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         use mixdog_core_api::ThreadDirectory as _;
         let dir = tempfile::tempdir().unwrap();
         let root = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
@@ -649,15 +627,8 @@ mod tests {
             let path = path.clone();
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
-                let reply = crate::session::ItemCommit {
-                    iid: mixdog_core_api::ids::ItemId::from("a-1"),
-                    role: Some("assistant".into()),
-                    model: true,
-                    visible: true,
-                    body: json!({ "role": "assistant", "content": "done", "toolCalls": [{ "name": "edit", "arguments": { "file_path": path } }] }),
-                    prompt: None,
-                };
-                run.port.commit_item(reply).await.expect("commit");
+                let body = json!({ "role": "assistant", "content": "done", "toolCalls": [{ "name": "edit", "arguments": { "file_path": path } }] });
+                run.port.commit_item(assistant_reply("a-1", body)).await.expect("commit");
                 crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "done".into(), iterations: 1, ..Default::default() }))
             })
         }));
@@ -677,22 +648,12 @@ mod tests {
             SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default()))).with_files(mixdog_rt::testing::tokens().durability_io, Vec::new());
         let heard: Arc<Mutex<Vec<String>>> = Arc::default();
         let sink = heard.clone();
-        let request = TurnRequest {
-            kind: TurnKind::Spawn,
-            session_id: worker.id.as_str().to_owned(),
-            prompt: "make it".into(),
-            attachments: Vec::new(),
-            context: None,
-            cwd: String::new(),
-            skill_selection: None,
-            hooks: TurnHooks {
-                submission_id: "sub-files".into(),
-                notify: Arc::new(|_, _| true),
-                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
-                on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.report_text().to_owned()))),
-            },
-            slot: None,
-        };
+        let request = worker_request(
+            &worker.id,
+            "make it",
+            "sub-files",
+            Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.report_text().to_owned()))),
+        );
         let result = turns.run_turn(request).await.expect("turn");
         assert!(result.report_text().contains("Files produced:") && result.report_text().contains("made.txt"), "{}", result.report_text());
         assert_eq!(*heard.lock().unwrap(), [result.report_text().to_owned()]);
@@ -703,7 +664,6 @@ mod tests {
     async fn a_worker_turn_refused_as_busy_leaves_nothing_queued() {
         use crate::eventually_on;
         use crate::session::tests::{idle, start_thread, turn};
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
 
         let rig = crate::session::testing::Rig::new();
         let hold = Arc::new(tokio::sync::Notify::new());
@@ -725,22 +685,7 @@ mod tests {
         turn(&handle, "user work", "op-1").await;
         eventually_on!(&[&ran, &handle.cell.stepped], || (starts.load(Ordering::SeqCst) == 1).then_some(())).await;
         let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
-        let request = TurnRequest {
-            kind: TurnKind::Spawn,
-            session_id: handle.id.as_str().to_owned(),
-            prompt: "late".into(),
-            attachments: Vec::new(),
-            context: None,
-            cwd: String::new(),
-            skill_selection: None,
-            hooks: TurnHooks {
-                submission_id: "sub-busy".into(),
-                notify: Arc::new(|_, _| true),
-                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
-                on_terminal_result: None,
-            },
-            slot: None,
-        };
+        let request = worker_request(&handle.id, "late", "sub-busy", None);
         let refused = turns.run_turn(request).await.expect_err("busy");
         assert!(refused.message.contains("busy with another turn"), "{}", refused.message);
         eventually_on!(&[&handle.cell.stepped], || handle.cell.queued.load().is_empty().then_some(())).await;
@@ -1099,6 +1044,15 @@ impl SessionTurns {
         self.turn(request, true).await
     }
 
+    /// The refusal stands whatever this answers, but a turn left queued would run later with nobody waiting for it.
+    async fn unqueue_refused(handle: &crate::session::handle::SessionHandle, thread: &ThreadId, op: &OpId, ctx: CallContext, queued: &str) {
+        let unqueue = OpId::from(format!("{op}:unqueue"));
+        let params = json!({ "threadId": thread, "opId": unqueue, "queuedId": queued, "restore": false });
+        if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await {
+            tracing::warn!(session = %thread, "a refused turn was not taken off the queue: {error:?}");
+        }
+    }
+
     async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
         let thread = ThreadId::from(clean_str(&request.session_id).as_str());
         let ctx = CallContext::internal("agent-turn");
@@ -1151,14 +1105,7 @@ impl SessionTurns {
             Ok(Reply::Value(value)) if value["kind"] == "started" => {}
             Ok(Reply::Value(value)) => {
                 if let Some(queued) = value["queuedId"].as_str() {
-                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
-                    // The refusal below stands whatever this answers, but a turn left queued would run
-                    // later with nobody waiting for it.
-                    if let Err(error) =
-                        handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await
-                    {
-                        tracing::warn!(session = %request.session_id, "a refused turn was not taken off the queue: {error:?}");
-                    }
+                    Self::unqueue_refused(&handle, &thread, &op, ctx, queued).await;
                 }
                 return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
             }

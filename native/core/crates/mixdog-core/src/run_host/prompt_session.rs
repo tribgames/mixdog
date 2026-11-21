@@ -17,23 +17,31 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::run_host::rules::LeadPart;
+use crate::run_host::rules::agent_mode_file;
+use crate::run_host::rules::agent_role_file;
 use crate::run_host::rules::build_agent_mode_content;
 use crate::run_host::rules::build_agent_role_content;
 use crate::run_host::rules::build_base_rules;
 use crate::run_host::rules::build_lead_role_content;
+use crate::run_host::rules::lead_role_file;
+use crate::run_host::rules::read_base_rule_files;
 use crate::run_host::rules_lead::LeadPaths;
 use crate::run_host::rules_lead::build_lead_language;
 use crate::run_host::rules_lead::build_lead_language_content;
 use crate::run_host::rules_lead::build_lead_meta_content;
+use crate::run_host::rules_lead::read_lead_files;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_prompt::prompt::blocks::SystemBlocks;
 use mixdog_core_prompt::prompt::compose::PART_SEPARATOR;
 use mixdog_core_prompt::prompt::compose::ProfileSkip;
+use mixdog_core_prompt::prompt::compose::RoleSource;
 use mixdog_core_prompt::prompt::compose::Slices;
 use mixdog_core_prompt::prompt::compose::compose_system_prompt;
+use mixdog_core_prompt::prompt::compose::persona_agent;
+use mixdog_core_prompt::prompt::compose::role_source;
 use mixdog_core_prompt::prompt::notice::OwnedSections;
-use mixdog_core_prompt::prompt::settings::Sections;
-use mixdog_core_prompt::prompt::settings::prompt_settings_record;
+use mixdog_core_prompt::prompt::real_sources::SourceWants;
+use mixdog_core_prompt::prompt::source_files::PromptFiles;
 use mixdog_core_prompt::prompt::sources::PromptSources;
 use mixdog_core_session::session::worktree::PromptRewrite;
 use mixdog_core_session::session::worktree::PromptView;
@@ -41,11 +49,136 @@ use mixdog_core_session::session::worktree::pending_workspace_reroot;
 use mixdog_core_session::session::worktree::route_prompt_refresh;
 
 /// The shipped rules and the data directory the composition reads (`mixdogRoot()`,
-/// `resolvePluginData()`).
-#[derive(Debug, Clone, Copy)]
+/// `resolvePluginData()`), and the files it reads them through.
+#[derive(Clone, Copy)]
 pub struct PromptPaths<'a> {
     pub plugin_root: &'a Path,
     pub data_dir: &'a Path,
+    pub files: &'a dyn PromptFiles,
+}
+
+/// Reads, through `paths.files`, the rule and Lead files [`compose_session_prompt`] asks for with `input`.
+pub fn read_session_prompt_files(input: &SessionPromptInput, paths: &PromptPaths) {
+    let plan = Plan::of(input);
+    let (files, root) = (paths.files, paths.plugin_root);
+    if !plan.skip_rules {
+        read_base_rule_files(files, root);
+        files.read(&if input.owner_is_agent { agent_role_file(root) } else { lead_role_file(root) });
+    }
+    if plan.agent_mode {
+        files.read(&agent_mode_file(root, "conduct"));
+        if plan.mixy {
+            files.read(&agent_mode_file(root, "mixy"));
+        }
+    }
+    if plan.lead {
+        read_lead_files(&LeadPaths { plugin_root: root, data_dir: paths.data_dir, config: input.config, files }, plan.include_style);
+    }
+}
+
+/// The source calls [`compose_session_prompt`] makes with `input`, for its read step.
+pub fn session_prompt_wants(input: &SessionPromptInput) -> SourceWants {
+    let plan = Plan::of(input);
+    let mut wants = SourceWants::default();
+    match role_source(plan.skip_role_catalog, input.agent, Some(input.provider)) {
+        RoleSource::None => {}
+        RoleSource::Mixy => wants.mixy_role = true,
+        RoleSource::Catalog(..) => wants.role_catalog = true,
+    }
+    wants.persona = persona_agent(plan.skip_role_catalog, input.agent).map(str::to_owned);
+    if plan.agent_mode {
+        wants.identity = Some(plan.agent.unwrap_or(MIXY_AGENT_ID).to_owned());
+    }
+    if let Some(shell) = plan.shell {
+        shell.want(&mut wants);
+    }
+    if let Instructions::Load = plan.instructions {
+        wants.instruction_files = Some((plan.config_mode.cloned(), input.cwd.map(str::to_owned)));
+    }
+    wants
+}
+
+/// What [`compose_session_prompt`] builds from its input, decided once: the composition follows it and its read step
+/// reads for it.
+struct Plan<'a> {
+    /// No rules at all (`opts.skipAgentRules`, or a role without tools).
+    skip_rules: bool,
+    /// The Lead's role, meta and language parts.
+    lead: bool,
+    /// A Lead in agent mode.
+    agent_mode: bool,
+    agent: Option<&'a str>,
+    mixy: bool,
+    skip_role_catalog: bool,
+    /// The output style is part of the meta and language parts.
+    include_style: bool,
+    /// `instructionFiles` as the prompt config states it; `None` reads the stored setting.
+    config_mode: Option<&'a Value>,
+    instructions: Instructions<'a>,
+    /// The shell environment's calls; `None` for a role without tools.
+    shell: Option<ShellCalls<'a>>,
+}
+
+/// Where a prompt's instruction files come from.
+#[derive(Clone, Copy)]
+enum Instructions<'a> {
+    None,
+    Given(&'a str),
+    Load,
+}
+
+impl<'a> Plan<'a> {
+    fn of(input: &SessionPromptInput<'a>) -> Self {
+        // A prompt config without the key states `undefined`, which normalizes to the default; no config reads the stored setting.
+        static UNSTATED: Value = Value::Null;
+        let skip_rules = input.skip_agent_rules || input.tool_free_role;
+        let lead = !input.owner_is_agent && !skip_rules;
+        let agent_mode = lead && input.agent_mode;
+        let agent = input.agent.filter(|agent| !agent.is_empty());
+        let mixy = agent.unwrap_or(MIXY_AGENT_ID) == MIXY_AGENT_ID;
+        let instructions = match input.instruction_files_context {
+            _ if input.tool_free_role || input.profile_skip.claudemd || input.agent_mode => Instructions::None,
+            Some(text) => Instructions::Given(text),
+            None => Instructions::Load,
+        };
+        Self {
+            skip_rules,
+            lead,
+            agent_mode,
+            agent,
+            mixy,
+            skip_role_catalog: !input.owner_is_agent && matches!(agent, None | Some(MIXY_AGENT_ID)) && !(agent_mode && mixy),
+            include_style: !input.agent_mode,
+            config_mode: input.config.map(|config| config.get("instructionFiles").unwrap_or(&UNSTATED)),
+            instructions,
+            shell: (!input.tool_free_role).then(|| shell_calls(input.cwd, input.cwd_startup_entries, input.has_git_tool)),
+        }
+    }
+}
+
+/// The source calls of the shell environment block.
+#[derive(Clone, Copy)]
+struct ShellCalls<'a> {
+    cwd: Option<&'a str>,
+    /// `git_line(cwd)`.
+    git: bool,
+    /// `cwd_entries(cwd)`, for a folder whose listing was not given.
+    entries: Option<&'a str>,
+}
+
+fn shell_calls<'a>(cwd: Option<&'a str>, cwd_startup_entries: Option<&str>, has_git_tool: bool) -> ShellCalls<'a> {
+    let cwd = cwd.filter(|cwd| !cwd.is_empty());
+    ShellCalls { cwd, git: has_git_tool, entries: cwd.filter(|_| cwd_startup_entries.is_none()) }
+}
+
+impl ShellCalls<'_> {
+    fn want(&self, wants: &mut SourceWants) {
+        wants.shell_tools = true;
+        if self.git {
+            wants.git = Some(self.cwd.map(str::to_owned));
+        }
+        wants.cwd_entries = self.entries.map(str::to_owned);
+    }
 }
 
 /// What `composeSessionSystem` reads of the session options and the resolved tool surface.
@@ -138,24 +271,22 @@ pub fn scratch_environment_line(session_id: &str, sources: &dyn PromptSources) -
 
 /// `buildShellEnvironmentContext`: the Cwd, shell, scratch, tools, git and listing facts.
 fn shell_environment_context(
-    cwd: Option<&str>,
+    calls: ShellCalls<'_>,
     cwd_startup_entries: Option<&str>,
     owner_is_agent: bool,
-    has_git_tool: bool,
     session_id: &str,
     sources: &dyn PromptSources,
 ) -> String {
-    let cwd = cwd.filter(|cwd| !cwd.is_empty());
-    let cwd_line = match cwd {
+    let cwd_line = match calls.cwd {
         Some(cwd) if owner_is_agent => format!("- Cwd: {cwd} — the active Project root; relative paths and shell commands resolve here."),
         Some(_) => "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.".to_owned(),
         None => String::new(),
     };
     let shell = sources.shell_name();
-    let git = if has_git_tool { sources.git_line(cwd) } else { String::new() };
-    let entries = match cwd {
-        Some(cwd) => cwd_startup_entries.map_or_else(|| sources.cwd_entries(cwd), str::to_owned),
-        None => String::new(),
+    let git = if calls.git { sources.git_line(calls.cwd) } else { String::new() };
+    let entries = match calls.entries {
+        Some(cwd) => sources.cwd_entries(cwd),
+        None => calls.cwd.and(cwd_startup_entries).unwrap_or_default().to_owned(),
     };
     [
         cwd_line,
@@ -197,12 +328,30 @@ pub struct WorkspaceContext {
 /// `buildWorkspacePromptContext(session, cwd, { instructionFilesMode })`: `config_mode` is the
 /// in-memory `instructionFiles` setting, `None` the stored one.
 pub fn workspace_prompt_context(facts: &WorkspaceFacts, cwd: &str, config_mode: Option<&Value>, sources: &dyn PromptSources) -> WorkspaceContext {
-    if facts.tool_free_role {
+    let Some((shell, instructions)) = workspace_plan(facts, cwd) else {
         return WorkspaceContext { environment_context: None, instruction_files_context: None };
-    }
-    let environment = shell_environment_context(Some(cwd), None, facts.owner_is_agent, facts.has_git_tool, facts.session_id, sources);
-    let instructions = if facts.skip_instruction_files || facts.agent_mode { None } else { Some(sources.instruction_files(config_mode, Some(cwd))) };
+    };
+    let environment = shell_environment_context(shell, None, facts.owner_is_agent, facts.session_id, sources);
+    let instructions = instructions.then(|| sources.instruction_files(config_mode, Some(cwd)));
     WorkspaceContext { environment_context: Some(environment), instruction_files_context: instructions }
+}
+
+/// The source calls [`workspace_prompt_context`] makes, for its read step.
+pub fn workspace_prompt_wants(facts: &WorkspaceFacts, cwd: &str, config_mode: Option<&Value>) -> SourceWants {
+    let mut wants = SourceWants::default();
+    if let Some((shell, instructions)) = workspace_plan(facts, cwd) {
+        shell.want(&mut wants);
+        if instructions {
+            wants.instruction_files = Some((config_mode.cloned(), Some(cwd.to_owned())));
+        }
+    }
+    wants
+}
+
+/// What [`workspace_prompt_context`] builds: the shell environment's calls and whether it loads the instruction
+/// files; `None` for a role without tools, which keeps what it has.
+fn workspace_plan<'a>(facts: &WorkspaceFacts, cwd: &'a str) -> Option<(ShellCalls<'a>, bool)> {
+    (!facts.tool_free_role).then(|| (shell_calls(Some(cwd), None, facts.has_git_tool), !(facts.skip_instruction_files || facts.agent_mode)))
 }
 /// The rule slices of `sessionRolePromptFields` that depend on the role.
 struct RoleFields {
@@ -215,20 +364,16 @@ struct RoleFields {
     skip_persona: bool,
 }
 
-fn role_fields(input: &SessionPromptInput, paths: &PromptPaths, sources: &dyn PromptSources) -> RoleFields {
-    let skip_rules = input.skip_agent_rules || input.tool_free_role;
-    let lead = !input.owner_is_agent && !skip_rules;
-    let agent_mode = lead && input.agent_mode;
-    let agent = input.agent.filter(|agent| !agent.is_empty());
-    let mixy = agent.unwrap_or(MIXY_AGENT_ID) == MIXY_AGENT_ID;
+fn role_fields(input: &SessionPromptInput, plan: &Plan<'_>, paths: &PromptPaths, sources: &dyn PromptSources) -> RoleFields {
+    let (lead, agent_mode, agent, mixy) = (plan.lead, plan.agent_mode, plan.agent, plan.mixy);
     let include_brief = !input.delegation_free;
-    let root = paths.plugin_root;
-    let role_rules = if skip_rules {
+    let (files, root) = (paths.files, paths.plugin_root);
+    let role_rules = if plan.skip_rules {
         String::new()
     } else if input.owner_is_agent {
-        build_agent_role_content(root)
+        build_agent_role_content(files, root)
     } else {
-        build_lead_role_content(root, include_brief, LeadPart::Common)
+        build_lead_role_content(files, root, include_brief, LeadPart::Common)
     };
     let mut fields = RoleFields {
         role_rules,
@@ -236,25 +381,24 @@ fn role_fields(input: &SessionPromptInput, paths: &PromptPaths, sources: &dyn Pr
         identity_context: String::new(),
         agent_mode_rules: String::new(),
         mixy_rules: String::new(),
-        skip_role_catalog: !input.owner_is_agent && matches!(agent, None | Some(MIXY_AGENT_ID)) && !(agent_mode && mixy),
-        skip_persona: false,
+        skip_role_catalog: plan.skip_role_catalog,
+        skip_persona: plan.skip_role_catalog,
     };
-    fields.skip_persona = fields.skip_role_catalog;
     if lead {
         let identity = if agent_mode {
             sources.agent_mode_identity_line(agent.unwrap_or(MIXY_AGENT_ID))
         } else {
-            build_lead_role_content(root, include_brief, LeadPart::Identity)
+            build_lead_role_content(files, root, include_brief, LeadPart::Identity)
         };
-        fields.lead_mode_rules = build_lead_role_content(root, include_brief, if agent_mode { LeadPart::Agent } else { LeadPart::Coding });
+        fields.lead_mode_rules = build_lead_role_content(files, root, include_brief, if agent_mode { LeadPart::Agent } else { LeadPart::Coding });
         if !identity.is_empty() {
             fields.identity_context = format!("# Identity\n\n{identity}");
         }
     }
     if agent_mode {
-        fields.agent_mode_rules = build_agent_mode_content(root, "conduct");
+        fields.agent_mode_rules = build_agent_mode_content(files, root, "conduct");
         if mixy {
-            fields.mixy_rules = build_agent_mode_content(root, "mixy");
+            fields.mixy_rules = build_agent_mode_content(files, root, "mixy");
         }
     }
     fields
@@ -263,33 +407,30 @@ fn role_fields(input: &SessionPromptInput, paths: &PromptPaths, sources: &dyn Pr
 /// `composeSessionSystem` + `seedSessionMessages` (without the reference-files messages, which
 /// are conversation rows): the four blocks and the prompt's header fields.
 pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, sources: &dyn PromptSources) -> SessionPrompt {
-    let skip_agent_rules = input.skip_agent_rules || input.tool_free_role;
-    let injected_rules = if skip_agent_rules {
+    let plan = Plan::of(input);
+    let injected_rules = if plan.skip_rules {
         String::new()
     } else {
-        build_base_rules(paths.plugin_root, input.provider, input.model, input.rule_omit_tools, input.allow_tools, input.owner_is_agent)
+        build_base_rules(paths.files, paths.plugin_root, input.provider, input.model, input.rule_omit_tools, input.allow_tools, input.owner_is_agent)
     };
-    let role = role_fields(input, paths, sources);
-    let lead_only = !skip_agent_rules && !input.owner_is_agent;
-    let lead_paths = LeadPaths { plugin_root: paths.plugin_root, data_dir: paths.data_dir, config: input.config };
-    let include_style = !input.agent_mode;
+    let role = role_fields(input, &plan, paths, sources);
+    let lead_only = plan.lead;
+    let lead_paths = LeadPaths { plugin_root: paths.plugin_root, data_dir: paths.data_dir, config: input.config, files: paths.files };
+    let include_style = plan.include_style;
     let meta_context = if lead_only { build_lead_meta_content(&lead_paths, include_style) } else { String::new() };
     let locale = sources.system_locale();
     let language_context = if lead_only { build_lead_language_content(&lead_paths, include_style, &locale) } else { String::new() };
-    let shell_environment = if input.tool_free_role {
-        String::new()
-    } else {
-        shell_environment_context(input.cwd, input.cwd_startup_entries, input.owner_is_agent, input.has_git_tool, input.session_id, sources)
+    let shell_environment = match plan.shell {
+        Some(calls) => shell_environment_context(calls, input.cwd_startup_entries, input.owner_is_agent, input.session_id, sources),
+        None => String::new(),
     };
     let environment_tail =
         [shell_environment.as_str(), language_context.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(PART_SEPARATOR);
-    // A prompt config without the key states `undefined`, which normalizes to the default; no config reads the stored setting.
-    static UNSTATED: Value = Value::Null;
-    let config_mode = input.config.map(|config| config.get("instructionFiles").unwrap_or(&UNSTATED));
-    let instruction_files = if input.tool_free_role || input.profile_skip.claudemd || input.agent_mode {
-        String::new()
-    } else {
-        input.instruction_files_context.map_or_else(|| sources.instruction_files(config_mode, input.cwd), str::to_owned)
+    let config_mode = plan.config_mode;
+    let instruction_files = match plan.instructions {
+        Instructions::None => String::new(),
+        Instructions::Given(text) => text.to_owned(),
+        Instructions::Load => sources.instruction_files(config_mode, input.cwd),
     };
     let part = |text| if input.owner_is_agent { "" } else { text };
     // A delegated worker gets no workflow pack (owner-approved difference from Node, B-12): its own rules carry the approval policy.
@@ -323,22 +464,43 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
     let composed = compose_system_prompt(&slices, sources);
 
     let coding_lead = !input.owner_is_agent && !input.agent_mode;
-    let sections = Sections {
-        meta: &meta_context,
-        workflow,
-        orchestration: if coding_lead { input.orchestration_context } else { "" },
-        orchestration_mode: if coding_lead { input.orchestration_mode } else { "" },
-        skills: input.skill_manifest,
-        language: &language_context,
-        instruction_files: if input.profile_skip.claudemd { "" } else { &instruction_files },
-        core_memory: if input.profile_skip.memory { "" } else { input.core_memory_context },
-        instruction_files_mode: &sources.instruction_files_mode(config_mode),
-    };
     let response_language = if lead_only {
         build_lead_language(&lead_paths, &locale).map_or(Value::Null, |(id, name)| serde_json::json!({ "id": id, "name": name }))
     } else {
         Value::Null
     };
+    let sections = OwnedSections {
+        meta: meta_context,
+        workflow: workflow.to_owned(),
+        workflow_name: None,
+        orchestration: if coding_lead { input.orchestration_context.to_owned() } else { String::new() },
+        orchestration_mode: if coding_lead { input.orchestration_mode.to_owned() } else { String::new() },
+        skills: input.skill_manifest.to_owned(),
+        language: language_context,
+        instruction_files: if input.profile_skip.claudemd { String::new() } else { instruction_files },
+        core_memory: if input.profile_skip.memory { String::new() } else { input.core_memory_context.to_owned() },
+        instruction_files_mode: sources.instruction_files_mode(config_mode),
+        response_language: response_language.clone(),
+    };
+    let some = |text: String| (!text.is_empty()).then_some(text);
+    SessionPrompt {
+        blocks: SystemBlocks {
+            base: some(composed.base_rules),
+            stable: some(composed.stable_system_context),
+            core: some(composed.session_marker_core),
+            env: some(composed.session_environment),
+            combined: false,
+        },
+        environment_tail,
+        prompt_identity: prompt_identity(input),
+        prompt_settings: sections.record(),
+        sections,
+        response_language,
+        profile_revision: String::new(),
+    }
+}
+
+fn prompt_identity(input: &SessionPromptInput) -> Value {
     let mut identity = Map::new();
     identity.insert("systemPrompt".into(), Value::String(input.system_prompt.to_owned()));
     identity.insert("skipAgentRules".into(), Value::Bool(input.skip_agent_rules));
@@ -350,35 +512,7 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
     }
     identity.insert("profileSkip".into(), Value::Object(skip));
     identity.insert("agent".into(), input.agent.map_or(Value::Null, |agent| Value::String(agent.to_owned())));
-
-    let some = |text: String| (!text.is_empty()).then_some(text);
-    SessionPrompt {
-        blocks: SystemBlocks {
-            base: some(composed.base_rules),
-            stable: some(composed.stable_system_context),
-            core: some(composed.session_marker_core),
-            env: some(composed.session_environment),
-            combined: false,
-        },
-        environment_tail,
-        prompt_identity: Value::Object(identity),
-        prompt_settings: prompt_settings_record(&sections),
-        sections: OwnedSections {
-            meta: sections.meta.to_owned(),
-            workflow: sections.workflow.to_owned(),
-            workflow_name: None,
-            orchestration: sections.orchestration.to_owned(),
-            orchestration_mode: sections.orchestration_mode.to_owned(),
-            skills: sections.skills.to_owned(),
-            instruction_files: sections.instruction_files.to_owned(),
-            core_memory: sections.core_memory.to_owned(),
-            language: sections.language.to_owned(),
-            instruction_files_mode: sections.instruction_files_mode.to_owned(),
-            response_language: response_language.clone(),
-        },
-        response_language,
-        profile_revision: String::new(),
-    }
+    Value::Object(identity)
 }
 
 /// A prompt change: the blocks as they are afterwards and the one header change that lands it
@@ -473,4 +607,114 @@ pub fn reset_environment(header: &Header, blocks: &SystemBlocks) -> PromptPatch 
     }
     let change = merge(change, next.change_from(blocks));
     PromptPatch { blocks: next, change }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    struct Sources;
+
+    impl PromptSources for Sources {
+        fn role_catalog(&self, _: Option<&str>, _: Option<&str>) -> String {
+            String::new()
+        }
+        fn mixy_role_section(&self) -> String {
+            String::new()
+        }
+        fn persona_section(&self, _: &str) -> String {
+            String::new()
+        }
+        fn agent_mode_identity_line(&self, _: &str) -> String {
+            String::new()
+        }
+        fn shell_name(&self) -> &'static str {
+            "Bash"
+        }
+        fn scratch_dir(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn shell_tools_line(&self) -> String {
+            String::new()
+        }
+        fn git_line(&self, _: Option<&str>) -> String {
+            String::new()
+        }
+        fn cwd_entries(&self, _: &str) -> String {
+            String::new()
+        }
+        fn instruction_files(&self, config_mode: Option<&Value>, _: Option<&str>) -> String {
+            config_mode.and_then(Value::as_str).map_or_else(String::new, |mode| format!("files:{mode}"))
+        }
+        fn instruction_files_mode(&self, config_mode: Option<&Value>) -> String {
+            config_mode.and_then(Value::as_str).map_or_else(String::new, |mode| format!("mode:{mode}"))
+        }
+        fn system_locale(&self) -> String {
+            "en-US".into()
+        }
+    }
+
+    fn compose(input: &SessionPromptInput) -> SessionPrompt {
+        let paths =
+            PromptPaths { plugin_root: Path::new("/no-rules"), data_dir: Path::new("/no-data"), files: &mixdog_core_prompt::prompt::source_files::LiveFiles };
+        compose_session_prompt(input, &paths, &Sources)
+    }
+
+    #[test]
+    fn a_lead_session_without_rules_carries_its_sections_identity_and_environment() {
+        let config = json!({ "instructionFiles": "all" });
+        let input = SessionPromptInput {
+            session_id: "s1",
+            provider: "openai",
+            model: "m",
+            skip_agent_rules: true,
+            cwd: Some("/work"),
+            cwd_startup_entries: Some("- listing"),
+            config: Some(&config),
+            workflow_context: "wf",
+            orchestration_context: "orch",
+            orchestration_mode: "auto",
+            core_memory_context: "mem",
+            skill_manifest: "skills",
+            system_prompt: "be brief",
+            profile_skip: ProfileSkip { memory: true, ..ProfileSkip::default() },
+            ..SessionPromptInput::default()
+        };
+        let prompt = compose(&input);
+        let environment = "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n\
+                           - Shell: Bash. Use Bash syntax unless the user specifies otherwise.\n\
+                           - listing";
+        assert_eq!(prompt.environment_tail, environment);
+        assert_eq!(prompt.blocks.env.as_deref(), Some(environment));
+        assert_eq!(prompt.blocks.base, None);
+        let core = prompt.blocks.core.as_deref().unwrap();
+        assert!(core.contains("wf") && core.contains("be brief") && core.contains("files:all") && !core.contains("mem"), "{core}");
+        assert_eq!(prompt.prompt_identity, json!({ "systemPrompt": "be brief", "skipAgentRules": true, "profileSkip": { "memory": true }, "agent": null }));
+        let sections = &prompt.sections;
+        assert_eq!(
+            (sections.workflow.as_str(), sections.orchestration.as_str(), sections.orchestration_mode.as_str(), sections.skills.as_str()),
+            ("wf", "orch", "auto", "skills")
+        );
+        assert_eq!((sections.instruction_files.as_str(), sections.instruction_files_mode.as_str()), ("files:all", "mode:all"));
+        assert_eq!((sections.core_memory.as_str(), sections.meta.as_str(), sections.language.as_str()), ("", "", ""));
+        assert_eq!(prompt.response_language, Value::Null);
+        assert_eq!(prompt.prompt_settings, sections.record());
+    }
+
+    #[test]
+    fn a_delegated_workers_prompt_carries_no_workflow_or_orchestration() {
+        let input = SessionPromptInput {
+            session_id: "s1",
+            owner_is_agent: true,
+            skip_agent_rules: true,
+            workflow_context: "wf",
+            orchestration_context: "orch",
+            orchestration_mode: "auto",
+            ..SessionPromptInput::default()
+        };
+        let sections = compose(&input).sections;
+        assert_eq!((sections.workflow.as_str(), sections.orchestration.as_str(), sections.orchestration_mode.as_str()), ("", "", ""));
+    }
 }

@@ -1,10 +1,3 @@
-//! [`Lifecycle`]: the machine behind a lock, its published views, and the effect runner.
-//!
-//! One short `std::sync::Mutex` guards the machine. It is taken for map and counter updates
-//! only — never across I/O, an await or a port call — so unrelated sessions and clients meet
-//! it for microseconds at turn start/end and at connect/disconnect, and nothing else. Effects
-//! are queued under it, so they keep transition order, and run after it is released.
-
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -402,58 +395,13 @@ impl Lifecycle {
         }
     }
 
-    /// Final barriers, core stop steps, record the exit, withdraw discovery, close connections and
-    /// the extension host, flush the log, then release `L` by leaving.
-    ///
-    /// Each step runs under the supervisor with its budget. A step over its budget is abandoned
-    /// on its thread and named in `last-exit.json` (`stuckStep`); the release then skips the
-    /// rest of the closing steps, records, withdraws discovery and exits anyway.
     fn release(self: &Arc<Self>, cause: ReleaseCause) {
         let budgets = self.budgets;
         let core = &self.ports.core;
         // Before any step: the stop steps (run inside `closeDataHandles`) abort the agent runs with Node's text of this stop.
         let node_reason = locked(&self.trigger).take().unwrap_or_else(|| cause.node_text());
         let drain = Arc::new(ManagedDrain::new());
-        // Node's `shutdown()` arms its whole-teardown backstop and its PostgreSQL fallback point at its start (`daemon.mjs:289-299`); `release_started`
-        // arms the second here (`ComposedCore::set_stop_reason`), this the first.
-        let (finished, backstop) = std::sync::mpsc::channel::<()>();
-        {
-            let lifecycle = Arc::clone(self);
-            let node_reason = node_reason.clone();
-            let drain = Arc::clone(&drain);
-            #[cfg(test)]
-            let test_backstop = locked(&self.test_backstop).take();
-            let spawned = std::thread::Builder::new().name("mixdog-release-backstop".into()).spawn(move || {
-                let wait_for_budget = || backstop.recv_timeout(super::supervisor::SHUTDOWN_BUDGET) == Err(std::sync::mpsc::RecvTimeoutError::Timeout);
-                #[cfg(not(test))]
-                let expired = wait_for_budget();
-                #[cfg(test)]
-                let expired = match &test_backstop {
-                    Some(test) => test.expire.recv().is_ok(),
-                    None => wait_for_budget(),
-                };
-                if expired {
-                    tracing::error!("shutdown budget exceeded, forcing exit");
-                    // The budget is the exit: the record is written beside it, never ahead of it, since a write that stalls would extend the budget by
-                    // its own.
-                    let recorder = Arc::clone(&lifecycle);
-                    let (detail, code) = drain_exit(&drain, cause);
-                    let reason = format!("{}{detail}", cause.text());
-                    let _ = std::thread::Builder::new().name("mixdog-release-record".into()).spawn(move || {
-                        recorder.record_exit(&reason, Some("shutdownBudget"));
-                        #[cfg(test)]
-                        if let Some(test) = test_backstop {
-                            let _ = test.recorded.send(());
-                        }
-                    });
-                    let reason = format!("{node_reason}{detail} (budget exceeded, forced exit)");
-                    lifecycle.ports.exiter.exit(crate::crash_record::settle_exit(&reason, code));
-                }
-            });
-            if let Err(error) = spawned {
-                tracing::error!(%error, "the release backstop did not start");
-            }
-        }
+        let finished = self.arm_backstop(&node_reason, &drain, cause);
         core.release_started(&node_reason);
         type Step = (&'static str, Duration, fn(&dyn CorePort));
         // What must not be lost comes first and waits behind nothing that can take long: the stop steps (Node's order: the sessions' teardown, which
@@ -505,6 +453,46 @@ impl Lifecycle {
         self.apply(Machine::mark_stopped);
         drop(finished);
         self.ports.exiter.exit(crate::crash_record::settle_exit(&format!("{node_reason}{detail}"), code));
+    }
+
+    fn arm_backstop(self: &Arc<Self>, node_reason: &str, drain: &Arc<ManagedDrain>, cause: ReleaseCause) -> std::sync::mpsc::Sender<()> {
+        let (finished, backstop) = std::sync::mpsc::channel::<()>();
+        let lifecycle = Arc::clone(self);
+        let node_reason = node_reason.to_owned();
+        let drain = Arc::clone(drain);
+        #[cfg(test)]
+        let test_backstop = locked(&self.test_backstop).take();
+        let spawned = std::thread::Builder::new().name("mixdog-release-backstop".into()).spawn(move || {
+            let wait_for_budget = || backstop.recv_timeout(super::supervisor::SHUTDOWN_BUDGET) == Err(std::sync::mpsc::RecvTimeoutError::Timeout);
+            #[cfg(not(test))]
+            let expired = wait_for_budget();
+            #[cfg(test)]
+            let expired = match &test_backstop {
+                Some(test) => test.expire.recv().is_ok(),
+                None => wait_for_budget(),
+            };
+            if expired {
+                tracing::error!("shutdown budget exceeded, forcing exit");
+                // The budget is the exit: the record is written beside it, never ahead of it, since a write that stalls would extend the budget by
+                // its own.
+                let recorder = Arc::clone(&lifecycle);
+                let (detail, code) = drain_exit(&drain, cause);
+                let reason = format!("{}{detail}", cause.text());
+                let _ = std::thread::Builder::new().name("mixdog-release-record".into()).spawn(move || {
+                    recorder.record_exit(&reason, Some("shutdownBudget"));
+                    #[cfg(test)]
+                    if let Some(test) = test_backstop {
+                        let _ = test.recorded.send(());
+                    }
+                });
+                let reason = format!("{node_reason}{detail} (budget exceeded, forced exit)");
+                lifecycle.ports.exiter.exit(crate::crash_record::settle_exit(&reason, code));
+            }
+        });
+        if let Err(error) = spawned {
+            tracing::error!(%error, "the release backstop did not start");
+        }
+        finished
     }
 
     fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {

@@ -195,3 +195,29 @@ async fn the_page_opens_although_the_flow_has_already_moved_past_authorize() {
     assert_eq!(*opened.0.lock().unwrap(), ["https://auth.example/a"]);
     session.cancel();
 }
+
+/// A registered login answers a pasted code only while it is pending, takes a code only from a provider that accepts one,
+/// and a newer login of the same provider ends the older one as superseded.
+#[tokio::test(start_paused = true)]
+async fn a_pasted_code_is_refused_unless_the_login_is_pending_and_takes_one_and_a_newer_login_supersedes() {
+    use mixdog_core_api::domain::login::LoginState;
+    use mixdog_core_api::domain::mock::LiveLoginSession;
+    use mixdog_core_api::feed_publisher::LoginFeeds;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+    let scoped = std::sync::Arc::new(MockScopedFeeds::new(MockLimits::default()));
+    let flows =
+        super::flows::OAuthFlows::new(std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS), std::sync::Arc::new(LoginFeeds::new(scoped)));
+    let settle = || -> super::flows::Settle { Box::new(move |_| Box::pin(async move { Ok(true) })) };
+    assert_eq!(flows.complete("bad id", "code").await.unwrap_err().message(), "OAuth flow id is invalid.");
+    let first = flows.register("openai-oauth", Box::new(DeviceSession), settle()).unwrap();
+    let first_id = first["flowId"].as_str().unwrap().to_owned();
+    assert_eq!(flows.complete(&first_id, "code").await.unwrap_err().message(), "This OAuth provider does not accept a manual code.");
+    assert!(flows.register("", Box::new(DeviceSession), settle()).is_err(), "a login without a provider id is refused");
+    let second = flows.register("openai-oauth", Box::new(LiveLoginSession::new(LoginState::Starting)), settle()).unwrap();
+    assert_eq!(flows.status(&first_id).unwrap()["state"], "cancelled");
+    assert_eq!(flows.status(&first_id).unwrap()["error"], "Superseded by a newer OAuth login.");
+    assert_eq!(flows.complete(&first_id, "code").await.unwrap_err().message(), "OAuth login flow is no longer pending.");
+    assert_eq!(second["state"], "pending");
+    flows.cancel_all();
+}

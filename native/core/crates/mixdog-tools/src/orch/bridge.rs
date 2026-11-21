@@ -311,10 +311,19 @@ pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) ->
     Ok(page)
 }
 
-/// `load_tool`: describes tools by exact name (or keyword), paging long definitions.
+const SYNTAX_HINT: &str = " Use load_tool {\"names\":[\"exact_tool_name\"]}; the required key is names, not name.";
+
+fn catalog_changed() -> ToolError {
+    bridge_error("CATALOG_CHANGED", "the described tools or their schemas changed since this continuation was issued; describe them again by name.")
+}
+
+fn invalid_continuation() -> ToolError {
+    bridge_error("INVALID_CONTINUATION", "names holds a continuation token this tool did not return.")
+}
+
+/// The `names` argument, once the call is known to hold nothing else.
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
-    const SYNTAX_HINT: &str = " Use load_tool {\"names\":[\"exact_tool_name\"]}; the required key is names, not name.";
+fn names_argument(args: &Value) -> Result<Value, ToolError> {
     let Some(object) = args.as_object() else {
         return Err(bridge_error("INVALID_ARGUMENTS", format!("load_tool requires an arguments object.{SYNTAX_HINT}")));
     };
@@ -323,107 +332,148 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
         let hint = if object.contains_key("query") { " Pass exact names; the deferred tool list names them." } else { "" };
         return Err(bridge_error("INVALID_ARGUMENTS", format!("load_tool does not accept: {}.{hint}{SYNTAX_HINT}", extra.join(", "))));
     }
-    let raw = object.get("names").cloned().unwrap_or(Value::Null);
-    let strings: Vec<&str> = match &raw {
+    Ok(object.get("names").cloned().unwrap_or(Value::Null))
+}
+
+/// The continuation token `names` carries, which must stand alone.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn continuation_in(raw: &Value) -> Result<Option<Continuation>, ToolError> {
+    let strings: Vec<&str> = match raw {
         Value::String(s) => vec![s.as_str()],
         Value::Array(a) => a.iter().filter_map(Value::as_str).collect(),
         _ => Vec::new(),
     };
-    let available = catalog.available(thread);
-    let lookup = |name: &str| {
-        let key = name.js_trim();
-        available.iter().position(|t| t.name == key).or_else(|| available.iter().position(|t| t.name.to_lowercase() == key.to_lowercase()))
+    if !strings.iter().any(|s| s.contains(CONTINUATION_PREFIX)) {
+        return Ok(None);
+    }
+    let alone = strings.len() == 1 && {
+        let t = strings[0].js_trim();
+        t.strip_prefix(CONTINUATION_PREFIX).is_some_and(|b| !b.is_empty() && b.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
     };
+    if !alone {
+        return Err(bridge_error("INVALID_ARGUMENTS", "pass a continuation token alone in names."));
+    }
+    decode_continuation(strings[0].js_trim()).map(Some).ok_or_else(invalid_continuation)
+}
+
+/// What a describe call resolved: the tools to describe by index into the catalog, and the
+/// requested names that are missing, blocked, matched as a keyword or cut off by the cap.
+struct Selection {
+    targets: Vec<usize>,
+    missing: Vec<String>,
+    blocked: Vec<Blocked>,
+    matches: Vec<Match>,
+    omitted: Vec<String>,
+}
+
+/// A continuation names its tools again; a request names them by exact name, alias, MCP server
+/// or, failing those, keyword.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn select_targets(
+    catalog: &dyn CatalogView,
+    thread: &ThreadId,
+    available: &[ToolDoc],
+    raw: &Value,
+    continuation: Option<&Continuation>,
+) -> Result<Selection, ToolError> {
     let block = |name: &str| catalog.block_reason(thread, name);
-
-    let continuation = if strings.iter().any(|s| s.contains(CONTINUATION_PREFIX)) {
-        let alone = strings.len() == 1 && {
-            let t = strings[0].js_trim();
-            t.strip_prefix(CONTINUATION_PREFIX).is_some_and(|b| !b.is_empty() && b.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-        };
-        if !alone {
-            return Err(bridge_error("INVALID_ARGUMENTS", "pass a continuation token alone in names."));
-        }
-        let invalid = || bridge_error("INVALID_CONTINUATION", "names holds a continuation token this tool did not return.");
-        Some(decode_continuation(strings[0].js_trim()).ok_or_else(invalid)?)
-    } else {
-        None
-    };
-    let catalog_changed =
-        || bridge_error("CATALOG_CHANGED", "the described tools or their schemas changed since this continuation was issued; describe them again by name.");
-
     let mut targets: Vec<usize> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
     let mut blocked: Vec<Blocked> = Vec::new();
     let mut matches: Vec<Match> = Vec::new();
     let mut omitted: Vec<String> = Vec::new();
-    if let Some(c) = &continuation {
+    if let Some(c) = continuation {
         for &i in &c.indexes {
             match available.get(i) {
                 Some(t) if block(&t.name).is_none() => targets.push(i),
                 _ => return Err(catalog_changed()),
             }
         }
-    } else {
-        let Some(names) = describe_names(&raw) else {
-            return Err(bridge_error(
-                "INVALID_ARGUMENTS",
-                format!("names must be 1-{DESCRIBE_MAX_NAMES} exact tool names of at most {NAME_MAX_CHARS} characters.{SYNTAX_HINT}"),
-            ));
-        };
-        let mut seen = HashSet::new();
-        let mut add = |i: usize, targets: &mut Vec<usize>, blocked: &mut Vec<Blocked>| {
-            let name = available[i].name.clone();
-            if !seen.insert(name.clone()) {
-                return;
-            }
-            match block(&name) {
-                Some(reason) => blocked.push(Blocked { name, reason }),
-                None => targets.push(i),
-            }
-        };
-        for requested in &names {
-            if let Some(i) = lookup(requested) {
-                add(i, &mut targets, &mut blocked);
-                continue;
-            }
-            let aliased: Vec<usize> = catalog.alias_members(&requested.to_lowercase()).iter().filter_map(|m| lookup(m)).collect();
-            let members = if aliased.is_empty() { catalog.mcp_server_members(thread, requested).iter().filter_map(|m| lookup(m)).collect() } else { aliased };
-            if members.is_empty() {
-                missing.push(requested.clone());
-            } else {
-                members.into_iter().for_each(|i| add(i, &mut targets, &mut blocked));
-            }
+        return Ok(Selection { targets, missing, blocked, matches, omitted });
+    }
+    let lookup = |name: &str| {
+        let key = name.js_trim();
+        available.iter().position(|t| t.name == key).or_else(|| available.iter().position(|t| t.name.to_lowercase() == key.to_lowercase()))
+    };
+    let Some(names) = describe_names(raw) else {
+        return Err(bridge_error(
+            "INVALID_ARGUMENTS",
+            format!("names must be 1-{DESCRIBE_MAX_NAMES} exact tool names of at most {NAME_MAX_CHARS} characters.{SYNTAX_HINT}"),
+        ));
+    };
+    let mut seen = HashSet::new();
+    let mut add = |i: usize, targets: &mut Vec<usize>, blocked: &mut Vec<Blocked>| {
+        let name = available[i].name.clone();
+        if !seen.insert(name.clone()) {
+            return;
         }
-        let cap = DESCRIBE_MAX_NAMES * 10;
-        if targets.len() > cap {
-            omitted = targets.split_off(cap).into_iter().map(|i| available[i].name.clone()).collect();
+        match block(&name) {
+            Some(reason) => blocked.push(Blocked { name, reason }),
+            None => targets.push(i),
         }
-        // A requested name that is no tool is a keyword: a case-insensitive substring search
-        // over the deferred tools this session can run.
-        let mut remaining = SEARCH_MAX_MATCHES;
-        let keywords = std::mem::take(&mut missing);
-        for keyword in keywords {
-            let needle = keyword.to_lowercase();
-            let tools: Vec<MatchTool> = available
-                .iter()
-                .filter(|t| {
-                    !catalog.is_eager(thread, &t.name)
-                        && !is_meta_tool(&t.name)
-                        && format!("{} {}", t.name, t.description).to_lowercase().contains(&needle)
-                        && block(&t.name).is_none()
-                })
-                .take(remaining)
-                .map(|t| MatchTool { name: t.name.clone(), description: t.description.js_trim().chars().take(SEARCH_DESCRIPTION_CHARS).collect() })
-                .collect();
-            if tools.is_empty() {
-                missing.push(keyword);
-            } else {
-                remaining -= tools.len();
-                matches.push(Match { keyword, tools });
-            }
+    };
+    for requested in &names {
+        if let Some(i) = lookup(requested) {
+            add(i, &mut targets, &mut blocked);
+            continue;
+        }
+        let aliased: Vec<usize> = catalog.alias_members(&requested.to_lowercase()).iter().filter_map(|m| lookup(m)).collect();
+        let members = if aliased.is_empty() { catalog.mcp_server_members(thread, requested).iter().filter_map(|m| lookup(m)).collect() } else { aliased };
+        if members.is_empty() {
+            missing.push(requested.clone());
+        } else {
+            members.into_iter().for_each(|i| add(i, &mut targets, &mut blocked));
         }
     }
+    let cap = DESCRIBE_MAX_NAMES * 10;
+    if targets.len() > cap {
+        omitted = targets.split_off(cap).into_iter().map(|i| available[i].name.clone()).collect();
+    }
+    let mut remaining = SEARCH_MAX_MATCHES;
+    let keywords = std::mem::take(&mut missing);
+    for keyword in keywords {
+        let needle = keyword.to_lowercase();
+        let tools: Vec<MatchTool> = available
+            .iter()
+            .filter(|t| {
+                !catalog.is_eager(thread, &t.name)
+                    && !is_meta_tool(&t.name)
+                    && format!("{} {}", t.name, t.description).to_lowercase().contains(&needle)
+                    && block(&t.name).is_none()
+            })
+            .take(remaining)
+            .map(|t| MatchTool { name: t.name.clone(), description: t.description.js_trim().chars().take(SEARCH_DESCRIPTION_CHARS).collect() })
+            .collect();
+        if tools.is_empty() {
+            missing.push(keyword);
+        } else {
+            remaining -= tools.len();
+            matches.push(Match { keyword, tools });
+        }
+    }
+    Ok(Selection { targets, missing, blocked, matches, omitted })
+}
+
+/// `load_tool`: describes tools by exact name (or keyword), paging long definitions.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
+    let raw = names_argument(args)?;
+    let continuation = continuation_in(&raw)?;
+    let available = catalog.available(thread);
+    let selection = select_targets(catalog, thread, &available, &raw, continuation.as_ref())?;
+    page_of(catalog, thread, &available, selection, continuation)
+}
+
+/// The page of definitions that fits the budget, split inside a document when one alone does not.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn page_of(
+    catalog: &dyn CatalogView,
+    thread: &ThreadId,
+    available: &[ToolDoc],
+    selection: Selection,
+    continuation: Option<Continuation>,
+) -> Result<String, ToolError> {
+    let Selection { targets, missing, blocked, matches, omitted } = selection;
 
     let docs: Vec<Doc> = targets
         .iter()
@@ -440,7 +490,7 @@ pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> R
             return Err(catalog_changed());
         }
         if c.offset > docs[0].text.js_len() {
-            return Err(bridge_error("INVALID_CONTINUATION", "names holds a continuation token this tool did not return."));
+            return Err(invalid_continuation());
         }
         offset = c.offset;
     }

@@ -1,7 +1,3 @@
-//! `visual-diff.mjs`: the visual comparison of two renderings of a document, page by page. Each page is drawn on white
-//! at the larger of the two sizes, a pixel counts as changed from a channel delta of 24, and the diff page (the
-//! changed pixels in red over the dimmed grey of the new page) is written as a PNG beside the review output.
-
 use std::path::Path;
 
 use base64::Engine;
@@ -38,6 +34,38 @@ fn load(image: Option<&Value>) -> Result<Option<mixdog_raster::Image>, String> {
     image.map(|image| decode_image(field(image, "data").unwrap_or(&Value::Null))).transpose()
 }
 
+/// A pixel counts as changed from this channel delta.
+const CHANGED_CHANNEL_DELTA: u8 = 24;
+
+fn page_numbers(before: &[(f64, &Value)], after: &[(f64, &Value)]) -> Vec<f64> {
+    let mut pages: Vec<f64> = Vec::new();
+    for (page, _) in before.iter().chain(after.iter()) {
+        if !pages.iter().any(|known| known == page || (known.is_nan() && page.is_nan())) {
+            pages.push(*page);
+        }
+    }
+    pages.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    pages
+}
+
+/// The diff page, the changed pixels in red over the dimmed grey of the new page, and how many pixels changed.
+fn diff_page(before: &[u8], after: &[u8], width: u32, height: u32) -> Result<(ImageData, u64), String> {
+    let mut diff = ImageData::new(width, height).map_err(|error| error.to_string())?;
+    let mut changed = 0u64;
+    for (index, (a, b)) in before.chunks_exact(4).zip(after.chunks_exact(4)).enumerate() {
+        let delta = (0..3).map(|channel| a[channel].abs_diff(b[channel])).max().unwrap_or(0);
+        let out = &mut diff.data_mut()[index * 4..index * 4 + 4];
+        if delta >= CHANGED_CHANNEL_DELTA {
+            changed += 1;
+            out.copy_from_slice(&[239, 68, 68, 230]);
+        } else {
+            let grey = round((f64::from(b[0]) + f64::from(b[1]) + f64::from(b[2])) / 3.0) as u8;
+            out.copy_from_slice(&[grey, grey, grey, 55]);
+        }
+    }
+    Ok((diff, changed))
+}
+
 /// `compareRenderedPages(beforeImages, afterImages, outputPdf)`: the pages of both sides in page order, the changed
 /// share of each, their mean, and the diff images, written beside `output_pdf` as `<stem>-visual-diff-page-<n>.png`
 /// (each path is reported to `note` before it is written). A side without a page compares against white; a page
@@ -51,13 +79,7 @@ pub fn compare_rendered_pages<P: WriteProof>(
 ) -> Result<Value, String> {
     let before = image_by_page(before_images);
     let after = image_by_page(after_images);
-    let mut pages: Vec<f64> = Vec::new();
-    for (page, _) in before.iter().chain(after.iter()) {
-        if !pages.iter().any(|known| known == page || (known.is_nan() && page.is_nan())) {
-            pages.push(*page);
-        }
-    }
-    pages.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+    let pages = page_numbers(&before, &after);
     let stem = output_pdf.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
     let directory = output_pdf.parent().unwrap_or_else(|| Path::new(""));
     let mut metrics = Vec::new();
@@ -73,20 +95,7 @@ pub fn compare_rendered_pages<P: WriteProof>(
         }
         let before_pixels = paint_on_white(left.as_ref(), width, height, false)?;
         let after_pixels = paint_on_white(right.as_ref(), width, height, false)?;
-        let (before_data, after_data) = (before_pixels.data(), after_pixels.data());
-        let mut diff = ImageData::new(width, height).map_err(|error| error.to_string())?;
-        let mut changed = 0u64;
-        for (index, (a, b)) in before_data.chunks_exact(4).zip(after_data.chunks_exact(4)).enumerate() {
-            let delta = (0..3).map(|channel| a[channel].abs_diff(b[channel])).max().unwrap_or(0);
-            let out = &mut diff.data_mut()[index * 4..index * 4 + 4];
-            if delta >= 24 {
-                changed += 1;
-                out.copy_from_slice(&[239, 68, 68, 230]);
-            } else {
-                let grey = round((f64::from(b[0]) + f64::from(b[1]) + f64::from(b[2])) / 3.0) as u8;
-                out.copy_from_slice(&[grey, grey, grey, 55]);
-            }
-        }
+        let (diff, changed) = diff_page(before_pixels.data(), after_pixels.data(), width, height)?;
         let mut canvas = Canvas::new(width, height).map_err(|error| error.to_string())?;
         canvas.put_image_data(&diff, 0, 0, None);
         let data = canvas.to_png().map_err(|error| error.to_string())?;

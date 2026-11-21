@@ -1,7 +1,5 @@
-//! `pdf/pdf-batch-structure.mjs`: the batch operations on the document's structure: page order and rotation,
-//! extraction and splitting, merging, bookmarks, metadata, attachments and re-serialization. The document is one value
-//! held in memory for the whole batch; an operation that writes a file of its own (an extraction, a split, an
-//! extracted attachment) reports `documentChanged: false` and leaves the document whole.
+//! `pdf/pdf-batch-structure.mjs`. An operation that writes a file of its own (an extraction, a split, an extracted
+//! attachment) reports `documentChanged: false` and leaves the document whole.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -277,6 +275,74 @@ fn stem_of(path: &Path) -> String {
     path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+/// What one source of a merge added: where it came from, which of its pages, how many landed, the form fields that came
+/// with them, the 1-based page they start at and the title of its bookmark.
+struct Merged {
+    path: String,
+    pages: Vec<usize>,
+    added: usize,
+    form_fields: usize,
+    at: usize,
+    title: String,
+}
+
+impl Merged {
+    fn json(&self) -> Value {
+        let mut source = Map::new();
+        source.insert("path".to_owned(), json!(self.path));
+        source.insert("pages".to_owned(), json!(self.pages));
+        source.insert("pagesAdded".to_owned(), json!(self.added));
+        if self.form_fields > 0 {
+            source.insert("formFields".to_owned(), json!(self.form_fields));
+        }
+        source.insert("at".to_owned(), json!(self.at));
+        source.insert("title".to_owned(), json!(self.title));
+        Value::Object(source)
+    }
+}
+
+/// Copies the pages one source names into the document: at the end, or from `insert_at` on, which moves past them.
+fn merge_source<P: WriteProof>(state: &mut BatchState<'_, P>, entry: &Value, insert_at: &mut Option<usize>) -> Result<Merged, AnalysisError> {
+    let named = match entry {
+        Value::String(text) => text.clone(),
+        other => other.get("path").filter(|path| truthy(path)).map_or_else(String::new, value_to_string),
+    };
+    let source_path = resolve_beside(state.path, &named);
+    let other = load_pdf(&read_file(state.proof, &source_path)?, false)?;
+    let selection = match entry {
+        Value::String(_) => json!({}),
+        other_entry => json!({
+            "pages": other_entry.get("pages").cloned().unwrap_or(Value::Null),
+            "page": other_entry.get("page").cloned().unwrap_or(Value::Null),
+        }),
+    };
+    let indexes: Vec<usize> = selected_edit_pages(&other, &selection)?.iter().map(|page| page.index).collect();
+    let copied = state.document.copy_pages(&other, &indexes).map_err(edit_error)?;
+    let first_page = insert_at.unwrap_or_else(|| state.document.page_count());
+    for page in &copied {
+        match *insert_at {
+            None => state.document.append_page(*page).map_err(edit_error)?,
+            Some(at) => {
+                state.document.insert_page(at, *page).map_err(edit_error)?;
+                *insert_at = Some(at + 1);
+            }
+        }
+    }
+    let form_fields = state.document.register_copied_fields(&copied).map_err(edit_error)?;
+    let title = match entry {
+        Value::String(_) => String::new(),
+        other_entry => other_entry.get("title").filter(|title| truthy(title)).map_or_else(String::new, value_to_string),
+    };
+    Ok(Merged {
+        path: source_path.to_string_lossy().into_owned(),
+        pages: indexes.iter().map(|index| index + 1).collect(),
+        added: copied.len(),
+        form_fields,
+        at: first_page + 1,
+        title,
+    })
+}
+
 fn merge_pdf<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) -> Result<Value, AnalysisError> {
     let sources = merge_sources(operation)?;
     let mut insert_at: Option<usize> = None;
@@ -287,54 +353,9 @@ fn merge_pdf<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) ->
         }
         insert_at = Some(index as usize);
     }
-    struct Merged {
-        path: String,
-        pages: Vec<usize>,
-        added: usize,
-        form_fields: usize,
-        at: usize,
-        title: String,
-    }
     let mut merged: Vec<Merged> = Vec::new();
     for entry in &sources {
-        let named = match entry {
-            Value::String(text) => text.clone(),
-            other => other.get("path").filter(|path| truthy(path)).map_or_else(String::new, value_to_string),
-        };
-        let source_path = resolve_beside(state.path, &named);
-        let other = load_pdf(&read_file(state.proof, &source_path)?, false)?;
-        let selection = match entry {
-            Value::String(_) => json!({}),
-            other_entry => json!({
-                "pages": other_entry.get("pages").cloned().unwrap_or(Value::Null),
-                "page": other_entry.get("page").cloned().unwrap_or(Value::Null),
-            }),
-        };
-        let indexes: Vec<usize> = selected_edit_pages(&other, &selection)?.iter().map(|page| page.index).collect();
-        let copied = state.document.copy_pages(&other, &indexes).map_err(edit_error)?;
-        let first_page = insert_at.unwrap_or_else(|| state.document.page_count());
-        for page in &copied {
-            match insert_at {
-                None => state.document.append_page(*page).map_err(edit_error)?,
-                Some(at) => {
-                    state.document.insert_page(at, *page).map_err(edit_error)?;
-                    insert_at = Some(at + 1);
-                }
-            }
-        }
-        let form_fields = state.document.register_copied_fields(&copied).map_err(edit_error)?;
-        let title = match entry {
-            Value::String(_) => String::new(),
-            other_entry => other_entry.get("title").filter(|title| truthy(title)).map_or_else(String::new, value_to_string),
-        };
-        merged.push(Merged {
-            path: source_path.to_string_lossy().into_owned(),
-            pages: indexes.iter().map(|index| index + 1).collect(),
-            added: copied.len(),
-            form_fields,
-            at: first_page + 1,
-            title,
-        });
+        merged.push(merge_source(state, entry, &mut insert_at)?);
     }
     let pages_added: usize = merged.iter().map(|entry| entry.added).sum();
     let bookmarks_asked = operation.get("bookmarks") == Some(&Value::Bool(true));
@@ -351,26 +372,11 @@ fn merge_pdf<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) ->
     } else {
         0
     };
-    let sources_json: Vec<Value> = merged
-        .iter()
-        .map(|entry| {
-            let mut source = Map::new();
-            source.insert("path".to_owned(), json!(entry.path));
-            source.insert("pages".to_owned(), json!(entry.pages));
-            source.insert("pagesAdded".to_owned(), json!(entry.added));
-            if entry.form_fields > 0 {
-                source.insert("formFields".to_owned(), json!(entry.form_fields));
-            }
-            source.insert("at".to_owned(), json!(entry.at));
-            source.insert("title".to_owned(), json!(entry.title));
-            Value::Object(source)
-        })
-        .collect();
     let mut result = Map::new();
     result.insert("op".to_owned(), op_name(operation));
     result.insert("changed".to_owned(), json!(pages_added > 0));
     result.insert("pagesAdded".to_owned(), json!(pages_added));
-    result.insert("sources".to_owned(), Value::Array(sources_json));
+    result.insert("sources".to_owned(), Value::Array(merged.iter().map(Merged::json).collect()));
     result.insert("pageCount".to_owned(), json!(state.document.page_count()));
     if bookmarks_asked {
         result.insert("bookmarks".to_owned(), json!(bookmarks));

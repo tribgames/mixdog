@@ -1,9 +1,3 @@
-//! Gate tests of the `desktopProfile` kind group, driven through the framework's
-//! `ItemDriver`: the `electron-profile/` corpus migrates verified with nothing
-//! quarantined unexpectedly, secrets stay owner-only (DS-REM-8), a damaged file is
-//! restored from its `.bak` the way the desktop does, and the files Electron owns are
-//! never touched.
-
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -160,7 +154,7 @@ fn an_interrupted_save_of_the_old_app_is_found_by_the_core_after_the_move() {
     use mixdog_workspace::recovery::RecoveryStore;
     let project = TempDir::new().unwrap();
     let root = mixdog_workspace::pathguard::canonical(project.path()).unwrap();
-    let scratch = TempDir::new().unwrap();
+    let scratch = tempfile::Builder::new().tempdir_in(mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).unwrap()).unwrap();
     let old = RecoveryStore::new(scratch.path().join("editor-recovery"));
     let file = PreparedFile {
         rel_path: "a.txt".to_owned(),
@@ -1016,10 +1010,6 @@ fn a_different_profile_named_after_a_profile_migrated_changes_nothing() {
         assert_eq!(files_of(&other).values().map(|p| hash_of(p)).collect::<Vec<_>>(), hashes, "profile B is never touched");
     }
 }
-/// Kills the late pass in a child at each of `points[worker]`, `points[worker + MATRIX_WORKERS]`,
-/// ... and resumes it naming `resume(kill_at)`. A kill from the late manifest's publication on
-/// is committed to its profile, so the resumed tree is the uninterrupted one whatever the resume
-/// names; before it nothing is committed, so only `Resume::Same` is asked of those points.
 fn kill_and_resume_each_late_point(corpus: &Path, points: &[String], worker: usize, resume: impl Fn(usize) -> Resume) {
     let committed_from = points.iter().position(|p| p == "manifest:after").unwrap();
     let work = Work::new();

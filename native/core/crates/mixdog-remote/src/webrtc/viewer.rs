@@ -275,6 +275,47 @@ impl<E: ViewerEffects> Machine<'_, E> {
         Ok(())
     }
 
+    /// Reads one data-channel message: `Ok` is an input to sequence; `Err` is the final result of a message that is not input
+    /// (stats, a screen's receipt evidence, helper grant and install or enroll requests: not gated by the input epoch and never
+    /// acked) or that ends the connection. The text is not kept: it may carry the phone's Windows password.
+    fn decode_input(&mut self, text: &str, received_at: f64) -> Result<Held, Step> {
+        let (epoch, seq, geometry_generation, sent_at, control) = if matches!(self.source, Source::Screen { .. }) {
+            match ScreenMessage::parse(text) {
+                Ok(ScreenMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
+                Ok(ScreenMessage::Stats(stats)) => {
+                    self.e.receiver_stats(&stats);
+                    return Err(Ok(()));
+                }
+                Ok(ScreenMessage::FrameSeen { epoch }) => {
+                    self.e.frame_seen(epoch);
+                    return Err(Ok(()));
+                }
+                Ok(ScreenMessage::HelperGrant { epoch, challenge, signature }) => {
+                    self.e.helper_grant(epoch, challenge, signature);
+                    return Err(Ok(()));
+                }
+                Ok(ScreenMessage::HelperInstall { public_key, credential } | ScreenMessage::HelperEnroll { public_key, credential }) => {
+                    match credential {
+                        Some(credential) => self.e.helper_credential(public_key, credential),
+                        None => self.e.helper_install(public_key),
+                    }
+                    return Err(Ok(()));
+                }
+                Err(_) => return Err(self.fail(CloseReason::ProtocolError)),
+            }
+        } else {
+            match ChannelMessage::parse(text) {
+                Ok(ChannelMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
+                Ok(ChannelMessage::Stats(stats)) => {
+                    self.e.receiver_stats(&stats);
+                    return Err(Ok(()));
+                }
+                Ok(ChannelMessage::Screen) | Err(_) => return Err(self.fail(CloseReason::ProtocolError)),
+            }
+        };
+        Ok(Held { epoch, seq, geometry_generation, sent_at, control, received_at })
+    }
+
     fn ack(&self, entry: &Held, applied: bool, queued_ms: f64, dispatch_ms: f64) {
         let Some(connection) = &self.i.connection else { return };
         let text = format!(
@@ -560,46 +601,11 @@ impl<E: ViewerEffects> Viewer<E> {
             {
                 return Ok(());
             }
-            // A message that does not parse, or is the other kind of source's, ends the connection
-            // (the text is not kept: it may carry a password).
-            let (epoch, seq, geometry_generation, sent_at, control) = if matches!(m.source, Source::Screen { .. }) {
-                match ScreenMessage::parse(text) {
-                    Ok(ScreenMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
-                    Ok(ScreenMessage::Stats(stats)) => {
-                        m.e.receiver_stats(&stats);
-                        return Ok(());
-                    }
-                    // A screen's receipt evidence, helper grant and install or enroll request: not input, so
-                    // not gated by the input epoch and never acked.
-                    Ok(ScreenMessage::FrameSeen { epoch }) => {
-                        m.e.frame_seen(epoch);
-                        return Ok(());
-                    }
-                    Ok(ScreenMessage::HelperGrant { epoch, challenge, signature }) => {
-                        m.e.helper_grant(epoch, challenge, signature);
-                        return Ok(());
-                    }
-                    // The phone's Windows password: no UAC prompt on the PC.
-                    Ok(ScreenMessage::HelperInstall { public_key, credential } | ScreenMessage::HelperEnroll { public_key, credential }) => {
-                        match credential {
-                            Some(credential) => m.e.helper_credential(public_key, credential),
-                            None => m.e.helper_install(public_key),
-                        }
-                        return Ok(());
-                    }
-                    Err(_) => return m.fail(CloseReason::ProtocolError),
-                }
-            } else {
-                match ChannelMessage::parse(text) {
-                    Ok(ChannelMessage::Input { epoch, seq, geometry_generation, sent_at, control }) => (epoch, seq, geometry_generation, sent_at, control),
-                    Ok(ChannelMessage::Stats(stats)) => {
-                        m.e.receiver_stats(&stats);
-                        return Ok(());
-                    }
-                    Ok(ChannelMessage::Screen) | Err(_) => return m.fail(CloseReason::ProtocolError),
-                }
+            let entry = match m.decode_input(text, received_at) {
+                Ok(entry) => entry,
+                Err(step) => return step,
             };
-            let entry = Held { epoch, seq, geometry_generation, sent_at, control, received_at };
+            let (epoch, seq) = (entry.epoch, entry.seq);
             if epoch != m.i.epoch {
                 m.ack(&entry, false, 0.0, 0.0);
                 return Ok(());

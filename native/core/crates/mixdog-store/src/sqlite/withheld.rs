@@ -1,12 +1,3 @@
-//! The sessions whose catalog rows were projected from a log that still holds a value marked sensitive since: their log
-//! rewrite runs behind the serving core (`mixdog-core-session` `StoreThreads::owe_marks`). Whether a session is withheld is
-//! the catalog's own state (`withheld_sessions`), not a copy in memory: it is set once at boot, cleared for a session only by
-//! a release committed after the session's rows were rebuilt from its rewritten log, and every read that can answer a
-//! session's content decides from it in the read transaction of the rows it answers. So a read sees the old rows withheld,
-//! the new rows withheld, or the new rows released, never the old rows released. Withheld, a session's index reads answer only what is no content of it (ids, times, counts, states,
-//! places, flags): no title, preview, worker text or listed header member, and no search finds it. Its log reads refuse it
-//! ([`SqliteStore::withheld_on_lane`]).
-
 use std::collections::HashSet;
 
 use mixdog_rt::InLane;

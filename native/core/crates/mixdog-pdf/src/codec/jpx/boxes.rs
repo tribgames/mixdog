@@ -177,53 +177,62 @@ fn parse_header_box(kind: u32, c: &[u8], info: &mut Jp2Info) -> Result<(), JpxEr
             let (enumerated, profile) = if method == 1 { (Some(be32(c, 3).ok_or_else(short)?), Vec::new()) } else { (None, c[3..].to_vec()) };
             info.colours.push(ColourSpec { method, precedence, approximation, enumerated, profile });
         }
-        k if k == fourcc(b"pclr") => {
-            let entries = be16(c, 0).ok_or_else(short)?;
-            let columns = *c.get(2).ok_or_else(short)? as usize;
-            let depths = c.get(3..3 + columns).ok_or_else(short)?.to_vec();
-            let mut at = 3 + columns;
-            let mut values = Vec::with_capacity(entries as usize * columns);
-            for _ in 0..entries {
-                for d in &depths {
-                    let bytes = ((d & 0x7f) as usize + 1).div_ceil(8);
-                    let mut v: u32 = 0;
-                    for _ in 0..bytes {
-                        v = (v << 8) | *c.get(at).ok_or_else(short)? as u32;
-                        at += 1;
-                    }
-                    values.push(v);
-                }
-            }
-            info.palette = Some(Palette { entries, column_depths: depths, values });
-        }
+        k if k == fourcc(b"pclr") => info.palette = Some(parse_palette(c)?),
         k if k == fourcc(b"cmap") => {
             info.component_map =
                 c.chunks_exact(4).map(|m| ComponentMap { component: u16::from_be_bytes([m[0], m[1]]), mapping_type: m[2], palette_column: m[3] }).collect();
         }
-        k if k == fourcc(b"cdef") => {
-            let n = be16(c, 0).ok_or_else(short)? as usize;
-            for i in 0..n {
-                let p = 2 + i * 6;
-                info.channel_defs.push(ChannelDef {
-                    channel: be16(c, p).ok_or_else(short)?,
-                    kind: be16(c, p + 2).ok_or_else(short)?,
-                    association: be16(c, p + 4).ok_or_else(short)?,
-                });
-            }
-        }
-        k if k == fourcc(b"res ") => {
-            let mut at = 0;
-            while let Some(b) = box_at(c, at, c.len())? {
-                let body = &c[b.content.clone()];
-                if b.kind == fourcc(b"resc") {
-                    info.capture_resolution = resolution(body);
-                } else if b.kind == fourcc(b"resd") {
-                    info.display_resolution = resolution(body);
-                }
-                at = b.end;
-            }
-        }
+        k if k == fourcc(b"cdef") => parse_channel_defs(c, &mut info.channel_defs)?,
+        k if k == fourcc(b"res ") => parse_resolution_box(c, info)?,
         _ => {}
+    }
+    Ok(())
+}
+
+fn parse_palette(c: &[u8]) -> Result<Palette, JpxError> {
+    let entries = be16(c, 0).ok_or_else(short)?;
+    let columns = *c.get(2).ok_or_else(short)? as usize;
+    let depths = c.get(3..3 + columns).ok_or_else(short)?.to_vec();
+    let mut at = 3 + columns;
+    let mut values = Vec::with_capacity(entries as usize * columns);
+    for _ in 0..entries {
+        for d in &depths {
+            let bytes = ((d & 0x7f) as usize + 1).div_ceil(8);
+            let mut v: u32 = 0;
+            for _ in 0..bytes {
+                v = (v << 8) | *c.get(at).ok_or_else(short)? as u32;
+                at += 1;
+            }
+            values.push(v);
+        }
+    }
+    Ok(Palette { entries, column_depths: depths, values })
+}
+
+fn parse_channel_defs(c: &[u8], out: &mut Vec<ChannelDef>) -> Result<(), JpxError> {
+    let n = be16(c, 0).ok_or_else(short)? as usize;
+    for i in 0..n {
+        let p = 2 + i * 6;
+        out.push(ChannelDef {
+            channel: be16(c, p).ok_or_else(short)?,
+            kind: be16(c, p + 2).ok_or_else(short)?,
+            association: be16(c, p + 4).ok_or_else(short)?,
+        });
+    }
+    Ok(())
+}
+
+/// The resolution superbox: its capture and default display resolution boxes.
+fn parse_resolution_box(c: &[u8], info: &mut Jp2Info) -> Result<(), JpxError> {
+    let mut at = 0;
+    while let Some(b) = box_at(c, at, c.len())? {
+        let body = &c[b.content.clone()];
+        if b.kind == fourcc(b"resc") {
+            info.capture_resolution = resolution(body);
+        } else if b.kind == fourcc(b"resd") {
+            info.display_resolution = resolution(body);
+        }
+        at = b.end;
     }
     Ok(())
 }

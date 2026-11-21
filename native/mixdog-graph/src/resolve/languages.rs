@@ -1,10 +1,3 @@
-// The direct, fileSet-backed resolution leg: one language's own rules for
-// turning an import spec into a repo-relative path.
-//
-// Nothing here consults the GraphIndex — a spec resolves against the set of
-// files the graph already indexed, or it resolves to nothing. `resolve_graph_import`
-// at the bottom is the dispatch every language enters through.
-
 use std::collections::HashSet;
 
 use crate::tokens;
@@ -122,11 +115,6 @@ fn resolve_ruby(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Str
     candidates.into_iter().find(|p| file_set.contains(p))
 }
 
-// A spec that names a path relative to the importing file: join it against
-// the importer's directory and keep it only when the graph indexed that file.
-// An empty spec names nothing, and an absolute `/foo` is a filesystem location
-// this repository cannot name, so joining it importer-relative would forge a
-// bogus repo path.
 fn resolve_relative_to_importer(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
     let norm = normalize_import_spec(spec);
     if norm.is_empty() || norm.starts_with('/') {
@@ -136,10 +124,6 @@ fn resolve_relative_to_importer(rel: &str, spec: &str, file_set: &HashSet<String
     file_set.contains(&candidate).then_some(candidate)
 }
 
-// Bash `source path` / `. path`: resolve a relative path against the
-// importing file's dir. Only relative specs (`./x`, `../x`, or a bare
-// `x.sh`) are resolvable in fileSet space; absolute/PATH-looked-up specs
-// have no repo-relative target and return None.
 fn resolve_bash_source(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
     resolve_relative_to_importer(rel, spec, file_set)
 }
@@ -156,10 +140,6 @@ fn resolve_lua_require(spec: &str, file_set: &HashSet<String>) -> Option<String>
     candidates.into_iter().find(|p| file_set.contains(p))
 }
 
-// True if `spec` begins with a generic URI scheme `^[a-z][a-z0-9+.-]*:`
-// (package:, dart:, http:, file:, …). A leading drive-letter like `C:` won't
-// reach here — Dart specs are URIs and `normalize_import_spec` already mapped
-// `\` to `/`; callers also reject absolute `/` paths separately.
 fn has_uri_scheme(spec: &str) -> bool {
     let mut chars = spec.char_indices();
     match chars.next() {
@@ -194,10 +174,6 @@ fn resolve_dart_import(rel: &str, spec: &str, file_set: &HashSet<String>) -> Opt
     resolve_relative_to_importer(rel, &norm, file_set)
 }
 
-// R `source("path.R")` (or a relative `library`/`require` arg, rare): resolve
-// the quoted path against the importing file's dir. Library/require names that
-// reference installed packages are not relative paths and won't match the
-// fileSet, so only an actual relative source path resolves.
 fn resolve_r_source(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
     resolve_relative_to_importer(rel, spec, file_set)
 }

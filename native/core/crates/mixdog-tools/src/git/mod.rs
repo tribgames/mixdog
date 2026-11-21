@@ -186,11 +186,6 @@ struct RepoInfo {
 
 const REPO_ROOT_CACHE_MAX: usize = 64;
 
-/// Repo-root resolution used to spawn an extra `git rev-parse` on every call. The answer is
-/// cached per resolved cwd (oldest dropped first) and re-validated with a few stats: a cached
-/// root stays correct only while it is still the NEAREST repository, so an init, clone or
-/// worktree that appears closer to the cwd invalidates it. Explicit `--git-dir`/`--work-tree`
-/// overrides re-point resolution and never read the cache.
 static REPO_ROOTS: std::sync::Mutex<Vec<(String, PathBuf, PathBuf)>> = std::sync::Mutex::new(Vec::new());
 
 #[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
@@ -502,6 +497,20 @@ async fn execute_single(call: &CallEnv<'_>, input: &Object, char_budget: Option<
     execute_plan(call, input, &plan, char_budget).await
 }
 
+async fn execute_creation(call: &CallEnv<'_>, plan: &Plan, cap: Cap) -> Rendered {
+    let target = creation_target(plan);
+    let (_guard, waited) = match acquire(call.locks, call.runner, &target, None, &target).await {
+        Ok(held) => held,
+        Err(aborted) => return aborted,
+    };
+    let mut argv = vec![plan.operation.clone()];
+    argv.extend(plan.args.iter().cloned());
+    let result = call.runner.run(plan, &argv, false).await;
+    let mut rendered = command_result(plan, &result, cap);
+    rendered.text = append_text(&rendered.text, &lock_wait_note(waited, None));
+    rendered
+}
+
 async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budget: Option<usize>) -> Rendered {
     // No unmanaged worktree is ever made here: worktree commands run as their managed
     // operations; only `list --porcelain` stays git.
@@ -517,17 +526,7 @@ async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budg
     let cap = Cap { lines: output_limit(input.get("output_limit"), default_lines), chars: char_budget.unwrap_or(COMMAND_CHAR_BUDGET) };
     let runner = call.runner;
     if plan.operation == "init" || plan.operation == "clone" {
-        let target = creation_target(plan);
-        let (_guard, waited) = match acquire(call.locks, runner, &target, None, &target).await {
-            Ok(held) => held,
-            Err(aborted) => return aborted,
-        };
-        let mut argv = vec![plan.operation.clone()];
-        argv.extend(plan.args.iter().cloned());
-        let result = runner.run(plan, &argv, false).await;
-        let mut rendered = command_result(plan, &result, cap);
-        rendered.text = append_text(&rendered.text, &lock_wait_note(waited, None));
-        return rendered;
+        return execute_creation(call, plan, cap).await;
     }
     if REPO_FREE_OPERATIONS.contains(&plan.operation.as_str()) {
         let mut argv = vec![plan.operation.clone()];
@@ -563,7 +562,6 @@ async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budg
 }
 
 async fn run_in_repository(call: &CallEnv<'_>, input: &Object, plan: &Plan, repo: &Path, lock_key: &Path, cap: Cap) -> Rendered {
-    let runner = call.runner;
     let mut argv = prepare(plan);
     let stageable_request = plan.operation == "diff" && (plan.args.is_empty() || plan.args[0] == "--");
     if stageable_request {
@@ -571,29 +569,39 @@ async fn run_in_repository(call: &CallEnv<'_>, input: &Object, plan: &Plan, repo
             argv.insert(1 + offset, (*flag).to_owned());
         }
     }
-    // A read takes no lock, so it never waits behind another read or a write.
     if plan.read_only() {
-        let result = if stageable_request { run_stageable_diff(runner, plan, &argv, repo).await } else { runner.run(plan, &argv, true).await };
-        if !result.succeeded() {
-            return command_result(plan, &result, cap);
-        }
-        if stageable_request && input.get("include_stage_ids") == Some(&json!(true)) {
-            if result.not_utf8 {
-                let mut rendered = command_result(plan, &result, cap);
-                rendered.text = append_text(&rendered.text, NOT_UTF8_STAGE_NOTE);
-                return rendered;
-            }
-            let snapshot = stage::create_diff_snapshot(
-                repo,
-                &call.work_dir,
-                SnapshotPlan { cwd: plan.cwd.clone(), global_args: plan.global_args.clone(), args: plan.args.clone() },
-                &argv,
-                &result.out(),
-            );
-            return stageable_diff_result(plan, &result, &snapshot, cap);
-        }
+        return run_read(call, input, plan, repo, &argv, stageable_request, cap).await;
+    }
+    run_locked_write(call, plan, repo, lock_key, &argv, cap).await
+}
+
+/// A read takes no lock, so it never waits behind another read or a write.
+async fn run_read(call: &CallEnv<'_>, input: &Object, plan: &Plan, repo: &Path, argv: &[String], stageable_request: bool, cap: Cap) -> Rendered {
+    let runner = call.runner;
+    let result = if stageable_request { run_stageable_diff(runner, plan, argv, repo).await } else { runner.run(plan, argv, true).await };
+    if !result.succeeded() {
         return command_result(plan, &result, cap);
     }
+    if stageable_request && input.get("include_stage_ids") == Some(&json!(true)) {
+        if result.not_utf8 {
+            let mut rendered = command_result(plan, &result, cap);
+            rendered.text = append_text(&rendered.text, NOT_UTF8_STAGE_NOTE);
+            return rendered;
+        }
+        let snapshot = stage::create_diff_snapshot(
+            repo,
+            &call.work_dir,
+            SnapshotPlan { cwd: plan.cwd.clone(), global_args: plan.global_args.clone(), args: plan.args.clone() },
+            argv,
+            &result.out(),
+        );
+        return stageable_diff_result(plan, &result, &snapshot, cap);
+    }
+    command_result(plan, &result, cap)
+}
+
+async fn run_locked_write(call: &CallEnv<'_>, plan: &Plan, repo: &Path, lock_key: &Path, argv: &[String], cap: Cap) -> Rendered {
+    let runner = call.runner;
     let repo_wide = REPO_WIDE_OPERATIONS.contains(&plan.operation.as_str());
     let scopes = [repo];
     let (_guard, waited) = match acquire(call.locks, runner, lock_key, (!repo_wide).then_some(&scopes[..]), repo).await {
@@ -609,13 +617,14 @@ async fn run_in_repository(call: &CallEnv<'_>, input: &Object, plan: &Plan, repo
     if present == Some(false) {
         return rejected(&format!("the worktree folder {} was removed meanwhile; nothing ran", repo.display()));
     }
-    let result = runner.run_write(plan, &argv).await;
+    let result = runner.run_write(plan, argv).await;
     let mut rendered = command_result(plan, &result, cap);
     rendered.text = append_text(&rendered.text, &lock_wait_note(waited, Some(&result)));
     rendered
 }
 
-async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &Object, work_dir: &Path) -> String {
+/// The diff snapshot and change ids a stage request names, or the answer that declines it.
+fn stage_request(input: &Object, work_dir: &Path) -> Result<(String, Vec<String>, stage::Snapshot), String> {
     let diff_id = input.get("diff_id").and_then(JsonValue::as_str).map(str::trim).unwrap_or("").to_owned();
     let raw_ids: Vec<JsonValue> = match input.get("change_ids") {
         Some(JsonValue::Array(items)) => items.clone(),
@@ -629,28 +638,63 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
         }
     }
     if diff_id.is_empty() {
-        return fail("git stage requires diff_id from a prior git diff");
+        return Err(fail("git stage requires diff_id from a prior git diff"));
     }
     if change_ids.is_empty() {
-        return fail("git stage requires at least one change_id");
+        return Err(fail("git stage requires at least one change_id"));
     }
     if change_ids.len() > 50 {
-        return fail("git stage accepts at most 50 change_ids");
+        return Err(fail("git stage accepts at most 50 change_ids"));
     }
     let Some(snapshot) = stage::get_diff_snapshot(&diff_id) else {
-        return ok(object(json!({
+        return Err(ok(object(json!({
             "staged": false,
             "reason": "expired_diff",
             "hint": "Run git diff with include_stage_ids:true again and use its new diff_id/change_ids."
-        })));
+        }))));
     };
     if snapshot.scope != work_dir {
-        return ok(object(json!({
+        return Err(ok(object(json!({
             "staged": false,
             "reason": "scope_mismatch",
             "hint": "Run git diff with include_stage_ids:true in the current Project and use its diff_id/change_ids."
-        })));
+        }))));
     }
+    Ok((diff_id, change_ids, snapshot))
+}
+
+/// Applies `patch` to the index through a temporary file: the applied run, or the failure text
+/// with the run to note.
+async fn apply_selected_patch(runner: &Runner<'_>, base_plan: &Plan, repo: &Path, patch: &str, limit: Cap) -> Result<GitRun, (String, Option<GitRun>)> {
+    let directory = std::env::temp_dir().join(run_dir_name());
+    let patch_path = directory.join("selected.patch");
+    let written = {
+        let (directory, patch_path, patch) = (directory.clone(), patch_path.clone(), patch.to_owned());
+        runner.blocking(move || write_patch_file(&directory, &patch_path, &patch)).await
+    };
+    if written != Some(true) {
+        remove_run_dir(runner, &directory).await;
+        return Err((fail("git stage could not write its patch file"), None));
+    }
+    let patch = patch_path.to_string_lossy().into_owned();
+    let apply_plan =
+        Plan { cwd: repo.to_path_buf(), operation: "apply".to_owned(), args: strings(&["--cached", "--unidiff-zero", &patch]), ..base_plan.clone() };
+    let check = runner.run(&apply_plan, &strings(&["apply", "--cached", "--check", "--unidiff-zero", &patch]), false).await;
+    let outcome = if !check.succeeded() {
+        Err((command_result(&apply_plan, &check, limit).text, None))
+    } else {
+        let applied = runner.run_write(&apply_plan, &strings(&["apply", "--cached", "--unidiff-zero", &patch])).await;
+        if applied.succeeded() { Ok(applied) } else { Err((command_result(&apply_plan, &applied, limit).text, Some(applied))) }
+    };
+    remove_run_dir(runner, &directory).await;
+    outcome
+}
+
+async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &Object, work_dir: &Path) -> String {
+    let (diff_id, change_ids, snapshot) = match stage_request(input, work_dir) {
+        Ok(request) => request,
+        Err(answer) => return answer,
+    };
     let limit = Cap { lines: output_limit(input.get("output_limit"), OUTPUT_LINES_DEFAULT), chars: COMMAND_CHAR_BUDGET };
     let repo = snapshot.repo.clone();
     let base_plan = Plan {
@@ -699,39 +743,19 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
         let listed = if built.missing.is_empty() { "(none selected)".to_owned() } else { built.missing.join(", ") };
         return noted(fail(&format!("git stage change_ids are not present in the diff: {listed}")), None);
     }
-    let directory = std::env::temp_dir().join(run_dir_name());
-    let patch_path = directory.join("selected.patch");
-    let written = {
-        let (directory, patch_path, patch) = (directory.clone(), patch_path.clone(), built.patch.clone());
-        runner.blocking(move || write_patch_file(&directory, &patch_path, &patch)).await
-    };
-    if written != Some(true) {
-        remove_run_dir(runner, &directory).await;
-        return noted(fail("git stage could not write its patch file"), None);
-    }
-    let patch = patch_path.to_string_lossy().into_owned();
-    let apply_plan = Plan { cwd: repo.clone(), operation: "apply".to_owned(), args: strings(&["--cached", "--unidiff-zero", &patch]), ..base_plan.clone() };
-    let check = runner.run(&apply_plan, &strings(&["apply", "--cached", "--check", "--unidiff-zero", &patch]), false).await;
-    let text = if !check.succeeded() {
-        noted(command_result(&apply_plan, &check, limit).text, None)
-    } else {
-        let applied = runner.run_write(&apply_plan, &strings(&["apply", "--cached", "--unidiff-zero", &patch])).await;
-        if !applied.succeeded() {
-            noted(command_result(&apply_plan, &applied, limit).text, Some(&applied))
-        } else {
+    match apply_selected_patch(runner, &base_plan, &repo, &built.patch, limit).await {
+        Err((text, run)) => noted(text, run.as_ref()),
+        Ok(applied) => {
             stage::delete_diff_snapshot(&diff_id);
             let mut data = object(json!({"staged": true}));
             data.extend(staged_summary(&built.changes));
             answer(data, Some(&applied))
         }
-    };
-    remove_run_dir(runner, &directory).await;
-    text
+    }
 }
-async fn execute_git_tool(locks: &Arc<RepoLocks>, services: Option<&Arc<WorktreeServices>>, ctx: &ToolContext, raw_input: JsonValue) -> String {
-    let JsonValue::Object(raw) = raw_input else {
-        return fail("git requires an arguments object");
-    };
+/// The call's arguments with a stringified `command` / `change_ids` array parsed and every
+/// command given its `git` word.
+fn normalized_input(raw: Object) -> Object {
     let mut input = raw.clone();
     if let Some(command) = raw.get("command") {
         let prefixed = match parse_stringified_array(command) {
@@ -752,6 +776,45 @@ async fn execute_git_tool(locks: &Arc<RepoLocks>, services: Option<&Arc<Worktree
     if let Some(change_ids) = raw.get("change_ids") {
         input.insert("change_ids".into(), parse_stringified_array(change_ids));
     }
+    input
+}
+
+/// Runs `commands` in order, failing fast; every command is parsed before any runs.
+async fn execute_command_list(call: &CallEnv<'_>, input: &Object, commands: &[JsonValue]) -> String {
+    if commands.is_empty() || commands.len() > COMMAND_ARRAY_LIMIT {
+        return fail(&format!("git command array requires 1 to {COMMAND_ARRAY_LIMIT} commands"));
+    }
+    let mut plans = Vec::with_capacity(commands.len());
+    for (index, command) in commands.iter().enumerate() {
+        let Some(text) = command.as_str().filter(|c| !c.trim().is_empty()) else {
+            return fail(&format!("git command {} must be a non-empty string", index + 1));
+        };
+        match parse_command(text, &call.work_dir).and_then(localize_config_plan) {
+            Ok(plan) => plans.push(plan),
+            Err(message) => return fail(&format!("git command {}: {message}", index + 1)),
+        }
+    }
+    let mut results: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for (index, plan) in plans.iter().enumerate() {
+        let label = format!("{}: git {}", index + 1, plan.operation);
+        let budget = COMMAND_CHAR_BUDGET.min(MIN_COMMAND_CHARS.max(ARRAY_CHAR_BUDGET.saturating_sub(used)));
+        let result = execute_plan(call, input, plan, Some(budget)).await;
+        let section = format!("## {label}\n{}", result.text);
+        used += u16len(&section);
+        results.push(section);
+        if result.failed {
+            return append_text(&results.join("\n"), &format!("error: command failed: {label}"));
+        }
+    }
+    results.join("\n")
+}
+
+async fn execute_git_tool(locks: &Arc<RepoLocks>, services: Option<&Arc<WorktreeServices>>, ctx: &ToolContext, raw_input: JsonValue) -> String {
+    let JsonValue::Object(raw) = raw_input else {
+        return fail("git requires an arguments object");
+    };
+    let input = normalized_input(raw);
     let exec = Exec::new(ctx.processes.clone());
     let runner = Runner { exec: &exec, cancel: &ctx.cancel, lane: ctx.io.maintenance };
     let call = CallEnv {
@@ -793,35 +856,9 @@ async fn execute_git_tool(locks: &Arc<RepoLocks>, services: Option<&Arc<Worktree
         (Some(JsonValue::Array(items)), None) => items.clone(),
         _ => return execute_single(&call, &input, None).await.text,
     };
-    if commands.is_empty() || commands.len() > COMMAND_ARRAY_LIMIT {
-        return fail(&format!("git command array requires 1 to {COMMAND_ARRAY_LIMIT} commands"));
-    }
-    let mut plans = Vec::with_capacity(commands.len());
-    for (index, command) in commands.iter().enumerate() {
-        let Some(text) = command.as_str().filter(|c| !c.trim().is_empty()) else {
-            return fail(&format!("git command {} must be a non-empty string", index + 1));
-        };
-        match parse_command(text, &call.work_dir).and_then(localize_config_plan) {
-            Ok(plan) => plans.push(plan),
-            Err(message) => return fail(&format!("git command {}: {message}", index + 1)),
-        }
-    }
-    // Ordered execution with fail-fast; every command is parsed above before any runs.
-    let mut results: Vec<String> = Vec::new();
-    let mut used = 0usize;
-    for (index, plan) in plans.iter().enumerate() {
-        let label = format!("{}: git {}", index + 1, plan.operation);
-        let budget = COMMAND_CHAR_BUDGET.min(MIN_COMMAND_CHARS.max(ARRAY_CHAR_BUDGET.saturating_sub(used)));
-        let result = execute_plan(&call, &input, plan, Some(budget)).await;
-        let section = format!("## {label}\n{}", result.text);
-        used += u16len(&section);
-        results.push(section);
-        if result.failed {
-            return append_text(&results.join("\n"), &format!("error: command failed: {label}"));
-        }
-    }
-    results.join("\n")
+    execute_command_list(&call, &input, &commands).await
 }
+
 #[async_trait]
 impl Tool for GitTool {
     fn spec(&self) -> &ToolSpec {

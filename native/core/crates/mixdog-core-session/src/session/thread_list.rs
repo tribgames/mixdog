@@ -1,15 +1,3 @@
-//! `thread/list`: the stored-session summary listing (`listStoredSessionSummaryPage`,
-//! `store-summary-reader.mjs`, behind `listSessions({ page })`). It reads the catalog index's
-//! list rows only (the header-only summaries `_sessionSummary` built), never a session's log,
-//! and answers a page of the lead-visible rows in catalog order (newest activity first, ties by
-//! id): `limit` rows (`Math.floor(limit)`, default 50, at most 1000) after the keyset `cursor`,
-//! with a `nextCursor` naming the last row only when more follow.
-//!
-//! The runtime overlay `daemon-stored-session-views.mjs` (`withRuntimeActivity`) and
-//! `session-action.mjs` (`withApprovalWaits`) lay over a row is the host's ([`RowOverlay`]).
-//! What only the v2 protocol names (`searchTerm`, `sortKey`, `sortDirection`) is decided in
-//! `decisions.md` (D-list-*).
-
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
 type ThreadRowHook = dyn Fn(&ThreadSummary) + Send + Sync;
 
@@ -52,10 +40,9 @@ const STARTED: &str = "thread/started";
 const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DOMAIN: &str = "thread list";
 
-/// `DEFAULT_PAGE_LIMIT` and `MAX_PAGE_LIMIT` (`store-summary-reader.mjs`).
 const DEFAULT_PAGE_LIMIT: usize = 50;
 const MAX_PAGE_LIMIT: usize = 1000;
-/// The most bytes of rows one page answers. Node's listing answered inside its own process; here a page is one frame of a
+/// The most bytes of rows one page answers. A page is one frame of a
 /// connection, and an answer past the connection's control reserve (`Limits::control_reserve_bytes`, 512 KiB) ends that
 /// connection as a slow consumer: 1,000 rows of a real profile are about 900 KiB.
 const PAGE_BYTES: usize = 256 * 1024;
@@ -70,7 +57,7 @@ pub struct RowOverlay {
     pub awaiting_approval: Option<bool>,
     pub awaiting_question: Option<bool>,
     pub handed_by: Option<Vec<String>>,
-    /// Context rows the running turn committed that Node's catalog row counts only once the turn settles
+    /// Context rows the running turn committed that the catalog row counts only once the turn settles
     /// (`ActiveRun::unsaved_messages`).
     pub unsaved_messages: u64,
 }
@@ -78,7 +65,7 @@ pub struct RowOverlay {
 impl RowOverlay {
     fn lay_over(self, row: &mut ThreadSummary) {
         row.message_count = (row.message_count - self.unsaved_messages as i64).max(0);
-        // The roster's projection (`desktop-state.ts`): `leadWorking` is the session's own turn, `working` that or an agent's.
+        // `leadWorking` is the session's own turn, `working` that or an agent's.
         row.lead_working = self.working.or(row.lead_working);
         row.working = (self.working.or(self.agent_working)).or(row.working);
         row.agent_working = self.agent_working.or(row.agent_working);
@@ -88,7 +75,7 @@ impl RowOverlay {
     }
 }
 
-/// The sessions with live work now (`storedLiveWork`, `daemon-session-control.mjs`): `own`, those with a turn in flight
+/// The sessions with live work now: `own`, those with a turn in flight
 /// here, and `agents`, the Leads an Agent session in flight works for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveWork {
@@ -220,8 +207,7 @@ impl ListOverlay for LiveListOverlay {
     }
 }
 
-/// The rooms' side of the listing (`agentRooms.withRooms`, `agent-room-views.ts`
-/// `catalogWithRooms`).
+/// The rooms' side of the listing.
 #[async_trait]
 pub trait ListRooms: Send + Sync {
     /// `rows` with each room's log row stamped (the room's name, its last message time, the room
@@ -251,10 +237,9 @@ pub struct ThreadListService {
     fence: OnceLock<Arc<dyn ListFence>>,
     /// Told of every row sent on the app feed, after the dedupe and before the notification (the session notification producer).
     on_row: OnceLock<Arc<ThreadRowHook>>,
-    /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
+    /// Set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
-    /// The row last sent on the app feed per thread: Node hands a catalog only when it differs from the one its listener holds
-    /// (`CatalogChannel.publish`, `session-host-publication.ts:141`), so a row that did not change is not sent again.
+    /// The row last sent on the app feed per thread, so a row that did not change is not sent again.
     announced: std::sync::Mutex<std::collections::HashMap<String, ThreadSummary>>,
 }
 
@@ -263,8 +248,7 @@ pub struct ThreadListService {
 /// holds, as a list issued just before the write would have.
 pub const FENCE_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// What makes a list no older than the writes whose reply or notification has been sent: Node's list is built from live state
-/// synchronously with its writes, and the index here is written behind the acknowledged barrier.
+/// What makes a list no older than the writes whose reply or notification has been sent: the index is written behind the acknowledged barrier.
 pub trait ListFence: Send + Sync {
     /// `None` when no projection is pending (the idle list pays one atomic load); otherwise the wait until the index holds
     /// every projection already queued.
@@ -322,7 +306,7 @@ impl ThreadListService {
         self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
     }
 
-    /// Whether a listing has been answered (Node's `sessionCatalogLoaded`), which decides how a room call publishes the catalog.
+    /// Whether a listing has been answered, which decides how a room call publishes the catalog.
     pub fn catalog_loaded(&self) -> bool {
         self.loaded.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -376,12 +360,6 @@ impl ThreadListService {
         self.summary_of(id, &listed, &workspace).await
     }
 
-    /// The row a room publication carries for the room log `id`, as Node's in-memory catalog has it inside the call
-    /// (`session-host.ts:354` `sessionCatalog()` → `catalogWithRooms`, `agent-room-views.ts:116-152`): the indexed row stamped with
-    /// the room when the index holds the log, else the row made up from the saved room alone. It waits for no projection, so
-    /// the saved room is always carried; `None` only for a log that is no room's. Node's in-call publication reads nothing (its rows
-    /// are the last listing's), so a read that fails here does not fail it: the room goes out as the row made from the saved room,
-    /// as Node's does when its last listing did not hold the log (recorded: `fixtures/room-catalog-states/loaded-failing.json`).
     async fn room_row(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
         let indexed = match self.workspace().await {
             Ok(workspace) => match self.store.lead_row(id.as_str()).await {
@@ -406,9 +384,8 @@ impl ThreadListService {
         Ok(row)
     }
 
-    /// The whole catalog as Node's `listSessions` lists it for `publishCatalogs`: one unpaged `session.list`
-    /// (`session-host.ts:797-804`), so one read of the index as it is at one moment, never pages a session could move between.
-    /// Marked loaded only once it is in hand, as Node marks it after its listing answered (`:807`).
+    /// The whole catalog, as one unpaged read of the index at one moment, never pages a session could move between.
+    /// Marked loaded only once it is in hand.
     async fn whole_listing(&self) -> Result<Vec<ThreadSummary>, CoreError> {
         let whole = ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None };
         let rows = self.page_of(whole, usize::MAX, usize::MAX).await?.data;
@@ -418,7 +395,7 @@ impl ThreadListService {
     }
 
     /// `service.listSessionCatalog({ page: { limit, cursor } })` as the `session` tool's list reads it: the index's own list
-    /// rows (Node's catalog rows) after `cursor`, each with the live `working` / `agentWorking` laid over and `archived` set
+    /// rows after `cursor`, each with the live `working` / `agentWorking` laid over and `archived` set
     /// for the archived ones, and the cursor that continues after the last row when more follow.
     pub async fn catalog_page(&self, cursor: Option<&str>, limit: usize) -> Result<(Vec<serde_json::Value>, Option<String>), CoreError> {
         let after = decode_catalog_cursor(cursor).map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
@@ -461,7 +438,7 @@ impl ThreadListService {
         self.overlay.of(id)
     }
 
-    /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
+    /// The host's task workspace; a lookup that fails fails the listing.
     async fn workspace(&self) -> Result<String, CoreError> {
         self.task_workspace.path().await.map_err(|error| failed(DOMAIN, error))
     }
@@ -477,7 +454,7 @@ impl ThreadListService {
 
     async fn list(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
         let response = self.page(params).await?;
-        // Loaded once the listing is in hand, before anything hears of it (`session-host.ts:807` precedes `sessionCatalog()`).
+        // Loaded once the listing is in hand, before anything hears of it.
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         self.published(&response.data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(response)
@@ -506,7 +483,7 @@ impl ThreadListService {
         }
         let after = decode_catalog_cursor(params.cursor.as_deref()).map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
         let workspace = self.workspace().await?;
-        // Node's catalog is whole: the rooms it makes up rows for lead it, so they belong to the unfiltered first page.
+        // The rooms make up rows that lead the catalog, so they belong to the unfiltered first page.
         let whole = after.is_none() && params.archived.is_none() && params.cwd.is_none();
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
         self.caught_up().await;
@@ -602,7 +579,7 @@ impl RoomSummaries {
     /// The index writes' notifications this publisher's passes follow: the edge task and a pass both send a written row, and a
     /// pass that read the row before its write's `thread/started` went out would send `thread/summary/updated` for a row the
     /// client has not been told of. Each pass reads, then waits for every write counted by then, which is every write whose row
-    /// it read (Node sends one catalog for both).
+    /// it read.
     pub fn follow(&self, edges: Arc<super::thread_edges::ThreadEdges>) {
         drop(self.edges.set(edges));
     }
@@ -620,22 +597,18 @@ impl RoomSummaries {
         self.in_hand.notified().await;
     }
 
-    /// Waits until every background listing started so far has ended, published or failed (a replay's step boundary, as
-    /// Node's recorder awaits the background listing a call started before the next step: `record-room-catalog-states.mjs`).
+    /// Waits until every background listing started so far has ended, published or failed (a replay's step boundary).
     #[cfg(any(test, feature = "test-support"))]
     pub async fn background_ended(&self) {
         let mut open = self.background.subscribe();
         open.wait_for(|open| *open == 0).await.expect("the sender is held by the summaries");
     }
 
-    /// `deps.republishCatalog` as a room call makes it (`session-host.ts:353-356`). Once a listing has been answered (Node's
-    /// `sessionCatalogLoaded`) the pass runs inside the call, and its error is the call's (`agent-rooms.ts:289` lets the
-    /// synchronous publish throw, the room already saved). Before that a whole listing starts here and is not awaited, as Node's
-    /// `void publishCatalogs()` runs `listSessions` (`session-host-catalog.ts:217-238`): it reads at once, and a listing that
-    /// answers marks the catalog loaded (`session-host.ts:807`); its rows go out once `publish` is cancelled, which the call
-    /// decides (Node's rows wait for the daemon's `session.list` reply, `session-host.ts:797`, so they never overtake an answer
-    /// the call makes with no I/O after the start). A failed listing is dropped (`() => undefined`). The answer is the listing's
-    /// end, for a call that joins it as Node's deletion joins the listing in flight (`session-host.ts:790`).
+    /// A room call's republication. Once a listing has been answered the pass runs inside the call, and its error is the call's
+    /// (the room is already saved). Before that a whole listing starts here and is not awaited: it reads at once, and a listing that
+    /// answers marks the catalog loaded; its rows go out once `publish` is cancelled, which the call decides, so they never overtake
+    /// an answer the call makes with no I/O after the start. A failed listing is dropped. The answer is the listing's end, for a call
+    /// that joins it.
     pub async fn republish_catalog(
         self: &Arc<Self>,
         publish: mixdog_rt::CancellationToken,
@@ -663,14 +636,12 @@ impl RoomSummaries {
         })))
     }
 
-    /// Node's `publishCatalogs` awaited, as a room log's rename does (`session-host-lifecycle.ts:225-233` `renameSession`): the whole
-    /// listing (which marks the catalog loaded) and its room rows; a failed listing is dropped (`session-host-catalog.ts:231-238`).
+    /// The whole listing (which marks the catalog loaded) and its room rows, awaited, as a room log's rename does; a failed listing is dropped.
     pub async fn publish_catalogs(&self) {
         drop(self.publish_listing(std::future::ready(())).await);
     }
 
-    /// The listing's pass: the whole listing, every row of it published once `publish` is ready, as Node's `publishCatalogs`
-    /// publishes the catalog its listing returned (`session-host-catalog.ts:231-238`); one pass in the chain, so a call that the
+    /// The listing's pass: the whole listing, every row of it published once `publish` is ready; one pass in the chain, so a call that the
     /// listing made loaded publishes after it.
     async fn publish_listing(&self, publish: impl std::future::Future<Output = ()>) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
@@ -685,9 +656,8 @@ impl RoomSummaries {
         Ok(())
     }
 
-    /// `deps.republishCatalog` as a room's exchange or post makes it (`session-host.ts:353-356`, `agent-room-exchange.ts:138`,
-    /// `agent-room-log.ts:71`), not awaited: with the catalog loaded (Node's `sessionCatalogLoaded`) a pass; before that a whole
-    /// listing, as Node's `void publishCatalogs()`, which marks the catalog loaded (`session-host.ts:807`); a failed one is dropped.
+    /// A room's exchange or post republication, not awaited: with the catalog loaded a pass; before that a whole
+    /// listing, which marks the catalog loaded; a failed one is dropped.
     pub fn republish(self: &Arc<Self>) {
         let this = self.clone();
         #[cfg(any(test, feature = "test-support"))]
@@ -702,7 +672,7 @@ impl RoomSummaries {
         });
     }
 
-    /// [`Self::republish`] to its end, as the start-up's recovery awaits it (`agent-rooms.ts:479`): a pass, or before any listing
+    /// [`Self::republish`] to its end, as the start-up's recovery awaits it: a pass, or before any listing
     /// answered a whole listing.
     pub async fn republish_now(&self) {
         if self.list.catalog_loaded() {
@@ -712,11 +682,9 @@ impl RoomSummaries {
         }
     }
 
-    /// `deps.republish(roomSessionId)`: the room view of one room changed (a member started or
+    /// The room view of one room changed (a member started or
     /// stopped speaking, the speaking member's approval came or went, the handed-off questions
-    /// moved). Node publishes the room log's session state decorated with it
-    /// (`session-host.ts` `snapshotWithShellJobs` → `agentRooms.decorate`, pushed on
-    /// `mixdog:session-state`); here the decoration is the log thread's `roomView` section
+    /// moved). The decoration is the log thread's `roomView` section
     /// (`thread/roomView/updated`, in every snapshot), which the client lays over the thread's
     /// own fields. A view is set on the log thread, loaded for it, so a later subscriber reads it
     /// from the snapshot; a cleared view goes only to a loaded log (a fresh load has none). The
@@ -904,8 +872,8 @@ mod tests {
     }
 
     /// A list issued while a committed write is still behind the projector answers with that write once the projector has applied
-    /// it, never with the row from before (Node builds its list from live state, so a list after a reply cannot be older than it).
-    /// A write acknowledged after the list read the projector's count is concurrent with the list, as it is in Node.
+    /// it, never with the row from before.
+    /// A write acknowledged after the list read the projector's count is concurrent with the list.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_list_waits_for_the_projection_queued_before_it_was_issued() {
         let golden = golden();
@@ -1114,7 +1082,7 @@ mod tests {
             .filter(|frame| frame["params"]["thread"]["id"] == id)
             .map(|frame| frame["method"].as_str().expect("method").to_owned())
             .collect();
-        // The listing's copy of the row is the one the `thread/started` carried: Node hands a catalog its listener already holds once.
+        // The listing's copy of the row is the one the `thread/started` carried.
         assert_eq!(frames, ["thread/started"], "the late row's frames");
     }
 
@@ -1128,7 +1096,7 @@ mod tests {
         Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))))
     }
 
-    /// A publication carries every saved room as Node's in-memory catalog does inside the call (`catalogWithRooms`): the log
+    /// A publication carries every saved room: the log
     /// the index holds stamped with its room, and the room whose log the index does not hold as the row made from the saved
     /// room. No projection decides it: with a projection held pending for good, the pass answers at its first poll.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1150,8 +1118,7 @@ mod tests {
         assert!(sent[1].contains(r#""id":"sess_room_gone01""#) && sent[1].contains(r#""agentRoom":{"id":"gone01"}"#), "{}", sent[1]);
     }
 
-    /// Node's catalog channel hands a listener only a catalog that differs from the one it holds
-    /// (`session-host-publication.ts:141`): a second pass over unchanged rooms sends nothing.
+    /// A second pass over unchanged rooms sends nothing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_pass_over_unchanged_rows_sends_nothing() {
         let data = crate::session::testing::DataDir::default();
@@ -1175,8 +1142,8 @@ mod tests {
         }
     }
 
-    /// A room call before any listing starts Node's background `publishCatalogs`: a whole listing that marks the catalog loaded
-    /// (`session-host-catalog.ts:231`, `session-host.ts:807`), so the next room call publishes inside the call.
+    /// A room call before any listing starts a background listing: a whole listing that marks the catalog loaded,
+    /// so the next room call publishes inside the call.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_call_before_any_listing_lists_in_the_background_and_the_next_call_is_loaded() {
         let data = crate::session::testing::DataDir::default();
@@ -1194,7 +1161,7 @@ mod tests {
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         assert!(summaries.republish_catalog(publish).await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
         // Every row of the background listing went out once; the second call's pass (inside the call, as its `None` shows) sent
-        // the two room rows the listing had sent already, which Node's catalog channel does not hand again.
+        // the two room rows the listing had sent already, which are not handed again.
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
         let whole = list.whole_listing().await.expect("the whole listing").len();
         assert_eq!(sent, whole, "a row that did not change was sent again");
@@ -1259,10 +1226,6 @@ mod tests {
         .await;
     }
 
-    /// Node's control session is created empty (`desktopSession: null`, no message) and never listed: `isLeadVisibleRow`
-    /// drops "a previewless zero-message row with no title" (`lead.rs`), and the app feed's `thread/summary/updated` is
-    /// published from the row `summary` answers. The desktop's control thread (`thread/start{kind:"task"}`) is such a row
-    /// until it holds a message or a title, with no flag of its own; the same row with a title is listed.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_task_thread_with_no_message_and_no_title_is_never_listed() {
         let golden = golden();
@@ -1287,10 +1250,6 @@ mod tests {
         assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
     }
 
-    /// The sidebar's marks do not list a thread the catalog leaves out: Node's favorite and archive live in the desktop's
-    /// metadata map and are laid over the catalog's rows (`withFavoriteFlags`, `withArchiveFlags`), which are
-    /// `isLeadVisibleRow`'s (`store-summary-catalog.mjs:187`), so a favorited or archived thread with no message and no title
-    /// is in no listing. The same header with a title lists with `favorite` and `archived` set, in the archived listing only.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_favorite_or_archive_mark_lists_only_a_thread_the_catalog_lists() {
         let golden = golden();
@@ -1534,10 +1493,6 @@ mod tests {
         }
     }
 
-    /// A room post's rows and the `updatedAt` it stamps (`thread/roomRows/commit`) change the room's row in one step, as Node's
-    /// one save of the log does: a client of the app feed is never handed the room log with a message newer than its
-    /// `updatedAt` (its `messageCount` up, its `updatedAt` not). A commit that stores the rows without the stamp is held, once
-    /// stored, until what its projection publishes is seen: the point where the rows alone reach the client.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_post_changes_the_rooms_row_and_its_updated_at_in_one_step() {
         use mixdog_core_api::FeedSource;
@@ -1659,7 +1614,7 @@ mod tests {
         }
     }
 
-    /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another
+    /// A cursor that does not decode is an `EINVALIDCURSOR` failure; a text search or another
     /// ordering is not served by this listing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn refusals() {

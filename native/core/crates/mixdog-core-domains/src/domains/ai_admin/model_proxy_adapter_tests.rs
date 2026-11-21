@@ -59,10 +59,6 @@ async fn a_pc_retry_leaves_only_the_answered_attempt_in_the_stream() {
     assert!(matches!(events.last(), Some(p::StreamEvent::Completed { .. })));
 }
 
-/// A failure the PC's ladder ended on is this attempt's, and the session's loop is told not to run a ladder of its own.
-/// The PC's discards of its retried attempts open no stream: the attempt fails as the provider's last answer did (refused,
-/// so the delivery the mock's classification gives it), after the five writes of the provider's request ladder (the
-/// first and four retries of `RetryPolicy::codex_default`).
 #[tokio::test(start_paused = true)]
 async fn a_failure_the_pc_retried_out_is_final_here() {
     let provider = Arc::new(MockProvider::new((0..6).map(|_| rejected(503))));

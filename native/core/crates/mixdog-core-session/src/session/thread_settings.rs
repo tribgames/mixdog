@@ -1,15 +1,3 @@
-//! The thread settings methods of the desktop and its remote peers: the sidebar's read cursor,
-//! favorite, project move and archive (`markSessionRead`, `setSessionFavorite`,
-//! `setSessionProject`, `setSessionArchived` of `session-host-lifecycle.ts` over
-//! `desktop-session-metadata.ts`), and the session configure actions `setCwd`
-//! (`session-ops.mjs`), `setEffort` (`route-tuning.mjs`) and `setToolMode` (`session-ops.mjs`).
-//! The app-server hands them to this domain instead of the thread's actor. The desktop's
-//! metadata map is the session's own header here (SPEC `desktop-session-metadata.json` row):
-//! `readState`, `favoriteAt`, `archivedAt`.
-//!
-//! A request without a `threadId` is refused: the 1.4.5 daemon hosted one session and answered
-//! such a call for it (`sessionId is required` otherwise), the core hosts many.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -38,7 +26,7 @@ use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::io_failure;
-use mixdog_core_base::support::on_lane;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_domains::domains::ai_admin::route_service::RouteService;
 use mixdog_core_ports::ports::threads::ThreadState;
@@ -109,7 +97,7 @@ pub trait ProjectFolders: Send + Sync {
     async fn touch_selected(&self, cwd: &str) -> Result<(), String>;
 }
 
-/// The route half of `setEffort` (`route-tuning.mjs`), [`RouteService`]'s.
+/// The route half of `setEffort`, [`RouteService`]'s.
 #[async_trait]
 pub trait EffortTuning: Send + Sync {
     /// `setEffort(value, { sessionOnly })`: the live route afterwards, or the thrown text.
@@ -129,7 +117,7 @@ impl EffortTuning for RouteService {
     }
 }
 
-/// The desktop's auto-retention record as Node kept it. A restore's exemption from auto-archive is recorded in the archive authority
+/// The desktop's auto-retention record. A restore's exemption from auto-archive is recorded in the archive authority
 /// now, in the restore's own transaction ([`mixdog_store::archive_state::ArchiveEntry::Restored`]); the record keeps `enabledAt` and the
 /// restores an earlier version recorded, which a delete drops.
 #[async_trait]
@@ -138,15 +126,14 @@ pub trait ArchiveRetention: Send + Sync {
     async fn forget(&self, session_id: &str) -> Result<(), String>;
 }
 
-/// `positive(value)` of `session-auto-retention.ts`: a finite number above zero, else none.
+/// A finite number above zero, else none.
 fn positive(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).filter(|at| at.is_finite() && *at > 0.0)
 }
 
-/// [`ArchiveRetention`] over the record Node kept in `session-auto-retention.json`, which the
-/// profile import moved to `desktop.retentionState` (`{ enabledAt, restored: { [id]: ms } }`).
-/// Each note is one config write, in the config's write transaction, as Node's
-/// `updateJsonAtomic` read-modify-write: the stored record is normalized (`normalizeRecord`:
+/// [`ArchiveRetention`] over `desktop.retentionState` (`{ enabledAt, restored: { [id]: ms } }`).
+/// Each note is one config write, in the config's write transaction,
+/// read-modify-write: the stored record is normalized (
 /// `enabledAt` defaults to now, non-positive stamps are dropped), changed, and written only when
 /// the change or a missing `enabledAt` asks for it.
 pub struct ConfigArchiveRetention {
@@ -188,7 +175,7 @@ impl ConfigArchiveRetention {
     }
 }
 
-/// The pass state of `session-auto-retention.ts` (`SessionRetentionRecord`): when the feature first ran here, and the sessions
+/// The pass state: when the feature first ran here, and the sessions
 /// the user brought back from the archive, with when.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RetentionRecord {
@@ -269,7 +256,7 @@ impl ProjectFolders for WorkspaceFolders {
                 Err(error) => Err(error.to_string()),
             }
         };
-        on_lane(self.lanes.io, &CancellationToken::new(), job).await.map_err(|error| format!("{error:?}"))?
+        on_lane_wait(self.lanes.io, &CancellationToken::new(), job).await.map_err(|error| format!("{error:?}"))?
     }
 
     async fn task_workspace(&self) -> Result<String, String> {
@@ -281,7 +268,7 @@ impl ProjectFolders for WorkspaceFolders {
     }
 }
 
-// ---- Node's rules ------------------------------------------------------------------------------
+// ---- rules ------------------------------------------------------------------------------
 
 /// `Number.isSafeInteger(value) ? value : undefined`.
 fn safe_integer(value: Option<&Value>) -> Option<f64> {
@@ -460,8 +447,7 @@ pub struct ThreadSettingsParts {
     pub rows: Arc<dyn super::thread_edges::RowsPublished>,
 }
 
-/// Where an archive or a restore hands its sessions (Node's `setArchivedSessionWorktrees` hand-off of
-/// `session-host-lifecycle.ts`): the session first, then its sub-agent sessions in the order found. A failure is the
+/// Where an archive or a restore hands its sessions: the session first, then its sub-agent sessions in the order found. A failure is the
 /// hand-off's own; the archive stands.
 #[async_trait]
 pub trait ArchivedWorktrees: Send + Sync {
@@ -476,16 +462,12 @@ impl ArchivedWorktrees for WorktreeMaintenance {
     }
 }
 
-/// `DesktopSessionMetadata.lastArchiveStamp` (`desktop-session-metadata.ts:49,142-143`): the last archive stamp handed out, so two
-/// archives never share one even inside one millisecond. Node's host has one metadata instance, which both its own archive and the
-/// rooms' (`session-host-lifecycle.ts:356`) use; the core has one of these for both. Like Node's it starts at 0 with the process and
-/// is not seeded from stored stamps.
 #[derive(Default)]
 pub struct ArchiveStamps(Mutex<i64>);
 
 impl ArchiveStamps {
-    /// `const stamp = Math.max(now, lastArchiveStamp + 1); this.lastArchiveStamp = stamp`: the stamp an archive at `now` takes,
-    /// taken and remembered in one step as Node's two statements are, so two archives at once never take the same one.
+    /// The stamp an archive at `now` takes (`max(now, last + 1)`),
+    /// taken and remembered in one step, so two archives at once never take the same one.
     pub fn take(&self, now: i64) -> i64 {
         let mut last = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         *last = now.max(*last + 1);
@@ -560,8 +542,7 @@ impl ThreadSettings {
     }
 
     /// `setSessionFavorite(id, favorite)`.
-    /// A change is answered once the session's row is on the app feed, as Node republishes the catalog inside the call
-    /// (`session-host-lifecycle.ts:308-315`: `setFavorite`, then `await republishSessionCatalog()`); no change publishes nothing.
+    /// A change is answered once the session's row is on the app feed; no change publishes nothing.
     async fn set_favorite(&self, thread: &ThreadId, favorite: bool) -> Result<(), CoreError> {
         let now = self.now();
         let changed = self
@@ -638,9 +619,9 @@ impl ThreadSettings {
         self.move_to(thread, path, cancel, false).await
     }
 
-    /// The Lead's own `session set-project` call (`setCallerCwd`: `switchProject(cwd, { ownTurn: true })`): the calling turn
+    /// The Lead's own `session set-project` call: the calling turn
     /// is tolerated, the folder keeps any classification it was picked with (no membership test), and no Project becomes the
-    /// most recent (that is the client's `setCwd` action, `session-action.mjs`). The session's folder afterwards.
+    /// most recent (that is the client's `setCwd` action). The session's folder afterwards.
     pub async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError> {
         let cwd = self.move_to(thread, path, &CancellationToken::new(), true).await?;
         Ok(cwd.as_str().map(str::to_owned).unwrap_or_default())
@@ -660,7 +641,7 @@ impl ThreadSettings {
         let resolved = mixdog_agent::agent_tool::scope::resolve_path(&base, raw);
         let target = std::path::PathBuf::from(&resolved);
         let stat =
-            on_lane(self.parts.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
+            on_lane_wait(self.parts.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
         match stat {
             Ok(true) => {}
             Ok(false) => return Err(failed(DOMAIN, format!("cwd: not a directory: {resolved}"))),
@@ -685,7 +666,7 @@ impl ThreadSettings {
             _ => None,
         };
         let switched = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, own_turn, cancel).await;
-        // `transition-steps.mjs:229`: the switch ends in `invalidateCaches()` (the context cache and the pre-session
+        // The switch ends in invalidating the caches (the context cache and the pre-session
         // tool surface), whether the folder changed or the transition was undone.
         self.parts.surface.bump();
         let cwd = switched.map_err(scm_error)?;
@@ -714,10 +695,6 @@ impl ThreadSettings {
         Ok(done)
     }
 
-    /// `setToolMode(mode)`: the normalized mode, which the thread keeps (`toolMode`, Node's
-    /// `rt.mode`, read by the tool status). An empty, idle session also takes the mode's tool
-    /// spec (`refreshEmptySessionToolPolicy`); a conversation keeps its tool surface, and the `toolMode` it now
-    /// carries refuses its mutation tools when they are called (`SessionSurface::deferred_call_refusal`).
     async fn set_tool_mode(&self, thread: &ThreadId, mode: &str) -> Result<Value, CoreError> {
         let mode = normalize_tool_mode(mode);
         let handle = self.open(thread).await?;
@@ -738,8 +715,7 @@ impl ThreadSettings {
             ((), (!set.is_empty()).then_some((set, Vec::new())))
         })
         .await?;
-        // `session-ops.mjs:117-120`: the mode change ends in `refreshEmptySessionToolPolicy`, which first moves the
-        // pre-session tool surface.
+        // The mode change ends in moving the pre-session tool surface.
         self.parts.surface.bump();
         Ok(json!(mode))
     }

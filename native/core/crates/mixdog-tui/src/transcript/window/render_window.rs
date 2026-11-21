@@ -1,11 +1,6 @@
-//! The render window (`transcriptRenderWindow` and its span helpers, `resolveAnchorScrollOffset`, `upperBound`,
-//! `transcriptSwapReturnsToTail` of `transcript-window.mjs`): which items to mount for the viewport and the scroll limits.
+//! The render window: which items to mount for the viewport and the scroll limits.
 //!
-//! Mounting fewer rows is the lever on the cost of a frame, so the window is the viewport plus a small overscan, with a floor
-//! of items for stable scrolling and a cap on the worst case (many one-row items). At the live tail nothing above the
-//! viewport can be revealed without a scroll, so a smaller overscan and cap apply there; a scrolled-up view keeps the full ones.
-//!
-//! The span tunables keep the names Node read them by (`MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS`,
+//! The span tunables are read from (`MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS`,
 //! `MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS`, `MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS`, `MIXDOG_TUI_TRANSCRIPT_TAIL_OVERSCAN_ROWS`,
 //! `MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS`); a value that is not a positive number keeps the default.
 

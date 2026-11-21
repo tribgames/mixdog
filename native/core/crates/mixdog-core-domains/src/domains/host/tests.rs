@@ -121,7 +121,11 @@ async fn desktop_state_is_published_under_its_key() {
     assert_eq!(published[0].0, SectionName::HostState);
     assert_eq!(published[0].1.as_deref(), Some("browserTabs"));
     assert_eq!(set(&published[0].2), tabs);
-    // A key outside the four is not a request.
+}
+
+#[tokio::test]
+async fn a_host_state_key_outside_the_known_ones_is_not_a_request() {
+    let (service, _, _) = rig();
     assert!(matches!(service.call(request("host/state/set", json!({ "key": "other", "value": 1 }), None)).await, Err(CoreError::InvalidParams { .. })));
 }
 
@@ -152,13 +156,18 @@ async fn the_remote_target_is_a_loopback_tunnel_or_absent() {
     value(&*service, request("host/remoteTarget/set", json!({ "endpoint": "ws://127.0.0.1:52100/rpc", "token": "t" }), None)).await.unwrap();
     value(&*service, request("host/remoteTarget/set", json!({}), None)).await.unwrap();
     assert_eq!(*spy.targets.lock().unwrap(), vec![Some(RemoteTarget { endpoint: "ws://127.0.0.1:52100/rpc".into(), token: Some("t".into()) }), None]);
+}
+
+#[tokio::test]
+async fn a_remote_target_that_is_not_a_loopback_tunnel_is_refused() {
+    let (service, _, spy) = rig();
     for endpoint in ["wss://127.0.0.1:1/rpc", "ws://example.com:80/rpc", "ws://127.0.0.1/rpc", "nonsense"] {
         assert!(
             matches!(service.call(request("host/remoteTarget/set", json!({ "endpoint": endpoint }), None)).await, Err(CoreError::InvalidParams { .. })),
             "{endpoint}"
         );
     }
-    assert_eq!(spy.targets.lock().unwrap().len(), 2);
+    assert!(spy.targets.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -238,11 +247,9 @@ async fn the_visualize_state_set_by_the_desktop_is_folded_into_the_panes() {
     set(json!({ "sessionId": "s1", "state": { "sessionId": "s1", "tabs": [], "active": null } })).await.unwrap();
     assert!(!panes.page_file(std::path::Path::new(&cwd), &rel));
 }
-/// The `hostState` `visualize` section is readable by a paired phone's subscription, so no host path ever reaches it or a phone's
-/// notification. A snapshot is the section's (state alone); an event goes to the phones that view its session whole, as Node pushed
-/// it: the state it announces and its own effect fields exactly as the producer gave them, `held` absent when the producer left it out.
-#[tokio::test]
-async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_holds_the_current_state() {
+
+/// Publishes a snapshot, an event that holds the turn, the release and a URL to open.
+async fn publish_visualize_sequence() -> (Arc<MockStatePublisher>, Arc<Pushed>, String, String) {
     let snapshot = visualize_snapshot();
     let tab = &snapshot[0]["tabs"][0];
     let (cwd, pdf) = (tab["cwd"].as_str().unwrap().to_owned(), tab["panes"][0]["path"].as_str().unwrap().to_owned());
@@ -258,6 +265,12 @@ async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_hold
     // The turn is released: the producer publishes the state without `held`.
     send(json!({ "sessionId": session, "state": snapshot[0].clone() })).await.unwrap();
     send(json!({ "sessionId": session, "openUrl": "https://a.test/" })).await.unwrap();
+    (publisher, pushed, cwd, pdf)
+}
+
+#[tokio::test]
+async fn the_visualize_section_holds_the_current_path_free_state() {
+    let (publisher, _, cwd, _) = publish_visualize_sequence().await;
     let published = publisher.published();
     assert_eq!(published.len(), 4, "every publication updates the section, which holds the current state");
     for (_, _, change) in &published {
@@ -265,12 +278,23 @@ async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_hold
         assert!(current.is_array() && !current.to_string().contains(&cwd), "the section holds the current path-free states");
     }
     assert!(set(&published[3].2).as_array().unwrap().len() == 1, "the session is still kept after the release");
+}
+
+#[tokio::test]
+async fn no_host_path_reaches_a_phone_in_a_visualize_event() {
+    let (_, pushed, cwd, pdf) = publish_visualize_sequence().await;
     let pushed = pushed.0.lock().unwrap();
     assert_eq!(pushed.len(), 3);
     for (_, _, payloads) in pushed.iter() {
         let text = serde_json::to_string(payloads).unwrap();
         assert!(!text.contains(&cwd) && !text.contains(&pdf), "a host path reached a phone: {text}");
     }
+}
+
+#[tokio::test]
+async fn a_visualize_event_carries_its_state_and_effects_exactly_as_the_producer_gave_them() {
+    let (_, pushed, _, _) = publish_visualize_sequence().await;
+    let pushed = pushed.0.lock().unwrap();
     let held = &pushed[0].2[0];
     assert_eq!(
         (held["reveal"].clone(), held["tab"].clone(), held["held"].clone(), held["heldSince"].clone()),
@@ -279,7 +303,13 @@ async fn visualize_events_go_to_viewers_whole_and_path_free_and_the_section_hold
     assert!(held["state"]["tabs"].as_array().is_some_and(|tabs| !tabs.is_empty()), "the event carries the state it announces");
     let released = &pushed[1].2[0];
     assert!(released.get("held").is_none() && released.get("reveal").is_none(), "no effect is invented: held stays absent, as published");
-    assert_eq!((pushed[0].1, pushed[2].1), (false, true), "only a URL to open goes to every phone");
+}
+
+#[tokio::test]
+async fn only_a_url_to_open_goes_to_every_phone() {
+    let (_, pushed, _, _) = publish_visualize_sequence().await;
+    let pushed = pushed.0.lock().unwrap();
+    assert_eq!((pushed[0].1, pushed[2].1), (false, true));
 }
 /// The state a snapshot read returns says whether its session is held now and since when, exactly as the producer last published it: held
 /// while its events carry `held`, released by the state-bearing event without it; a producer snapshot carries none.
@@ -300,7 +330,14 @@ async fn the_state_read_says_whether_a_session_is_held_as_the_producer_last_publ
     send(json!({ "sessionId": session, "state": snapshot[0].clone() })).await.unwrap();
     let released = &panes.remote_states()[0];
     assert!(released.get("held").is_none() && released.get("heldSince").is_none(), "the release is the state without `held`");
-    // A reclaim: the producer's snapshot reports its holds per session, and the map it replaces is exactly that.
+}
+
+/// A reclaim: the producer's snapshot reports its holds per session, and the map it replaces is exactly that.
+#[tokio::test]
+async fn a_producer_snapshot_replaces_the_holds_with_the_ones_it_reports() {
+    let snapshot = visualize_snapshot();
+    let (service, _, _, panes) = rig_with_panes();
+    let send = |value: Value| service.call(from_claim(true, value));
     let mut during = snapshot.clone();
     during[0]["held"] = json!(true);
     during[0]["heldSince"] = json!(9);

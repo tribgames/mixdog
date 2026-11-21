@@ -13,8 +13,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::mock::MockConnection;
 use mixdog_core_api::mock::MockLimits;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_non_default_limits_value_reaches_the_advertisement_and_the_begin_answer() {
+async fn composed_with_non_default_limits() -> (tempfile::TempDir, Arc<ComposedCore>, Arc<mixdog_app_server::Outgoing>) {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
@@ -30,31 +29,28 @@ async fn a_non_default_limits_value_reaches_the_advertisement_and_the_begin_answ
         compose_with_limits(
             &tokens,
             ComposeConfig {
-                rebuild: Default::default(),
-                data_dir: data.clone(),
-                user_data_dir: dir.path().join("userdata"),
-                runtime_root: dir.path().join("runtime"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
                 outgoing: outgoing.clone(),
-                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
-                stop,
-                catalog_http: crate::compose_test_support::offline_http(),
-                pg_install: Some(Arc::new(|_| {
-                    Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the limits test must not install PostgreSQL".into())) })
-                })),
+                ..tests::config_without_postgres(
+                    &data,
+                    dir.path(),
+                    crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, stop.clone()),
+                    stop,
+                    "the limits test must not install PostgreSQL",
+                )
             },
             mixdog_rt::CancellationToken::new(),
-            limits.clone(),
+            limits,
         ),
     )
     .await
     .expect("composition did not complete within 60 seconds")
     .unwrap();
-    let core = Arc::new(core);
+    (dir, Arc::new(core), outgoing)
+}
 
-    // The workspace service states the chunk the core was composed with.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_non_default_limits_value_reaches_the_begin_answer() {
+    let (_dir, core, _outgoing) = composed_with_non_default_limits().await;
     let begun = match core
         .domain_for("transfer/beginWrite")
         .expect("the workspace claims transfer/beginWrite")
@@ -71,8 +67,12 @@ async fn a_non_default_limits_value_reaches_the_advertisement_and_the_begin_answ
         Reply::Subscribe(_) => panic!("unexpected subscribe"),
     };
     assert_eq!(begun["chunkBytes"], 90_000, "the begin answer states the composed chunk, not the default");
+    mixdog_rt::time::timeout(Duration::from_secs(30), core.stop("limits test")).await.expect("the core stopped within 30 seconds");
+}
 
-    // The server that serves the same core advertises the same limits at `initialize`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_non_default_limits_value_reaches_the_advertisement() {
+    let (_dir, core, outgoing) = composed_with_non_default_limits().await;
     let running = crate::server::Running::build(core.clone(), outgoing).expect("the composed limits are valid");
     let wire = Arc::new(MockConnection::new(ConnectionId(1), MockLimits::default()));
     // The hub's first socket is connection 1: the server judges a call by the origin the hub holds for its connection.

@@ -847,10 +847,7 @@ fn register_layout_on_master(zip: &mut Package, master: &str, target_path: &str)
     };
     zip.set(master, next);
 }
-/// `adoptImportedLayout`: a page borrowed from another deck was drawn on that deck's layout. When this deck already
-/// holds the same layout the import points at it; when the two were cut from different templates the layout is copied in
-/// and adopted by this deck's master, so the page keeps the geometry it was built with and the master still lists every
-/// layout under it. Empty when this deck has no master to adopt it.
+
 fn adopt_imported_layout(source: &Package, zip: &mut Package, layout_path: &str, cache: &mut HashMap<String, String>) -> Result<String, String> {
     static MASTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^ppt\/slideMasters\/slideMaster\d+\.xml$", ""));
     let mut masters: Vec<String> = zip.names().into_iter().filter(|name| MASTER.is_match(name)).collect();

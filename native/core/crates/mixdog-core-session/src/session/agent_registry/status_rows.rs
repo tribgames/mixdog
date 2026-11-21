@@ -277,8 +277,9 @@ pub fn job_status_row(input: &JobStatus<'_>) -> Map<String, Value> {
         put_progress(&mut row, &progress);
         return row;
     }
-    let Some(session_id) = meta.session_id.as_deref().filter(|id| !id.is_empty()) else { return row };
-    let _ = session_id;
+    if meta.session_id.as_deref().is_none_or(str::is_empty) {
+        return row;
+    }
     let session_status = input.session.and_then(|s| text(s, "status"));
     if let Some(session) = input.session {
         let status =
@@ -373,16 +374,22 @@ impl AgentStatus for AgentToolStatus {
         let session = mixdog_core_ports::ports::route::header_names_session(&handle.cell.header.load()).then(|| thread.as_str().to_owned());
         let scope = Scope { caller_session_id: session.clone(), host_pid: Some(pid) };
         let now = self.clock.now_ms();
-        // The status pulse reads the index only (`memoryOnly`): a row past its deadline leaves it at the maintenance pass.
         self.registry.refresh_tags_from_index(&scope).await;
-        let mut workers = Vec::new();
         let mut pending = Vec::new();
-        // Only the entries a status can list: the rows whose own state is inactive are left out.
-        for (tag, session) in self.registry.status_entries(&scope) {
+        let workers = self.worker_rows(&scope, now, &mut pending).await;
+        let jobs = self.job_rows(&scope, now, &mut pending);
+        self.role_policies.resolve(pending);
+        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope(thread, &handle.cell.header.load())) }
+    }
+}
+
+impl AgentToolStatus {
+    async fn worker_rows(&self, scope: &Scope, now: i64, pending: &mut Vec<String>) -> Vec<Value> {
+        let mut workers = Vec::new();
+        for (tag, session) in self.registry.status_entries(scope) {
             let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
-            let live = self.live(&id, text(&session, "agent").as_deref(), now, &mut pending);
+            let live = self.live(&id, text(&session, "agent").as_deref(), now, pending);
             let (status, stage) = row_state(&session, live.runtime_stage.as_deref());
-            // Listed by status and stage alone, as `createAgentList` lists.
             if !is_active_worker(&status, &stage) {
                 continue;
             }
@@ -398,14 +405,16 @@ impl AgentStatus for AgentToolStatus {
                 now,
             })));
         }
+        workers
+    }
+
+    fn job_rows(&self, scope: &Scope, now: i64, pending: &mut Vec<String>) -> Vec<Value> {
         let worker_pid = |id: &str| self.directory.handle(&ThreadId::from(id)).and_then(|h| positive_int(h.cell.header.load().get("clientHostPid")));
         let mut jobs = Vec::new();
-        for job in self.board.list_jobs_for_client(&scope, &worker_pid) {
+        for job in self.board.list_jobs_for_client(scope, &worker_pid) {
             let id = job.meta.session_id.clone().filter(|id| !id.is_empty());
             let session = id.as_deref().and_then(|id| self.directory.handle(&ThreadId::from(id))).map(|h| h.cell.header.load_full());
-            // A finished job's row is frozen: no progress is read, so no role policy is asked for.
-            let live =
-                id.as_deref().filter(|_| !is_terminal(&job.status)).map(|id| self.live(id, job.meta.agent.as_deref(), now, &mut pending)).unwrap_or_default();
+            let live = id.as_deref().filter(|_| !is_terminal(&job.status)).map(|id| self.live(id, job.meta.agent.as_deref(), now, pending)).unwrap_or_default();
             jobs.push(Value::Object(job_status_row(&JobStatus {
                 job: &job,
                 session: session.as_deref(),
@@ -414,9 +423,7 @@ impl AgentStatus for AgentToolStatus {
                 now,
             })));
         }
-        self.role_policies.resolve(pending);
-        // statusFor: a session's agents are scoped to that owner session, else to the hosting process.
-        ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope(thread, &handle.cell.header.load())) }
+        jobs
     }
 }
 

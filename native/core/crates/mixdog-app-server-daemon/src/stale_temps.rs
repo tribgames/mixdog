@@ -201,26 +201,7 @@ pub struct Pruned {
 /// evidence. Nothing outside the captures' own naming is touched.
 pub fn prune_crash_captures(dir: &Path, alive: &dyn Fn(u32) -> bool) -> Pruned {
     let Ok(entries) = std::fs::read_dir(dir) else { return Pruned::default() };
-    let mut boots: std::collections::HashMap<String, Boot> = std::collections::HashMap::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some((stem, record)) = name.to_str().and_then(capture_stem) else { continue };
-        let Ok(meta) = entry.metadata() else { continue };
-        if !meta.is_file() {
-            continue;
-        }
-        let boot = boots.entry(stem.to_owned()).or_insert_with(|| Boot { stem: stem.to_owned(), ..Boot::default() });
-        boot.files.push(entry.path());
-        boot.bytes += meta.len();
-        boot.modified = boot.modified.max(meta.modified().ok());
-        if record {
-            boot.record = Some(entry.path());
-        } else {
-            boot.raw = Some((entry.path(), meta.len()));
-        }
-    }
-    let mut ordered: Vec<Boot> = boots.into_values().collect();
-    ordered.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| b.stem.cmp(&a.stem)));
+    let ordered = boots_newest_first(entries);
     let mut pruned = Pruned::default();
     let mut newest_completed_seen = false;
     for boot in &ordered {
@@ -249,10 +230,33 @@ pub fn prune_crash_captures(dir: &Path, alive: &dyn Fn(u32) -> bool) -> Pruned {
             pruned.kept_bytes += bytes;
             continue;
         }
-        // A locked capture simply stays.
         pruned.removed += boot.files.iter().filter(|file| std::fs::remove_file(file).is_ok()).count();
     }
     pruned
+}
+
+fn boots_newest_first(entries: std::fs::ReadDir) -> Vec<Boot> {
+    let mut boots: std::collections::HashMap<String, Boot> = std::collections::HashMap::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some((stem, record)) = name.to_str().and_then(capture_stem) else { continue };
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let boot = boots.entry(stem.to_owned()).or_insert_with(|| Boot { stem: stem.to_owned(), ..Boot::default() });
+        boot.files.push(entry.path());
+        boot.bytes += meta.len();
+        boot.modified = boot.modified.max(meta.modified().ok());
+        if record {
+            boot.record = Some(entry.path());
+        } else {
+            boot.raw = Some((entry.path(), meta.len()));
+        }
+    }
+    let mut ordered: Vec<Boot> = boots.into_values().collect();
+    ordered.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| b.stem.cmp(&a.stem)));
+    ordered
 }
 
 #[cfg(test)]

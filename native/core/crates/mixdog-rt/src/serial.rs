@@ -1,22 +1,17 @@
-//! First-come, first-served serialization across awaits: Node's promise chain
-//! (`prev = prev.then(task)`), as one primitive.
+//! First-come, first-served serialization across awaits.
 //!
-//! [`SerialChain`] is one chain; [`KeyedChains`] is a chain per string key (a session, a file, an
-//! owner), created on first use and dropped as soon as nothing holds or waits on it. Both hand
-//! out a [`ChainGuard`]: the holder owns the turn until the guard drops, and the oldest waiter is
-//! then handed it directly, so order is arrival order and a late arrival never barges past a
-//! queue.
+//! [`SerialChain`] is one chain; [`KeyedChains`] is a chain per string key (a session, a file, an owner), created on first use and
+//! dropped as soon as nothing holds or waits on it. Both hand out a [`ChainGuard`]: the holder owns the turn until the guard
+//! drops, and the oldest waiter is then handed it directly, so a late arrival never barges past a queue.
 //!
-//! - **No lock across an await.** The queue state sits behind a `std::sync::Mutex` that is taken
-//!   for a few instructions at a time (enter, release, abandon) and never while a task runs or a
-//!   waiter waits. The wait itself is a one-shot hand-off, not a lock or a semaphore permit.
-//! - **Cancellation.** Dropping an `acquire` future that is still waiting removes its place from
-//!   the queue. If the turn had already been handed to it, the drop passes the turn on to the next
-//!   waiter instead of stranding the chain.
+//! - **No lock across an await.** The queue state sits behind a `std::sync::Mutex` taken for a few instructions at a time; the
+//!   wait itself is a one-shot hand-off.
+//! - **Cancellation.** Dropping an `acquire` future that is still waiting removes its place from the queue. If the turn had
+//!   already been handed to it, the drop passes the turn on to the next waiter.
 //! - **Panics.** A task that panics while holding the guard releases it as the guard drops.
 //!
-//! Use [`run`](SerialChain::run) when the whole critical section is one future, and `acquire`
-//! when the guard must outlive a call or be dropped early.
+//! Use [`run`](SerialChain::run) when the whole critical section is one future, and `acquire` when the guard must outlive a call
+//! or be dropped early.
 
 use std::collections::HashMap;
 use std::collections::VecDeque;

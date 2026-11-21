@@ -1,7 +1,5 @@
-//! The compaction and auto-clear settings of the agent config (Node
-//! `settings-compaction-api.mjs` + `config-helpers.mjs` `normalizeCompactionConfig`,
-//! `normalizeAutoClearConfig`, the auto-clear provider windows). Every function takes the
-//! `agent` config document and returns the Node result; writing it back is the service's job.
+//! The compaction and auto-clear settings of the agent config. Every function takes the `agent` config
+//! document and returns the result; writing it back is the service's job.
 
 use std::sync::LazyLock;
 
@@ -305,10 +303,9 @@ fn terminal_reap(provider: &str) -> Option<f64> {
     (provider == "openai-oauth").then_some(HOUR)
 }
 
-/// `resolveAgentTerminalReapMs(config, provider)`: how long a completed agent is kept. Listed
-/// providers use their cache window, or the finite reap entry where that is unlimited; any
-/// other provider uses the `default` override or the built-in default. An unlimited override
-/// never disables reaping. `auto_clear` is the config's `autoClear` section.
+/// How long a completed agent is kept. Listed providers use their cache window, or the finite reap
+/// entry where that is unlimited; any other provider uses the `default` override or the built-in
+/// default. An unlimited override never disables reaping. `auto_clear` is the config's `autoClear` section.
 pub fn agent_terminal_reap_ms(auto_clear: Option<&Value>, provider: &str) -> f64 {
     let key = js_trim(provider).to_lowercase();
     let overrides = provider_idle(auto_clear.and_then(|section| section.get("providerIdleMs")));
@@ -531,6 +528,13 @@ pub fn set_auto_clear(agent: &Doc, route_provider: Option<&str>, input: &Doc) ->
         }
         next.insert("minContextPercent".into(), num(clamp_percent(pct)));
     }
+    if let Some(provider_key) = edited_provider(input, route_provider) {
+        return provider_idle_section(next, &provider_key, input);
+    }
+    global_idle_section(next, input)
+}
+
+fn edited_provider(input: &Doc, route_provider: Option<&str>) -> Option<String> {
     let has_duration = input.contains_key("duration");
     let wants_unlimited = has_duration && is_unlimited_text(input.get("duration"));
     let named = input.get("provider").filter(|v| truthy(v));
@@ -546,9 +550,11 @@ pub fn set_auto_clear(agent: &Doc, route_provider: Option<&str>, input: &Doc) ->
             || input.get("unlimited") == Some(&Value::Bool(true))
             || has_duration
             || input.contains_key("idleMs"));
-    if edits_provider {
-        return provider_idle_section(next, &provider_key, input);
-    }
+    edits_provider.then_some(provider_key)
+}
+
+fn global_idle_section(mut next: Doc, input: &Doc) -> Result<Doc, SettingsError> {
+    let has_duration = input.contains_key("duration");
     let idle_null = input.get("idleMs").is_none_or(Value::is_null);
     if input.get("reset") == Some(&Value::Bool(true)) || (input.contains_key("idleMs") && idle_null) {
         next.insert("idleMs".into(), Value::Null);

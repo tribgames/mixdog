@@ -25,6 +25,7 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::provider::RequestThread;
 use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_session::session::SessionDirectory;
 use mixdog_protocol::TurnError;
 use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
 use mixdog_store::schema::record::Header;
@@ -166,7 +167,14 @@ mod prefix_guard_tests {
                 assert_eq!(compare(baseline.as_ref(), &fingerprint(&next, provider), &options).unwrap()["reason"], "history_shrink");
             }
         }
+    }
 
+    /// Returning to the original route without a send in between must not revive the old baseline.
+    #[tokio::test]
+    async fn a_round_trip_between_routes_consumes_the_staged_reroot() {
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Facts));
+        let slot = mixdog_core_session::session::PrefixGuardSlot::default();
+        let thread = ThreadId::from("route-guard");
         let mut header = json!({
             "id": thread.as_str(), "provider": "anthropic", "model": "old-model", "transcriptEpoch": "same-lineage",
             "cwd": "new-workspace", "bp3EnvSplit": true, "bp3EnvironmentContext": "- Workspace: old",
@@ -557,10 +565,6 @@ mod rebuilt_tests {
     }
 }
 
-/// The identity a request carries is read from the session's stored header, whichever way the session came to be
-/// opened (`ensureCodexWireSessionId`, `ask-turn-open.mjs:85`): a resumed session sends the id it was stored with, a
-/// sub-agent session the id of its own header and not its parent's, and a fork the id the fork minted for itself
-/// (`mixdog-core-session`, `a_fork_has_a_codex_wire_identity_of_its_own`).
 #[cfg(test)]
 mod identity_tests {
     use serde_json::json;
@@ -788,10 +792,6 @@ impl HostRunParts {
         let s = &self.services;
         let seams = &s.seams;
         let provider_id = text(header, "provider");
-        // Node readies the route's provider when a stored session is resumed (`resume.mjs:108` `refreshRouteEffort` ->
-        // `route-resolution.mjs:38` `ensureProvidersReady(ensureProviderEnabled(config, provider))`); a thread opened
-        // after a restart has had no such step here, so the first request readies it the same way. A provider the user switched
-        // off is absent before anything is initialized or taken from the registry, where it may still be registered.
         let host = seams.hop_host(thread, header);
         if host.as_ref().is_some_and(|host| mixdog_ai::service::admin_route::provider_switched_off(&host.config(), provider_id)) {
             return Ok(None);
@@ -848,10 +848,6 @@ impl HostRunParts {
         }
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
-        // The session's transcript-cache owner: its live book (loaded once from the header's `cacheTailBook`) admits every
-        // attempt immediately before transport, with the clock of that moment, whether the request is a turn's or the one
-        // a side question or a warm rebuilds; forks of these requests carry it too. The book is the one the session's store
-        // holds open, which the directory that runs this request owns.
         let directory = s.directory.upgrade().ok_or_else(|| refuse("the session directory is gone"))?;
         options.tail_gate = Some(directory.deps().cache_tail.gate(
             thread.as_str(),
@@ -873,6 +869,105 @@ impl HostRunParts {
         // a reload of the stored history), so an attempt built after a rewrite it did not make is refused, never re-stamped.
         options.tail_generation = Some(source.generation);
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
+    }
+
+    fn route_hop(&self, thread: &ThreadId, header: &Header, turn: &mixdog_core_api::ids::TurnId) -> Option<Arc<RouteHop>> {
+        let s = &self.services;
+        let host = s.seams.hop_host(thread, header)?;
+        let (seams, thread, turn) = (s.seams.clone(), thread.clone(), turn.clone());
+        let (ceilings, clock, directory) = (s.settings.ceilings.clone(), s.clock.clone(), s.directory.clone());
+        Some(Arc::new(RouteHop::new(host).with_request_for_route(move |header| {
+            let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
+            apply_identity(&mut options, &thread, header, Some(turn.clone()));
+            apply_route_options(&mut options, header);
+            let ceiling = ceilings.ceilings(text(header, "provider"), text(header, "model"), header);
+            options.model_max_output_tokens = ceiling.model_max;
+            let run = seams.run_settings(&thread, header);
+            let auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
+            let (session, book, clock) = (thread.clone(), header.get("cacheTailBook").cloned(), clock.clone());
+            let tail_gate = directory.upgrade().map(|directory| -> mixdog_agent::env::TailGateFor {
+                Arc::new(move |compact: Option<&mixdog_agent::boundary::CompactSettings>| {
+                    let clock = clock.clone();
+                    directory.deps().cache_tail.gate(
+                        session.as_str(),
+                        book.as_ref(),
+                        mixdog_ai::cache_tail::GateSettings {
+                            clock: Arc::new(move || clock.now_ms()),
+                            auto_clear: auto_clear.clone(),
+                            sizing: sizing_key(compact),
+                            fresh: false,
+                            last_send_at: None,
+                        },
+                    )
+                })
+            });
+            mixdog_agent::env::RouteSwitchRequest {
+                options,
+                compact: run.compact,
+                header: header.clone(),
+                escalated_max_output_tokens: ceiling.escalated,
+                tail_gate,
+            }
+        })))
+    }
+
+    /// The step judge exists only when auto effort is on for the turn and the shared model has a calibration made for steps.
+    async fn step_judge(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        provider_id: &str,
+        requested: Option<mixdog_agent::step_effort::StepAutoEffort>,
+    ) -> (Option<mixdog_agent::step_effort::StepAutoEffort>, Option<Arc<dyn StepEffortJudge>>) {
+        let s = &self.services;
+        let step_auto_effort = match (requested, &s.effort_judge) {
+            (Some(auto), Some(model)) if model.supports_steps().await => Some(auto),
+            _ => None,
+        };
+        let step_judge = match &step_auto_effort {
+            Some(auto) => match s.seams.step_ladder_facts(thread, header, auto).await {
+                Some(facts) => super::step_judge::ladder_for(provider_id, auto, facts)
+                    .zip(s.effort_judge.clone())
+                    .map(|(ladder, model)| Arc::new(EffortJudge::new(model, ladder)) as Arc<dyn StepEffortJudge>),
+                None => None,
+            },
+            None => None,
+        };
+        (step_auto_effort, step_judge)
+    }
+
+    /// The gate is built by the factory from the run's observer and token, which exist only after assembly.
+    fn gate_builder(
+        &self,
+        directory: &SessionDirectory,
+        input: &AssembleInput<'_>,
+        cwd: &Path,
+        observer: &super::tool_exclusions::ObserverSlot,
+    ) -> GateBuilder {
+        let s = &self.services;
+        let thread = input.thread;
+        let (policy, connectors, resolver) = (s.policy.clone(), s.connectors.clone(), s.resolver.clone());
+        let grants = directory.grants(thread);
+        let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
+        let (thread, cwd) = (thread.clone(), cwd.to_path_buf());
+        let observer = observer.clone();
+        let approvals = s.approvals.clone();
+        Box::new(move |context: GateContext| {
+            let _ = observer.set(context.observer.clone());
+            Arc::new(mixdog_agent::env::PolicyGate::new(mixdog_agent::env::PolicyGateParts {
+                policy,
+                connectors,
+                session,
+                tools: resolver,
+                grants,
+                approvals: approvals.gate_for(&thread, context.approvals),
+                observer: context.observer,
+                guards: context.guards,
+                thread_id: thread,
+                cwd,
+                cancel: context.cancel,
+            }))
+        })
     }
 
     /// `nextMainRequest`: the request the thread's next turn would send, assembled by the same parts
@@ -1006,8 +1101,9 @@ impl HostRunParts {
     }
 }
 impl HostRunParts {
-    /// Composes a session's prompt: the probes it asks for are settled first, then job runs in an
-    /// io-interactive lane job over RealSources (see [super::prewarm::compose]).
+    /// Composes a session's prompt under the token of the turn it runs in: the probes it asks for are settled first,
+    /// its sources are read on the io-interactive lane and it is assembled on the cpu-interactive lane (see
+    /// [super::prewarm::compose]).
     #[allow(
         clippy::result_large_err,
         reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract"
@@ -1015,13 +1111,10 @@ impl HostRunParts {
     pub async fn compose_prompt<R: Send + 'static>(&self, job: super::prewarm::ComposeJob<R>) -> Result<R, TurnError> {
         let seams = &self.services.seams;
         let facts = Arc::new(super::prewarm::PromptFacts::from_process(seams.plugin_root(), seams.data_dir(), seams.stored_instruction_files()));
-        super::prewarm::compose(&self.services.io, &self.services.probes, &self.services.observed, facts, job).await.map_err(refuse)
+        let cancel = mixdog_agent::compact::blob_reads::turn_cancel();
+        super::prewarm::compose(&self.services.io, &self.services.probes, &self.services.observed, facts, &cancel, job).await.map_err(refuse)
     }
 }
-/// The turn's working directory: the header's `cwd`, else the folder the daemon runs in. Node's turn runs in
-/// `cwdOverride || session.cwd` (`ask-turn-execute.mjs:193`), which is null for a session made without one (a hidden
-/// role's dispatch passes null rather than `process.cwd()`, `session-prep.mjs:62`), and each reader of it falls back to
-/// `process.cwd()` (`ask-session.mjs:109`, `record-outcome.mjs:125`). A turn refused for it failed every memory cycle1 call.
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
 fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     let cwd = text(header, "cwd");
@@ -1029,6 +1122,35 @@ fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
         return Ok(Path::new(cwd).to_path_buf());
     }
     std::env::current_dir().map_err(|_| refuse("the session has no working directory"))
+}
+
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
+async fn pin_wire_route(
+    directory: &SessionDirectory,
+    input: &AssembleInput<'_>,
+    header: &Header,
+    provider: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
+    options: &mut mixdog_core_api::domain::provider::RequestOptions,
+) -> Result<(), TurnError> {
+    let (thread, provider_id, model) = (input.thread, text(header, "provider"), text(header, "model"));
+    let current = header.get("wireRoute");
+    let answered = input.prior.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant"));
+    let Some(pin) = mixdog_core_run::run_host::hop_host::resolve_pin(provider, current, provider_id, model, current.is_none() && answered).await else {
+        return Ok(());
+    };
+    let live = directory.live_header(thread).header();
+    if text(&live, "provider") != provider_id || text(&live, "model") != model {
+        return Ok(());
+    }
+    options.wire_pin = wire_pin_of(Some(&pin));
+    let mut set = serde_json::Map::new();
+    set.insert("wireRoute".into(), pin);
+    input
+        .port
+        .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
+        .await
+        .map_err(|_| refuse("the pinned wire route could not be saved"))?;
+    Ok(())
 }
 
 #[async_trait]
@@ -1112,49 +1234,7 @@ impl RunParts for HostRunParts {
         // or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
         let ensured = ensure_codex_wire_id(&directory, thread, header).await?;
         let header = ensured.as_deref().unwrap_or(header);
-        let route = seams.hop_host(thread, header).map(|host| {
-            let (seams, thread, turn) = (seams.clone(), thread.clone(), input.turn.clone());
-            let (ceilings, clock, directory) = (s.settings.ceilings.clone(), s.clock.clone(), s.directory.clone());
-            Arc::new(RouteHop::new(host).with_request_for_route(move |header| {
-                let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
-                apply_identity(&mut options, &thread, header, Some(turn.clone()));
-                apply_route_options(&mut options, header);
-                // The destination's own output ceilings and compaction sizing, read as a turn start on it would read them.
-                let ceiling = ceilings.ceilings(text(header, "provider"), text(header, "model"), header);
-                options.model_max_output_tokens = ceiling.model_max;
-                let run = seams.run_settings(&thread, header);
-                let auto_clear = run.auto_clear.clone().unwrap_or_else(|| Arc::new(|| true));
-                let (session, book, clock) = (thread.clone(), header.get("cacheTailBook").cloned(), clock.clone());
-                // The same book of the session, judged under the sizing the destination's settings give.
-                let tail_gate = directory.upgrade().map(|directory| -> mixdog_agent::env::TailGateFor {
-                    Arc::new(move |compact: Option<&mixdog_agent::boundary::CompactSettings>| {
-                        let clock = clock.clone();
-                        directory.deps().cache_tail.gate(
-                            session.as_str(),
-                            book.as_ref(),
-                            mixdog_ai::cache_tail::GateSettings {
-                                clock: Arc::new(move || clock.now_ms()),
-                                auto_clear: auto_clear.clone(),
-                                sizing: sizing_key(compact),
-                                fresh: false,
-                                last_send_at: None,
-                            },
-                        )
-                    })
-                });
-                mixdog_agent::env::RouteSwitchRequest {
-                    options,
-                    compact: run.compact,
-                    header: header.clone(),
-                    escalated_max_output_tokens: ceiling.escalated,
-                    tail_gate,
-                }
-            }))
-        });
-        // A provider that is not available at preflight never gets the request: the session's next route takes the turn when it
-        // has one, and the run seats that switch before its first request exactly as it seats a mid-turn one (the departing
-        // provider's replay, continuation state and prefix guard do not reach the landing one, and the switch is told then).
-        // The turn is assembled over the session as the hop left it, with the landing provider's wire identity minted.
+        let route = self.route_hop(thread, header, &input.turn);
         let live;
         let (header, provider) = match self.ready_provider(thread, header).await? {
             Some(provider) => (header, provider),
@@ -1187,28 +1267,7 @@ impl RunParts for HostRunParts {
             .await?;
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
-        // `pinSessionWireRoute` (`ask-turn-execute.mjs`): the session's wire is pinned before its first request;
-        // a session that predates the table (`wireRoute` absent) and already answered keeps the wire it started on.
-        {
-            let model = text(header, "model");
-            let current = header.get("wireRoute");
-            let answered = input.prior.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant"));
-            if let Some(pin) = mixdog_core_run::run_host::hop_host::resolve_pin(&*provider, current, provider_id, model, current.is_none() && answered).await {
-                // The route moved while resolving: the newer route pins on its own turn.
-                let live = directory.live_header(thread).header();
-                if text(&live, "provider") == provider_id && text(&live, "model") == model {
-                    // The turn's sends read the pin the session now holds (`sendWireRoute` reads `session.wireRoute`).
-                    options.wire_pin = wire_pin_of(Some(&pin));
-                    let mut set = serde_json::Map::new();
-                    set.insert("wireRoute".into(), pin);
-                    input
-                        .port
-                        .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
-                        .await
-                        .map_err(|_| refuse("the pinned wire route could not be saved"))?;
-                }
-            }
-        }
+        pin_wire_route(&directory, &input, header, &*provider, &mut options).await?;
         let tool_env = ToolEnv {
             thread_id: thread.clone(),
             turn_id: input.turn.clone(),
@@ -1252,22 +1311,7 @@ impl RunParts for HostRunParts {
         config.read_body_required = settings.read_body_required;
         config.vision = settings.vision;
         config.effort = settings.effort;
-        // The judge is built only when auto effort is on for the turn (`stepAutoEffort`), over the
-        // shared model and the ladder of this run's route.
-        // Step judging needs a calibration made for steps (`calibration.json` `steps === 1`).
-        let step_auto_effort = match (settings.step_auto_effort, &s.effort_judge) {
-            (Some(auto), Some(model)) if model.supports_steps().await => Some(auto),
-            _ => None,
-        };
-        let step_judge = match &step_auto_effort {
-            Some(auto) => match seams.step_ladder_facts(thread, header, auto).await {
-                Some(facts) => super::step_judge::ladder_for(provider_id, auto, facts)
-                    .zip(s.effort_judge.clone())
-                    .map(|(ladder, model)| Arc::new(EffortJudge::new(model, ladder)) as Arc<dyn StepEffortJudge>),
-                None => None,
-            },
-            None => None,
-        };
+        let (step_auto_effort, step_judge) = self.step_judge(thread, header, provider_id, settings.step_auto_effort).await;
         config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
@@ -1277,7 +1321,6 @@ impl RunParts for HostRunParts {
         config.image_overlay = Some(Arc::new(move || {
             mixdog_core_session::session::image_overlay_store::load(&overlay_dir, &overlay_thread).map_err(|error| format!("{error:?}"))
         }));
-        config.slot = input.slot;
         // `loop-state.mjs`: a compaction between turns parked a one-shot intent; the turn's first send takes it and the record
         // drops it.
         if let Some(intent) = header.get("pendingCacheBreakIntent").and_then(Value::as_str) {
@@ -1286,33 +1329,8 @@ impl RunParts for HostRunParts {
             input.port.save_header(change).await.map_err(|_| refuse("the session's pending cache break could not be taken"))?;
         }
 
-        // The gate needs the observer and the token, which the factory makes after this: it is
-        // built from them.
-        let gate: GateBuilder = {
-            let (policy, connectors, resolver) = (s.policy.clone(), s.connectors.clone(), s.resolver.clone());
-            let grants = directory.grants(thread);
-            let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
-            let (thread, cwd) = (thread.clone(), cwd.clone());
-            let observer = observer.clone();
-            let approvals = s.approvals.clone();
-            Box::new(move |context: GateContext| {
-                // The run's observer shows the exclusion notices; the factory builds the gate before the first request.
-                let _ = observer.set(context.observer.clone());
-                Arc::new(mixdog_agent::env::PolicyGate::new(mixdog_agent::env::PolicyGateParts {
-                    policy,
-                    connectors,
-                    session,
-                    tools: resolver,
-                    grants,
-                    approvals: approvals.gate_for(&thread, context.approvals),
-                    observer: context.observer,
-                    guards: context.guards,
-                    thread_id: thread,
-                    cwd,
-                    cancel: context.cancel,
-                }))
-            })
-        };
+        let gate = self.gate_builder(&directory, &input, &cwd, &observer);
+        config.slot = input.slot;
         let session_id = thread.as_str();
         // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
         let rows = Arc::new(mixdog_core_session::session::StoredRows::new());

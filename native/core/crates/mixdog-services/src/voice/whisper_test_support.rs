@@ -100,34 +100,36 @@ impl Scripted {
     }
 }
 
+async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<(Vec<u8>, usize)> {
+    let mut raw = Vec::new();
+    let mut chunk = [0u8; 8192];
+    let (head_end, length) = loop {
+        let Ok(read) = stream.read(&mut chunk).await else { return None };
+        if read == 0 {
+            return None;
+        }
+        raw.extend_from_slice(&chunk[..read]);
+        if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&raw[..at]).to_lowercase();
+            let length = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+            break (at + 4, length);
+        }
+    };
+    while raw.len() < head_end + length {
+        let Ok(read) = stream.read(&mut chunk).await else { break };
+        if read == 0 {
+            break;
+        }
+        raw.extend_from_slice(&chunk[..read]);
+    }
+    Some((raw, head_end))
+}
+
 async fn serve(listener: tokio::net::TcpListener, requests: Arc<Mutex<Vec<Value>>>, hang: Arc<AtomicBool>, seen: Arc<Notify>) {
     loop {
         let Ok((mut stream, _)) = listener.accept().await else { return };
-        let mut raw = Vec::new();
-        let mut chunk = [0u8; 8192];
-        let (head_end, length) = loop {
-            let Ok(read) = stream.read(&mut chunk).await else { break (0, 0) };
-            if read == 0 {
-                break (0, 0);
-            }
-            raw.extend_from_slice(&chunk[..read]);
-            if let Some(at) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
-                let head = String::from_utf8_lossy(&raw[..at]).to_lowercase();
-                let length = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
-                break (at + 4, length);
-            }
-        };
         // The readiness probe connects and hangs up without a request.
-        if head_end == 0 {
-            continue;
-        }
-        while raw.len() < head_end + length {
-            let Ok(read) = stream.read(&mut chunk).await else { break };
-            if read == 0 {
-                break;
-            }
-            raw.extend_from_slice(&chunk[..read]);
-        }
+        let Some((raw, head_end)) = read_request(&mut stream).await else { continue };
         let head = String::from_utf8_lossy(&raw[..head_end.min(raw.len())]).into_owned();
         let mut first = head.lines().next().unwrap_or_default().split(' ');
         let (method, url) = (first.next().unwrap_or_default().to_owned(), first.next().unwrap_or_default().to_owned());
@@ -207,6 +209,9 @@ impl ProcessManager for Scripted {
         Ok(SpawnedProcess { handle: request.handle, pid })
     }
 
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, handle: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let rx = self.pending.lock().unwrap().remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
         Ok(Box::new(Events(rx)))

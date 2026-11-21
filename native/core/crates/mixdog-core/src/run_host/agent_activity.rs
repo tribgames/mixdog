@@ -1,17 +1,18 @@
-//! The one listener of the agent status signals (`agent-tool.mjs` `stopStatusSources`):
+//! The one listener of the agent status signals:
 //! every source that may change what `getStatus` answers asks the owner's thread to re-read its
 //! agents (`SessionDirectory::agent_activity` for a named owner, `status_may_have_changed` for the
-//! others, wp-session-29), which publishes `thread/agents/updated`
+//! others), which publishes `thread/agents/updated`
 //! only when the lists differ. Nothing polls.
 //!
-//! Node re-reads every status scope on each signal. A background task added or finished names its
+//! A background task added or finished names its
 //! owner, and only that owner re-reads; every other source (an approval wait changing, a
 //! worker-index write, a session record reloaded, a role's watchdog policy resolved) reaches every
-//! loaded owner. Only a named owner's idle clock starts over (`emitSessionActivityChange(id)`).
+//! loaded owner. Only a named owner's idle clock starts over.
 
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_session::session::agent_activity::SignalHolds;
 use mixdog_core_session::session::agent_registry::signals::StatusSignals;
 use tokio::sync::Notify;
 
@@ -53,6 +54,9 @@ pub struct AgentActivity {
     sink: Arc<dyn ActivitySink>,
     /// Woken by every signal, loaded owners or not: the `agentPool` section re-lists on it.
     changed: Arc<Notify>,
+    /// The sessions a batch of changes holds the signals of (`AgentSignals::hold`): their records and row writes reach
+    /// no thread while held, and the batch's end reaches every one once.
+    holds: Arc<SignalHolds>,
     /// Cancels the agent jobs a session started (`cancelBackgroundTasks({ surface: 'agent', callerSessionId, reason })`); bound
     /// once the job board exists, which is built over this listener.
     cancel_jobs: std::sync::OnceLock<CancelJobs>,
@@ -60,7 +64,7 @@ pub struct AgentActivity {
 
 impl AgentActivity {
     pub fn new(sink: Arc<dyn ActivitySink>) -> Arc<Self> {
-        Arc::new(Self { sink, changed: Arc::new(Notify::new()), cancel_jobs: std::sync::OnceLock::new() })
+        Arc::new(Self { sink, changed: Arc::new(Notify::new()), holds: Arc::default(), cancel_jobs: std::sync::OnceLock::new() })
     }
 
     /// Binds the cancel of a session's agent jobs; a second bind is refused.
@@ -83,10 +87,14 @@ impl AgentActivity {
     /// A source with no owner of its own: `registry.onWorkerRowsChange`, `sessionRecords.onChange`,
     /// `onSessionApprovalWaitChange`, `onRolePolicyResolved`.
     pub fn everyone(&self) {
-        for thread in self.sink.loaded() {
-            self.sink.status_may_have_changed(thread.as_str());
+        reach_everyone(&*self.sink, &self.changed);
+    }
+
+    /// [`Self::everyone`] for a source that names `session`, unless a batch holds its signals.
+    fn everyone_unless_held(&self, session: &str) {
+        if !self.holds.defer(session) {
+            self.everyone();
         }
-        self.changed.notify_one();
     }
 
     /// The registry's emitter (`StoreWorkers::bind_signals`) reaches the same listener.
@@ -101,10 +109,21 @@ impl AgentActivity {
     }
 }
 
+fn reach_everyone(sink: &dyn ActivitySink, changed: &Notify) {
+    for thread in sink.loaded() {
+        sink.status_may_have_changed(thread.as_str());
+    }
+    changed.notify_one();
+}
+
 /// The worker-index write (`registry.onWorkerRowsChange`) names no owner to Node's listener either.
 impl StatusSignals for AgentActivity {
-    fn worker_rows(&self, _session: &str) {
-        self.everyone();
+    fn worker_rows(&self, session: &str) {
+        self.everyone_unless_held(session);
+    }
+
+    fn hold(&self, sessions: &[String]) -> Box<dyn Send> {
+        mixdog_core_session::session::agent_activity::AgentSignals::hold(self, sessions)
     }
 
     /// A Lead pool row is no agent's status: the pool re-lists, no thread re-reads.
@@ -121,14 +140,19 @@ impl mixdog_core_session::session::agent_activity::AgentSignals for AgentActivit
         self.everyone();
     }
 
-    fn session_record(&self, _session: &str) {
-        self.everyone();
+    fn session_record(&self, session: &str) {
+        self.everyone_unless_held(session);
     }
 
     fn agent_turn_aborted(&self, session: &str) {
         if let Some(cancel) = self.cancel_jobs.get() {
             cancel(session);
         }
+    }
+
+    fn hold(&self, sessions: &[String]) -> Box<dyn Send> {
+        let (sink, changed) = (self.sink.clone(), self.changed.clone());
+        Box::new(self.holds.hold(sessions, move || reach_everyone(&*sink, &changed)))
     }
 }
 
@@ -183,6 +207,39 @@ mod tests {
         let signals = AgentActivity::new(sink.clone()).signals();
         signals.worker_rows("w");
         assert_eq!(*sink.1.lock().unwrap(), ["a?", "b?"]);
+    }
+
+    /// A batch that holds the signals of its sessions (`agent cleanup`): their records and row writes reach no thread
+    /// while it lasts, its end reaches every loaded thread once, and a session it does not hold is told as it changes.
+    #[test]
+    fn the_signals_of_held_sessions_reach_the_threads_once_when_the_hold_ends() {
+        use mixdog_core_session::session::agent_activity::AgentSignals;
+        let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
+        let activity = AgentActivity::new(sink.clone());
+        let hold = AgentSignals::hold(&*activity, &["w1".to_owned(), "w2".to_owned()]);
+        for worker in ["w1", "w2", "w1"] {
+            activity.session_record(worker);
+            activity.signals().worker_rows(worker);
+        }
+        assert!(sink.1.lock().unwrap().is_empty(), "nothing while held");
+        activity.session_record("other");
+        assert_eq!(*sink.1.lock().unwrap(), ["a?", "b?"], "a session that is not held is told at once");
+        drop(hold);
+        assert_eq!(*sink.1.lock().unwrap(), ["a?", "b?", "a?", "b?"], "the hold's end tells every thread once");
+        activity.session_record("w1");
+        assert_eq!(sink.1.lock().unwrap().len(), 6, "after the hold a change is told as it happens");
+
+        // The registry's hold is the same one: a row written under it is owed to the batch that takes over.
+        let scan = activity.signals().hold(&["w3".to_owned()]);
+        activity.signals().worker_rows("w3");
+        let batch = AgentSignals::hold(&*activity, &["w3".to_owned(), "w4".to_owned()]);
+        drop(scan);
+        assert_eq!(sink.1.lock().unwrap().len(), 6, "nothing is told while the batch still holds the session");
+        drop(batch);
+        assert_eq!(sink.1.lock().unwrap().len(), 8, "the batch's end tells every thread once");
+
+        drop(activity.signals().hold(&["w5".to_owned()]));
+        assert_eq!(sink.1.lock().unwrap().len(), 8, "a hold nothing changed under tells nobody");
     }
 
     /// The pool section's wake: every kind of signal sets it, a burst is one permit, and with no signal it is not set.

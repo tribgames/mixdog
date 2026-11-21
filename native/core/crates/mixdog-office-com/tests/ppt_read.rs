@@ -1,8 +1,3 @@
-//! The PowerPoint reader (`Snapshot-PowerPoint`, the pptx `Snapshot-Selection`, `Issues-PowerPoint`) against the replaying fake
-//! dispatch object: the reader must make the calls the script makes, in its order, and answer the text the script answers.
-//!
-//! The call logs below are written by hand from `office-com-host.ps1`.
-
 use mixdog_office_com::com::Obj;
 use mixdog_office_com::com::fake::Fake;
 use mixdog_office_com::drivers::Drivers;
@@ -373,7 +368,7 @@ fn a_selected_shape_is_found_by_its_id_among_the_shapes_of_the_slide() {
 }
 
 #[test]
-fn selected_slides_are_listed_in_order_and_a_failed_read_is_the_reason() {
+fn selected_slides_are_listed_in_order() {
     let mut log = Log::default();
     window_and_type(&mut log, 1, 1);
     log.get(4, "SlideRange", obj(7));
@@ -389,7 +384,10 @@ fn selected_slides_are_listed_in_order_and_a_failed_read_is_the_reason() {
          \"key\":\"1:/slide[1],/slide[3]\",\"slide\":1,\"selectionType\":1}"
     );
     fake.finish();
+}
 
+#[test]
+fn a_failed_read_of_the_active_window_is_the_reason_the_selection_is_unavailable() {
     let mut failing = Log::default();
     failing.get(1, "Application", obj(2));
     failing.push(json!({"obj": 2, "kind": "get", "member": "ActiveWindow", "flags": 2, "args": [],

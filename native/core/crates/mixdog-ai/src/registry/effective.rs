@@ -113,63 +113,76 @@ impl EffectiveProviders {
         crate::work::providers_loaded();
         let stored = agent.get("providers").and_then(Value::as_object);
         let mut merged = self.defaults(include_secrets).await;
-        for (name, value) in stored.into_iter().flatten() {
-            let Some(own) = value.as_object() else {
-                merged.insert(name.clone(), value.clone());
-                continue;
-            };
-            let mut entry = merged.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
-            entry.extend(own.clone());
-            // A STORED `enabled` is the user's own decision and outranks the probe.
-            if own.contains_key("enabled") {
-                entry = entry.into_iter().filter(|(key, _)| key != "credentialProbeUnavailable").collect();
-            }
-            merged.insert(name.clone(), Value::Object(entry));
-        }
-        let stored_enabled = |name: &str| stored.and_then(|s| s.get(name)).and_then(|entry| entry.get("enabled"));
-        // A custom provider with no auth never carries a key, not even a hand-edited one.
-        for value in merged.values_mut() {
-            let keyless = value.get("type").and_then(Value::as_str) == Some("custom") && value.get("auth").and_then(Value::as_str) == Some("none");
-            if keyless && let Some(entry) = value.as_object_mut() {
-                *entry = std::mem::take(entry).into_iter().filter(|(key, _)| key != "apiKey").collect();
-            }
-        }
+        fold_stored(&mut merged, stored);
+        drop_keyless_custom_keys(&mut merged);
         if include_secrets {
-            for (name, _) in KEY_PROVIDERS {
-                if let Some(key) = self.keys.get(name).await.map_err(|error| error.message)? {
-                    let mut entry = merged.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
-                    entry.insert("apiKey".into(), Value::String(key));
-                    entry.insert("enabled".into(), Value::Bool(stored_enabled(name) != Some(&Value::Bool(false))));
-                    merged.insert(name.into(), Value::Object(entry));
-                }
-            }
-            let custom: Vec<String> = merged
-                .iter()
-                .filter(|(name, value)| {
-                    name.starts_with("custom-")
-                        && value.get("type").and_then(Value::as_str) == Some("custom")
-                        && value.get("auth").and_then(Value::as_str) != Some("none")
-                })
-                .map(|(name, _)| name.clone())
-                .collect();
-            for name in custom {
-                let mut entry = merged.get(&name).and_then(Value::as_object).cloned().unwrap_or_default();
-                if let Some(variable) = entry.get("apiKeyEnv").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
-                    // Env mode: the named variable is the only key source.
-                    entry = entry.into_iter().filter(|(key, _)| key != "apiKey").collect();
-                    if let Some(key) = self.env.key_var(&variable).filter(|key| !key.is_empty()) {
-                        entry.insert("apiKey".into(), Value::String(key));
-                    }
-                } else if let Some(key) = self.keys.get(&name).await.map_err(|error| error.message)? {
-                    entry.insert("apiKey".into(), Value::String(key));
-                    entry.insert("enabled".into(), Value::Bool(stored_enabled(&name) != Some(&Value::Bool(false))));
-                }
-                merged.insert(name, Value::Object(entry));
-            }
+            self.overlay_keys(&mut merged, stored).await?;
         }
         // Cursor account access is OAuth-only: the "API" meter is a quota bucket, not a provider.
         merged.shift_remove("cursor-api");
         Ok(merged)
+    }
+
+    async fn overlay_keys(&self, merged: &mut Map<String, Value>, stored: Option<&Map<String, Value>>) -> Result<(), String> {
+        let stored_enabled = |name: &str| stored.and_then(|s| s.get(name)).and_then(|entry| entry.get("enabled"));
+        for (name, _) in KEY_PROVIDERS {
+            if let Some(key) = self.keys.get(name).await.map_err(|error| error.message)? {
+                let mut entry = merged.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
+                entry.insert("apiKey".into(), Value::String(key));
+                entry.insert("enabled".into(), Value::Bool(stored_enabled(name) != Some(&Value::Bool(false))));
+                merged.insert(name.into(), Value::Object(entry));
+            }
+        }
+        let custom: Vec<String> = merged
+            .iter()
+            .filter(|(name, value)| {
+                name.starts_with("custom-")
+                    && value.get("type").and_then(Value::as_str) == Some("custom")
+                    && value.get("auth").and_then(Value::as_str) != Some("none")
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in custom {
+            let mut entry = merged.get(&name).and_then(Value::as_object).cloned().unwrap_or_default();
+            if let Some(variable) = entry.get("apiKeyEnv").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned) {
+                // Env mode: the named variable is the only key source.
+                entry = entry.into_iter().filter(|(key, _)| key != "apiKey").collect();
+                if let Some(key) = self.env.key_var(&variable).filter(|key| !key.is_empty()) {
+                    entry.insert("apiKey".into(), Value::String(key));
+                }
+            } else if let Some(key) = self.keys.get(&name).await.map_err(|error| error.message)? {
+                entry.insert("apiKey".into(), Value::String(key));
+                entry.insert("enabled".into(), Value::Bool(stored_enabled(&name) != Some(&Value::Bool(false))));
+            }
+            merged.insert(name, Value::Object(entry));
+        }
+        Ok(())
+    }
+}
+
+/// The stored entries folded onto the defaults. A STORED `enabled` is the user's own decision and outranks the probe.
+fn fold_stored(merged: &mut Map<String, Value>, stored: Option<&Map<String, Value>>) {
+    for (name, value) in stored.into_iter().flatten() {
+        let Some(own) = value.as_object() else {
+            merged.insert(name.clone(), value.clone());
+            continue;
+        };
+        let mut entry = merged.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
+        entry.extend(own.clone());
+        if own.contains_key("enabled") {
+            entry = entry.into_iter().filter(|(key, _)| key != "credentialProbeUnavailable").collect();
+        }
+        merged.insert(name.clone(), Value::Object(entry));
+    }
+}
+
+/// A custom provider with no auth never carries a key, not even a hand-edited one.
+fn drop_keyless_custom_keys(merged: &mut Map<String, Value>) {
+    for value in merged.values_mut() {
+        let keyless = value.get("type").and_then(Value::as_str) == Some("custom") && value.get("auth").and_then(Value::as_str) == Some("none");
+        if keyless && let Some(entry) = value.as_object_mut() {
+            *entry = std::mem::take(entry).into_iter().filter(|(key, _)| key != "apiKey").collect();
+        }
     }
 }
 

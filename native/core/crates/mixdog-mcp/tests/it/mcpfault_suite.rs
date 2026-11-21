@@ -1,8 +1,3 @@
-//! Faults injected into the MCP service: a config save that fails after the secrets were written,
-//! a release that fails among several, and a rollback that fails. They do not depend on what
-//! today's Node product recorded (the first is a defect Node has and this port fixes), so they
-//! run on every platform.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;

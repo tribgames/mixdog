@@ -534,6 +534,51 @@ fn object_of(fields: Vec<(&str, Value)>) -> Value {
     Value::Object(fields.into_iter().map(|(key, value)| (key.to_owned(), value)).collect())
 }
 
+/// The variants of a slide kind as candidates, plus the variant the author asked for when the kind has none of that name.
+fn pptx_candidates(kind: &str, explicit_variant: &str, purpose: &str) -> Vec<Candidate> {
+    let variants = pptx_variants(kind);
+    let mut candidates: Vec<Candidate> = variants
+        .iter()
+        .map(|entry| Candidate {
+            id: format!("{kind}:{}", entry.id),
+            variant: Some(entry.id.to_owned()),
+            family: entry.family.to_owned(),
+            purposes: if entry.purposes.is_empty() { vec![purpose.to_owned()] } else { owned(entry.purposes) },
+            modes: owned(entry.modes),
+            evidence: owned(entry.evidence),
+            densities: Vec::new(),
+            novelty: entry.novelty,
+        })
+        .collect();
+    if !explicit_variant.is_empty() && !variants.iter().any(|entry| entry.id == explicit_variant) {
+        candidates.push(Candidate {
+            id: format!("{kind}:{explicit_variant}"),
+            variant: Some(explicit_variant.to_owned()),
+            family: kind.to_owned(),
+            purposes: vec![purpose.to_owned()],
+            modes: Vec::new(),
+            evidence: Vec::new(),
+            densities: Vec::new(),
+            novelty: 0.0,
+        });
+    }
+    candidates
+}
+
+/// What the seed of a composition choice is: the content's fingerprint, else the request's intent, audience,
+/// signature, the operation's title and the topology's signature joined.
+fn composition_seed(operation: &Value, design: &Value, topology: &Topology) -> String {
+    match opt_prop(prop(design, "content"), "fingerprint").filter(|value| truthy(value)) {
+        Some(fingerprint) => value_to_string(fingerprint),
+        None => [prop(design, "intent"), prop(design, "audience"), prop(design, "signature"), prop(operation, "title")]
+            .into_iter()
+            .map(joined_part)
+            .chain(std::iter::once(topology.signature.clone()))
+            .collect::<Vec<_>>()
+            .join("|"),
+    }
+}
+
 /// `planOfficeComposition(format, operation, design, { usage })`: the composition one operation is laid out as. The
 /// use is counted in `usage`, so the next operation of the batch is steered away from it.
 pub fn plan_office_composition(format: &str, operation: &Value, design: &Value, usage: &mut CompositionUsage) -> Value {
@@ -543,15 +588,7 @@ pub fn plan_office_composition(format: &str, operation: &Value, design: &Value, 
     let purpose = normalize_purpose(prop(operation, "purpose"), &design_purpose);
     let mode = normalize_expression_mode(first_truthy(&[prop(operation, "expressionMode"), prop(design, "expressionMode")]));
     let recent = normalized_recent_compositions(prop(design, "recentCompositions"));
-    let seed = match opt_prop(prop(design, "content"), "fingerprint").filter(|value| truthy(value)) {
-        Some(fingerprint) => value_to_string(fingerprint),
-        None => [prop(design, "intent"), prop(design, "audience"), prop(design, "signature"), prop(operation, "title")]
-            .into_iter()
-            .map(joined_part)
-            .chain(std::iter::once(topology.signature.clone()))
-            .collect::<Vec<_>>()
-            .join("|"),
-    };
+    let seed = composition_seed(operation, design, &topology);
     let written_density = first_text(&[prop(design, "density")]);
     let density = if written_density.is_empty() { topology.density.to_owned() } else { written_density };
     let explicit_variant = normalized_text(prop(operation, "variant"));
@@ -594,32 +631,7 @@ pub fn plan_office_composition(format: &str, operation: &Value, design: &Value, 
                 );
             }
         }
-        let variants = pptx_variants(&kind);
-        let mut candidates: Vec<Candidate> = variants
-            .iter()
-            .map(|entry| Candidate {
-                id: format!("{kind}:{}", entry.id),
-                variant: Some(entry.id.to_owned()),
-                family: entry.family.to_owned(),
-                purposes: if entry.purposes.is_empty() { vec![purpose.clone()] } else { owned(entry.purposes) },
-                modes: owned(entry.modes),
-                evidence: owned(entry.evidence),
-                densities: Vec::new(),
-                novelty: entry.novelty,
-            })
-            .collect();
-        if !explicit_variant.is_empty() && !variants.iter().any(|entry| entry.id == explicit_variant) {
-            candidates.push(Candidate {
-                id: format!("{kind}:{explicit_variant}"),
-                variant: Some(explicit_variant.clone()),
-                family: kind.clone(),
-                purposes: vec![purpose.clone()],
-                modes: Vec::new(),
-                evidence: Vec::new(),
-                densities: Vec::new(),
-                novelty: 0.0,
-            });
-        }
+        let candidates = pptx_candidates(&kind, &explicit_variant, &purpose);
         let layout_bias: Vec<String> = array_of(opt_prop(opt_prop(opt_prop(prop(design, "artDirection"), "selected"), "deck"), "layoutBias"))
             .map(|bias| bias.iter().map(|entry| text(Some(entry))).collect())
             .unwrap_or_default();

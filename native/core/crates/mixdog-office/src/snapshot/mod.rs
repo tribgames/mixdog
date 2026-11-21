@@ -145,10 +145,6 @@ fn failure_text(answer: &Value, fallback: &str) -> String {
     answer.get("error").filter(|error| truthy(error)).map_or_else(|| fallback.to_owned(), value_to_string)
 }
 
-/// `modelFacingLength(value)`: the size that counts is the one the caller reads: the document after the digest every
-/// result passes through, not the raw record with its defaults and repeated lineage (the value returned stays raw). The
-/// session's identity and trust review around the document are not the content `maxChars` bounds: counted, a small page
-/// shrank to one cell under the smallest budget because the paths and the review took the room the cells needed.
 fn model_facing_length(value: &Value) -> usize {
     let Value::Object(map) = value else { return utf16_len(&serialized_tool_value(value)) };
     match map.get("document") {
@@ -497,6 +493,57 @@ fn wrapped_snapshot<P: ReadProof>(proof: &P, view: &View, value: Value) -> Value
     wrapped.insert("trust".to_owned(), trust);
     Value::Object(wrapped)
 }
+/// One page of the document for `request`, finished the way the format reads best. An owned background session changes only
+/// through its own batches, which bump the snapshot version, so its last document is served again until then.
+async fn read_page<P: WriteProof, H: ComHost>(
+    cx: &SnapshotContext<'_, P, H>,
+    handle: &SessionHandle,
+    view: &View,
+    request: &Request,
+    max_chars: f64,
+    password: Option<&Value>,
+) -> Result<Value, String> {
+    let mut value = if view.owned_background {
+        let key = format!("{}|{}", view.snapshot_version, json_stringify(&Value::Object(request.clone())));
+        let cached = lock(handle).caches.snapshot.as_ref().filter(|cache| cache.key == key).map(|cache| cache.value.clone());
+        match cached {
+            Some(value) => value,
+            None => {
+                let value = fetch_snapshot_document(cx, view, request, max_chars, password).await?;
+                lock(handle).caches.snapshot = Some(SnapshotCache { key, value: value.clone() });
+                value
+            }
+        }
+    } else {
+        fetch_snapshot_document(cx, view, request, max_chars, password).await?
+    };
+    finalize_office_snapshot_page(&mut value, view.position(), request);
+    if view.format == "xlsx"
+        && value.get("sheets").is_some_and(Value::is_array)
+        && let Some(conventions) = summarize_xlsx_conventions(&value)
+        && let Value::Object(document) = &mut value
+    {
+        document.insert("conventions".to_owned(), conventions);
+    }
+    if view.format == "pptx" {
+        annotate_pptx_snapshot_roles(&mut value);
+    }
+    Ok(value)
+}
+
+/// The request for the next, smaller page, scaled from what the last read returned.
+fn shrink_request(request: &mut Request, view: &View, wrapped: &Value, serialized_length: usize, max_chars: f64) {
+    let limit = to_number_of(request.get("limit"));
+    let measured = serialized_length.max(1) as f64;
+    let returned = to_number_of(wrapped.pointer("/document/pagination/returned"));
+    let base = if returned > 0.0 { limit.min(returned) } else { limit };
+    let next_limit = (limit - 1.0).min((base * max_chars * 0.8 / measured).floor()).max(1.0);
+    request.insert("limit".to_owned(), json_number(next_limit));
+    if view.format == "xlsx" {
+        request.insert("pageCells".to_owned(), Value::Bool(true));
+    }
+}
+
 /// `snapshot(session, args, { full })`: the document of a session as a page, or whole when `full`. `args` are the call's
 /// (`maxChars`, `limit`, `cursor`, `sheet`, `range`, `target`, `pages`, `includeStyles`, `includeSelection`, `password`).
 /// A page too long for `maxChars` is read again with a smaller limit, up to eight times, and then cut by [`bounded`].
@@ -510,40 +557,9 @@ pub async fn snapshot<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>,
     let include_selection = args.get("includeSelection") != Some(&Value::Bool(false)) && view.is_microsoft_office() && view.interactive;
     request_args.insert("includeSelection".to_owned(), Value::Bool(include_selection));
     let mut request = create_office_snapshot_request(view.position(), &Value::Object(request_args), full)?;
-    // Reading a deck back out of PowerPoint costs seconds (thousands of COM round trips), and one authoring cycle asks for
-    // it several times (the receipt, qa, finalize's review) with nothing changed in between. A background session we own
-    // changes only through our own batches, and those bump the snapshot version, so the last document stays true until
-    // then. An attached or visible session is never cached: the user edits it.
-    let cacheable = view.owned_background;
     let mut wrapped = Value::Null;
     for _ in 0..SHRINK_ATTEMPTS {
-        let mut value = if cacheable {
-            let key = format!("{}|{}", view.snapshot_version, json_stringify(&Value::Object(request.clone())));
-            let cached = lock(handle).caches.snapshot.as_ref().filter(|cache| cache.key == key).map(|cache| cache.value.clone());
-            match cached {
-                Some(value) => value,
-                None => {
-                    let value = fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?;
-                    lock(handle).caches.snapshot = Some(SnapshotCache { key, value: value.clone() });
-                    value
-                }
-            }
-        } else {
-            fetch_snapshot_document(cx, &view, &request, max_chars, args.get("password")).await?
-        };
-        finalize_office_snapshot_page(&mut value, view.position(), &request);
-        if view.format == "xlsx"
-            && value.get("sheets").is_some_and(Value::is_array)
-            && let Some(conventions) = summarize_xlsx_conventions(&value)
-            && let Value::Object(document) = &mut value
-        {
-            document.insert("conventions".to_owned(), conventions);
-        }
-        // A deck is read to be reused: without the job each page does and the slot each box fills, a page the user
-        // already owns can only be copied by eye.
-        if view.format == "pptx" {
-            annotate_pptx_snapshot_roles(&mut value);
-        }
+        let value = read_page(cx, handle, &view, &request, max_chars, args.get("password")).await?;
         wrapped = wrapped_snapshot(cx.proof, &view, value);
         if !view.created {
             lock(handle).caches.trust_review = wrapped.get("trust").cloned();
@@ -553,17 +569,7 @@ pub async fn snapshot<P: WriteProof, H: ComHost>(cx: &SnapshotContext<'_, P, H>,
         if full || (serialized_length as f64) <= max_chars || limit <= 1.0 {
             break;
         }
-        let measured = serialized_length.max(1) as f64;
-        // Scaled from what came back: a limit far above the cells a read returned shrank for eight rounds and never
-        // reached them.
-        let returned = to_number_of(wrapped.pointer("/document/pagination/returned"));
-        let base = if returned > 0.0 { limit.min(returned) } else { limit };
-        let next_limit = (limit - 1.0).min((base * max_chars * 0.8 / measured).floor()).max(1.0);
-        request.insert("limit".to_owned(), json_number(next_limit));
-        // An Excel session read the whole workbook whatever the limit; the retry asks it for pages.
-        if view.format == "xlsx" {
-            request.insert("pageCells".to_owned(), Value::Bool(true));
-        }
+        shrink_request(&mut request, &view, &wrapped, serialized_length, max_chars);
     }
     if full {
         return Ok(wrapped);

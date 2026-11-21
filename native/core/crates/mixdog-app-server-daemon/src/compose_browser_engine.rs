@@ -559,61 +559,138 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
         args: serde_json::Value,
         cancel: CancellationToken,
     ) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
-        use mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult;
-        use mixdog_app_protocol::v2::browser_engine::BrowserTestRunImage;
-        use mixdog_core_api::domain::tool::ToolPart;
-
-        let Some(action) = args.get("action").and_then(serde_json::Value::as_str) else {
-            return BrowserEngineTestRunResult { text: "Error: action is required".to_owned(), image: None, is_error: true, outcome: None };
+        let (action, input) = match validated_run_command(&args) {
+            Ok(command) => command,
+            Err(text) => return failed_run(text),
         };
-        let mut input = match args.get("input") {
-            Some(serde_json::Value::Object(input)) => input.clone(),
-            _ => serde_json::Map::new(),
-        };
-        // The request is validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
-        // field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields.
-        let turn = input.shift_remove("turn_id");
-        let mut command = input;
-        command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
-        let (action, mut input) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {
-            Ok(validated) => validated,
-            Err(message) => {
-                return BrowserEngineTestRunResult { text: format!("Error: {message}"), image: None, is_error: true, outcome: None };
-            }
-        };
-        if let Some(turn) = turn {
-            input.insert("turn_id".to_owned(), turn);
-        }
-        let (action, input) = (action.as_str(), serde_json::Value::Object(input));
         // The corpus's refused address was recorded by a remote session (the old host ran with `remoteSession: true`: private networks
         // blocked); `remoteSession: true` of the run puts the commands under that stance, a session of this core being the person's own.
         let _remote = (args.get("remoteSession") == Some(&serde_json::Value::Bool(true)))
             .then(|| mixdog_browser_engine::runner::runner::UrlPolicyOfRun::set(UrlPolicy::default()));
-        let ran = self.0.browser(&thread, action, input, &cancel).await;
-        match ran {
-            Ok(value) => {
-                let rendered = mixdog_tools::desktop::host::browser_output(&value);
-                let image = value.get("image").and_then(|image| {
-                    Some(BrowserTestRunImage { mime_type: image.get("mimeType")?.as_str()?.to_owned(), data: image.get("data")?.as_str()?.to_owned() })
-                });
-                let outcome = value.get("outcome").cloned();
-                match rendered {
-                    Ok(output) => {
-                        let text = output
-                            .parts
-                            .iter()
-                            .filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None })
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        BrowserEngineTestRunResult { text, image, is_error: false, outcome }
-                    }
-                    Err(error) => BrowserEngineTestRunResult { text: error.message_for_model, image, is_error: true, outcome },
-                }
-            }
-            Err(error) => {
-                let error = mixdog_tools::desktop::host::command_error(mixdog_tools::desktop::host::BROWSER_UNAVAILABLE, error);
-                BrowserEngineTestRunResult { text: error.message_for_model, image: None, is_error: true, outcome: None }
-            }
+        match self.0.browser(&thread, &action, input, &cancel).await {
+            Ok(value) => rendered_run(&value),
+            Err(error) => failed_run(mixdog_tools::desktop::host::command_error(mixdog_tools::desktop::host::BROWSER_UNAVAILABLE, error).message_for_model),
         }
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+fn failed_run(text: String) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
+    mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult { text, image: None, is_error: true, outcome: None }
+}
+
+/// The run's request validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
+/// field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields. `Err` is the run's answer.
+#[cfg(feature = "test-hooks")]
+fn validated_run_command(args: &serde_json::Value) -> Result<(String, serde_json::Value), String> {
+    let Some(action) = args.get("action").and_then(serde_json::Value::as_str) else {
+        return Err("Error: action is required".to_owned());
+    };
+    let mut command = match args.get("input") {
+        Some(serde_json::Value::Object(input)) => input.clone(),
+        _ => serde_json::Map::new(),
+    };
+    let turn = command.shift_remove("turn_id");
+    command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
+    let (action, mut input) = mixdog_tools::desktop::browser_bridge_run::validated_command(command).map_err(|message| format!("Error: {message}"))?;
+    if let Some(turn) = turn {
+        input.insert("turn_id".to_owned(), turn);
+    }
+    Ok((action, serde_json::Value::Object(input)))
+}
+
+/// A host's answer to the command as the tool shows it: the output text and image, and the bridge's own `outcome`.
+#[cfg(feature = "test-hooks")]
+fn rendered_run(value: &serde_json::Value) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
+    use mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult;
+    use mixdog_app_protocol::v2::browser_engine::BrowserTestRunImage;
+    use mixdog_core_api::domain::tool::ToolPart;
+
+    let image = value
+        .get("image")
+        .and_then(|image| Some(BrowserTestRunImage { mime_type: image.get("mimeType")?.as_str()?.to_owned(), data: image.get("data")?.as_str()?.to_owned() }));
+    let outcome = value.get("outcome").cloned();
+    match mixdog_tools::desktop::host::browser_output(value) {
+        Ok(output) => {
+            let text =
+                output.parts.iter().filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+            BrowserEngineTestRunResult { text, image, is_error: false, outcome }
+        }
+        Err(error) => BrowserEngineTestRunResult { text: error.message_for_model, image, is_error: true, outcome },
+    }
+}
+
+#[cfg(all(test, feature = "test-hooks"))]
+mod tool_runner_tests {
+    use crate::browser_engine_service::BrowserToolRunner;
+    use mixdog_app_protocol::v2::browser_engine::BrowserTestTool;
+    use mixdog_tools::desktop::host::BROWSER_UNAVAILABLE;
+    use mixdog_tools::desktop::host::HostCommandError;
+    use mixdog_tools::desktop::host::HostCommands;
+    use serde_json::json;
+
+    use super::*;
+
+    struct Answering(Result<serde_json::Value, HostCommandError>);
+
+    #[async_trait]
+    impl HostCommands for Answering {
+        async fn browser(
+            &self,
+            _thread: &ThreadId,
+            _action: &str,
+            _input: serde_json::Value,
+            _cancel: &CancellationToken,
+        ) -> Result<serde_json::Value, HostCommandError> {
+            self.0.clone()
+        }
+
+        async fn visualize(
+            &self,
+            _thread: &ThreadId,
+            _cwd: &str,
+            _action: &str,
+            _input: serde_json::Value,
+            _cancel: &CancellationToken,
+        ) -> Result<serde_json::Value, HostCommandError> {
+            unreachable!("the runner only runs browser commands")
+        }
+    }
+
+    async fn run(
+        host: Result<serde_json::Value, HostCommandError>,
+        args: serde_json::Value,
+    ) -> mixdog_app_protocol::v2::browser_engine::BrowserEngineTestRunResult {
+        EngineToolRunner(Arc::new(Answering(host))).run(ThreadId::from("s1"), BrowserTestTool::Browser, args, CancellationToken::new()).await
+    }
+
+    #[tokio::test]
+    async fn a_run_without_an_action_is_refused_before_the_host_is_asked() {
+        let ran = run(Err(HostCommandError::Cancelled), json!({})).await;
+        assert_eq!((ran.text.as_str(), ran.is_error, ran.image.is_none(), ran.outcome), ("Error: action is required", true, true, None));
+    }
+
+    #[tokio::test]
+    async fn a_run_of_an_unknown_action_is_refused_with_the_bridges_sentence() {
+        let ran = run(Err(HostCommandError::Cancelled), json!({ "action": "nope" })).await;
+        assert_eq!((ran.text.as_str(), ran.is_error), ("Error: unknown browser action \"nope\"", true));
+    }
+
+    #[tokio::test]
+    async fn a_run_shows_the_hosts_text_and_outcome() {
+        let ran = run(Ok(json!({ "text": "two tabs", "outcome": "done" })), json!({ "action": "list_tabs" })).await;
+        assert_eq!((ran.text.as_str(), ran.is_error, ran.outcome), ("two tabs", false, Some(json!("done"))));
+    }
+
+    #[tokio::test]
+    async fn a_blocked_outcome_is_an_error_that_keeps_its_text() {
+        let ran = run(Ok(json!({ "text": "held", "outcome": "blocked" })), json!({ "action": "list_tabs" })).await;
+        assert_eq!((ran.text.as_str(), ran.is_error, ran.outcome), ("held", true, Some(json!("blocked"))));
+    }
+
+    #[tokio::test]
+    async fn a_run_with_no_desktop_says_browser_use_is_unavailable() {
+        let ran = run(Err(HostCommandError::NoHost), json!({ "action": "list_tabs" })).await;
+        assert_eq!((ran.text.as_str(), ran.is_error, ran.outcome), (BROWSER_UNAVAILABLE, true, None));
     }
 }

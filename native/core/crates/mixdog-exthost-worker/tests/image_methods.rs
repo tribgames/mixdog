@@ -2,6 +2,7 @@
 //! each call answers for a good image, for bytes no decoder takes, and for a call that is malformed. Images are built here.
 #![cfg(feature = "test-support")]
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use base64::Engine as _;
@@ -19,7 +20,7 @@ use serde_json::json;
 
 fn pool() -> ExtHostPool {
     ExtHostPool::new(ExtHostConfig {
-        program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
+        program: PathBuf::from(mixdog_testkit::bin_exe!("ext_worker_dev")),
         args: Vec::new(),
         workers: 1,
         pending_cap: 64,
@@ -30,13 +31,7 @@ fn pool() -> ExtHostPool {
 }
 
 async fn ask(pool: &ExtHostPool, method: &str, params: Value) -> Result<Value, ExtError> {
-    let mut stream =
-        pool.call(ExtCall { thread: ThreadId::from("image-methods"), method: method.to_owned(), params, paths: Vec::new() }).expect("the call is accepted");
-    loop {
-        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
-            return outcome;
-        }
-    }
+    finish(pool, ExtCall { thread: ThreadId::from("image-methods"), method: method.to_owned(), params, paths: Vec::new() }).await
 }
 
 fn refused(outcome: Result<Value, ExtError>) -> (String, String) {
@@ -355,59 +350,78 @@ fn docx(paragraphs: &[&str]) -> Vec<u8> {
     stored_zip(&[("[Content_Types].xml", types.as_bytes()), ("word/document.xml", document.as_bytes())])
 }
 
+fn ooxml_text_call(approved: &Path, path: &Path) -> ExtCall {
+    ExtCall {
+        thread: ThreadId::from("image-methods"),
+        method: "ooxml.text".to_owned(),
+        params: json!({"path": path.to_string_lossy(), "maxOutputBytes": 100_000}),
+        paths: vec![mixdog_core_api::domain::common::AbsPath::new(approved.to_path_buf()).expect("an absolute folder")],
+    }
+}
+
+async fn finish(pool: &ExtHostPool, call: ExtCall) -> Result<Value, ExtError> {
+    let mut stream = pool.call(call).expect("the call is accepted");
+    loop {
+        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
+            return outcome;
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_docx_gives_its_paragraph_text_by_bytes_and_by_path_and_a_file_that_is_no_package_gives_none() {
+async fn a_docx_gives_its_paragraph_text_by_bytes() {
     let pool = pool();
     let bytes = docx(&["Hello World", "Second paragraph"]);
     let by_bytes = ask(&pool, "media.officeText", json!({"data": b64(&bytes), "filename": "notes.docx"})).await.unwrap();
     let text = by_bytes["text"].as_str().unwrap_or_else(|| panic!("{by_bytes}"));
     assert!(text.contains("Hello World") && text.contains("Second paragraph"), "{text:?}");
     assert!(text.find("Hello World") < text.find("Second paragraph"), "paragraphs keep their order: {text:?}");
+    pool.close().await;
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_docx_gives_its_paragraph_text_by_path() {
+    let pool = pool();
     let scratch = tempfile::tempdir().unwrap();
     let path = scratch.path().join("notes.docx");
-    std::fs::write(&path, &bytes).unwrap();
-    let mut call = ExtCall {
-        thread: ThreadId::from("image-methods"),
-        method: "ooxml.text".to_owned(),
-        params: json!({"path": path.to_string_lossy(), "maxOutputBytes": 100_000}),
-        paths: vec![mixdog_core_api::domain::common::AbsPath::new(scratch.path().to_path_buf()).expect("an absolute folder")],
-    };
-    let mut stream = pool.call(call.clone()).expect("the call is accepted");
-    let by_path = loop {
-        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
-            break outcome.unwrap();
-        }
-    };
+    std::fs::write(&path, docx(&["Hello World", "Second paragraph"])).unwrap();
+    let by_path = finish(&pool, ooxml_text_call(scratch.path(), &path)).await.unwrap();
     let text = by_path["text"].as_str().unwrap_or_else(|| panic!("{by_path}"));
     assert!(text.contains("Hello World") && text.contains("Second paragraph"), "{text:?}");
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_container_budget_counts_the_package_not_a_trailing_zip_comment() {
+    let pool = pool();
+    let scratch = tempfile::tempdir().unwrap();
+    let path = scratch.path().join("notes.docx");
+    let bytes = docx(&["Hello World", "Second paragraph"]);
+    std::fs::write(&path, &bytes).unwrap();
+    let call = ooxml_text_call(scratch.path(), &path);
+    let by_path = finish(&pool, call.clone()).await.unwrap();
 
     // A ZIP comment adds raw bytes, not inflated part bytes. Keep the end-of-directory record readable.
     let budget = bytes.len();
-    let mut padded = bytes.clone();
+    let mut padded = bytes;
     padded[budget - 2..].copy_from_slice(&256u16.to_le_bytes());
     padded.resize(budget + 256, b'x');
     std::fs::write(&path, padded).unwrap();
-    call.params["maxContainerBytes"] = json!(budget);
-    let mut stream = pool.call(call.clone()).expect("the call is accepted");
-    let bounded = loop {
-        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
-            break outcome.unwrap();
-        }
-    };
+    let mut bounded_call = call;
+    bounded_call.params["maxContainerBytes"] = json!(budget);
+    let bounded = finish(&pool, bounded_call).await.unwrap();
     assert_eq!(bounded["text"], by_path["text"]);
+    pool.close().await;
+}
 
-    // A file outside the approved folders is refused with the guard's code and its own message, and is not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_docx_outside_the_approved_folders_is_refused_and_not_read() {
+    let pool = pool();
+    let approved = tempfile::tempdir().unwrap();
     let elsewhere = tempfile::tempdir().unwrap();
     let outside_path = elsewhere.path().join("secret.docx");
-    std::fs::write(&outside_path, &bytes).unwrap();
-    call.params = json!({"path": outside_path.to_string_lossy(), "maxOutputBytes": 100_000});
-    let mut stream = pool.call(call).expect("the call is accepted");
-    let outside = loop {
-        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
-            break outcome;
-        }
-    };
+    std::fs::write(&outside_path, docx(&["Hello World"])).unwrap();
+    let outside = finish(&pool, ooxml_text_call(approved.path(), &outside_path)).await;
     match outside {
         Err(ExtError::Failed { code, message }) => {
             assert_eq!(code, "path_not_approved");

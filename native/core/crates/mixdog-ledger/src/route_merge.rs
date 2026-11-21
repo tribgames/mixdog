@@ -30,6 +30,33 @@ fn merged_signature(signature: &str) -> Result<Option<(String, Option<f64>)>> {
     Ok(Some((mixdog_js::json_stringify(&Value::Array(parts)), tokens)))
 }
 
+/// Drops the triggers a route move would fire and returns their stored text.
+fn hold_triggers(tx: &Transaction) -> Result<Vec<String>> {
+    let held: Vec<String> = HELD_TRIGGERS
+        .iter()
+        .map(|name| tx.query_row("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1", [name], |row| row.get(0)))
+        .collect::<std::result::Result<_, _>>()?;
+    for name in HELD_TRIGGERS {
+        tx.execute_batch(&format!("DROP TRIGGER {name}"))?;
+    }
+    Ok(held)
+}
+
+/// Fills `temp.route_merge` with each old route, the route it merges into and its count.
+fn map_merged_routes(tx: &Transaction, routes: &[(i64, String)]) -> Result<()> {
+    tx.execute_batch("CREATE TEMP TABLE route_merge (old INTEGER PRIMARY KEY, new INTEGER NOT NULL, tokens REAL)")?;
+    let mut intern = tx.prepare("INSERT OR IGNORE INTO usage_routes(signature) VALUES (?1)")?;
+    let mut id_of = tx.prepare("SELECT id FROM usage_routes WHERE signature=?1")?;
+    let mut map = tx.prepare("INSERT INTO temp.route_merge VALUES (?1, ?2, ?3)")?;
+    for (old, signature) in routes {
+        let Some((merged, tokens)) = merged_signature(signature)? else { continue };
+        intern.execute([&merged])?;
+        let new: i64 = id_of.query_row([&merged], |row| row.get(0))?;
+        map.execute(params![old, new, tokens])?;
+    }
+    Ok(())
+}
+
 pub(crate) fn merge_cache_1h_routes(tx: &Transaction) -> Result<()> {
     let routes: Vec<(i64, String)> = tx
         .prepare("SELECT id, signature FROM usage_routes WHERE instr(signature, 'cacheWrite1hTokens') > 0")?
@@ -38,25 +65,8 @@ pub(crate) fn merge_cache_1h_routes(tx: &Transaction) -> Result<()> {
     if routes.is_empty() {
         return Ok(());
     }
-    let held: Vec<String> = HELD_TRIGGERS
-        .iter()
-        .map(|name| tx.query_row("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1", [name], |row| row.get(0)))
-        .collect::<std::result::Result<_, _>>()?;
-    for name in HELD_TRIGGERS {
-        tx.execute_batch(&format!("DROP TRIGGER {name}"))?;
-    }
-    tx.execute_batch("CREATE TEMP TABLE route_merge (old INTEGER PRIMARY KEY, new INTEGER NOT NULL, tokens REAL)")?;
-    {
-        let mut intern = tx.prepare("INSERT OR IGNORE INTO usage_routes(signature) VALUES (?1)")?;
-        let mut id_of = tx.prepare("SELECT id FROM usage_routes WHERE signature=?1")?;
-        let mut map = tx.prepare("INSERT INTO temp.route_merge VALUES (?1, ?2, ?3)")?;
-        for (old, signature) in &routes {
-            let Some((merged, tokens)) = merged_signature(signature)? else { continue };
-            intern.execute([&merged])?;
-            let new: i64 = id_of.query_row([&merged], |row| row.get(0))?;
-            map.execute(params![old, new, tokens])?;
-        }
-    }
+    let held = hold_triggers(tx)?;
+    map_merged_routes(tx, &routes)?;
     tx.execute_batch(
         "INSERT OR REPLACE INTO usage_event_cache_1h
              SELECT e.id, m.tokens FROM usage_events e JOIN temp.route_merge m ON m.old=e.route

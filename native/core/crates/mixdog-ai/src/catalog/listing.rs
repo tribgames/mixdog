@@ -109,7 +109,7 @@ fn row_of(provider: &str, record: &ModelRecord) -> Value {
     Value::Object(row)
 }
 
-fn prices(record: &ModelRecord) -> [(&'static str, Option<f64>); 4] {
+pub(super) fn prices(record: &ModelRecord) -> [(&'static str, Option<f64>); 4] {
     [
         ("inputCostPerM", record.input_cost_per_m),
         ("outputCostPerM", record.output_cost_per_m),

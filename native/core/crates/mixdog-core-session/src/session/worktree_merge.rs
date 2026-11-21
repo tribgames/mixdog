@@ -1,6 +1,6 @@
 //! Merging the Lead's retained worktree (or the linked checkout it works in) into the project
 //! folder's branch, the cleanup of the merged worktree, and the session admission of folder
-//! changes ([`FolderAdmission`], Node `activity-guards.mjs` `withManagementFolders`).
+//! changes ([`FolderAdmission`]).
 
 use std::collections::BTreeMap;
 
@@ -168,17 +168,22 @@ impl Inner {
         if !input.cleanup || merged["merged"] != true {
             return Ok(merged);
         }
-        // "Merge and clean up": with autoCleanup on, the merged worktree goes now (a dirty one
-        // stays, reported); off, nothing is removed automatically.
+        self.merged_with_cleanup_notice(session, merged, own_turn, cancel).await
+    }
+
+    async fn merged_with_cleanup_notice(
+        self: &Arc<Self>,
+        session: &str,
+        merged: JsonValue,
+        own_turn: bool,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, ScmFailure> {
         if !self.ops.settings.worktree_settings().await.auto_cleanup {
             return Ok(with_fields(
                 merged,
                 vec![("cleanup", json!({ "removed": false, "reason": "auto-cleanup-off", "message": "Auto cleanup is off; the worktree is kept." }))],
             ));
         }
-        // The merge is committed: a failed or refused cleanup is a cleanup notice, never a
-        // merge failure. The cleanup never moves a session: while this session still works in
-        // the merged folder (or any other session uses it) the removal is refused.
         match self.cleanup_merged(session, own_turn, cancel).await {
             Ok(removed) => Ok(with_fields(
                 merged,

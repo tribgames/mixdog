@@ -3,13 +3,10 @@
 //! 1.4.5 rewrites the whole history as a `compacted` record whenever a save shares no message by
 //! reference at either end of the list (`session-log-writer.mjs` `_messageRecord`), so the log of
 //! a long session is that history written over and over: the real 635 MB log of a desktop session
-//! holds 478 snapshots of at most 2.2 MB. The migration used to read the file whole, split it into
-//! lines and keep every parsed record; it now reads a line at a time and keeps the working history.
+//! holds 478 snapshots of at most 2.2 MB.
 //!
 //! Own test binary: the allocator below counts the whole process, so no other test may run in it
 //! (nextest runs every test in its own process; under `cargo test` run it alone).
-//!
-//! The log is generated here, record by record, in that shape.
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs")]
 

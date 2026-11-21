@@ -63,8 +63,7 @@ mod tests {
             {"args": ["-C", "<root>/source", "config", "user.name", "n"], "before": null, "ok": ""},
             {"args": ["-C", "<root>/source", "config", "core.autocrlf", "false"], "before": null, "ok": ""},
             {"args": ["-C", "<root>/source", "rev-parse", "--is-inside-work-tree"], "before": null, "ok": "true"},
-            {"args": ["clone", "<root>/none", "<root>/dest"], "before": null,
-             "error": "Cloning into '<root>/dest'...\nfatal: '<root>/none' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."},
+            {"args": ["clone", "<root>/none", "<root>/dest"], "before": null, "error_as_git": true},
             {"args": ["nosuchcommand"], "before": null, "error": "git: 'nosuchcommand' is not a git command. See 'git --help'."},
             {"args": ["-C", "<root>/source", "diff", "--quiet"], "before": null, "ok": ""},
             {"args": ["-C", "<root>/source", "status", "--porcelain"], "before": {"source/f.txt": "one\n"}, "ok": "?? f.txt"},
@@ -92,12 +91,22 @@ mod tests {
             }
             let root = base.to_string_lossy().into_owned();
             let args: Vec<String> = step["args"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap().replace("<root>", &root)).collect();
+            // The words of git's refusal differ between versions: the installed git gives the text the runner must answer whole.
+            let as_git = step["error_as_git"].as_bool().unwrap_or(false).then(|| {
+                let direct = std::process::Command::new("git").args(&args).current_dir(&base).output().unwrap();
+                assert!(!direct.status.success());
+                String::from_utf8_lossy(&direct.stderr).trim().to_owned()
+            });
             let runner = runner.clone();
             let outcome = on_thread(move || runner.run(&args, Duration::from_secs(60))).await;
             let shown: Value = match outcome {
                 Ok(out) => json!({ "ok": out }),
                 Err(error) => json!({ "error": error }),
             };
+            if let Some(text) = as_git {
+                assert_eq!(portable(&shown, &base), portable(&json!({ "error": text }), &base), "{}", step["args"]);
+                continue;
+            }
             let expected = if step["ok"].is_null() { json!({ "error": step["error"] }) } else { json!({ "ok": step["ok"] }) };
             assert_eq!(portable(&shown, &base), expected, "{}", step["args"]);
         }

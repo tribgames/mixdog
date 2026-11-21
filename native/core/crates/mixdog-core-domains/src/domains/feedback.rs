@@ -1,8 +1,6 @@
-//! The `feedback` domain: `feedback/upload`, today's `submitFeedback` of the desktop's main
-//! process (`apps/desktop/src/main/feedback-client.ts`). Only explicitly entered feedback
-//! leaves the app; the caller cannot choose the recipient or URL. The input is checked as
-//! `contract-feedback.ts` and `relay/lib/feedback-attachments.mjs` check it, then posted to
-//! the relay's `/feedback`; the relay's 202 receipt is the result.
+//! `feedback/upload`: only explicitly entered feedback leaves the app; the caller cannot choose
+//! the recipient or URL. The input is checked, then posted to the relay's `/feedback`; the
+//! relay's 202 receipt is the result.
 
 use std::sync::Arc;
 use std::sync::OnceLock;

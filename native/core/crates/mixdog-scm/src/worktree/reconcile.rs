@@ -204,23 +204,26 @@ impl Worktrees {
                 continue;
             }
             let (owner_live, is_retained, _) = self.retention_of(&record, &options.live, &options.retained, cancel).await?;
-            if is_snapshot(&record) {
-                if !owner_live {
-                    ids.push(record.id.clone());
-                }
+            let removable = if is_snapshot(&record) {
+                !owner_live
             } else if record.state == "deleting" {
-                ids.push(record.id.clone());
+                true
             } else if record.state == "creating" || record.state == "recovery" {
-                if !is_retained {
-                    ids.push(record.id.clone());
-                }
-            } else if !owner_live
-                && (record.extra.contains_key("removalIncomplete") && !record.extra["removalIncomplete"].is_null()
-                    || cleanup_wants(&record, is_retained, &options.rules))
-            {
+                !is_retained
+            } else {
+                !owner_live
+                    && (record.extra.contains_key("removalIncomplete") && !record.extra["removalIncomplete"].is_null()
+                        || cleanup_wants(&record, is_retained, &options.rules))
+            };
+            if removable {
                 ids.push(record.id.clone());
             }
         }
+        Ok((ids, self.unlocked_gone_registrations(repos, cancel).await?))
+    }
+
+    /// Checkout paths of the registrations in `repos` whose folder is gone and that git's prune would drop.
+    async fn unlocked_gone_registrations(&self, repos: Vec<String>, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
         let mut stale = Vec::new();
         for repo in repos {
             let common = PathBuf::from(&repo);
@@ -238,7 +241,7 @@ impl Worktrees {
             .await?;
             stale.extend(found);
         }
-        Ok((ids, stale))
+        Ok(stale)
     }
 
     /// The conservative reconcile; see the module docs. One repository at a time; a failure of one record or
@@ -265,76 +268,83 @@ impl Worktrees {
                 report.errors.push(json!({ "repoCommonDir": common, "error": "repository missing" }));
                 continue;
             }
-            let outcome: Result<(), ScmFailure> = async {
-                let opened = match self.scm().open(Path::new(&project), cancel).await {
-                    Ok(opened) => opened,
-                    Err(_) => self.scm().open(Path::new(&common), cancel).await?,
-                };
-                let mut candidates: Vec<(WorktreeRecord, bool, usize)> = Vec::new();
-                // Node 1.4.5 reported each record in registry encounter order. Keep that
-                // wire order while the slow removal checks still run outside the lock.
-                let mut kept_by_record: Vec<Vec<Value>> = Vec::new();
-                {
-                    let _lock = opened.lock_repository().await?;
-                    let records: Vec<WorktreeRecord> =
-                        self.all_records(cancel).await?.into_iter().filter(|r| path_key(Path::new(&r.repo_common_dir)) == key).collect();
-                    for mut record in records {
-                        let slot = kept_by_record.len();
-                        let kept_start = report.kept.len();
-                        match self.reconcile_record(&mut record, options, &mut report, cancel).await {
-                            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-                            Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
-                            Ok(Some(budgeted)) => candidates.push((record, budgeted, slot)),
-                            Ok(None) => {}
-                        }
-                        kept_by_record.push(report.kept.split_off(kept_start));
-                    }
-                }
-                // Checked outside the lock, which each removal takes for itself (`remove_automatically`).
-                for (mut record, budgeted, slot) in candidates {
-                    // Count, age and archive removals share one budget per pass.
-                    if budgeted && budget_used >= options.max_removals {
-                        kept_by_record[slot].push(json!({ "id": record.id, "reason": "budget" }));
-                        continue;
-                    }
-                    let auto = AutoOptions {
-                        in_use: options.in_use.clone(),
-                        preserve_branch: options.preserve_branch,
-                        final_check_timeout: options.final_check_timeout,
-                    };
-                    let kept_start = report.kept.len();
-                    match self.remove_automatically(&mut record, &auto, cancel).await {
-                        Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-                        Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
-                        Ok(Auto::Kept(mut verdict)) => {
-                            verdict["id"] = json!(record.id);
-                            report.kept.push(verdict);
-                        }
-                        Ok(Auto::Removed(deletion)) => {
-                            Self::report_deletion(&mut report, &record, &deletion);
-                            if budgeted && deletion.removed {
-                                budget_used += 1;
-                            }
-                        }
-                    }
-                    kept_by_record[slot].extend(report.kept.drain(kept_start..));
-                }
-                report.kept.extend(kept_by_record.into_iter().flatten());
-                let pruned = {
-                    let _lock = opened.lock_repository().await?;
-                    self.prune_stale_registrations(&common, cancel).await?
-                };
-                report.pruned.extend(pruned);
-                Ok(())
-            }
-            .await;
-            match outcome {
+            match self.reconcile_repository(options, &mut report, &mut budget_used, &key, &common, &project, cancel).await {
                 Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
                 Err(error) => report.errors.push(json!({ "repoCommonDir": common, "error": describe(&error) })),
                 Ok(()) => {}
             }
         }
         Ok(report)
+    }
+
+    /// One repository of a reconcile: its records' bookkeeping under the lock, then the automatic
+    /// removals outside it, then the registration prune.
+    #[expect(clippy::too_many_arguments, reason = "one repository's identity, the pass's options and its running totals")]
+    async fn reconcile_repository(
+        &self,
+        options: &ReconcileOptions,
+        report: &mut ReconcileReport,
+        budget_used: &mut usize,
+        key: &str,
+        common: &str,
+        project: &str,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        let opened = match self.scm().open(Path::new(project), cancel).await {
+            Ok(opened) => opened,
+            Err(_) => self.scm().open(Path::new(common), cancel).await?,
+        };
+        let mut candidates: Vec<(WorktreeRecord, bool, usize)> = Vec::new();
+        // Node 1.4.5 reported each record in registry encounter order. Keep that
+        // wire order while the slow removal checks still run outside the lock.
+        let mut kept_by_record: Vec<Vec<Value>> = Vec::new();
+        {
+            let _lock = opened.lock_repository().await?;
+            let records: Vec<WorktreeRecord> = self.all_records(cancel).await?.into_iter().filter(|r| path_key(Path::new(&r.repo_common_dir)) == key).collect();
+            for mut record in records {
+                let slot = kept_by_record.len();
+                let kept_start = report.kept.len();
+                match self.reconcile_record(&mut record, options, report, cancel).await {
+                    Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+                    Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
+                    Ok(Some(budgeted)) => candidates.push((record, budgeted, slot)),
+                    Ok(None) => {}
+                }
+                kept_by_record.push(report.kept.split_off(kept_start));
+            }
+        }
+        for (mut record, budgeted, slot) in candidates {
+            // Count, age and archive removals share one budget per pass.
+            if budgeted && *budget_used >= options.max_removals {
+                kept_by_record[slot].push(json!({ "id": record.id, "reason": "budget" }));
+                continue;
+            }
+            let auto =
+                AutoOptions { in_use: options.in_use.clone(), preserve_branch: options.preserve_branch, final_check_timeout: options.final_check_timeout };
+            let kept_start = report.kept.len();
+            match self.remove_automatically(&mut record, &auto, cancel).await {
+                Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+                Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
+                Ok(Auto::Kept(mut verdict)) => {
+                    verdict["id"] = json!(record.id);
+                    report.kept.push(verdict);
+                }
+                Ok(Auto::Removed(deletion)) => {
+                    Self::report_deletion(report, &record, &deletion);
+                    if budgeted && deletion.removed {
+                        *budget_used += 1;
+                    }
+                }
+            }
+            kept_by_record[slot].extend(report.kept.drain(kept_start..));
+        }
+        report.kept.extend(kept_by_record.into_iter().flatten());
+        let pruned = {
+            let _lock = opened.lock_repository().await?;
+            self.prune_stale_registrations(common, cancel).await?
+        };
+        report.pruned.extend(pruned);
+        Ok(())
     }
 
     fn report_deletion(report: &mut ReconcileReport, record: &WorktreeRecord, deletion: &crate::worktree::removal::Deletion) {
@@ -359,14 +369,13 @@ impl Worktrees {
         cancel: &CancellationToken,
     ) -> Result<Option<bool>, ScmFailure> {
         let is_retained = record.owner_session_id.as_ref().is_some_and(|id| options.retained.contains(id));
-        let keep = |report: &mut ReconcileReport, reason: &str| report.kept.push(json!({ "id": record.id, "reason": reason }));
         if !record.shared_session_ids.is_empty() {
-            keep(report, "shared");
+            keep(report, record, "shared");
             return Ok(None);
         }
         if record.state == "creating" || record.state == "recovery" {
             if is_retained {
-                keep(report, "retained");
+                keep(report, record, "retained");
                 return Ok(None);
             }
             // Holding the repository lock proves no creator is still running.
@@ -378,69 +387,12 @@ impl Worktrees {
             }
             return Ok(None);
         }
-        if record.state == "deleting" && is_snapshot(record) {
-            // An unfinished snapshot deletion: whatever entered the surviving folder since still keeps it.
-            let grant = match self.hold_folder(record).await {
-                Ok(grant) => grant,
-                Err(error) if snapshot_in_use(&error) => {
-                    keep(report, "snapshot-in-use");
-                    return Ok(None);
-                }
-                Err(error) => return Err(error),
-            };
-            let deletion = self.finish_deletion(record, cancel).await;
-            self.release_folder(grant).await;
-            Self::report_deletion(report, record, &deletion?);
-            return Ok(None);
-        }
-        if record.state == "deleting" && record.extra.get("deleting").and_then(|d| d.get("automatic")).and_then(Value::as_bool) == Some(true) {
-            // An automatic removal that was interrupted is never resumed blindly: what it took
-            // apart is put back (its recorded undo) and the record is ready again.
-            let deleting = record.extra.get("deleting").cloned().unwrap_or(Value::Null);
-            let mut not_restored = self.undo_automatic_attempt(record, deleting.get("undo").unwrap_or(&Value::Null), cancel).await;
-            let mut remaining: Vec<mixdog_protocol::RemovalRemnant> =
-                deleting.get("remaining").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
-            remaining.append(&mut not_restored);
-            let kept_remaining = remaining.clone();
-            self.keep_incomplete_removal(record, remaining, "interrupted", cancel).await?;
-            report.kept.push(json!({ "id": record.id, "reason": "incomplete", "remaining": kept_remaining }));
-            return Ok(None);
-        }
         if record.state == "deleting" {
-            // A decided deletion: its session already left the folder.
-            let deletion = self.finish_deletion(record, cancel).await?;
-            Self::report_deletion(report, record, &deletion);
+            self.resume_deletion(record, report, cancel).await?;
             return Ok(None);
         }
         if is_snapshot(record) {
-            // Read-only and turn-scoped: once its holder is gone it goes, whatever autoCleanup
-            // says and whatever was changed in it. A worker or shell still running in it keeps it too.
-            let mut grant = None;
-            let mut held = false;
-            if !self.snapshot_holder_live(record, &options.live, cancel).await? {
-                match self.hold_folder(record).await {
-                    Ok(taken) => {
-                        grant = taken;
-                        held = true;
-                    }
-                    Err(error) if snapshot_in_use(&error) => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            if !held {
-                keep(report, "snapshot-in-use");
-                return Ok(None);
-            }
-            let deleted: Result<crate::worktree::removal::Deletion, ScmFailure> = async {
-                self.assert_recovery_stores_clear(record, cancel).await?;
-                record.state = "deleting".into();
-                record.extra.insert("deleting".into(), json!({ "force": true, "startedAt": now_ms(), "remaining": [] }));
-                self.put_record(cancel, record.clone()).await?;
-                self.finish_deletion(record, cancel).await
-            }
-            .await;
-            self.release_folder(grant).await;
-            Self::report_deletion(report, record, &deleted?);
+            self.reap_snapshot(record, options, report, cancel).await?;
             return Ok(None);
         }
         let lease = self.read_owner_lease(record, cancel).await?;
@@ -460,6 +412,82 @@ impl Worktrees {
         }
         Ok(None)
     }
+
+    /// A record in `deleting`: a snapshot's unfinished deletion (whatever entered the surviving
+    /// folder since still keeps it), an interrupted automatic removal (put back, never resumed
+    /// blindly), or a decided deletion, finished.
+    async fn resume_deletion(&self, record: &mut WorktreeRecord, report: &mut ReconcileReport, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        if is_snapshot(record) {
+            let grant = match self.hold_folder(record).await {
+                Ok(grant) => grant,
+                Err(error) if snapshot_in_use(&error) => {
+                    keep(report, record, "snapshot-in-use");
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+            let deletion = self.finish_deletion(record, cancel).await;
+            self.release_folder(grant).await;
+            Self::report_deletion(report, record, &deletion?);
+            return Ok(());
+        }
+        if record.extra.get("deleting").and_then(|d| d.get("automatic")).and_then(Value::as_bool) == Some(true) {
+            let deleting = record.extra.get("deleting").cloned().unwrap_or(Value::Null);
+            let mut not_restored = self.undo_automatic_attempt(record, deleting.get("undo").unwrap_or(&Value::Null), cancel).await;
+            let mut remaining: Vec<mixdog_protocol::RemovalRemnant> =
+                deleting.get("remaining").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+            remaining.append(&mut not_restored);
+            let kept_remaining = remaining.clone();
+            self.keep_incomplete_removal(record, remaining, "interrupted", cancel).await?;
+            report.kept.push(json!({ "id": record.id, "reason": "incomplete", "remaining": kept_remaining }));
+            return Ok(());
+        }
+        let deletion = self.finish_deletion(record, cancel).await?;
+        Self::report_deletion(report, record, &deletion);
+        Ok(())
+    }
+
+    /// A snapshot is read-only and turn-scoped: once its holder is gone it goes, whatever
+    /// autoCleanup says and whatever was changed in it. A worker or shell still running in it keeps it too.
+    async fn reap_snapshot(
+        &self,
+        record: &mut WorktreeRecord,
+        options: &ReconcileOptions,
+        report: &mut ReconcileReport,
+        cancel: &CancellationToken,
+    ) -> Result<(), ScmFailure> {
+        let mut grant = None;
+        let mut held = false;
+        if !self.snapshot_holder_live(record, &options.live, cancel).await? {
+            match self.hold_folder(record).await {
+                Ok(taken) => {
+                    grant = taken;
+                    held = true;
+                }
+                Err(error) if snapshot_in_use(&error) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if !held {
+            keep(report, record, "snapshot-in-use");
+            return Ok(());
+        }
+        let deleted: Result<crate::worktree::removal::Deletion, ScmFailure> = async {
+            self.assert_recovery_stores_clear(record, cancel).await?;
+            record.state = "deleting".into();
+            record.extra.insert("deleting".into(), json!({ "force": true, "startedAt": now_ms(), "remaining": [] }));
+            self.put_record(cancel, record.clone()).await?;
+            self.finish_deletion(record, cancel).await
+        }
+        .await;
+        self.release_folder(grant).await;
+        Self::report_deletion(report, record, &deleted?);
+        Ok(())
+    }
+}
+
+fn keep(report: &mut ReconcileReport, record: &WorktreeRecord, reason: &str) {
+    report.kept.push(json!({ "id": record.id, "reason": reason }));
 }
 
 fn now_ms() -> i64 {

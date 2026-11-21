@@ -1,4 +1,4 @@
-//! The Theme picker and the Effort picker (`src/tui/app/theme-effort-pickers.mjs`).
+//! The Theme picker and the Effort picker.
 //!
 //! The theme calls are the store's (`listThemes`, `getTheme`, `setTheme(id, { persist })`): the host binds them to the live
 //! palette of `mixdog_tui_style::theme` (`list_themes`, `get_theme_setting`, `set_theme`, applied in this process first, as the
@@ -77,8 +77,7 @@ pub fn open_theme_picker(host: &mut dyn PickerHost, options: ThemeOptions) {
     panel.label_width = Some(22);
     panel.initial_index = Some(items.iter().position(|item| item.item.value == current_id).unwrap_or(0));
     panel.items = items;
-    panel.confirm =
-        if onboarding { Some(ConfirmSpec::back_next()) } else { options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() }) };
+    panel.confirm = ConfirmSpec::for_picker(onboarding, options.confirm_bar.as_ref());
     panel.handler = Some(Rc::new(ThemeHandler { own: Rc::clone(&own), options, highlighted: RefCell::new(current_id.clone()), current_id }));
     own.paint(host, Some(panel));
 }

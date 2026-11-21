@@ -554,10 +554,6 @@ async fn a_side_question_in_flight_is_canceled_by_cancel_side_or_a_newer_questio
     assert_eq!(call(&handle, "thread/askSide", json!({ "question": "three" }), "s-4").await.expect("answered"), json!({ "text": "done" }));
     assert_eq!(plain_error(second.await.expect("joined").expect_err("replaced")), "Side question canceled.");
 }
-/// `compact(options)` of the session ops (`session-ops.mjs`): an auto-clear is refused with Node's answer while a
-/// turn runs; a `skipped` result is the answer as is, before PostCompact; any other runs
-/// PostCompact, re-marks the Goal reminder `compaction`, re-arms the late tools, recovers the
-/// agent on request and invalidates the context status, then answers the result.
 #[tokio::test(start_paused = true)]
 async fn a_manual_compaction_follows_the_session_ops_order() {
     let rig = Rig::new();
@@ -655,10 +651,6 @@ async fn a_users_compaction_asked_mid_turn_runs_once_after_the_turn_and_its_queu
     );
 }
 
-/// The session tool's `compact` (`workspace-tools.mjs`: `pendingCompactSessionIds`): asked while
-/// the turn runs, nothing compacts until the turn settles (`turn-settle.mjs`: `takePendingCompact`),
-/// then `session.compact()` runs once; a turn asked meanwhile waits for it (`compaction-gate.mjs`:
-/// `ask: afterCompaction(runner.ask)`) and starts once it ended.
 #[tokio::test(start_paused = true)]
 async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_waits_for_it() {
     let rig = Rig::new();
@@ -785,10 +777,6 @@ async fn a_prioritised_queued_prompt_waits_for_the_scheduled_compaction() {
     assert!(handle.cell.queued.load().is_empty(), "it started once the compaction ended");
     gate.notify_one();
 }
-/// A task report reaching the session while the scheduled compaction runs, by the producers' path
-/// (`notifySessionCompletion` → `enqueueCompletion` → the live wake): it is queued at once and
-/// kept, its wake waits on the gate (the notification bus's `ask` is wrapped by
-/// `afterCompaction`), and it starts its turn once the compaction ended.
 #[tokio::test(start_paused = true)]
 async fn a_task_report_under_the_compactions_gate_waits_and_is_not_lost() {
     use mixdog_agent::agent_tool::flow::seams::OwnerNotify;
@@ -823,11 +811,6 @@ async fn a_task_report_under_the_compactions_gate_waits_and_is_not_lost() {
     assert!(handle.cell.queued.load().is_empty(), "the report's turn took it once the compaction ended");
     gate.notify_one();
 }
-/// A session deleted while its scheduled compaction RUNS: nothing that decides a close sees the
-/// compaction (Node: `retention/busy.mjs` `stateBusy` reads `busy`, `commandBusy`, `queued`), so
-/// the delete goes through, and every caller the gate held gets an answer, none is left hanging:
-/// the session is closed to them (Node's held `ask` meets `assertSessionAdmission`'s closed
-/// refusal once the tail settles).
 #[tokio::test(start_paused = true)]
 async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_deleted() {
     use std::sync::atomic::Ordering::SeqCst;
@@ -1019,10 +1002,6 @@ async fn a_gated_clear_cancelled_after_its_plan_was_released_does_not_hold_the_t
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle)).then_some(())).await;
     assert_eq!(super::testing::lock(&log)[1].0, "after", "the queued prompt started once the cancelled clear ended");
 }
-/// A stop while the scheduled compaction holds a prompt back (Node's ask waiting on the gate, `state.busy`): the reply hands the
-/// prompt back (`aborted: false`, its text and the submission the window named). Unlike Node 1.4.5, a prompt handed back is not
-/// also runnable: the Stop's durable record freezes it, it leaves the queue, and once the compaction ends the drain decides
-/// without it.
 #[tokio::test(start_paused = true)]
 async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_it_never_runs() {
     use std::sync::atomic::Ordering::SeqCst;
@@ -1089,10 +1068,6 @@ async fn a_scheduled_compaction_runs_once_the_turn_completes() {
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&rig.compaction.calls).len() >= 4).then_some(())).await;
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "invalidate"]);
 }
-/// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
-/// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
-/// resume entry is finished and the answer is `true`; any other key, and a second ask for the
-/// same turn, answer `false`.
 #[tokio::test(start_paused = true)]
 async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_finished() {
     let rig = Rig::new();
@@ -1139,10 +1114,6 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
         "the retry's own turn is now the latest"
     );
 }
-/// A thread whose first turn failed on exhausted quota (its resume queued), the later turns
-/// completing; `with_message` also leaves a user message with an id as the turn's last model row,
-/// which the failed turn's end is recorded on (`attachFailedTurnCompletion`, as it is on a
-/// restored Node session's failed message: `meta.transcript.completion` failed).
 async fn quota_failed_thread(
     rig: &Rig,
     with_message: bool,
@@ -1182,10 +1153,6 @@ async fn quota_failed_thread(
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     (handle, entry.turn_key, seen)
 }
-/// A retry that names the failed message (a restored Node session) resends it as stored: the
-/// retry turn carries its id and the attempt the failed turn's completion recorded on it
-/// (`attachFailedTurnCompletion` replaces any completion the message held), its input row stays
-/// off screen, and the entry ends.
 #[tokio::test(start_paused = true)]
 async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
     let rig = Rig::new();
@@ -1343,12 +1310,6 @@ async fn a_retry_waits_for_a_running_compaction() {
     retry_when_settled(&handle, &key, "r-2c").await;
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
 }
-/// A retry and the model-scheduled compaction (`compaction-gate.mjs`). Asked while the compaction
-/// is only scheduled (its turn still runs), `retryBlocked` sees the turn (`state.busy`) and
-/// refuses. Asked while it runs, nothing in `retryBlocked` sees it (the gate sets neither
-/// `commandBusy` nor `autoClearRunning`): the retry is admitted, `retryFailedTurn` enqueues it and
-/// its `runtime.ask` waits on the gate (`ask: afterCompaction(runner.ask)`), starting once the
-/// compaction ended.
 #[tokio::test(start_paused = true)]
 async fn a_retry_waits_on_the_scheduled_compactions_gate() {
     use std::sync::atomic::Ordering::SeqCst;
@@ -1588,10 +1549,6 @@ async fn a_message_the_provider_refuses_reloads_as_the_user_row_then_one_failed_
     let shown: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item).expect("item")["type"].clone()).collect();
     assert_eq!(shown, kinds, "the live window reads as the stored history");
 }
-/// `commitSessionCompaction`: a manual compaction's result is applied when no turn runs and the
-/// context still starts with what it was planned on; the rows a finished turn appended meanwhile
-/// follow the compacted ones; a running turn, or a context that moved, leave the conversation as
-/// it is.
 #[tokio::test(start_paused = true)]
 async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_planned_on() {
     use super::run::Compaction;
@@ -1675,11 +1632,6 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(handle.live_header().header()["compaction"]["compactCount"], json!(7));
 }
-/// A manual compaction's header is evaluated after the provider continuation is reset and the replacement is in
-/// (Node stamps `committedAt` after `session.messages = transcript` and `providerState = undefined`,
-/// `compaction-runner.mjs:695-749`; the replacement precedes the header, `session-log-writer.mjs:1146-1159`), and the commit
-/// answers only once that header is durable. Observed through events: the header the closure is handed has no `providerState`,
-/// the log holds reset, replacement, header in that order, and the commit stays unanswered while the header's batch is held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_is_durable_before_the_answer() {
     use super::run::Compaction;
@@ -1871,12 +1823,6 @@ async fn turn_ends_and_failed_saves_are_reported_to_the_notices() {
         .expect_err("barrier failed");
     assert_eq!(super::testing::lock(&rig.notices.0).last().map(String::as_str), Some("completed:"), "a refused rename leaves no conversation data unsaved");
 }
-/// A route change while a turn runs does not move the notice its end raises: the provider is the
-/// one of the route the turn started with (`routeMeta.provider`), not the header's at the end.
-/// Node sets `routeMeta` once, when the turn is prepared (`onRouteApplied`, turn-prepare.mjs:159,
-/// after the pending route and profile applied); a fallback hop (`updateSessionRoute`,
-/// route-fallback.mjs:131) does not touch it. The route here changes the way a hop writes the
-/// header (the new provider with the `routeFallback*` fields) and the notice stays with the start.
 #[tokio::test(start_paused = true)]
 async fn a_route_change_during_a_turn_does_not_move_its_notice() {
     use mixdog_protocol::{ProviderErrorDetail, TurnError};
@@ -2261,11 +2207,6 @@ async fn input_arriving_after_a_stopped_batch_runs_without_reviving_it() {
     assert!(bodies[1..].iter().any(|body| body.contains("job-2")) && bodies[1..].iter().any(|body| body.contains("job-3")), "the later input ran: {bodies:?}");
 }
 
-/// `failedTurnProvenance` (`ask-session.mjs:198-201`): a retry of a system-caused turn (a restored
-/// message with `meta.source` and the failed completion) is noted to the warmer as system, and its
-/// row carries that provenance as `meta.provenance` (`turnPromptSourceFor`, `ask-turn-execute.mjs:27-34`)
-/// so the retry of the retry is system too. The completions come from the actor's own write when a turn
-/// fails (`attachFailedTurnCompletion`), none is seeded.
 #[tokio::test(start_paused = true)]
 async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_system() {
     use super::ItemCommit;
@@ -2329,10 +2270,6 @@ async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_syste
     let previous = last["previousCompletions"].as_array().expect("the failures it replaced");
     assert_eq!(previous.iter().map(|completion| completion["status"].clone()).collect::<Vec<_>>(), [json!("failed"), json!("failed")]);
 }
-/// A route change while a turn runs moves the durable failure record and not the live end: the live end's quota stop
-/// names the route the turn started with (`turn.routeMeta`, `turn.mjs:555`; the model by its display name), while the
-/// completion recorded on the last message names the session's route at the close (`session.provider`,
-/// `failedTurnCompletion`, `ask-turn-failure.mjs:28`).
 #[tokio::test(start_paused = true)]
 async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_not_the_live_end() {
     use mixdog_core_run::run_host::model_display::display_model_name;
@@ -2384,11 +2321,7 @@ async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_no
     );
 }
 
-/// A failed turn gets `meta.transcript.completion` on its last message (`attachFailedTurnCompletion`,
-/// `ask-turn-settle.mjs:85-96`) and a plain `turn/start` carrying the retry flags stamps the row with the
-/// failed turn's provenance like the lane's retry does (`ask-session.mjs:199`).
-#[tokio::test(start_paused = true)]
-async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_the_provenance() {
+async fn failed_system_turn() -> (Rig, SessionDirectory, Arc<SessionHandle>, Arc<std::sync::Mutex<Vec<Value>>>) {
     use super::ItemCommit;
     use mixdog_core_api::ids::ItemId;
 
@@ -2420,12 +2353,15 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
     turn(&handle, "write the report", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 1).then_some(())).await;
+    (rig, directory, handle, stamped)
+}
 
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_records_its_completion() {
+    let (rig, directory, handle, _) = failed_system_turn().await;
     let context = directory.model_context(&handle.id);
     let messages = rows_with_completion(&rig, &context).await;
     let completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
-    // The record is built from the run's failure: Node's `turnFailureRecord` of an exhausted quota with the reset the
-    // provider named (`fixtures/turn-failure`, "quota with a provider-named reset").
     assert_eq!(completion["status"], "failed");
     assert_eq!(completion["detail"], "Provider usage limit reached.");
     assert_eq!(
@@ -2433,7 +2369,11 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
         json!({ "kind": "quota_exhausted", "code": "usage_limit_reached", "status": 429, "retryAfterMs": null, "resetAt": 5000 })
     );
     assert_eq!(completion["quota"]["resetAt"], 5000);
+}
 
+#[tokio::test(start_paused = true)]
+async fn a_plain_retry_start_carries_the_failed_turns_provenance() {
+    let (_rig, _directory, handle, stamped) = failed_system_turn().await;
     call(&handle, "turn/start", json!({ "input": { "prompt": "go on", "options": { "retryFailedTurn": true, "retryTurnId": "m1" } } }), "op-retry")
         .await
         .expect("started");

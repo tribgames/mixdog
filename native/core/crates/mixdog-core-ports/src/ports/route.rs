@@ -1,7 +1,5 @@
-//! The session side of a route change: Node's `followSession`, `applySessionTuning`,
-//! `applyPendingRoute` / `clearPendingRoute` (`model-route/set-route.mjs`,
-//! `model-route/route-persist.mjs`) and the chat fan-out of a bot's saved route
-//! (`standalone/session-service/agent-route-follow.mjs`).
+//! The session side of a route change: following the adopted route, applying session tuning,
+//! applying or clearing a pending route, and the chat fan-out of a bot's saved route.
 //!
 //! Adopting a route (resolving it, saving the model settings, refreshing the effort) is the
 //! route service's; it runs first and leaves the adopted route on [`LiveRoute`]. What this
@@ -81,12 +79,10 @@ pub trait LiveRoute: Send + Sync {
 /// `session::SessionRouteAdapter`).
 ///
 /// Every thread is an addressed session (each client reaches the core through the daemon, by
-/// thread id), so an empty session is always updated in place: Node closes and recreates one
-/// only in an unaddressed runtime (`set-route.mjs:433-448`), which the core never hosts.
+/// thread id), so an empty session is always updated in place.
 #[async_trait]
 pub trait RouteSession: Send + Sync {
-    /// The session generation (Node: advances whenever another conversation, or none, is
-    /// installed); an addressed thread keeps one for its lifetime.
+    /// The session generation; an addressed thread keeps one for its lifetime.
     fn generation(&self, thread: &ThreadId) -> u64;
     /// `session.liveTurnMessages`: the first turn's working messages before they are committed.
     async fn live_turn_messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError>;
@@ -111,8 +107,7 @@ pub trait RouteSession: Send + Sync {
     fn write_statusline(&self, thread: &ThreadId, route: &Route);
     /// `invalidateContextStatusCache`.
     fn invalidate_context_status(&self, thread: &ThreadId);
-    /// Whether the thread's runtime is up (loaded): Node's deferred pick lives in its runtime's `setRoute` closure
-    /// (`set-route.mjs:398-399`) and ends with it.
+    /// Whether the thread's runtime is up (loaded): a deferred pick ends with its runtime.
     fn loaded(&self, _thread: &ThreadId) -> bool {
         true
     }
@@ -138,10 +133,8 @@ fn text<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
 }
 
 /// Whether the thread has a materialized session: the one query the directory, `contextStatus`, `getSessionUsage` and the
-/// inheritance preflight ask. Node's `rt.session` is set when `createCurrentSession` builds a session on a route with a model
-/// and holds its system prompt and route; until then the runtime has only a reserved id (`reserveSessionId`) and
-/// `getSession()` is null. The Rust thread record exists from `thread/start`; the session is made on it when its route is
-/// seated (a model on the header) and a conversation only ever exists on a seated route (rows). A record with neither is the
+/// inheritance preflight ask. The thread record exists from `thread/start`; the session is made on it when its route is
+/// seated (a model on the header) and a conversation only ever exists on a seated route (rows). A record with neither is a
 /// reservation. Nothing is stored for it, so it never reaches a transcript, a listing or a migration.
 pub fn has_session(header: &Header, rows: &[Value]) -> bool {
     header_names_session(header) || !rows.is_empty()
@@ -446,7 +439,25 @@ impl SessionRoutes {
         Ok(())
     }
 
-    /// What the adopted route does to the thread it was selected for (`followSession`).
+    async fn hold_pick(&self, thread: &ThreadId, route: &Route, token: Option<u64>, compact_before_switch: bool) -> Result<(), PortError> {
+        {
+            // One pick per loaded thread: the picks of threads no longer loaded go (their
+            // record's `pendingRoute` still applies it when the thread is loaded again).
+            let mut pending = self.pending_lock();
+            pending.retain(|id, _| id == thread.as_str() || self.session.loaded(&ThreadId::from(id.as_str())));
+            pending.insert(thread.as_str().to_owned(), token);
+        }
+        // Held on the session too, so a restart before the next turn still applies it.
+        let mut set = Map::new();
+        let mut pick = held_route_pick(route);
+        if compact_before_switch {
+            pick.insert(PRE_SWITCH_COMPACTION.into(), Value::Bool(true));
+        }
+        set.insert("pendingRoute".into(), Value::Object(pick));
+        self.threads.patch_header(thread, set, Vec::new()).await
+    }
+
+    /// What the adopted route does to the thread it was selected for.
     pub async fn follow(&self, thread: &ThreadId, options: &FollowOptions) -> Result<Followed, PortError> {
         // A selection addressed to a conversation belongs to the generation it was enqueued
         // under; once that moved, every session effect is skipped and the current route stands.
@@ -455,8 +466,7 @@ impl SessionRoutes {
             return Ok(Followed::default());
         }
         let header = self.threads.header(thread).await?;
-        // `followSession` acts on `getSession()`: a runtime whose session is not created yet (a reservation) has nothing to
-        // follow, the route it holds is the one the session is created on ([`Self::seat`]).
+        // A reservation has no session to follow: the route it holds is the one the session is created on ([`Self::seat`]).
         if !self.record_has_session(thread, &header).await? {
             self.pending_lock().remove(thread.as_str());
             return Ok(Followed::default());
@@ -464,21 +474,7 @@ impl SessionRoutes {
         let route = self.live.route(thread);
         let key = thread.as_str().to_owned();
         if options.defer_until_next_turn {
-            {
-                // One pick per loaded thread, as Node holds one per runtime: the picks of threads no longer loaded go (their
-                // record's `pendingRoute` still applies it when the thread is loaded again).
-                let mut pending = self.pending_lock();
-                pending.retain(|id, _| *id == key || self.session.loaded(&ThreadId::from(id.as_str())));
-                pending.insert(key, token);
-            }
-            // Held on the session too, so a restart before the next turn still applies it.
-            let mut set = Map::new();
-            let mut pick = held_route_pick(&route);
-            if options.compact_before_switch {
-                pick.insert(PRE_SWITCH_COMPACTION.into(), Value::Bool(true));
-            }
-            set.insert("pendingRoute".into(), Value::Object(pick));
-            self.threads.patch_header(thread, set, Vec::new()).await?;
+            self.hold_pick(thread, &route, token, options.compact_before_switch).await?;
             return Ok(Followed::default());
         }
         // A held pick this selection replaces is dropped from memory only once its record is: a failed write leaves the
@@ -503,21 +499,15 @@ impl SessionRoutes {
             self.refresh_fallbacks(thread, &header).await?;
             return Ok(Followed::default());
         }
-        // An addressed runtime keeps its durable id: the empty session is updated in place,
-        // never closed and replaced by a freshly minted one (`set-route.mjs:433-448`).
-        // `invalidatePreSessionToolSurface()` (`set-route.mjs:109`) belongs to `recreateEmptySession`, which only an
-        // unaddressed runtime takes; every thread here is addressed, so its surface keeps the key it was built on.
         self.update_in_place(thread, &header, false).await?;
         self.session.invalidate_context_status(thread);
         Ok(Followed::default())
     }
 
-    /// `setRoute.applyPendingRoute`: the model pick held for the next turn takes effect. The
-    /// recorded boundary, or `None` when nothing switched.
-    /// The held pick is taken off (memory and record) only once it took effect, or was superseded: a failed switch, or a
-    /// record write that failed, leaves it in place for the next turn. A failure no retry mends (the thread is gone, the
-    /// pick or the thread refused for good) takes it off as Node does, whose `applyPendingRoute` drops the pick before it
-    /// switches (`set-route.mjs:457-462`) and whose pick ends with a runtime that is gone.
+    /// The model pick held for the next turn takes effect. The recorded boundary, or `None` when
+    /// nothing switched. The held pick is taken off (memory and record) only once it took effect, or was
+    /// superseded: a failed switch, or a record write that failed, leaves it in place for the next turn. A
+    /// failure no retry mends (the thread is gone, the pick or the thread refused for good) takes it off.
     pub async fn apply_pending(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         let applied = self.try_apply_pending(thread).await;
         if let Err(error) = &applied

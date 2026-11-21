@@ -1,8 +1,3 @@
-//! Codex CLI rollout (`rollout-*.jsonl`) → raw import turns. Kept: the first `session_meta`
-//! (foreign id, cwd), user/assistant `message` items as text and tool calls as tool notes.
-//! Dropped: developer/system messages, Codex's own wrapper user messages, tool outputs,
-//! reasoning, event messages, token counts and turn context.
-
 use serde_json::Value;
 
 use super::turns::{IMAGE_OMITTED_TEXT, Part, RawTurn, Role, Stamp, WARNING_IMAGE_OMITTED, is_whole_element, string_or_null, utf16_len};

@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::FileStat;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::WritePrecondition;
@@ -166,11 +167,8 @@ impl Tool for EditTool {
                 ));
             }
             let after = encode_text(new, codec);
-            write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::FileEquals { stat, bytes: bytes.clone() }).await?;
-            if let Some(state) = &self.state {
-                note_edit(ctx, state, &abs, pre, &after).await;
-            }
-            return Ok(committed_edit(ctx, &abs, Some(bytes), after, text_output(format!("Updated {shown} (filled empty file)"))).await);
+            let observed = Observed { stat, bytes, pre };
+            return commit_replacement(ctx, self.state.as_deref(), &abs, &full, observed, after, format!("Updated {shown} (filled empty file)")).await;
         }
         // Dialect normalization is skipped for a same-anchor batch member: its occurrence count is bound to the original
         // old_string (`adaptStrReplace`).
@@ -184,13 +182,34 @@ impl Tool for EditTool {
         }
         let (next, applied) = apply(&content, &old, &new, replace_all, codec.encoding == Encoding::Utf8, occupation)?;
         let after = encode_text(&next, codec);
-        write_checked(ctx, &abs, &full, after.clone(), WritePrecondition::FileEquals { stat, bytes: bytes.clone() }).await?;
-        if let Some(state) = &self.state {
-            note_edit(ctx, state, &abs, pre, &after).await;
-        }
-        let text = text_output(format!("Updated {shown} ({applied} replacement{})", if applied == 1 { "" } else { "s" }));
-        Ok(committed_edit(ctx, &abs, Some(bytes), after, text).await)
+        let observed = Observed { stat, bytes, pre };
+        let text = format!("Updated {shown} ({applied} replacement{})", if applied == 1 { "" } else { "s" });
+        commit_replacement(ctx, self.state.as_deref(), &abs, &full, observed, after, text).await
     }
+}
+
+struct Observed {
+    stat: FileStat,
+    bytes: Vec<u8>,
+    pre: Option<FileVersion>,
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn commit_replacement(
+    ctx: &ToolContext,
+    state: Option<&ReadState>,
+    abs: &AbsPath,
+    full: &str,
+    observed: Observed,
+    after: Vec<u8>,
+    text: String,
+) -> ToolOutcome {
+    let Observed { stat, bytes, pre } = observed;
+    write_checked(ctx, abs, full, after.clone(), WritePrecondition::FileEquals { stat, bytes: bytes.clone() }).await?;
+    if let Some(state) = state {
+        note_edit(ctx, state, abs, pre, &after).await;
+    }
+    Ok(committed_edit(ctx, abs, Some(bytes), after, text_output(text)).await)
 }
 
 fn unreadable(full: &str, why: &str) -> ToolError {

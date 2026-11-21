@@ -1,13 +1,3 @@
-//! The delegated-approval host (`runtime/shared/delegated-approval-host.mjs`): which chats hand a
-//! session work, the copies of that session's requests those chats show, and when each copy is
-//! offered or withdrawn. Node keeps the registry on `globalThis`; here one host is built by the
-//! composition root and shared (it is also the [`Handoffs`] the report-watch store keeps in step
-//! with, see `compose-seams.md`).
-//!
-//! A request stays ONE request: the asking session's queue owns it and its waiter, the other chats
-//! hold copies whose answer is forwarded to that owner, and every copy is withdrawn when the owner
-//! settles. Registry calls never run a queue callback under the lock: a queue may call back in.
-
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
 type DelegatedHandoff = (CopyFor, Vec<(String, Delegated, u64)>);
 

@@ -131,6 +131,27 @@ fn operation_evidence(operation: &Value, content: Option<&Value>) -> Value {
     })
 }
 
+fn operation_brief(operation: &Value, operation_index: usize, index: usize, total: usize, content: Option<&Value>, thesis: &Value, motif: &str) -> Value {
+    let role = narrative_role(operation, index, total);
+    let evidence = operation_evidence(operation, content);
+    let message = compact_value(first_truthy(&[prop(operation, "title"), prop(operation, "takeaway"), Some(thesis)]).unwrap_or(&Value::Null), 220);
+    let implication =
+        compact_value(first_truthy(&[prop(operation, "takeaway"), prop(operation, "subtitle"), prop(operation, "body")]).unwrap_or(&Value::Null), 220);
+    let focal_point = focal_point_for(role, evidence["evidenceKind"].as_str().unwrap_or(""));
+    json!({
+        "operationIndex": operation_index,
+        "sequence": index + 1,
+        "role": role,
+        "message": message,
+        "implication": implication,
+        "evidence": evidence,
+        "recommendedVisual": recommended_visual(operation, role),
+        "focalPoint": focal_point,
+        "density": if role == "opening" || role == "decision-close" { "light" } else { "balanced" },
+        "motif": motif,
+    })
+}
+
 /// `directOfficeStory(format, operations, design)`: the brief of each compose operation (its role in the narrative arc,
 /// message, recommended visual, focal point and density) and the story's thesis, motif, discipline and evidence
 /// coverage.
@@ -172,27 +193,7 @@ pub fn direct_office_story(format: &str, operations: &Value, design: &Value) -> 
     let briefs: Vec<Value> = authored
         .iter()
         .enumerate()
-        .map(|(index, (operation_index, operation))| {
-            let role = narrative_role(operation, index, total);
-            let evidence = operation_evidence(operation, content);
-            let message =
-                compact_value(first_truthy(&[prop(operation, "title"), prop(operation, "takeaway"), Some(&thesis_value)]).unwrap_or(&Value::Null), 220);
-            let implication =
-                compact_value(first_truthy(&[prop(operation, "takeaway"), prop(operation, "subtitle"), prop(operation, "body")]).unwrap_or(&Value::Null), 220);
-            let focal_point = focal_point_for(role, evidence["evidenceKind"].as_str().unwrap_or(""));
-            json!({
-                "operationIndex": operation_index,
-                "sequence": index + 1,
-                "role": role,
-                "message": message,
-                "implication": implication,
-                "evidence": evidence,
-                "recommendedVisual": recommended_visual(operation, role),
-                "focalPoint": focal_point,
-                "density": if role == "opening" || role == "decision-close" { "light" } else { "balanced" },
-                "motif": motif,
-            })
-        })
+        .map(|(index, (operation_index, operation))| operation_brief(operation, *operation_index, index, total, content, &thesis_value, &motif))
         .collect();
     let sourced = briefs
         .iter()

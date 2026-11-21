@@ -1,8 +1,3 @@
-//! The append path (`UsageLedger.record`): each record, its route/session interning, its
-//! request-log facts and its `daily`/`day_sessions` totals commit in one transaction. The
-//! per-session day sums and the revision counters move by trigger, inside the same
-//! transaction, for every writer.
-
 use serde::Deserialize;
 use serde_json::Value;
 

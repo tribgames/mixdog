@@ -184,24 +184,7 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
             };
             return Ok(agent_preset(route, &[], effort, asked_fast, true));
         }
-        let mut preset = Obj::new();
-        preset.insert("id".into(), "__direct__".into());
-        preset.insert("name".into(), "__DIRECT__".into());
-        preset.insert("type".into(), "agent".into());
-        preset.insert("provider".into(), provider.clone().into());
-        preset.insert("model".into(), model.clone().into());
-        // No fallbacks: a spawn that names its model is answered by that model or fails.
-        if let Some(effort) = asked_effort.or(default_effort) {
-            preset.insert("effort".into(), effort.into());
-        }
-        let fast = asked_fast.unwrap_or_else(|| defaults.and_then(|d| d.get("fast")) == Some(&Value::Bool(true)));
-        preset.insert("fast".into(), fast.into());
-        if arg("autoEffort") == Some(&Value::Bool(false)) {
-            preset.insert("autoEffort".into(), false.into());
-        }
-        preset.insert("tools".into(), "full".into());
-        let name = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
-        return Ok(SpawnPreset { preset_name: name, preset: Value::Object(preset) });
+        return Ok(direct_model_preset(args, provider, model, asked_effort.or(default_effort), asked_fast, defaults));
     }
 
     if let (Some(route), Some(chain)) = (&agent_route, &agent_chain) {
@@ -220,8 +203,39 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
     if named.is_empty() {
         return Err(format!("agent: agent \"{agent}\" has no Main model assignment"));
     }
-    let stored = preset_in(config, Some(&Value::from(named.as_str())));
-    let preset = match stored {
+    named_preset(config, named)
+}
+
+fn direct_model_preset(
+    args: &Value,
+    provider: String,
+    model: String,
+    effort: Option<String>,
+    asked_fast: Option<bool>,
+    defaults: Option<&Value>,
+) -> SpawnPreset {
+    let arg = |key: &str| args.get(key);
+    let mut preset = Obj::new();
+    preset.insert("id".into(), "__direct__".into());
+    preset.insert("name".into(), "__DIRECT__".into());
+    preset.insert("type".into(), "agent".into());
+    preset.insert("provider".into(), provider.into());
+    preset.insert("model".into(), model.into());
+    if let Some(effort) = effort {
+        preset.insert("effort".into(), effort.into());
+    }
+    let fast = asked_fast.unwrap_or_else(|| defaults.and_then(|d| d.get("fast")) == Some(&Value::Bool(true)));
+    preset.insert("fast".into(), fast.into());
+    if arg("autoEffort") == Some(&Value::Bool(false)) {
+        preset.insert("autoEffort".into(), false.into());
+    }
+    preset.insert("tools".into(), "full".into());
+    let name = if truthy(arg("preset")) { arg("preset").cloned().unwrap_or(Value::Null) } else { "__direct__".into() };
+    SpawnPreset { preset_name: name, preset: Value::Object(preset) }
+}
+
+fn named_preset(config: &Obj, named: String) -> Result<SpawnPreset, String> {
+    let preset = match preset_in(config, Some(&Value::from(named.as_str()))) {
         Some(found) => {
             let mut preset = found.as_object().cloned().unwrap_or_default();
             let mut source = Obj::new();

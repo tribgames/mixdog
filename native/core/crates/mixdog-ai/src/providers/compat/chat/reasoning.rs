@@ -1,9 +1,3 @@
-//! Reasoning text on Chat Completions: where a reply carries it, what is kept
-//! for replay, and how a prior turn's reasoning goes back (PW §5.7,
-//! `openai-compat-reasoning-field.mjs`). The kept part travels in the
-//! assistant message's [`ProviderReplay`] envelope, owned by the provider that
-//! produced it.
-
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_protocol::{JsonValue, ProviderId};
 use serde_json::json;

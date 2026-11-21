@@ -1,10 +1,3 @@
-//! The recoveries one attempt of the Anthropic routes makes, and the 400s it types for the agent loop, against the
-//! Node functions they mirror (no recording of these exists; each test states the function it follows):
-//! `adjustMaxTokensForContextOverflow` (anthropic-max-tokens-recovery.mjs) as both routes call it
-//! (`withBodyRecovery`, anthropic-api-transport.mjs; `_openResponse`, anthropic-oauth.mjs), `isThinkingReplayRejection`
-//! (thinking-replay-recovery.mjs), `rejectedToolSchema` (tool-schema-rejection.mjs) and the non-streaming re-issue of a
-//! stream that died (`decideStreamError`, anthropic-midstream-recovery.mjs; `issueNonStreamingFallback`).
-
 use std::sync::Arc;
 
 use serde_json::Value;

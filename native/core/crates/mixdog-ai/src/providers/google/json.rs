@@ -1,9 +1,3 @@
-//! Canonical JSON text and the tool-call id derived from it.
-//!
-//! A response that carries no server call id gets `gemini_<hash>` where the
-//! hash covers the call's position, name and arguments, so the same response
-//! always yields the same ids and a replayed history pairs calls with results.
-
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;

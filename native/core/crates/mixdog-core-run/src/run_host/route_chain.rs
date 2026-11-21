@@ -5,6 +5,7 @@
 //! takes the config and the bot route store at the moment of the call, so an edit made while the
 //! session runs applies from its next hop.
 
+pub use mixdog_agent::compact::blob_reads::LaneFault;
 use mixdog_ai::service::admin_route::{find_preset, normalize_workflow_route};
 use mixdog_ai::service::routes::{canonical_route_provider, execution_fallbacks};
 use mixdog_js::{js_trim, value_to_string};
@@ -35,14 +36,14 @@ pub trait BotRoutes: Send + Sync {
     async fn stored_bot_route(&self, agent_id: &str) -> Result<Option<Value>, RouteReadUnavailable>;
 }
 
-/// A bot route read whose lane job never ran (the lane was full, wedged, or dropped it). Node
-/// reads these files synchronously and has no such outcome.
+/// A bot route read that never ran to an answer, for the reason it names (the turn was cancelled, the lane shut
+/// down, had no healthy worker, or lost the result). Node reads these files synchronously and has no such outcome.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RouteReadUnavailable;
+pub struct RouteReadUnavailable(pub LaneFault);
 
 impl std::fmt::Display for RouteReadUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the bot route store could not be read: its lane did not run the read")
+        write!(f, "the bot route lookup did not run: {}", self.0)
     }
 }
 

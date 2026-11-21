@@ -1,26 +1,3 @@
-// =====================================================================
-// Import resolution + dependents (ported from the JS code-graph.mjs
-// import-resolution layer, L658-954). All paths here are repo-relative
-// and forward-slash normalized (same form as `ImportRecord::rel`); the
-// fileSet is a HashSet of those rels. Resolution that the JS layer did
-// in absolute-path space is done here in repo-relative space — the root
-// directory maps to the empty string "".
-// =====================================================================
-//
-// MODULES
-// -------
-//   * `paths`     — the repo-relative path algebra every leg shares.
-//   * `manifests` — pubspec/composer/tsconfig/package.json/Cargo.toml/go.mod,
-//                   the only part of this layer that reads the filesystem.
-//   * `languages` — the direct, fileSet-backed leg, one language at a time.
-//   * `top_level_types` — the `topLevelTypes` word scan the java/kotlin FQCN
-//                   index keys on.
-//
-// This file owns the GraphIndex those manifests and records build, the
-// index-backed fallbacks, and `resolve_and_link` — the single entry point
-// `main.rs` and the Rust core's code graph call, each over its own record type
-// (`ImportRecord`).
-
 mod languages;
 mod manifests;
 mod paths;
@@ -194,10 +171,6 @@ fn resolve_php_use(spec: &str, file_set: &HashSet<String>, index: &GraphIndex) -
         return Vec::new();
     }
     let mut best: Option<(usize, String)> = None;
-    // `php_psr4` is ordered longest-namespace-first, so the FIRST match is the
-    // most specific one and a later equal-length namespace must not replace it.
-    // An empty PSR-4 key is a legal catch-all root, so "no match yet" is
-    // distinguished from "matched length 0" rather than compared as a length.
     for (ns, dir) in &index.php_psr4 {
         if !cleaned.starts_with(ns.as_str()) || best.as_ref().is_some_and(|(len, _)| ns.len() <= *len) {
             continue;
@@ -228,17 +201,6 @@ fn resolve_dart_package(spec: &str, file_set: &HashSet<String>, index: &GraphInd
     file_set.contains(&cand).then_some(cand)
 }
 
-/// Longest dotted prefix of `spec` that the index knows, from the full name
-/// down to the bare head.
-///
-/// Four languages walked this ladder with four spellings of the same loop.
-/// They agree on the candidate sequence and on taking the FIRST hit; the two
-/// corners where the old spellings differed cannot arise, because none of
-/// these indexes carries an empty key or a key ending in `.`:
-///   * an empty `spec` looked up `""` in three of them and nothing in the
-///     fourth;
-///   * a `spec` ending in `.` looked up that trailing-dot form first in two
-///     of them.
 fn resolve_by_dotted_prefix(spec: &str, index: &HashMap<String, Vec<String>>) -> Vec<String> {
     let mut name = spec.trim().trim_end_matches('.').to_string();
     loop {
@@ -474,11 +436,6 @@ fn resolve_indexed_graph_import(rec: &impl ImportRecord, spec: &str, file_set: &
         "java" | "kotlin" => resolve_java_like(&normalized, index),
         "rust" => resolve_rust_indexed(rel, &normalized, file_set, index),
         "csharp" => resolve_csharp(&normalized, index),
-        // bash/lua/solidity/haskell resolve entirely via the direct fileSet
-        // leg above (resolve_graph_import); they have no index-backed
-        // fallback — a solidity spec that is not vendored in the tree and a
-        // haskell module that is not in the source path are external
-        // dependencies, not edges.
         "bash" | "lua" | "r" | "solidity" | "haskell" => Vec::new(),
         // A terraform module is a directory, so this one resolves to MANY
         // files and cannot use the single-answer direct leg.
@@ -579,11 +536,6 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// Two packages whose names are the SAME LENGTH both match an import of
-    /// either name. Sorting by length alone left them tied, so the winner came
-    /// out of `fs::read_dir` order — a different edge per run or per machine,
-    /// which then churns the cached graph. The order is now total, so the
-    /// resolved edge is pinned.
     #[test]
     fn equal_length_package_names_resolve_deterministically() {
         let root = temp_root("js-packages");
@@ -604,10 +556,6 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// Same defect on the PHP side: two PSR-4 namespaces of equal length in
-    /// sibling composer.json files. `resolve_php_use` keeps the first match of
-    /// the length-ordered list, so the chosen root no longer depends on which
-    /// manifest the filesystem listed first.
     #[test]
     fn equal_length_psr4_namespaces_resolve_deterministically() {
         let root = temp_root("psr4");

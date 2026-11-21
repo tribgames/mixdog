@@ -407,7 +407,7 @@ async fn a_selection_that_does_not_keep_the_main_model_makes_it_the_lead_preset_
     assert_eq!(saved["default"], "workflow-lead");
     assert_eq!(
         saved["presets"],
-        json!([{ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "provider": "openai", "model": "gpt-5", "effort": "low", "tools": "full" }])
+        json!([{ "id": "workflow-lead", "name": "WORKFLOW LEAD", "type": "agent", "provider": "openai", "model": "gpt-5", "effort": "low", "fast": false, "tools": "full" }])
     );
     assert_eq!(saved["modelSettings"]["openai/gpt-5"]["effort"], "low");
 }

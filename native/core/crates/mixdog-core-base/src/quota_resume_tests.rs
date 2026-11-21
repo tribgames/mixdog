@@ -7,10 +7,6 @@ use serde_json::json;
 
 use crate::quota_resume::QuotaResumeStore;
 
-/// Node commits and notifies in one synchronous step, so the listeners hear of change A before
-/// change B can commit. Here the changes are issued from many tasks at once: the notifications
-/// must come in commit (generation) order, and a listener that reads the store while it is told
-/// must see the state of the change it is told about.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_changes_notify_in_commit_order_and_each_listener_sees_its_own_state() {
     let dir = tempfile::tempdir().unwrap();

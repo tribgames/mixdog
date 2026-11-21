@@ -302,6 +302,20 @@ pub(crate) trait WinDriver: Send + Sync {
     fn activate_application(&self, broker: &Broker, app_id: &str) -> windows::core::Result<u32>;
 }
 
+/// The events one attempt sends, each with the index of the part it comes from.
+fn outgoing_events(parts: &[Part], admitted: bool) -> Vec<(usize, Event)> {
+    parts
+        .iter()
+        .enumerate()
+        .filter_map(|(at, part)| match part {
+            Part::Ordinary(event) if admitted => Some((at, *event)),
+            Part::Unowned(hold) if admitted => release_event(hold).map(|event| (at, event)),
+            Part::Owned(receipt) => release_event(&receipt.hold).map(|event| (at, event)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// One executor's Windows port.
 pub(crate) struct WinPort {
     scope: Scope,
@@ -393,35 +407,14 @@ impl WinPort {
     /// holds; a partly accepted batch lets go at once of what it pressed and is never sent again.
     pub(crate) fn input(&self, events: &[Event]) -> Result<(), String> {
         let _releasing = self.ledger.releasing();
-        let mut parts = Vec::new();
-        for event in events {
-            let (rest, releases) = split(event);
-            parts.extend(rest.map(Part::Ordinary));
-            for hold in releases {
-                parts.push(match self.ledger.take(|held| *held == hold) {
-                    Owned::Held(receipt) => Part::Owned(receipt),
-                    Owned::Drained => Part::Drained,
-                    Owned::None => Part::Unowned(hold),
-                });
-            }
-        }
+        let parts = self.plan_parts(events);
         let ordinary = parts.iter().any(|part| matches!(part, Part::Ordinary(_) | Part::Unowned(_)));
         let mut admitted = ordinary && !self.scope.is_revoked();
         if admitted {
             self.driver.preflight("input");
         }
         loop {
-            // The events this attempt sends, by the part each comes from.
-            let outgoing: Vec<(usize, Event)> = parts
-                .iter()
-                .enumerate()
-                .filter_map(|(at, part)| match part {
-                    Part::Ordinary(event) if admitted => Some((at, *event)),
-                    Part::Unowned(hold) if admitted => release_event(hold).map(|event| (at, event)),
-                    Part::Owned(receipt) => release_event(&receipt.hold).map(|event| (at, event)),
-                    _ => None,
-                })
-                .collect();
+            let outgoing = outgoing_events(&parts, admitted);
             let batch: Vec<Event> = outgoing.iter().map(|(_, event)| *event).collect();
             let sent = if batch.is_empty() { Ok(0) } else { self.driver.send_input(&batch, admitted.then_some(&self.scope)) };
             let sent = match sent {
@@ -472,6 +465,23 @@ impl WinPort {
             }
             return if refused { Err(super::REVOKED.into()) } else { Ok(()) };
         }
+    }
+
+    /// Takes each event apart into its ordinary part and the releases it carries, taking the receipt each release names.
+    fn plan_parts(&self, events: &[Event]) -> Vec<Part> {
+        let mut parts = Vec::new();
+        for event in events {
+            let (rest, releases) = split(event);
+            parts.extend(rest.map(Part::Ordinary));
+            for hold in releases {
+                parts.push(match self.ledger.take(|held| *held == hold) {
+                    Owned::Held(receipt) => Part::Owned(receipt),
+                    Owned::Drained => Part::Drained,
+                    Owned::None => Part::Unowned(hold),
+                });
+            }
+        }
+        parts
     }
 
     /// Ends the release of each owned part: consumed when it went out, held again when it did not.

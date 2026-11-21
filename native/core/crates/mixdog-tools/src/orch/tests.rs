@@ -216,10 +216,9 @@ async fn session_actions_answer_with_their_json_or_their_refusal() {
         assert_eq!((ok, got), (want_ok, want_text), "{args}");
     }
 }
-/// Five `agent` calls (spawn, status, read, list, close) hand the loop these texts for the scripted facts.
-#[tokio::test]
-async fn agent_tool_results_read_as_the_text_of_each_call() {
-    use super::agent::*;
+mod agent_calls {
+    use super::super::agent::*;
+    use super::*;
 
     struct Scripted;
 
@@ -267,27 +266,55 @@ async fn agent_tool_results_read_as_the_text_of_each_call() {
         }
     }
 
-    let texts = [
-        "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nnotification: completion will be delivered; end the turn.",
-        "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nagent: coder\nmodel: p/m\nworker: running/streaming\nnotification: completion will be delivered; end the turn.",
-        "agent task: job_1\nstatus: completed\ntype: spawn\ntarget: worker-a sess_a\n\nThe answer is 42.",
-        "agents: 1 · tasks: 1\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- worker-a  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- job_1  spawn  completed  worker-a",
-        "agent close: ok\ntag: worker-a\nsessionId: sess_a",
-    ];
-    let tool = AgentTool::new(Arc::new(Scripted), Arc::new(Stub), Arc::new(Facts));
-    let error = tool.call(&ctx(), json!({"agent":"coder","prompt":"do it"})).await.expect_err("no implicit spawn");
-    assert!(matches!(error.code, ToolErrorCode::InvalidArgs { field, .. } if field == "type"));
-    let calls = [
-        json!({"type":"spawn","agent":"coder","prompt":"do it"}),
-        json!({"type":"status","tag":"worker-a"}),
-        json!({"type":"read","tag":"worker-a"}),
-        json!({"type":"list"}),
-        json!({"type":"close","tag":"worker-a"}),
-    ];
-    for (i, args) in calls.into_iter().enumerate() {
+    async fn text_of_call(args: Value) -> String {
+        let tool = AgentTool::new(Arc::new(Scripted), Arc::new(Stub), Arc::new(Facts));
         let out = tool.call(&ctx(), args).await.expect("agent call");
         let ToolPart::Text(got) = &out.parts[0] else { panic!("text") };
-        assert_eq!(got, texts[i], "call {}", i + 1);
+        got.clone()
+    }
+
+    #[tokio::test]
+    async fn an_agent_call_without_a_type_does_not_spawn() {
+        let tool = AgentTool::new(Arc::new(Scripted), Arc::new(Stub), Arc::new(Facts));
+        let error = tool.call(&ctx(), json!({"agent":"coder","prompt":"do it"})).await.expect_err("no implicit spawn");
+        assert!(matches!(error.code, ToolErrorCode::InvalidArgs { field, .. } if field == "type"));
+    }
+
+    #[tokio::test]
+    async fn a_spawn_reads_as_its_task_text() {
+        assert_eq!(
+            text_of_call(json!({"type":"spawn","agent":"coder","prompt":"do it"})).await,
+            "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nnotification: completion will be delivered; end the turn."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_status_reads_as_its_task_text_with_diagnostics() {
+        assert_eq!(
+            text_of_call(json!({"type":"status","tag":"worker-a"})).await,
+            "agent task: job_1\nstatus: running\ntype: spawn\ntarget: worker-a sess_a\nagent: coder\nmodel: p/m\nworker: running/streaming\nnotification: completion will be delivered; end the turn."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_reads_as_the_final_answer() {
+        assert_eq!(
+            text_of_call(json!({"type":"read","tag":"worker-a"})).await,
+            "agent task: job_1\nstatus: completed\ntype: spawn\ntarget: worker-a sess_a\n\nThe answer is 42."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_list_reads_as_the_roster() {
+        assert_eq!(
+            text_of_call(json!({"type":"list"})).await,
+            "agents: 1 · tasks: 1\n- idle/closed agents: 1 (latest 1; pass tag=<text> to find one)\n- worker-a  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- job_1  spawn  completed  worker-a"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_close_reads_as_its_receipt() {
+        assert_eq!(text_of_call(json!({"type":"close","tag":"worker-a"})).await, "agent close: ok\ntag: worker-a\nsessionId: sess_a");
     }
 }
 /// The model sees the tidy tool's name, its actions and what `fix` needs.

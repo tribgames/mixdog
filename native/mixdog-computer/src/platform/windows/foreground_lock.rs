@@ -1,11 +1,6 @@
-//! This process's own system-wide foreground lock around one background
-//! delivery, and the clock its timestamps are on (MixForegroundLock.cs:1-307).
-//! While the lock is held every app's programmatic foreground change fails, so
-//! every hold ends at a deadline counted from acquisition, on a thread of its
-//! own, whatever the delivery does. Windows lifts the lock early on the user's
-//! Alt key or click, and grants it only to a process that may set the
-//! foreground; a refused helper asks the desktop host for a lease instead
-//! (lease_api), which activation-guard does with the facts kept here.
+//! While the lock is held every app's programmatic foreground change fails.
+//! Windows lifts the lock early on the user's Alt key or click, and grants it
+//! only to a process that may set the foreground.
 //!
 //! Nothing here may panic: the release profile aborts on a panic, and an abort
 //! with the lock held leaves it held system-wide.
@@ -192,7 +187,7 @@ impl<N: LockNative> Inner<N> {
     /// Ends this process's own hold. A false unlock says the lock is no longer
     /// held, so the hold is over and reported unknown; only an unlock call
     /// that failed outright leaves it open, for release, the deadline and the
-    /// next acquire to retry (MixForegroundLock.EndOwn).
+    /// next acquire to retry.
     fn end_own(&self, state: &mut State, by: &str) {
         self.stamp(state, "unlock_requested_at");
         let mut outcome = ReleaseOutcome::Unknown;
@@ -312,10 +307,9 @@ impl<N: LockNative> ForegroundLock<N> {
     }
 
     /// Takes this process's own lock for `hold_ms` from the moment it is
-    /// granted, and starts the facts of a new hold (the own-lock half of
-    /// MixForegroundLock.Acquire, :90-154). `host_open` says the desktop
-    /// host's lease for an earlier request is still open, which refuses the
-    /// own lock before it is asked for (:113-117).
+    /// granted, and starts the facts of a new hold. `host_open` says the
+    /// desktop host's lease for an earlier request is still open, which
+    /// refuses the own lock before it is asked for.
     pub fn acquire(&self, hold_ms: u32, host_open: bool) -> Acquired {
         let inner = &*self.inner;
         let mut guard = inner.state();
@@ -379,7 +373,7 @@ impl<N: LockNative> ForegroundLock<N> {
     }
 
     /// Whether the own lock still protects: until its deadline. A hold still
-    /// open after it is only an unlock left to retry (MixForegroundLock.Held).
+    /// open after it is only an unlock left to retry.
     pub fn held(&self) -> bool {
         let state = self.inner.state();
         state.open && self.inner.native.now_ms() < state.deadline_at

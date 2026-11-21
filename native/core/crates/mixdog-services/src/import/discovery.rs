@@ -1,11 +1,3 @@
-//! Listing and searching importable conversations.
-//!
-//! Enumeration is stat-only; per-file metadata (foreign id, cwd, title, and the message count
-//! when the whole file fit the read) comes from a bounded prefix read with bounded concurrency
-//! and is cached by canonical path + size + mtime. One [`Discovery`] is shared by every session
-//! of the daemon: one cache, one candidate registry, one set of listing views. A listing builds
-//! a *view* (fixed membership, paged by cursor); a view expires after 30 minutes idle.
-
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -237,10 +229,6 @@ struct Filtered {
     complete: bool,
 }
 
-/// Applies a view's filters (time range, query on title/cwd, project) to candidates using their
-/// cached metadata; a candidate whose metadata is still pending is neither a member nor counted
-/// and leaves the result incomplete. The source app's internal and empty records are never
-/// members.
 fn filter_candidates(entries: &[(Candidate, Option<Meta>)], filters: &Filters, imported: &Imported, titles: Option<&HashMap<String, String>>) -> Filtered {
     let mut cwd_cache = HashMap::new();
     let (mut member_ids, mut project_counts, mut complete) = (Vec::new(), Vec::<(String, usize)>::new(), true);
@@ -354,10 +342,6 @@ pub fn page_limit(limit: Option<usize>) -> usize {
 fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Path) -> Result<Meta, ImportError> {
     let converter = RefCell::new(Converter::new(candidate.source, Limits::default()));
     let mut opened = open_verified(&candidate.path, candidate.root.as_deref())?;
-    // Only the end of a Claude transcript proves it is sidechain-only, so while nothing but
-    // sidechain messages has been seen the scan streams on, line by line, to EOF or to the
-    // import file-size limit. A file over that limit stays unclassified (listed); importing it
-    // fails as tooLarge.
     let claude = candidate.source.is_claude_format();
     let read = {
         let mut on_chunk = |position: u64| {
@@ -388,7 +372,6 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         )
         .map_err(|_| ImportError::new("unreadable"))?
     };
-    // The stored title records sit near the end of a transcript.
     if claude
         && !read.eof
         && let Opened::Plain(file) = &mut opened
@@ -398,38 +381,35 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         }
     }
     let conversion = converter.borrow_mut().result();
-    // A thread continuing a history base is only counted, named and judged empty once the base is
-    // followed (on import).
-    let listing = |meta: Meta| -> Meta {
-        if conversion.history_base.is_none() {
-            return meta;
-        }
-        let base_missing = meta.history_base_id.as_deref().is_some_and(|id| find_rollout_by_id(codex_home, id).is_none());
-        if base_missing {
-            let mut meta = meta;
-            meta.warnings.push(WARNING_HISTORY_UNAVAILABLE.to_owned());
-            meta
-        } else {
-            let empty = meta.error_code.as_deref() == Some("empty");
-            Meta { title: None, message_count: None, error_code: if empty { None } else { meta.error_code.clone() }, ..meta }
-        }
-    };
     if read.eof {
-        return Ok(listing(meta_from_conversion(&conversion, true)));
+        return Ok(listing_meta(&conversion, meta_from_conversion(&conversion, true), codex_home));
     }
-    let mut meta = listing(meta_from_conversion(&conversion, false));
+    let mut meta = listing_meta(&conversion, meta_from_conversion(&conversion, false), codex_home);
     if candidate.source == Source::Codex
         && (meta.foreign_session_id.is_none() || meta.cwd.is_none())
         && let Some(partial) = &read.first_partial
+        && let Some(from_line) = codex_meta_from_truncated_line(partial.strip_prefix('\u{feff}').unwrap_or(partial))
     {
-        // A session_meta line longer than the prefix still names its id/cwd.
-        if let Some(from_line) = codex_meta_from_truncated_line(partial.strip_prefix('\u{feff}').unwrap_or(partial)) {
-            meta.foreign_session_id = meta.foreign_session_id.or(from_line.foreign_session_id);
-            meta.cwd = meta.cwd.or(from_line.cwd);
-            meta.internal_kind = meta.internal_kind.or(from_line.internal_kind);
-        }
+        meta.foreign_session_id = meta.foreign_session_id.or(from_line.foreign_session_id);
+        meta.cwd = meta.cwd.or(from_line.cwd);
+        meta.internal_kind = meta.internal_kind.or(from_line.internal_kind);
     }
     Ok(meta)
+}
+
+fn listing_meta(conversion: &Conversion, meta: Meta, codex_home: &Path) -> Meta {
+    if conversion.history_base.is_none() {
+        return meta;
+    }
+    let base_missing = meta.history_base_id.as_deref().is_some_and(|id| find_rollout_by_id(codex_home, id).is_none());
+    if base_missing {
+        let mut meta = meta;
+        meta.warnings.push(WARNING_HISTORY_UNAVAILABLE.to_owned());
+        meta
+    } else {
+        let empty = meta.error_code.as_deref() == Some("empty");
+        Meta { title: None, message_count: None, error_code: if empty { None } else { meta.error_code.clone() }, ..meta }
+    }
 }
 
 /// The canonical path and stat of a file chosen in a native picker.

@@ -22,7 +22,6 @@ fn tagged(message: String) -> ToolError {
     refuse(format!("{VALIDATION} {message}"))
 }
 
-/// Checks `args` against the `setup` contract; `schema` is the tool's input schema.
 /// The `setup` tool's input schema (`defs/setup.json` `inputSchema`): what an owner that validates its own calls
 /// is built with.
 pub fn input_schema() -> Value {
@@ -30,6 +29,27 @@ pub fn input_schema() -> Value {
     def["inputSchema"].clone()
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn check_route(action: &str, route: &Map<String, Value>) -> Result<(), ToolError> {
+    let has = |field: &str| route.contains_key(field);
+    if route.is_empty() {
+        return Err(refuse("route with at least one of the supported settings is required".to_owned()));
+    }
+    if action != "set_agent_route" && has("disabled") {
+        return Err(refuse("route.disabled is only accepted by set_agent_route".to_owned()));
+    }
+    if has("fallbacks") && !["set_route", "set_agent_route", "set_web_search_route"].contains(&action) {
+        return Err(refuse("route.fallbacks is only accepted by set_route, set_agent_route and set_web_search_route".to_owned()));
+    }
+    for field in ["contextPercent", "contextTokens", "autoEffort"] {
+        if action != "set_route" && action != "set_agent_route" && has(field) {
+            return Err(refuse(format!("route.{field} is only accepted by set_route and set_agent_route")));
+        }
+    }
+    Ok(())
+}
+
+/// Checks `args` against the `setup` contract; `schema` is the tool's input schema.
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
     let table: Map<String, Value> = serde_json::from_str(ACTION_FIELDS).expect("embedded action table");
@@ -59,21 +79,7 @@ pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
         return Err(tagged(format!("{missing} is required for setup.{action}")));
     }
     if let Some(route) = object.get("route").and_then(Value::as_object) {
-        let has = |field: &str| route.contains_key(field);
-        if route.is_empty() {
-            return Err(refuse("route with at least one of the supported settings is required".to_owned()));
-        }
-        if action != "set_agent_route" && has("disabled") {
-            return Err(refuse("route.disabled is only accepted by set_agent_route".to_owned()));
-        }
-        if has("fallbacks") && !["set_route", "set_agent_route", "set_web_search_route"].contains(&action) {
-            return Err(refuse("route.fallbacks is only accepted by set_route, set_agent_route and set_web_search_route".to_owned()));
-        }
-        for field in ["contextPercent", "contextTokens", "autoEffort"] {
-            if action != "set_route" && action != "set_agent_route" && has(field) {
-                return Err(refuse(format!("route.{field} is only accepted by set_route and set_agent_route")));
-            }
-        }
+        check_route(action, route)?;
     }
     for field in ["desktop", "appearance", "webhook", "compaction", "providerAccount", "worktree", "networkProxy"] {
         if object.get(field).and_then(Value::as_object).is_some_and(Map::is_empty) {

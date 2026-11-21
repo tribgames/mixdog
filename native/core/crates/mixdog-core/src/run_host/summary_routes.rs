@@ -1,9 +1,3 @@
-//! Which model writes a compaction summary, and the fork of the session's cached request
-//! (Node `session/loop/fresh-context.mjs` route plan and `session/compact/summary-route.mjs`).
-//!
-//! The order the steps are tried in is `mixdog_agent::compact::summary_run::plan_steps`; this
-//! resolves one step to a route, each only when reached.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

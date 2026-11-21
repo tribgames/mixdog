@@ -344,26 +344,19 @@ impl Run {
         if reactive { base.max(policy.trigger_tokens.max(1)) } else { base }
     }
 
-    /// Repairs the transcript, then runs the compaction pass until the
-    /// transcript stops changing (a changed transcript ends the request
-    /// attempt: repair the new history and take one fresh snapshot).
-    pub(crate) async fn prepare_request_boundary(&mut self) -> Result<(), AgentError> {
-        // `refreshDeferredMcpToolCatalog(sessionRef)` of `prepareProviderRequest`: once per request, before
-        // the transcript is repaired and the request's tools are taken.
+    /// Once per request, before the transcript is repaired: a migrated session takes a new tool snapshot,
+    /// provider state and rewritten system prompt, then the request's tools are the frozen surface with
+    /// MCP changes adopted.
+    async fn adopt_request_tool_surface(&mut self) -> Result<(), AgentError> {
         let mut candidate = None;
         if let Some(mcp) = self.env.mcp.clone() {
-            // `migrateToolExposureAtBoundary` comes first: a migrated session takes a new tool snapshot and provider
-            // state, and its system prompt is the rewritten one.
             if let Some(system) = mcp.migrate(&self.messages).await.map_err(AgentError::RequestTools)? {
                 let leading = self.messages.iter().take_while(|m| m.message.role == Role::System).count();
                 self.messages.splice(..leading, system);
                 self.fixed_surface = None;
                 self.provider_state = None;
                 self.baseline = None;
-                // `migrateToolExposureAtBoundary` synchronizes the prefix and then deletes the guard state (`markToolSurfaceMigrated`):
-                // the kept guard fingerprints the system messages just replaced, and a migration intent is no compaction intent.
                 self.carry.prefix_guard = None;
-                // The migration's tagged cache break (`TOOL_SURFACE_MIGRATION_INTENT`).
                 self.cache_break_intent = Some("tool_surface_bridge_migration".to_owned());
             }
             mcp.refresh().await;
@@ -372,9 +365,16 @@ impl Run {
             }
             candidate = Some(mcp.snapshot(self.candidate_tools(), &self.messages).await.map_err(AgentError::RequestTools)?);
         }
-        // `adoptDynamicToolChanges`: the request's tools are the frozen surface, with MCP changes adopted.
         let candidate = candidate.unwrap_or_else(|| self.candidate_tools());
         self.fixed_surface = Some(adopt_dynamic_tool_changes(self.fixed_surface.take(), candidate));
+        Ok(())
+    }
+
+    /// Repairs the transcript, then runs the compaction pass until the
+    /// transcript stops changing (a changed transcript ends the request
+    /// attempt: repair the new history and take one fresh snapshot).
+    pub(crate) async fn prepare_request_boundary(&mut self) -> Result<(), AgentError> {
+        self.adopt_request_tool_surface().await?;
         // A soft compact target may remain above an explicit trigger: never
         // compact the same input twice before a provider attempt.
         let mut compact_attempted = false;
@@ -385,9 +385,6 @@ impl Run {
                 self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
-            // `preflightAttachments`: attachments that would crowd the window travel by reference
-            // from this send on, written into the transcript so a retried turn never re-sends the
-            // bulk. Runs whether or not automatic compaction is on.
             if let Some(compactor) = self.env.compactor.clone()
                 && let Some(preflight) = compactor.preflight_attachments(&self.messages).await
             {
@@ -419,14 +416,9 @@ impl Run {
         let reactive = self.reactive_overflow_retry_pending;
         compactor.prepare(&self.messages).await;
         let tools = self.request_tools();
-        // A transcript the run has not measured (its first send, or one after a rebuild voided its reading) is priced from
-        // the session's reading (`resolveContextTokensWithSource` over `session.contextPressureBaseline*`), as the check of
-        // this send records it.
         let session = match self.baseline {
             Some(_) => SessionPressure::default(),
             None => match compactor.session_pressure(&self.messages, &tools).await {
-                // A send of this run already re-anchored the session: a mark its header still carries belongs to a report
-                // on its way there, and so does the reading the header keeps.
                 answer if answer.unanchored && self.reanchored => SessionPressure::default(),
                 answer => answer,
             },
@@ -435,9 +427,6 @@ impl Run {
         let trigger = policy.trigger_tokens.max(1);
         // Tool-result media arms a pass whatever the pressure.
         let media_pressure = compactor.request_media(&self.messages);
-        // `shouldCompactForSession`: an unanchored transcript's pressure arms nothing until a provider send re-anchors it.
-        // A one-shot policy that took its pass arms nothing more, and a transcript the provider already measured below the
-        // trigger is not armed by a local estimate of the same transcript (`providerReadingBelowTrigger`).
         let estimate_only = session.tokens.is_none() && self.baseline.is_none();
         let measured_below = estimate_only && session.reading_count == Some(self.messages.len()) && session.reading.is_some_and(|reading| reading < trigger);
         let over = !session.unanchored && !(policy.single_shot && session.single_shot_consumed) && !measured_below && pressure >= trigger;
@@ -459,8 +448,6 @@ impl Run {
             };
             should = compactor.reduces(&request).await;
         }
-        // A send that compacts first reports no transcript (only a check of a send that compacts nothing reads one); the copy
-        // made is the one the round's usage report reuses.
         let checked: std::sync::Arc<[AgentMessage]> = if should { std::sync::Arc::from(Vec::new()) } else { std::sync::Arc::from(self.messages.as_slice()) };
         self.checked_transcript = (!should).then(|| checked.clone());
         self.emit(RunEvent::ContextPressure {
@@ -615,26 +602,12 @@ impl Run {
             }
         };
         if let Some(usage) = &output.usage {
-            // `accumulateCompactUsage` reports it through `onUsageDelta` as well as into the aggregate.
-            let (reasoning_tokens, reasoning_tokens_complete) = crate::run::reasoning_usage(usage);
-            self.emit(RunEvent::CompactUsage {
-                iteration: self.iterations + 1,
-                usage: usage.clone(),
-                reasoning_tokens,
-                reasoning_tokens_complete,
-                input_excludes_cache: output.input_excludes_cache,
-            });
-            self.last_usage = Some(add_usage(self.last_usage.take(), usage));
-            if self.first_turn_usage.is_none() {
-                self.first_turn_usage = Some(usage.clone());
-            }
+            self.record_compact_usage(usage, output.input_excludes_cache);
         }
         if output.skipped {
             self.emit(pass(PassStage::Skipped));
             return Ok(Ran::Unchanged);
         }
-        // `freshContextResult.handoffSource`: the session's for a written summary, the rules' for a summary-less pass. Read
-        // before the output's messages move.
         let handoff_source = if output.summarized() { "session-local" } else { "rules" };
         let changed = output.messages != self.messages;
         let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped, compaction: true };
@@ -650,6 +623,22 @@ impl Run {
         self.emit(pass(PassStage::Done { changed, handoff_source, after_tokens, duration_ms: duration(&*self.env.clock), after: self.messages.clone() }));
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
         Ok(if changed { Ran::Changed } else { Ran::Unchanged })
+    }
+
+    /// A compaction's own model usage goes to the host and into the run's aggregate.
+    fn record_compact_usage(&mut self, usage: &Usage, input_excludes_cache: bool) {
+        let (reasoning_tokens, reasoning_tokens_complete) = crate::run::reasoning_usage(usage);
+        self.emit(RunEvent::CompactUsage {
+            iteration: self.iterations + 1,
+            usage: usage.clone(),
+            reasoning_tokens,
+            reasoning_tokens_complete,
+            input_excludes_cache,
+        });
+        self.last_usage = Some(add_usage(self.last_usage.take(), usage));
+        if self.first_turn_usage.is_none() {
+            self.first_turn_usage = Some(usage.clone());
+        }
     }
 
     /// Replaces the live transcript and resets everything keyed to the old

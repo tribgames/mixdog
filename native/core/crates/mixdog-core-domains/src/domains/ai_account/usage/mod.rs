@@ -53,10 +53,8 @@ impl LedgerAccess for Arc<UsageLedger> {
     }
 }
 
-/// Stored session metadata by session id (`readStoredSessionMetadata`): the keys `describeRequestSessions`
-/// and `isLeadVisibleRow` read (`title`, `agent`, `owner`, `visibility`, `sourceType`, `sourceName`,
-/// `ownerSessionId`, `parentSessionId`, `id`). `None` for a session that cannot be read.
-/// `SessionDirectory` implements it (mixdog-core-session `usage_metadata`).
+/// Stored session metadata by session id: the keys `title`, `agent`, `owner`, `visibility`, `sourceType`,
+/// `sourceName`, `ownerSessionId`, `parentSessionId` and `id` are read. `None` for a session that cannot be read.
 #[async_trait]
 pub trait SessionMetadata: Send + Sync {
     async fn metadata(&self, session_id: &str) -> Option<Value>;

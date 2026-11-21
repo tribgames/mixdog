@@ -172,6 +172,14 @@ async function until(fn, ms, what) {
   }
 }
 
+async function rate(page, ms) {
+  const a = await page.evaluate(() => window.inbound());
+  await new Promise((r) => setTimeout(r, ms));
+  const b = await page.evaluate(() => window.inbound());
+  const secs = (b.timestamp - a.timestamp) / 1000;
+  return { secs, fps: (b.framesDecoded - a.framesDecoded) / secs, bps: ((b.bytesReceived - a.bytesReceived) * 8) / secs };
+}
+
 async function carrier(browser, name) {
   const desktop = new Desktop({ INTEROP_MODE: 'carrier' });
   const page = await openPhone(browser, desktop);
@@ -243,13 +251,10 @@ async function liveView(browser, name, { pli }) {
     const encoded = async () => { desktop.send({ t: 'stats', v: 'a' }); return (await desktop.wait((m) => m.t === 'stats')).encoded; };
     const sample = async (ms) => {
       const e0 = await encoded();
-      const a = await page.evaluate(() => window.inbound());
-      await new Promise((r) => setTimeout(r, ms));
-      const b = await page.evaluate(() => window.inbound());
-      const secs = (b.timestamp - a.timestamp) / 1000;
+      const measured = await rate(page, ms);
       const e1 = await encoded();
-      console.log('  encoder fps', ((e1 - e0) / secs).toFixed(1));
-      return { fps: (b.framesDecoded - a.framesDecoded) / secs, bps: ((b.bytesReceived - a.bytesReceived) * 8) / secs };
+      console.log('  encoder fps', ((e1 - e0) / measured.secs).toFixed(1));
+      return measured;
     };
     await new Promise((r) => setTimeout(r, 3000));
     const before = await sample(4000);
@@ -288,15 +293,7 @@ async function twoViewers(browser, name) {
       await until(() => page.evaluate(() => window.state.inputOpen), 10000, `input channel of ${v}`);
     }
     await new Promise((r) => setTimeout(r, 3000));
-    const rate = async (v, ms) => {
-      const page = phones[v];
-      const a = await page.evaluate(() => window.inbound());
-      await new Promise((r) => setTimeout(r, ms));
-      const b = await page.evaluate(() => window.inbound());
-      const secs = (b.timestamp - a.timestamp) / 1000;
-      return { fps: (b.framesDecoded - a.framesDecoded) / secs, bps: ((b.bytesReceived - a.bytesReceived) * 8) / secs };
-    };
-    const [beforeA, beforeB] = await Promise.all([rate('a', 4000), rate('b', 4000)]);
+    const [beforeA, beforeB] = await Promise.all([rate(phones.a, 4000), rate(phones.b, 4000)]);
     const keyframesB = (await stats('b')).keyframes;
     const asks = async () => {
       const i = await phones.b.evaluate(() => window.inbound());
@@ -306,7 +303,7 @@ async function twoViewers(browser, name) {
     await phones.a.evaluate(() => window.fromNode({ t: 'send', label: 'mixdog-input', data: JSON.stringify({ encoding: { maxBitrate: 250000, maxFramerate: 10 } }) }));
     assert.equal((await desktop.wait((m) => m.t === 'encoding' && m.v === 'a')).ok, true);
     await new Promise((r) => setTimeout(r, 4000));
-    const [afterA, afterB] = await Promise.all([rate('a', 5000), rate('b', 5000)]);
+    const [afterA, afterB] = await Promise.all([rate(phones.a, 5000), rate(phones.b, 5000)]);
     console.log(`[${name}] two phones: a ${beforeA.fps.toFixed(1)} -> ${afterA.fps.toFixed(1)} fps, ${(beforeA.bps / 1000).toFixed(0)} -> ${(afterA.bps / 1000).toFixed(0)} kbps; b ${beforeB.fps.toFixed(1)} -> ${afterB.fps.toFixed(1)} fps, ${(beforeB.bps / 1000).toFixed(0)} -> ${(afterB.bps / 1000).toFixed(0)} kbps`);
     assert.ok(afterA.fps <= 12, `phone a's maxFramerate honoured (${afterA.fps})`);
     assert.ok(afterA.bps <= 250000 * 1.6, `phone a's maxBitrate honoured (${afterA.bps})`);

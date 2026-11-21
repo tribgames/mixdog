@@ -1,10 +1,3 @@
-//! The shell/task runtime of the composition (WP-TOOLS-EXEC): `ExecConfig` and `ExecRuntime`
-//! over the lane tokens, the data directory and the skill-launcher directory.
-//!
-//! Completions and strip states leave the runtime through bounded channels created here; the
-//! session directory and the section publisher own the receivers (`ExecEvents`). Nothing is
-//! dropped and there is no bind step.
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -120,10 +113,6 @@ pub struct ExecEvents {
 
 pub type ForgetThread = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// The built runtime. `wakes` is the hub `SessionDeps::wakes` must share: the session calls
-/// `WakeHub::interrupt` on user input or a notification. `configured_shell` is the one
-/// `ConfiguredShell` every spawn reads: the settings effects (`DaemonSettingsEffects::new`) take
-/// this same `Arc`, and the boot value from `config.shell` is `set` on it.
 pub struct Exec {
     pub runtime: Arc<ExecRuntime>,
     pub wakes: Arc<WakeHub>,
@@ -160,10 +149,6 @@ pub struct ExecHosts {
     pub processes: LocalProcessManager,
 }
 
-/// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
-/// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`);
-/// `configured_shell` the one `ConfiguredShell` the settings effects write (its initial value is
-/// the config's `shell.command` at boot), which every spawn reads (`getConfiguredShell()`).
 pub fn build_exec(
     tokens: &LaneTokens,
     data_dir: &Path,

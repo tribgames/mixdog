@@ -1,9 +1,3 @@
-//! The `memory/` namespace: `memory/memoryControl` (the `memory` tool for the
-//! host acting for the user) and `memory/recall`. Recall answers from, in
-//! order: the configured profile (a "who am I" query), the current session's
-//! own messages, the session's stored rows (after the live transcript is
-//! ingested), and last the general memory recall. The `memory` tool also carries the maintenance actions (`maintenance`).
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -278,6 +272,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
     async fn the_memory_tool_names_an_unknown_action_and_asks_for_the_attachment_of_the_cycle_pieces() {
         use crate::memory::ingest::embed_flush::RawEmbedFlush;
         use crate::memory::pg::db::Schema;

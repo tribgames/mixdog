@@ -224,19 +224,13 @@ fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
     Ok(JsonValue::Object(a))
 }
 impl CodeGraphTool {
-    /// `prewarmCodeGraphIfProject(cwd)`: builds the graph of the project `cwd` belongs to, so the
-    /// first `code_graph` call finds its files in the cache instead of parsing them. The root is
-    /// the implicit walk (`stopAtUserBoundary`: a home or temp folder is never adopted, so the
-    /// whole profile is never warmed in the background). `true` when a project was found and its
-    /// build ran; a failed build is only a cold first call, as in Node's best-effort warm.
+    /// `prewarmCodeGraphIfProject(cwd)`: builds the graph of the project `cwd` belongs to, so the first call finds its files cached.
+    /// The root is the implicit walk (`stopAtUserBoundary`: a home or temp folder is never adopted). `true` when a project was
+    /// found and its build ran; a failed build is only a cold first call.
     pub async fn prewarm_if_project(&self, cwd: &std::path::Path, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
         warm_project(self.cache.clone(), cwd.to_path_buf(), io, cancel).await
     }
 
-    /// `mode:'prewarm'` (`_schedulePrewarm`): queues the build of the project the call's folder belongs to, so the next call
-    /// finds its files in the cache, and describes what was queued at once. The build is no part of the call (the call
-    /// can end, or be cancelled, before it is done), so it runs under a token of its own. The graph holds every file's
-    /// symbols and Rust keeps no separate symbol index to warm, so a symbol list asks for the same build as none.
     fn prewarm(&self, session_cwd: &std::path::Path, args: &JsonValue, ctx: &ToolContext) -> String {
         let parsed = args::Args::parse(args);
         let cwd = match &parsed.cwd {

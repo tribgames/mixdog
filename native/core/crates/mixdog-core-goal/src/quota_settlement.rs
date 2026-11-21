@@ -1,10 +1,10 @@
-//! The quota-settlement guard of a session (`tui/session/quota-resume.mjs`): a turn that ends
+//! The quota-settlement guard of a session: a turn that ends
 //! on exhausted provider quota is settling between its failed turndone, where the resume is
 //! queued, and its Goal settlement, where the suspended Goal is recorded. Every cancel that
 //! supersedes the turn raises the epoch, so a cancel landing inside that window also keeps the
 //! settlement from recording the Goal.
 //!
-//! The turn key is the transcript's (`runtime/shared/transcript-turn-keys.mjs`): a turn is the
+//! The turn key is the transcript's: a turn is the
 //! rows from its `user` row to its `turndone`, named `turn:<first row key>` while open and
 //! `attempt:<id>` / `checkpoint:<id>` once the turndone carries an identity.
 //!

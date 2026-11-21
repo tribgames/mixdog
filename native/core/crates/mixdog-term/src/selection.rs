@@ -148,23 +148,7 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
         };
         let x1 = raw_x1.min(raw_x2).max(0);
         let x2 = (width - 1).min(raw_x1.max(raw_x2));
-        let mut text = String::new();
-        // The foreground and attributes of the last styled cell of the row, for blank cells that carry none.
-        let mut carry = Style::default();
-        let cells = grid.row_mut(y as u16);
-        for x in x1..=x2 {
-            let Some(cell) = cells.get_mut(x as usize) else { break };
-            text.push_str(cell.text());
-            // A hyperlink is a style entry in Ink's cells, so a cell that carries only a link counts as styled
-            // (and, like every other cell of the row, keeps its own link: a blank cell never takes a neighbour's).
-            let kept = Style { bg: Color::Default, inverse: false, ..cell.style };
-            let styled = kept.has_foreground_or_attribute() || cell.link != 0;
-            if styled {
-                carry = kept;
-            }
-            let effective = if styled || !js_trim(cell.text()).is_empty() { kept } else { carry };
-            cell.style = Style { bg: highlight, inverse: false, ..effective };
-        }
+        let text = highlight_row(grid.row_mut(y as u16), x1, x2, highlight);
         let next_continues = y < y2 && wraps(y + 1);
         let trimmed = js_trim_end(&text);
         let text = if next_continues && trimmed.len() < text.len() { format!("{trimmed} ") } else { trimmed.to_owned() };
@@ -176,17 +160,41 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
     while rows.last().is_some_and(|row| js_trim(&row.text).is_empty()) {
         rows.pop();
     }
-    let text = rect.capture_text.then(|| {
-        let mut logical: Vec<String> = Vec::new();
-        for row in &rows {
-            match logical.last_mut() {
-                Some(last) if row.soft_wrap => last.push_str(&row.text),
-                _ => logical.push(row.text.clone()),
-            }
-        }
-        logical.iter().map(|line| js_trim_end(line)).collect::<Vec<_>>().join("\n")
-    });
+    let text = rect.capture_text.then(|| logical_text(&rows));
     SelectionHarvest { text, rows }
+}
+
+/// Paints the selection background over cells `x1..=x2` of a row and returns their text.
+fn highlight_row(cells: &mut [Cell], x1: i32, x2: i32, highlight: Color) -> String {
+    let mut text = String::new();
+    // The foreground and attributes of the last styled cell of the row, for blank cells that carry none.
+    let mut carry = Style::default();
+    for x in x1..=x2 {
+        let Some(cell) = cells.get_mut(x as usize) else { break };
+        text.push_str(cell.text());
+        // A hyperlink is a style entry in Ink's cells, so a cell that carries only a link counts as styled
+        // (and, like every other cell of the row, keeps its own link: a blank cell never takes a neighbour's).
+        let kept = Style { bg: Color::Default, inverse: false, ..cell.style };
+        let styled = kept.has_foreground_or_attribute() || cell.link != 0;
+        if styled {
+            carry = kept;
+        }
+        let effective = if styled || !js_trim(cell.text()).is_empty() { kept } else { carry };
+        cell.style = Style { bg: highlight, inverse: false, ..effective };
+    }
+    text
+}
+
+/// The selected rows as lines of text: a row that continues the one above is joined to it.
+fn logical_text(rows: &[SelectedRow]) -> String {
+    let mut logical: Vec<String> = Vec::new();
+    for row in rows {
+        match logical.last_mut() {
+            Some(last) if row.soft_wrap => last.push_str(&row.text),
+            _ => logical.push(row.text.clone()),
+        }
+    }
+    logical.iter().map(|line| js_trim_end(line)).collect::<Vec<_>>().join("\n")
 }
 
 /// What Ink's instance holds about the selection between renders: the rectangle, the text under it as of the last

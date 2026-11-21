@@ -27,6 +27,7 @@ use super::config::PeerConfig;
 use super::liveview::LiveViewConnection;
 use super::liveview::LiveViewEvent;
 use super::liveview::SKIP_FIRST_KEYFRAME;
+use super::sources::FrameSink;
 use super::sources::frame_feed;
 
 fn emit(value: Value) {
@@ -118,11 +119,8 @@ async fn carrier(commands: &mut mpsc::UnboundedReceiver<Value>) {
     }
 }
 
-async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_rt::MediaThread) {
-    let (mut sink, source) = frame_feed(FrameSourceKind::Screen { display: 0 });
-    let shared = SharedSource::start(Box::new(source));
-    // Screen-like busy content: flat 16-pixel blocks, a quarter of them recoloured each frame.
-    let producer = tokio::spawn(async move {
+fn spawn_block_producer(mut sink: FrameSink) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         let (w, h, block) = (640usize, 360usize, 16usize);
         let mut state = 0x9e37_79b9_u32;
         let mut data = vec![0u8; w * h * 4];
@@ -152,11 +150,16 @@ async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_r
             }
             mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
-    });
+    })
+}
+
+async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_rt::MediaThread) {
+    let (sink, source) = frame_feed(FrameSourceKind::Screen { display: 0 });
+    let shared = SharedSource::start(Box::new(source));
+    let producer = spawn_block_producer(sink);
     if std::env::var("INTEROP_SKIP_KEY").is_ok() {
         SKIP_FIRST_KEYFRAME.store(true, Ordering::Relaxed);
     }
-    // Every phone ("v") has its own connection and encoder over the one shared capture.
     let mut viewers: HashMap<String, Arc<LiveViewConnection>> = HashMap::new();
     let (tagged_tx, mut tagged_rx) = mpsc::unbounded_channel::<(String, LiveViewEvent)>();
     loop {
@@ -167,7 +170,6 @@ async fn liveview(commands: &mut mpsc::UnboundedReceiver<Value>, media: mixdog_r
                 LiveViewEvent::Connected { .. } => emit(json!({"t": "connected", "v": v})),
                 LiveViewEvent::ChannelOpen => emit(json!({"t": "channel-open", "v": v})),
                 LiveViewEvent::Channel { text, .. } => {
-                    // The owner's job in production: a phone's commands become that phone's settings.
                     if let Ok(message) = serde_json::from_str::<Value>(&text)
                         && let Some(encoding) = message.get("encoding")
                         && let Some(live) = viewers.get(&v)

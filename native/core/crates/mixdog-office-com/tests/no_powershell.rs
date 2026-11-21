@@ -1,9 +1,3 @@
-//! No PowerShell host path is left in the crate: nothing of the product starts `powershell.exe` or `pwsh`, names a script of
-//! the retired hosts, or passes `-ExecutionPolicy`; the retired `assets` and `recorder` directories are gone and no `.ps1` file
-//! is shipped in `src`. Comments that name the history, and the names of tests that describe how PowerShell converts a value
-//! (the value semantics the Rust host reproduces, `src/ps`), are not hits: the scan reads code only, for the words that
-//! start or name a PowerShell program.
-
 use std::path::Path;
 use std::path::PathBuf;
 

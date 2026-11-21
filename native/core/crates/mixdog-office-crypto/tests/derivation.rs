@@ -1,10 +1,3 @@
-//! The crypto cases of `pdf/document-preview-password.slow.test.mjs` of the Node tree: agile and standard encryption
-//! with every hash variant, the descriptor read by namespace and schema, the HMAC integrity check, a cancelled
-//! derivation and the two-at-a-time limit.
-//!
-//! The derivation scheduler is process-wide, so every test that derives a key holds `serial()`: the counting tests
-//! would otherwise see each other's threads.
-
 mod support;
 
 use std::sync::{Mutex, MutexGuard};
@@ -21,6 +14,8 @@ const ENCRYPTION_NS: &str = "http://schemas.microsoft.com/office/2006/encryption
 const PASSWORD_NS: &str = "http://schemas.microsoft.com/office/2006/keyEncryptor/password";
 const AGILE_HEADER: [u8; 8] = [4, 0, 4, 0, 0x40, 0, 0, 0];
 
+/// The derivation scheduler is process-wide: a test that derives a key holds this, or the counting tests see each
+/// other's threads.
 fn serial() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)

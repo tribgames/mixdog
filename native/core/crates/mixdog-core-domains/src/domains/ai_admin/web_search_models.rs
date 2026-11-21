@@ -1,19 +1,3 @@
-//! `account/listWebSearchModels`: Node's `collectWebSearchProviderModels` (`WebSearchModels` of the
-//! account domain) over the resident [`CatalogService`] and the model list.
-//!
-//! Node builds this per runtime (`rt`): the Main route the quick rows follow (`rt.route`) and the
-//! adopted cache belong to the session the call is addressed to. Here each conversation has its own
-//! route cell (`route_cell::SessionRoutes`, written by every pick, tuning, reload sync and session
-//! switch that writes `rt.route`), so the catalog, with its cache, is kept per request thread and reads
-//! that thread's cell. A request that names no thread reads the live config route (`D-model-list-route-1`).
-//!
-//! The tiers and the adopted cache are the twin in `mixdog-ai`'s `service/web_search_models.rs`. What
-//! Node reads from its registry is read here from the catalog snapshot: a provider's listing is its
-//! models in the snapshot, its cached model info is the listing of that model, the live roster is
-//! the catalog's roster and the revision is the snapshot's generation. A forced read asks every
-//! provider again once, before the scan (Node refreshes each provider's own cache). There is no
-//! per-route metadata map to fill (`meta.remember`): metadata is read from the catalog on demand.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

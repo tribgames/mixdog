@@ -1,8 +1,4 @@
-//! The turn assembly's WP-MCP seams over their services: explicit skill selection
-//! (`ExplicitSkillSelector`) replayed against the messages today's Node product added to the
-//! transcript (`mixdog-mcp/tests/golden/skillprep.mjs`), and the post-tool dispatch's delegation
-//! to the hook bus (the hook payloads and decisions themselves are replayed by
-//! `mixdog-mcp/tests/it/posttool_suite.rs`).
+//! Expected skill messages replay `mixdog-mcp/tests/golden/skillprep.mjs`.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -230,8 +226,7 @@ impl AllowAllActions for AllowAll {
     }
 }
 
-/// The gate's connector account is the hub's choice among the connector's accounts
-/// (`resolveMcpToolAccount`); the other three answers come from their owners.
+/// The gate's connector account is the hub's choice among the connector's accounts (`resolveMcpToolAccount`).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
     use mixdog_mcp::McpServerConfig;
@@ -258,7 +253,7 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
     hub.set_connector_accounts("linear", accounts);
 
     let run = GateRun { kind: RunKind::Schedule, agent_id: "ann".to_owned() };
-    let env = HostGateEnv::new(Arc::new(Runs(Some(run.clone()))), Arc::new(Contacts), Arc::new(AllowAll(true)), hub);
+    let env = HostGateEnv::new(Arc::new(Runs(Some(run))), Arc::new(Contacts), Arc::new(AllowAll(true)), hub);
     let header = Header::new();
     let bound = |args: Value| {
         let call = GateCall::new("mcp__linear__search", args);
@@ -281,7 +276,12 @@ async fn the_gate_env_binds_a_connector_call_to_the_hubs_account_choice() {
     // A tool of a server the hub does not know is bound to nothing.
     let other = GateCall::new("mcp__other__search", json!({}));
     assert_eq!(env.connector_account(&ThreadId::from("sess_a"), &header, &other).await, Ok(None));
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn the_gate_env_takes_the_run_the_contact_bots_and_allow_all_from_their_owners() {
+    let run = GateRun { kind: RunKind::Schedule, agent_id: "ann".to_owned() };
+    let env = HostGateEnv::new(Arc::new(Runs(Some(run.clone()))), Arc::new(Contacts), Arc::new(AllowAll(true)), empty_hub());
     assert_eq!(env.run_of(&ThreadId::from("sess_task")).await, Some(run));
     assert_eq!(env.run_of(&ThreadId::from("sess_a")).await, None);
     assert!(env.is_contact_bot("ann").await && !env.is_contact_bot("bob").await);

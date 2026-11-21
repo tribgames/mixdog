@@ -1,12 +1,3 @@
-//! The raw console, the reader and the guard on a real terminal.
-//!
-//! Unix: a test program (this test binary run again on `unix_pty::pty_child`) enters the screen, turns raw mode on, reads
-//! keys and a resize, and ends either on the Ctrl+C byte or on a SIGINT; the parent drives it through a pseudo-terminal and
-//! replays the bytes it wrote through a VT parser: the byte stream is the recorded modes, the keys arrive as bytes, the
-//! resize is reported and the terminal is back on the main screen with the cursor shown and every mouse and paste mode off.
-//!
-//! Windows: an ignored test checks the console mode flags on a real console (`-- --ignored windows_console_modes`).
-
 #[cfg(unix)]
 mod unix_pty {
     use std::collections::BTreeSet;

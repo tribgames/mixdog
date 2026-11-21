@@ -1,14 +1,9 @@
-//! The deadline every outbound HTTP request carries (hang audit F5, F6).
-//!
-//! A request is one of two classes and says which when it is made:
-//! - [`Liveness::Unary`]: the whole exchange (response head and the body to its end) must finish
-//!   within `total`.
-//! - [`Liveness::Stream`]: only the response head must arrive within `head`. The body is content
-//!   and has no timer (SPEC §4.9 "a live-but-silent provider is normal").
-//!
-//! - [`Liveness::CancelOnly`]: no timer at all. The caller ends the exchange by dropping or
-//!   selecting against its own cancel; for an exchange whose length no input bounds (a local
-//!   transcription, D-hang-services-3).
+//! The deadline every outbound HTTP request carries. A request is one of three classes and says which when it is made:
+//! - [`Liveness::Unary`]: the whole exchange (response head and the body to its end) must finish within `total`.
+//! - [`Liveness::Stream`]: only the response head must arrive within `head`; the body is content and has no timer (a
+//!   live-but-silent provider is normal).
+//! - [`Liveness::CancelOnly`]: no timer. The caller ends the exchange by dropping or selecting against its own cancel, for an
+//!   exchange whose length no input bounds (a local transcription).
 //!
 //! The deadline is a plain duration so a paused tokio clock drives it in tests.
 

@@ -43,57 +43,17 @@ impl PdfDocument {
             page_refs.push(*page);
         }
         let catalog_ref = self.store.trailer.root.ok_or_else(|| invalid("the file has no catalog"))?;
-        let outlines = self.store.dict(catalog_ref).and_then(|catalog| catalog.get_raw("Outlines")).cloned();
-        // An `/Outlines` that is a dictionary written inline in the catalog becomes an indirect object, so its items
-        // can name it as their `Parent`.
-        let existing: Option<Ref> = match &outlines {
-            Some(Obj::Ref(r)) if matches!(self.store.get(*r), Some(Obj::Dict(_))) => Some(*r),
-            Some(Obj::Dict(dict)) => {
-                let promoted = self.store.register(Obj::Dict(dict.clone()));
-                self.store.modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(promoted)));
-                Some(promoted)
-            }
-            _ => None,
-        };
+        let existing = self.existing_outline_root(catalog_ref);
         let root_ref = match existing {
             Some(root) => root,
             None => self.store.next_ref(),
         };
         let refs: Vec<Ref> = entries.iter().map(|_| self.store.next_ref()).collect();
         let previous_last: Option<Obj> = existing.and_then(|root| self.store.dict(root)).and_then(|root| root.get_raw("Last")).cloned();
-        for (at, entry) in entries.iter().enumerate() {
-            let mut item = Dict::new();
-            item.set("Title", Obj::Str(Arc::from(encode_text_string(&entry.title))));
-            item.set("Parent", Obj::Ref(root_ref));
-            item.set("Dest", Obj::Array(Arc::new(vec![Obj::Ref(page_refs[at]), Obj::name("Fit")])));
-            let previous = if at > 0 { refs.get(at - 1).map(|r| Obj::Ref(*r)) } else { previous_last.clone() };
-            if let Some(previous) = previous {
-                item.set("Prev", previous);
-            }
-            if at + 1 < entries.len() {
-                item.set("Next", Obj::Ref(refs[at + 1]));
-            }
-            self.store.assign(refs[at], Obj::Dict(Arc::new(item)));
-        }
-        let first = refs[0];
-        let last = refs[refs.len() - 1];
+        self.assign_outline_items(entries, &page_refs, &refs, root_ref, previous_last.as_ref());
+        let (first, last) = (refs[0], refs[refs.len() - 1]);
         if existing.is_some() {
-            if let Some(previous) = &previous_last {
-                let Obj::Ref(previous_ref) = previous else {
-                    return Err(invalid("the outline's Last is not a reference"));
-                };
-                self.store.modify_dict(*previous_ref, |item| item.set("Next", Obj::Ref(first))).ok_or_else(|| not_a("PDFDict", "Last"))?;
-            }
-            let count = self.store.dict(root_ref).and_then(|root| self.store.lookup(root, "Count")).and_then(Obj::as_num).unwrap_or(0.0);
-            let total = count.max(0.0) + entries.len() as f64;
-            let set_first = previous_last.is_none();
-            self.store.modify_dict(root_ref, |root| {
-                if set_first {
-                    root.set("First", Obj::Ref(first));
-                }
-                root.set("Last", Obj::Ref(last));
-                root.set("Count", Obj::Num(total));
-            });
+            self.append_to_outline_root(root_ref, previous_last.as_ref(), first, last, entries.len())?;
         } else {
             let mut root = Dict::new();
             root.set("Type", Obj::name("Outlines"));
@@ -104,6 +64,61 @@ impl PdfDocument {
             self.store.modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(root_ref)));
         }
         Ok(entries.len())
+    }
+
+    /// The catalog's `/Outlines` dictionary, when it has one. One written inline in the catalog becomes an indirect
+    /// object, so its items can name it as their `Parent`.
+    fn existing_outline_root(&mut self, catalog_ref: Ref) -> Option<Ref> {
+        let outlines = self.store.dict(catalog_ref).and_then(|catalog| catalog.get_raw("Outlines")).cloned();
+        match &outlines {
+            Some(Obj::Ref(r)) if matches!(self.store.get(*r), Some(Obj::Dict(_))) => Some(*r),
+            Some(Obj::Dict(dict)) => {
+                let promoted = self.store.register(Obj::Dict(dict.clone()));
+                self.store.modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(promoted)));
+                Some(promoted)
+            }
+            _ => None,
+        }
+    }
+
+    /// One outline item per entry at `refs`, linked to each other and the first one to `previous_last`.
+    fn assign_outline_items(&mut self, entries: &[OutlineEntry], page_refs: &[Ref], refs: &[Ref], root_ref: Ref, previous_last: Option<&Obj>) {
+        for (at, entry) in entries.iter().enumerate() {
+            let mut item = Dict::new();
+            item.set("Title", Obj::Str(Arc::from(encode_text_string(&entry.title))));
+            item.set("Parent", Obj::Ref(root_ref));
+            item.set("Dest", Obj::Array(Arc::new(vec![Obj::Ref(page_refs[at]), Obj::name("Fit")])));
+            let previous = if at > 0 { refs.get(at - 1).map(|r| Obj::Ref(*r)) } else { previous_last.cloned() };
+            if let Some(previous) = previous {
+                item.set("Prev", previous);
+            }
+            if at + 1 < entries.len() {
+                item.set("Next", Obj::Ref(refs[at + 1]));
+            }
+            self.store.assign(refs[at], Obj::Dict(Arc::new(item)));
+        }
+    }
+
+    /// The items `first` to `last` (`added` of them) join the end of an existing root: its last item points on to
+    /// `first`, and `Last` and `Count` move.
+    fn append_to_outline_root(&mut self, root_ref: Ref, previous_last: Option<&Obj>, first: Ref, last: Ref, added: usize) -> Result<(), WriteError> {
+        if let Some(previous) = previous_last {
+            let Obj::Ref(previous_ref) = previous else {
+                return Err(invalid("the outline's Last is not a reference"));
+            };
+            self.store.modify_dict(*previous_ref, |item| item.set("Next", Obj::Ref(first))).ok_or_else(|| not_a("PDFDict", "Last"))?;
+        }
+        let count = self.store.dict(root_ref).and_then(|root| self.store.lookup(root, "Count")).and_then(Obj::as_num).unwrap_or(0.0);
+        let total = count.max(0.0) + added as f64;
+        let set_first = previous_last.is_none();
+        self.store.modify_dict(root_ref, |root| {
+            if set_first {
+                root.set("First", Obj::Ref(first));
+            }
+            root.set("Last", Obj::Ref(last));
+            root.set("Count", Obj::Num(total));
+        });
+        Ok(())
     }
 
     /// The top-level outline items in order, from `First` along `Next` (a list that loops ends where it loops).

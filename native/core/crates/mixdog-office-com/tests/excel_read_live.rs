@@ -1,9 +1,4 @@
-//! The workbook reader against real Microsoft Excel. Every test is `#[ignore]`: it starts Excel, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test excel_read_live -- --ignored`) on a Windows machine with Excel and
-//! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
-//!
-//! A new workbook in a background session is read whole, by pages, for its selection and for its issues (both audit
-//! profiles) through the registered reader, and what comes back has the shape the portable reader answers with.
+//! Ignored: starts Excel; run with `-- --ignored` on Windows with it and `MIXDOG_TEST_LIVE_OFFICE=1`, else a requested test ends at once.
 #![cfg(windows)]
 
 use std::path::PathBuf;

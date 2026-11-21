@@ -1,8 +1,3 @@
-//! Owner: s4-engine-actions-pointer
-//! How a pointer handler gets what it works on (`actions/target.ts`, `actions/types.ts` and `ref-points.ts` of the desktop engine): the
-//! context every handler runs in, the ref a handler acts on (the caller's own, or one resolved right now from a snapshot-free
-//! `target`), both ends of a drag, and a screenshot coordinate bound to the visual snapshot it was read from.
-//!
 //! Resolution takes a fresh observation, so recovery and the effect baseline move to it ([`adopt_resolved_targets`]). Everything the
 //! engine keeps per page that a handler reads or writes (the latest ref set, the visual grounding, the interaction generation) is
 //! behind [`ActionPage`], which the command runner implements over its page state; the host calls themselves go through

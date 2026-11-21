@@ -1,11 +1,7 @@
-//! The `diagnostics` domain: `diagnostics/runDoctor`, today's `runDoctor` session action
-//! (`src/tui/app/doctor.mjs`): read-only health checks that run side by side, each under one
+//! `diagnostics/runDoctor`: read-only health checks that run side by side, each under one
 //! deadline, and report names, counts and flags only. A missing status is a warning, never a
-//! healthy default; a failed or stalled check cannot stop the others.
-//!
-//! What each check reads is behind [`DoctorSources`], one method per status contract of the
-//! runtime (`mcpStatus`, `getProviderSetup`, …) answering the same JSON; the verdicts, the
-//! sentences and the row order are the Node ones.
+//! healthy default; a failed or stalled check cannot stop the others. What each check reads is
+//! behind [`DoctorSources`].
 
 use std::cmp::Ordering;
 use std::path::PathBuf;
@@ -591,10 +587,8 @@ fn report_session_log(status: &Value) -> Option<Verdict> {
 
 // Local installation state
 
-/// Whether a file can really be created in `dir` and removed again (the permission attribute of a directory says nothing on
-/// Windows): true only when both happened, so a folder that takes the file but not its removal is not "writable". `cancel` is
-/// the check's: once the check has ended no file is created, and one created by an open that returned late is removed (a call
-/// the OS holds blocked, an unreachable network folder, cannot be interrupted from here; the job ends when it returns).
+/// Whether a file can really be created in `dir` and removed again (a directory's permission attribute says nothing on
+/// Windows). Once `cancel` fires no file is created.
 pub(crate) fn folder_accepts_a_file(dir: &std::path::Path, cancel: &CancellationToken) -> bool {
     folder_accepts_a_file_with(dir, cancel, remove_probe)
 }

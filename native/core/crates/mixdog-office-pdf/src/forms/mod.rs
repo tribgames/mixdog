@@ -1,23 +1,12 @@
 //! AcroForm fields of the office PDF backend, ported from `src/runtime/office/pdf/pdf-forms.mjs` over the form model of
 //! pdf-lib 1.17.1 (`PDFForm`, `PDFField`, `PDFAcro*`, `PDFWidgetAnnotation`).
 //!
-//! * this module: the model of a form read from and written into a [`PdfDocument`]'s object store (fields by kind,
-//!   their widgets, flags, values and options, the value setters pdf-lib has), `describeFormField` and `fieldWidgets`;
-//! * [`create`]: `addFormField` (text, checkbox, dropdown, option list and radio group) and `fieldText`;
-//! * [`appearance`]: the widget appearance streams pdf-lib's default appearance providers draw, and
-//!   `PDFForm.updateFieldAppearances`;
-//! * [`fill`]: `fillFormValues` and `clippedFormValues`;
-//! * [`lint`]: `lintPdfFormFields`, `minimumFieldSize` and `rectanglesOverlap`.
+//! A [`PdfForm`] is pdf-lib's `PDFForm` object: the fields that changed and have no appearance drawn yet and the default font
+//! live in it, so a caller keeps one beside the document it edits. A widget written as a dictionary inside its parent's `Kids`
+//! array (not an indirect object, which the PDF specification requires) is read but not rewritten.
 //!
-//! A [`PdfForm`] is pdf-lib's `PDFForm` object: the fields that changed and have no appearance drawn yet (the dirty
-//! set) and the default font live in it, so a caller keeps one beside the document it edits, as `document.getForm()`
-//! is one cached object. Every operation takes the document and reads the form from its catalog, so a form is never
-//! out of step with the objects. A widget written as a dictionary inside its parent's `Kids` array (not an indirect
-//! object, which the PDF specification requires) is read but not rewritten.
-//!
-//! The font a form draws with is a [`FormFont`]: the face and the reference the document's font object is written to.
-//! As pdf-lib embeds fonts when the file is saved, the reference is allocated here and the caller writes the font to
-//! it (`Font::embed_into` with that target) before saving.
+//! As pdf-lib embeds fonts when the file is saved, the reference of a [`FormFont`] is allocated here and the caller writes the
+//! font to it (`Font::embed_into` with that target) before saving.
 
 use std::collections::BTreeSet;
 use std::fmt;

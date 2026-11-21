@@ -1,11 +1,5 @@
-//! The owner-lock loss, as the spec has it (LR §2.4): the check happens where the store makes a write durable, never on a watcher or a
-//! timer, and a failed check moves the core to `Fenced`. Node watched the lock file and fenced on its deletion (`daemon.mjs:646-657`
-//! `watchOwnedFiles`, the call at `:655`); the spec replaces that with [`Ownership::revalidate`] in the store's durability barrier
-//! (`mixdog-core-api/src/domain/ownership.rs`: "no watcher and no timer"). That barrier turns a failure into `storage_indeterminate`
-//! and nothing moved the core to `Fenced`; this decorator is the other half: the ownership the store is given.
-//!
 //! A lock file that is no longer ours is worded as Node worded it (`owner lock file <path> was deleted or replaced`); the other
-//! reasons (`DataDirReplaced`, `BarrierRemoved`, `LockLost`) are the spec's, with no Node counterpart.
+//! reasons (`DataDirReplaced`, `BarrierRemoved`, `LockLost`) have no Node counterpart.
 
 use std::path::PathBuf;
 use std::sync::Arc;

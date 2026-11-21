@@ -1,19 +1,3 @@
-//! The three ports of the cache warmer's `ProcessWarmDeps` (`session/cache-warm.mjs`
-//! `DEFAULT_DEPS`): the setting, what the session runtime knows, and what the provider registry
-//! knows. Each reads one object the process already has.
-//!
-//! * [`ConfigWarm`]: `loadConfig({ secrets: false })`.
-//! * [`SessionsWarm`]: `isTurnInFlight(runtimeState.get(id))` over the session directory the
-//!   [`NextRequestSource`] is bound to, and `lastSentMainRequest(id)` through that source.
-//! * [`ProvidersWarm`]: `providersInitialized()`, `registeredProvider(name)`, the fast-mode price
-//!   fact and the registered provider's `sendCacheWarm` behind the account gate.
-//!
-//! The request a restart re-arm replays is rebuilt by the directory ([`NextRequestSource::last_sent`])
-//! from the registry's own provider. It keeps that registration's generation, so
-//! `registeredProvider(name) === request.provider` is the generation still being the live one:
-//! a provider a later sync replaced ends the chain. The tail reminder is read at each warm
-//! ([`WarmTail`]), not kept from the rebuild.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -71,10 +55,6 @@ impl WarmTail for NextRequestSource {
     }
 }
 
-/// What the session runtime knows. `next` is the source `build_directory` binds to the directory
-/// (the one passed as `TurnPathParts.next`); before that it answers as for a thread that does not
-/// exist. `tail` reads the session's reminder context at each warm: the root passes the same
-/// `next`.
 pub struct SessionsWarm {
     next: Arc<NextRequestSource>,
     registry: Arc<ProviderRegistry>,

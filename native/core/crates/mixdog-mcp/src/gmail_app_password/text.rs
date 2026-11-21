@@ -118,13 +118,41 @@ pub(super) fn decode_words(value: &str) -> String {
     out
 }
 
+struct Piece {
+    index: usize,
+    extended: bool,
+    value: String,
+}
+
+/// The value of one parameter from its RFC 2231 pieces: ordered by index, the charset read from the first extended one.
+fn join_pieces(mut pieces: Vec<Piece>) -> String {
+    pieces.sort_by_key(|piece| piece.index);
+    let mut charset = String::new();
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut text = String::new();
+    for (position, piece) in pieces.into_iter().enumerate() {
+        if !piece.extended {
+            text.push_str(&charset_text(&charset, &bytes));
+            bytes.clear();
+            text.push_str(&piece.value);
+            continue;
+        }
+        let mut value = piece.value.as_str();
+        if position == 0
+            && let Some((label, tail)) = value.split_once('\'')
+            && let Some((_, data)) = tail.split_once('\'')
+        {
+            charset = label.to_owned();
+            value = data;
+        }
+        bytes.extend(percent_bytes(value));
+    }
+    text.push_str(&charset_text(&charset, &bytes));
+    text
+}
+
 /// The parameters of a header (`name`, `filename`, ...) with RFC 2231 continuations joined and extended values decoded.
 pub(super) fn merge_parameters(pairs: Vec<(String, String)>) -> Vec<(String, String)> {
-    struct Piece {
-        index: usize,
-        extended: bool,
-        value: String,
-    }
     let mut plain: Vec<(String, String)> = Vec::new();
     let mut split: Vec<(String, Vec<Piece>)> = Vec::new();
     for (key, value) in pairs {
@@ -146,31 +174,7 @@ pub(super) fn merge_parameters(pairs: Vec<(String, String)>) -> Vec<(String, Str
             None => split.push((base, vec![piece])),
         }
     }
-    for (base, mut pieces) in split {
-        pieces.sort_by_key(|piece| piece.index);
-        let mut charset = String::new();
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut text = String::new();
-        for (position, piece) in pieces.into_iter().enumerate() {
-            if !piece.extended {
-                text.push_str(&charset_text(&charset, &bytes));
-                bytes.clear();
-                text.push_str(&piece.value);
-                continue;
-            }
-            let mut value = piece.value.as_str();
-            if position == 0
-                && let Some((label, tail)) = value.split_once('\'')
-                && let Some((_, data)) = tail.split_once('\'')
-            {
-                charset = label.to_owned();
-                value = data;
-            }
-            bytes.extend(percent_bytes(value));
-        }
-        text.push_str(&charset_text(&charset, &bytes));
-        plain.push((base, text));
-    }
+    plain.extend(split.into_iter().map(|(base, pieces)| (base, join_pieces(pieces))));
     plain
 }
 

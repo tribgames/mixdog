@@ -1,15 +1,9 @@
-// The per-language (Stage-2) kind of one outline entry.
-//
-// This is the layer a rule WITHOUT a `# mixdog-kind:` marker resolves through:
-// ast-grep's default rules and our `parity.yml`. The answer is still the
-// language's own vocabulary; `kind_map` maps it into the unified one.
-
 use ast_grep_outline::model::SymbolType;
 
 /// Graph `kind` for one outline entry: the node kind decides first (it is the
 /// most specific signal and survives rules that share a symbolType), then the
-/// LSP symbol type. `None` drops the entry — the pre-Stage-2 queries never
-/// emitted fields, properties, enum members or import statements as symbols.
+/// LSP symbol type. `None` drops the entry: fields, properties, enum members
+/// and import statements are not symbols.
 pub fn symbol_kind(lang: &str, ast_kind: &str, symbol_type: SymbolType) -> Option<&'static str> {
     if let Some(kind) = kind_by_ast_kind(lang, ast_kind) {
         return kind;
@@ -142,7 +136,6 @@ pub(super) fn kind_by_symbol_type(lang: &str, symbol_type: SymbolType) -> Option
             S::Constant | S::Variable => Some("binding"),
             _ => None,
         },
-        // Python class methods were plain functions before Stage 2.
         "python" => match symbol_type {
             S::Function | S::Method => Some("function"),
             S::Class => Some("class"),
@@ -278,12 +271,6 @@ mod tests {
     use crate::outline::test_support::{kinds, named, record, records};
     use crate::scan_lang::scan_lang_for_ext;
 
-    /// `method_signature` was listed twice in `kind_by_ast_kind`: once mapped
-    /// to `method` for typescript, and again in the shared
-    /// `typescript | javascript` NON-symbol arm. The second mention is dead for
-    /// typescript — the earlier arm wins — so it could only ever have meant
-    /// something for JAVASCRIPT. It cannot: the javascript grammar has no such
-    /// node, which is why the token is gone from that arm.
     #[test]
     fn the_javascript_grammar_has_no_method_signature_node() {
         let lang = scan_lang_for_ext("js").expect("js has a scan language");
@@ -328,9 +315,6 @@ function* gen() {}
                 // `abstract run(): void` is a bodyless method DECLARATION.
                 ("method", "run"),
                 ("variable", "expr"),
-                // A named function EXPRESSION is a symbol; `function* gen()`
-                // is a `generator_function_declaration`, which the pre-Stage-2
-                // query did not match either.
                 ("function", "named"),
             ])
         );
@@ -472,12 +456,15 @@ macro_rules! shout { () => {} }
     }
 
     #[test]
-    fn script_and_functional_kinds() {
+    fn ruby_kinds() {
         assert_eq!(
             kinds("ruby", "rb", "module M\n  class C\n    def m; end\n    def self.s; end\n  end\nend\ndef top; end\n"),
             named(&[("module", "M"), ("class", "C"), ("method", "m"), ("method", "s"), ("method", "top"),])
         );
+    }
 
+    #[test]
+    fn php_kinds() {
         assert_eq!(
             kinds(
                 "php",
@@ -486,71 +473,68 @@ macro_rules! shout { () => {} }
             ),
             named(&[("interface", "I"), ("trait", "T"), ("enum", "E"), ("method", "l"), ("class", "C"), ("method", "m"), ("function", "f"),])
         );
+    }
 
+    #[test]
+    fn swift_kinds() {
         assert_eq!(
             kinds("swift", "swift", "protocol P {}\nstruct S {}\nenum E {}\nclass C { func m() {} }\nactor A {}\nfunc top() {}\n"),
-            named(&[
-                ("protocol", "P"),
-                ("struct", "S"),
-                ("enum", "E"),
-                ("class", "C"),
-                ("function", "m"),
-                // a swift actor is a reference type with methods
-                ("class", "A"),
-                ("function", "top"),
-            ])
+            named(&[("protocol", "P"), ("struct", "S"), ("enum", "E"), ("class", "C"), ("function", "m"), ("class", "A"), ("function", "top"),])
         );
+    }
 
+    #[test]
+    fn scala_kinds() {
         assert_eq!(
             kinds("scala", "scala", "trait T\nclass C { def m(): Int = 1 }\nobject O { def o(): Int = 2 }\n"),
             named(&[("trait", "T"), ("class", "C"), ("function", "m"), ("class", "O"), ("function", "o"),])
         );
+    }
 
+    #[test]
+    fn bash_kinds() {
         assert_eq!(kinds("bash", "sh", "f() { :; }\nfunction g() { :; }\n"), named(&[("function", "f"), ("function", "g")]));
+    }
 
+    #[test]
+    fn lua_kinds() {
         assert_eq!(
             kinds("lua", "lua", "function f() end\nfunction M.g() end\nfunction M:h() end\n"),
             named(&[("function", "f"), ("function", "g"), ("function", "h"),])
         );
+    }
 
+    #[test]
+    fn r_kinds() {
         assert_eq!(kinds("r", "r", "f <- function(x) x\ng = function(x) x\n"), named(&[("function", "f"), ("function", "g")]));
+    }
 
+    #[test]
+    fn dart_kinds() {
         assert_eq!(
             kinds("dart", "dart", "class C { void m() {} }\nmixin M {}\nenum E { a }\nextension X on C {}\nvoid top() {}\n"),
-            named(&[
-                ("class", "C"),
-                ("method", "m"),
-                // dart: a mixin is a trait, an extension is an impl block
-                ("trait", "M"),
-                ("enum", "E"),
-                ("impl", "X"),
-                ("function", "top"),
-            ])
+            named(&[("class", "C"), ("method", "m"), ("trait", "M"), ("enum", "E"), ("impl", "X"), ("function", "top"),])
         );
+    }
 
+    #[test]
+    fn elixir_kinds() {
         assert_eq!(
             kinds("elixir", "ex", "defmodule M do\n  def f(a), do: a\n  defp g(a), do: a\n  defmacro h(a), do: a\nend\n"),
             named(&[("module", "M"), ("function", "f"), ("function", "g"), ("macro", "h"),])
         );
+    }
 
+    #[test]
+    fn zig_kinds() {
         assert_eq!(
             kinds("zig", "zig", "pub const S = struct { pub fn f() void {} };\nconst E = enum { a };\nconst U = union { a: u8 };\npub fn top() void {}\n"),
-            named(&[
-                ("struct", "S"),
-                ("function", "f"),
-                ("enum", "E"),
-                // zig union: a container type with declared fields
-                ("struct", "U"),
-                ("function", "top"),
-            ])
+            named(&[("struct", "S"), ("function", "f"), ("enum", "E"), ("struct", "U"), ("function", "top"),])
         );
     }
 
-    /// Every language that can declare a method WITHOUT a body reports it:
-    /// an interface/protocol/trait requirement is the only declaration of that
-    /// name, and it keeps the kind that language gives a method with a body.
     #[test]
-    fn bodyless_method_declarations_are_symbols() {
+    fn typescript_bodyless_method_signatures_are_symbols() {
         let ts = records(
             "typescript",
             "ts",
@@ -568,10 +552,10 @@ macro_rules! shout { () => {} }
             ]
         );
         assert_eq!(record(&ts, "preflightSteps").sig, "preflightSteps?(cmd: string): Promise<void>");
+    }
 
-        // A signature declared in one language keeps that language's own kind
-        // for methods: go/dart/objc/java/csharp/php `method`, rust/scala/
-        // swift/kotlin/haskell/solidity `function`.
+    #[test]
+    fn bodyless_declarations_keep_the_language_method_kind() {
         let cases: &[(&str, &str, &str, &str, &str)] = &[
             ("go", "go", "package p\ntype Reader interface {\n\tRead(p []byte) (int, error)\n}\n", "method", "Read"),
             ("rust", "rs", "pub trait Handler {\n    fn handle(&self) -> bool;\n}\n", "function", "handle"),
@@ -593,9 +577,10 @@ macro_rules! shout { () => {} }
             assert!(!found.parent.is_empty(), "{graph_lang}: {symbols:?}");
             assert!(!found.sig.is_empty(), "{graph_lang}: {symbols:?}");
         }
+    }
 
-        // A bodied declaration of the same language keeps its span and kind:
-        // the signature rules add symbols, they do not take one over.
+    #[test]
+    fn a_bodied_dart_method_beside_a_signature_keeps_its_span_and_kind() {
         let dart = records("dart", "dart", "abstract class Service {\n  void start();\n  void stop() {}\n}\n");
         let stop = record(&dart, "stop");
         assert_eq!((stop.kind, stop.start_line, stop.end_line), ("method", 3, 3));

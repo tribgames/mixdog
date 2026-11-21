@@ -1,5 +1,4 @@
-//! Owner: s4-engine-refset
-//! The refs one snapshot named, kept as fingerprints (`BrowserRefSet` of `ref-recovery.ts`). The core never sees a
+//! The refs one snapshot named, kept as fingerprints. The core never sees a
 //! backend node id: a ref is resolved by the host on `host/browser/ref/call`, and what the engine keeps of an element is
 //! only what recovery and change reports compare.
 

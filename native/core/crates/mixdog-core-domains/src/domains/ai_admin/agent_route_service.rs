@@ -1,7 +1,3 @@
-//! `setAgentRoute` (workflow-agents-api/agent-route.mjs): saving, clearing and switching an
-//! agent's own route. The storage is [`AgentRoutes`]; what a saved change does to the agent's
-//! chats is the [`AgentRoutePublisher`]'s (every host takes the route from its next turn).
-
 use mixdog_core_config::config::agent_routes::agent_editor_id;
 use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
 use std::collections::HashSet;
@@ -48,6 +44,20 @@ fn normalized(route: &Value) -> Result<Option<Value>, String> {
     normalize_workflow_route(route, &Value::Object(Obj::new()), false)
 }
 
+fn fill_from_current(requested: &mut Obj, current: &Obj) {
+    if !requested.contains_key("provider")
+        && let Some(p) = current.get("provider")
+    {
+        requested.insert("provider".into(), p.clone());
+    }
+    if !requested.contains_key("model")
+        && clean(requested.get("provider")) == clean(current.get("provider"))
+        && let Some(m) = current.get("model")
+    {
+        requested.insert("model".into(), m.clone());
+    }
+}
+
 impl AgentRouteSetter {
     async fn own_route(&self, id: &str) -> Result<Obj, String> {
         Ok(object(self.routes.own_route(id).await.map_err(text)?))
@@ -83,6 +93,30 @@ impl AgentRouteSetter {
         }
         let base = inherited.as_ref().and_then(Value::as_object).cloned().unwrap_or_default();
         Ok(spread(&base, &[("inherited", Value::Bool(true))]))
+    }
+
+    async fn resolve_chain(&self, chain: &[Value], stored: &Obj) -> Result<Obj, String> {
+        let stored_chain = route_chain(&Value::Object(stored.clone()))?;
+        let mut resolved: Vec<Value> = Vec::new();
+        let mut used: HashSet<(String, String)> = HashSet::new();
+        for entry in chain {
+            let inactive = !used.insert(route_identity(entry));
+            let previous = stored_chain
+                .iter()
+                .find(|c| c.get("provider") == entry.get("provider") && c.get("model") == entry.get("model"))
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            resolved.push(if inactive {
+                entry.clone()
+            } else {
+                Value::Object(self.context.resolve_chain_entry(entry.as_object().unwrap_or(&Obj::new()), &previous).await?)
+            });
+        }
+        let mut rest = resolved.into_iter();
+        let mut with_fallbacks = rest.next().map(object).unwrap_or_default();
+        with_fallbacks.insert("fallbacks".into(), Value::Array(rest.collect()));
+        Ok(with_fallbacks)
     }
 
     pub async fn set_agent_route(&self, agent_id: &str, next: &Obj) -> Result<Value, String> {
@@ -132,17 +166,7 @@ impl AgentRouteSetter {
         } else {
             normalized(&Value::Object(self.context.resolve_main()?))?.map(object).unwrap_or_default()
         };
-        if !requested.contains_key("provider")
-            && let Some(p) = current.get("provider")
-        {
-            requested.insert("provider".into(), p.clone());
-        }
-        if !requested.contains_key("model")
-            && clean(requested.get("provider")) == clean(current.get("provider"))
-            && let Some(m) = current.get("model")
-        {
-            requested.insert("model".into(), m.clone());
-        }
+        fill_from_current(&mut requested, &current);
         if clean(requested.get("provider")).is_empty() {
             return Ok(Value::Object(self.clear_override(&id).await?));
         }
@@ -156,26 +180,7 @@ impl AgentRouteSetter {
         }
         let chain = route_chain(&Value::Object(head))?;
         validate_route_chain_providers(&chain, !explicit_fallbacks)?;
-        let stored_chain = route_chain(&Value::Object(stored.clone()))?;
-        let mut resolved: Vec<Value> = Vec::new();
-        let mut used: HashSet<(String, String)> = HashSet::new();
-        for entry in &chain {
-            let inactive = !used.insert(route_identity(entry));
-            let previous = stored_chain
-                .iter()
-                .find(|c| c.get("provider") == entry.get("provider") && c.get("model") == entry.get("model"))
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-            resolved.push(if inactive {
-                entry.clone()
-            } else {
-                Value::Object(self.context.resolve_chain_entry(entry.as_object().unwrap_or(&Obj::new()), &previous).await?)
-            });
-        }
-        let mut rest = resolved.into_iter();
-        let mut with_fallbacks = rest.next().map(object).unwrap_or_default();
-        with_fallbacks.insert("fallbacks".into(), Value::Array(rest.collect()));
+        let with_fallbacks = self.resolve_chain(&chain, &stored).await?;
         let route_to_save = normalized(&Value::Object(with_fallbacks))?.map(object).ok_or_else(|| "agent route requires provider and model".to_owned())?;
         if only_if_empty && self.routes.home(&id).await.map_err(text)? == RouteHome::Config {
             self.config.reload_full_config().await.map_err(text)?;

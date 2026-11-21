@@ -1,9 +1,3 @@
-//! A server core in the model-proxy client mode (`MIXDOG_MODEL_PROXY=client`): it holds no model credentials and its sessions'
-//! model requests run on the PC that connected to it. The server is the real composed core (its registry learns the PC's
-//! providers and builds the stand-ins, its session runs the turn and judges the prompt cache); the PC is the real relay on
-//! a link to that core, the real model-call service and the real Anthropic adapter, whose network alone is a captured
-//! transport. A turn is answered through the PC; a PC that leaves mid-call and a server with no PC fail the turn with the
-//! words Node's model proxy channel uses.
 #![allow(clippy::disallowed_methods, reason = "test setup: the settings files and the workspace folder of the composed core")]
 
 use std::sync::Arc;

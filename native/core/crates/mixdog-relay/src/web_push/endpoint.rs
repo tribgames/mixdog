@@ -1,6 +1,6 @@
-//! The push services a browser subscribes through (`validWebPushEndpoint` of `lib/web-push.mjs`). The relay POSTs to whatever
-//! endpoint a browser registers, so the endpoint's host is matched against the known services rather than screened for
-//! "private" names: a public DNS name may resolve anywhere, and a name check cannot see that.
+//! The push services a browser subscribes through. The relay POSTs to whatever endpoint a browser registers, so the endpoint's
+//! host is matched against the known services rather than screened for "private" names: a public DNS name may resolve anywhere,
+//! and a name check cannot see that.
 //!
 //! | Browser                                    | Host                                |
 //! |--------------------------------------------|-------------------------------------|

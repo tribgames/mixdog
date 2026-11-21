@@ -1,8 +1,3 @@
-//! Vertex AI's model routes (`vertexRoute`, vertex-ai-models.mjs:231-262) and its open and partner models
-//! (`VertexMaasRoute`, vertex-ai-maas.mjs): every publisher but Google's Gemini and Anthropic is sent as Chat
-//! Completions on `projects/P/locations/L/endpoints/openapi`, with the Vertex bearer, Vertex's cache-exclusive usage and
-//! the `publisher/model` pricing id.
-
 use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ModelRequest;

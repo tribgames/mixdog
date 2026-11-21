@@ -119,8 +119,7 @@ async fn built(scenario: Value, env: &'static [(&'static str, &'static str)]) ->
     let warm = StatuslineWarmup::new(&move |name| env.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()));
     let gates = Arc::new(Gates::default());
     let sink = Arc::new(Sink::default());
-    let inner =
-        ReadinessPrep { keychain: Arc::new(ReadyKeychain), config: rig.config.clone(), loaded: rig.loaded.clone(), readiness: rig.readiness.clone() };
+    let inner = ReadinessPrep { keychain: Arc::new(ReadyKeychain), config: rig.config.clone(), loaded: rig.loaded.clone(), readiness: rig.readiness.clone() };
     let prep = Arc::new(Recorded { inner, failures: Mutex::default() });
     warm.bind(rig.host.route.clone(), prep.clone(), sink.clone(), gates.clone()).unwrap();
     Built { rig, warm, gates, sink, prep }

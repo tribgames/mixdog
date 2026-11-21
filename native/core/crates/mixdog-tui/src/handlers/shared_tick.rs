@@ -5,8 +5,6 @@
 //! spinner frame from the clock at render; the tick only forces the redraw.
 //!
 //! Time is an input: the owner runs one timer for [`SharedTick::next_delay_ms`] and calls [`SharedTick::tick`] when it fires.
-//! (`useSession`, the other hook of `hooks/`, is a subscription of React to the store; the run loop redraws on the store's
-//! change signal, so it has no counterpart.)
 
 /// Fire a subscriber a hair early rather than skip a whole base interval and drift its cadence by a frame.
 pub const TICK_SLOP_MS: u64 = 16;

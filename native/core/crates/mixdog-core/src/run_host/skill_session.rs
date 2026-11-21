@@ -1,20 +1,3 @@
-//! The two session inputs of `CatalogSkillPort`: the re-arming of a loaded skill's deferred tools
-//! for its thread ([`HeaderSkillArm`], Node `loadSkillToolDependencies`) and the thread's live
-//! transcript ([`ThreadTranscript`], Node `currentSkillContext`).
-//!
-//! Node holds both on the live session object; here the session is the thread's header (a
-//! `Value`, changed in place as `tool_surface` does) and its messages. The arm is one header
-//! update run where the header has its only writer (`HeaderUpdates`): it changes the session the
-//! way Node does, synchronously, and the keys that moved are the next record. Nothing is retried.
-//! The update runs on the session actor, so it is pure: whatever the load asks of the world (the
-//! connector and project switches, the route's exclusions) is looked up before the update and
-//! captured (`Lookups`), and the update takes no lock, does no I/O and awaits nothing.
-//!
-//! `loadSkillToolDependencies` also words the outcome ("Required tools loaded: ...", "Required
-//! tools unavailable: ...", the native tool-search payload `toolSearchNativePayload`): the arm
-//! returns it as an [`ArmNotice`] and the Skill tool appends it to its result. A header or
-//! transcript that cannot be read or written is the port's error, not an empty answer.
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -133,10 +116,6 @@ impl CurrentSkills for CompactionSkills {
 }
 
 impl HeaderSkillArm {
-    /// `threads` reads the header the lookups are made from and `updates` writes it (one object,
-    /// `LateThreads` or `SessionThreads`, is both). `exclusions`, `host` and `clock` are the ones
-    /// `SessionCatalog::new` is given, so a tool is judged the same way here, in `load_tool` and at
-    /// dispatch; `permissions` is the gate's.
     pub fn new(
         threads: Arc<dyn ThreadState>,
         updates: Arc<dyn HeaderUpdates>,
@@ -196,30 +175,11 @@ impl Parts {
     fn load(&self, header: &Header, dependencies: &SkillToolDependencies, lookups: &Lookups) -> Result<(Value, ArmNotice), String> {
         let mut session = Value::Object(header.clone());
         let catalog = self.named_catalog(&session);
-        // `unavailable`: the skill's own issues, then what the dependencies cannot name, then what
-        // the session refuses or lacks.
         let mut unavailable = dependencies.issues.clone();
         let wanted = wanted_names(&catalog, &dependencies.tool_dependencies, &mut unavailable);
         let has_tools = session.get("tools").is_some_and(Value::is_array);
-        // `preDispatchDenyForSession(session, { name, arguments: {} })`.
         let surface = SessionSurface::from_header(header, lookups.route_excluded.clone());
-        let mut allowed: Vec<String> = Vec::new();
-        for name in wanted {
-            if !has_tools || !catalog.iter().any(|(known, _)| *known == name) {
-                unavailable.push(format!("{name} (not available in this session)"));
-                continue;
-            }
-            if !lookups.asked.contains(&name) {
-                return Err(name);
-            }
-            let mut call = surface.clone();
-            call.connector_disabled = lookups.connector_disabled.contains(&name);
-            call.project_disabled = lookups.project_disabled.contains(&name);
-            match call.refusal(&name, None) {
-                Some(denial) => unavailable.push(format!("{name} ({})", denial.message_for_model)),
-                None => allowed.push(name),
-            }
-        }
+        let allowed = allowed_names(wanted, &catalog, has_tools, &surface, lookups, &mut unavailable)?;
         let readonly = readonly_selection(&session);
         let selection = (!allowed.is_empty()).then(|| select(&self.surface(), &mut session, &surface.route_excluded, &allowed, readonly, true));
         let loaded: Vec<String> = selection.as_ref().map_or_else(Vec::new, |selection| selection.added.iter().chain(&selection.already).cloned().collect());
@@ -232,35 +192,55 @@ impl Parts {
         for name in selection.iter().flat_map(|selection| &selection.missing) {
             unavailable.push(format!("{name} (not available in this session)"));
         }
-        if !loaded.is_empty()
-            && let Some(map) = session.as_object_mut()
-        {
-            let mut kept: Vec<String> = Vec::new();
-            for name in map
-                .get("skillLoadedTools")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .chain(loaded.iter().cloned())
-            {
-                insert(&mut kept, name);
-            }
-            map.insert("skillLoadedTools".to_owned(), names_value(&kept));
-        }
-        // Discovery flags outlive the result that actually registers a schema. The input
-        // owners decide what is already present in the transcript they will keep.
+        record_loaded_tools(&mut session, &loaded);
         let native = selection.as_ref().filter(|s| s.native).map(|_| loaded.as_slice());
         let notice = notice_of(&session, &catalog, &loaded, &unavailable, native);
         Ok((session, notice))
     }
 }
 
-/// The text `loadSkillToolDependencies` appends to the Skill result, and the native tool-search
-/// payload it replaces the result with: `loaded` after the load, `unavailable` what it could not
-/// load, `catalog` the one the dependencies were named in, `native` whether the provider's own
-/// tool search is on.
+fn allowed_names(
+    wanted: Vec<String>,
+    catalog: &[(String, Value)],
+    has_tools: bool,
+    surface: &SessionSurface,
+    lookups: &Lookups,
+    unavailable: &mut Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut allowed: Vec<String> = Vec::new();
+    for name in wanted {
+        if !has_tools || !catalog.iter().any(|(known, _)| *known == name) {
+            unavailable.push(format!("{name} (not available in this session)"));
+            continue;
+        }
+        if !lookups.asked.contains(&name) {
+            return Err(name);
+        }
+        let mut call = surface.clone();
+        call.connector_disabled = lookups.connector_disabled.contains(&name);
+        call.project_disabled = lookups.project_disabled.contains(&name);
+        match call.refusal(&name, None) {
+            Some(denial) => unavailable.push(format!("{name} ({})", denial.message_for_model)),
+            None => allowed.push(name),
+        }
+    }
+    Ok(allowed)
+}
+
+fn record_loaded_tools(session: &mut Value, loaded: &[String]) {
+    if loaded.is_empty() {
+        return;
+    }
+    let Some(map) = session.as_object_mut() else { return };
+    let mut kept: Vec<String> = Vec::new();
+    for name in
+        map.get("skillLoadedTools").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).chain(loaded.iter().cloned())
+    {
+        insert(&mut kept, name);
+    }
+    map.insert("skillLoadedTools".to_owned(), names_value(&kept));
+}
+
 fn notice_of(session: &Value, catalog: &[(String, Value)], loaded: &[String], unavailable: &[String], native: Option<&[String]>) -> ArmNotice {
     let eager: HashSet<&str> =
         session.get("tools").and_then(Value::as_array).into_iter().flatten().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
@@ -396,11 +376,7 @@ impl DeferredToolArm for HeaderSkillArm {
         }
     }
 }
-/// The `TranscriptTexts` of the running product (`currentSkillContext`): the thread's model
-/// conversation. While a turn runs it is Node's `session.liveTurnMessages` (the history and the
-/// turn so far, `[...historyMessages, userTurnMessage]`): every row the turn commits is in the
-/// thread before its next request leaves, and a compaction rewrites it there. Idle, it is
-/// `session.messages`.
+
 pub struct ThreadTranscript {
     messages: Arc<dyn ThreadMessages>,
 }

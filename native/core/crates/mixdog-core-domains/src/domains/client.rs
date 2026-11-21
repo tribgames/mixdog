@@ -1,10 +1,6 @@
-//! The `client` domain: the two client notifications `client/activity` and `client/perfLog`.
-//! Neither has a reply or loads a session.
-//!
-//! `client/activity{at}` is today's `noteUserInput(at)` the desktop window reports at most
-//! once per 60 s; the heartbeat's idle gate reads it. `client/perfLog{line}` is today's
-//! `perfLog`, which writes `[mixdog-service] <line>` to stderr and only when
-//! `MIXDOG_DESKTOP_PERF=1`.
+//! The client notifications `client/activity{at}` (read by the heartbeat's idle gate) and
+//! `client/perfLog{line}`, which writes `[mixdog-service] <line>` to stderr only when
+//! `MIXDOG_DESKTOP_PERF=1`. Neither has a reply or loads a session.
 
 use std::sync::Arc;
 

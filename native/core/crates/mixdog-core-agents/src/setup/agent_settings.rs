@@ -8,9 +8,7 @@
 //!
 //! What the person approved is applied: the approved change travels with the write
 //! ([`Approval`], which only a card's answer makes), so exactly that tool goes to exactly that level and nothing else may
-//! widen under it. (Node set a flag around the write that its asynchronous editor read after it
-//! was cleared, so there an approval was refused; the design, the card and the tool description
-//! all say it is applied.) A restriction that landed between the approval and the write wins, and
+//! widen under it. A restriction that landed between the approval and the write wins, and
 //! a tool already at the level or more is left alone; the receipt tells the person which.
 
 use std::sync::Arc;
@@ -208,6 +206,16 @@ fn require_text(args: &Value, key: &str, label: &str) -> Result<String, PortErro
     if text.is_empty() { Err(failed(format!("{label} is required"))) } else { Ok(text) }
 }
 
+fn card_decision(answer: Option<&CardAnswer>) -> String {
+    match answer {
+        Some(answer) if answer.timed_out => "timeout".to_owned(),
+        Some(answer) => {
+            answer.response.clone().filter(|response| !response.is_empty()).unwrap_or_else(|| if answer.approved { "approve" } else { "deny" }.to_owned())
+        }
+        None => "deny".to_owned(),
+    }
+}
+
 fn rank(permission: Permission) -> u8 {
     match permission {
         Permission::Disabled => 0,
@@ -235,6 +243,16 @@ impl AgentSettingsSetup {
         let always = self.connectors.always_allowed(&agent).await.map_err(refused)?;
         let permissions = self.permissions.table(&Value::String(agent.clone())).await.map_err(refused)?;
         Ok(json!({ "agent": agent, "permissions": permissions, "connectors": connectors, "alwaysAllowedTools": always }))
+    }
+
+    async fn apply_approval(&self, approval: Option<Approval>) -> (&'static str, Option<String>, Option<AgentsError>) {
+        let Some(approval) = approval else { return ("none", None, None) };
+        match self.connectors.set_approved_tool_permission(approval).await {
+            Ok(_) => ("applied", None, None),
+            Err(AgentsError::Refused(why)) if why == TOOL_NARROWED => ("kept", Some(why), None),
+            Err(AgentsError::Refused(why)) if why == TOOL_ALREADY => ("already", Some(why), None),
+            Err(error) => ("failed", None, Some(error)),
+        }
     }
 
     /// `askToWidenConnectorTool`.
@@ -276,27 +294,11 @@ impl AgentSettingsSetup {
         };
         // Nobody can be shown a card here: the person makes the change in the desktop app.
         let CardOutcome::Settled(answer) = self.cards.ask(call.thread, &card).await else { return Err(failed(NO_WIDEN)) };
-        let decision = match &answer {
-            Some(answer) if answer.timed_out => "timeout".to_owned(),
-            Some(answer) => {
-                answer.response.clone().filter(|response| !response.is_empty()).unwrap_or_else(|| if answer.approved { "approve" } else { "deny" }.to_owned())
-            }
-            None => "deny".to_owned(),
-        };
+        let decision = card_decision(answer.as_ref());
         // Only a card's own answer makes an approval, and the write spends it.
         let approval = Approval::from_answer(agent, server, tool, from, &choices, answer.as_ref());
         let picked = approval.as_ref().map(Approval::level);
-        let mut applied = "none";
-        let mut not_applied = None;
-        let mut write_error = None;
-        if let Some(approval) = approval {
-            match self.connectors.set_approved_tool_permission(approval).await {
-                Ok(_) => applied = "applied",
-                Err(AgentsError::Refused(why)) if why == TOOL_NARROWED => (applied, not_applied) = ("kept", Some(why)),
-                Err(AgentsError::Refused(why)) if why == TOOL_ALREADY => (applied, not_applied) = ("already", Some(why)),
-                Err(error) => (applied, write_error) = ("failed", Some(error)),
-            }
-        }
+        let (applied, not_applied, write_error) = self.apply_approval(approval).await;
         // What is in force now, whatever came of the write.
         let now = self.connectors.tool_permission(agent, server, tool).await.map_err(refused)?;
         // Audited with the answer, the answering device, whether the write applied and the levels

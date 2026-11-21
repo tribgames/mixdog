@@ -76,8 +76,46 @@ struct RawCookie {
 }
 
 impl RawCookie {
+    fn expires(&self) -> Option<f64> {
+        (self.has_expires != 0 && self.is_persistent != 0).then(|| self.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64)
+    }
+
     fn expired(&self, now: f64) -> bool {
-        self.has_expires != 0 && self.is_persistent != 0 && self.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64 <= now
+        self.expires().is_some_and(|at| at <= now)
+    }
+
+    fn partition_key(&self) -> Result<Option<CookiePartitionKey>, ()> {
+        if self.top_frame_site_key.is_empty() {
+            return Ok(None);
+        }
+        let Some(ancestor @ (0 | 1)) = self.has_cross_site_ancestor else {
+            return Err(());
+        };
+        Ok(Some(CookiePartitionKey { top_level_site: self.top_frame_site_key.clone(), has_cross_site_ancestor: ancestor == 1 }))
+    }
+
+    fn same_site(&self) -> Option<String> {
+        match self.samesite {
+            0 => Some("none".to_string()),
+            1 => Some("lax".to_string()),
+            2 => Some("strict".to_string()),
+            _ => None,
+        }
+    }
+
+    fn into_cookie(self, value: String, partition_key: Option<CookiePartitionKey>) -> Cookie {
+        Cookie {
+            expires: self.expires(),
+            same_site: self.same_site(),
+            session: self.expires().is_none(),
+            secure: self.is_secure != 0,
+            http_only: self.is_httponly != 0,
+            name: self.name,
+            value,
+            domain: self.host_key,
+            path: self.path,
+            partition_key,
+        }
     }
 }
 
@@ -219,16 +257,9 @@ impl CookieDb {
                 expired += 1;
                 continue;
             }
-            let partition_key = if raw.top_frame_site_key.is_empty() {
-                None
-            } else {
-                // Missing ancestry cannot be guessed: it distinguishes cookies
-                // even when their top-level site, name and domain are identical.
-                let Some(ancestor @ (0 | 1)) = raw.has_cross_site_ancestor else {
-                    failures.invalid_partition += 1;
-                    continue;
-                };
-                Some(CookiePartitionKey { top_level_site: raw.top_frame_site_key.clone(), has_cross_site_ancestor: ancestor == 1 })
+            let Ok(partition_key) = raw.partition_key() else {
+                failures.invalid_partition += 1;
+                continue;
             };
             let value = match decode_value(&raw, self.schema_version, keys) {
                 Ok(value) => value,
@@ -241,31 +272,7 @@ impl CookieDb {
                     continue;
                 }
             };
-            let session = raw.has_expires == 0 || raw.is_persistent == 0;
-            let expires = if session {
-                None
-            } else {
-                // Keep past/zero expiries past: they must never become sessions.
-                Some(raw.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64)
-            };
-            let same_site = match raw.samesite {
-                0 => Some("none".to_string()),
-                1 => Some("lax".to_string()),
-                2 => Some("strict".to_string()),
-                _ => None,
-            };
-            cookies.push(Cookie {
-                name: raw.name,
-                value,
-                domain: raw.host_key,
-                path: raw.path,
-                secure: raw.is_secure != 0,
-                http_only: raw.is_httponly != 0,
-                session,
-                expires,
-                same_site,
-                partition_key,
-            });
+            cookies.push(raw.into_cookie(value, partition_key));
         }
         CookieImportReport { version: 2, source_count, expired, cookies, failures, app_bound_key: None }
     }

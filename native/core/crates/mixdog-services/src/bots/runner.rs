@@ -1,7 +1,5 @@
-//! The two real fire paths into the routine runtime: a schedule fire (`ScheduleRunner`) and a
-//! received webhook (`WebhookDispatch`). Both hand the instructions to the owner bot's home
-//! thread as a turn; the HTTP caller is answered 202 at once and the run, which has no
-//! deadline, settles the delivery row when it ends.
+//! The HTTP caller of a webhook is answered 202 at once; the run, which has no deadline,
+//! settles the delivery row when it ends.
 
 use std::sync::Arc;
 

@@ -1,13 +1,6 @@
-//! The model proxy (DS §12.4): a server core runs its model calls on a PC with that PC's accounts.
-//! This module holds both ends over the typed wire (`mixdog_app_protocol::v2::model_proxy`):
-//!
-//! - the conversions between the wire shapes and the core-api request, event and error types;
-//! - [`ProxyRunner`], the PC end (`modelProxy/run`): looks the provider up by name and sends through
-//!   the PC's own `ModelBroker`, streaming the events of every attempt;
-//! - [`remote_send`] and [`ProxyListing`], the server end: the call over a [`ModelProxyTransport`],
-//!   its events fed to the caller's `AttemptSink`, and the PC's model listing as a `ModelListing`.
-//!
-//! Retries belong to the PC's broker, once; the server end never retries a proxied send.
+//! Both ends of the model proxy over `mixdog_app_protocol::v2::model_proxy`: the wire conversions,
+//! [`ProxyRunner`] (the PC end) and [`remote_send`] / [`ProxyListing`] (the server end).
+//! Retries belong to the PC's broker; the server end never retries a proxied send.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -615,7 +608,7 @@ pub fn failure_out(e: &p::ProviderError, outcome: w::ProxyOutcome) -> w::ProxyFa
         tool_dispatched: e.exposure.tool_dispatched,
         tool_input_cut: e.exposure.tool_input_cut,
         delivery: match e.delivery {
-            p::DeliveryState::NotSent => w::ProxyDelivery::NotSent,
+            p::DeliveryState::NotSent | p::DeliveryState::NotProcessed => w::ProxyDelivery::NotSent,
             p::DeliveryState::Ambiguous => w::ProxyDelivery::Ambiguous,
             p::DeliveryState::Accepted => w::ProxyDelivery::Accepted,
         },
@@ -1063,10 +1056,6 @@ impl OwnerLink {
 struct RemoteGate(Arc<OwnerLink>);
 
 impl TailGate for RemoteGate {
-    /// The adapter writes the POST as soon as this returns, so the verdict's validity is checked here, last: a verdict
-    /// that lapsed on the way (its judgement no longer holds by the time it arrived) is settled unsent and asked again,
-    /// and the owner judges the POST anew at its own clock. The contract is "live at admission", not "live when the
-    /// provider reads it", and a rewrite the owner commits after its judgement is not visible to this PC once it posts.
     fn admit<'a>(&'a self, admission: Admission<'a>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Verdict> + Send + 'a>> {
         Box::pin(async move {
             loop {
@@ -1396,32 +1385,7 @@ impl ProxyRunner {
                 let route = self.wire.route(adapter.as_ref(), &model, context).await.map_err(|e| failure_out(&e, w::ProxyOutcome::Provider))?;
                 Ok(w::ProxyAnswer::Route { route })
             }
-            w::ProxyCall::ListModels { provider, refresh } => {
-                let adapter = self.adapter(&provider).await?;
-                if refresh {
-                    self.catalog.refresh().await;
-                }
-                let snapshot = self.catalog.snapshot();
-                let id = mixdog_protocol::ProviderId::from(provider.as_str());
-                let models = snapshot.models_of(&id);
-                let status = snapshot.status.get(&id);
-                if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), status) {
-                    return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
-                }
-                // The budget depends on the model, so it rides with the model's own row (host.ts `catalog`).
-                let budget = |id: &str| {
-                    adapter.first_response_budget(id, None).and_then(|b| {
-                        Some(w::ProxyBudget {
-                            transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?,
-                            semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)?,
-                        })
-                    })
-                };
-                Ok(w::ProxyAnswer::Models {
-                    models: models.iter().map(|m| w::ProxyModel { first_response_budget: budget(&m.id), ..catalog_model_out(m) }).collect(),
-                    complete: Some(matches!(status, Some(mixdog_ai::catalog::ProviderStatus::Ok))),
-                })
-            }
+            w::ProxyCall::ListModels { provider, refresh } => self.models_answer(&provider, refresh).await,
             // A 1.4.5 server (or a send no session owns) has no cache-tail judgement: serving it as 1.4.5 did is no regression.
             w::ProxyCall::Send { provider, request } => self.send(&provider, request, None, events, cancel).await,
             // A session's transcript: each POST is judged by its owner, asked over the call's own link.
@@ -1436,6 +1400,33 @@ impl ProxyRunner {
                 self.send(&provider, request, Some(owner), events, cancel).await
             }
         }
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
+    async fn models_answer(&self, provider: &str, refresh: bool) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+        let adapter = self.adapter(provider).await?;
+        if refresh {
+            self.catalog.refresh().await;
+        }
+        let snapshot = self.catalog.snapshot();
+        let id = mixdog_protocol::ProviderId::from(provider);
+        let models = snapshot.models_of(&id);
+        let status = snapshot.status.get(&id);
+        if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), status) {
+            return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
+        }
+        let budget = |id: &str| {
+            adapter.first_response_budget(id, None).and_then(|b| {
+                Some(w::ProxyBudget {
+                    transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?,
+                    semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)?,
+                })
+            })
+        };
+        Ok(w::ProxyAnswer::Models {
+            models: models.iter().map(|m| w::ProxyModel { first_response_budget: budget(&m.id), ..catalog_model_out(m) }).collect(),
+            complete: Some(matches!(status, Some(mixdog_ai::catalog::ProviderStatus::Ok))),
+        })
     }
 
     /// One send of the server's `request` on this PC's provider `provider`, with every attempt's events. `owner`: the
@@ -1519,14 +1510,52 @@ fn execution_error(error: ProxyError) -> SendError {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
+async fn session_exchange(
+    transport: &dyn ModelProxyTransport,
+    call: Value,
+    on_event: &mut (dyn FnMut(Value) + Send),
+    checks: &mut tokio::sync::mpsc::UnboundedReceiver<w::ProxyEvent>,
+    mut owner: OwnerEnd,
+    cancel: &CancellationToken,
+) -> Result<Value, SendError> {
+    let (say, back) = tokio::sync::mpsc::unbounded_channel();
+    let answer = {
+        let exchange = transport.execute_duplex(call, on_event, back, cancel);
+        tokio::pin!(exchange);
+        loop {
+            tokio::select! {
+                biased;
+                Some(check) = checks.recv() => owner.hear(check, &say).await,
+                answer = &mut exchange => break answer,
+            }
+        }
+    };
+    while let Ok(check) = checks.try_recv() {
+        owner.hear(check, &say).await;
+    }
+    let refused = owner.refused;
+    owner.end();
+    answer.map_err(execution_error).map_err(|error| match (error, refused) {
+        (SendError::Provider(mut error), Some(refusal)) => {
+            error.tail_refusal = Some(refusal);
+            SendError::Provider(error)
+        }
+        (SendError::Exhausted(mut error), Some(refusal)) => {
+            error.tail_refusal = Some(refusal);
+            SendError::Exhausted(error)
+        }
+        (error, _) => error,
+    })
+}
+
 /// A proxied send, the server end of `ModelBroker::send`: the stored attachments the request
 /// carries are inlined (newest first, under one byte budget), the call goes to the PC, and the
 /// events of each attempt reach `sink`. Returns the attempts the PC's broker made.
 ///
-/// A request whose transcript a session here owns (`tail_gate`) goes as a session send: the PC asks before each POST and
-/// this end judges it on the session's book, at this clock, as any attempt of the session is judged; the PC sends only what
-/// was admitted, and each admitted POST's usage comes back to its permit. A refusal is the call's failure (the session
-/// compacts, waits or reloads and sends again). Any other request goes out unjudged, as Node 1.4.5 sent it.
+/// A request with a `tail_gate` goes as a session send: the PC asks before each POST and this end
+/// judges it on the session's book; the PC sends only what was admitted, and a refusal is the
+/// call's failure. Any other request goes out unjudged.
 #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
 pub async fn remote_send(
     transport: &dyn ModelProxyTransport,
@@ -1573,7 +1602,7 @@ pub async fn remote_send(
             if cancel.is_cancelled() {
                 return Err(SendError::Cancelled);
             }
-            let mut owner = OwnerEnd {
+            let owner = OwnerEnd {
                 gate,
                 purpose: request.options.tail_purpose,
                 generation: request.options.tail_generation,
@@ -1581,36 +1610,7 @@ pub async fn remote_send(
                 permits: HashMap::new(),
                 refused: None,
             };
-            let (say, back) = tokio::sync::mpsc::unbounded_channel();
-            let answer = {
-                let exchange = transport.execute_duplex(call, &mut on_event, back, cancel);
-                tokio::pin!(exchange);
-                loop {
-                    tokio::select! {
-                        biased;
-                        Some(check) = checks.recv() => owner.hear(check, &say).await,
-                        answer = &mut exchange => break answer,
-                    }
-                }
-            };
-            // The settlements the PC wrote just before it answered.
-            while let Ok(check) = checks.try_recv() {
-                owner.hear(check, &say).await;
-            }
-            let refused = owner.refused;
-            owner.end();
-            answer.map_err(execution_error).map_err(|error| match (error, refused) {
-                // The PC sent nothing of the refused POST: the call's failure is the owner's own refusal, never the PC's copy.
-                (SendError::Provider(mut error), Some(refusal)) => {
-                    error.tail_refusal = Some(refusal);
-                    SendError::Provider(error)
-                }
-                (SendError::Exhausted(mut error), Some(refusal)) => {
-                    error.tail_refusal = Some(refusal);
-                    SendError::Exhausted(error)
-                }
-                (error, _) => error,
-            })
+            session_exchange(transport, call, &mut on_event, &mut checks, owner, cancel).await
         }
     }?;
     match serde_json::from_value::<w::ProxyAnswer>(answer.clone()).ok() {
@@ -1718,7 +1718,7 @@ impl AttachmentReader for StoreAttachments {
         }
         let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{reference}")).map_err(|e| ReadError::Other(e.to_string()))?;
         let store = self.store.clone();
-        let read = mixdog_core_base::support::on_lane(self.interactive, &CancellationToken::new(), move |lane| store.read(lane, &digest))
+        let read = mixdog_core_base::support::on_lane_wait(self.interactive, &CancellationToken::new(), move |lane| store.read(lane, &digest))
             .await
             .map_err(|e| ReadError::Other(format!("{e:?}")))?;
         match read {

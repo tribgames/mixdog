@@ -1081,10 +1081,6 @@ fn a_pin_keeps_the_presets_name_when_one_is_given_and_half_a_pin_is_no_pin() {
 // A cache miss told by the reported usage
 // ---------------------------------------------------------------------------
 
-/// Two sends of one session on `provider`: the first writes `10_000` tokens to the cache, the second reads `read` of them back.
-/// Both are served by one roster account (the cache scope a reading compares within) and report Anthropic's raw cache
-/// counters (a field that did not arrive is unknown, never zero). The session record carries the run's cache state
-/// between the two. Returns the breaks traced.
 async fn cache_reads(provider: &str, read: u64) -> Vec<serde_json::Map<String, JsonValue>> {
     let usage = |read: u64, write: u64| {
         let served = mixdog_core_api::domain::provider::AccountRouting { provider: provider.to_owned(), account_id: "acct".into(), session_account_id: None };

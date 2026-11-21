@@ -1,24 +1,3 @@
-//! The producer of this PC's own session notifications: a turn that finished or failed, an approval or a question that waits,
-//! a goal that is blocked. It is the one that decides WHEN (the desktop's `desktop-turn-notifier.ts`, `final-answer-watcher.ts`
-//! and `push-turn-events.ts`, and the phone side of `push-notifier.ts`); who hears it, and how, is the notification engine's
-//! (`mixdog_core_domains::notify::engine`): the host toast (`host/notification/show`) and the relay push of each paired device.
-//!
-//! It reads what the session catalog publishes (one roster row at a time), the agent pool and the per-session approval state,
-//! and never answers or sends anything to a session. The rules, in the order a notification meets them:
-//! - A session's turn is finished when its roster row stops being busy (its own turn, a child agent it started, or the pool's
-//!   pending work). An archived session and a sub-agent's session stay silent: only the Lead's own answer is news.
-//! - The turn's recorded answer decides what is told, and is awaited, not guessed: a Lead that finished its own turn is read
-//!   after `LEAD_FINISHED_MS` and again every `ANSWER_POLL_MS`; a session that went idle because its background work settled
-//!   waits `STABILIZE_MS`, since the Lead may take their results into a new turn at once. A turn that resumes meanwhile, an
-//!   answer by a reaction alone, a cancelled turn and a routine "nothing new" reply tell nothing; a failed turn is an error.
-//! - One answer read is in flight at a time, each with `READ_DEADLINE`; a failed read is retried after `STABILIZE_MS`, doubling
-//!   up to `READ_RETRY_MAX_MS`, and abandoned after `READ_FAILURE_LIMIT` failures; a session whose record is gone is not read again.
-//! - A session that STARTS waiting on a tool approval or a question is told on this PC once per approval (the copies a hand-off or
-//!   a sub-agent docks in other chats carry its id), as the chat it shows in; a paired phone is told once per session that shows
-//!   it, under that session. A replayed state is not a new wait.
-//! - A paired phone is told the same events by its own preferences; one that holds while this PC is in use is told after
-//!   `DESKTOP_HOLD_MS` if the turn is still unread or the wait still open.
-
 use mixdog_rt::CancellationToken;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -922,6 +901,10 @@ impl Notifier {
         if key == previous {
             return;
         }
+        self.tell_wait(session_id, approval, key);
+    }
+
+    fn tell_wait(&mut self, session_id: &str, approval: &Value, key: String) {
         let announce = self.told.insert(key.clone());
         let wait = if approval.get("kind").and_then(Value::as_str) == Some("question") { Wait::Question } else { Wait::Approval };
         // A sub-agent's request is answered in the top-level chat it shows in.

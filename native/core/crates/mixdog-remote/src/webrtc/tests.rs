@@ -263,10 +263,6 @@ async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
     assert_eq!(path, Some(CandidatePath::Direct));
 }
 
-/// A build that fails for another reason than the mDNS socket (an ordinary UDP transport the
-/// driver cannot wrap) fails once, with that error: no second build follows. The mDNS socket is
-/// the refusing stand-in, so the driver's own join, which no stand-in reaches and which this PC
-/// refuses at times, is not opened.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_build_that_fails_for_another_reason_fails_once_with_its_own_error() {
     mixdog_rt::testing::tokens();

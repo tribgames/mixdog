@@ -136,14 +136,7 @@ pub async fn cached_office_preview<E: RenderEngine>(
     }
     let wanted = Request::of(&view, args, cwd);
     let Some(previous) = cache.get("request").filter(|previous| !previous.is_null()) else { return Ok(None) };
-    let present = |name: &str| args.get(name).is_some_and(|value| !value.is_null());
-    if (!reuse_latest || args.get("output").is_some_and(truthy)) && previous.get("output").and_then(Value::as_str) != Some(wanted.output.as_str()) {
-        return Ok(None);
-    }
-    if (!reuse_latest || present("maxWidth")) && previous.get("maxWidth").and_then(Value::as_f64) != Some(wanted.max_width) {
-        return Ok(None);
-    }
-    if (!reuse_latest || present("pages")) && json_stringify(&wanted.pages_value()) != json_stringify(previous.get("pages").unwrap_or(&Value::Null)) {
+    if !previous_request_answers(previous, &wanted, args, reuse_latest) {
         return Ok(None);
     }
     let result = cache.get("result").cloned().unwrap_or(Value::Null);
@@ -167,6 +160,18 @@ pub async fn cached_office_preview<E: RenderEngine>(
     reused.insert("reused".to_owned(), Value::Bool(true));
     reused.insert("exportAvailable".to_owned(), Value::Bool(export_available));
     Ok(Some(Value::Object(reused)))
+}
+
+/// Whether the request a render was made with answers this one: all of output, width and pages, or, when the latest render may be
+/// reused, only those the call names.
+fn previous_request_answers(previous: &Value, wanted: &Request, args: &Value, reuse_latest: bool) -> bool {
+    let present = |name: &str| args.get(name).is_some_and(|value| !value.is_null());
+    let same_output = previous.get("output").and_then(Value::as_str) == Some(wanted.output.as_str());
+    let same_width = previous.get("maxWidth").and_then(Value::as_f64) == Some(wanted.max_width);
+    let same_pages = json_stringify(&wanted.pages_value()) == json_stringify(previous.get("pages").unwrap_or(&Value::Null));
+    (same_output || (reuse_latest && !args.get("output").is_some_and(truthy)))
+        && (same_width || (reuse_latest && !present("maxWidth")))
+        && (same_pages || (reuse_latest && !present("pages")))
 }
 
 /// `rendererName(session)`: the engine that drew a session's pages. A PDF's rasteriser keeps the name Node reported for its own.
@@ -246,11 +251,8 @@ pub async fn render_office_preview<E: RenderEngine>(
     };
     let wanted_pages: Option<Vec<f64>> =
         signatures.as_ref().map(|signatures| requested.pages.clone().unwrap_or_else(|| signatures.iter().map(|entry| entry.page as f64).collect()));
-    if let (Some(wanted), Some(signatures)) = (&wanted_pages, &signatures)
-        && (requested.pages.as_ref().is_some_and(|pages| pages.len() > MAX_DECK_PAGES)
-            || wanted.iter().any(|page| !page.is_finite() || page.fract() != 0.0 || *page < 1.0 || *page > signatures.len() as f64))
-    {
-        return Err("render accepts at most 12 explicit pages, within the presentation range".to_owned());
+    if let (Some(wanted), Some(signatures)) = (&wanted_pages, &signatures) {
+        validate_deck_pages(&requested, wanted, signatures.len())?;
     }
     let by_page = match (&signatures, &wanted_pages) {
         (Some(signatures), Some(wanted)) if wanted.len() <= MAX_DECK_PAGES => {
@@ -262,68 +264,157 @@ pub async fn render_office_preview<E: RenderEngine>(
     if let Some(parent) = output_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         engine.make_directory(parent).await?;
     }
-    {
-        let mut session = lock(handle);
-        session.design_state.rendered_version = Value::Null;
-        session.design_state.review_token = Some(Value::String(String::new()));
-        session.caches.render = None;
-        session.caches.page_render = None;
+    clear_review(handle);
+    export_if_stale(engine, handle, &view, &requested, incremental).await?;
+    let rendered = match &by_page {
+        Some(deck) => rasterize_deck(engine, &view, &requested, deck, &mut retained).await?,
+        None => {
+            let drawn = engine.rasterize(output_path, requested.pages.as_deref(), requested.max_width, view.cancel.clone()).await?;
+            Rendered {
+                page_count: drawn.get("pageCount").cloned().unwrap_or(Value::Null),
+                images: drawn.get("images").and_then(Value::as_array).cloned().unwrap_or_default(),
+                coverage: drawn.get("visualCoverage").cloned(),
+            }
+        }
+    };
+    let version = lock(handle).snapshot_version;
+    let token = review_token(&view, version, &rendered.page_count, rendered.coverage.as_ref(), &rendered.images);
+    let result = preview_result(&view, &requested, &rendered, &token, by_page.as_ref());
+    record_review(handle, &view, &requested, &rendered, version, token, &result);
+    if let Some(signatures) = &signatures {
+        remember_pages(handle, &view, &requested, signatures, &mut retained, &rendered.images);
     }
+    Ok(result)
+}
+
+/// The pages a render drew: how many the document has, the images and what they cover.
+struct Rendered {
+    page_count: Value,
+    images: Vec<Value>,
+    coverage: Option<Value>,
+}
+
+fn validate_deck_pages(requested: &Request, wanted: &[f64], page_total: usize) -> Result<(), String> {
+    if requested.pages.as_ref().is_some_and(|pages| pages.len() > MAX_DECK_PAGES)
+        || wanted.iter().any(|page| !page.is_finite() || page.fract() != 0.0 || *page < 1.0 || *page > page_total as f64)
+    {
+        return Err("render accepts at most 12 explicit pages, within the presentation range".to_owned());
+    }
+    Ok(())
+}
+
+fn clear_review(handle: &SessionHandle) {
+    let mut session = lock(handle);
+    session.design_state.rendered_version = Value::Null;
+    session.design_state.review_token = Some(Value::String(String::new()));
+    session.caches.render = None;
+    session.caches.page_render = None;
+}
+
+async fn export_if_stale<E: RenderEngine>(engine: &E, handle: &SessionHandle, view: &View, requested: &Request, incremental: bool) -> Result<(), String> {
+    let output_path = Path::new(&requested.output);
     let export_key = format!("{}\0{}\0{}", view.target, view.snapshot_version, requested.output);
     let previous_key = lock(handle).caches.preview_export_key.clone();
     if !incremental || previous_key.as_deref() != Some(export_key.as_str()) || !engine.exists(output_path).await {
         lock(handle).caches.preview_export_key = None;
         engine.note().note_write(output_path);
-        engine.export_document(&view, output_path).await?;
+        engine.export_document(view, output_path).await?;
         if incremental {
             lock(handle).caches.preview_export_key = Some(export_key);
         }
     }
-    let (page_count, rendered_images, coverage): (Value, Vec<Value>, Option<Value>) = if let Some(deck) = &by_page {
-        let fresh = if deck.missing.is_empty() {
-            json!({ "pageCount": deck.signatures.len(), "images": [] })
-        } else {
-            engine.rasterize(output_path, Some(deck.missing.as_slice()), requested.max_width, view.cancel.clone()).await?
-        };
-        if fresh.get("pageCount").and_then(Value::as_f64) != Some(deck.signatures.len() as f64) {
-            return Err("Rendered page count differs from the current presentation".to_owned());
-        }
-        for image in fresh.get("images").and_then(Value::as_array).into_iter().flatten() {
-            if let Some(page) = integer_page(image) {
-                retained.insert(page, image.clone());
-            }
-        }
-        if deck.wanted.iter().any(|page| !retained.get(&(*page as usize)).and_then(|image| image.get("data")).is_some_and(truthy)) {
-            return Err("Renderer omitted requested presentation pages".to_owned());
-        }
-        let mut drawn: Vec<usize> = Vec::new();
-        for page in deck.wanted {
-            if !drawn.contains(&(*page as usize)) {
-                drawn.push(*page as usize);
-            }
-        }
-        let images: Vec<Value> = drawn.iter().filter_map(|page| retained.get(page).cloned()).collect();
-        (json_number(deck.signatures.len() as f64), images, Some(complete_page_coverage(deck.signatures.len(), &drawn)))
+    Ok(())
+}
+
+/// Draws the wanted pages of a deck that are not already retained from the render before, and adds them to `retained`.
+async fn rasterize_deck<E: RenderEngine>(
+    engine: &E,
+    view: &View,
+    requested: &Request,
+    deck: &ByPage<'_>,
+    retained: &mut HashMap<usize, Value>,
+) -> Result<Rendered, String> {
+    let fresh = if deck.missing.is_empty() {
+        json!({ "pageCount": deck.signatures.len(), "images": [] })
     } else {
-        let rendered = engine.rasterize(output_path, requested.pages.as_deref(), requested.max_width, view.cancel.clone()).await?;
-        (
-            rendered.get("pageCount").cloned().unwrap_or(Value::Null),
-            rendered.get("images").and_then(Value::as_array).cloned().unwrap_or_default(),
-            rendered.get("visualCoverage").cloned(),
-        )
+        engine.rasterize(Path::new(&requested.output), Some(deck.missing.as_slice()), requested.max_width, view.cancel.clone()).await?
     };
-    let version = lock(handle).snapshot_version;
-    let token = review_token(&view, version, &page_count, coverage.as_ref(), &rendered_images);
+    if fresh.get("pageCount").and_then(Value::as_f64) != Some(deck.signatures.len() as f64) {
+        return Err("Rendered page count differs from the current presentation".to_owned());
+    }
+    for image in fresh.get("images").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(page) = integer_page(image) {
+            retained.insert(page, image.clone());
+        }
+    }
+    if deck.wanted.iter().any(|page| !retained.get(&(*page as usize)).and_then(|image| image.get("data")).is_some_and(truthy)) {
+        return Err("Renderer omitted requested presentation pages".to_owned());
+    }
+    let mut drawn: Vec<usize> = Vec::new();
+    for page in deck.wanted {
+        if !drawn.contains(&(*page as usize)) {
+            drawn.push(*page as usize);
+        }
+    }
+    let images: Vec<Value> = drawn.iter().filter_map(|page| retained.get(page).cloned()).collect();
+    Ok(Rendered { page_count: json_number(deck.signatures.len() as f64), images, coverage: Some(complete_page_coverage(deck.signatures.len(), &drawn)) })
+}
+
+/// Marks the render as the one under review, with the width its pages were drawn at, and caches it when the session may reuse it.
+fn record_review(handle: &SessionHandle, view: &View, requested: &Request, rendered: &Rendered, version: u64, token: String, result: &Value) {
+    let mut session = lock(handle);
+    session.design_state.rendered_version = json_number(version as f64);
+    // A later qa or finalize that cannot reuse the cached pages (a session that is not owned) draws them again at this width,
+    // so the same pixels keep the same token instead of a 1400 px redraw voiding a review taken at 1000.
+    session.design_state.rendered_max_width = Some(json_number(requested.max_width));
+    session.design_state.review_token = Some(Value::String(token));
+    session.design_state.rendered_page_count = Some(rendered.page_count.clone());
+    session.design_state.rendered_coverage = rendered.coverage.clone();
+    if view.cacheable {
+        session.caches.render = Some(json!({ "target": view.target, "version": version, "request": requested.to_value(), "result": result }));
+    }
+}
+
+/// Keeps the page images of a deck, by slide, for the next render to reuse.
+fn remember_pages(
+    handle: &SessionHandle,
+    view: &View,
+    requested: &Request,
+    signatures: &[PageSignature],
+    retained: &mut HashMap<usize, Value>,
+    drawn: &[Value],
+) {
+    for image in drawn {
+        if let Some(page) = integer_page(image) {
+            retained.insert(page, image.clone());
+        }
+    }
+    let pages: Vec<Value> = signatures
+        .iter()
+        .filter_map(|entry| {
+            retained
+                .get(&entry.page)
+                .map(|image| json!({ "page": entry.page, "slideId": json_number(entry.slide_id), "signature": entry.signature, "image": image }))
+        })
+        .collect();
+    lock(handle).caches.page_render =
+        Some(json!({ "target": view.target, "output": requested.output, "maxWidth": json_number(requested.max_width), "pages": pages }));
+}
+
+/// The result a render returns: the drawn pages (with their pixels kept aside under `_images`), and for a deck drawn page by page
+/// which slides were redrawn, reused and identified.
+fn preview_result(view: &View, requested: &Request, rendered: &Rendered, token: &str, by_page: Option<&ByPage<'_>>) -> Value {
+    let Rendered { page_count, images: rendered_images, coverage } = rendered;
     let mut result = Map::new();
     result.insert("session".to_owned(), Value::String(view.id.clone()));
     result.insert("backend".to_owned(), Value::String(view.backend.as_str().to_owned()));
     result.insert("output".to_owned(), Value::String(requested.output.clone()));
     result.insert("format".to_owned(), Value::String("pdf".to_owned()));
-    if let Some(renderer) = renderer_name(&view) {
+    if let Some(renderer) = renderer_name(view) {
         result.insert("renderer".to_owned(), Value::String(renderer.to_owned()));
     }
     result.insert("pageCount".to_owned(), page_count.clone());
-    if let Some(coverage) = &coverage {
+    if let Some(coverage) = coverage {
         result.insert("visualCoverage".to_owned(), coverage.clone());
     }
     let plain: Vec<Value> = rendered_images
@@ -337,15 +428,22 @@ pub async fn render_office_preview<E: RenderEngine>(
         .collect();
     result.insert("images".to_owned(), Value::Array(plain));
     result.insert("_images".to_owned(), Value::Array(rendered_images.clone()));
-    result.insert("reviewToken".to_owned(), Value::String(token.clone()));
+    result.insert("reviewToken".to_owned(), Value::String(token.to_owned()));
     result.insert("exportAvailable".to_owned(), Value::Bool(true));
-    if let Some(deck) = &by_page {
-        let wanted_pages: Vec<usize> = deck.wanted.iter().map(|page| *page as usize).collect();
-        result.insert("changedPages".to_owned(), pages_value(Some(deck.missing.as_slice())));
-        let reused: Vec<f64> = deck.wanted.iter().copied().filter(|page| !deck.missing.contains(page)).collect();
+    if let Some(deck) = by_page {
+        deck.describe(&mut result);
+    }
+    Value::Object(result)
+}
+
+impl ByPage<'_> {
+    /// Which slides were redrawn, which were reused, and the identities of the slides this render drew.
+    fn describe(&self, result: &mut Map<String, Value>) {
+        let wanted_pages: Vec<usize> = self.wanted.iter().map(|page| *page as usize).collect();
+        result.insert("changedPages".to_owned(), pages_value(Some(self.missing.as_slice())));
+        let reused: Vec<f64> = self.wanted.iter().copied().filter(|page| !self.missing.contains(page)).collect();
         result.insert("reusedPages".to_owned(), pages_value(Some(reused.as_slice())));
-        // The slides this render drew; the rest of the deck's identities answer nothing asked here.
-        let identities: Vec<Value> = deck
+        let identities: Vec<Value> = self
             .signatures
             .iter()
             .filter(|entry| wanted_pages.contains(&entry.page))
@@ -353,37 +451,4 @@ pub async fn render_office_preview<E: RenderEngine>(
             .collect();
         result.insert("pageIdentities".to_owned(), Value::Array(identities));
     }
-    let result = Value::Object(result);
-    {
-        let mut session = lock(handle);
-        session.design_state.rendered_version = json_number(version as f64);
-        // The width the reviewed pages were drawn at: a later qa or finalize that cannot reuse the cached pages (a session that
-        // is not owned) draws them again at that width, so the same pixels keep the same token instead of a 1400 px redraw
-        // voiding a review taken at 1000.
-        session.design_state.rendered_max_width = Some(json_number(requested.max_width));
-        session.design_state.review_token = Some(Value::String(token));
-        session.design_state.rendered_page_count = Some(page_count);
-        session.design_state.rendered_coverage = coverage;
-        if view.cacheable {
-            session.caches.render = Some(json!({ "target": view.target, "version": version, "request": requested.to_value(), "result": result }));
-        }
-    }
-    if let Some(signatures) = &signatures {
-        for image in &rendered_images {
-            if let Some(page) = integer_page(image) {
-                retained.insert(page, image.clone());
-            }
-        }
-        let pages: Vec<Value> = signatures
-            .iter()
-            .filter_map(|entry| {
-                retained
-                    .get(&entry.page)
-                    .map(|image| json!({ "page": entry.page, "slideId": json_number(entry.slide_id), "signature": entry.signature, "image": image }))
-            })
-            .collect();
-        lock(handle).caches.page_render =
-            Some(json!({ "target": view.target, "output": requested.output, "maxWidth": json_number(requested.max_width), "pages": pages }));
-    }
-    Ok(result)
 }

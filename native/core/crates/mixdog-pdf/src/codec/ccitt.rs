@@ -152,6 +152,22 @@ fn run_of(color_white: bool, src: &[u8], bit_pos: &mut usize, bit_size: usize) -
     if color_white { get_run(&WHITE_RUNS, &WHITE_LEN_START, src, bit_pos, bit_size) } else { get_run(&BLACK_RUNS, &BLACK_LEN_START, src, bit_pos, bit_size) }
 }
 
+/// The total of a make-up/terminating run sequence; `None` when it overruns the row or a code is invalid.
+fn run_total(color_white: bool, src: &[u8], bit_pos: &mut usize, bit_size: usize, columns: i32) -> Option<i32> {
+    let mut total = 0i32;
+    loop {
+        let run = run_of(color_white, src, bit_pos, bit_size);
+        total = total.wrapping_add(run);
+        if total > columns {
+            return None;
+        }
+        if run < 64 {
+            break;
+        }
+    }
+    (total >= 0).then_some(total)
+}
+
 /// `FaxG4GetRow`.
 fn g4_row(src: &[u8], bit_size: usize, bit_pos: &mut usize, dest: &mut [u8], reference: &[u8], columns: i32) {
     let mut a0: i32 = -1;
@@ -174,20 +190,9 @@ fn g4_row(src: &[u8], bit_size: usize, bit_pos: &mut usize, dest: &mut [u8], ref
             if bit1 {
                 v_delta = if bit2 { 1 } else { -1 };
             } else if bit2 {
-                let mut run_len1 = 0i32;
-                loop {
-                    let run = run_of(a0_color, src, bit_pos, bit_size);
-                    run_len1 = run_len1.wrapping_add(run);
-                    if run_len1 > columns {
-                        return;
-                    }
-                    if run < 64 {
-                        break;
-                    }
-                }
-                if run_len1 < 0 {
+                let Some(mut run_len1) = run_total(a0_color, src, bit_pos, bit_size, columns) else {
                     return;
-                }
+                };
                 if a0 < 0 {
                     run_len1 = run_len1.wrapping_add(1);
                 }
@@ -195,20 +200,9 @@ fn g4_row(src: &[u8], bit_size: usize, bit_pos: &mut usize, dest: &mut [u8], ref
                 if !a0_color {
                     fill_black(dest, columns, a0, a1);
                 }
-                let mut run_len2 = 0i32;
-                loop {
-                    let run = run_of(!a0_color, src, bit_pos, bit_size);
-                    run_len2 = run_len2.wrapping_add(run);
-                    if run_len2 > columns {
-                        return;
-                    }
-                    if run < 64 {
-                        break;
-                    }
-                }
-                if run_len2 < 0 {
+                let Some(run_len2) = run_total(!a0_color, src, bit_pos, bit_size, columns) else {
                     return;
-                }
+                };
                 let a2 = a1.wrapping_add(run_len2);
                 if a0_color {
                     fill_black(dest, columns, a1, a2);

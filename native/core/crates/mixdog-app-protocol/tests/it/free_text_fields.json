@@ -2795,6 +2795,8 @@
     "answer host/computer/pixels /attempts/*/backend",
     "answer host/computer/pixels /attempts/*/reason",
     "answer host/computer/pixels /backend",
+    "answer host/computer/processFate /created",
+    "answer host/computer/processFate /state",
     "answer host/computer/revokeScopes /reports/*/admission",
     "answer host/computer/revokeScopes /reports/*/cleanup",
     "answer host/systemProxy/resolve /rules",

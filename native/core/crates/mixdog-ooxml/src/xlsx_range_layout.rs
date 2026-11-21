@@ -142,6 +142,12 @@ fn compare_sort_values(left: Option<&CellValue>, right: Option<&CellValue>) -> f
 /// The sorts Excel itself refuses, and the ones that would silently corrupt the sheet: a formula stored once for cells the sort
 /// would split, hidden rows among the moved ones, and merged cells crossing them.
 fn refuse_unsortable_range(xml: &str, area: &RangeBounds, first_row: f64) -> Result<(), String> {
+    refuse_split_formulas(xml, area, first_row)?;
+    refuse_hidden_rows(xml, area, first_row)?;
+    refuse_merged_cells(xml, area, first_row)
+}
+
+fn refuse_split_formulas(xml: &str, area: &RangeBounds, first_row: f64) -> Result<(), String> {
     // A formula filled down is stored once for the whole run, and an array formula once for its block: moving one row of either
     // rewrites the others. Excel refuses to change part of an array.
     let in_body = |reference: &str| -> Result<bool, String> {
@@ -177,8 +183,10 @@ fn refuse_unsortable_range(xml: &str, area: &RangeBounds, first_row: f64) -> Res
             outside[outside.len() - 1]
         ));
     }
-    // A filtered sheet hides rows, not records: the flag stays on the row number while the values move under it, so a sort
-    // would leave a different record hidden than the one the reader filtered away.
+    Ok(())
+}
+
+fn refuse_hidden_rows(xml: &str, area: &RangeBounds, first_row: f64) -> Result<(), String> {
     let withheld: Vec<u32> = hidden_sheet_areas(xml).rows.into_iter().filter(|row| f64::from(*row) >= first_row && f64::from(*row) <= area.end_row).collect();
     if !withheld.is_empty() {
         let shown: Vec<String> = withheld.iter().take(5).map(u32::to_string).collect();
@@ -188,7 +196,10 @@ fn refuse_unsortable_range(xml: &str, area: &RangeBounds, first_row: f64) -> Res
             shown.join(", ")
         ));
     }
-    // Excel refuses the same case: a merged cell cannot travel with one row.
+    Ok(())
+}
+
+fn refuse_merged_cells(xml: &str, area: &RangeBounds, first_row: f64) -> Result<(), String> {
     let mut merges: Vec<String> = Vec::new();
     for range in merged_ranges(xml) {
         let merge = expand_range(&range)?;
@@ -219,25 +230,7 @@ struct BodyCell {
     style: u64,
 }
 
-/// `sortWorksheetRange(zip, sheet, xml, op)`: sorts the values of a range, refusing the cases Excel itself refuses. A formula
-/// travels with its row as Excel moves it; one that cannot be moved refuses the sort.
-pub fn sort_worksheet_range(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Map<String, Value>) -> Result<Value, String> {
-    let area = named_bounds(op.get("range"))?;
-    let header = op.get("hasHeader") != Some(&Value::Bool(false));
-    let first_row = area.start_row + if header { 1.0 } else { 0.0 };
-    refuse_unsortable_range(xml, &area, first_row)?;
-    // Each cell of a filled-down run holds its own formula once the run moves whole, as a plain formula Excel reads alike.
-    let mut list = cell_records(xml, &shared_strings(zip), None);
-    expand_shared_formulas(xml, &mut list)?;
-    let records: HashMap<&str, &CellRecord> = list.iter().map(|cell| (cell.reference.as_str(), cell)).collect();
-    let column = sort_key_column(op, &area, |col| {
-        records.get(cell_at(area.start_row, col).as_str()).map(|record| match &record.value {
-            CellValue::Text(text) => text.clone(),
-            other => mixdog_js::value_to_string(&other.to_json()),
-        })
-    })?;
-    let order = if truthy(op.get("order")) { js_text(op.get("order")) } else { "asc".to_owned() };
-    let descending = js_to_lowercase(js_trim(&order)).starts_with("desc");
+fn read_sort_body(xml: &str, records: &HashMap<&str, &CellRecord>, area: &RangeBounds, first_row: f64) -> Result<Vec<Vec<BodyCell>>, String> {
     let mut refs: Vec<Vec<String>> = Vec::new();
     let mut row = first_row;
     while row <= area.end_row {
@@ -266,8 +259,30 @@ pub fn sort_worksheet_range(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Ma
         }
         body.push(cells);
     }
+    Ok(body)
+}
+
+/// `sortWorksheetRange(zip, sheet, xml, op)`: sorts the values of a range, refusing the cases Excel itself refuses. A formula
+/// travels with its row as Excel moves it; one that cannot be moved refuses the sort.
+pub fn sort_worksheet_range(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Map<String, Value>) -> Result<Value, String> {
+    let area = named_bounds(op.get("range"))?;
+    let header = op.get("hasHeader") != Some(&Value::Bool(false));
+    let first_row = area.start_row + if header { 1.0 } else { 0.0 };
+    refuse_unsortable_range(xml, &area, first_row)?;
+    // Each cell of a filled-down run holds its own formula once the run moves whole, as a plain formula Excel reads alike.
+    let mut list = cell_records(xml, &shared_strings(zip), None);
+    expand_shared_formulas(xml, &mut list)?;
+    let records: HashMap<&str, &CellRecord> = list.iter().map(|cell| (cell.reference.as_str(), cell)).collect();
+    let column = sort_key_column(op, &area, |col| {
+        records.get(cell_at(area.start_row, col).as_str()).map(|record| match &record.value {
+            CellValue::Text(text) => text.clone(),
+            other => mixdog_js::value_to_string(&other.to_json()),
+        })
+    })?;
+    let order = if truthy(op.get("order")) { js_text(op.get("order")) } else { "asc".to_owned() };
+    let descending = js_to_lowercase(js_trim(&order)).starts_with("desc");
     let key_index = (column - area.start_col) as usize;
-    let mut sorted = body;
+    let mut sorted = read_sort_body(xml, &records, &area, first_row)?;
     js_sort_by(&mut sorted, |left, right| {
         compare_sort_values(left.get(key_index).and_then(|cell| cell.value.as_ref()), right.get(key_index).and_then(|cell| cell.value.as_ref()))
             * if descending { -1.0 } else { 1.0 }
@@ -340,10 +355,6 @@ fn shown_text(record: &CellRecord) -> String {
     })
 }
 
-/// A line of text alone in its row (a sheet title, an instruction under it) prints across the empty cells beside it, so a fit
-/// over several columns does not size its column to it: a form's instruction under its title set column A four times the
-/// width of the dates under it and split the table over two pages. A wrapped line keeps its column, as does a fit of that one
-/// column.
 fn spilling_text(records: &[CellRecord], area: &Area) -> Result<HashSet<String>, String> {
     if area.start_col == 0.0 || area.end_col <= area.start_col {
         return Ok(HashSet::new());
@@ -373,6 +384,25 @@ fn spilling_text(records: &[CellRecord], area: &Area) -> Result<HashSet<String>,
         }
     }
     Ok(spilling)
+}
+
+fn record_width<P: ReadProof>(
+    measurer: &TextMeasurer<'_, P>,
+    record: &CellRecord,
+    base_style: Option<&Value>,
+    base_size: f64,
+    digit_width: f64,
+) -> Result<f64, String> {
+    let text = shown_text(record);
+    let numeric = !record.text_type && !js_trim(&text).is_empty() && string_to_number(&text).is_finite();
+    let printed = if numeric {
+        let format = text_or_empty(record.style.as_ref().and_then(|style| style.get("numberFormat")));
+        formatted_number_width(Some(&json_number(string_to_number(&text))), &format) as f64 * cell_width_scale(record.style.as_ref(), base_size, false)
+    } else {
+        text_characters(measurer, &Value::String(text), record.style.as_ref().or(base_style), digit_width)?
+    };
+    let indent = to_number_of(record.style.as_ref().and_then(|style| style.get("indent")));
+    Ok(printed + if indent.is_nan() || indent == 0.0 { 0.0 } else { indent })
 }
 
 /// The widest printed text of each column in the area, skipping the cells a horizontal merge spans. A width counts characters
@@ -410,19 +440,7 @@ fn measured_column_widths<P: ReadProof>(
         {
             continue;
         }
-        let text = shown_text(record);
-        let numeric = !record.text_type && !js_trim(&text).is_empty() && string_to_number(&text).is_finite();
-        // An indent level holds about one character of the column before the text starts. A cell on the default style carries
-        // no record style, and its face is the one the width counts in. A text is measured in its own face, as the fit audit
-        // measures it; a figure counts the digits its format prints.
-        let printed = if numeric {
-            let format = text_or_empty(record.style.as_ref().and_then(|style| style.get("numberFormat")));
-            formatted_number_width(Some(&json_number(string_to_number(&text))), &format) as f64 * cell_width_scale(record.style.as_ref(), base_size, false)
-        } else {
-            text_characters(measurer, &Value::String(text), record.style.as_ref().or(base_style), digit_width)?
-        };
-        let indent = to_number_of(record.style.as_ref().and_then(|style| style.get("indent")));
-        let needed = printed + if indent.is_nan() || indent == 0.0 { 0.0 } else { indent };
+        let needed = record_width(measurer, record, base_style, base_size, digit_width)?;
         let key = column as u32;
         match place.get(&key) {
             Some(at) => measured[*at].1 = math::max(measured[*at].1, needed),

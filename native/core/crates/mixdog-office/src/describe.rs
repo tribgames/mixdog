@@ -6,7 +6,7 @@ use mixdog_js::js_trim;
 use mixdog_office_design::tokens::office_design_catalog;
 use serde_json::{Map, Value, json};
 
-use crate::capabilities::capabilities;
+use crate::capabilities::{FormatCatalog, capabilities};
 use crate::contracts::{did_you_mean, operation_properties, operation_suggestions};
 
 /// The arguments of `describeOfficeCapabilities`; an empty string is the argument left out.
@@ -94,27 +94,12 @@ pub fn describe_office_capabilities(request: &DescribeRequest) -> Result<Value, 
         if !operation.is_empty() {
             return Err("describe with operation requires format, path, or session".to_owned());
         }
-        let mut formats = Map::new();
-        for (name, catalog) in &tables.catalog {
-            formats.insert(name.clone(), json!({ "paths": strings(&catalog.paths), "operationCount": tables.operations(name).len() }));
-        }
-        let mut summary = common();
-        summary.insert("designs".to_owned(), office_design_catalog("", None)?);
-        summary.insert("formats".to_owned(), Value::Object(formats));
-        summary.insert(
-            "nextAction".to_owned(),
-            Value::from(
-                "When discovery is needed, add format for its operation list or add operation for one compact input contract; otherwise call create/open/batch directly.",
-            ),
-        );
-        return Ok(Value::Object(summary));
+        return capability_summary();
     }
     let Some(catalog) = tables.format(format) else {
         return Err(format!("Unsupported Office Use format: {format}"));
     };
     let requested = js_trim(operation);
-    // One operation's contract is what a caller asks for when a field is unknown; the action list, batch notes and
-    // design catalogue it already has ride the format-level describe instead of every lookup.
     if !requested.is_empty() {
         return Ok(json!({
             "format": format,
@@ -123,6 +108,31 @@ pub fn describe_office_capabilities(request: &DescribeRequest) -> Result<Value, 
             "operation": operation_description(format, backend, requested)?,
         }));
     }
+    format_description(catalog, format, backend, target)
+}
+
+/// What `describe` answers with no format: each format's paths and operation count, and the design catalogue.
+fn capability_summary() -> Result<Value, String> {
+    let tables = capabilities();
+    let mut formats = Map::new();
+    for (name, catalog) in &tables.catalog {
+        formats.insert(name.clone(), json!({ "paths": strings(&catalog.paths), "operationCount": tables.operations(name).len() }));
+    }
+    let mut summary = common();
+    summary.insert("designs".to_owned(), office_design_catalog("", None)?);
+    summary.insert("formats".to_owned(), Value::Object(formats));
+    summary.insert(
+        "nextAction".to_owned(),
+        Value::from(
+            "When discovery is needed, add format for its operation list or add operation for one compact input contract; otherwise call create/open/batch directly.",
+        ),
+    );
+    Ok(Value::Object(summary))
+}
+
+/// What `describe` answers for a known format: the operations a backend runs and the ones it does not, and the property groups.
+fn format_description(catalog: &FormatCatalog, format: &str, backend: &str, target: &str) -> Result<Value, String> {
+    let tables = capabilities();
     let backend_filter = (!backend.is_empty()).then_some(backend);
     let operations = tables.operations_for_backend(format, backend_filter);
     let unsupported: Vec<&str> =

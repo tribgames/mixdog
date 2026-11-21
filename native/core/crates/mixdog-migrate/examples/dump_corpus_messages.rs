@@ -1,7 +1,3 @@
-//! Records the input of `src/session/restore/vectors/generate.mjs`: the transcript message
-//! bodies of every migrated session of the corpus scenarios `restored_rows_match_node`
-//! compares.
-//!
 //!   MIXDOG_RESTORE_DUMP=<dump.json> cargo run -p mixdog-migrate --example dump_corpus_messages
 //!
 //! `MIXDOG_MIGRATION_CORPUS` overrides the corpus path, as for the corpus gates.

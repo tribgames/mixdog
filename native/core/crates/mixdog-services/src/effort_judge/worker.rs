@@ -1,17 +1,3 @@
-//! The judge's own executor, in the shape of Node's judge worker (`judge-worker.mjs`): one dedicated
-//! thread at normal priority, started on first use, that loads the model, warms it up and runs every
-//! judgment, one job at a time in the order they were sent. Nothing else runs on it, so history-sized
-//! CPU work on the shared lanes can neither hold its thread nor fill its queue.
-//!
-//! The model lives on the thread ([`Seat`]) and never leaves it. A thread stops being the judge's
-//! worker in four ways: its judgment outlives Node's watchdog ([`STUCK`]), a job panics, the judge
-//! shuts down, or the model files are replaced. Each ends as Node's terminated worker does: the jobs
-//! waiting on it answer "exited" at once, its running inference is stopped through the runtime's own
-//! termination flag (ONNX Runtime's `RunOptions::terminate`, see [`Resident::stopper`]), and the next
-//! job starts a new thread that loads its own model. The thread let go drops its model on itself and
-//! ends once its job returns; nothing joins it, so it never holds the process's exit. Until it ends
-//! it is counted against [`THREADS`].
-
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;

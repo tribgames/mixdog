@@ -354,6 +354,37 @@ fn plain_object(value: Option<&Value>) -> Option<&Map<String, Value>> {
     value.and_then(Value::as_object)
 }
 
+fn cwd_changed(copy: &Map<String, Value>, form: &Map<String, Value>, root: &str) -> bool {
+    let declared_cwd = form.get("cwd").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("");
+    let generated = if declared_cwd.is_empty() {
+        root.to_owned()
+    } else if is_absolute(declared_cwd) {
+        declared_cwd.to_owned()
+    } else {
+        resolve_against(root, declared_cwd)
+    };
+    copy.get("cwd").is_some_and(|copy_cwd| comparable_path(copy_cwd) != comparable_path(&json!(generated)))
+}
+
+/// A map field of a copy against its declaration: whether a declared entry was dropped (or the
+/// field is no object), and the entries the user added or changed.
+fn map_field_changes(name: &str, copy: &Map<String, Value>, form: &Map<String, Value>) -> (bool, Map<String, Value>) {
+    let empty = Map::new();
+    let copy_map = plain_object(copy.get(name)).unwrap_or(&empty);
+    let declared_map = plain_object(form.get(name)).unwrap_or(&empty);
+    let dropped = copy.get(name).is_some() && plain_object(copy.get(name)).is_none() || declared_map.keys().any(|k| !copy_map.contains_key(k));
+    let mut added = Map::new();
+    for entry in ordered_keys(copy_map) {
+        if name == "env" && LEGACY_ENV_KEYS.contains(&entry.as_str()) {
+            continue;
+        }
+        if !deep_equal(copy_map.get(entry), declared_map.get(entry)) {
+            added.insert(entry.clone(), copy_map[entry].clone());
+        }
+    }
+    (dropped, added)
+}
+
 /// What the user changed in a copy relative to the declaration it was made from: the overrides
 /// when every change is something a plugin server override applies, else the reason the copy is
 /// left as configured (so nothing is ever dropped). Values the earlier enable action generated
@@ -381,36 +412,15 @@ fn copy_overrides(copy: &Map<String, Value>, declared: &Value, root: &str) -> Re
             continue;
         }
         if name == "cwd" {
-            let declared_cwd = form.get("cwd").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("");
-            let generated = if declared_cwd.is_empty() {
-                root.to_owned()
-            } else if is_absolute(declared_cwd) {
-                declared_cwd.to_owned()
-            } else {
-                resolve_against(root, declared_cwd)
-            };
-            if let Some(copy_cwd) = copy.get("cwd")
-                && comparable_path(copy_cwd) != comparable_path(&json!(generated))
-            {
+            if cwd_changed(copy, &form, root) {
                 kept.push(name);
             }
             continue;
         }
         if INTENT_MAP_FIELDS.contains(&name) {
-            let empty = Map::new();
-            let copy_map = plain_object(copy.get(name)).unwrap_or(&empty);
-            let declared_map = plain_object(form.get(name)).unwrap_or(&empty);
-            if copy.get(name).is_some() && plain_object(copy.get(name)).is_none() || declared_map.keys().any(|k| !copy_map.contains_key(k)) {
+            let (dropped, added) = map_field_changes(name, copy, &form);
+            if dropped {
                 kept.push(name);
-            }
-            let mut added = Map::new();
-            for entry in ordered_keys(copy_map) {
-                if name == "env" && LEGACY_ENV_KEYS.contains(&entry.as_str()) {
-                    continue;
-                }
-                if !deep_equal(copy_map.get(entry), declared_map.get(entry)) {
-                    added.insert(entry.clone(), copy_map[entry].clone());
-                }
             }
             if !added.is_empty() {
                 out.insert(name.to_owned(), Value::Object(added));
@@ -468,13 +478,9 @@ struct Adoption {
     owned: HashMap<String, (usize, String)>,
 }
 
-/// Adoption of server copies made by the earlier enable action. A copy is adopted only when its
-/// `env.MIXDOG_PLUGIN_ROOT` is a registered plugin's root AND its name follows that plugin's
-/// earlier naming; it then leaves `mcpServers` and its name, disabled state and user-added
-/// connection values become that server's intent. Everything else stays untouched with a warning.
-/// Idempotent: an already-adopted config yields an empty plan.
-fn plan_copy_adoption(user: &Map<String, Value>, intents: &Map<String, Value>, declared: &[Declared]) -> Adoption {
-    // A present declaration wins over a missing one sharing its root, in any order.
+/// The index of the declaration owning each plugin root; a present declaration wins over a missing
+/// one sharing its root, in any order.
+fn owners_by_root(declared: &[Declared]) -> HashMap<String, usize> {
     let mut by_root: HashMap<String, usize> = HashMap::new();
     for (index, d) in declared.iter().enumerate() {
         let root = comparable_path(field(&d.plugin, "root"));
@@ -482,6 +488,41 @@ fn plan_copy_adoption(user: &Map<String, Value>, intents: &Map<String, Value>, d
             by_root.insert(root, index);
         }
     }
+    by_root
+}
+
+/// The intent an adopted copy becomes: its name, whether it was switched off against the
+/// declaration, its overrides, and what the intent already stored for that server wins over both.
+fn adopted_intent(
+    name: &str,
+    copy: &Map<String, Value>,
+    plugin: &Value,
+    declaration: &Value,
+    overrides: &Map<String, Value>,
+    stored: Option<&Value>,
+) -> Map<String, Value> {
+    let disabled = copy.get("enabled") == Some(&Value::Bool(false))
+        || (copy.get("_mixdogPluginDisabled") == Some(&Value::Bool(true)) && field(plugin, "enabled") != &Value::Bool(false));
+    let declared_on = declaration.get("enabled") != Some(&Value::Bool(false));
+    let mut intent = Map::new();
+    intent.insert("alias".to_owned(), json!(name));
+    if disabled == declared_on {
+        intent.insert("enabled".to_owned(), Value::Bool(!disabled));
+    }
+    assign(&mut intent, overrides);
+    if let Some(Value::Object(stored)) = stored {
+        assign(&mut intent, stored);
+    }
+    intent
+}
+
+/// Adoption of server copies made by the earlier enable action. A copy is adopted only when its
+/// `env.MIXDOG_PLUGIN_ROOT` is a registered plugin's root AND its name follows that plugin's
+/// earlier naming; it then leaves `mcpServers` and its name, disabled state and user-added
+/// connection values become that server's intent. Everything else stays untouched with a warning.
+/// Idempotent: an already-adopted config yields an empty plan.
+fn plan_copy_adoption(user: &Map<String, Value>, intents: &Map<String, Value>, declared: &[Declared]) -> Adoption {
+    let by_root = owners_by_root(declared);
     let mut next = intents.clone();
     let mut plan = Adoption { removed: Vec::new(), intents: Map::new(), warnings: Vec::new(), owned: HashMap::new() };
     for name in ordered_keys(user) {
@@ -529,18 +570,7 @@ fn plan_copy_adoption(user: &Map<String, Value>, intents: &Map<String, Value>, d
                 continue;
             }
         };
-        let disabled = copy.get("enabled") == Some(&Value::Bool(false))
-            || (copy.get("_mixdogPluginDisabled") == Some(&Value::Bool(true)) && field(&owner.plugin, "enabled") != &Value::Bool(false));
-        let declared_on = declaration.get("enabled") != Some(&Value::Bool(false));
-        let mut intent = Map::new();
-        intent.insert("alias".to_owned(), json!(name));
-        if disabled == declared_on {
-            intent.insert("enabled".to_owned(), Value::Bool(!disabled));
-        }
-        assign(&mut intent, &overrides);
-        if let Some(Value::Object(stored)) = &stored {
-            assign(&mut intent, stored);
-        }
+        let intent = adopted_intent(name, copy, &owner.plugin, declaration, &overrides, stored.as_ref());
         let mut servers = next.get(&id).and_then(Value::as_object).cloned().unwrap_or_default();
         servers.insert(key, Value::Object(intent));
         next.insert(id, Value::Object(js_ordered(servers)));
@@ -727,6 +757,34 @@ impl Catalog {
     }
 }
 
+fn plugin_owner(marker: &Value, name: Value) -> Map<String, Value> {
+    let mut owner = Map::new();
+    owner.insert("kind".to_owned(), json!("plugin"));
+    assign(&mut owner, marker.as_object().unwrap_or(&Map::new()));
+    owner.insert("name".to_owned(), name);
+    owner
+}
+
+fn plugin_rows(declared: &[Declared]) -> Map<String, Value> {
+    let mut rows = Map::new();
+    for d in declared {
+        let id = value_to_string(field(&d.plugin, "id"));
+        let name = truthy_or(&json!(clean(field(&d.plugin, "name"))), field(&d.plugin, "id")).clone();
+        let mut row = Map::new();
+        row.insert("id".to_owned(), field(&d.plugin, "id").clone());
+        row.insert("name".to_owned(), name);
+        row.insert("enabled".to_owned(), json!(field(&d.plugin, "enabled") != &Value::Bool(false)));
+        row.insert("format".to_owned(), json!(d.format));
+        row.insert("errors".to_owned(), Value::Array(d.errors.clone()));
+        row.insert("servers".to_owned(), json!([]));
+        if d.missing {
+            row.insert("missing".to_owned(), json!(true));
+        }
+        rows.insert(id, Value::Object(row));
+    }
+    rows
+}
+
 /// The effective MCP server set: the user's configured servers plus the servers every registered
 /// plugin declares (disabled ones included, `enabled: false`). `declared` is `declarations_of` the
 /// registry list in registration order.
@@ -769,10 +827,7 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
         server.insert("_mixdogPlugin".to_owned(), marker.clone());
         servers.insert(name.clone(), Value::Object(server));
         let display = truthy_or(&json!(clean(field(plugin, "name"))), field(plugin, "id")).clone();
-        let mut entry_owner = Map::new();
-        entry_owner.insert("kind".to_owned(), json!("plugin"));
-        assign(&mut entry_owner, marker.as_object().unwrap_or(&empty));
-        entry_owner.insert("name".to_owned(), display);
+        let entry_owner = plugin_owner(&marker, display);
         entries.insert(
             name.clone(),
             json!({
@@ -785,22 +840,7 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
     let user_names: Vec<String> = servers_in_order.keys().cloned().collect();
     servers = servers_in_order;
     let named = assign_names(&user_names, declared, &adoption.intents);
-    let mut plugin_rows = Map::new();
-    for d in declared {
-        let id = value_to_string(field(&d.plugin, "id"));
-        let name = truthy_or(&json!(clean(field(&d.plugin, "name"))), field(&d.plugin, "id")).clone();
-        let mut row = Map::new();
-        row.insert("id".to_owned(), field(&d.plugin, "id").clone());
-        row.insert("name".to_owned(), name);
-        row.insert("enabled".to_owned(), json!(field(&d.plugin, "enabled") != &Value::Bool(false)));
-        row.insert("format".to_owned(), json!(d.format));
-        row.insert("errors".to_owned(), Value::Array(d.errors.clone()));
-        row.insert("servers".to_owned(), json!([]));
-        if d.missing {
-            row.insert("missing".to_owned(), json!(true));
-        }
-        plugin_rows.insert(id, Value::Object(row));
-    }
+    let mut plugin_rows = plugin_rows(declared);
     for (index, slot) in named.slots.iter().enumerate() {
         let d = &declared[slot.declared];
         let server = &d.servers[slot.server];
@@ -812,10 +852,7 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
         let server_enabled = intent.and_then(|i| i.get("enabled")).and_then(Value::as_bool).unwrap_or(declared_enabled);
         let mut cfg = resolve_server_config(&d.plugin, d.format, server, intent, cwd, data_dir);
         cfg.insert("enabled".to_owned(), json!(plugin_enabled && server_enabled));
-        let mut owner = Map::new();
-        owner.insert("kind".to_owned(), json!("plugin"));
-        assign(&mut owner, cfg["_mixdogPlugin"].as_object().unwrap_or(&empty));
-        owner.insert("name".to_owned(), plugin_rows[&slot.id]["name"].clone());
+        let owner = plugin_owner(&cfg["_mixdogPlugin"], plugin_rows[&slot.id]["name"].clone());
         servers.insert(name.clone(), Value::Object(cfg));
         sources.insert(name.clone(), json!("plugin"));
         let slot_warnings = named.warnings.get(&index).cloned().unwrap_or_default();

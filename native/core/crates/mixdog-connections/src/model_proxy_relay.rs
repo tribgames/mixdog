@@ -377,18 +377,7 @@ impl ModelProxyRelay {
         if !self.live(generation) {
             return;
         }
-        let (answer, settled, failure) = match outcome {
-            Ok(ProxyAnswer::Failed { failure }) => (
-                ServerRequestAnswer::Error { code: FAILED_CODE, message: failure.message.clone(), data: serde_json::to_value(&failure).ok() },
-                CallOutcome::Failed,
-                Some(failure),
-            ),
-            Ok(result) => match serde_json::to_value(ModelProxyResult { result }) {
-                Ok(value) => (ServerRequestAnswer::Result(value), CallOutcome::Answered, None),
-                Err(error) => (ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None }, CallOutcome::Failed, None),
-            },
-            Err(message) => (ServerRequestAnswer::Error { code: FAILED_CODE, message, data: None }, CallOutcome::Failed, None),
-        };
+        let (answer, settled, failure) = answer_of(outcome);
         // Answered at the address the request arrived with. The socket gone: nothing was sent, and this run ends as abandoned (once),
         // not as answered, whatever socket the link has now.
         if let Err(ClientError::StaleAttachment) = self.client.respond(address.clone(), answer).await {
@@ -409,6 +398,21 @@ impl ModelProxyRelay {
         if let Some(run) = ended {
             self.settle(run.provider, settled, failure);
         }
+    }
+}
+
+fn answer_of(outcome: Result<ProxyAnswer, String>) -> (ServerRequestAnswer, CallOutcome, Option<ProxyFailure>) {
+    match outcome {
+        Ok(ProxyAnswer::Failed { failure }) => (
+            ServerRequestAnswer::Error { code: FAILED_CODE, message: failure.message.clone(), data: serde_json::to_value(&failure).ok() },
+            CallOutcome::Failed,
+            Some(failure),
+        ),
+        Ok(result) => match serde_json::to_value(ModelProxyResult { result }) {
+            Ok(value) => (ServerRequestAnswer::Result(value), CallOutcome::Answered, None),
+            Err(error) => (ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None }, CallOutcome::Failed, None),
+        },
+        Err(message) => (ServerRequestAnswer::Error { code: FAILED_CODE, message, data: None }, CallOutcome::Failed, None),
     }
 }
 

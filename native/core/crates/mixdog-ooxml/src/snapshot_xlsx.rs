@@ -547,6 +547,22 @@ fn worksheet_cell_page(sheet: &Sheet, read: &CellRead, patched: &[bool], notes: 
     (Value::from(count), Value::Array(shown_cells), Value::Bool(truncated))
 }
 
+/// The sheet's cell records (a page or all) with shared formulas expanded, and which records the expansion gave a formula.
+fn read_worksheet_cells(xml: &str, context: &SnapshotContext<'_>) -> Result<(CellRead, Vec<bool>), String> {
+    let styles = Some(context.styles.as_slice());
+    let mut read = if context.paged {
+        let range = context.options.get("range").filter(|range| truthy(range)).map(value_to_string);
+        let page = CellPage::new(to_number_of(context.options.get("offset")), to_number_of(context.options.get("limit")), range.as_deref());
+        CellRead::Paged(paged_cell_records(xml, &context.strings, styles, &page)?)
+    } else {
+        CellRead::Whole(cell_records(xml, &context.strings, styles))
+    };
+    let had_formula: Vec<bool> = read.records().iter().map(|cell| cell.formula.is_some()).collect();
+    expand_shared_formulas(xml, read.records_mut())?;
+    let patched = read.records().iter().zip(&had_formula).map(|(cell, had)| !had && cell.formula.is_some()).collect();
+    Ok((read, patched))
+}
+
 /// One sheet of the snapshot, with the cell records it was read from (a paged read reports the page's totals from them).
 fn snapshot_worksheet<P: ReadProof>(
     measurer: &TextMeasurer<'_, P>,
@@ -555,17 +571,7 @@ fn snapshot_worksheet<P: ReadProof>(
     context: &SnapshotContext<'_>,
 ) -> Result<(Value, CellRead), String> {
     let xml = zip.text(&sheet.path);
-    let styles = Some(context.styles.as_slice());
-    let mut read = if context.paged {
-        let range = context.options.get("range").filter(|range| truthy(range)).map(value_to_string);
-        let page = CellPage::new(to_number_of(context.options.get("offset")), to_number_of(context.options.get("limit")), range.as_deref());
-        CellRead::Paged(paged_cell_records(&xml, &context.strings, styles, &page)?)
-    } else {
-        CellRead::Whole(cell_records(&xml, &context.strings, styles))
-    };
-    let had_formula: Vec<bool> = read.records().iter().map(|cell| cell.formula.is_some()).collect();
-    expand_shared_formulas(&xml, read.records_mut())?;
-    let patched: Vec<bool> = read.records().iter().zip(&had_formula).map(|(cell, had)| !had && cell.formula.is_some()).collect();
+    let (read, patched) = read_worksheet_cells(&xml, context)?;
     let notes = worksheet_notes(zip, sheet);
     let tables = worksheet_tables(zip, sheet);
     let pivots = worksheet_pivots(zip, sheet);
@@ -581,8 +587,6 @@ fn snapshot_worksheet<P: ReadProof>(
     entry.insert("path".to_owned(), Value::String(format!("/sheet[{}]", sheet.name)));
     entry.insert("name".to_owned(), Value::from(sheet.name.as_str()));
     entry.insert("visibility".to_owned(), Value::from(sheet.visibility));
-    // Rows and columns the sheet withholds: a filtered view or a working column still holds values, and an edit written
-    // into one lands where the user never looks.
     entry.insert("hiddenRows".to_owned(), Value::Array(hidden.rows.iter().map(|row| Value::from(*row)).collect()));
     entry.insert("hiddenColumns".to_owned(), Value::Array(hidden.columns.iter().map(|column| Value::String(column_label(f64::from(*column)))).collect()));
     entry.insert("cellCount".to_owned(), cell_count);
@@ -614,9 +618,7 @@ fn snapshot_worksheet<P: ReadProof>(
 }
 
 /// The selected sheets' entries with the workbook's formula totals: an unpaged read counts the cells it returned, a paged
-/// one counts the whole workbook (a paged snapshot returns one sheet, but the calculation state it reports belongs to the
-/// workbook: a caller must not read needsRecalculation:false merely because the single sheet it received happens to be
-/// settled).
+/// one counts the whole workbook.
 struct SelectedSheets {
     entries: Vec<Value>,
     page: Value,
@@ -690,18 +692,13 @@ pub fn snapshot_xlsx<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package
     let mut snapshot = Map::new();
     snapshot.insert("format".to_owned(), Value::from("xlsx"));
     snapshot.insert("sheetCount".to_owned(), Value::from(sheets.len()));
-    // Which sheets the workbook holds, whichever one this page carries: a paged read otherwise hides every sheet but the one
-    // it returned.
     if paged {
         snapshot.insert("sheetNames".to_owned(), Value::Array(sheets.iter().map(|sheet| Value::from(sheet.name.as_str())).collect()));
     }
     snapshot.insert("sheets".to_owned(), Value::Array(read.entries));
-    // The workbook default (cellXfs 0): what every unstyled cell renders with.
     snapshot.insert("defaultStyle".to_owned(), default_style);
     snapshot.insert("formulaCount".to_owned(), Value::from(read.formula_count));
     snapshot.insert("formulaCacheMissing".to_owned(), Value::from(read.formula_cache_missing));
-    // An edit marks the workbook for a full calculation. Until that has run the cached values are the ones from before the
-    // edit, cache or no cache, so a reader must not be told the workbook is current.
     snapshot.insert("needsRecalculation".to_owned(), Value::Bool(read.formula_cache_missing > 0 || calculation.full_calc_on_load));
     snapshot.insert(
         "calculation".to_owned(),

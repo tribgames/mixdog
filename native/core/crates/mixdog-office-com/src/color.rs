@@ -1,7 +1,3 @@
-//! `Color-Value` and `Color-Hex` of `office-com-host.ps1`.
-//!
-//! The casts and the arithmetic of the colour code are PowerShell's, so they live with the rest of them in
-//! [`crate::ps::convert`] (checked against the recorded corpus there); this is the name the Office ports call them by.
 //! `color_value("#FF8000")` is `33023`, `color_value("12")` is the refusal `Invalid color '12'; expected RRGGBB`, and
 //! `color_hex(33023)` is `FF8000`.
 

@@ -117,25 +117,30 @@ pub async fn retrieve_entries(db: &Db, filters: &EntryFilters) -> Result<Vec<Row
         rows.sort_by(compare_newest_first);
     }
     if filters.include_members && !rows.is_empty() {
-        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let members = read_query(
-            db,
-            "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
-       FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
-       ORDER BY chunk_root, ts ASC, id ASC",
-            &[P::IA(ids)],
-        )
-        .await?;
-        let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
-        for mut member in members {
-            let root = member.chunk_root.take().unwrap_or(0);
-            by_root.entry(root).or_default().push(member);
-        }
-        for row in &mut rows {
-            row.members = Some(by_root.remove(&row.id).unwrap_or_default());
-        }
+        attach_members(db, &mut rows).await?;
     }
     Ok(rows)
+}
+
+async fn attach_members(db: &Db, rows: &mut [Row]) -> Result<()> {
+    let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    let members = read_query(
+        db,
+        "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, project_id, chunk_root
+       FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+       ORDER BY chunk_root, ts ASC, id ASC",
+        &[P::IA(ids)],
+    )
+    .await?;
+    let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
+    for mut member in members {
+        let root = member.chunk_root.take().unwrap_or(0);
+        by_root.entry(root).or_default().push(member);
+    }
+    for row in rows {
+        row.members = Some(by_root.remove(&row.id).unwrap_or_default());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -334,14 +339,8 @@ fn decode_cursor(value: &str, context: &serde_json::Value) -> Result<(i64, Strin
     }
 }
 
-async fn select_session_page(
-    db: &Db,
-    plan: &SearchPlan,
-    args: &SearchArgs,
-    session_count: usize,
-    cat_list: &[String],
-    context: &serde_json::Value,
-) -> Result<(Vec<tokio_postgres::Row>, Option<String>)> {
+/// The `last` browse's session selection: the WHERE clauses and their parameters.
+fn session_page_filters(plan: &SearchPlan, cat_list: &[String]) -> (Vec<String>, Vec<P>) {
     let mut sel_where = vec![
         "e.session_id IS NOT NULL".to_owned(),
         "btrim(e.session_id) <> ''".into(),
@@ -376,6 +375,18 @@ async fn select_session_page(
             .join(",");
         sel_where.push(format!("(e.status IS NULL OR e.status NOT IN ({ph}))"));
     }
+    (sel_where, sel_params)
+}
+
+async fn select_session_page(
+    db: &Db,
+    plan: &SearchPlan,
+    args: &SearchArgs,
+    session_count: usize,
+    cat_list: &[String],
+    context: &serde_json::Value,
+) -> Result<(Vec<tokio_postgres::Row>, Option<String>)> {
+    let (sel_where, mut sel_params) = session_page_filters(plan, cat_list);
     let cursor = match args.get("cursor").map(mixdog_js::value_to_string).filter(|c| !c.is_empty()) {
         Some(value) => Some(decode_cursor(&value, context)?),
         None => None,
@@ -753,30 +764,37 @@ pub async fn search_by_ids(db: &Db, clock: &Clock, args: &SearchArgs, ids: &[i64
     if rows.is_empty() {
         return Ok("(no results)".to_owned());
     }
-    let root_ids: Vec<i64> = rows.iter().filter(|r| r.is_root == 1).map(|r| r.id).collect();
-    let mut member_leaf_ids: HashSet<i64> = HashSet::new();
-    if !root_ids.is_empty() {
-        let members = query(
-            db,
-            "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root
-     FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
-     ORDER BY ts ASC, id ASC",
-            &[P::IA(root_ids)],
-        )
-        .await?;
-        let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
-        for member in members {
-            member_leaf_ids.insert(member.id);
-            by_root.entry(member.chunk_root.unwrap_or(0)).or_default().push(member);
-        }
-        for row in rows.iter_mut().filter(|r| r.is_root == 1) {
-            row.members = Some(by_root.remove(&row.id).unwrap_or_default());
-        }
-    }
+    let member_leaf_ids = attach_root_members(db, &mut rows).await?;
     let by_id: HashMap<i64, &Row> = rows.iter().map(|r| (r.id, r)).collect();
     let ordered: Vec<Row> =
         ids.iter().filter_map(|id| by_id.get(id).map(|r| (*r).clone())).filter(|r| !(r.is_root == 0 && member_leaf_ids.contains(&r.id))).collect();
     Ok(render_entry_lines(clock, &ordered, &RenderOptions { preserve_source: true, include_root_source: true, ..RenderOptions::default() }))
+}
+
+/// Gives each root among `rows` its member leaves; answers the ids of those leaves.
+async fn attach_root_members(db: &Db, rows: &mut [Row]) -> Result<HashSet<i64>> {
+    let root_ids: Vec<i64> = rows.iter().filter(|r| r.is_root == 1).map(|r| r.id).collect();
+    let mut member_leaf_ids: HashSet<i64> = HashSet::new();
+    if root_ids.is_empty() {
+        return Ok(member_leaf_ids);
+    }
+    let members = query(
+        db,
+        "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root
+     FROM entries WHERE chunk_root = ANY($1::bigint[]) AND is_root = 0
+     ORDER BY ts ASC, id ASC",
+        &[P::IA(root_ids)],
+    )
+    .await?;
+    let mut by_root: HashMap<i64, Vec<Row>> = HashMap::new();
+    for member in members {
+        member_leaf_ids.insert(member.id);
+        by_root.entry(member.chunk_root.unwrap_or(0)).or_default().push(member);
+    }
+    for row in rows.iter_mut().filter(|r| r.is_root == 1) {
+        row.members = Some(by_root.remove(&row.id).unwrap_or_default());
+    }
+    Ok(member_leaf_ids)
 }
 
 // ---- core memory leg -----------------------------------------------------------
@@ -811,6 +829,55 @@ pub async fn recall_core_rows(db: &Db, clock: &Clock, query_text: &str, options:
     if terms.is_empty() {
         return Ok(Vec::new());
     }
+    let (where_clauses, mut params, hit_expr) = core_filters(options, &terms);
+    let row_limit = if options.limit == 0 { 5 } else { options.limit.clamp(1, 10) };
+    params.push(P::I(row_limit as i64));
+    let rows = query_pg(
+        db,
+        &format!(
+            "
+      SELECT id, element, summary, category, project_id, created_at, updated_at,
+             ({hit_expr}) AS hit_count
+      FROM core_entries
+      WHERE {}
+        AND (status IS NULL OR status = 'active')
+      ORDER BY hit_count DESC, updated_at DESC, id ASC
+      LIMIT ${}
+    ",
+            where_clauses.join(" AND "),
+            params.len()
+        ),
+        &params,
+    )
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let updated: i64 = row.get("updated_at");
+            let created: i64 = row.get("created_at");
+            Row {
+                id: -row.get::<_, i64>("id"),
+                core: true,
+                ts: if updated != 0 {
+                    updated
+                } else if created != 0 {
+                    created
+                } else {
+                    clock.now_ms
+                },
+                element: row.get("element"),
+                summary: row.get("summary"),
+                category: row.get("category"),
+                project_id: row.get("project_id"),
+                is_root: 1,
+                ..Row::default()
+            }
+        })
+        .collect())
+}
+
+/// The core leg's WHERE clauses and their parameters, and the SQL expression counting the terms a row matches.
+fn core_filters(options: &CoreOptions, terms: &[String]) -> (Vec<String>, Vec<P>, String) {
     const TS_EXPR: &str = "COALESCE(updated_at, created_at)";
     const TEXT_EXPR: &str = "lower(coalesce(element, '') || ' ' || coalesce(summary, ''))";
     let mut params: Vec<P> = Vec::new();
@@ -863,50 +930,7 @@ pub async fn recall_core_rows(db: &Db, clock: &Clock, query_text: &str, options:
         .collect();
     where_clauses.push(format!("({})", term_clauses.join(" OR ")));
     let hit_expr = term_clauses.iter().map(|c| format!("CASE WHEN {c} THEN 1 ELSE 0 END")).collect::<Vec<_>>().join(" + ");
-    let row_limit = if options.limit == 0 { 5 } else { options.limit.clamp(1, 10) };
-    params.push(P::I(row_limit as i64));
-    let rows = query_pg(
-        db,
-        &format!(
-            "
-      SELECT id, element, summary, category, project_id, created_at, updated_at,
-             ({hit_expr}) AS hit_count
-      FROM core_entries
-      WHERE {}
-        AND (status IS NULL OR status = 'active')
-      ORDER BY hit_count DESC, updated_at DESC, id ASC
-      LIMIT ${}
-    ",
-            where_clauses.join(" AND "),
-            params.len()
-        ),
-        &params,
-    )
-    .await?;
-    Ok(rows
-        .iter()
-        .map(|row| {
-            let updated: i64 = row.get("updated_at");
-            let created: i64 = row.get("created_at");
-            Row {
-                id: -row.get::<_, i64>("id"),
-                core: true,
-                ts: if updated != 0 {
-                    updated
-                } else if created != 0 {
-                    created
-                } else {
-                    clock.now_ms
-                },
-                element: row.get("element"),
-                summary: row.get("summary"),
-                category: row.get("category"),
-                project_id: row.get("project_id"),
-                is_root: 1,
-                ..Row::default()
-            }
-        })
-        .collect())
+    (where_clauses, params, hit_expr)
 }
 
 // ---- event context ---------------------------------------------------------------
@@ -992,9 +1016,8 @@ pub struct EventContext<'a> {
     pub dedupe_events: bool,
 }
 
-/// Adds, after each ranked anchor, the newest non-root turn of its event.
-pub async fn expand_event_context(db: &Db, ranked: Vec<Row>, context: &EventContext<'_>) -> Result<Vec<Row>> {
-    let anchor_limit = context.limit.max(1);
+/// The first `limit` ranked rows that belong to a session, as anchors.
+fn event_anchors(ranked: &[Row], limit: usize) -> Vec<Anchor> {
     let mut anchors: Vec<Anchor> = Vec::new();
     for (index, row) in ranked.iter().enumerate() {
         let sid = js_trim(row.session());
@@ -1003,10 +1026,16 @@ pub async fn expand_event_context(db: &Db, ranked: Vec<Row>, context: &EventCont
         }
         let (turn, ts) = anchor_point(row);
         anchors.push(Anchor { order: index, id: row.id, session_id: sid.to_owned(), turn, ts });
-        if anchors.len() >= anchor_limit {
+        if anchors.len() >= limit {
             break;
         }
     }
+    anchors
+}
+
+/// Adds, after each ranked anchor, the newest non-root turn of its event.
+pub async fn expand_event_context(db: &Db, ranked: Vec<Row>, context: &EventContext<'_>) -> Result<Vec<Row>> {
+    let anchors = event_anchors(&ranked, context.limit.max(1));
     if anchors.is_empty() {
         return Ok(ranked);
     }

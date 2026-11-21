@@ -1,8 +1,3 @@
-//! The `media` domain of the setup tool's `status` (`executor.mjs` `mediaDefaults`): the default
-//! generator the user pinned per kind (Settings -> Built-in -> Media generation; none is Auto) and
-//! the last generator used (which applies only to a kind on Auto), both read from the media store's
-//! `defaults.json`. The dispatcher puts the `domain` key first.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

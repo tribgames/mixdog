@@ -1,25 +1,15 @@
-//! `leadPromptParts(config, dir, { agentMode, agentId })` of `runtime-core/workflow/context.mjs`
-//! with its agent catalogs, and `leadPartsFor(session, leadPromptParts)` of
-//! `tool-policy/surface-helpers.mjs`: the workflow slices of a Lead's prompt.
-//!
-//! A coding Lead gets the mode's orchestration text and the catalog of the agents it may
-//! delegate to (bots are never its agents). An agent-mode Lead gets the fixed delegation block, the
-//! same sub-agent catalog, and the catalog of its contacts: every bot but itself and, for any Lead
-//! but Mixy, Mixy first under her display name. An agent scan, definition or name read that
-//! cannot run is a [`SurfaceFailure`], never an empty roster.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mixdog_agent::compact::blob_reads::turn_cancel;
 use mixdog_core_agents::agents::AgentDefinition;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::is_contact;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_base::support::on_lane;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_config::config::mixy_display_name;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
-use mixdog_rt::CancellationToken;
 use mixdog_rt::InteractiveIo;
 use mixdog_store::agent_mode::session_mode_of;
 use mixdog_store::schema::record::Header;
@@ -111,7 +101,7 @@ impl LeadPrompt {
     /// `mixyDisplayName()`, read anew; a lane that cannot run the read is a typed failure.
     async fn mixy_name(&self) -> Result<String, SurfaceFailure> {
         let data = self.data.clone();
-        on_lane(self.lane, &CancellationToken::new(), move |lane| mixy_display_name(lane, &data))
+        on_lane_wait(self.lane, &turn_cancel(), move |lane| mixy_display_name(lane, &data))
             .await
             .map_err(|error| SurfaceFailure(format!("the lead's display name could not be read: {error:?}")))
     }

@@ -242,12 +242,8 @@ fn plan_step(raw: &Value) -> Result<(String, Option<TodoStatus>), String> {
     Ok((content, status))
 }
 
-/// `set` (and its `init` spelling): the whole plan in order, replacing the list there was. The steps come as `items`
-/// (under `phase`, default `Tasks`) or as named `phases` of `items`; an item is a wording or an object of `content` and
-/// `status`. `done` says how many of its leading steps are already finished (a step's own status wins), for a plan
-/// set again part-way through.
-fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
-    let source: Vec<(String, &Vec<Value>)> = match (args.get("phases"), args.get("items")) {
+fn plan_source(args: &Value) -> Result<Vec<(String, &Vec<Value>)>, String> {
+    Ok(match (args.get("phases"), args.get("items")) {
         (Some(Value::Array(phases)), _) if !phases.is_empty() => {
             let mut out = Vec::with_capacity(phases.len());
             let mut names = HashSet::new();
@@ -268,7 +264,15 @@ fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
             vec![(if phase.is_empty() { DEFAULT_TODO_PHASE.to_owned() } else { phase }, items)]
         }
         _ => return Err("todo: set requires items or phases".to_owned()),
-    };
+    })
+}
+
+/// `set` (and its `init` spelling): the whole plan in order, replacing the list there was. The steps come as `items`
+/// (under `phase`, default `Tasks`) or as named `phases` of `items`; an item is a wording or an object of `content` and
+/// `status`. `done` says how many of its leading steps are already finished (a step's own status wins), for a plan
+/// set again part-way through.
+fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
+    let source = plan_source(args)?;
     let total: usize = source.iter().map(|(_, items)| items.len()).sum();
     if total > MAX_TODO_ITEMS {
         return Err(format!("todo: at most {MAX_TODO_ITEMS} steps"));
@@ -420,6 +424,34 @@ fn summary_line(list: &TodoList, op: &str, content: &str) -> String {
     parts.join(" · ")
 }
 
+/// `init` starts a list; over unfinished work it would erase it silently (a follow-up ask initing mid-request).
+/// `set` is the explicit replacement of the whole plan.
+fn refuse_erasing_init(current: &TodoList) -> Result<(), String> {
+    let unfinished = current.unfinished_items();
+    if unfinished.is_empty() {
+        return Ok(());
+    }
+    let mut named: Vec<String> = unfinished.iter().take(5).map(|task| format!("\"{}\"", task.content)).collect();
+    if unfinished.len() > named.len() {
+        named.push(format!("{} more", unfinished.len() - named.len()));
+    }
+    Err(format!("todo: init would erase unfinished items ({}); done or drop each first, or append to add asks", named.join(", ")))
+}
+
+/// Removes the step at flat position `at` and returns its wording.
+fn remove_step(list: &mut TodoList, at: usize) -> Result<String, String> {
+    let task = list.tasks().nth(at).map(|task| task.content.clone()).ok_or("todo: no such step")?;
+    let mut left = at;
+    for phase in &mut list.phases {
+        if left < phase.tasks.len() {
+            phase.tasks.remove(left);
+            break;
+        }
+        left -= phase.tasks.len();
+    }
+    Ok(task)
+}
+
 /// Runs one `todo` call against the owner's list. Pure: the caller commits the result.
 pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, String> {
     let op = arg_line(args, "op").to_lowercase();
@@ -430,16 +462,7 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
         return Ok(TodoRun::View(current.render()));
     }
     if op == "init" {
-        // `init` starts a list; over unfinished work it would erase it silently (a follow-up ask initing mid-request).
-        // `set` is the explicit replacement of the whole plan.
-        let unfinished = current.unfinished_items();
-        if !unfinished.is_empty() {
-            let mut named: Vec<String> = unfinished.iter().take(5).map(|task| format!("\"{}\"", task.content)).collect();
-            if unfinished.len() > named.len() {
-                named.push(format!("{} more", unfinished.len() - named.len()));
-            }
-            return Err(format!("todo: init would erase unfinished items ({}); done or drop each first, or append to add asks", named.join(", ")));
-        }
+        refuse_erasing_init(current)?;
     }
     if op == "set" || op == "init" {
         let list = set_list(args, now_ms)?;
@@ -482,16 +505,7 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
         "append" => append_steps(&mut list, args)?,
         "rm" => {
             let at = step_index(&list, args)?;
-            let task = list.tasks().nth(at).map(|task| task.content.clone()).ok_or("todo: no such step")?;
-            let mut left = at;
-            for phase in &mut list.phases {
-                if left < phase.tasks.len() {
-                    phase.tasks.remove(left);
-                    break;
-                }
-                left -= phase.tasks.len();
-            }
-            task
+            remove_step(&mut list, at)?
         }
         "drop" => {
             let at = step_index(&list, args)?;

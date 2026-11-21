@@ -1,10 +1,3 @@
-//! A mock session actor for approvals (P §8.4; §14.9 "with a mock actor").
-//!
-//! It plays the part the server leaves to the owning actor: the pending set of one thread, the
-//! check order of a decision, the first valid decision winning, and the other resolutions. All
-//! it does to the outside goes through [`ServerRequestSink`], as the real actor's does, so the
-//! server's side of arbitration (who may answer, who hears about it) is what the tests check.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

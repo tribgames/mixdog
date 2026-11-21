@@ -1,15 +1,3 @@
-//! The one wiring of a process's side questions: the saved-request store the loop's sends record into
-//! ([`SideRequests`]), the source of a session's next request ([`NextRequestSource`]) and the
-//! [`SideQuestions`] the session's `thread/askSide` and `thread/cancelSide` run on, all over the same
-//! store and the same source. The composition builds this once and hands each part to the seam that
-//! takes it; it cannot give the session a service over another store than the loop records into.
-//!
-//! Clearing follows Node (`side-question-store.mjs`): a clear or rewind `forget`s the saved request, a
-//! close or runtime unload `forget`s it and cancels the question in flight
-//! (`SideQuestions::forget`, called by the session), a compaction that rewrote the transcript retires
-//! the fork ([`RetiringCompactor`](super::retiring_compactor::RetiringCompactor), over
-//! `CompactionWorld::retire_fork`).
-
 use std::sync::Arc;
 
 use mixdog_core_session::session::turn_ops::SideQuestions;

@@ -296,11 +296,8 @@ impl<'a> SkillState<'a> {
         messages
     }
 
-    pub(super) fn restore(&self, live: &[AgentMessage], tail: &[AgentMessage], budget: u64, meter: &MessageMeter<'_>) -> Vec<AgentMessage> {
-        let retained: HashSet<&str> = tail.iter().filter_map(AgentMessage::tool_call_id).collect();
-        let bodies: Vec<_> = self.bodies.iter().filter(|body| self.available(&body.name)).collect();
-        let mut reminders: Vec<_> = self
-            .previous
+    fn carried_reminders(&self) -> Vec<(&str, u64)> {
+        self.previous
             .iter()
             .filter(|(name, _)| self.available(name))
             .filter_map(|(name, idle)| {
@@ -312,7 +309,13 @@ impl<'a> SkillState<'a> {
                     None
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    pub(super) fn restore(&self, live: &[AgentMessage], tail: &[AgentMessage], budget: u64, meter: &MessageMeter<'_>) -> Vec<AgentMessage> {
+        let retained: HashSet<&str> = tail.iter().filter_map(AgentMessage::tool_call_id).collect();
+        let bodies: Vec<_> = self.bodies.iter().filter(|body| self.available(&body.name)).collect();
+        let mut reminders = self.carried_reminders();
         let reminder_cost = |name, idle| meter.message(&reload_line(name, idle));
         let mut reserved = reminders.iter().map(|(name, idle)| reminder_cost(name, *idle)).sum::<u64>()
             + bodies.iter().map(|body| reminder_cost(&body.name, u64::from(!self.last_use.contains_key(&body.name)))).sum::<u64>();
@@ -366,18 +369,22 @@ impl<'a> SkillState<'a> {
                 Some(line)
             })
             .collect::<Vec<_>>();
-        let mut ids: HashSet<_> = tail.iter().filter_map(|m| m.message_id.clone()).collect();
-        restored
-            .into_iter()
-            .rev()
-            .flatten()
-            .map(|mut message| {
-                if message.message_id.as_ref().is_some_and(|id| !ids.insert(id.clone())) {
-                    message.message_id = None;
-                }
-                message
-            })
-            .chain(lines.into_iter().rev())
-            .collect()
+        distinct_message_ids(restored, lines, tail)
     }
+}
+
+fn distinct_message_ids(restored: Vec<Vec<AgentMessage>>, lines: Vec<AgentMessage>, tail: &[AgentMessage]) -> Vec<AgentMessage> {
+    let mut ids: HashSet<_> = tail.iter().filter_map(|m| m.message_id.clone()).collect();
+    restored
+        .into_iter()
+        .rev()
+        .flatten()
+        .map(|mut message| {
+            if message.message_id.as_ref().is_some_and(|id| !ids.insert(id.clone())) {
+                message.message_id = None;
+            }
+            message
+        })
+        .chain(lines.into_iter().rev())
+        .collect()
 }

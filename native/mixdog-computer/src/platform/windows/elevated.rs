@@ -1,15 +1,6 @@
-//! Foreground input to a window above this process's integrity, run by a
-//! one-action worker started through UAC: this same executable relaunched
-//! with `--elevated-request` (elevated-launcher.ts runElevatedRequest,
-//! elevated-requests.ts; the worker side is the bootstrap of
-//! elevated-program.ts).
-//!
-//! The launcher stages the request in a fresh directory and starts the worker
-//! with the `runas` verb. The environment does not cross UAC, so everything
-//! the worker needs travels on its command line: the token, the request's
-//! SHA-256, the input marker, the ledger path and this process's identity.
-//! The response file leads with the token and the worker's own identity, so
-//! it is accepted only from the process that was started.
+//! The environment does not cross UAC, so everything the worker needs travels
+//! on its command line: the token, the request's SHA-256, the input marker,
+//! the ledger path and this process's identity.
 
 use super::native::Process;
 use super::process::creation_time;
@@ -466,10 +457,6 @@ fn launch_fenced(req: &Req, id: i64, token: String, dir: PathBuf, fence: &Worker
         return (Err(format!("privileged_worker_unavailable: request could not be staged: {error}")), None);
     }
     let (outcome, end) = run_worker(&launch, id, fence);
-    // A worker that never confirmed its stop keeps the cancel file it may
-    // still read. One that exited leaves its ledger to this host: what it
-    // could not clear is handed to this host's own ledger first. Its cleanup
-    // is settled in the fence before the directory with its report goes.
     if let WorkerEnd::Exited { answered } = end {
         fence.ended(answered);
     }
@@ -525,10 +512,7 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
     let mut stopped = true; // No child exists until start succeeds.
     let mut staged: Option<PathBuf> = None;
     let outcome = (|| -> Result<Value, String> {
-        let request = message.get("request").filter(|value| value.is_object()).ok_or("privileged worker request is not an object")?;
-        let id = request.get("id").and_then(Value::as_i64).ok_or(INCOMPLETE)?;
-        let marker = message.get("inputMarker").and_then(Value::as_str).and_then(|value| value.parse::<i64>().ok()).ok_or(INCOMPLETE)?;
-        let ledger = message.get("inactiveLedger").and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or(INCOMPLETE)?;
+        let (request, id, marker, ledger) = pipe_message(&message)?;
         let token = new_token()?;
         let dir = std::env::temp_dir().join(format!("mixdog-elevated-{token}"));
         let bytes = format!("{request}\n").into_bytes();
@@ -593,6 +577,14 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
     };
     crate::elevated_launch::emit(receipt);
     code
+}
+
+fn pipe_message(message: &Value) -> Result<(&Value, i64, i64, &str), String> {
+    let request = message.get("request").filter(|value| value.is_object()).ok_or("privileged worker request is not an object")?;
+    let id = request.get("id").and_then(Value::as_i64).ok_or(INCOMPLETE)?;
+    let marker = message.get("inputMarker").and_then(Value::as_str).and_then(|value| value.parse::<i64>().ok()).ok_or(INCOMPLETE)?;
+    let ledger = message.get("inactiveLedger").and_then(Value::as_str).filter(|value| !value.is_empty()).ok_or(INCOMPLETE)?;
+    Ok((request, id, marker, ledger))
 }
 
 /// ShellExecuteExW with the `runas` verb on this executable; the process
@@ -664,9 +656,6 @@ fn exit_code(process: HANDLE) -> u32 {
     code
 }
 
-// --- worker -----------------------------------------------------------------
-
-/// Why a running worker must stop (Test-Cancelled).
 fn stop_reason(now: Instant, deadline: Instant, cancel_requested: bool, parent_alive: bool) -> Option<&'static str> {
     (now >= deadline || cancel_requested || !parent_alive).then_some("privileged_worker_cancelled")
 }
@@ -682,10 +671,6 @@ fn live_parent(expected: Identity, actual: Identity, running: bool) -> bool {
     running && expected.created > 0 && actual.created > 0 && same_identity(expected, actual)
 }
 
-/// The elevated worker: authenticates its launch and request, vets the
-/// request with `validate`, serves the one action with `serve` while a
-/// supervisor watches for cancellation, and writes the response file.
-/// Returns the process exit code.
 pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 {
     let launch = match Launch::parse(args) {
         Ok(launch) => launch,
@@ -742,46 +727,17 @@ pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 
 /// stops and waits for the input process BEFORE releasing its owned input.
 fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     use std::io::{Read, Write};
-    use std::os::windows::io::AsRawHandle;
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
     // Non-inheritable handle; losing this supervisor kills its input child.
     let job = match input_job() {
         Ok(job) => job,
         Err(error) => return json!({"worker_error":error}),
     };
-    let mut child = match std::env::current_exe().and_then(|program| {
-        Command::new(program)
-            .arg("--elevated-input")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-    }) {
+    let mut child = match spawn_contained(&job) {
         Ok(child) => child,
-        Err(error) => return json!({"worker_error":format!("privileged worker could not start: {error}")}),
+        Err(error) => return json!({"worker_error":error}),
     };
-    // The child blocks reading its pipe before constructing any input host.
-    // Nothing is written until assignment succeeds: this is the containment
-    // barrier, including when the supervisor dies between spawn and assign.
-    if let Err(error) = unsafe { AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) } {
-        let _ = child.kill();
-        let stopped = wait_input_stop(&mut child);
-        return json!({"worker_error":if stopped {
-            format!("privileged_worker_unavailable: input containment failed: {error}")
-        } else { "privileged_worker_cleanup_unconfirmed: input containment failed".into() }});
-    }
     let mut input = child.stdin.take().expect("piped input");
-    // The child maps its admission word by the launch's token, which this authenticated launch carries.
-    let request = match serde_json::from_str::<Value>(line) {
-        Ok(Value::Object(mut request)) => {
-            request.insert("admission_token".into(), Value::String(launch.token.clone()));
-            format!("{}\n", Value::Object(request))
-        }
-        _ => format!("{line}\n"),
-    }
-    .into_bytes();
+    let request = admission_request(line, &launch.token);
     // The request, then the control lines; the end of this pipe is the child's revocation too.
     let (control, controls) = std::sync::mpsc::channel::<&'static str>();
     let writer = std::thread::spawn(move || {
@@ -832,8 +788,58 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     let _ = acknowledgements.join();
     relay.relay(&control, reported.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone());
     drop(control);
-    // The process handle proved exit. Cleanup still runs after a failed write,
-    // missing response or cancellation, and failure cannot become success.
+    settle_input(reason, writer, reader)
+}
+
+/// The input child, assigned to `job` before anything is written to it: it
+/// blocks reading its pipe before constructing any input host, so the
+/// assignment is the containment barrier, including when the supervisor dies
+/// between spawn and assign.
+fn spawn_contained(job: &Process) -> Result<std::process::Child, String> {
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let mut child = std::env::current_exe()
+        .and_then(|program| {
+            Command::new(program)
+                .arg("--elevated-input")
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        })
+        .map_err(|error| format!("privileged worker could not start: {error}"))?;
+    if let Err(error) = unsafe { AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) } {
+        let _ = child.kill();
+        return Err(if wait_input_stop(&mut child) {
+            format!("privileged_worker_unavailable: input containment failed: {error}")
+        } else {
+            "privileged_worker_cleanup_unconfirmed: input containment failed".into()
+        });
+    }
+    Ok(child)
+}
+
+/// The request line with the admission token the child maps its admission word by.
+fn admission_request(line: &str, token: &str) -> Vec<u8> {
+    match serde_json::from_str::<Value>(line) {
+        Ok(Value::Object(mut request)) => {
+            request.insert("admission_token".into(), Value::String(token.to_string()));
+            format!("{}\n", Value::Object(request))
+        }
+        _ => format!("{line}\n"),
+    }
+    .into_bytes()
+}
+
+/// The child has exited. Cleanup still runs after a failed write, missing
+/// response or cancellation, and failure cannot become success.
+fn settle_input(
+    reason: Option<String>,
+    writer: std::thread::JoinHandle<std::io::Result<()>>,
+    reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Value {
     let released = crate::platform::release_owned_input();
     let recovered = crate::platform::recover_inactive_ledger();
     if let Err(error) = released.and(recovered) {
@@ -991,6 +997,25 @@ mod tests {
             supervise_wait(&mut child, || Some("privileged_worker_cancelled".into()), || Duration::from_secs(clock.get()), || clock.set(clock.get() + 1));
         assert_eq!(answer.unwrap_err(), "privileged_worker_cleanup_unconfirmed");
         assert!(child.stopped);
+    }
+
+    #[test]
+    fn the_input_request_carries_the_launch_token_and_a_non_object_line_passes_through() {
+        let object = String::from_utf8(admission_request(r#"{"id":5}"#, TOKEN)).unwrap();
+        let parsed: Value = serde_json::from_str(object.trim()).unwrap();
+        assert_eq!((parsed["id"].as_i64(), parsed["admission_token"].as_str()), (Some(5), Some(TOKEN)));
+        assert!(object.ends_with('\n'));
+        assert_eq!(admission_request("not json", TOKEN), b"not json\n");
+    }
+
+    #[test]
+    fn a_pipe_message_yields_its_request_marker_and_ledger_or_is_refused() {
+        let message = json!({"request": {"id": 9}, "inputMarker": "77", "inactiveLedger": "C:\\ledger.txt"});
+        let (request, id, marker, ledger) = pipe_message(&message).unwrap();
+        assert_eq!((request["id"].as_i64(), id, marker, ledger), (Some(9), 9, 77, "C:\\ledger.txt"));
+        assert_eq!(pipe_message(&json!({"request": 3})).unwrap_err(), "privileged worker request is not an object");
+        assert_eq!(pipe_message(&json!({"request": {"id": 9}, "inputMarker": "x", "inactiveLedger": "l"})).unwrap_err(), INCOMPLETE);
+        assert_eq!(pipe_message(&json!({"request": {"id": 9}, "inputMarker": "7", "inactiveLedger": ""})).unwrap_err(), INCOMPLETE);
     }
 
     fn sample_launch() -> Launch {

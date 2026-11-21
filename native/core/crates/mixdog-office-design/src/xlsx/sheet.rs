@@ -553,10 +553,6 @@ impl<'a> Layout<'a> {
         math::ceil(display_width(&shown) * size * 1.2 / 11.0) + 3.0
     }
 
-    /// Columns sized to the table's text are too narrow for a card's value at display size: a figure stored as a
-    /// number then printed as ###. Each column under a card takes its share of the value's width as the autofit's
-    /// floor, in Excel characters. The floors are the table's: taken from the cards set over the table, they give it
-    /// the width that fills the page, wherever the strip then runs.
     fn metric_column_floors(&self) -> Floors {
         let mut floors = Floors(Vec::new());
         if self.metrics.is_empty() || self.fills || self.analysis_sheet {
@@ -764,69 +760,7 @@ impl<'a> Layout<'a> {
             vec![("sheet", sheet.clone()), ("range", text_value(&format!("A{start_row}:{last}{end_row}"))), ("values", Value::Array(values.to_vec()))],
         ));
         if has_headers {
-            output.push(operation(
-                "set_style",
-                vec![
-                    ("sheet", sheet.clone()),
-                    ("range", text_value(&format!("A{start_row}:{last}{start_row}"))),
-                    (
-                        "properties",
-                        props(vec![
-                            ("fontName", tokens.face("body")),
-                            ("fontSize", Some(num(self.heading_size()))),
-                            ("bold", Some(Value::Bool(true))),
-                            ("color", tokens.color("onAccent")),
-                            ("fillColor", tokens.color("accent")),
-                            // A header sits on the edge its column's text starts from.
-                            ("horizontalAlignment", Some(text_value("left"))),
-                            ("verticalAlignment", Some(text_value("center"))),
-                            ("wrapText", Some(Value::Bool(true))),
-                        ]),
-                    ),
-                ],
-            ));
-            // A header over a column of figures sits on the figures' right edge, where the eye reads them.
-            for index in 0..self.headers.len() {
-                let body: Vec<Option<Value>> = values.iter().skip(1).map(|row| indexed(row, index)).collect();
-                if body.is_empty() || !body.iter().all(|cell| figure_cell(cell.as_ref())) {
-                    continue;
-                }
-                output.push(operation(
-                    "set_style",
-                    vec![
-                        ("sheet", sheet.clone()),
-                        ("range", text_value(&format!("{}{start_row}", col(index + 1)))),
-                        ("properties", props(vec![("horizontalAlignment", Some(text_value("right")))])),
-                    ],
-                ));
-            }
-            let table_name = match prop(operation_input, "tableName") {
-                Some(value) if truthy(value) => value.clone(),
-                _ => text_value(&format!("{}Data", self.sheet)),
-            };
-            let style = match prop(operation_input, "tableStyle") {
-                Some(value) if truthy(value) => value.clone(),
-                _ => match opt_prop(self.format, "tableStyle") {
-                    Some(value) if truthy(value) => value.clone(),
-                    _ => text_value("none"),
-                },
-            };
-            // The composer paints this range from the document's palette. A built-in table style bands it again from
-            // the file's own theme, which is not that palette: the table keeps its filters and its name.
-            output.push(operation(
-                "add_table",
-                vec![
-                    ("sheet", sheet.clone()),
-                    ("range", text_value(&format!("A{start_row}:{last}{end_row}"))),
-                    ("name", text_value(&safe_table_name(&table_name))),
-                    ("style", style),
-                ],
-            ));
-            // A recomposed sheet may already hold this pane; freezing it again is the composer's routine step.
-            output.push(operation(
-                "freeze_panes",
-                vec![("sheet", sheet.clone()), ("row", num((start_row + 1) as f64)), ("column", num(1.0)), ("allowNoChange", Value::Bool(true))],
-            ));
+            self.push_table_header(output, operation_input, values, start_row, end_row);
         }
         let first_body = start_row + usize::from(has_headers);
         output.push(operation(
@@ -845,8 +779,78 @@ impl<'a> Layout<'a> {
                 ),
             ],
         ));
-        // A column of labels after a column of figures starts one indent in, header and body: the figures end on their
-        // column's right edge and the labels began on the next one's left.
+        self.push_label_indents(output, values, start_row, end_row)?;
+        Ok(end_row)
+    }
+
+    fn push_table_header(&self, output: &mut Vec<Value>, operation_input: &Value, values: &[Value], start_row: usize, end_row: usize) {
+        let sheet = text_value(&self.sheet);
+        let tokens = &self.tokens;
+        let last = &self.data_last_column;
+        output.push(operation(
+            "set_style",
+            vec![
+                ("sheet", sheet.clone()),
+                ("range", text_value(&format!("A{start_row}:{last}{start_row}"))),
+                (
+                    "properties",
+                    props(vec![
+                        ("fontName", tokens.face("body")),
+                        ("fontSize", Some(num(self.heading_size()))),
+                        ("bold", Some(Value::Bool(true))),
+                        ("color", tokens.color("onAccent")),
+                        ("fillColor", tokens.color("accent")),
+                        ("horizontalAlignment", Some(text_value("left"))),
+                        ("verticalAlignment", Some(text_value("center"))),
+                        ("wrapText", Some(Value::Bool(true))),
+                    ]),
+                ),
+            ],
+        ));
+        // A header over a column of figures sits on the figures' right edge, where the eye reads them.
+        for index in 0..self.headers.len() {
+            let body: Vec<Option<Value>> = values.iter().skip(1).map(|row| indexed(row, index)).collect();
+            if body.is_empty() || !body.iter().all(|cell| figure_cell(cell.as_ref())) {
+                continue;
+            }
+            output.push(operation(
+                "set_style",
+                vec![
+                    ("sheet", sheet.clone()),
+                    ("range", text_value(&format!("{}{start_row}", col(index + 1)))),
+                    ("properties", props(vec![("horizontalAlignment", Some(text_value("right")))])),
+                ],
+            ));
+        }
+        let table_name = match prop(operation_input, "tableName") {
+            Some(value) if truthy(value) => value.clone(),
+            _ => text_value(&format!("{}Data", self.sheet)),
+        };
+        let style = match prop(operation_input, "tableStyle") {
+            Some(value) if truthy(value) => value.clone(),
+            _ => match opt_prop(self.format, "tableStyle") {
+                Some(value) if truthy(value) => value.clone(),
+                _ => text_value("none"),
+            },
+        };
+        output.push(operation(
+            "add_table",
+            vec![
+                ("sheet", sheet.clone()),
+                ("range", text_value(&format!("A{start_row}:{last}{end_row}"))),
+                ("name", text_value(&safe_table_name(&table_name))),
+                ("style", style),
+            ],
+        ));
+        output.push(operation(
+            "freeze_panes",
+            vec![("sheet", sheet.clone()), ("row", num((start_row + 1) as f64)), ("column", num(1.0)), ("allowNoChange", Value::Bool(true))],
+        ));
+    }
+
+    fn push_label_indents(&self, output: &mut Vec<Value>, values: &[Value], start_row: usize, end_row: usize) -> Result<(), String> {
+        let sheet = text_value(&self.sheet);
+        let has_headers = !self.headers.is_empty();
         let figures = |index: usize| {
             let body: Vec<Option<Value>> = values.iter().skip(usize::from(has_headers)).map(|row| indexed(row, index)).collect();
             !body.is_empty() && body.iter().all(|cell| figure_cell(cell.as_ref()))
@@ -871,7 +875,7 @@ impl<'a> Layout<'a> {
                 ],
             ));
         }
-        Ok(end_row)
+        Ok(())
     }
 
     /// A column of numbers the caller named no format for shipped under General: the default is read off the values and
@@ -898,6 +902,21 @@ impl<'a> Layout<'a> {
         if places > 0 { format!("#,##0.{}", "0".repeat(places)) } else { "#,##0".to_owned() }
     }
 
+    /// The format the caller wrote for a column: by position in a list, or by header or column letter in an object.
+    fn named_column_format(&self, formats: Option<&Value>, index: usize) -> Option<Value> {
+        match formats {
+            Some(Value::Array(list)) => list.get(index).cloned(),
+            Some(Value::Object(map)) => {
+                let by_header = map.get(self.headers.get(index).map_or("undefined", String::as_str));
+                match by_header {
+                    Some(value) if truthy(value) => Some(value.clone()),
+                    _ => map.get(&col(index + 1)).cloned(),
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Number formats per data column. A format the caller wrote that lands nowhere is reported rather than dropped.
     pub(super) fn push_column_formats(&self, output: &mut Vec<Value>, operation_input: &Value, start_row: usize, end_row: usize) -> Result<(), String> {
         if self.rows.is_empty() {
@@ -905,23 +924,10 @@ impl<'a> Layout<'a> {
         }
         let formats = prop(operation_input, "columnFormats");
         let defaults: Vec<String> = (0..self.data_columns.max(self.headers.len())).map(|index| self.column_default_format(index)).collect();
-        let named_format = |index: usize| -> Option<Value> {
-            match formats {
-                Some(Value::Array(list)) => list.get(index).cloned(),
-                Some(Value::Object(map)) => {
-                    let by_header = map.get(self.headers.get(index).map_or("undefined", String::as_str));
-                    match by_header {
-                        Some(value) if truthy(value) => Some(value.clone()),
-                        _ => map.get(&col(index + 1)).cloned(),
-                    }
-                }
-                _ => None,
-            }
-        };
         let first_data_row = start_row + usize::from(!self.headers.is_empty());
         let mut named = 0;
         for (index, default) in defaults.iter().enumerate() {
-            let chosen = match named_format(index) {
+            let chosen = match self.named_column_format(formats, index) {
                 Some(value) if truthy(&value) => value,
                 _ => text_value(default),
             };
@@ -1005,18 +1011,57 @@ impl<'a> Layout<'a> {
         }
     }
 
+    /// The rows a chart plots: the table's, without the totals under it.
+    fn plotted_rows(&self) -> usize {
+        let mut rows = self.rows.len();
+        while rows > 0 && is_excel_total_row(&self.rows[rows - 1]) {
+            rows -= 1;
+        }
+        rows
+    }
+
+    /// Several series read as periods or groups against the last one, the current period: it takes the accent and the
+    /// rest stay muted.
+    fn default_series_colors(&self, series_count: usize) -> Value {
+        let color = |role: &str| self.tokens.color(role).unwrap_or(Value::Null);
+        if series_count > 1 {
+            let mut list: Vec<Value> = (0..series_count - 1).map(|_| color("muted")).collect();
+            list.push(color("accent"));
+            Value::Array(list)
+        } else {
+            Value::Array(vec![color("accent"), color("accent2"), color("muted")])
+        }
+    }
+
+    /// The data label fields of a chart: the position, and inside the bars the label colour.
+    fn data_label_fields(&self, chart: &Value, show_values: &Value, bars: bool) -> Vec<(&'static str, Value)> {
+        let position = match prop(chart, "dataLabelPosition") {
+            Some(value) if truthy(value) => value.clone(),
+            _ => text_value(if truthy(show_values) && bars { "inside_end" } else { "" }),
+        };
+        let mut fields = Vec::new();
+        let inside_end = position == text_value("inside_end");
+        if truthy(&position) {
+            fields.push(("dataLabelPosition", position));
+        }
+        if inside_end {
+            let label_color = match prop(chart, "dataLabelColor") {
+                Some(value) if truthy(value) => Some(value.clone()),
+                _ => self.tokens.color("onAccent"),
+            };
+            if let Some(label_color) = label_color {
+                fields.push(("dataLabelColor", label_color));
+            }
+        }
+        fields
+    }
+
     /// Adds the chart over the comparable series; returns its bottom and right edges in points so the print area can
     /// follow it.
     pub(super) fn push_chart(&self, output: &mut Vec<Value>, chart: &Value, start_row: usize, data_end_row: usize) -> (f64, f64) {
-        let tokens = &self.tokens;
-        let mut chart_rows = self.rows.len();
-        while chart_rows > 0 && is_excel_total_row(&self.rows[chart_rows - 1]) {
-            chart_rows -= 1;
-        }
+        let chart_rows = self.plotted_rows();
         let header_rows = usize::from(!self.headers.is_empty());
         let chart_end_row = (start_row + header_rows + chart_rows).saturating_sub(1);
-        // Every data column became a series, so a sheet holding a count, a rate and a tally drew one visible bar and two
-        // series flattened onto the axis. Series that cannot share an axis are left out of the picture.
         let series = comparable_series_columns(self.rows, self.data_columns, chart_rows, &self.headers);
         let end_row = start_row.max(chart_end_row);
         // Categories in column A; a run of series that does not start beside them joins it by comma, the way Excel
@@ -1035,25 +1080,12 @@ impl<'a> Layout<'a> {
             Some(value) => value.clone(),
             None => Value::Bool(self.dashboard && chart_rows <= 6),
         };
-        let data_label_position = match prop(chart, "dataLabelPosition") {
-            Some(value) if truthy(value) => value.clone(),
-            _ => text_value(if truthy(&show_values) && bars { "inside_end" } else { "" }),
-        };
         let frame = self.chart_frame(chart, data_end_row, start_row, chart_rows, type_name == "bar");
-        // Several series read as periods or groups against the last one, the current period: it takes the accent and the
-        // rest stay muted.
         let series_count = match series {
             Some((first, last)) if !truthy_of(prop(chart, "range")) => last - first + 1,
             _ => 0,
         };
-        let color = |role: &str| tokens.color(role).unwrap_or(Value::Null);
-        let default_colors = if series_count > 1 {
-            let mut list: Vec<Value> = (0..series_count - 1).map(|_| color("muted")).collect();
-            list.push(color("accent"));
-            Value::Array(list)
-        } else {
-            Value::Array(vec![color("accent"), color("accent2"), color("muted")])
-        };
+        let default_colors = self.default_series_colors(series_count);
         let mut fields: Vec<(&str, Value)> = vec![
             ("sheet", text_value(&self.sheet)),
             (
@@ -1080,21 +1112,8 @@ impl<'a> Layout<'a> {
                 _ => default_colors,
             },
         ));
-        fields.push(("showValues", show_values));
-        let labelled = truthy(&data_label_position);
-        let inside_end = data_label_position == text_value("inside_end");
-        if labelled {
-            fields.push(("dataLabelPosition", data_label_position));
-        }
-        if inside_end {
-            let label_color = match prop(chart, "dataLabelColor") {
-                Some(value) if truthy(value) => Some(value.clone()),
-                _ => tokens.color("onAccent"),
-            };
-            if let Some(label_color) = label_color {
-                fields.push(("dataLabelColor", label_color));
-            }
-        }
+        fields.push(("showValues", show_values.clone()));
+        fields.extend(self.data_label_fields(chart, &show_values, bars));
         fields.push((
             "zeroBaseline",
             match prop(chart, "zeroBaseline").filter(|value| !value.is_null()) {

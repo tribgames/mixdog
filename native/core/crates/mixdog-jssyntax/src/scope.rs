@@ -1,8 +1,3 @@
-//! Declared names of the scopes a classic script is made of, for the redeclaration rules of the early-error
-//! pass: a lexical name (`let`, `const`, `class`, a function in a block) may not meet another declaration of the
-//! same name in its scope, and a `var` (which hoists to the function or script scope) may not pass through a scope
-//! that holds the name lexically.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 

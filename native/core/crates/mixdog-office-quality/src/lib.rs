@@ -1,7 +1,6 @@
 //! The office quality pipeline: the review issue record, the split of blocking integrity faults from advisory taste
 //! observations, the polish plan and the submission gate, the release score, and the document and presentation
-//! acceptance verdicts with the task checklist. Ported from `src/runtime/office/quality/{quality-pipeline,
-//! quality-score,document-acceptance,presentation-acceptance,assurance-checklist,assurance-issue}.mjs`. Inputs and
+//! acceptance verdicts with the task checklist. Inputs and
 //! outputs are JSON values with the key order Node writes, so the user-visible wording and the numbers are Node's.
 
 use mixdog_js::value_to_string;

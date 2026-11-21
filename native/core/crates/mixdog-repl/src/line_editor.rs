@@ -1,17 +1,16 @@
-//! The line editor the REPL reads its prompt with: what Node's `readline` interface gave `repl.mjs` (`createInterface` with a
-//! prompt and a history of 200), on the decoder of `mixdog-term`.
+//! The line editor the REPL reads its prompt with (a history of 200), on the decoder of `mixdog-term`.
 //!
-//! Editing keys, as `readline`'s `_ttyWrite` binds them: Ctrl+A / Home, Ctrl+E / End, Ctrl+B / Left, Ctrl+F / Right, Alt+B /
-//! Alt+F and Ctrl+Left / Ctrl+Right (a word), Ctrl+K (to the end) and Ctrl+U (to the start) into the kill ring, Ctrl+Y (yank)
-//! and Alt+Y (yank pop), Ctrl+W / Ctrl+Backspace / Alt+Backspace (the word before), Alt+D / Alt+Delete / Ctrl+Delete (the word
-//! after), Ctrl+Shift+Backspace / Ctrl+Shift+Delete (to the start / the end), Ctrl+H / Backspace, Delete, Ctrl+D (delete at the
-//! cursor, end of input on an empty line), Ctrl+_ (undo) and Ctrl+^ (redo), Ctrl+T (transpose), Ctrl+L (clear the screen), Up /
-//! Ctrl+P and Down / Ctrl+N (the history of the session; Up and Down search the history for the text before the cursor), Tab (a
-//! tab character: there is no completer), Enter, and a bracketed paste. Ctrl+C is not an edit: the REPL's SIGINT handler ends
-//! the process, so the editor reports it as [`Effect::Interrupt`].
+//! Editing keys: Ctrl+A / Home, Ctrl+E / End, Ctrl+B / Left, Ctrl+F / Right, Alt+B / Alt+F and Ctrl+Left / Ctrl+Right (a word),
+//! Ctrl+K (to the end) and Ctrl+U (to the start) into the kill ring, Ctrl+Y (yank) and Alt+Y (yank pop), Ctrl+W / Ctrl+Backspace /
+//! Alt+Backspace (the word before), Alt+D / Alt+Delete / Ctrl+Delete (the word after), Ctrl+Shift+Backspace / Ctrl+Shift+Delete
+//! (to the start / the end), Ctrl+H / Backspace, Delete, Ctrl+D (delete at the cursor, end of input on an empty line), Ctrl+_
+//! (undo) and Ctrl+^ (redo), Ctrl+T (transpose), Ctrl+L (clear the screen), Up / Ctrl+P and Down / Ctrl+N (the history of the
+//! session; Up and Down search the history for the text before the cursor), Tab (a tab character: there is no completer), Enter,
+//! and a bracketed paste. Ctrl+C is not an edit: the REPL's SIGINT handler ends the process, so the editor reports it as
+//! [`Effect::Interrupt`].
 //!
-//! The editor is a state machine: [`LineEditor::apply`] takes one decoded event and says what the REPL must do; the screen is
-//! drawn by [`LineEditor::paint`], which rewrites the prompt row (and the rows a pasted or wrapped line takes) in place.
+//! [`LineEditor::apply`] takes one decoded event and says what the REPL must do; [`LineEditor::paint`] rewrites the prompt row
+//! (and the rows a pasted or wrapped line takes) in place.
 
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;

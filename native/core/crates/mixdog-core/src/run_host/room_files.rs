@@ -114,16 +114,16 @@ async fn collect_from(
     let slice = Value::Array(turn_slice(messages, run_id, since));
     let (data_dir, scopes) = (data_dir.to_path_buf(), scopes.to_vec());
     let (cwd, candidates) = (folders.cwd.clone(), folders.candidates.clone());
-    let found = lane
-        .submit(&CancellationToken::new(), move |lane| {
-            let options = Options { cwd, roots: session_roots(&candidates), scopes };
-            let blobs = BlobStore::new(&data_dir);
-            collect_turn_artifacts(lane, &slice, &options, &|bytes| store_attachment(&blobs, lane, bytes)).to_json()
-        })
-        .map_err(|error| format!("{error:?}"))?
-        .await
-        .map_err(|error| format!("{error:?}"))?;
-    Ok(found)
+    on_durability(lane, move |lane| {
+        let options = Options { cwd, roots: session_roots(&candidates), scopes };
+        let blobs = BlobStore::new(&data_dir);
+        collect_turn_artifacts(lane, &slice, &options, &|bytes| store_attachment(&blobs, lane, bytes)).to_json()
+    })
+    .await
+}
+
+async fn on_durability<R: Send + 'static>(lane: DurabilityIo, job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, String> {
+    lane.submit(&CancellationToken::new(), job).map_err(|error| format!("{error:?}"))?.await.map_err(|error| format!("{error:?}"))
 }
 
 /// `storedFileFields(files)`: `{ parts, attachments }` for the stored files among `files`; none
@@ -228,6 +228,30 @@ struct Intake {
     images: Vec<Value>,
 }
 
+fn named(raw: &Value, fallback: &str) -> String {
+    first_text(&[raw.get("filename"), raw.get("name")], fallback, 200)
+}
+
+/// `pickedOriginal`: the file the user picked, when the store still holds it.
+fn picked_original<L: WriteLane + IoLane>(store: &Store<'_, L>, raw: Option<&Value>) -> Result<Map<String, Value>, String> {
+    let mut out = Map::new();
+    let reference = raw.and_then(|raw| raw.get("originalRef")).map(mixdog_js::value_to_string).unwrap_or_default();
+    if reference.len() == 64 && reference.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) && store.stored_len(&reference)?.is_some() {
+        let mime = first_text(&[raw.and_then(|raw| raw.get("originalMediaType"))], "", 100);
+        out.insert("original".into(), json!({ "attachmentRef": reference, "mimeType": mime }));
+    }
+    Ok(out)
+}
+
+fn attachment_record(kind: &str, name: String, mime: String, size: Value) -> Map<String, Value> {
+    let mut info = Map::new();
+    info.insert("kind".into(), json!(kind));
+    info.insert("name".into(), json!(name));
+    info.insert("mimeType".into(), json!(mime));
+    info.insert("size".into(), size);
+    info
+}
+
 /// `attachmentsForIntake(prompt, options)`: one record per stored image, file and pasted or attached text.
 fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Value], images: &[&Value], texts: &[&Value]) -> Result<Vec<Value>, String> {
     let mut found: Vec<(String, Map<String, Value>)> = Vec::new();
@@ -235,25 +259,6 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
         if !found.iter().any(|(r, _)| r == reference) && found.len() < MAX_MESSAGE_ATTACHMENTS {
             found.push((reference.to_owned(), info));
         }
-    };
-    let named = |raw: &Value, fallback: &str| first_text(&[raw.get("filename"), raw.get("name")], fallback, 200);
-    // `pickedOriginal`: the file the user picked, when the store still holds it.
-    let original = |raw: Option<&Value>| -> Result<Map<String, Value>, String> {
-        let mut out = Map::new();
-        let reference = raw.and_then(|raw| raw.get("originalRef")).map(mixdog_js::value_to_string).unwrap_or_default();
-        if reference.len() == 64 && reference.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) && store.stored_len(&reference)?.is_some() {
-            let mime = first_text(&[raw.and_then(|raw| raw.get("originalMediaType"))], "", 100);
-            out.insert("original".into(), json!({ "attachmentRef": reference, "mimeType": mime }));
-        }
-        Ok(out)
-    };
-    let record = |kind: &str, name: String, mime: String, size: Value| {
-        let mut info = Map::new();
-        info.insert("kind".into(), json!(kind));
-        info.insert("name".into(), json!(name));
-        info.insert("mimeType".into(), json!(mime));
-        info.insert("size".into(), size);
-        info
     };
     for part in prompt {
         let Some(reference) = reference_of(part) else { continue };
@@ -263,17 +268,17 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
             (Some("image"), _) => {
                 let meta = images.iter().find(|raw| raw.get("attachmentRef").and_then(Value::as_str) == Some(reference)).copied();
                 let mime = if mime.is_empty() { first_text(&[meta.and_then(|m| m.get("mediaType"))], "image/png", usize::MAX) } else { mime };
-                let mut info = original(meta)?;
-                info.extend(record("image", named(meta.unwrap_or(part), "image"), mime, size));
+                let mut info = picked_original(store, meta)?;
+                info.extend(attachment_record("image", named(meta.unwrap_or(part), "image"), mime, size));
                 add(reference, info);
             }
             (Some("file"), _) => {
                 let mime = if mime.is_empty() { "application/octet-stream".to_owned() } else { mime };
-                add(reference, record("file", named(part, "attachment"), mime, size));
+                add(reference, attachment_record("file", named(part, "attachment"), mime, size));
             }
             (Some("text"), Some(kind @ ("paste" | "file"))) => {
                 let mime = if mime.is_empty() { "text/plain".to_owned() } else { mime };
-                add(reference, record("text", named(part, if kind == "paste" { "pasted-text.txt" } else { "attachment.txt" }), mime, size));
+                add(reference, attachment_record("text", named(part, if kind == "paste" { "pasted-text.txt" } else { "attachment.txt" }), mime, size));
             }
             _ => {}
         }
@@ -281,16 +286,16 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
     // Images the prompt carries only by side table, then the pasted and attached texts.
     for raw in images {
         let Some(reference) = reference_of(raw) else { continue };
-        let mut info = original(Some(raw))?;
+        let mut info = picked_original(store, Some(raw))?;
         let size = blob_size(store, reference, raw.get("sizeBytes"))?;
-        info.extend(record("image", named(raw, "image"), first_text(&[raw.get("mediaType")], "image/png", 100), size));
+        info.extend(attachment_record("image", named(raw, "image"), first_text(&[raw.get("mediaType")], "image/png", 100), size));
         add(reference, info);
     }
     for raw in texts {
         let Some(reference) = reference_of(raw) else { continue };
         let fallback = if raw.get("source").and_then(Value::as_str) == Some("file") { "attachment.txt" } else { "pasted-text.txt" };
         let size = blob_size(store, reference, raw.get("sizeBytes"))?;
-        add(reference, record("text", named(raw, fallback), first_text(&[raw.get("mimeType")], "text/plain", 100), size));
+        add(reference, attachment_record("text", named(raw, fallback), first_text(&[raw.get("mimeType")], "text/plain", 100), size));
     }
     Ok(found
         .into_iter()
@@ -336,6 +341,56 @@ fn take_upload<L: WriteLane + IoLane>(store: &Store<'_, L>, text: &str, upload: 
 }
 
 impl SessionFiles {
+    /// `preparePromptSubmissionForProvider(.., { nativePdf: false })`: each PDF checked, its page counts kept on the part.
+    async fn check_pdfs(&self, room_id: &str, prompt: &mut [Value], staged: &[(String, Vec<u8>)]) -> Result<(), String> {
+        let thread = ThreadId::from(format!("sess_room_{room_id}"));
+        for part in prompt.iter_mut() {
+            let mime = first_text(&[part.get("mimeType"), part.get("mediaType")], "", usize::MAX).to_lowercase();
+            let Some(reference) =
+                reference_of(part).map(str::to_owned).filter(|_| part.get("type").and_then(Value::as_str) == Some("file") && mime == "application/pdf")
+            else {
+                continue;
+            };
+            let (bytes, size) = self.pdf_bytes(part, reference, staged).await?;
+            let facts = pdf_intake_facts(self.docs.as_ref(), &thread, &base64::engine::general_purpose::STANDARD.encode(&bytes), size, false).await?;
+            part["pageCount"] = json!(facts.page_count.unwrap_or(0));
+            part["textPages"] = json!(facts.text_pages.unwrap_or(0));
+            part["textChars"] = json!(facts.text_chars.unwrap_or(0));
+        }
+        Ok(())
+    }
+
+    /// A PDF part's bytes (empty past the size the parser takes) and size: from the staged files, else from the store.
+    async fn pdf_bytes(&self, part: &Value, reference: String, staged: &[(String, Vec<u8>)]) -> Result<(Vec<u8>, u64), String> {
+        if let Some((_, bytes)) = staged.iter().find(|(staged, _)| *staged == reference) {
+            let size = bytes.len() as u64;
+            return Ok((if size > MAX_PDF_BYTES { Vec::new() } else { bytes.clone() }, size));
+        }
+        let data_dir = self.data_dir.clone();
+        let claimed = part.get("sizeBytes").cloned();
+        on_durability(self.lane, move |lane| {
+            let blobs = BlobStore::new(&data_dir);
+            let store = Store::new(&blobs, lane);
+            let size = blob_size(&store, &reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
+            let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
+            let bytes = if size > MAX_PDF_BYTES { Vec::new() } else { blobs.read(lane, &digest).map_err(|error| error.to_string())? };
+            Ok::<_, String>((bytes, size))
+        })
+        .await?
+    }
+
+    /// Every check passed: the files are stored (`saveBuffer`; no ticket, as `StoreFiles::store_inline`).
+    async fn commit_staged(&self, staged: Vec<(String, Vec<u8>)>) -> Result<(), String> {
+        let data_dir = self.data_dir.clone();
+        on_durability(self.lane, move |lane| {
+            let blobs = BlobStore::new(&data_dir);
+            staged
+                .iter()
+                .try_for_each(|(_, bytes)| blobs.put_with(lane, bytes, mixdog_store::fsio::Access::Inherit).map(|_| ()).map_err(|error| error.to_string()))
+        })
+        .await?
+    }
+
     /// `storedRow(row)`: a user row's `upload` taken in as a chat prompt's files are; the row keeps the stored
     /// references (`parts`), their attachment records and the bubble's image chips, never the bytes.
     async fn stored_row(&self, room_id: &str, row: Value) -> Result<Value, String> {
@@ -347,65 +402,15 @@ impl SessionFiles {
         // then the PDF check, `store.mjs:619-623`, `agent-room-delivery.mjs:32`); here every check runs over the staged
         // files first and only a message that passes them all is stored, so a refusal leaves nothing behind.
         let data_dir = self.data_dir.clone();
-        let (mut intake, staged) = self
-            .lane
-            .submit(&CancellationToken::new(), move |lane| {
-                let blobs = BlobStore::new(&data_dir);
-                let store = Store::new(&blobs, lane);
-                let intake = take_upload(&store, &text, &upload)?;
-                Ok::<_, String>((intake, store.staged.into_inner()))
-            })
-            .map_err(|error| format!("{error:?}"))?
-            .await
-            .map_err(|error| format!("{error:?}"))??;
-        // `preparePromptSubmissionForProvider(.., { nativePdf: false })`: each PDF checked, its page counts kept on the part.
-        let thread = ThreadId::from(format!("sess_room_{room_id}"));
-        for part in intake.prompt.iter_mut() {
-            let mime = first_text(&[part.get("mimeType"), part.get("mediaType")], "", usize::MAX).to_lowercase();
-            let Some(reference) =
-                reference_of(part).map(str::to_owned).filter(|_| part.get("type").and_then(Value::as_str) == Some("file") && mime == "application/pdf")
-            else {
-                continue;
-            };
-            let (bytes, size) = match staged.iter().find(|(staged, _)| *staged == reference) {
-                Some((_, bytes)) => {
-                    let size = bytes.len() as u64;
-                    (if size > MAX_PDF_BYTES { Vec::new() } else { bytes.clone() }, size)
-                }
-                None => {
-                    let data_dir = self.data_dir.clone();
-                    let claimed = part.get("sizeBytes").cloned();
-                    self.lane
-                        .submit(&CancellationToken::new(), move |lane| {
-                            let blobs = BlobStore::new(&data_dir);
-                            let store = Store::new(&blobs, lane);
-                            let size = blob_size(&store, &reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
-                            let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
-                            let bytes = if size > MAX_PDF_BYTES { Vec::new() } else { blobs.read(lane, &digest).map_err(|error| error.to_string())? };
-                            Ok::<_, String>((bytes, size))
-                        })
-                        .map_err(|error| format!("{error:?}"))?
-                        .await
-                        .map_err(|error| format!("{error:?}"))??
-                }
-            };
-            let facts = pdf_intake_facts(self.docs.as_ref(), &thread, &base64::engine::general_purpose::STANDARD.encode(&bytes), size, false).await?;
-            part["pageCount"] = json!(facts.page_count.unwrap_or(0));
-            part["textPages"] = json!(facts.text_pages.unwrap_or(0));
-            part["textChars"] = json!(facts.text_chars.unwrap_or(0));
-        }
-        // Every check passed: the files are stored (`saveBuffer`; no ticket, as `StoreFiles::store_inline`).
-        let data_dir = self.data_dir.clone();
-        self.lane
-            .submit(&CancellationToken::new(), move |lane| {
-                let blobs = BlobStore::new(&data_dir);
-                staged
-                    .iter()
-                    .try_for_each(|(_, bytes)| blobs.put_with(lane, bytes, mixdog_store::fsio::Access::Inherit).map(|_| ()).map_err(|error| error.to_string()))
-            })
-            .map_err(|error| format!("{error:?}"))?
-            .await
-            .map_err(|error| format!("{error:?}"))??;
+        let (mut intake, staged) = on_durability(self.lane, move |lane| {
+            let blobs = BlobStore::new(&data_dir);
+            let store = Store::new(&blobs, lane);
+            let intake = take_upload(&store, &text, &upload)?;
+            Ok::<_, String>((intake, store.staged.into_inner()))
+        })
+        .await??;
+        self.check_pdfs(room_id, &mut intake.prompt, &staged).await?;
+        self.commit_staged(staged).await?;
         let parts: Vec<Value> = intake
             .prompt
             .into_iter()
@@ -664,6 +669,31 @@ pub(crate) mod tests {
         assert!(image.iter().all(|path| held.contains(path)), "the image is the vault's import: {held:?}");
         assert_eq!(held.len(), 64 + image.len(), "every file of the accepted message is stored");
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_uploaded_file_and_image_become_attachment_records_by_their_stored_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let files = SessionFiles::new(
+            Arc::new(SessionDirectory::new(rig.deps())),
+            lane,
+            dir.path().to_path_buf(),
+            Vec::new(),
+            Arc::new(NoDocuments),
+            Arc::new(|_: &str| {}),
+        );
+        let file = json!({ "type": "file", "data": b64(b"abc"), "filename": "a.bin" });
+        let row = files.take_in("room01", upload_row("t".into(), vec![file], None)).await.unwrap();
+        let attachments = row["attachments"].as_array().unwrap();
+        assert_eq!(attachments.len(), 2);
+        let sha_of_abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let file = attachments.iter().find(|attachment| attachment["name"] == "a.bin").expect("the file's record");
+        assert_eq!((file["kind"].as_str(), file["size"].as_u64()), (Some("file"), Some(3)));
+        assert_eq!((file["id"].as_str(), file["attachmentRef"].as_str()), (Some(sha_of_abc), Some(sha_of_abc)));
+        assert!(file["mimeType"].as_str().is_some_and(|mime| !mime.is_empty()));
+        assert!(attachments.iter().any(|attachment| attachment["kind"] == "image"));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rows_without_a_member_turn_to_read_come_back_unchanged_or_without_the_pointer() {
         let (_rig, files) = files();

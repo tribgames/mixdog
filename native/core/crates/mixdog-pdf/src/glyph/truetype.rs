@@ -170,171 +170,184 @@ impl TrueTypeFont {
             return Ok(());
         }
         visited.push(id);
-        let mut first_point: Option<[f64; 2]> = None;
-        let number_of_contours = i16_at(code, 0)?;
-        let mut i = 10usize;
-        // `code[i]` past the end is `undefined`: arithmetic on it is NaN, a flag byte tests as 0.
-        let byte_f = |at: usize| -> f64 { u8_at(code, at).map_or(f64::NAN, f64::from) };
-        if number_of_contours < 0 {
-            loop {
-                let flags = u16_at(code, i)?;
-                let glyph_index = usize::from(u16_at(code, i + 2)?);
-                i += 4;
-                let arg1: f64;
-                let arg2: f64;
-                if flags & 0x01 != 0 {
-                    if flags & 0x02 != 0 {
-                        arg1 = f64::from(i16_at(code, i)?);
-                        arg2 = f64::from(i16_at(code, i + 2)?);
-                    } else {
-                        arg1 = f64::from(u16_at(code, i)?);
-                        arg2 = f64::from(u16_at(code, i + 2)?);
-                    }
-                    i += 4;
-                } else if flags & 0x02 != 0 {
-                    let (a, b) = (u8_at(code, i), u8_at(code, i + 1));
-                    let (Some(a), Some(b)) = (a, b) else {
-                        return error(OUT_OF_BOUNDS);
-                    };
-                    arg1 = f64::from(a as i8);
-                    arg2 = f64::from(b as i8);
-                    i += 2;
-                } else {
-                    arg1 = byte_f(i);
-                    arg2 = byte_f(i + 1);
-                    i += 2;
-                }
-                let (x, y) = if flags & 0x02 != 0 { (arg1, arg2) } else { (0.0, 0.0) };
-                let (mut scale_x, mut scale_y, mut scale01, mut scale10) = (1.0, 1.0, 0.0, 0.0);
-                let float214 = |at: usize| -> Result<f64> { Ok(f64::from(i16_at(code, at)?) / 16384.0) };
-                if flags & 0x08 != 0 {
-                    scale_x = float214(i)?;
-                    scale_y = scale_x;
-                    i += 2;
-                } else if flags & 0x40 != 0 {
-                    scale_x = float214(i)?;
-                    scale_y = float214(i + 2)?;
-                    i += 4;
-                } else if flags & 0x80 != 0 {
-                    scale_x = float214(i)?;
-                    scale01 = float214(i + 2)?;
-                    scale10 = float214(i + 4)?;
-                    scale_y = float214(i + 6)?;
-                    i += 8;
-                }
-                if glyph_index < self.glyphs.len() {
-                    cmds.save();
-                    cmds.transform(&[scale_x, scale01, scale10, scale_y, x, y]);
-                    self.compile_glyf(glyph_index, cmds, visited)?;
-                    cmds.restore();
-                }
-                if flags & 0x20 == 0 {
-                    break;
-                }
-            }
+        if i16_at(code, 0)? < 0 {
+            self.compile_composite(code, cmds, visited)?;
         } else {
-            let mut end_pts = Vec::with_capacity(usize::try_from(number_of_contours).unwrap_or(0));
-            for _ in 0..number_of_contours {
-                end_pts.push(usize::from(u16_at(code, i)?));
-                i += 2;
-            }
-            let instruction_length = usize::from(u16_at(code, i)?);
-            i += 2 + instruction_length;
-            let number_of_points = end_pts.last().map_or(0, |last| last + 1);
-            // (flags, x, y); a flag byte past the end is `undefined`, which tests as 0.
-            let mut points: Vec<(u32, f64, f64)> = Vec::new();
-            while points.len() < number_of_points {
-                let flags = u32::from(u8_at(code, i).unwrap_or(0));
-                i += 1;
-                let mut repeat: Option<usize> = Some(1);
-                if flags & 0x08 != 0 {
-                    repeat = u8_at(code, i).map(|r| 1 + usize::from(r));
-                    i += 1;
-                }
-                for _ in 0..repeat.unwrap_or(0) {
-                    points.push((flags, 0.0, 0.0));
-                }
-            }
-            let mut x = 0.0f64;
-            for point in points.iter_mut().take(number_of_points) {
-                match point.0 & 0x12 {
-                    0x00 => {
-                        x += f64::from(i16_at(code, i)?);
-                        i += 2;
-                    }
-                    0x02 => {
-                        x -= byte_f(i);
-                        i += 1;
-                    }
-                    0x12 => {
-                        x += byte_f(i);
-                        i += 1;
-                    }
-                    _ => {}
-                }
-                point.1 = x;
-            }
-            let mut y = 0.0f64;
-            for point in points.iter_mut().take(number_of_points) {
-                match point.0 & 0x24 {
-                    0x00 => {
-                        y += f64::from(i16_at(code, i)?);
-                        i += 2;
-                    }
-                    0x04 => {
-                        y -= byte_f(i);
-                        i += 1;
-                    }
-                    0x24 => {
-                        y += byte_f(i);
-                        i += 1;
-                    }
-                    _ => {}
-                }
-                point.2 = y;
-            }
-            let mut start_point = 0usize;
-            for &end_point in &end_pts {
-                let from = start_point.min(points.len());
-                let to = (end_point + 1).min(points.len()).max(from);
-                let mut contour: Vec<(u32, f64, f64)> = points[from..to].to_vec();
-                let (Some(&first), Some(&last)) = (contour.first(), contour.last()) else {
-                    return error("Cannot read properties of undefined (reading 'flags')");
-                };
-                if first.0 & 1 != 0 {
-                    contour.push(first);
-                } else if last.0 & 1 != 0 {
-                    contour.insert(0, last);
-                } else {
-                    let p = (1, (first.1 + last.1) / 2.0, (first.2 + last.2) / 2.0);
-                    contour.insert(0, p);
-                    contour.push(p);
-                }
-                move_to(cmds, &mut first_point, contour[0].1, contour[0].2);
-                let mut j = 1usize;
-                while j < contour.len() {
-                    let point = contour[j];
-                    if point.0 & 1 != 0 {
-                        cmds.add(LINE_TO, &[point.1, point.2]);
-                    } else {
-                        let Some(next) = contour.get(j + 1).copied() else {
-                            return error("Cannot read properties of undefined (reading 'flags')");
-                        };
-                        if next.0 & 1 != 0 {
-                            cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, next.1, next.2]);
-                            j += 1;
-                        } else {
-                            cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, (point.1 + next.1) / 2.0, (point.2 + next.2) / 2.0]);
-                        }
-                    }
-                    j += 1;
-                }
-                start_point = end_point + 1;
-            }
+            compile_simple(code, cmds)?;
         }
         visited.retain(|&v| v != id);
         Ok(())
     }
+
+    fn compile_composite(&self, code: &[u8], cmds: &mut Commands, visited: &mut Vec<usize>) -> Result<()> {
+        let mut i = 10usize;
+        // `code[i]` past the end is `undefined`: arithmetic on it is NaN.
+        let byte_f = |at: usize| -> f64 { u8_at(code, at).map_or(f64::NAN, f64::from) };
+        loop {
+            let flags = u16_at(code, i)?;
+            let glyph_index = usize::from(u16_at(code, i + 2)?);
+            i += 4;
+            let arg1: f64;
+            let arg2: f64;
+            if flags & 0x01 != 0 {
+                if flags & 0x02 != 0 {
+                    arg1 = f64::from(i16_at(code, i)?);
+                    arg2 = f64::from(i16_at(code, i + 2)?);
+                } else {
+                    arg1 = f64::from(u16_at(code, i)?);
+                    arg2 = f64::from(u16_at(code, i + 2)?);
+                }
+                i += 4;
+            } else if flags & 0x02 != 0 {
+                let (a, b) = (u8_at(code, i), u8_at(code, i + 1));
+                let (Some(a), Some(b)) = (a, b) else {
+                    return error(OUT_OF_BOUNDS);
+                };
+                arg1 = f64::from(a as i8);
+                arg2 = f64::from(b as i8);
+                i += 2;
+            } else {
+                arg1 = byte_f(i);
+                arg2 = byte_f(i + 1);
+                i += 2;
+            }
+            let (x, y) = if flags & 0x02 != 0 { (arg1, arg2) } else { (0.0, 0.0) };
+            let (mut scale_x, mut scale_y, mut scale01, mut scale10) = (1.0, 1.0, 0.0, 0.0);
+            let float214 = |at: usize| -> Result<f64> { Ok(f64::from(i16_at(code, at)?) / 16384.0) };
+            if flags & 0x08 != 0 {
+                scale_x = float214(i)?;
+                scale_y = scale_x;
+                i += 2;
+            } else if flags & 0x40 != 0 {
+                scale_x = float214(i)?;
+                scale_y = float214(i + 2)?;
+                i += 4;
+            } else if flags & 0x80 != 0 {
+                scale_x = float214(i)?;
+                scale01 = float214(i + 2)?;
+                scale10 = float214(i + 4)?;
+                scale_y = float214(i + 6)?;
+                i += 8;
+            }
+            if glyph_index < self.glyphs.len() {
+                cmds.save();
+                cmds.transform(&[scale_x, scale01, scale10, scale_y, x, y]);
+                self.compile_glyf(glyph_index, cmds, visited)?;
+                cmds.restore();
+            }
+            if flags & 0x20 == 0 {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn compile_simple(code: &[u8], cmds: &mut Commands) -> Result<()> {
+    let mut first_point: Option<[f64; 2]> = None;
+    let number_of_contours = i16_at(code, 0)?;
+    let mut i = 10usize;
+    // `code[i]` past the end is `undefined`: arithmetic on it is NaN, a flag byte tests as 0.
+    let byte_f = |at: usize| -> f64 { u8_at(code, at).map_or(f64::NAN, f64::from) };
+    let mut end_pts = Vec::with_capacity(usize::try_from(number_of_contours).unwrap_or(0));
+    for _ in 0..number_of_contours {
+        end_pts.push(usize::from(u16_at(code, i)?));
+        i += 2;
+    }
+    let instruction_length = usize::from(u16_at(code, i)?);
+    i += 2 + instruction_length;
+    let number_of_points = end_pts.last().map_or(0, |last| last + 1);
+    // (flags, x, y); a flag byte past the end is `undefined`, which tests as 0.
+    let mut points: Vec<(u32, f64, f64)> = Vec::new();
+    while points.len() < number_of_points {
+        let flags = u32::from(u8_at(code, i).unwrap_or(0));
+        i += 1;
+        let mut repeat: Option<usize> = Some(1);
+        if flags & 0x08 != 0 {
+            repeat = u8_at(code, i).map(|r| 1 + usize::from(r));
+            i += 1;
+        }
+        for _ in 0..repeat.unwrap_or(0) {
+            points.push((flags, 0.0, 0.0));
+        }
+    }
+    let mut x = 0.0f64;
+    for point in points.iter_mut().take(number_of_points) {
+        match point.0 & 0x12 {
+            0x00 => {
+                x += f64::from(i16_at(code, i)?);
+                i += 2;
+            }
+            0x02 => {
+                x -= byte_f(i);
+                i += 1;
+            }
+            0x12 => {
+                x += byte_f(i);
+                i += 1;
+            }
+            _ => {}
+        }
+        point.1 = x;
+    }
+    let mut y = 0.0f64;
+    for point in points.iter_mut().take(number_of_points) {
+        match point.0 & 0x24 {
+            0x00 => {
+                y += f64::from(i16_at(code, i)?);
+                i += 2;
+            }
+            0x04 => {
+                y -= byte_f(i);
+                i += 1;
+            }
+            0x24 => {
+                y += byte_f(i);
+                i += 1;
+            }
+            _ => {}
+        }
+        point.2 = y;
+    }
+    let mut start_point = 0usize;
+    for &end_point in &end_pts {
+        let from = start_point.min(points.len());
+        let to = (end_point + 1).min(points.len()).max(from);
+        let mut contour: Vec<(u32, f64, f64)> = points[from..to].to_vec();
+        let (Some(&first), Some(&last)) = (contour.first(), contour.last()) else {
+            return error("Cannot read properties of undefined (reading 'flags')");
+        };
+        if first.0 & 1 != 0 {
+            contour.push(first);
+        } else if last.0 & 1 != 0 {
+            contour.insert(0, last);
+        } else {
+            let p = (1, (first.1 + last.1) / 2.0, (first.2 + last.2) / 2.0);
+            contour.insert(0, p);
+            contour.push(p);
+        }
+        move_to(cmds, &mut first_point, contour[0].1, contour[0].2);
+        let mut j = 1usize;
+        while j < contour.len() {
+            let point = contour[j];
+            if point.0 & 1 != 0 {
+                cmds.add(LINE_TO, &[point.1, point.2]);
+            } else {
+                let Some(next) = contour.get(j + 1).copied() else {
+                    return error("Cannot read properties of undefined (reading 'flags')");
+                };
+                if next.0 & 1 != 0 {
+                    cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, next.1, next.2]);
+                    j += 1;
+                } else {
+                    cmds.add(QUADRATIC_CURVE_TO, &[point.1, point.2, (point.1 + next.1) / 2.0, (point.2 + next.2) / 2.0]);
+                }
+            }
+            j += 1;
+        }
+        start_point = end_point + 1;
+    }
+    Ok(())
 }
 
 /// `moveTo` of `compileGlyf`: the previous contour is closed with a line back to its first point first.

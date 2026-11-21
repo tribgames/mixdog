@@ -251,11 +251,6 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
         log::event("service", "install state unavailable; no session will be served");
     }
 
-    // The delegation pipe server (app-delegated enroll/revoke) runs on its own
-    // thread for the service's lifetime, gated per request by the stored
-    // policy; it is stopped and joined after the monitor loop returns. It is
-    // started only when the installing user is known (its pipe DACL needs the
-    // SID), matching the session policy above.
     let delegation = installing_sid.clone().map(|sid| std::thread::spawn(move || crate::delegation::serve(&sid)));
 
     let verdict = monitor_loop(event, installing_sid.as_deref());
@@ -293,10 +288,6 @@ fn process_alive(process: &OwnedHandle) -> bool {
     unsafe { GetExitCodeProcess(process.get(), &mut code).is_ok() && code == STILL_ACTIVE }
 }
 
-/// One running helper: its process, the console session it serves, the
-/// service's end of its shutdown channel, and — until the helper has
-/// confirmed its parent watch — the armed bootstrap job it runs in. Dropping
-/// a `Helper` whose job is still armed terminates it through the job.
 struct Helper {
     process: OwnedHandle,
     session: u32,
@@ -590,10 +581,6 @@ fn monitor_loop(event: HANDLE, installing_sid: Option<&str>) -> Option<u32> {
             stop_helper(running, &format!("session {session} no longer permitted"));
         }
 
-        // Poll backstop in case a session-change control was missed. A helper
-        // still in its bootstrap wakes the loop by confirming its parent
-        // watch (it serves nothing before its release, so it cannot ask for
-        // SAS yet); a released helper wakes it with a SAS request.
         let mut handles = vec![event];
         if let Some(running) = helper.as_ref() {
             handles.push(if running.bootstrap.is_some() { running.channel.armed_handle() } else { running.channel.sas_handle() });

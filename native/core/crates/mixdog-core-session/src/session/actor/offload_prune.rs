@@ -1,21 +1,5 @@
-//! `pruneCompactedOffloads` (`compaction-runner.mjs:470`) after a manual compaction, on the actor, as Node with the
-//! prune-after-save fix (`node-fix-prune-after-save.patch`) does it.
-//!
-//! The prune starts only once the compaction is durable: the commit's ack is sent when the store acknowledged the
-//! batch (`release`), and a batch that failed, a commit the conversation moved past (nothing is written) or an actor
-//! that ended first never sends it (`compaction_rows`), so a stored transcript that still names a sidecar never
-//! outlives it. A prune a running turn stopped runs once that turn has ended (`run_deferred_prune`). Nothing of a
-//! prune is remembered anywhere else: every open of the thread reconciles its tool-result directory with what is
-//! stored then (`reconcile_offloads`, Node's `reconcileOffloadsOnResume`), so a prune a close, a stopped process or
-//! an unreadable archive kept from finishing happens at the next open. A close keeps every sidecar and only a delete
-//! purges them: without it, a session that never compacts again would keep them for its whole life.
-
 use super::*;
 
-/// A session's messages as Node's `session.messages` holds them: its system prompt (the leading `system` messages,
-/// which the core keeps in the header's prompt blocks, `SystemBlocks::from_header`, as the migration moves them
-/// there) and its model rows since the newest compaction (`read_context`, the conversation the model is sent). Node's
-/// `messages` holds nothing else.
 fn node_messages(header: &mixdog_store::schema::record::Header, rows: Vec<(mixdog_core_api::ids::ItemId, Value)>) -> Vec<Value> {
     let system = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header).node_messages();
     system.into_iter().chain(rows.into_iter().map(|(_, row)| row)).collect()
@@ -43,14 +27,6 @@ async fn stored_messages(deps: &SessionDeps, thread: &ThreadId) -> Result<Option
 /// How many sessions whose reference set is unknown one pass reads (Node's `OFFLOAD_CHECK_BATCH`).
 pub(crate) const OFFLOAD_SCAN_BATCH: usize = 32;
 
-/// `offloadCopies`: the stored messages of the sessions whose reference set names `own` (the copies of its
-/// conversation, and the copies of those: one catalog read, no session between them needed, so a copy whose source
-/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A copy deleted since names nothing. While
-/// a session's set is unknown (its header holds none under the present rules: an older build wrote it), whether it
-/// names `own` is not known: nothing is deleted, and those sessions are read off the actor (`scan_unknown`), after
-/// which the prune runs again. A session the catalog or the store cannot read keeps everything as well, and the
-/// desktop is told (`offload_prune_blocked`): nothing is pruned on its account until it can be read. A copy still
-/// being made (its rows not stored yet) answers `None` too; every skip says why.
 async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId, jobs: mpsc::UnboundedSender<JobDone>) -> Option<String> {
     let skipped = |why: String| {
         tracing::warn!(thread = own.as_str(), "offload prune skipped: {why}");
@@ -83,11 +59,6 @@ async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId, jobs: mpsc::Unb
     Some(mixdog_js::json_stringify(&Value::Array(out)))
 }
 
-/// Off the actor and off every request: up to [`OFFLOAD_SCAN_BATCH`] of the `unknown` sessions are read and what
-/// their transcripts name stored as their set (`record_offload_scan`). One that cannot be read stays unknown, and the
-/// desktop is told. Once the batch made some known, `own`'s prune runs again (on its actor, as every prune), which
-/// reads the next batch while unknown sessions remain: the scan resumes until none is left or none it reads becomes
-/// known.
 async fn scan_unknown(deps: Arc<SessionDeps>, own: ThreadId, unknown: Vec<(String, i64)>, jobs: mpsc::UnboundedSender<JobDone>) {
     let before = unknown.len();
     for (session, ordinal) in unknown.into_iter().take(OFFLOAD_SCAN_BATCH) {
@@ -142,20 +113,6 @@ impl SessionActor {
         self.prune_offloads(told);
     }
 
-    /// The listed sidecars: what the session references now (Node's `[session.messages, liveTurnMessages, pending,
-    /// ...copies]`: its system prompt, held in the header's prompt blocks, and its model rows since the newest
-    /// compaction (`node_messages`); no live turn messages, being idle; what waits in its queue and every record
-    /// accepted and not yet released; and, once an old sidecar none of that keeps remains, the stored copies of its
-    /// conversation in other sessions) is read and the engine deletes the candidates none of it reaches. A
-    /// reference is text: a sidecar whose path or file name occurs in these (or in an archive they reach) is kept, as
-    /// Node's `pruneOffloadSession` matches; text elsewhere (a room log, memory) keeps nothing. The decision is this actor's: a thread it let go (closed,
-    /// or its actor ended while the listing ran) is never pruned by it, as Node's prune of a session whose writer
-    /// claim it let go deletes nothing (`sessionWriterHeldHere`). The
-    /// run loop awaits this with nothing else handled: no message joins the session and no turn starts on it from
-    /// the read to the last delete, so a sidecar a message names when it is deleted was never one the session held.
-    /// A turn that started while the listing ran stops the prune: what it holds and has not committed is not read
-    /// (Node reads `session.liveTurnMessages`), so its sidecars are left to a later prune, as Node leaves an in-flight
-    /// turn's.
     pub(super) async fn prune_listed(&mut self, candidates: Vec<std::path::PathBuf>, told: oneshot::Sender<()>) {
         if self.compaction_blocked() {
             self.defer_prune();

@@ -68,6 +68,65 @@ fn add_filled(filled: &mut Map<String, Value>, key: &str, count: usize) {
     filled.insert(key.to_owned(), Value::from(before + count as u64));
 }
 
+/// The part's XML with every token the caller gave filled (particle forms first, so "{{company}}은" lands as 모아페이는), or
+/// `None` when nothing in it changed.
+fn fill_part(
+    mut xml: String,
+    tag: &str,
+    tokens: &Map<String, Value>,
+    particles: &[mixdog_office_base::korean_particles::Replacement],
+    replace: Replace<'_>,
+    filled: &mut Map<String, Value>,
+) -> Result<Option<String>, String> {
+    let mut changed = false;
+    let text = if particles.is_empty() { String::new() } else { paragraph_texts(&xml, tag).join("") };
+    for entry in particles {
+        if !text.contains(&entry.find) {
+            continue;
+        }
+        let replaced = replace(&xml, tag, &entry.find, &entry.replace)?;
+        if replaced.count == 0 {
+            continue;
+        }
+        xml = replaced.xml;
+        changed = true;
+        add_filled(filled, &entry.key, replaced.count);
+    }
+    let mut variants: Vec<(String, String)> = Vec::new();
+    for token in template_token_matches(&paragraph_texts(&xml, tag).join("")) {
+        match variants.iter_mut().find(|(raw, _)| *raw == token.raw) {
+            Some(known) => known.1 = token.key,
+            None => variants.push((token.raw, token.key)),
+        }
+    }
+    for (raw, key) in variants {
+        let Some(value) = tokens.get(&key) else { continue };
+        let replacement = if value.is_null() { String::new() } else { value_to_string(value) };
+        let replaced = replace(&xml, tag, &raw, &replacement)?;
+        if replaced.count == 0 {
+            continue;
+        }
+        xml = replaced.xml;
+        changed = true;
+        add_filled(filled, &key, replaced.count);
+    }
+    Ok(changed.then_some(xml))
+}
+
+fn unfilled_tokens(zip: &Package, parts: &[String], tag: &str) -> Vec<String> {
+    let mut remaining: Vec<String> = Vec::new();
+    for part in parts {
+        let xml = zip.text(part);
+        for token in template_token_matches(&paragraph_texts(&xml, tag).join("")) {
+            if !remaining.contains(&token.key) {
+                remaining.push(token.key);
+            }
+        }
+    }
+    sort_by_code_units(&mut remaining);
+    remaining
+}
+
 /// `fillTemplateParts(zip, parts, tag, operation, { replace })`: fills the tokens of every part that is listed (a part that
 /// is missing reads as empty). The tokens given are first tried with the Korean particle written after them, then plain.
 /// An error when `tokens` is not an object, when `strict` and a token stays unfilled, and when nothing was filled while
@@ -79,60 +138,15 @@ pub fn fill_template_parts(zip: &mut Package, parts: &[String], tag: &str, opera
     let mut filled = Map::new();
     let particles = korean_particle_replacements(operation.tokens);
     for part in parts {
-        let mut xml = zip.text(part);
-        let mut changed = false;
-        // The token with the particle written after it first, so "{{company}}은" lands as 모아페이는.
-        let text = if particles.is_empty() { String::new() } else { paragraph_texts(&xml, tag).join("") };
-        for entry in &particles {
-            if !text.contains(&entry.find) {
-                continue;
-            }
-            let replaced = replace(&xml, tag, &entry.find, &entry.replace)?;
-            if replaced.count == 0 {
-                continue;
-            }
-            xml = replaced.xml;
-            changed = true;
-            add_filled(&mut filled, &entry.key, replaced.count);
-        }
-        // `new Map(matches.map((match) => [match.raw, match.key]))`: a repeated spelling keeps its first place.
-        let mut variants: Vec<(String, String)> = Vec::new();
-        for token in template_token_matches(&paragraph_texts(&xml, tag).join("")) {
-            match variants.iter_mut().find(|(raw, _)| *raw == token.raw) {
-                Some(known) => known.1 = token.key,
-                None => variants.push((token.raw, token.key)),
-            }
-        }
-        for (raw, key) in variants {
-            let Some(value) = tokens.get(&key) else { continue };
-            let replacement = if value.is_null() { String::new() } else { value_to_string(value) };
-            let replaced = replace(&xml, tag, &raw, &replacement)?;
-            if replaced.count == 0 {
-                continue;
-            }
-            xml = replaced.xml;
-            changed = true;
-            add_filled(&mut filled, &key, replaced.count);
-        }
-        if changed {
+        let xml = zip.text(part);
+        if let Some(xml) = fill_part(xml, tag, tokens, &particles, replace, &mut filled)? {
             zip.set(part, xml);
         }
     }
-    let mut remaining: Vec<String> = Vec::new();
-    for part in parts {
-        let xml = zip.text(part);
-        for token in template_token_matches(&paragraph_texts(&xml, tag).join("")) {
-            if !remaining.contains(&token.key) {
-                remaining.push(token.key);
-            }
-        }
-    }
-    sort_by_code_units(&mut remaining);
+    let remaining = unfilled_tokens(zip, parts, tag);
     if operation.strict && !remaining.is_empty() {
         return Err(format!("Unfilled template tokens: {}", remaining.join(", ")));
     }
-    // Nothing filled while placeholders remain means the supplied names and the document's do not meet; "no change" alone
-    // would leave the caller guessing.
     if filled.is_empty() && !remaining.is_empty() {
         let carried: Vec<String> = remaining.iter().map(|key| format!("{{{{{key}}}}}")).collect();
         let named: Vec<&str> = js_object_keys(tokens).into_iter().map(String::as_str).collect();

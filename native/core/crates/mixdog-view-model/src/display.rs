@@ -1,8 +1,3 @@
-//! Display helpers: the model, context, time, usage and statusline labels every surface shares, and the tool-card line.
-//! Ported from `runtime/shared/{time-format, model-display, model-alias, provider-display-name, context-measurement,
-//! context-inspection, quiet-progress, skill-mentions, clean}.mjs`, `runtime/shared/statusline/*`,
-//! `ui/{session-stats, tool-card}.mjs` and `session-runtime/services/usage-dashboard-model.mjs`.
-
 mod coerce;
 
 pub mod clean;

@@ -1,11 +1,3 @@
-//! The QA action (`qa` of `core/office-actions-render.mjs`): a pipeline of audit (and the optional auto-fix), preview and baseline
-//! diff, structural design review, rendered-page review, and the merged verdict.
-//!
-//! - [`fix_operations`]: the repairs `autoFix` may apply on its own.
-//! - [`preview_stage`]: the pixels the review reads and the visual diff against the transaction's baseline.
-//! - [`design_review_stage`]: the structural design review with the per-page roles.
-//! - [`review_assembly`]: the issues merged and normalised, the checklist, the polish plan and the release score in one review.
-
 pub mod design_review_stage;
 pub mod fix_operations;
 pub mod preview_stage;
@@ -22,6 +14,7 @@ use mixdog_office_quality::pipeline::normalize_office_review_issues;
 use mixdog_office_quality::rendered::{RenderedOptions, is_small_worksheet_document, review_rendered_office_pages};
 use serde_json::{Map, Value, json};
 
+use self::design_review_stage::DesignStage;
 use self::fix_operations::qa_fix_operations;
 use self::preview_stage::list;
 use self::review_assembly::{Assembly, assemble_qa_review};
@@ -78,6 +71,13 @@ mod tests {
         assert_eq!(review["issues"][0]["severity"], "error");
     }
 
+    #[test]
+    fn the_preview_summary_keeps_the_shown_keys_and_always_says_whether_it_was_reused() {
+        let preview = json!({ "output": "a.pdf", "pageCount": 2, "reviewToken": "t", "_images": [1], "exportAvailable": false, "other": 1 });
+        assert_eq!(preview_summary(&preview), json!({ "output": "a.pdf", "pageCount": 2, "reviewToken": "t", "reused": false, "exportAvailable": false }));
+        assert_eq!(preview_summary(&json!({ "reused": true }))["reused"], json!(true));
+    }
+
     struct NoForms;
 
     /// A two-page PDF: page 1 draws nothing, page 2 draws one short line (a sparse page).
@@ -132,7 +132,74 @@ mod tests {
     }
 }
 
+fn preview_summary(preview: &Value) -> Value {
+    let mut shown = Map::new();
+    for key in ["output", "pageCount", "visualCoverage", "images", "reviewToken"] {
+        if let Some(value) = preview.get(key) {
+            shown.insert(key.to_owned(), value.clone());
+        }
+    }
+    shown.insert("reused".to_owned(), Value::Bool(preview.get("reused") == Some(&Value::Bool(true))));
+    if let Some(available) = preview.get("exportAvailable") {
+        shown.insert("exportAvailable".to_owned(), available.clone());
+    }
+    Value::Object(shown)
+}
+
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
+    fn review_rendered_pages(
+        &self,
+        handle: &SessionHandle,
+        format: &str,
+        target: &str,
+        preview: &Value,
+        images: &[Value],
+        design: &DesignStage,
+    ) -> Result<Value, TransactionError> {
+        let (html_source, edits, frame) = {
+            let session = lock(handle);
+            (session.authored.html_source.clone(), session.authored.html_source_edits > 0, session.authored.frame)
+        };
+        let output = preview.get("output").and_then(Value::as_str).unwrap_or_default();
+        let forced = forced_break_pages(
+            self.inspect().snapshot.proof,
+            &BreakSession { format, target: Path::new(target), html_source: html_source.as_deref().map(Path::new), html_source_edits: edits },
+            &BreakPreview { has_images: !images.is_empty(), output, export_available: preview.get("exportAvailable").and_then(Value::as_bool) },
+        )?;
+        let document = design.current_snapshot.as_ref().and_then(|read| read.get("document")).unwrap_or(&Value::Null);
+        let mut review = review_rendered_office_pages(
+            images,
+            &RenderedOptions {
+                format: format.to_owned(),
+                page_roles: design.page_roles.clone(),
+                small_worksheet: format == "xlsx" && is_small_worksheet_document(document),
+                page_count: to_number_of(preview.get("pageCount")),
+                designed_pages: frame,
+                forced_break_pages: forced.map(|pages| pages.into_iter().map(|page| page as f64).collect()),
+            },
+        )?;
+        let occupied = if format == "xlsx" { self.pages_with_text(output, &review) } else { Vec::new() };
+        settle_rendered_issues(&mut review, &occupied);
+        Ok(review)
+    }
+
+    fn keep_review_in_transaction(&self, handle: &SessionHandle, review: &Value) -> Result<(), TransactionError> {
+        let in_transaction = {
+            let mut session = lock(handle);
+            match session.state.transaction_mut() {
+                Some(transaction) => {
+                    transaction.review = Some(review.clone());
+                    true
+                }
+                None => false,
+            }
+        };
+        if in_transaction {
+            persist_office_transaction(&self.batch.transactions(), handle, None).map_err(TransactionError::Failed)?;
+        }
+        Ok(())
+    }
+
     /// `qa(session, args, cwd, { reuseRender })`.
     pub async fn qa(&self, handle: &SessionHandle, args: &Value, cwd: &str, reuse_render: bool) -> Result<Value, TransactionError> {
         // A portable workbook is calculated before it is read or drawn: the pixels then show the values the file holds, and
@@ -164,31 +231,7 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         let render_review = if structural {
             json!({ "ok": true, "format": format, "pages": [], "issues": [] })
         } else {
-            let (html_source, edits, frame) = {
-                let session = lock(handle);
-                (session.authored.html_source.clone(), session.authored.html_source_edits > 0, session.authored.frame)
-            };
-            let output = preview.get("output").and_then(Value::as_str).unwrap_or_default();
-            let forced = forced_break_pages(
-                self.inspect().snapshot.proof,
-                &BreakSession { format: &format, target: Path::new(&target), html_source: html_source.as_deref().map(Path::new), html_source_edits: edits },
-                &BreakPreview { has_images: !images.is_empty(), output, export_available: preview.get("exportAvailable").and_then(Value::as_bool) },
-            )?;
-            let document = design.current_snapshot.as_ref().and_then(|read| read.get("document")).unwrap_or(&Value::Null);
-            let mut review = review_rendered_office_pages(
-                &images,
-                &RenderedOptions {
-                    format: format.clone(),
-                    page_roles: design.page_roles.clone(),
-                    small_worksheet: format == "xlsx" && is_small_worksheet_document(document),
-                    page_count: to_number_of(preview.get("pageCount")),
-                    designed_pages: frame,
-                    forced_break_pages: forced.map(|pages| pages.into_iter().map(|page| page as f64).collect()),
-                },
-            )?;
-            let occupied = if format == "xlsx" { self.pages_with_text(output, &review) } else { Vec::new() };
-            settle_rendered_issues(&mut review, &occupied);
-            review
+            self.review_rendered_pages(handle, &format, &target, &preview, &images, &design)?
         };
         let (trust, created) = {
             let from_read = design.current_snapshot.as_ref().and_then(|read| read.get("trust")).filter(|trust| truthy(trust)).cloned();
@@ -211,34 +254,12 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             trust: &trust,
             created_at: self.now_iso(),
         });
-        let in_transaction = {
-            let mut session = lock(handle);
-            match session.state.transaction_mut() {
-                Some(transaction) => {
-                    transaction.review = Some(assembled.review.clone());
-                    true
-                }
-                None => false,
-            }
-        };
-        if in_transaction {
-            persist_office_transaction(&self.batch.transactions(), handle, None).map_err(TransactionError::Failed)?;
-        }
+        self.keep_review_in_transaction(handle, &assembled.review)?;
         let blocking = assembled.combined_issues_after.iter().any(|entry| matches!(entry.get("severity").and_then(Value::as_str), Some("error" | "warning")));
         let (id, mode, backend_name) = {
             let session = lock(handle);
             (session.id.clone(), session.mode.as_str(), session.backend.as_str())
         };
-        let mut shown = Map::new();
-        for key in ["output", "pageCount", "visualCoverage", "images", "reviewToken"] {
-            if let Some(value) = preview.get(key) {
-                shown.insert(key.to_owned(), value.clone());
-            }
-        }
-        shown.insert("reused".to_owned(), Value::Bool(preview.get("reused") == Some(&Value::Bool(true))));
-        if let Some(available) = preview.get("exportAvailable") {
-            shown.insert("exportAvailable".to_owned(), available.clone());
-        }
         let text = |value: Option<&Value>| value.filter(|value| truthy(value)).cloned().unwrap_or_else(|| json!(""));
         let mut all_images = images;
         all_images.extend(compared.diff_images.iter().cloned());
@@ -253,7 +274,7 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             "issuesBefore": before.get("issues").cloned().unwrap_or(Value::Null),
             "issuesAfter": assembled.combined_issues_after,
             "review": assembled.review,
-            "preview": Value::Object(shown),
+            "preview": preview_summary(&preview),
             "baseline": {
                 "available": compared.baseline.get("available").cloned().unwrap_or(Value::Null),
                 "output": text(compared.baseline.get("output")),

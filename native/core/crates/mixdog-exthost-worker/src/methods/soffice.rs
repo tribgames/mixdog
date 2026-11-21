@@ -1,9 +1,5 @@
 //! The LibreOffice dependency of the document methods (`document.libreOfficeStatus`, `document.installLibreOffice`):
 //! finding `soffice`, probing its version, and the guided install through winget or Homebrew.
-//!
-//! Children run in the scrubbed environment of the daemon's children (`scrubRuntimeRootVars`: host identity never leaks into
-//! the probed or installed program) with no window; the worker itself runs under the pool's containment, so what a child
-//! starts ends with the worker.
 
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, PoisonError};

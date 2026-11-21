@@ -1,8 +1,3 @@
-//! The daemon's memory background jobs over a temporary Postgres cluster: the transcript tail
-//! ingest against the Node run recorded in `fixtures/memory-jobs/golden.json`, a cycle1 run end to
-//! end (commit, coalescing), the scheduled slot claim, the tick that runs the scheduled cycle and
-//! stops on shutdown, and the transcript watcher on a real directory. Needs `MIXDOG_PG_RUNTIME`.
-
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -406,6 +401,7 @@ async fn shutdown_joins_the_ingestion_a_fired_timer_started() {
 /// Many debounces complete while the watcher lives: each one's bookkeeping is its slot in the owner's registry and retires with it, so only the event
 /// and sweep tasks stay outstanding (no list of finished waiters grows with the watcher's life).
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn completed_debounces_retire_their_bookkeeping_while_the_watcher_lives() {
     mixdog_rt::testing::tokens();
     let pg = TestPg::start().await;
@@ -513,4 +509,116 @@ async fn a_window_below_the_minimum_leaves_the_backlog_without_a_model_call() {
     }
     let pending = db.query(&format!("SELECT id FROM entries WHERE {}", cycle1_unchunked_sql("")), &[]).await.unwrap();
     assert!(pending.is_empty());
+}
+
+struct Summarizer {
+    calls: Mutex<usize>,
+}
+
+#[async_trait]
+impl Cycle1Llm for Summarizer {
+    async fn call(&self, _request: &Cycle1Request, _cancel: &CancellationToken, _prompt: &str) -> Result<String, String> {
+        *self.calls.lock().unwrap() += 1;
+        Ok("1|topic|fact|short".to_owned())
+    }
+}
+
+fn oversized_row(id: i64) -> crate::memory::cycles::quality::Row {
+    crate::memory::cycles::quality::Row {
+        id,
+        ts: id,
+        role: Some("user".into()),
+        content: words(8000),
+        session_id: Some("big".into()),
+        project_id: None,
+        element: None,
+    }
+}
+
+async fn generate_over(rows: &[crate::memory::cycles::quality::Row]) -> (crate::memory::cycles::quality::Generated, usize) {
+    use crate::memory::cycles::quality::{Generation, generate_cycle1_chunks};
+    let llm = Summarizer { calls: Mutex::new(0) };
+    let request = Cycle1Request { preset: None, timeout_ms: 1000.0 };
+    let cancel = CancellationToken::new();
+    let generation = Generation { llm: &llm, request: &request, cancel: &cancel, input_token_budget: 4096.0, now: &now_ms };
+    let generated = generate_cycle1_chunks(rows, &generation).await.expect("generation");
+    let calls = *llm.calls.lock().unwrap();
+    (generated, calls)
+}
+
+#[tokio::test]
+async fn one_row_over_the_source_budget_is_summarised_in_fragments_and_joined_into_one_chunk() {
+    let rows = [oversized_row(1)];
+    let (generated, calls) = generate_over(&rows).await;
+    assert!(generated.stats.fragments >= 2, "{:?}", generated.stats);
+    assert_eq!(calls as i64, generated.stats.fragments, "one call per fragment");
+    assert_eq!(generated.chunks.len(), 1);
+    assert_eq!(generated.chunks[0].members.iter().map(|m| m.id).collect::<Vec<_>>(), [1]);
+    assert!(generated.raw_row_ids.is_empty());
+}
+
+#[tokio::test]
+async fn rows_over_the_source_budget_are_generated_in_packets_and_every_row_is_accounted_for() {
+    let rows = [oversized_row(1), oversized_row(2), oversized_row(3)];
+    let (generated, calls) = generate_over(&rows).await;
+    assert!(calls >= 3, "each oversized row needed its own call, got {calls}");
+    let mut seen: Vec<i64> = generated.chunks.iter().flat_map(|c| c.members.iter().map(|m| m.id)).chain(generated.raw_row_ids.iter().copied()).collect();
+    seen.sort_unstable();
+    assert_eq!(seen, [1, 2, 3]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_run_that_finds_the_advisory_lock_held_records_one_request_and_calls_no_model() {
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    seed_session(&db, "sess-a", 3, THREE_HOURS).await;
+    let (runner, llm) = runner(&db, &["1-3|Topic|decision|Short summary"], None, Arc::new(Embeddings::default()));
+    let holder = db.client().await.unwrap();
+    holder.query_one("SELECT pg_advisory_lock(hashtext('mixdog.cycle1'))", &[]).await.unwrap();
+    let skipped = Arc::clone(&runner).run_cycle1(json!({"min_batch": 1}), Cycle1Options::default()).await.unwrap();
+    assert!(skipped.skipped_in_flight, "{:?}", skipped.to_json());
+    assert_eq!(*llm.calls.lock().unwrap(), 0);
+    let requests = db.query("SELECT value FROM meta WHERE key LIKE 'cycle_request.cycle1.%'", &[]).await.unwrap();
+    assert_eq!(requests.len(), 1, "the skipped run left one coalesced request");
+    assert_eq!(requests[0].get::<_, Value>(0)["count"], json!(1));
+    let unchunked: i64 = db.query("SELECT count(*) FROM entries WHERE chunk_root IS NULL", &[]).await.unwrap()[0].get(0);
+    assert_eq!(unchunked, 3, "nothing was processed");
+    runner.retries().cancel_all();
+    holder.query_one("SELECT pg_advisory_unlock(hashtext('mixdog.cycle1'))", &[]).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_window_of_only_empty_rows_is_marked_terminal_without_a_model_call() {
+    use crate::memory::cycles::quality::Row;
+    use crate::memory::cycles::rows::{PlanOptions, resolve_cycle1_plan};
+    use crate::memory::cycles::window::{WindowEnv, process_cycle1_window};
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    for i in 0..2 {
+        db.execute(
+            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, time_source) VALUES ($1, 'user', '   ', $2, 'empty', $3, 'recorded')",
+            &[&(now_ms() - THREE_HOURS + i), &format!("transcript:empty#{i}"), &(i as i32 + 1)],
+        )
+        .await
+        .expect("seed");
+    }
+    let ids: Vec<i64> = db.query("SELECT id FROM entries ORDER BY id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    let rows: Vec<Row> = ids
+        .iter()
+        .map(|&id| Row { id, ts: id, role: Some("user".into()), content: "   ".into(), session_id: Some("empty".into()), project_id: None, element: None })
+        .collect();
+    let (_runner, llm) = runner(&db, &[], None, Arc::new(Embeddings::default()));
+    let env = WindowEnv { db: db.clone(), llm: llm.clone(), embeddings: Arc::new(Embeddings::default()), now: Arc::new(now_ms) };
+    let plan = resolve_cycle1_plan(&json!({}), &PlanOptions::default(), Some(json!({"provider": "test", "model": "m"})));
+    let result = process_cycle1_window(&env, &rows, 0, &plan, &CancellationToken::new()).await.unwrap();
+    assert_eq!(*llm.calls.lock().unwrap(), 0);
+    assert_eq!((result.rows_considered, result.prefilter_marked, result.prefilter_mark_failed), (2, 2, 0));
+    assert_eq!(result.prefiltered_row_ids, ids);
+    assert_eq!(result.omitted_row_ids, ids);
+    let archived: i64 = db.query("SELECT count(*) FROM entries WHERE status::text = 'archived'", &[]).await.unwrap()[0].get(0);
+    assert_eq!(archived, 2);
 }

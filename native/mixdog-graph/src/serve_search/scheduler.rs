@@ -160,11 +160,6 @@ impl SchedulerInner {
     }
 }
 
-/// Drop one request's cancellation flag.
-///
-/// A poisoned map is recovered like every other cache in the runtime: skipping
-/// it instead would leak this entry and, worse, make every later lookup fail,
-/// which silently disables cancellation for the rest of the process.
 pub(super) fn forget_cancellation(cancellations: &Mutex<HashMap<RequestKey, Arc<AtomicBool>>>, key: RequestKey) {
     lock_recover(cancellations).remove(&key);
 }
@@ -299,10 +294,6 @@ pub(super) fn observe_scheduler_latency(state: &mut SchedulerState, queue_elapse
     }
 }
 
-/// Move queued searches of one class into `ready` while the class stays
-/// under its own limit and the whole scheduler under `total_ceiling`. The
-/// class's queue and in-flight counter travel as one pair, its limit and the
-/// total ceiling as another.
 fn admit_class(
     class: SearchClass,
     (queue, inflight): (&mut VecDeque<ScheduledSearch>, &mut usize),
@@ -375,11 +366,44 @@ pub(super) fn response_for_handler_result(id: u64, result: Result<serde_json::Va
     }
 }
 
+fn release_class_slot(inner: &SchedulerInner, class: SearchClass, queue_elapsed: Duration, handler_elapsed: Duration) -> SchedulerTelemetry {
+    let mut state = inner.lock_state();
+    let inflight = match class {
+        SearchClass::Interactive => &mut state.interactive_inflight,
+        SearchClass::Fuzzy => &mut state.fuzzy_inflight,
+        SearchClass::Bulk => &mut state.bulk_inflight,
+    };
+    *inflight = inflight.saturating_sub(1);
+    observe_scheduler_latency(&mut state, queue_elapsed, handler_elapsed, inner.bulk_limit);
+    let telemetry = scheduler_telemetry(inner, &state);
+    inner.changed.notify_all();
+    telemetry
+}
+
+fn annotate_response(
+    value: &mut serde_json::Map<String, serde_json::Value>,
+    class: SearchClass,
+    queue_elapsed: Duration,
+    handler_elapsed: Duration,
+    telemetry: SchedulerTelemetry,
+) {
+    value.insert("queueMs".to_string(), serde_json::json!(queue_elapsed.as_millis()));
+    value.insert("handlerMs".to_string(), serde_json::json!(handler_elapsed.as_millis()));
+    value.insert(
+        "class".to_string(),
+        serde_json::json!(match class {
+            SearchClass::Interactive => "interactive",
+            SearchClass::Fuzzy => "fuzzy",
+            SearchClass::Bulk => "bulk",
+        }),
+    );
+    value.insert("scheduler".to_string(), telemetry_json(telemetry));
+}
+
 pub(super) fn execute_scheduled_search(inner: Arc<SchedulerInner>, class: SearchClass, search: ScheduledSearch) {
     let ScheduledSearch { req, cancelled, queued_at, client_id, sink } = search;
     let id = req.id;
     let queue_elapsed = queued_at.elapsed();
-    let queue_ms = queue_elapsed.as_millis();
     let handler_started = Instant::now();
     let mut response = if cancelled.load(Ordering::Relaxed) {
         None
@@ -389,37 +413,9 @@ pub(super) fn execute_scheduled_search(inner: Arc<SchedulerInner>, class: Search
         response_for_handler_result(req.id, handled, cancelled.load(Ordering::Relaxed))
     };
     let handler_elapsed = handler_started.elapsed();
-    let handler_ms = handler_elapsed.as_millis();
-    let telemetry = {
-        let mut state = inner.lock_state();
-        match class {
-            SearchClass::Interactive => {
-                state.interactive_inflight = state.interactive_inflight.saturating_sub(1);
-            }
-            SearchClass::Fuzzy => {
-                state.fuzzy_inflight = state.fuzzy_inflight.saturating_sub(1);
-            }
-            SearchClass::Bulk => {
-                state.bulk_inflight = state.bulk_inflight.saturating_sub(1);
-            }
-        }
-        observe_scheduler_latency(&mut state, queue_elapsed, handler_elapsed, inner.bulk_limit);
-        let telemetry = scheduler_telemetry(&inner, &state);
-        inner.changed.notify_all();
-        telemetry
-    };
+    let telemetry = release_class_slot(&inner, class, queue_elapsed, handler_elapsed);
     if let Some(value) = response.as_mut().and_then(serde_json::Value::as_object_mut) {
-        value.insert("queueMs".to_string(), serde_json::json!(queue_ms));
-        value.insert("handlerMs".to_string(), serde_json::json!(handler_ms));
-        value.insert(
-            "class".to_string(),
-            serde_json::json!(match class {
-                SearchClass::Interactive => "interactive",
-                SearchClass::Fuzzy => "fuzzy",
-                SearchClass::Bulk => "bulk",
-            }),
-        );
-        value.insert("scheduler".to_string(), telemetry_json(telemetry));
+        annotate_response(value, class, queue_elapsed, handler_elapsed, telemetry);
     }
     forget_cancellation(&inner.cancellations, (client_id, id));
     if cancelled.load(Ordering::Relaxed) {

@@ -286,7 +286,7 @@ pub fn provider_turn_error(error: &ProviderError, provider: &str, data: Value) -
         }),
     };
     let delivery = match error.delivery {
-        DeliveryState::NotSent => mixdog_protocol::DeliveryState::NotSent,
+        DeliveryState::NotSent | DeliveryState::NotProcessed => mixdog_protocol::DeliveryState::NotSent,
         DeliveryState::Ambiguous => mixdog_protocol::DeliveryState::Ambiguous,
         DeliveryState::Accepted => mixdog_protocol::DeliveryState::Accepted,
     };
@@ -350,6 +350,43 @@ fn error_text(error: &TurnError) -> &str {
     if error.message.is_empty() { "Error" } else { &error.message }
 }
 
+fn legacy_quota_kind(message: &str) -> Option<&'static str> {
+    if LEGACY_BILLING.is_match(message) {
+        Some("billing")
+    } else if LEGACY_QUOTA.is_match(message) {
+        Some("quota_exhausted")
+    } else {
+        None
+    }
+}
+
+/// The quota stop of a failure: the pool's proof names its provider, model and reset; the route and the error's own reset fill what it leaves out.
+fn quota_record(proof: Option<&QuotaProof>, reset_at: Option<u64>, route: &Route<'_>) -> Value {
+    let named = |own: Option<&String>, route: &str| own.filter(|name| !name.is_empty()).map_or_else(|| route.to_owned(), Clone::clone);
+    json!({
+        "provider": named(proof.and_then(|p| p.provider.as_ref()), route.provider),
+        "model": named(proof.and_then(|p| p.model.as_ref()), route.model),
+        "resetAt": proof.and_then(|p| p.reset_at).or(reset_at),
+    })
+}
+
+fn timeout_phase(phase: TimeoutKind) -> TimeoutPhase {
+    match phase {
+        TimeoutKind::Headers => TimeoutPhase::Headers,
+        TimeoutKind::FirstChunk => TimeoutPhase::FirstChunk,
+        TimeoutKind::Idle => TimeoutPhase::Idle,
+        TimeoutKind::Auth => TimeoutPhase::Auth,
+    }
+}
+
+fn presented_delivery(delivery: mixdog_protocol::DeliveryState) -> DeliveryState {
+    match delivery {
+        mixdog_protocol::DeliveryState::NotSent => DeliveryState::NotSent,
+        mixdog_protocol::DeliveryState::Ambiguous => DeliveryState::Ambiguous,
+        mixdog_protocol::DeliveryState::Accepted => DeliveryState::Accepted,
+    }
+}
+
 /// `{ errorKind, quota, detail, errorDetails }` of `turnFailureRecord(error, route)`.
 pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map<String, Value>, MalformedFacts> {
     let facts = ProviderFacts::of(error)?;
@@ -363,11 +400,7 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
     // `legacyQuotaWording` (presentation only): a fully untyped error (no status, code or retry advice) may still read
     // as a usage limit from unambiguous wording, e.g. a persisted failure's text.
     if kind == "unknown" && status == 0 && code.is_empty() && retry_after_ms.is_none() {
-        if LEGACY_BILLING.is_match(&error.message) {
-            kind = "billing";
-        } else if LEGACY_QUOTA.is_match(&error.message) {
-            kind = "quota_exhausted";
-        }
+        kind = legacy_quota_kind(&error.message).unwrap_or(kind);
     }
     // `resetAtOf` (`provider-error-kind.mjs:601-609`): the error's own, else the proof's.
     let reset_at = facts.reset_at.filter(|at| *at > 0).or_else(|| proof.and_then(|p| p.reset_at).filter(|at| *at > 0));
@@ -380,16 +413,7 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
     out.insert("errorKind".into(), error_kind);
     // `turnFailureRecord`: a quota stop is the pool's proof, or an exhausted quota with the reset the provider named.
     if proof.is_some() || (kind == "quota_exhausted" && reset_at.is_some()) {
-        let named = |own: Option<&String>, route: &str| own.filter(|name| !name.is_empty()).map_or_else(|| route.to_owned(), Clone::clone);
-        let quota_reset = proof.and_then(|p| p.reset_at).or(reset_at);
-        out.insert(
-            "quota".into(),
-            json!({
-                "provider": named(proof.and_then(|p| p.provider.as_ref()), route.provider),
-                "model": named(proof.and_then(|p| p.model.as_ref()), route.model),
-                "resetAt": quota_reset,
-            }),
-        );
+        out.insert("quota".into(), quota_record(proof, reset_at, route));
     }
     let descriptor =
         (provider.is_some() || proof.is_some()).then(|| Descriptor { kind: kind.to_owned(), code: code.clone(), status, retry_after_ms, reset_at });
@@ -402,20 +426,11 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
         status,
         retry_after_ms: retry_after_ms.unwrap_or(0),
         descriptor,
-        timeout_phase: timeout.map(|t| match t.phase {
-            TimeoutKind::Headers => TimeoutPhase::Headers,
-            TimeoutKind::FirstChunk => TimeoutPhase::FirstChunk,
-            TimeoutKind::Idle => TimeoutPhase::Idle,
-            TimeoutKind::Auth => TimeoutPhase::Auth,
-        }),
+        timeout_phase: timeout.map(|t| timeout_phase(t.phase)),
         waited_ms: timeout.map_or(0, |t| t.waited_ms),
         attempts: timeout.map_or(0, |t| t.attempts),
         fault: facts.fault.map(FaultFacts::fault),
-        delivery: provider.and_then(|p| p.delivery).map(|delivery| match delivery {
-            mixdog_protocol::DeliveryState::NotSent => DeliveryState::NotSent,
-            mixdog_protocol::DeliveryState::Ambiguous => DeliveryState::Ambiguous,
-            mixdog_protocol::DeliveryState::Accepted => DeliveryState::Accepted,
-        }),
+        delivery: provider.and_then(|p| p.delivery).map(presented_delivery),
         ..ErrorView::default()
     };
     // The provider is named from the turn's own route, never from the error (`turn-failure.mjs:44`).

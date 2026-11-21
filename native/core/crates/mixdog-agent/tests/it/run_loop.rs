@@ -430,7 +430,9 @@ struct Sink {
 impl TranscriptSink for Sink {
     async fn commit(&self, message: &AgentMessage) -> Result<Ticket, mixdog_agent::env::CommitError> {
         if self.refused.load(Ordering::Relaxed) {
-            return Err(mixdog_agent::env::CommitError::StoreUnavailable);
+            return Err(mixdog_agent::env::CommitError::StoreUnavailable(mixdog_agent::compact::blob_reads::StoreUnavailable(
+                mixdog_agent::compact::blob_reads::LaneFault::ShutDown,
+            )));
         }
         let mut committed = self.committed.lock().unwrap();
         committed.push(message.clone());
@@ -2415,10 +2417,6 @@ impl TranscriptSink for OrderedSink {
     }
 }
 
-/// Each request leaves only after the sink stored what the run drafted, the mark of that send among it: a process killed
-/// with the request on the wire then recovers knowing it was sent (the tool result it ended with keeps `sentRequestTail`),
-/// where a request that left first is recovered as a turn still in its tool run. Fails without the wait in
-/// `Run::send_attempts` (`send.rs`).
 #[tokio::test]
 async fn each_request_leaves_after_the_mark_of_its_send_is_stored() {
     let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
@@ -2442,10 +2440,7 @@ async fn each_request_leaves_after_the_mark_of_its_send_is_stored() {
     assert_eq!(waited, [0, 1], "one wait before each request, with only the earlier requests sent: {log:?}");
 }
 
-/// The request after a tool batch leaves only once the tool result it carries is durable: Node appends each turn row
-/// synchronously (`appendFileSync`, `turn-checkpoint-journal.mjs:503`) before its next request, so a process killed with
-/// that request on the wire restarts holding the result; a core that sent first would restart without it and resume with
-/// a cancelled call instead. Fails without `Run::drive`'s wait on the last pushed ticket (`run.rs`).
+/// Node appends each turn row synchronously (`appendFileSync`, `turn-checkpoint-journal.mjs:503`) before its next request.
 #[tokio::test]
 async fn the_request_after_a_tool_batch_waits_until_its_tool_result_is_durable() {
     let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
@@ -2529,7 +2524,7 @@ async fn a_refused_commit_fails_the_run_with_the_commit_error() {
     let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])]);
     h.sink.refused.store(true, Ordering::Relaxed);
     let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the commit was refused");
-    assert!(matches!(failure.error, AgentError::Commit(mixdog_agent::env::CommitError::StoreUnavailable)), "{:?}", failure.error);
+    assert!(matches!(failure.error, AgentError::Commit(mixdog_agent::env::CommitError::StoreUnavailable(_))), "{:?}", failure.error);
     assert_eq!(dump(&failure.transcript), ["user:go"]);
     assert!(h.sink.committed.lock().unwrap().is_empty());
 }
@@ -3738,10 +3733,7 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
     assert_eq!(counter.0.load(std::sync::atomic::Ordering::SeqCst), 5);
 }
 
-// ---------------------------------------------------------------------------
-// Text-leaked tool calls: what the loop dispatches, returns and stores, against the Node loop
-// (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
-// ---------------------------------------------------------------------------
+// Expected values: `fixtures/agent/leaked-toolcall/record.mjs` (the real agent loop over the route's real decoder).
 
 /// A gate whose surface refuses `blocked` before any call is dispatched.
 struct BlockedSurface;
@@ -3902,10 +3894,7 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
     }
 }
 
-/// A returned error is an error call by the tool's own return (`execute-call.mjs:17-20`), so the offload that replaces its
-/// text with a pointer does not take its failure row away: the row holds the offloaded result the transcript holds
-/// (`finalize.mjs:238`), and the transcript keeps the error kind. The Node recording of this case is the tool-failures
-/// scenario "a returned error that is offloaded".
+/// Node: `execute-call.mjs:17-20`, `finalize.mjs:238`; recorded as the tool-failures scenario "a returned error that is offloaded".
 #[tokio::test]
 async fn an_offloaded_returned_error_keeps_its_failure_row() {
     let mut h = Harness::new(vec![turn(vec![call("c1", "big", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
@@ -4009,10 +3998,7 @@ fn elapse(clock: &Arc<FixedClock>, ms: i64) -> Step {
     Step::Wire(wire, "the clock")
 }
 
-/// A replayed send's `loop` row times the round of Node's loop that settled it. A retry on the provider's own ladder (a cut
-/// stream issued again) stays inside the send, as inside Node's `provider.send`; a replay Node's loop runs as a new round (here
-/// the request rebuilt without a rejected tool schema, `retry_tool_schema_drop`) starts the iteration and the send again, as
-/// `beginIteration` and `sendProviderRequest` restart `iterT0` and `sendStartedAt`.
+/// Node: a retry on the provider's own ladder stays inside `provider.send`; `beginIteration` and `sendProviderRequest` restart `iterT0` and `sendStartedAt`.
 #[tokio::test]
 async fn a_replayed_sends_loop_row_times_the_round_that_settled_it() {
     let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
@@ -4118,10 +4104,7 @@ impl ResultReuse for LandsTheSwitch {
     }
 }
 
-/// Node starts the calls of a batch in order (`startEagerRun`) and prepares each from the folder the session holds as it starts,
-/// before the `session` call's own steps have let its switch land (recorded: `switch-project-turn-cases`, "the switch and the
-/// file are one batch"). A call that follows the switch in its batch therefore runs in the folder the batch began in, even when
-/// the switch lands while that call's admission is still awaiting.
+/// Node: `startEagerRun` prepares each call from the folder the session holds as it starts (recorded: `switch-project-turn-cases`, "the switch and the file are one batch").
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_in() {
     let a = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir().join("a")).unwrap();

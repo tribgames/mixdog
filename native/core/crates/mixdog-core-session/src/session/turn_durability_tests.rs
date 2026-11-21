@@ -281,13 +281,6 @@ async fn a_manual_compaction_whose_save_fails_is_refused_and_never_written() {
     assert!(rig.store.stored_header(&handle.id).expect("the header").get("compaction").is_none(), "nor its count");
 }
 
-/// A barrier fails while a later record of the turn is still encoding: that record is written with the held ones once the
-/// disk takes writes, and the turn goes on (it was dropped as stale, and nothing ever passed it).
-///
-/// The test lanes run an encode inline on the actor, so B "still encoding" is the actor blocked in B's encode until the
-/// barrier's failure is in its channel (the durability task runs on its own worker thread; hence three). The actor's loop
-/// takes the durability message before the encode's result (`biased`), the order a pooled lane gives when the encode ends
-/// late.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn a_record_still_encoding_when_a_barrier_fails_is_written_with_the_held_ones() {
     let rig = Rig::new();
@@ -310,8 +303,6 @@ async fn a_record_still_encoding_when_a_barrier_fails_is_written_with_the_held_o
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             if let Some(gate) = gate {
-                // The next barrier (A's) waits until the later record is encoding, then fails; B is sent once A is
-                // handed, so the actor is not blocked in B's encode before it hands A.
                 *commit_gate.lock().unwrap() = Some(gate);
                 *failing.lock().unwrap() = Some("EIO: injected".into());
                 let row = |iid: String, text: &str| ItemCommit {

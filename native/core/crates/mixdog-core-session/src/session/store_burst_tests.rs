@@ -1,8 +1,3 @@
-//! A burst of rows larger than the durability window: every product path that stores a whole conversation in one request
-//! (`thread/inheritedRows/append`, a room post or an import through `thread/roomRows/append`, `inheritFrom`) lands every row,
-//! in order, handed to the store as fast as its lane takes them (Node buffers the whole append, `session-log-writer.mjs`
-//! `_messageRecord`), behind a store that is slow too; a failed write of it is told once and the thread goes on.
-
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 

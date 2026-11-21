@@ -229,14 +229,8 @@ impl OneShot {
         self
     }
 
-    /// Sends `messages` (system and user rows, as given on the wire).
-    pub async fn call(&self, call: &OneShotCall, mut messages: Vec<AgentMessage>) -> Result<OneShotOutput, AgentError> {
-        // This path skips the request boundary, which repairs the loop's
-        // transcript; the adapters do not pair tool calls themselves.
-        repair_before_send(&mut messages);
-        // An independent request, never a continuation of the source
-        // conversation's effort history.
-        let options = RequestOptions {
+    fn independent_options(&self, call: &OneShotCall) -> RequestOptions {
+        RequestOptions {
             effort: Some(call.shape.effort.clone()),
             effort_projection: None,
             tool_choice: None,
@@ -251,9 +245,16 @@ impl OneShot {
             },
             max_output_tokens_override: call.max_output_tokens,
             ..self.options.clone()
-        };
+        }
+    }
+
+    /// Sends `messages` (system and user rows, as given on the wire).
+    pub async fn call(&self, call: &OneShotCall, mut messages: Vec<AgentMessage>) -> Result<OneShotOutput, AgentError> {
+        // This path skips the request boundary, which repairs the loop's
+        // transcript; the adapters do not pair tool calls themselves.
+        repair_before_send(&mut messages);
         let mut config = RunConfig::new(self.tool_env.thread_id.clone(), self.tool_env.turn_id.clone(), call.model.clone());
-        config.options = options;
+        config.options = self.independent_options(call);
         config.retry_529 = call.shape.retry_529;
         let mut run = Run::new(
             self.env.clone(),

@@ -76,123 +76,137 @@ fn has_no_italic_script(text: &str) -> bool {
         .any(|c| matches!(c, '\u{1100}'..='\u{11FF}' | '\u{3040}'..='\u{30FF}' | '\u{3130}'..='\u{318F}' | '\u{3400}'..='\u{9FFF}' | '\u{AC00}'..='\u{D7AF}'))
 }
 
-/// Eyebrow (dashboards), title and subtitle bands, and the source line; the first free row.
-fn push_title_bands(output: &mut Vec<Value>, layout: &Layout, input: &Value) -> usize {
+/// The source of the sheet's figures in the muted row under the bands; whether one was written.
+fn push_source_band(output: &mut Vec<Value>, layout: &Layout, input: &Value, at: usize) -> bool {
+    let Some(source) = prop(input, "source").filter(|source| truthy(source)) else { return false };
+    let (last_column, _, _) = layout.panel_band();
+    let tokens = &layout.tokens;
+    let cited = provenance_text(Some(source));
+    let shown = if cited.is_empty() { value_to_string(source) } else { cited };
+    push_band(
+        output,
+        &layout.sheet,
+        &last_column,
+        at,
+        &shown,
+        props(vec![
+            ("fontName", tokens.face("body")),
+            ("fontSize", Some(num(8.5))),
+            ("color", tokens.color("muted")),
+            ("verticalAlignment", Some(text_value("center"))),
+        ]),
+    );
+    true
+}
+
+fn push_eyebrow_band(output: &mut Vec<Value>, layout: &Layout, input: &Value, title: &Value, row: usize) {
+    let (last_column, _, _) = layout.panel_band();
+    let tokens = &layout.tokens;
+    let eyebrow = match prop(input, "eyebrow") {
+        Some(value) if truthy(value) => value_to_string(value),
+        _ => {
+            let headers = Value::Array(layout.headers.iter().map(|header| text_value(header)).collect());
+            let sample =
+                Value::Array(vec![title.clone(), prop(input, "subtitle").cloned().unwrap_or(Value::Null), headers, Value::Array(layout.rows.to_vec())]);
+            preset_labels(&sample).eyebrow.to_owned()
+        }
+    };
+    push_band(
+        output,
+        &layout.sheet,
+        &last_column,
+        row,
+        &eyebrow,
+        props(vec![
+            ("fontName", tokens.face("data")),
+            ("fontSize", Some(num(9.0))),
+            ("bold", Some(Value::Bool(true))),
+            ("color", tokens.color("accent")),
+            ("fillColor", tokens.color("canvas")),
+            ("verticalAlignment", Some(text_value("center"))),
+        ]),
+    );
+}
+
+fn push_title_band(output: &mut Vec<Value>, layout: &Layout, input: &Value, title: &Value, row: usize) {
     let (last_column, band_points, widened) = layout.panel_band();
     let tokens = &layout.tokens;
-    let sheet = layout.sheet.as_str();
     let dashboard = layout.dashboard;
-    // The source of the sheet's figures, in the gap row under the bands, muted, across their width: a cell note alone
-    // never reached a printed or rendered page.
-    let push_source = |output: &mut Vec<Value>, at: usize| -> bool {
-        let Some(source) = prop(input, "source").filter(|source| truthy(source)) else { return false };
-        let cited = provenance_text(Some(source));
-        let shown = if cited.is_empty() { value_to_string(source) } else { cited };
-        push_band(
-            output,
-            sheet,
-            &last_column,
-            at,
-            &shown,
-            props(vec![
-                ("fontName", tokens.face("body")),
-                ("fontSize", Some(num(8.5))),
-                ("color", tokens.color("muted")),
-                ("verticalAlignment", Some(text_value("center"))),
-            ]),
-        );
-        true
+    let (ink, fill) = if layout.analysis_sheet || dashboard {
+        (tokens.color("ink"), tokens.color("canvas"))
+    } else if layout.narrative_scorecard {
+        (tokens.color("onAccent"), tokens.color("accent"))
+    } else {
+        (tokens.color("onInverse"), tokens.color("inverse"))
     };
+    let title_size = number_or(prop(input, "titleSize"), layout.title_size() + if dashboard { 2.0 } else { 0.0 });
+    let wrapped = wrap_words(&value_to_string(title), title_size, band_points);
+    push_band(
+        output,
+        &layout.sheet,
+        &last_column,
+        row,
+        &wrapped,
+        props(vec![
+            ("fontName", tokens.face("display")),
+            ("fontSize", Some(num(title_size))),
+            ("bold", Some(Value::Bool(true))),
+            ("color", ink),
+            ("fillColor", if widened { None } else { fill }),
+            ("verticalAlignment", Some(text_value("center"))),
+            ("wrapText", Some(Value::Bool(true))),
+        ]),
+    );
+    // A merged band never grows to its wrapped lines.
+    output.push(operation(
+        "set_row_height",
+        vec![("sheet", text_value(&layout.sheet)), ("row", num(row as f64)), ("height", num(band_height(&wrapped, title_size, band_points)))],
+    ));
+}
+
+fn push_subtitle_band(output: &mut Vec<Value>, layout: &Layout, subtitle: &Value, row: usize) {
+    let (last_column, _, _) = layout.panel_band();
+    let tokens = &layout.tokens;
+    let written = value_to_string(subtitle);
+    let size = if layout.dashboard { math::max(10.5, layout.body_size()) } else { layout.body_size() };
+    push_band(
+        output,
+        &layout.sheet,
+        &last_column,
+        row,
+        &written,
+        props(vec![
+            ("fontName", tokens.face("body")),
+            ("fontSize", Some(num(size))),
+            ("italic", Some(Value::Bool(!has_no_italic_script(&written)))),
+            ("color", tokens.color("muted")),
+            ("fillColor", tokens.color("surface")),
+            ("wrapText", Some(Value::Bool(true))),
+        ]),
+    );
+}
+
+/// Eyebrow (dashboards), title and subtitle bands, and the source line; the first free row.
+fn push_title_bands(output: &mut Vec<Value>, layout: &Layout, input: &Value) -> usize {
     let mut row = 1;
     if let Some(title) = prop(input, "title").filter(|title| truthy(title)) {
-        if dashboard {
-            let eyebrow = match prop(input, "eyebrow") {
-                Some(value) if truthy(value) => value_to_string(value),
-                _ => {
-                    let headers = Value::Array(layout.headers.iter().map(|header| text_value(header)).collect());
-                    let sample =
-                        Value::Array(vec![title.clone(), prop(input, "subtitle").cloned().unwrap_or(Value::Null), headers, Value::Array(layout.rows.to_vec())]);
-                    preset_labels(&sample).eyebrow.to_owned()
-                }
-            };
-            push_band(
-                output,
-                sheet,
-                &last_column,
-                row,
-                &eyebrow,
-                props(vec![
-                    ("fontName", tokens.face("data")),
-                    ("fontSize", Some(num(9.0))),
-                    ("bold", Some(Value::Bool(true))),
-                    ("color", tokens.color("accent")),
-                    ("fillColor", tokens.color("canvas")),
-                    ("verticalAlignment", Some(text_value("center"))),
-                ]),
-            );
+        if layout.dashboard {
+            push_eyebrow_band(output, layout, input, title, row);
             row += 1;
         }
-        let (ink, fill) = if layout.analysis_sheet || dashboard {
-            (tokens.color("ink"), tokens.color("canvas"))
-        } else if layout.narrative_scorecard {
-            (tokens.color("onAccent"), tokens.color("accent"))
-        } else {
-            (tokens.color("onInverse"), tokens.color("inverse"))
-        };
-        let title_size = number_or(prop(input, "titleSize"), layout.title_size() + if dashboard { 2.0 } else { 0.0 });
-        // With the decision panel beside the table the title spans the panel too: held to the table, a one-line claim
-        // broke in two over a page whose right half stood empty. A widened title takes no fill: a tinted canvas drew
-        // the long title band as a block of its own.
-        let wrapped = wrap_words(&value_to_string(title), title_size, band_points);
-        push_band(
-            output,
-            sheet,
-            &last_column,
-            row,
-            &wrapped,
-            props(vec![
-                ("fontName", tokens.face("display")),
-                ("fontSize", Some(num(title_size))),
-                ("bold", Some(Value::Bool(true))),
-                ("color", ink),
-                ("fillColor", if widened { None } else { fill }),
-                ("verticalAlignment", Some(text_value("center"))),
-                ("wrapText", Some(Value::Bool(true))),
-            ]),
-        );
-        // A merged band never grows to its wrapped lines: the band takes the lines the title needs across its width.
-        output.push(operation(
-            "set_row_height",
-            vec![("sheet", text_value(sheet)), ("row", num(row as f64)), ("height", num(band_height(&wrapped, title_size, band_points)))],
-        ));
+        push_title_band(output, layout, input, title, row);
         row += 1;
     }
     if let Some(subtitle) = prop(input, "subtitle").filter(|subtitle| truthy(subtitle)) {
-        let written = value_to_string(subtitle);
-        let size = if dashboard { math::max(10.5, layout.body_size()) } else { layout.body_size() };
-        push_band(
-            output,
-            sheet,
-            &last_column,
-            row,
-            &written,
-            props(vec![
-                ("fontName", tokens.face("body")),
-                ("fontSize", Some(num(size))),
-                ("italic", Some(Value::Bool(!has_no_italic_script(&written)))),
-                ("color", tokens.color("muted")),
-                ("fillColor", tokens.color("surface")),
-                ("wrapText", Some(Value::Bool(true))),
-            ]),
-        );
-        push_source(output, row + 1);
+        push_subtitle_band(output, layout, subtitle, row);
+        push_source_band(output, layout, input, row + 1);
         return row + 2;
     }
     if prop(input, "title").is_some_and(truthy) {
-        push_source(output, row);
+        push_source_band(output, layout, input, row);
         return row + 1;
     }
-    if push_source(output, row) { row + 1 } else { row }
+    if push_source_band(output, layout, input, row) { row + 1 } else { row }
 }
 
 /// The insight band: one insight per line, wrapped across the bands' width; the first free row.
@@ -210,7 +224,6 @@ fn push_insight_band(output: &mut Vec<Value>, layout: &Layout, input: &Value, ro
     } else {
         tokens.color("surface2")
     };
-    // One insight per line: joined inline, the wrap left a separator dangling at the end of the first line.
     let size = if layout.dashboard { math::max(10.5, layout.body_size()) } else { layout.body_size() };
     let listed = if insights.len() > 1 { insights.iter().map(|entry| format!("• {entry}")).collect::<Vec<_>>().join("\n") } else { insights[0].clone() };
     let text = wrap_words(&listed, size, band_points);
@@ -229,8 +242,7 @@ fn push_insight_band(output: &mut Vec<Value>, layout: &Layout, input: &Value, ro
             ("wrapText", Some(Value::Bool(true))),
         ]),
     );
-    // A merged band never grows to its lines, and Excel sized this one by its first column when the wrap was set: the
-    // band takes each line it holds, wrapped across its width, as the title band does.
+    // A merged band never grows to its wrapped lines.
     let height = text.split('\n').fold(8.0, |total, line| total + band_height(line, size, band_points) - 8.0);
     output.push(operation("set_row_height", vec![("sheet", text_value(&layout.sheet)), ("row", num(row as f64)), ("height", num(math::min(409.0, height)))]));
     row + 2
@@ -389,5 +401,33 @@ mod tests {
         assert!(expand_xlsx_sheet(&json!({ "decision": 5 }), &design(), None).unwrap_err().contains("decision takes a sentence"));
         let missed = expand_xlsx_sheet(&json!({ "headers": ["a"], "rows": [[1]], "columnFormats": { "zzz": "0.0" } }), &design(), None);
         assert!(missed.unwrap_err().contains("matched no column"));
+    }
+
+    #[test]
+    fn a_header_over_figures_sits_right_and_a_label_column_after_figures_indents() {
+        let list = ops(&json!({ "headers": ["Label", "Count", "Name"], "rows": [["a", 1, "x"], ["b", 2, "y"]] }));
+        let styles: Vec<(&Value, &Value)> =
+            list.iter().filter(|entry| entry["op"] == "set_style").map(|entry| (&entry["range"], &entry["properties"])).collect();
+        assert!(styles.contains(&(&json!("B1"), &json!({ "horizontalAlignment": "right" }))));
+        assert!(styles.contains(&(&json!("C1:C3"), &json!({ "indent": 1 }))));
+    }
+
+    #[test]
+    fn a_chart_plots_the_table_and_labels_bars_inside_their_ends() {
+        let list =
+            ops(&json!({ "headers": ["Menu", "Sales"], "rows": [["Coffee", 30], ["Cake", 20]], "chart": { "type": "bar", "showValues": true, "width": 400 } }));
+        let chart = list.iter().find(|entry| entry["op"] == "add_chart").expect("a chart");
+        assert_eq!(chart["range"], json!("A1:B3"));
+        assert_eq!(chart["chartType"], json!("bar"));
+        assert_eq!(chart["cell"], json!("D1"));
+        assert_eq!(chart["width"], json!(400));
+        assert_eq!(chart["showValues"], json!(true));
+        assert_eq!(chart["dataLabelPosition"], json!("inside_end"));
+        assert_eq!(chart["dataLabelColor"], json!("FFFFFF"));
+        assert_eq!(chart["zeroBaseline"], json!(true));
+        let plain = ops(&json!({ "headers": ["Menu", "Sales"], "rows": [["Coffee", 30], ["Total", 50]], "chart": {} }));
+        let plain_chart = plain.iter().find(|entry| entry["op"] == "add_chart").expect("a chart");
+        assert_eq!(plain_chart["range"], json!("A1:B2"));
+        assert!(plain_chart.get("dataLabelPosition").is_none());
     }
 }

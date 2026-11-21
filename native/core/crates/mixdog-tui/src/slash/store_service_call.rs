@@ -1,7 +1,5 @@
-//! A store method called as a daemon RPC (`src/tui/app/store-service-call.mjs`).
-//!
-//! A daemon-backed store can be missing a method this terminal UI calls (an older session service, a protocol allowlist).
-//! Reporting that as an `Err` keeps every caller on its normal failure path.
+//! A store method called as a daemon RPC. A daemon-backed store can be missing a method this terminal UI calls (an older session
+//! service, a protocol allowlist); reporting that as an `Err` keeps every caller on its normal failure path.
 
 use serde_json::Value;
 

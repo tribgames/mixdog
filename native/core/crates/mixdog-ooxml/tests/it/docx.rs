@@ -176,16 +176,21 @@ fn a_picture_is_embedded_with_its_media_part_relationship_and_content_type() {
 }
 
 #[test]
-fn a_hyperlink_is_an_external_relationship_and_a_bookmark_a_named_range() {
+fn a_hyperlink_is_an_external_relationship() {
     let doc = memo();
-    doc.apply(json!([
-        { "op": "add_hyperlink", "address": "https://example.com/a?b=1&c=2", "find": "brown fox" },
-        { "op": "add_bookmark", "name": "intro", "paragraph": 1 }
-    ]));
+    doc.apply(json!([{ "op": "add_hyperlink", "address": "https://example.com/a?b=1&c=2", "find": "brown fox" }]));
     let rels = doc.part("word/_rels/document.xml.rels");
     assert!(rels.contains("TargetMode=\"External\"") && rels.contains("https://example.com/a?b=1&amp;c=2"), "{rels}");
+    assert!(doc.part("word/document.xml").contains("<w:hyperlink "));
+    doc.assert_valid();
+}
+
+#[test]
+fn a_bookmark_is_a_named_range() {
+    let doc = memo();
+    doc.apply(json!([{ "op": "add_bookmark", "name": "intro", "paragraph": 1 }]));
     let xml = doc.part("word/document.xml");
-    assert!(xml.contains("<w:hyperlink ") && xml.contains("<w:bookmarkStart") && xml.contains("w:name=\"intro\""), "{xml}");
+    assert!(xml.contains("<w:bookmarkStart") && xml.contains("w:name=\"intro\""), "{xml}");
     doc.assert_valid();
 }
 
@@ -201,6 +206,65 @@ fn a_header_page_numbers_and_page_setup_land_in_their_parts() {
     let footers: String = doc.package().names().into_iter().filter(|name| name.starts_with("word/footer")).map(|name| doc.part(&name)).collect();
     assert!(footers.contains("PAGE"), "{footers}");
     doc.assert_valid();
+}
+
+#[test]
+fn page_numbers_take_the_prefix_total_and_alignment_asked_for_and_a_second_call_does_not_stack_a_number() {
+    let doc = memo();
+    let operations = json!([{ "op": "add_page_numbers", "prefix": "Page", "separator": " of ", "alignment": "right" }]);
+    doc.apply(operations.clone());
+    let results = doc.apply(operations);
+    assert_eq!(results[0]["includeTotal"], json!(true));
+    let footers: String = doc.package().names().into_iter().filter(|name| name.starts_with("word/footer")).map(|name| doc.part(&name)).collect();
+    assert_eq!(count(&footers, "w:instr=\" PAGE \""), 1, "{footers}");
+    assert!(footers.contains("w:instr=\" NUMPAGES \"") && footers.contains("<w:jc w:val=\"right\"/>") && footers.contains(">Page </w:t>"), "{footers}");
+    doc.assert_valid();
+}
+
+#[test]
+fn a_tracked_table_cell_edit_deletes_the_old_words_and_inserts_the_new_ones() {
+    let doc = Doc::new("docx");
+    doc.apply(json!([
+        { "op": "add_table", "values": [["Name", "Score"], ["Ann", "9"]] },
+        { "op": "track_changes" },
+        { "op": "set_table_cell", "table": 1, "row": 2, "col": 2, "text": "10", "author": "Eve" }
+    ]));
+    let xml = doc.part("word/document.xml");
+    assert!(xml.contains("<w:del ") && xml.contains("<w:ins ") && xml.contains("w:author=\"Eve\""), "{xml}");
+    assert!(xml.contains("9</w:delText>") && xml.contains("10</w:t>"), "{xml}");
+    doc.assert_valid();
+}
+
+#[test]
+fn a_comment_reply_spans_its_parents_words_and_ends_after_the_parents_reference() {
+    let doc = memo();
+    doc.apply(json!([{ "op": "add_comment", "find": "brown fox", "text": "Check this" }, { "op": "add_comment_reply", "comment": 1, "text": "Done" }]));
+    let xml = doc.part("word/document.xml");
+    let at = |marker: &str| xml.find(marker).unwrap_or_else(|| panic!("{marker} in {xml}"));
+    let order = [
+        at("<w:commentRangeStart w:id=\"1\""),
+        at("<w:commentRangeStart w:id=\"2\""),
+        at("<w:commentReference w:id=\"1\""),
+        at("<w:commentRangeEnd w:id=\"2\""),
+        at("<w:commentReference w:id=\"2\""),
+    ];
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{xml}");
+}
+
+#[test]
+fn a_hyperlink_lands_over_a_phrase_at_the_end_of_a_paragraph_or_appended() {
+    let doc = memo();
+    let results = doc.apply(json!([
+        { "op": "add_hyperlink", "address": "https://a.example", "paragraph": 1, "display": "site" },
+        { "op": "add_hyperlink", "address": "https://b.example", "display": "last" },
+        { "op": "add_hyperlink", "address": "https://c.example", "find": "brown fox" }
+    ]));
+    let anchors: Vec<_> = results.iter().map(|result| result["anchor"].clone()).collect();
+    assert_eq!(anchors, [json!("paragraph"), json!("appended"), json!("phrase")]);
+    let xml = doc.part("word/document.xml");
+    assert_eq!(count(&xml, "<w:hyperlink "), 3, "{xml}");
+    assert!(xml.find("site").expect("the first link") < xml.find("The ").expect("the second paragraph"), "{xml}");
+    assert!(xml.find("last").expect("the appended link") > xml.find("jumps").expect("the second paragraph's end"), "{xml}");
 }
 
 #[test]

@@ -1,7 +1,6 @@
 //! What keeps the managed whisper-server ours: the pid file that lets a restarted core reclaim a
 //! stale child, the proof that a recorded pid is still our server, the listener check that no
-//! other process answers on its port, and the port choice. Node: `whisper-server.mjs` and
-//! `whisper-port.mjs`.
+//! other process answers on its port, and the port choice.
 
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};

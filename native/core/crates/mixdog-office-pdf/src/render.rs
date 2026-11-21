@@ -1,16 +1,9 @@
 //! `renderPdfPages` (`pdf/pdf-render.mjs`): a PDF's pages as PNG images on the `mixdog-pdf` rasteriser.
 //!
-//! A page is drawn at `scale = clamp(maxWidth / pageWidth, 0.25 ..= maximumScale)` (two pixels a point for a preview,
-//! three for a picture placed in a document) on a white field. At most twelve explicit pages are accepted; every page of
-//! a longer document (none named) is composed into at most twelve labelled contact sheets instead
-//! ([`crate::contact_sheets`]). The page numbers a Word or PowerPoint export leaves in the bottom band as glyphs the
-//! rasteriser cannot shape are repainted in a family that covers Latin and Hangul. The images land beside the PDF as
-//! `<stem>-page-N.png` and `<stem>-pages-A-B.png`, each reported as a write first, unless `write_images` is false (a
-//! reader that must not write next to the user's file gets the images in memory only).
-//!
-//! Pages are rendered in parallel, one lane job each on the bulk compute lane, each on a document opened from the
-//! same bytes (a document is not shared between threads); the page numbers are repainted and the sheets composed on a
-//! read lane, the files written on the durability lane. A cancelled call stops between pages.
+//! A page is drawn at `scale = clamp(maxWidth / pageWidth, 0.25 ..= maximumScale)` on a white field. At most twelve explicit
+//! pages are accepted; every page of a longer document (none named) is composed into at most twelve labelled contact sheets
+//! instead ([`crate::contact_sheets`]). The images land beside the PDF as `<stem>-page-N.png` and `<stem>-pages-A-B.png`,
+//! each reported as a write first, unless `write_images` is false.
 
 use std::path::Path;
 use std::sync::{Arc, Once};
@@ -506,10 +499,9 @@ fn lane_error(cancel: &CancellationToken, message: String) -> AnalysisError {
     AnalysisError::plain(if cancel.is_cancelled() { CANCELLED.to_owned() } else { message })
 }
 
-/// Puts `job` on `lane`; the handle is awaited with [`finish`].
-///
-/// The future is boxed here, where its `Send` is proved for any job: left as an `async fn`, a caller that has to be `Send`
-/// (the preview's page renderer) cannot prove it through the higher-ranked job closures.
+/// Puts `job` on `lane`; the handle is awaited with [`finish`]. The future is boxed here, where its `Send` is proved for any
+/// job: left as an `async fn`, a caller that has to be `Send` (the preview's page renderer) cannot prove it through the
+/// higher-ranked job closures.
 fn submit<'a, L, R, F>(
     lane: L,
     cancel: &'a CancellationToken,
@@ -603,6 +595,81 @@ impl Beside {
     }
 }
 
+// the pages of one call
+
+/// What the pages of one `renderPdfPages` call are drawn from and with.
+struct PageRun<'a> {
+    lanes: &'a LaneTokens,
+    registry: &'a Arc<Registry>,
+    cancel: &'a CancellationToken,
+    bytes: &'a Arc<[u8]>,
+    maximum_scale: f64,
+    beside: Beside,
+}
+
+impl PageRun<'_> {
+    fn job(&self, page: usize, target_width: f64, minimum_scale: f64) -> PageJob {
+        PageJob { bytes: Arc::clone(self.bytes), page, target_width, minimum_scale, maximum_scale: self.maximum_scale, cancel: self.cancel.clone() }
+    }
+
+    /// Starts every page before any is awaited, so the pages draw in parallel.
+    async fn start(
+        &self,
+        pages: &[usize],
+        target_width: f64,
+        minimum_scale: f64,
+    ) -> Result<Vec<(usize, JobHandle<Result<Painted, AnalysisError>>)>, AnalysisError> {
+        let mut started = Vec::with_capacity(pages.len());
+        for page in pages {
+            started.push((*page, start_page(self.lanes, self.job(*page, target_width, minimum_scale)).await?));
+        }
+        Ok(started)
+    }
+
+    /// One image a page.
+    async fn pages(&self, selected: &[usize], max_width: f64) -> Result<Vec<RenderedImage>, AnalysisError> {
+        let mut images = Vec::with_capacity(selected.len());
+        for (page, handle) in self.start(selected, max_width, MINIMUM_SCALE).await? {
+            let drawn = finish_page(self.lanes, self.registry, self.cancel, handle).await?;
+            images.push(RenderedImage::Page(PageImage {
+                page,
+                path: self.beside.file(&format!("-page-{page}.png")),
+                width: drawn.width,
+                height: drawn.height,
+                png: drawn.png,
+            }));
+        }
+        Ok(images)
+    }
+
+    /// The pages composed into labelled contact sheets.
+    async fn contact_sheets(&self, selected: &[usize], max_width: f64) -> Result<Vec<RenderedImage>, AnalysisError> {
+        let width = contact_sheets::sheet_width(max_width);
+        let mut images = Vec::new();
+        for group in contact_sheets::page_groups(selected) {
+            let grid = contact_sheets::grid(group.len(), width);
+            let mut drawn = Vec::with_capacity(group.len());
+            for (page, handle) in self.start(&group, f64::from(grid.cell_width), THUMBNAIL_MINIMUM_SCALE).await? {
+                drawn.push((page, finish_page(self.lanes, self.registry, self.cancel, handle).await?));
+            }
+            let thumbnails: Vec<Thumbnail> = drawn.iter().map(|(page, image)| Thumbnail { page: *page, png: image.png.clone() }).collect();
+            let sheet_registry = Arc::clone(self.registry);
+            let composing =
+                submit(self.lanes.interactive_io, self.cancel, move |lane| contact_sheets::compose(lane, &sheet_registry, &thumbnails, grid, width)).await?;
+            let sheet = finish(self.cancel, composing).await?.map_err(AnalysisError::plain)?;
+            images.push(RenderedImage::Sheet(ContactSheet {
+                path: self.beside.file(&format!("-pages-{}-{}.png", group[0], group[group.len() - 1])),
+                pages: group,
+                width: sheet.width,
+                height: sheet.height,
+                png: sheet.png,
+                page_images: drawn.into_iter().map(|(page, image)| SheetPage { page, width: image.width, height: image.height, png: image.png }).collect(),
+            }));
+        }
+        Ok(images)
+    }
+}
+
 // the call
 
 /// `renderPdfPages(path, options)`: see the module. `registry` is the font registry the repainted numbers and the
@@ -629,57 +696,12 @@ pub async fn render_pdf_pages(
     .await?;
     let page_count = usize::try_from(finish(&cancel, counted).await??).unwrap_or(0);
     let selected = requested_pages(page_count, options.pages.as_deref())?;
-    let beside = Beside::of(path);
-    let job_of = |page: usize, target_width: f64, minimum_scale: f64| PageJob {
-        bytes: Arc::clone(&bytes),
-        page,
-        target_width,
-        minimum_scale,
-        maximum_scale: options.maximum_scale,
-        cancel: cancel.clone(),
-    };
-    let mut images = Vec::new();
-    if selected.len() <= MAX_RENDER_IMAGES {
-        let mut started = Vec::with_capacity(selected.len());
-        for page in &selected {
-            started.push((*page, start_page(&lanes, job_of(*page, options.max_width, MINIMUM_SCALE)).await?));
-        }
-        for (page, handle) in started {
-            let drawn = finish_page(&lanes, &registry, &cancel, handle).await?;
-            images.push(RenderedImage::Page(PageImage {
-                page,
-                path: beside.file(&format!("-page-{page}.png")),
-                width: drawn.width,
-                height: drawn.height,
-                png: drawn.png,
-            }));
-        }
+    let run = PageRun { lanes: &lanes, registry: &registry, cancel: &cancel, bytes: &bytes, maximum_scale: options.maximum_scale, beside: Beside::of(path) };
+    let mut images = if selected.len() <= MAX_RENDER_IMAGES {
+        run.pages(&selected, options.max_width).await?
     } else {
-        let width = contact_sheets::sheet_width(options.max_width);
-        for group in contact_sheets::page_groups(&selected) {
-            let grid = contact_sheets::grid(group.len(), width);
-            let mut started = Vec::with_capacity(group.len());
-            for page in &group {
-                started.push((*page, start_page(&lanes, job_of(*page, f64::from(grid.cell_width), THUMBNAIL_MINIMUM_SCALE)).await?));
-            }
-            let mut drawn = Vec::with_capacity(group.len());
-            for (page, handle) in started {
-                drawn.push((page, finish_page(&lanes, &registry, &cancel, handle).await?));
-            }
-            let thumbnails: Vec<Thumbnail> = drawn.iter().map(|(page, image)| Thumbnail { page: *page, png: image.png.clone() }).collect();
-            let sheet_registry = Arc::clone(&registry);
-            let composing = submit(lanes.interactive_io, &cancel, move |lane| contact_sheets::compose(lane, &sheet_registry, &thumbnails, grid, width)).await?;
-            let sheet = finish(&cancel, composing).await?.map_err(AnalysisError::plain)?;
-            images.push(RenderedImage::Sheet(ContactSheet {
-                path: beside.file(&format!("-pages-{}-{}.png", group[0], group[group.len() - 1])),
-                pages: group,
-                width: sheet.width,
-                height: sheet.height,
-                png: sheet.png,
-                page_images: drawn.into_iter().map(|(page, image)| SheetPage { page, width: image.width, height: image.height, png: image.png }).collect(),
-            }));
-        }
-    }
+        run.contact_sheets(&selected, options.max_width).await?
+    };
     if options.write_images {
         images = write_images(&lanes, &cancel, note, images).await?;
     }

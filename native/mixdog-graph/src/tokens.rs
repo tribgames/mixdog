@@ -1,74 +1,21 @@
-// Identifier tokens and file-level declaration metadata, straight from the
-// grammar (Stage 3-D).
+// Identifier tokens and file-level declaration metadata from the grammar.
 //
-// WHAT `tokens` IS
-// ----------------
-// The per-file candidate index the JS side reads as `tokenSymbols`: before it
-// searches for references to a symbol it asks "which files even mention this
-// name?" and answers with `tokens.includes(name)`. So the contract is
+// `tokens` is the per-file candidate index the JS side reads as `tokenSymbols`
+// (`tokens.includes(name)`): a symbol name that occurs in the code of a file is
+// in its tokens; a name only in comments or string literals is not.
 //
-//   a symbol name that OCCURS IN THE CODE of a file is in that file's tokens
+// A named node kind carries identifiers when any `_`-separated word of its
+// kind name is one of IDENTIFIER_WORDS, derived per grammar from its node-type
+// table. Comment and string kinds share none of those words; an identifier in
+// a string interpolation is its own node and is counted. `symbol` and `atom`
+// are listed because literal names (ruby `:run`, dart `#name`, elixir `:run`)
+// name indexed declarations. Anonymous tokens are excluded; composite kinds
+// such as `scoped_identifier` re-scan their children's text, which changes no
+// result because emitted tokens are deduplicated.
 //
-// and nothing more: a name whose only occurrences are inside comments or
-// string literals is NOT a mention of the symbol, and dropping it is the
-// point of this stage, not a regression. Pre-Stage-3 the list came from a
-// regex over the whole file text, which could not tell code from prose.
-//
-// HOW THE KIND SET IS DERIVED
-// ---------------------------
-// Tokens are collected during the ONE outline/call traversal, from nodes the
-// grammar itself calls identifiers. The set is computed per grammar from its
-// node-type table (`node_kind_count` / `node_kind_for_id` /
-// `node_kind_is_named`), never from a hand-written per-language list:
-//
-//   a NAMED node kind carries identifiers when any `_`-separated word of its
-//   kind name is one of: identifier, name, variable, word, constant,
-//   constructor, alias, symbol, atom
-//
-// which selects `identifier`, `type_identifier`, `field_identifier`,
-// `property_identifier`, `shorthand_property_identifier_pattern`,
-// `simple_identifier` (kotlin/swift), `word` (bash command words),
-// `variable_name` / `name` (php, bash), `constant` / `instance_variable` /
-// `global_variable` (ruby), `constructor` / `variable` (haskell) and `alias`
-// (elixir) in the grammars this binary links — and nothing else. Comment and
-// string kinds (`comment`, `line_comment`, `string_content`,
-// `string_fragment`, `template_literal`, `quoted_content`, …) share none of
-// those words, so comments and string bodies are excluded BY CONSTRUCTION,
-// while an identifier inside a string INTERPOLATION is a real node of one of
-// the kinds above and is therefore counted.
-//
-// `symbol`/`atom` are on the list because a LITERAL NAME is an identifier
-// occurrence, not prose: ruby's `attr_accessor :name` / `send(:run)`
-// (`simple_symbol`, `hash_key_symbol`, `bare_symbol`, `delimited_symbol`),
-// dart's `#name` (`symbol_literal`) and elixir's `apply(M, :run, [])`
-// (`atom`, `quoted_atom`) all name a declaration the graph indexes, so a file
-// that mentions one really does mention that symbol. Those two words match
-// nothing else in the linked grammars (typescript's `symbol` and swift's
-// `_hash_symbol` are ANONYMOUS keyword tokens, and objc's `atomic_declaration`
-// splits into `atomic`/`declaration`).
-//
-// Anonymous tokens (keywords, punctuation) are excluded: they are not named
-// kinds. Composite kinds that pass the word rule (`scoped_identifier`,
-// `nested_identifier`) are matched too, which costs a re-scan of text their
-// children already reported and changes no result, because the emitted tokens
-// are deduplicated.
-//
-// TOKEN SHAPE
-// -----------
-// A matched node contributes the IDENTIFIER-SHAPED RUNS of its text, in the
-// exact shape the old regex produced (`[$@]?[XID_Start_][XID_Continue]*[!?]?`,
-// approximated with `char::is_alphabetic` / `is_alphanumeric` plus `_`). For
-// the overwhelming majority of nodes the text IS one run; the rule matters for
-// the compound leaves some grammars keep whole (`Foo.Bar` for an Elixir
-// alias, `a.b` for a dotted name), which stay two tokens exactly as before.
-//
-// FILE METADATA
-// -------------
-// The same table also marks the declaration nodes that carry `packageName`,
-// `namespaceName` and `goPackageName`, so those three fields come from the
-// parse tree instead of a line regex. `topLevelTypes` deliberately does NOT:
-// see the note in `resolve/top_level_types.rs`.
-
+// File metadata (`packageName`, `namespaceName`, `goPackageName`) comes from
+// the declaration nodes marked in the same table. `topLevelTypes` does not:
+// see `resolve/top_level_types.rs`.
 use std::sync::{Arc, LazyLock, RwLock};
 
 use ast_grep_core::tree_sitter::LanguageExt;
@@ -76,10 +23,6 @@ use std::collections::HashMap;
 
 use crate::scan_lang::{ScanLang, cached_for_lang};
 
-/// Kind-name words that mark a node kind as identifier-carrying. Matched
-/// against the `_`-separated words of the kind name, so `type_identifier`,
-/// `variable_name`, `instance_variable` and `simple_symbol` all qualify while
-/// `string_content`, `namespace` and `comment` do not.
 const IDENTIFIER_WORDS: &[&str] = &["identifier", "name", "variable", "word", "constant", "constructor", "alias", "symbol", "atom"];
 
 /// One file-level metadata field a declaration node can carry.
@@ -182,11 +125,8 @@ fn is_ident_continue(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
 
-/// Identifier-shaped runs of one node's text, in the token shape the record
-/// has always carried: an optional `$`/`@` sigil, an identifier start, the
-/// identifier body, and one optional `!`/`?` suffix (ruby predicates, rust
-/// macro calls). Emitted as borrowed slices of `text`, so collecting them
-/// allocates nothing until the record is built.
+/// Identifier-shaped runs of `text`: optional `$`/`@` sigil, identifier start
+/// and body, optional `!`/`?` suffix (ruby predicates, rust macro calls).
 pub fn identifier_runs<'t>(text: &'t str, mut emit: impl FnMut(&'t str)) {
     let mut cursor = 0usize;
     while cursor < text.len() {
@@ -216,13 +156,8 @@ pub fn identifier_runs<'t>(text: &'t str, mut emit: impl FnMut(&'t str)) {
     }
 }
 
-/// True when `text` is EXACTLY one identifier run, so a node with this text
-/// carries a token of its own beyond whatever identifier children it wraps.
-/// PHP is the case that needs it: `variable_name` is `$` + a `name` child, so
-/// the sigil form `$count` — the shape the record has always carried and the
-/// shape a PHP reference search asks for — has no node of its own to visit.
-/// Scans one run from the start and bails at the first character that is not
-/// part of it, so a composite node's long text costs nothing.
+/// True when `text` is exactly one identifier run. PHP `variable_name` is `$`
+/// plus a `name` child, so `$count` has no node of its own.
 pub fn is_single_run(text: &str) -> bool {
     let mut chars = text.char_indices();
     let Some((_, first)) = chars.next() else {

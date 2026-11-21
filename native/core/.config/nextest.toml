@@ -88,7 +88,7 @@ default-filter = '''package(mixdog-app-server-daemon) & (
 # services-pg: mixdog-services' memory tests that need only a Postgres runtime. MIXDOG_PG_RUNTIME names an unpacked runtime directory
 # (the one `pg` uses). `a_killed_core` is the child process of a test of the profile, not a test of its own.
 [profile.services-pg]
-default-filter = '''package(mixdog-services) & test(/^memory::(tests|thread_search::tests)::/)
+default-filter = '''package(mixdog-services) & test(/^memory::(tests|thread_search::tests|embed::host::tests|service::tests|service::maintenance::tests)::/)
   & not test(=memory::tests::boot::a_killed_core)
   & not test(/^memory::tests::(embeddings|ingest|recall|reindex)::/)'''
 slow-timeout = { period = "120s", terminate-after = 5 }
@@ -169,7 +169,7 @@ test-group = 'pg-cluster'
 # fails when a test using the runner is missing here or from the `pg` filter.
 [[profile.default.overrides]]
 filter = '''package(mixdog-app-server-daemon) & (
-    test(=compose::session_project_flow_tests::the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route)
+    test(/^compose::session_project_flow_tests::/)
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
   | test(=compose::tests::the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token)

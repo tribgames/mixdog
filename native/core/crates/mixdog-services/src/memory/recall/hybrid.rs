@@ -1,8 +1,3 @@
-//! Hybrid recall: one candidate query over four lanes (dense vector, sparse
-//! full-text, substring, exact terms), reciprocal-rank fusion, resolution of
-//! matched member turns to their root episodes, optional latest-by-concept
-//! widening, duplicate collapse and member attachment.
-
 use mixdog_js::{JsRegex, js_trim, js_words, slice_utf16, utf16_len};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -11,7 +6,7 @@ use crate::memory::error::Result;
 use crate::memory::pg::db::Db;
 use crate::memory::query_terms::{build_fts_prefix_query, build_fts_query, tokenize_recall_query};
 use crate::memory::recall::filters::{ScopeOptions, project_scope_predicate, scope_filter, valid_categories};
-use crate::memory::recall::ranking::{collapse_history_duplicates, lane_ranks, rank_candidates, rrf_score};
+use crate::memory::recall::ranking::{Ranked, collapse_history_duplicates, lane_ranks, rank_candidates, rrf_score};
 use crate::memory::recall::row::{P, Row};
 use crate::memory::recall::store::read_query;
 
@@ -347,41 +342,111 @@ mod lex_scan_tests {
     }
 }
 
-async fn resolve_roots(
-    db: &Db,
-    ranked: &[crate::memory::recall::ranking::Ranked],
-    by_id: &HashMap<i64, usize>,
-    raw: &[Row],
-    plan: &Plan,
-    concept_expanded_roots: &HashSet<i64>,
-) -> Result<RootResolution> {
-    let mut member_root_ids: Vec<i64> = Vec::new();
-    let mut matched_members: HashMap<i64, HashSet<i64>> = HashMap::new();
+#[cfg(test)]
+mod root_resolution_tests {
+    use super::*;
+
+    fn row(id: i64, is_root: i16, chunk_root: Option<i64>) -> Row {
+        Row { id, is_root, chunk_root, ..Row::default() }
+    }
+
+    fn ranked_of(raw: &[Row]) -> (Vec<Ranked>, HashMap<i64, usize>) {
+        let ranked = raw.iter().enumerate().map(|(index, r)| Ranked { id: r.id, rrf: 1.0 / (index as f64 + 1.0), index, evidence: "lexical" }).collect();
+        (ranked, raw.iter().enumerate().map(|(i, r)| (r.id, i)).collect())
+    }
+
+    #[test]
+    fn matched_members_group_member_hits_under_their_roots_in_first_hit_order() {
+        let raw = [row(1, 1, None), row(2, 0, Some(1)), row(3, 0, Some(1)), row(4, 0, Some(9))];
+        let (ranked, by_id) = ranked_of(&raw);
+        let hits = matched_members(&ranked, &by_id, &raw);
+        assert_eq!(hits.root_ids, vec![1, 9]);
+        assert_eq!(hits.matched[&1], HashSet::from([2, 3]));
+        assert_eq!(hits.matched[&9], HashSet::from([4]));
+    }
+
+    #[test]
+    fn member_hits_resolve_to_one_root_ranked_by_the_first_hit() {
+        let raw = [Row { dense_rank: Some(1), ..row(2, 0, Some(1)) }, Row { sparse_rank: Some(1), ..row(3, 0, Some(1)) }, row(7, 0, Some(8))];
+        let (ranked, by_id) = ranked_of(&raw);
+        let roots = HashMap::from([(1, row(1, 1, None))]);
+        let plan = Plan::new("query", &SearchOptions::default());
+        let (resolved, member_hit_roots) = resolve_to_roots(&ranked, &by_id, &raw, &roots, &plan, &HashSet::new());
+        assert_eq!(resolved.len(), 1);
+        assert_eq!((resolved[0].root.id, resolved[0].rrf, resolved[0].retrieval_evidence, resolved[0].retrieval_rank), (1, 1.0, "semantic", 1));
+        assert_eq!(member_hit_roots, HashSet::from([1]));
+    }
+
+    #[test]
+    fn a_latest_row_of_an_anchored_concept_is_added_marked_expanded_and_carries_the_anchor_evidence() {
+        let raw = vec![Row { dense_rank: Some(3), ..row(10, 1, None) }];
+        let latest =
+            vec![Row { matched_concept_id: Some(10), supersedes_id: Some(10), ..row(20, 1, None) }, Row { matched_concept_id: Some(99), ..row(30, 1, None) }];
+        let anchors = HashMap::from([(10, &raw[0])]);
+        let (merged, expanded) = merge_latest_rows(&raw, latest, &anchors);
+        assert_eq!(merged.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20]);
+        assert_eq!((merged[1].dense_rank, merged[1].concept_expanded), (Some(3), true));
+        assert_eq!(expanded, HashSet::from([20]));
+    }
+}
+
+struct MemberHits {
+    root_ids: Vec<i64>,
+    matched: HashMap<i64, HashSet<i64>>,
+}
+
+fn matched_members(ranked: &[Ranked], by_id: &HashMap<i64, usize>, raw: &[Row]) -> MemberHits {
+    let mut hits = MemberHits { root_ids: Vec::new(), matched: HashMap::new() };
     for candidate in ranked {
         let Some(row) = by_id.get(&candidate.id).map(|i| &raw[*i]) else { continue };
         if row.is_root == 1 {
             continue;
         }
         let Some(root) = row.chunk_root.filter(|root| *root != row.id) else { continue };
-        matched_members.entry(root).or_insert_with(|| {
-            member_root_ids.push(root);
+        hits.matched.entry(root).or_insert_with(|| {
+            hits.root_ids.push(root);
             HashSet::new()
         });
-        matched_members.entry(root).or_default().insert(row.id);
+        hits.matched.entry(root).or_default().insert(row.id);
     }
-    let mut root_by_id: HashMap<i64, Row> = HashMap::new();
-    if !member_root_ids.is_empty() {
-        let (scope, scope_params) = project_scope_predicate(plan.project_scope.as_deref(), 2, "project_id");
-        let scope_clause = if scope.is_empty() { String::new() } else { format!("AND {scope}") };
-        let mut params = vec![P::IA(member_root_ids)];
-        params.extend(scope_params);
-        let rows =
-            read_query(db, &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"), &params)
-                .await?;
-        for row in rows {
-            root_by_id.insert(row.id, row);
-        }
+    hits
+}
+
+async fn fetch_member_roots(db: &Db, root_ids: Vec<i64>, plan: &Plan) -> Result<HashMap<i64, Row>> {
+    if root_ids.is_empty() {
+        return Ok(HashMap::new());
     }
+    let (scope, scope_params) = project_scope_predicate(plan.project_scope.as_deref(), 2, "project_id");
+    let scope_clause = if scope.is_empty() { String::new() } else { format!("AND {scope}") };
+    let mut params = vec![P::IA(root_ids)];
+    params.extend(scope_params);
+    let rows = read_query(db, &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"), &params)
+        .await?;
+    Ok(rows.into_iter().map(|row| (row.id, row)).collect())
+}
+
+async fn resolve_roots(
+    db: &Db,
+    ranked: &[Ranked],
+    by_id: &HashMap<i64, usize>,
+    raw: &[Row],
+    plan: &Plan,
+    concept_expanded_roots: &HashSet<i64>,
+) -> Result<RootResolution> {
+    let hits = matched_members(ranked, by_id, raw);
+    let root_by_id = fetch_member_roots(db, hits.root_ids, plan).await?;
+    let (resolved, member_hit_roots) = resolve_to_roots(ranked, by_id, raw, &root_by_id, plan, concept_expanded_roots);
+    Ok(RootResolution { resolved, member_hit_roots, matched_members: hits.matched })
+}
+
+fn resolve_to_roots(
+    ranked: &[Ranked],
+    by_id: &HashMap<i64, usize>,
+    raw: &[Row],
+    root_by_id: &HashMap<i64, Row>,
+    plan: &Plan,
+    concept_expanded_roots: &HashSet<i64>,
+) -> (Vec<Resolved>, HashSet<i64>) {
     let mut member_hit_roots = HashSet::new();
     let mut resolved: Vec<Resolved> = Vec::new();
     let mut seen = HashSet::new();
@@ -418,7 +483,7 @@ async fn resolve_roots(
             concept_expanded: expanded,
         });
     }
-    Ok(RootResolution { resolved, member_hit_roots, matched_members })
+    (resolved, member_hit_roots)
 }
 
 /// The entries scanned by the substring and exact lanes: the newest N by id (`RECALL_LEXSCAN_ROWS`, read once as Node reads it at load).
@@ -520,12 +585,9 @@ exact AS (
 /// $5.. filter params, then the exact-term array.
 fn build_hybrid_query(plan: &Plan) -> (String, Vec<P>) {
     let vector_sql = plan.query_vector.as_deref().map(embedding_to_sql);
-    let prefix = if utf16_len(&plan.clean) >= 3 { build_fts_prefix_query(&plan.clean) } else { None };
-    let fts: Option<String> = match (&prefix, utf16_len(&plan.clean) >= 3) {
-        (Some(query), _) => Some(query.clone()),
-        (None, true) => Some(build_fts_query(&plan.clean)).filter(|q| !q.is_empty()),
-        _ => None,
-    };
+    let long_enough = utf16_len(&plan.clean) >= 3;
+    let prefix = if long_enough { build_fts_prefix_query(&plan.clean) } else { None };
+    let fts = prefix.clone().or_else(|| Some(build_fts_query(&plan.clean)).filter(|q| long_enough && !q.is_empty()));
     let exact_terms = build_exact_terms(&plan.clean);
     let (clause, filter_params) = plan.filter(5, false, "");
     let (exact_clause, _) = plan.filter(5, false, "ee");
@@ -585,7 +647,7 @@ LEFT JOIN exact  x ON x.id = c.id",
 
 /// Widens the candidates with the newest root of every matched concept.
 async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result<(Vec<Row>, HashSet<i64>)> {
-    let mut expanded = HashSet::new();
+    let expanded = HashSet::new();
     let mut candidate_roots: Vec<i64> = Vec::new();
     for row in &raw {
         let id = root_id_of(row);
@@ -646,7 +708,12 @@ async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result
         &params,
     )
     .await?;
-    let mut merged: Vec<Row> = raw.clone();
+    Ok(merge_latest_rows(&raw, latest, &anchors))
+}
+
+fn merge_latest_rows(raw: &[Row], latest: Vec<Row>, anchors: &HashMap<i64, &Row>) -> (Vec<Row>, HashSet<i64>) {
+    let mut expanded = HashSet::new();
+    let mut merged: Vec<Row> = raw.to_vec();
     let mut index: HashMap<i64, usize> = merged.iter().enumerate().map(|(i, r)| (r.id, i)).collect();
     for latest_row in latest {
         let Some(anchor) = latest_row.matched_concept_id.and_then(|c| anchors.get(&c)) else { continue };
@@ -665,7 +732,7 @@ async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result
             }
         }
     }
-    Ok((merged, expanded))
+    (merged, expanded)
 }
 /// Annotates final roots with their concepts and resolves each to the latest
 /// root of its concept; the two lists stay index-aligned.

@@ -1,5 +1,4 @@
-//! The real `AudienceSource` (push-notifier.ts `deliveryGate`, desktop-service.ts
-//! `remote.notifications`): who hears a notification, read at the moment it is decided. Each paired
+//! The real `AudienceSource`: who hears a notification, read at the moment it is decided. Each paired
 //! device's preferences come from the config store, its foreground state from the live relay
 //! legs, this PC's idle time and notification support from the host.
 

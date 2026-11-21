@@ -21,13 +21,11 @@ fn last_unit(raw: &str) -> Option<char> {
 }
 
 impl Lexer {
-    /// `Lexer.inlineTokens(src)`.
-    pub(super) fn inline_tokens(&mut self, src: &str) -> Vec<Token> {
+    /// The source with links, other blocks and escaped characters masked so em and strong delimiters ignore them.
+    /// The masks are as long, in UTF-16 units, as marked's (a `\` and a character outside the BMP become two characters
+    /// there, one unit short), and a search goes on at the unit it stopped at.
+    fn masked_inline(&self, src: &str) -> String {
         let rules = self.rules;
-        let mut tokens: Vec<Token> = Vec::new();
-        // String with links masked to avoid interference with em and strong. The masks are as long, in UTF-16 units,
-        // as marked's (a `\` and a character outside the BMP become two characters there, one unit short), and a
-        // search goes on at the unit it stopped at.
         let mut masked = src.to_owned();
         // Mask out reflinks
         if !self.links.is_empty() {
@@ -57,6 +55,13 @@ impl Lexer {
         while let Some((start, end)) = rules.inline.any_punctuation.exec_from(&masked, at).map(|m| (m.start(), m.end())) {
             (masked, at) = mask_span(&masked, start, end, '+', false);
         }
+        masked
+    }
+
+    /// `Lexer.inlineTokens(src)`.
+    pub(super) fn inline_tokens(&mut self, src: &str) -> Vec<Token> {
+        let mut tokens: Vec<Token> = Vec::new();
+        let masked = self.masked_inline(src);
 
         let mut src = src;
         let mut keep_prev_char = false;

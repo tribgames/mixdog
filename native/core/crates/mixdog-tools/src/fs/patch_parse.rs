@@ -73,22 +73,7 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
     if lines.last() == Some(&"") {
         lines.pop();
     }
-    let mut files: Vec<Section> = Vec::new();
-    let mut pending: Vec<String> = Vec::new();
-    let mut hunk: Option<Hunk> = None;
-
-    fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
-        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
-            && !h.lines.is_empty()
-        {
-            file.hunks.push(h);
-        }
-    }
-    let start = |files: &mut Vec<Section>, hunk: &mut Option<Hunk>, pending: &mut Vec<String>, kind: Kind, path: String| {
-        finish_hunk(files, hunk);
-        pending.clear();
-        files.push(Section { kind, path, move_path: None, hunks: Vec::new(), lines: Vec::new() });
-    };
+    let mut b = SectionBuilder::default();
     for raw in lines {
         if is_patch_marker(raw) {
             continue;
@@ -97,10 +82,10 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
             .into_iter()
             .find_map(|(p, k)| raw.strip_prefix(p).map(|rest| (k, normalise_path(rest))));
         if let Some((kind, path)) = header {
-            start(&mut files, &mut hunk, &mut pending, kind, path);
+            b.start_file(kind, path);
             continue;
         }
-        let Some(current) = files.last_mut() else {
+        let Some(current) = b.files.last_mut() else {
             return Err(format!("V4A patch line appears before a file header: {raw}"));
         };
         if current.kind == Kind::Update && raw.starts_with(MOVE_TO) {
@@ -123,45 +108,21 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
             Kind::Update => {}
         }
         if raw.is_empty() {
-            if let Some(h) = hunk.as_mut() {
-                h.lines.push(" ".to_owned());
-            }
+            b.blank_line();
             continue;
         }
         if is_eof_marker(raw) {
-            match hunk.as_mut() {
-                Some(h) if !h.lines.is_empty() => h.eof = true,
-                _ => return Err("V4A update hunk does not contain any lines before *** End of File".to_owned()),
-            }
-            finish_hunk(&mut files, &mut hunk);
+            b.end_of_file()?;
             continue;
         }
         if let Some(rest) = raw.strip_prefix("@@") {
-            let anchor = normalise_anchor(rest);
-            if hunk.as_ref().is_some_and(|h| !h.lines.is_empty()) {
-                finish_hunk(&mut files, &mut hunk);
-            }
-            // Consecutive `@@` lines narrow one hunk's position.
-            if let Some(h) = hunk.as_mut().filter(|h| h.lines.is_empty()) {
-                if !anchor.is_empty() {
-                    h.anchors.push(anchor);
-                }
-                pending.clear();
-                continue;
-            }
-            pending.push(anchor);
-            hunk = Some(Hunk { anchors: std::mem::take(&mut pending), lines: Vec::new(), eof: false });
+            b.anchor(normalise_anchor(rest));
             continue;
         }
-        let h = hunk.get_or_insert_with(|| Hunk { anchors: std::mem::take(&mut pending), lines: Vec::new(), eof: false });
-        pending.clear();
-        if matches!(raw.as_bytes()[0], b' ' | b'-' | b'+') {
-            h.lines.push(raw.to_owned());
-        } else {
-            h.lines.push(format!(" {raw}"));
-        }
+        b.body_line(raw);
     }
-    finish_hunk(&mut files, &mut hunk);
+    b.finish_hunk();
+    let files = b.files;
     if files.iter().any(|f| f.path.is_empty()) {
         return Err("V4A patch contains an empty file path".to_owned());
     }
@@ -169,6 +130,74 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
         return Err("V4A patch contained no file sections".to_owned());
     }
     Ok(files)
+}
+
+/// The sections read so far, the `@@` anchors waiting for their hunk, and the hunk being filled; shared by the V4A and the
+/// unified-as-V4A readers, which differ only in how a file starts and what an `@@` line says.
+#[derive(Default)]
+struct SectionBuilder {
+    files: Vec<Section>,
+    pending: Vec<String>,
+    hunk: Option<Hunk>,
+}
+
+impl SectionBuilder {
+    fn finish_hunk(&mut self) {
+        if let (Some(file), Some(h)) = (self.files.last_mut(), self.hunk.take())
+            && file.kind == Kind::Update
+            && !h.lines.is_empty()
+        {
+            file.hunks.push(h);
+        }
+    }
+
+    fn start_file(&mut self, kind: Kind, path: String) {
+        self.finish_hunk();
+        self.pending.clear();
+        self.files.push(Section { kind, path, move_path: None, hunks: Vec::new(), lines: Vec::new() });
+    }
+
+    fn blank_line(&mut self) {
+        if let Some(h) = self.hunk.as_mut() {
+            h.lines.push(" ".to_owned());
+        }
+    }
+
+    fn end_of_file(&mut self) -> Result<(), String> {
+        match self.hunk.as_mut() {
+            Some(h) if !h.lines.is_empty() => h.eof = true,
+            _ => return Err("V4A update hunk does not contain any lines before *** End of File".to_owned()),
+        }
+        self.finish_hunk();
+        Ok(())
+    }
+
+    /// Consecutive `@@` lines narrow one hunk's position.
+    fn anchor(&mut self, anchor: String) {
+        if self.hunk.as_ref().is_some_and(|h| !h.lines.is_empty()) {
+            self.finish_hunk();
+        }
+        if let Some(h) = self.hunk.as_mut().filter(|h| h.lines.is_empty()) {
+            if !anchor.is_empty() {
+                h.anchors.push(anchor);
+            }
+            self.pending.clear();
+            return;
+        }
+        self.pending.push(anchor);
+        self.hunk = Some(Hunk { anchors: std::mem::take(&mut self.pending), lines: Vec::new(), eof: false });
+    }
+
+    fn body_line(&mut self, raw: &str) {
+        let pending = &mut self.pending;
+        let h = self.hunk.get_or_insert_with(|| Hunk { anchors: std::mem::take(pending), lines: Vec::new(), eof: false });
+        pending.clear();
+        if matches!(raw.as_bytes()[0], b' ' | b'-' | b'+') {
+            h.lines.push(raw.to_owned());
+        } else {
+            h.lines.push(format!(" {raw}"));
+        }
+    }
 }
 
 // ---- opening salvage (Node `salvageV4AOpening`) ----
@@ -334,17 +363,7 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
             },
         }
     };
-    let mut files: Vec<Section> = Vec::new();
-    let mut pending: Vec<String> = Vec::new();
-    let mut hunk: Option<Hunk> = None;
-    fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
-        if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
-            && file.kind == Kind::Update
-            && !h.lines.is_empty()
-        {
-            file.hunks.push(h);
-        }
-    }
+    let mut b = SectionBuilder::default();
     let header_path = |line: &str, prefix: &str| strip_diff_prefix(&normalise_path(&line[prefix.len()..])).to_owned();
     let mut i = 0;
     while i < lines.len() {
@@ -356,8 +375,6 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
         if raw.starts_with("--- ") {
             let next = lines.get(i).copied().unwrap_or("");
             if next.starts_with("+++ ") {
-                finish_hunk(&mut files, &mut hunk);
-                pending.clear();
                 let (old_path, new_path) = (header_path(raw, "--- "), header_path(next, "+++ "));
                 let kind = if old_path == "/dev/null" {
                     Kind::Add
@@ -367,48 +384,31 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
                     Kind::Update
                 };
                 let path = normalise_path(if kind == Kind::Add { &new_path } else { &old_path });
-                files.push(Section { kind, path, move_path: None, hunks: Vec::new(), lines: Vec::new() });
+                b.start_file(kind, path);
                 i += 1;
                 continue;
             }
-            if files.is_empty() {
+            if b.files.is_empty() {
                 return Err(format!("{label} missing +++ header after: {raw}"));
             }
         }
-        let Some(current) = files.last_mut() else { continue };
+        let Some(current) = b.files.last_mut() else { continue };
+        let kind = current.kind;
         if raw.is_empty() {
-            if current.kind == Kind::Update
-                && let Some(h) = hunk.as_mut()
-            {
-                h.lines.push(" ".to_owned());
+            if kind == Kind::Update {
+                b.blank_line();
             }
             continue;
         }
-        if current.kind == Kind::Update && is_eof_marker(raw) {
-            match hunk.as_mut() {
-                Some(h) if !h.lines.is_empty() => h.eof = true,
-                _ => return Err("V4A update hunk does not contain any lines before *** End of File".to_owned()),
-            }
-            finish_hunk(&mut files, &mut hunk);
+        if kind == Kind::Update && is_eof_marker(raw) {
+            b.end_of_file()?;
             continue;
         }
         if raw.starts_with("@@") {
-            let anchor = resolve(raw)?;
-            if hunk.as_ref().is_some_and(|h| !h.lines.is_empty()) {
-                finish_hunk(&mut files, &mut hunk);
-            }
-            if let Some(h) = hunk.as_mut().filter(|h| h.lines.is_empty()) {
-                if !anchor.is_empty() {
-                    h.anchors.push(anchor);
-                }
-                pending.clear();
-                continue;
-            }
-            pending.push(anchor);
-            hunk = Some(Hunk { anchors: std::mem::take(&mut pending), lines: Vec::new(), eof: false });
+            b.anchor(resolve(raw)?);
             continue;
         }
-        match current.kind {
+        match kind {
             Kind::Add => {
                 if let Some(added) = raw.strip_prefix('+') {
                     current.lines.push(added.to_owned());
@@ -418,15 +418,10 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
             Kind::Delete => continue,
             Kind::Update => {}
         }
-        let h = hunk.get_or_insert_with(|| Hunk { anchors: std::mem::take(&mut pending), lines: Vec::new(), eof: false });
-        pending.clear();
-        if matches!(raw.as_bytes()[0], b' ' | b'-' | b'+') {
-            h.lines.push(raw.to_owned());
-        } else {
-            h.lines.push(format!(" {raw}"));
-        }
+        b.body_line(raw);
     }
-    finish_hunk(&mut files, &mut hunk);
+    b.finish_hunk();
+    let files = b.files;
     if files.iter().any(|f| f.path.is_empty()) {
         return Err(format!("{label} contains an empty file path"));
     }

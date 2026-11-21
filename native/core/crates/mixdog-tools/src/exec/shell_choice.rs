@@ -9,10 +9,6 @@ fn is_posix_shell(program: &str) -> bool {
     matches!(stem.strip_suffix(".exe").unwrap_or(&stem), "bash" | "zsh" | "sh")
 }
 
-/// `resolveShell()`'s program. Off Windows the default (a real bash, else `/bin/sh`) is the only
-/// choice. On Windows an explicit program, the setting before the `MIXDOG_SHELL` variable (the
-/// variable is not trimmed; an empty one is none), replaces the default PowerShell unless it is a
-/// POSIX shell.
 pub(crate) fn chosen_shell(windows: bool, configured: &str, env_shell: Option<&str>, default_program: &str) -> String {
     if !windows {
         return default_program.to_owned();
@@ -258,10 +254,6 @@ pub(crate) async fn bash_request_is_posix_on(windows: bool, lane: mixdog_rt::Spa
     }
     probe_on_lane(lane, cancel, move || bash_request_is_posix(windows)).await
 }
-/// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
-/// (`requestedShellType` over `resolveShellFor('bash')`). Off Windows a bash, or `/bin/sh` as the last resort, is always
-/// there. On Windows it is Git Bash, and without one the request is no request: the default shell's syntax applies. A
-/// found Git Bash is kept for the process, a miss for 30 s.
 pub(crate) fn bash_request_is_posix(windows: bool) -> bool {
     if !windows {
         return true;

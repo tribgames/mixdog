@@ -1,13 +1,10 @@
-//! The desktop-leg side of relay-owned Web Push (`lib/web-push-legs.mjs`, and the web-push lines of `lib/relay-legs.mjs` and
-//! `server.mjs`): what the leg is told, what it may ask, and what a revocation takes with it. The rules themselves live on
-//! [`WebPush`]; this module plugs them into the frame registry of the legs ([`crate::legs::dispatch`]).
+//! The desktop-leg side of relay-owned Web Push: what the leg is told, what it may ask, and what a revocation takes with it. The
+//! rules live on [`WebPush`]; this module plugs them into the frame registry of the legs ([`crate::legs::dispatch`]).
 //!
-//! * the `webPush` capability of `relay-capabilities`, offered only when the relay holds an identity (registration happens only
-//!   then);
+//! * the `webPush` capability of `relay-capabilities`, offered only when the relay holds an identity;
 //! * the `webpush-subscriptions` frame of a PC, sent right after its capabilities and again by [`publish`] whenever its set changes;
 //! * `webpush-ready`: this PC delivers through the relay;
-//! * `webpush-send`, answered with `webpush-result` once the push service has answered (the leg is not held meanwhile, as `void
-//!   sender.send(...).then(reply)` did not hold it);
+//! * `webpush-send`, answered with `webpush-result` once the push service has answered (the leg is not held meanwhile);
 //! * the revocation hooks: a revoked device loses its associations and its readiness, a revoked browser loses its own, and the PC
 //!   is told its new set.
 

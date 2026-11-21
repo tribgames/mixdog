@@ -1,10 +1,8 @@
-//! The runtime directory's layout and its housekeeping (`runtime-fetcher.mjs`): the
-//! `active-version` pointer, `runtime-<key>` trees stamped with the asset digest, and the
+//! The runtime directory's layout and its housekeeping: the `active-version` pointer, `runtime-<key>` trees stamped with the asset digest, and the
 //! `staging-*` downloads guarded by cross-process lock files. Everything here is the body of a
 //! lane job (`job` in the parent module). The functions that publish take the job's
 //! [`InLane`] proof: `mixdog-statefile` writes the stamp and the pointer atomically and renames
-//! with Node's backoff (25, 50, 100 ms, then 200 ms, up to 24 attempts, sleeping on the lane
-//! thread as Node's synchronous call does).
+//! with a backoff (25, 50, 100 ms, then 200 ms, up to 24 attempts, sleeping on the lane thread).
 //!
 //! A staging lock is an `O_EXCL` file `<staging>.lock` stamped `<pid> <ms>` and held open for the
 //! whole download, extract and publish. The GC of any sibling leaves a staging directory alone
@@ -142,7 +140,7 @@ pub fn normalize_bin_exec_bit(ver_dir: &Path) {
     let _ = ver_dir;
 }
 
-/// `publishRuntimeDir`: the staged tree becomes `runtime-<key>` and `active-version` points at
+/// The staged tree becomes `runtime-<key>` and `active-version` points at
 /// it. A sibling that raced this install may already have published the same asset: that tree is
 /// kept (it may be running) and this copy dropped. Any other `runtime-<key>` is an interrupted
 /// install of this asset; it is moved aside whole, and one in use fails the publish intact.

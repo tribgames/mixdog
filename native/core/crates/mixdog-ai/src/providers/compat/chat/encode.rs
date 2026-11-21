@@ -265,6 +265,11 @@ fn lower_messages(dialect: &ChatDialect, owner: &ProviderId, messages: &[Message
         out.push(json!({"role": "user", "content": pending_media}));
     }
     let mut out = ensure_chat_tool_pairs(out);
+    apply_receipts(&mut out, messages, wire_id);
+    Ok(out)
+}
+
+fn apply_receipts(out: &mut [JsonValue], messages: &[Message], wire_id: impl Fn(&str) -> String) {
     use crate::providers::tool_result_copies::{WireUse, receipts};
     let uses = out.iter().enumerate().flat_map(|(index, item)| {
         let calls = item["tool_calls"].as_array().into_iter().flatten().filter_map(move |call| Some((index, call["id"].as_str()?, WireUse::Call)));
@@ -277,7 +282,6 @@ fn lower_messages(dialect: &ChatDialect, owner: &ProviderId, messages: &[Message
     for (index, receipt) in receipts(messages, wire_id, uses) {
         out[index]["content"] = receipt.into();
     }
-    Ok(out)
 }
 
 fn tools_value(tools: &[ToolDefinition]) -> JsonValue {

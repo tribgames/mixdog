@@ -266,26 +266,40 @@ mod tests {
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;
 
-    #[test]
-    fn key_responses_are_validated() {
-        let ok = |doc: JsonValue| credentials_from_key_response(&doc, "AT");
-        assert_eq!(ok(json!({"api_key": "k", "user_email": "X@Y.Z"})).unwrap().account_id.as_deref(), Some("x@y.z"));
-        let code = |doc: JsonValue| match ok(doc) {
+    fn key_response(doc: JsonValue) -> Result<MuseCodeCredentials, LoginFailure> {
+        credentials_from_key_response(&doc, "AT")
+    }
+
+    fn key_failure_code(doc: JsonValue) -> String {
+        match key_response(doc) {
             Err(LoginFailure::Failed { code, .. }) => code,
             other => panic!("{other:?}"),
-        };
-        assert_eq!(code(json!({"api_key": "k", "is_subs_active": false})), "invalid_grant");
-        assert_eq!(code(json!({"require_payment": true, "action_url": "https://pay"})), "payment_required");
-        assert_eq!(code(json!({"user_id": "u"})), "validation");
-        assert_eq!(code(json!({"api_key": 7})), "validation");
-        let usage = |usage: JsonValue| ok(json!({"api_key": "k", "user_id": "u", "subs_usage": usage}));
+        }
+    }
+
+    #[test]
+    fn a_key_response_takes_the_lowercased_email_as_the_account() {
+        assert_eq!(key_response(json!({"api_key": "k", "user_email": "X@Y.Z"})).unwrap().account_id.as_deref(), Some("x@y.z"));
+    }
+
+    #[test]
+    fn a_key_response_without_a_usable_key_or_identity_fails_with_its_code() {
+        assert_eq!(key_failure_code(json!({"api_key": "k", "is_subs_active": false})), "invalid_grant");
+        assert_eq!(key_failure_code(json!({"require_payment": true, "action_url": "https://pay"})), "payment_required");
+        assert_eq!(key_failure_code(json!({"user_id": "u"})), "validation");
+        assert_eq!(key_failure_code(json!({"api_key": 7})), "validation");
+        assert_eq!(key_failure_code(json!({"api_key": "k"})), "validation", "no stable identity");
+        assert_eq!(key_failure_code(json!([1])), "validation");
+    }
+
+    #[test]
+    fn a_key_responses_subscription_usage_must_be_well_formed() {
+        let usage = |usage: JsonValue| key_response(json!({"api_key": "k", "user_id": "u", "subs_usage": usage}));
         assert!(usage(json!({"window": {"used_percent": 3, "resets_at": "t"}, "weekly": null})).is_ok());
         assert!(usage(json!({"window": {"used_percent": "3"}})).is_err());
         assert!(usage(json!({"weekly": {"resets_at": true}})).is_err());
         assert!(usage(json!({"weekly": [1]})).is_err());
         assert!(usage(json!([1])).is_err());
-        assert_eq!(code(json!({"api_key": "k"})), "validation", "no stable identity");
-        assert_eq!(code(json!([1])), "validation");
     }
 
     fn store(dir: &tempfile::TempDir) -> CredentialFile {

@@ -236,21 +236,7 @@ fn recover_js_url(text: &str) -> Option<(String, bool)> {
 /// read.
 pub fn parse_dest_dictionary(xref: &Xref, dest_dict: &Dict, doc_base_url: Option<&str>) -> Result<ActionData> {
     let mut result = ActionData::default();
-    let mut action = xref.get(dest_dict, "A")?;
-    if !matches!(action, Obj::Dict(_)) {
-        if dest_dict.has("Dest") {
-            action = xref.get(dest_dict, "Dest")?;
-        } else {
-            action = xref.get(dest_dict, "AA")?;
-            if let Obj::Dict(additional) = &action {
-                if additional.has("D") {
-                    action = xref.get(additional, "D")?;
-                } else if additional.has("U") {
-                    action = xref.get(additional, "U")?;
-                }
-            }
-        }
-    }
+    let action = action_object(xref, dest_dict)?;
     let mut url: Option<String> = None;
     let mut dest: Obj = Obj::Null;
     if let Obj::Dict(action) = &action {
@@ -259,22 +245,7 @@ pub fn parse_dest_dictionary(xref: &Xref, dest_dict: &Dict, doc_base_url: Option
             return Ok(result);
         };
         match &*action_type {
-            "ResetForm" => {
-                let flags = xref.get(action, "Flags")?.as_num().unwrap_or(0.0);
-                let include = ((flags as i64) & 1) == 0;
-                let mut fields = Vec::new();
-                let mut refs = Vec::new();
-                if let Obj::Array(items) = xref.get(action, "Fields")? {
-                    for item in items.iter() {
-                        match item {
-                            Obj::Ref(r) => refs.push(r.to_string()),
-                            Obj::Str(s) => fields.push(string_to_pdf_string(s, false)),
-                            _ => {}
-                        }
-                    }
-                }
-                result.reset_form = Some(ResetForm { fields, refs, include });
-            }
+            "ResetForm" => result.reset_form = Some(reset_form_of(xref, action)?),
             "URI" => match xref.get(action, "URI")? {
                 Obj::Name(name) => url = Some(format!("/{name}")),
                 Obj::Str(s) => url = Some(latin1(&s)),
@@ -306,41 +277,11 @@ pub fn parse_dest_dictionary(xref: &Xref, dest_dict: &Dict, doc_base_url: Option
                     result.action = Some(named.to_string());
                 }
             }
-            "SetOCGState" => {
-                let preserve_rb = xref.get(action, "PreserveRB")?;
-                if let Obj::Array(state) = xref.get(action, "State")?
-                    && !state.is_empty()
-                {
-                    let mut entries = Vec::new();
-                    for element in state.iter() {
-                        match element {
-                            Obj::Name(name) if matches!(&**name, "ON" | "OFF" | "Toggle") => {
-                                entries.push(name.to_string());
-                            }
-                            Obj::Ref(r) => entries.push(r.to_string()),
-                            _ => {}
-                        }
-                    }
-                    if entries.len() == state.len() {
-                        result.set_ocg_state = Some(SetOcgState { state: entries, preserve_rb: !matches!(preserve_rb, Obj::Bool(false)) });
-                    }
-                }
-            }
+            "SetOCGState" => result.set_ocg_state = set_ocg_state_of(xref, action)?,
             "JavaScript" => {
-                let js = match xref.get(action, "JS")? {
-                    Obj::Stream(stream) => {
-                        let bytes = stream.decode(xref.filters().as_ref(), xref.guard())?;
-                        Some(latin1(&bytes))
-                    }
-                    Obj::Str(s) => Some(latin1(&s)),
-                    _ => None,
-                };
-                if let Some(js) = js {
-                    let text = string_to_pdf_string(&latin1_bytes(&js), true);
-                    if let Some((found, new_window)) = recover_js_url(&text) {
-                        url = Some(found);
-                        result.new_window = Some(new_window);
-                    }
+                if let Some((found, new_window)) = javascript_url(xref, action)? {
+                    url = Some(found);
+                    result.new_window = Some(new_window);
                 }
             }
             "SubmitForm" => {}
@@ -370,6 +311,77 @@ pub fn parse_dest_dictionary(xref: &Xref, dest_dict: &Dict, doc_base_url: Option
         }
     }
     Ok(result)
+}
+
+fn action_object(xref: &Xref, dest_dict: &Dict) -> Result<Obj> {
+    let action = xref.get(dest_dict, "A")?;
+    if matches!(action, Obj::Dict(_)) {
+        return Ok(action);
+    }
+    if dest_dict.has("Dest") {
+        return xref.get(dest_dict, "Dest");
+    }
+    let action = xref.get(dest_dict, "AA")?;
+    let Obj::Dict(additional) = &action else {
+        return Ok(action);
+    };
+    if additional.has("D") {
+        xref.get(additional, "D")
+    } else if additional.has("U") {
+        xref.get(additional, "U")
+    } else {
+        Ok(action)
+    }
+}
+
+fn reset_form_of(xref: &Xref, action: &Dict) -> Result<ResetForm> {
+    let flags = xref.get(action, "Flags")?.as_num().unwrap_or(0.0);
+    let include = ((flags as i64) & 1) == 0;
+    let mut fields = Vec::new();
+    let mut refs = Vec::new();
+    if let Obj::Array(items) = xref.get(action, "Fields")? {
+        for item in items.iter() {
+            match item {
+                Obj::Ref(r) => refs.push(r.to_string()),
+                Obj::Str(s) => fields.push(string_to_pdf_string(s, false)),
+                _ => {}
+            }
+        }
+    }
+    Ok(ResetForm { fields, refs, include })
+}
+
+fn set_ocg_state_of(xref: &Xref, action: &Dict) -> Result<Option<SetOcgState>> {
+    let preserve_rb = xref.get(action, "PreserveRB")?;
+    let Obj::Array(state) = xref.get(action, "State")? else {
+        return Ok(None);
+    };
+    if state.is_empty() {
+        return Ok(None);
+    }
+    let mut entries = Vec::new();
+    for element in state.iter() {
+        match element {
+            Obj::Name(name) if matches!(&**name, "ON" | "OFF" | "Toggle") => {
+                entries.push(name.to_string());
+            }
+            Obj::Ref(r) => entries.push(r.to_string()),
+            _ => {}
+        }
+    }
+    if entries.len() != state.len() {
+        return Ok(None);
+    }
+    Ok(Some(SetOcgState { state: entries, preserve_rb: !matches!(preserve_rb, Obj::Bool(false)) }))
+}
+
+fn javascript_url(xref: &Xref, action: &Dict) -> Result<Option<(String, bool)>> {
+    let js = match xref.get(action, "JS")? {
+        Obj::Stream(stream) => latin1(&stream.decode(xref.filters().as_ref(), xref.guard())?),
+        Obj::Str(s) => latin1(&s),
+        _ => return Ok(None),
+    };
+    Ok(recover_js_url(&string_to_pdf_string(&latin1_bytes(&js), true)))
 }
 
 /// `Catalog.baseUrl`: the document's `/URI /Base`, when it is a usable absolute URL.
@@ -404,6 +416,41 @@ struct Node {
     children: Vec<usize>,
 }
 
+fn outline_item_of(xref: &Xref, outline_dict: &Dict, base: Option<&str>) -> Result<OutlineItem> {
+    let data = parse_dest_dictionary(xref, outline_dict, base)?;
+    let title = match xref.get(outline_dict, "Title")? {
+        Obj::Str(bytes) => string_to_pdf_string(&bytes, false),
+        _ => String::new(),
+    };
+    let flags = xref.get(outline_dict, "F")?.as_num().unwrap_or(0.0);
+    let flags = if flags.is_nan() { 0 } else { flags as i64 };
+    let color = match xref.get_array(outline_dict, "C")? {
+        Obj::Array(values) if values.len() == 3 => {
+            let numbers: Option<Vec<f64>> = values.iter().map(Obj::as_num).collect();
+            match numbers {
+                Some(c) if c[0] != 0.0 || c[1] != 0.0 || c[2] != 0.0 => ColorSpace::rgb().get_rgb(&c, 0)?,
+                _ => [0, 0, 0],
+            }
+        }
+        _ => [0, 0, 0],
+    };
+    let count = xref.get(outline_dict, "Count")?.as_int();
+    Ok(OutlineItem {
+        action: data.action,
+        dest: data.dest,
+        url: data.url,
+        unsafe_url: data.unsafe_url,
+        new_window: data.new_window,
+        set_ocg_state: data.set_ocg_state,
+        title,
+        color,
+        count,
+        bold: flags & 2 != 0,
+        italic: flags & 1 != 0,
+        items: Vec::new(),
+    })
+}
+
 fn read_document_outline(document: &Document) -> Result<Option<Vec<OutlineItem>>> {
     let xref = document.xref();
     let Some(catalog) = xref.root() else {
@@ -434,42 +481,8 @@ fn read_document_outline(document: &Document) -> Result<Option<Vec<OutlineItem>>
         if !outline_dict.has("Title") {
             tracing::warn!("Invalid outline item encountered.");
         }
-        let data = parse_dest_dictionary(xref, &outline_dict, base.as_deref())?;
-        let title = match xref.get(&outline_dict, "Title")? {
-            Obj::Str(bytes) => string_to_pdf_string(&bytes, false),
-            _ => String::new(),
-        };
-        let flags = xref.get(&outline_dict, "F")?.as_num().unwrap_or(0.0);
-        let flags = if flags.is_nan() { 0 } else { flags as i64 };
-        let color = match xref.get_array(&outline_dict, "C")? {
-            Obj::Array(values) if values.len() == 3 => {
-                let numbers: Option<Vec<f64>> = values.iter().map(Obj::as_num).collect();
-                match numbers {
-                    Some(c) if c[0] != 0.0 || c[1] != 0.0 || c[2] != 0.0 => ColorSpace::rgb().get_rgb(&c, 0)?,
-                    _ => [0, 0, 0],
-                }
-            }
-            _ => [0, 0, 0],
-        };
-        let count = xref.get(&outline_dict, "Count")?.as_int();
         let index = nodes.len();
-        nodes.push(Node {
-            item: OutlineItem {
-                action: data.action,
-                dest: data.dest,
-                url: data.url,
-                unsafe_url: data.unsafe_url,
-                new_window: data.new_window,
-                set_ocg_state: data.set_ocg_state,
-                title,
-                color,
-                count,
-                bold: flags & 2 != 0,
-                italic: flags & 1 != 0,
-                items: Vec::new(),
-            },
-            children: Vec::new(),
-        });
+        nodes.push(Node { item: outline_item_of(xref, &outline_dict, base.as_deref())?, children: Vec::new() });
         match parent {
             Some(p) => nodes[p].children.push(index),
             None => roots.push(index),

@@ -1,8 +1,7 @@
 //! The argument checks of the UI browser/command actions, with the refusal texts of
 //! `shared/remote-browser.ts`, `shared/browser-page-control.ts` and the host's action table
-//! (`main/host/browser-command.ts` `REMOTE_ACTIONS`). The core runs them for every origin before
-//! a command is forwarded; the corpus `fixtures/browser-parity/remote-browser.json` is read by
-//! the desktop's own test too, so both sides refuse the same input with the same text.
+//! (`main/host/browser-command.ts` `REMOTE_ACTIONS`). The corpus
+//! `fixtures/browser-parity/remote-browser.json` is read by the desktop's own test too.
 
 use mixdog_core_api::CoreError;
 use mixdog_js::utf16_len as len16;

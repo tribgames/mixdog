@@ -10,9 +10,6 @@
 //!   ([`schedule`]).
 //! * [`host`] and [`io`] are what the process supplies: the catalog, the OAuth usage cache and the live agent runtimes, and
 //!   the file reads.
-//!
-//! Node's lazy import of `ui/statusline.mjs` (its prewarm, and the retry with a doubling backoff after a failed import) has
-//! nothing to do in a program that has no module to load and is not carried; the boot delay of the first full render is.
 
 pub mod files;
 pub mod host;

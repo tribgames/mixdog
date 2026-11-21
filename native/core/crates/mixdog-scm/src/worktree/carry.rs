@@ -291,19 +291,27 @@ impl Worktrees {
             detail.paths = preview(&nested);
             return Err(detail.failure());
         }
-        if checkout.untracked.len() > UNTRACKED_MAX_FILES {
+        self.assert_untracked_fit(top, &checkout.untracked, cancel).await?;
+        let filtered = self.filtered_paths(top, &checkout.files, cancel).await?;
+        if !filtered.is_empty() {
+            let mut detail = refusal("filtered-paths", "Changed files use a git filter (such as Git LFS), which a carry cannot reproduce exactly.");
+            detail.paths = preview(&filtered);
+            return Err(detail.failure());
+        }
+        Ok(checkout)
+    }
+
+    async fn assert_untracked_fit(&self, top: &Path, untracked: &[String], cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        if untracked.len() > UNTRACKED_MAX_FILES {
             let mut detail = refusal(
                 "too-large",
-                &format!(
-                    "The project folder has {} untracked files (limit {UNTRACKED_MAX_FILES}); add generated output to .gitignore first.",
-                    checkout.untracked.len()
-                ),
+                &format!("The project folder has {} untracked files (limit {UNTRACKED_MAX_FILES}); add generated output to .gitignore first.", untracked.len()),
             );
-            detail.files = Some(DirtyFiles::Count(checkout.untracked.len() as u64));
+            detail.files = Some(DirtyFiles::Count(untracked.len() as u64));
             detail.max_files = Some(UNTRACKED_MAX_FILES as u64);
             return Err(detail.failure());
         }
-        let (root, untracked) = (top.to_path_buf(), checkout.untracked.clone());
+        let (root, untracked) = (top.to_path_buf(), untracked.to_vec());
         let over = on_lane(self.scm().lane, cancel, move || {
             let mut bytes = 0u64;
             for rel in &untracked {
@@ -326,13 +334,7 @@ impl Worktrees {
             detail.max_bytes = Some(UNTRACKED_MAX_BYTES);
             return Err(detail.failure());
         }
-        let filtered = self.filtered_paths(top, &checkout.files, cancel).await?;
-        if !filtered.is_empty() {
-            let mut detail = refusal("filtered-paths", "Changed files use a git filter (such as Git LFS), which a carry cannot reproduce exactly.");
-            detail.paths = preview(&filtered);
-            return Err(detail.failure());
-        }
-        Ok(checkout)
+        Ok(())
     }
 
     /// The checkout's uncommitted paths, or the refusal that says why they cannot be carried.

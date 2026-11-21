@@ -487,11 +487,23 @@ fn a_retired_endpoint_is_dropped_for_every_pc_and_the_holders_are_named() {
 }
 
 #[test]
-fn a_corrupt_or_foreign_file_starts_an_empty_registry_and_keeps_what_is_valid() {
+fn a_file_that_is_not_json_starts_an_empty_registry() {
+    let dir = tempfile::tempdir().unwrap();
+    write(&dir.path().join(SUBSCRIPTIONS_FILE), "{not json");
+    assert!(Registry::open(dir.path()).list_for("pc-a").is_empty());
+}
+
+#[test]
+fn a_file_that_is_not_a_registry_object_starts_an_empty_registry() {
+    let dir = tempfile::tempdir().unwrap();
+    write(&dir.path().join(SUBSCRIPTIONS_FILE), "[1,2]");
+    assert!(Registry::open(dir.path()).list_for("pc-a").is_empty());
+}
+
+#[test]
+fn a_foreign_file_keeps_only_what_is_valid() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(SUBSCRIPTIONS_FILE);
-    write(&path, "{not json");
-    assert!(Registry::open(dir.path()).list_for("pc-a").is_empty());
     let valid = json!({ "deviceId": "pc-a", "clientId": "aaaaaaaa", "sealed": sealed_value("a"), "createdAt": 5 });
     write(
         &path,
@@ -520,9 +532,6 @@ fn a_corrupt_or_foreign_file_starts_an_empty_registry_and_keeps_what_is_valid() 
     assert!(registry.has("pc-a", "aaaaaaaa", ENDPOINT));
     assert!(!registry.has("pc-a", "aaaaaaaa", "https://evil.example/x"));
     assert!(!registry.has("pc-a", "aaaaaaaa", "https://fcm.googleapis.com/empty"));
-    // An array or a bare value is not a registry either.
-    write(&path, "[1,2]");
-    assert!(Registry::open(dir.path()).list_for("pc-a").is_empty());
 }
 
 // ---- files as the relay lays them out ----

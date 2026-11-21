@@ -1,10 +1,4 @@
 //! Rollup recompute as maintenance (SPEC R32).
-//!
-//! A completed day's rollup is cached in `rollup_days`, validated by a fingerprint of the
-//! day-revision counters the triggers keep. The append commit that moves a fingerprint
-//! schedules [`recompute_rollup_days`] (an event, not a boot scan); when it completes the
-//! writer tells its owner that the figures changed ([`crate::writer::UsageChanged`]), and the
-//! owner publishes the `usage` section: the statistics answer, never this rollup.
 
 use std::collections::BTreeMap;
 

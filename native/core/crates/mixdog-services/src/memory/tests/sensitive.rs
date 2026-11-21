@@ -8,10 +8,6 @@ use serde_json::{Value, json};
 
 use crate::memory::sensitive::SensitiveStore;
 
-/// The attached-files note keeps a record of each file beside its text (`attachedFilesNote`,
-/// `attachment-reference.mjs:184-197`): the row stores it and its clients receive it. A marked value in the file's
-/// name (and so in its path, which ends in the name) is stored redacted there as in the note's text, as the patched
-/// Node's `sensitive-projection.test.mjs` expects of the same message.
 #[test]
 fn a_marked_value_in_an_attached_files_name_and_path_is_stored_redacted() {
     let session = "sess_sensitive_names";
@@ -143,6 +139,25 @@ fn a_completion_card_on_a_stored_message_takes_the_marker() {
     assert!(!stored.to_string().contains("730215"), "{stored}");
     assert_eq!(stored["meta"]["taskCard"]["result"], "The code is [redacted].");
     assert_eq!(stored["meta"]["source"], "task-notification");
+}
+
+#[test]
+fn a_stored_message_redacts_the_arguments_of_its_tool_calls_and_keeps_the_others() {
+    let fill = serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "730215" } } });
+    let store = SensitiveStore::default();
+    store.remember("owner", &[fill]);
+    let message = serde_json::json!({
+        "role": "assistant",
+        "content": "ok",
+        "toolCalls": [
+            { "id": "a", "name": "browser", "arguments": { "text": "code 730215" } },
+            { "id": "b", "name": "browser", "arguments": { "text": "plain" } },
+        ],
+    });
+    let stored = store.redact_message("owner", &message);
+    assert_eq!(stored["toolCalls"][0]["arguments"]["text"], "code [redacted]");
+    assert_eq!(stored["toolCalls"][0]["id"], "a");
+    assert_eq!(stored["toolCalls"][1], message["toolCalls"][1]);
 }
 
 fn fill(text: &str) -> Value {

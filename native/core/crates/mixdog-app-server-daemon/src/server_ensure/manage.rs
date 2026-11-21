@@ -48,46 +48,44 @@ pub fn cleanup(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAcces
 
     let mut stopped = None;
     if let Some(core) = access.discovery()? {
-        let answered = match access.stop_when_idle(&core, StopReason::UserStop, None)? {
-            Some(drain) => match &args.confirm_token {
-                Some(token) => access.stop_confirmed(&core, StopReason::UserStop, token, None)?,
-                None if drain.running.is_empty() => true,
-                None => return Err(EnsureError::Busy { server_version: core.version, drain }),
-            },
-            None => false,
-        };
-        retire(access, &core, answered)?;
+        retire(access, &core, StopReason::UserStop, args.confirm_token.as_deref(), None)?;
         stopped = Some(Stopped { pid: core.pid, stopped: true });
     }
 
-    let mut removed = Vec::new();
-    let mut kept = Vec::new();
+    let (mut removed, mut kept) = (Vec::new(), Vec::new());
     if args.phase == Some(CleanupPhase::Remove) {
         assert_install_idle(&paths, host)?;
-        let user_data = paths.user_data.file_name().map(std::ffi::OsStr::to_owned);
-        let lock_name = paths.lock.file_name().map(std::ffi::OsStr::to_owned);
-        let entries = fs::read_dir(&paths.root).map_err(|e| EnsureError::InstallFailed(format!("Cannot list {}: {e}", paths.root.display())))?;
-        for entry in entries.filter_map(Result::ok) {
-            let name = entry.file_name();
-            if Some(&name) == lock_name.as_ref() {
-                continue;
-            }
-            let label = name.to_string_lossy().into_owned();
-            if Some(&name) == user_data.as_ref() && !args.remove_user_data {
-                kept.push(label);
-                continue;
-            }
-            let path = entry.path();
-            let result = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
-            result.map_err(|e| EnsureError::InstallFailed(format!("Cannot remove {}: {e}", path.display())))?;
-            removed.push(label);
-        }
+        (removed, kept) = remove_install(&paths, args.remove_user_data)?;
     }
     drop(lock);
     if args.phase == Some(CleanupPhase::Remove) && kept.is_empty() {
         let _ = fs::remove_dir(&paths.root);
     }
     Ok(Report { cleanup: Some(CleanupResult { stopped, removed, kept }), ..report })
+}
+
+/// Deletes everything under the install root but the lock, and the user data unless asked; returns what went and what stayed.
+fn remove_install(paths: &RemotePaths, remove_user_data: bool) -> Result<(Vec<String>, Vec<String>), EnsureError> {
+    let (mut removed, mut kept) = (Vec::new(), Vec::new());
+    let user_data = paths.user_data.file_name().map(std::ffi::OsStr::to_owned);
+    let lock_name = paths.lock.file_name().map(std::ffi::OsStr::to_owned);
+    let entries = fs::read_dir(&paths.root).map_err(|e| EnsureError::InstallFailed(format!("Cannot list {}: {e}", paths.root.display())))?;
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name();
+        if Some(&name) == lock_name.as_ref() {
+            continue;
+        }
+        let label = name.to_string_lossy().into_owned();
+        if Some(&name) == user_data.as_ref() && !remove_user_data {
+            kept.push(label);
+            continue;
+        }
+        let path = entry.path();
+        let result = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        result.map_err(|e| EnsureError::InstallFailed(format!("Cannot remove {}: {e}", path.display())))?;
+        removed.push(label);
+    }
+    Ok((removed, kept))
 }
 
 #[cfg(test)]

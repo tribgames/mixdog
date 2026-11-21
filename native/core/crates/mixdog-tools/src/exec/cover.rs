@@ -1,4 +1,4 @@
-//! Which shell commands the built-in tools cover whole (`bash-tool/tool-cover.mjs`). A statement is covered
+//! Which shell commands the built-in tools cover whole. A statement is covered
 //! only when its command, every flag and every operand are on the allow-list below, each entry of which has a
 //! replacement call that returns the same information; everything else (an unknown flag or filter, a filter that
 //! computes or writes, a wildcard, a variable, several paths, a device, a path the tool would read differently, a
@@ -356,6 +356,10 @@ fn read_spec(name: &str, args: &[String], powershell: bool) -> Option<ReadSpec> 
         let window = count_window(name, args)?;
         return (window.operands.len() == 1).then(|| ReadSpec { file: window.operands[0].clone(), first: window.first, last: window.last, skip: window.skip });
     }
+    powershell_read_spec(args)
+}
+
+fn powershell_read_spec(args: &[String]) -> Option<ReadSpec> {
     let mut spec = ReadSpec::default();
     let mut file: Option<String> = None;
     let mut i = 0;

@@ -1,8 +1,3 @@
-//! The pristine execution boundary (`createPristineExecutionBoundary`): a temp root with its own
-//! data and runtime root, the selected provider's credentials as Node binds them, the minimal
-//! config, and removal on exit. Nothing of the host's personal state reaches the run.
-//!
-//! The patch-binary cache Node seeded is gone: the core links the patch library.
 #![allow(
     clippy::disallowed_methods,
     reason = "the boundary is created before the core starts and removed after it stopped; the exec process owns the temp root"
@@ -139,10 +134,9 @@ fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, f
     json!({ "agent": Value::Object(agent) })
 }
 
-/// `--provider-config` (decision B-8, a deliberate difference from Node): the one custom provider entry the run
-/// may use, named by the `--provider` it defines (`{"custom-x": {...}}`, inline JSON or a file). It is validated as
-/// the settings validate a custom provider and holds no inline secret: the key is read from the environment
-/// variable it names. The default stays pristine; the host's config is never read.
+/// `--provider-config`: the one custom provider entry the run may use, named by the `--provider` it defines
+/// (`{"custom-x": {...}}`, inline JSON or a file). It holds no inline secret: the key is read from the environment
+/// variable it names.
 fn explicit_provider_entry(provider: &str, raw: &str) -> Result<Value, String> {
     let raw = clean(Some(raw));
     let text = if raw.starts_with('{') { raw.to_owned() } else { std::fs::read_to_string(raw).map_err(|err| format!("--provider-config {raw}: {err}"))? };
@@ -253,6 +247,33 @@ fn scrubbed_env(
     env
 }
 
+/// Binds the host's OAuth credential for `provider` and copies its model catalog into `data_dir`; answers the binding and how many
+/// catalogs were copied.
+fn bind_oauth(request: &BoundaryRequest<'_>, oauth: &Value, provider: &str, data_dir: &Path) -> Result<(CredentialBinding, u32), String> {
+    let credential_env = oauth["credentialPathEnv"].as_str().expect("credentialPathEnv");
+    let explicit = request
+        .host_env
+        .get(credential_env)
+        .filter(|path| !clean(Some(path)).is_empty())
+        .map(|path| std::path::absolute(path).map_err(|err| err.to_string()))
+        .transpose()?;
+    let legacy = request.host_data_dir.join(oauth["credentialFile"].as_str().expect("credentialFile"));
+    let source = explicit.unwrap_or_else(|| {
+        request.credentials.pool_credential(provider, request.host_data_dir).into_iter().chain([legacy.clone()]).find(|path| path.exists()).unwrap_or(legacy)
+    });
+    if !source.exists() {
+        return Err(format!("required {provider} credentials are unavailable; sign in before using mixdog exec"));
+    }
+    let catalog = oauth["modelCatalogFile"].as_str().expect("modelCatalogFile");
+    let source_catalog = request.host_data_dir.join(catalog);
+    let mut catalogs = 0;
+    if source_catalog.exists() {
+        std::fs::copy(&source_catalog, data_dir.join(catalog)).map_err(|err| err.to_string())?;
+        catalogs = 1;
+    }
+    Ok((CredentialBinding { provider: provider.to_owned(), path: source }, catalogs))
+}
+
 impl Boundary {
     /// Creates the root and everything the run starts from; a refusal removes the root again.
     pub fn create(request: &BoundaryRequest<'_>) -> Result<Self, String> {
@@ -291,44 +312,17 @@ impl Boundary {
         };
         let env = scrubbed_env(contract, request.host_env, root_dir, &data_dir, &runtime_root, custom.as_ref().and(api_key_env));
 
-        let mut auth_mode = "provider-managed";
-        let mut catalogs = 0;
-        let mut credential = None;
-        if let Some(oauth) = oauth {
-            let credential_env = oauth["credentialPathEnv"].as_str().expect("credentialPathEnv");
-            let explicit = request
-                .host_env
-                .get(credential_env)
-                .filter(|path| !clean(Some(path)).is_empty())
-                .map(|path| std::path::absolute(path).map_err(|err| err.to_string()))
-                .transpose()?;
-            let legacy = request.host_data_dir.join(oauth["credentialFile"].as_str().expect("credentialFile"));
-            let source = explicit.unwrap_or_else(|| {
-                request
-                    .credentials
-                    .pool_credential(provider, request.host_data_dir)
-                    .into_iter()
-                    .chain([legacy.clone()])
-                    .find(|path| path.exists())
-                    .unwrap_or(legacy)
-            });
-            if !source.exists() {
-                return Err(format!("required {provider} credentials are unavailable; sign in before using mixdog exec"));
+        let (auth_mode, catalogs, credential) = match oauth {
+            Some(oauth) => {
+                let (credential, catalogs) = bind_oauth(request, oauth, provider, &data_dir)?;
+                ("in-process-host-oauth-binding", catalogs, Some(credential))
             }
-            auth_mode = "in-process-host-oauth-binding";
-            credential = Some(CredentialBinding { provider: provider.to_owned(), path: source });
-            let catalog = oauth["modelCatalogFile"].as_str().expect("modelCatalogFile");
-            let source_catalog = request.host_data_dir.join(catalog);
-            if source_catalog.exists() {
-                std::fs::copy(&source_catalog, data_dir.join(catalog)).map_err(|err| err.to_string())?;
-                catalogs = 1;
-            }
-        } else if let Some(env_name) = api_key_env {
-            if api_key.is_none() {
-                return Err(format!("required {provider} authentication is unavailable; set {env_name}"));
-            }
-            auth_mode = "in-process-api-key";
-        }
+            None => match api_key_env {
+                Some(env_name) if api_key.is_none() => return Err(format!("required {provider} authentication is unavailable; set {env_name}")),
+                Some(_) => ("in-process-api-key", 0, None),
+                None => ("provider-managed", 0, None),
+            },
+        };
 
         let config = minimal_config(contract, provider, model, effort, request.fast, custom.as_ref());
         let config_bytes = format!("{}\n", serde_json::to_string_pretty(&config).expect("a config serializes"));

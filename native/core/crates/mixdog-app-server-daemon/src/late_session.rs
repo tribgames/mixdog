@@ -1,15 +1,3 @@
-//! The seams of the composition that are a true cycle through the session directory, and the media layer's one late cell.
-//!
-//! The directory is built by `TurnPath::new`, from the tool pool; the pool holds the `setup` tool,
-//! which holds the desktop request broker (`SetupRequests`, whose `SetupUiSurface` is
-//! `SessionSetupUi` over the directory) and the setup callers (`CallerSessions` over the directory).
-//! Neither can be built after the directory, so each is a cell bound once, right after it:
-//! `LateSetupUi::bind(Arc::new(SessionSetupUi::new(directory, outgoing)))`, and `LateCallerSessions`
-//! reads the same [`LateDirectory`] the other late views read.
-//!
-//! Nothing calls either before the bind: a setup request or a setup caller exists only inside a
-//! turn, and a turn needs the directory. Unbound they answer as an unknown thread would.
-
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -89,10 +77,6 @@ impl Bound for LateCallerSessions {
     }
 }
 
-/// The `RouteSession` of the context world, bound to the directory's `SessionRouteAdapter` once the directory exists. The manual
-/// compaction (a `TurnPath::new` input) reads it, and the adapter needs the directory: a true cycle. A call before the bind is a typed
-/// `Unavailable` where the method can fail; the two synchronous reads have no error channel, so they `expect` the cell that `verify_bound`
-/// proved bound before the first connection (the same rule as the live-directory read).
 #[derive(Default)]
 pub struct LateRouteSession(OnceLock<Arc<dyn mixdog_core_ports::ports::route::RouteSession>>);
 
@@ -176,10 +160,6 @@ impl Bound for LateRouteSession {
         self.0.get().is_some()
     }
 }
-/// The `CycleBoot.llm` of the memory cycles, bound once the directory exists. The memory stack is an input of `TurnPath::new` (its search, ingest and
-/// transcript offsets feed `SessionDeps` and the purge), and the `cycle1-agent` dispatch needs the built directory (`DispatchThreads`): a true cycle.
-/// A cycle tick that runs before the bind gets a typed failure (the scheduler reports it as a failed cycle and tries again); `verify_bound`
-/// proves the bind before the first connection, and the first tick is a timer after start-up.
 #[derive(Default)]
 pub struct LateCycleLlm(OnceLock<Arc<dyn mixdog_services::memory::cycles::Cycle1Llm>>);
 
@@ -707,11 +687,6 @@ impl LateDraftSettings {
         self.0.set(service).map_err(|_| "draft settings")
     }
 
-    /// The method as the host's `invokeSession` calls it: the one argument, no options. Without the `session` scope Node's runtime
-    /// writes the configured value, which the empty session takes at its first turn (workflow-packs.mjs:53-71, style-and-mode.mjs:40-61),
-    /// and its answer is not read (session-host-lifecycle.ts:766-776): the call names no thread, whose record the core writes only
-    /// after the route (`begin_thread`), so the op is the domain's. Both are mutations: each call is its own operation
-    /// ([`internal_request`]).
     async fn call(&self, method: &'static str, params: Value) -> Result<(), mixdog_core_api::CoreError> {
         let service = self.0.get().expect("draft settings bound (compose::verify_bound)");
         service.call(internal_request(method, params, "draft")).await.map(|_| ())
@@ -968,10 +943,6 @@ impl mixdog_core::run_host::tool_pool::session_port::ThreadCatalog for LateListC
         self.0.get().map(|catalog| catalog.work_of(id)).unwrap_or_default()
     }
 }
-/// What `session bots` reads besides the catalog, over the stores the daemon composes: the contact bots (off the roster when
-/// the config disables them), the schedules and webhooks (`channelSetup`), the held requests of unattended runs
-/// (`pendingHeldRequests`) and the report watches of task turns (`agentTaskWatches`, the home delivery, built after the pool
-/// this sits in).
 pub struct DaemonBotWorld {
     pub bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
     pub config: mixdog_core_config::config::Config,

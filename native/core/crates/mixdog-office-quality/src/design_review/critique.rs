@@ -1,4 +1,4 @@
-//! `design-review-critique.mjs`: the model's own visual critique of a rendered deck (five axes, a note, and plan-derived
+//! The model's own visual critique of a rendered deck (five axes, a note, and plan-derived
 //! checks per slide) and the acknowledgement gate finalize reads.
 
 use mixdog_js::{js_to_lowercase, json_number, to_number_of, utf16_len, value_to_string};
@@ -83,6 +83,74 @@ fn distinct(list: &[String]) -> usize {
     seen.len()
 }
 
+/// The slide index an entry names (`slide`, or `page` for a PDF of designed pages), or the issue it earns when it is not
+/// an integer in the deck or was named before.
+fn critique_slide(raw: &Value, total: f64, seen: &[f64]) -> Result<f64, Value> {
+    let named = coalesce(field(raw, "slide"), field(raw, "page"));
+    let slide = named.map_or(f64::NAN, |value| to_number_of(Some(value)));
+    if !(slide.is_finite() && slide.fract() == 0.0) || slide < 1.0 || slide > total || seen.contains(&slide) {
+        return Err(critique_issue(
+            "visual_critique_invalid_slide",
+            "/",
+            &format!("Visual critique has an invalid or duplicate slide index: {}", named.map_or_else(|| template_text(None), value_to_string)),
+        ));
+    }
+    Ok(slide)
+}
+
+/// One slide's entry as it is recorded, the issue it earns, and what the repeat check reads of it.
+fn review_critique_entry(raw: &Value, slide: f64, require_checks: bool) -> (Value, Option<Value>, Entry) {
+    let scores: Vec<f64> = PPTX_CRITIQUE_AXES.iter().map(|axis| to_number_of(field(raw, axis))).collect();
+    let note = trimmed(field(raw, "note"));
+    let fixes = strings(field(raw, "fixes"));
+    let verdict = js_to_lowercase(&text(field(raw, "verdict")));
+    let valid_scores = scores.iter().all(|score| score.is_finite() && score.fract() == 0.0 && (1.0..=5.0).contains(score));
+    let checks = parse_checks(field(raw, "checks"));
+    // An anchor (cover, section, closing) carries a statement or a picture, not evidence; its evidence score is
+    // recorded but never gates finalize.
+    let role = js_to_lowercase(&trimmed(field(raw, "role")));
+    let anchor = ["anchor", "cover", "section", "closing"].contains(&role.as_str());
+    let gated = |at: usize| !(anchor && PPTX_CRITIQUE_AXES[at] == "evidence");
+    let mut record = Map::new();
+    record.insert("slide".into(), json_number(slide));
+    record.insert("verdict".into(), json!(verdict));
+    for (axis, score) in PPTX_CRITIQUE_AXES.iter().zip(&scores) {
+        record.insert((*axis).into(), json_number(*score));
+    }
+    record.insert("note".into(), json!(note));
+    record.insert("fixes".into(), json!(fixes));
+    if !role.is_empty() {
+        record.insert("role".into(), json!(role));
+    }
+    if !checks.is_empty() {
+        record.insert("checks".into(), Value::Array(checks.iter().map(|(item, pass)| json!({ "item": item, "pass": pass })).collect()));
+    }
+    let path = format!("/slide[{}]", mixdog_js::number_to_string(slide));
+    let issue = if !valid_scores || utf16_len(&note) < 40 || (require_checks && checks.len() < MIN_CHECKS) {
+        let message = if require_checks {
+            format!(
+                "Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least {MIN_CHECKS} checks ({{ item, pass }}) derived from the slide's plan line."
+            )
+        } else {
+            "Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.".to_owned()
+        };
+        Some(critique_issue("visual_critique_incomplete", &path, &message))
+    } else if verdict != "pass"
+        || !fixes.is_empty()
+        || (0..PPTX_CRITIQUE_AXES.len()).any(|at| gated(at) && scores[at] < 4.0)
+        || checks.iter().any(|(_, pass)| !pass)
+    {
+        Some(critique_issue(
+            "visual_critique_needs_polish",
+            &path,
+            &format!("Slide {} still needs polish before finalization.", mixdog_js::number_to_string(slide)),
+        ))
+    } else {
+        None
+    };
+    (Value::Object(record), issue, Entry { note, checks })
+}
+
 /// `reviewPptxVisualCritique({ critique, pageCount, requireChecks })`: `{ ok, status, axes, pageCount, entries, issues }`.
 pub fn review_pptx_visual_critique(args: &Value) -> Value {
     let total = {
@@ -95,70 +163,19 @@ pub fn review_pptx_visual_critique(args: &Value) -> Value {
     let mut entries: Vec<Value> = Vec::new();
     let mut read: Vec<Entry> = Vec::new();
     let mut seen: Vec<f64> = Vec::new();
-    for raw in raw_list {
-        if !raw.is_object() {
-            continue;
-        }
-        // A PDF of designed pages names its entries by page.
-        let named = coalesce(field(raw, "slide"), field(raw, "page"));
-        let slide = named.map_or(f64::NAN, |value| to_number_of(Some(value)));
-        if !(slide.is_finite() && slide.fract() == 0.0) || slide < 1.0 || slide > total || seen.contains(&slide) {
-            issues.push(critique_issue(
-                "visual_critique_invalid_slide",
-                "/",
-                &format!("Visual critique has an invalid or duplicate slide index: {}", named.map_or_else(|| template_text(None), value_to_string)),
-            ));
-            continue;
-        }
-        let scores: Vec<f64> = PPTX_CRITIQUE_AXES.iter().map(|axis| to_number_of(field(raw, axis))).collect();
-        let note = trimmed(field(raw, "note"));
-        let fixes = strings(field(raw, "fixes"));
-        let verdict = js_to_lowercase(&text(field(raw, "verdict")));
-        let valid_scores = scores.iter().all(|score| score.is_finite() && score.fract() == 0.0 && (1.0..=5.0).contains(score));
-        let checks = parse_checks(field(raw, "checks"));
-        // An anchor (cover, section, closing) carries a statement or a picture, not evidence; its evidence score is
-        // recorded but never gates finalize.
-        let role = js_to_lowercase(&trimmed(field(raw, "role")));
-        let anchor = ["anchor", "cover", "section", "closing"].contains(&role.as_str());
-        let gated = |at: usize| !(anchor && PPTX_CRITIQUE_AXES[at] == "evidence");
-        let mut entry = Map::new();
-        entry.insert("slide".into(), json_number(slide));
-        entry.insert("verdict".into(), json!(verdict));
-        for (axis, score) in PPTX_CRITIQUE_AXES.iter().zip(&scores) {
-            entry.insert((*axis).into(), json_number(*score));
-        }
-        entry.insert("note".into(), json!(note));
-        entry.insert("fixes".into(), json!(fixes));
-        if !role.is_empty() {
-            entry.insert("role".into(), json!(role));
-        }
-        if !checks.is_empty() {
-            entry.insert("checks".into(), Value::Array(checks.iter().map(|(item, pass)| json!({ "item": item, "pass": pass })).collect()));
-        }
-        entries.push(Value::Object(entry));
+    for raw in raw_list.iter().filter(|raw| raw.is_object()) {
+        let slide = match critique_slide(raw, total, &seen) {
+            Ok(slide) => slide,
+            Err(issue) => {
+                issues.push(issue);
+                continue;
+            }
+        };
+        let (record, issue, entry) = review_critique_entry(raw, slide, require_checks);
+        entries.push(record);
         seen.push(slide);
-        let path = format!("/slide[{}]", mixdog_js::number_to_string(slide));
-        if !valid_scores || utf16_len(&note) < 40 || (require_checks && checks.len() < MIN_CHECKS) {
-            let message = if require_checks {
-                format!(
-                    "Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least {MIN_CHECKS} checks ({{ item, pass }}) derived from the slide's plan line."
-                )
-            } else {
-                "Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.".to_owned()
-            };
-            issues.push(critique_issue("visual_critique_incomplete", &path, &message));
-        } else if verdict != "pass"
-            || !fixes.is_empty()
-            || (0..PPTX_CRITIQUE_AXES.len()).any(|at| gated(at) && scores[at] < 4.0)
-            || checks.iter().any(|(_, pass)| !pass)
-        {
-            issues.push(critique_issue(
-                "visual_critique_needs_polish",
-                &path,
-                &format!("Slide {} still needs polish before finalization.", mixdog_js::number_to_string(slide)),
-            ));
-        }
-        read.push(Entry { note, checks });
+        issues.extend(issue);
+        read.push(entry);
     }
     let mut slide = 1.0;
     while slide <= total {
@@ -181,7 +198,6 @@ pub fn review_pptx_visual_critique(args: &Value) -> Value {
         "issues": issues,
     })
 }
-
 /// `pptxVisualReviewAcknowledged({ reviewed, providedToken, expectedToken, renderedVersion, snapshotVersion,
 /// coverageComplete, critiqueOk })`: whether the model has read the render of the version being finalized. A parameter
 /// that is absent takes its default (not reviewed, no token, no version, complete coverage, critique not ok).

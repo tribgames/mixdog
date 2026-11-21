@@ -349,23 +349,7 @@ fn engine_source(source: &str, icase: bool) -> String {
                 }
                 let end = end.min(chars.len());
                 let body = &chars[body_start..end];
-                let mut members = String::new();
-                let mut has_word_negation = false;
-                let mut k = 0;
-                while k < body.len() {
-                    if body[k] == '\\' {
-                        if body.get(k + 1) == Some(&'W') {
-                            has_word_negation = true;
-                        } else {
-                            members.push('\\');
-                            members.extend(body.get(k + 1));
-                        }
-                        k += 2;
-                    } else {
-                        members.push(body[k]);
-                        k += 1;
-                    }
-                }
+                let (members, has_word_negation) = class_members(body);
                 if negated && has_word_negation && end < chars.len() {
                     if members.is_empty() {
                         out.push_str("(?:\\w)");
@@ -386,6 +370,28 @@ fn engine_source(source: &str, icase: bool) -> String {
         }
     }
     out
+}
+
+/// The members of a character class body without its `\\W` escapes, and whether it held one.
+fn class_members(body: &[char]) -> (String, bool) {
+    let mut members = String::new();
+    let mut has_word_negation = false;
+    let mut k = 0;
+    while k < body.len() {
+        if body[k] == '\\' {
+            if body.get(k + 1) == Some(&'W') {
+                has_word_negation = true;
+            } else {
+                members.push('\\');
+                members.extend(body.get(k + 1));
+            }
+            k += 2;
+        } else {
+            members.push(body[k]);
+            k += 1;
+        }
+    }
+    (members, has_word_negation)
 }
 
 /// `join(regexps, "|")` of core.js: each pattern in its own group, back-references renumbered.

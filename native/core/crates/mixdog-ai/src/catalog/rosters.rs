@@ -144,11 +144,6 @@ impl Rosters {
             return preset.get(file).cloned().unwrap_or_default();
         }
         let Some(dir) = &self.dir else { return Vec::new() };
-        // A roster the cache writes is its identity's own file, and the identity the listings last sampled is the only one
-        // read (the one rule, every reader): another account's roster is another file, and with no identity known none is
-        // read. The file a 1.4.5 install left under the route's plain name names no account and proves nothing about this
-        // one: it is not opened. A file that does not say it was fetched for this identity is no rows, a damaged one is
-        // reported and is no rows.
         if let Some(roster) = super::oauth_cache::Roster::of_file(file) {
             let Some(key) = self.accounts.get(roster) else { return Vec::new() };
             let keyed = roster.keyed_file(&key);

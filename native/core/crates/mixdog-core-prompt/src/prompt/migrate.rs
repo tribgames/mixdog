@@ -1,10 +1,10 @@
-//! The 1.4.5 system messages to the header fields (for WP-MIGRATE).
+//! The 1.4.5 system messages to the header fields.
 //!
 //! A 1.4.5 session record carries its system prompt as the leading `system` messages of
 //! `messages`. The migration reads the record's `messages` and header with
 //! [`migrate_system_messages`], starts the model rows at [`Migration::rows_from`] and writes
 //! [`Migration::apply`] into the header it stores. Nothing is guessed: a record whose prefix is
-//! not one Node writes is an error for the migration to report.
+//! not one 1.4.5 writes is an error for the migration to report.
 
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
@@ -16,7 +16,7 @@ use super::blocks::SystemBlocks;
 pub enum MigrateError {
     #[error(transparent)]
     Shape(#[from] ShapeError),
-    /// A system message after the first non-system one: Node never writes one.
+    /// A system message after the first non-system one.
     #[error("system message {0} follows conversation messages")]
     LateSystem(usize),
 }
@@ -26,12 +26,9 @@ pub struct Migration {
     pub blocks: SystemBlocks,
     /// Index of the first model row in the record's `messages`.
     pub rows_from: usize,
-    /// The record lacks `bp3EnvSplit: true`. Node 1.4.6 does not convert such a session on load
-    /// (no code writes the flag except `buildSessionRecord`, `session-record.mjs:178`), and every
-    /// rewrite keeps the combined layout: `refreshSessionBp3Environment` `prompt-utils.mjs:180`,
-    /// `rerootSessionWorkspace` `:304`, `resetSessionBp3Environment` `:574`, `rewriteBp3Core` and
-    /// `rewriteConversationBp3Core` `surface-helpers.mjs:62,89`. So the message stays one combined
-    /// `tier3` message, in `promptTier3`, and the flag stays absent.
+    /// The record lacks `bp3EnvSplit: true`. 1.4.6 does not convert such a session on load and every
+    /// rewrite keeps the combined layout, so the message stays one combined `tier3` message, in
+    /// `promptTier3`, and the flag stays absent.
     pub combined_layout: bool,
 }
 

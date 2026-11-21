@@ -16,6 +16,7 @@ use mixdog_core_agents::agents::HEADER_FIELDS;
 use mixdog_core_agents::agents::PoolLive;
 use mixdog_core_agents::agents::PoolStore;
 use mixdog_core_agents::agents::RuntimeEntry;
+use mixdog_core_agents::agents::SettleFix;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::hidden_agents::hidden_agent;
 use mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds;
@@ -57,13 +58,13 @@ impl PoolStore for RegistryPoolStore {
         (Some(agents), Some(leads))
     }
 
-    /// One answer per id, in order; `None` for a session that is not stored.
-    ///
-    /// The header a loaded session holds, else its stored record: a listing reads every worker the index names, and
-    /// opening each of them would load every session of the profile to list them.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>> {
         let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
         self.directory.listed_fields_of(&ids, &HEADER_FIELDS).await
+    }
+
+    async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {
+        self.registry.settle_identities(fixes)
     }
 }
 

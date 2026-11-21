@@ -1,7 +1,4 @@
-//! The `document/*` domain: previews of Office documents and the LibreOffice dependency. Every
-//! method is one call on the extension-host pool (`document.*` in `src/ext-host/document.mjs`);
-//! this service decodes the request, approves the project root for the call, and maps the pool's
-//! failures to coded domain errors.
+//! The `document/*` domain: previews of Office documents and the LibreOffice dependency, each one call on the extension-host pool.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -65,10 +62,6 @@ fn map_error(error: ExtError) -> CoreError {
             CoreError::DomainError { domain: "document".into(), code: Some("HOST_EXITED".into()), message: None, detail: None }
         }
         ExtError::Failed { code, message } if code == "invalid_params" => invalid("params", &message),
-        // The codes whose text Node shows include an external program's own message: the
-        // package manager's last output line (`cli-run.ts` installWithPackageManager) and the
-        // conversion engine's error (`document-preview.mjs` renderWithEngine and
-        // renderWithMicrosoftOffice, which throw uncoded).
         ExtError::Failed { code, message }
             if matches!(code.as_str(), "install_failed" | "install_unsupported" | "package_manager_unavailable" | "executable_not_found" | "failed") =>
         {
@@ -404,13 +397,8 @@ impl DocumentService {
         Self { pool, turns: StdMutex::default(), cache_root: cache_root.into(), relay: None }
     }
 
-    /// The turn on one document: the sharing, not the safety. The desktop's window, its main process and a paired phone ask for
-    /// the same document in the same breath, each on its own pool thread and so on its own worker process, and workers share
-    /// nothing but the cache directory. Calls on one document wait for each other here, and a later one finds the PDF the first
-    /// made, so a version is converted once. Safety does not depend on it: a conversion works in a staging directory and
-    /// publishes atomically (`mixdog-office-pdf` `preview/convert.rs`), so a cancelled call that releases its turn before its
-    /// worker has stopped, or a path spelled another way, can only cost a duplicate conversion. Each call looks at the file when
-    /// it starts, so none is answered with an older version than the one it asked for.
+    /// Calls on one document wait for each other here, and a later one finds the PDF the first made, so a version is converted
+    /// once. Conversion publishes atomically (`mixdog-office-pdf` `preview/convert.rs`), so safety does not depend on it.
     async fn turn(&self, cancel: &CancellationToken, root: &str, rel: &str) -> Result<OwnedSemaphorePermit, CoreError> {
         // The path the worker resolves to (`.` and `..` folded away), so `a.docx` and `./a.docx` take one turn.
         let mut parts: Vec<String> = Vec::new();

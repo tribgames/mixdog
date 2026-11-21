@@ -1,8 +1,3 @@
-//! Hugging Face search and inspection. Inspection reads only public, ungated repositories with
-//! an immutable revision and verified LFS size/SHA-256, and the GGUF header through growing
-//! bounded Range requests (64 KiB up to 16 MiB). Nothing is registered or downloaded until the
-//! user accepts the license against a pending preview.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -178,6 +173,64 @@ fn repository_id(value: Option<&Value>) -> Result<&str, HfError> {
     v.ok_or_else(|| HfError::Invalid("repository must be an owner/name Hugging Face model id.".into()))
 }
 
+fn requested_context(args: &Value) -> Result<Option<i64>, HfError> {
+    let Some(v) = args.get("contextWindow") else { return Ok(None) };
+    v.as_f64()
+        .filter(|c| c.fract() == 0.0)
+        .map(|c| c as i64)
+        .filter(|c| (LOCAL_CONTEXT_MIN_TOKENS..=32768).contains(c))
+        .map(Some)
+        .ok_or_else(|| HfError::Invalid(format!("contextWindow must be between {LOCAL_CONTEXT_MIN_TOKENS} and 32768.")))
+}
+
+/// The LFS size and SHA-256 the repository lists for `filename`.
+fn verified_gguf(files: &[&Value], filename: &str) -> Result<(i64, String), HfError> {
+    if filename.chars().any(|c| c == '\\' || (c as u32) < 0x20) || filename.split('/').any(|p| p.is_empty() || p == "." || p == "..") || is_shard(filename) {
+        return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.");
+    }
+    let file = files.iter().find(|e| e["rfilename"] == filename);
+    let size = file.and_then(|f| f.get("size")).and_then(Value::as_i64).filter(|s| (1..=MAX_SAFE_INTEGER).contains(s));
+    let sha256 = file
+        .and_then(|f| f.pointer("/lfs/sha256"))
+        .and_then(Value::as_str)
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    let (Some(file), Some(size), Some(sha256)) = (file, size, sha256) else {
+        return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
+    };
+    if file.pointer("/lfs/size").and_then(Value::as_i64) != Some(size) {
+        return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
+    }
+    Ok((size, sha256.to_owned()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn preview_model(repository: &str, sha: &str, filename: &str, url: &str, size: i64, sha256: &str, license: &str, plan: &Value) -> Value {
+    let digest: String = Sha256::digest(format!("{repository}|{sha}|{filename}").as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+    let id = format!("hf-{}", &digest[..24]);
+    let mut model = Map::from_iter([
+        ("id".to_owned(), json!(id)),
+        ("name".into(), json!(format!("{repository} · {filename}"))),
+        ("filename".into(), json!(format!("{id}.gguf"))),
+        ("remoteFilename".into(), json!(filename)),
+        ("repository".into(), json!(repository)),
+        ("revision".into(), json!(sha)),
+        ("source".into(), json!(format!("{ORIGIN}/{repository}/tree/{sha}"))),
+        ("url".into(), json!(url)),
+        ("size".into(), json!(size)),
+        ("sha256".into(), json!(sha256)),
+        ("license".into(), json!(license)),
+    ]);
+    model.extend(plan.as_object().expect("plan is an object").clone());
+    model.extend(Map::from_iter([
+        ("supportsFunctionCalling".to_owned(), Value::Null),
+        ("supportsReasoning".into(), Value::Null),
+        ("supportsImages".into(), json!(false)),
+        ("recommended".into(), json!(false)),
+        ("compatibility".into(), json!("GGUF metadata checked; runtime loading and tool support not yet verified")),
+    ]));
+    Value::Object(model)
+}
+
 /// A split shard: `-00001-of-00003.gguf`.
 fn is_shard(name: &str) -> bool {
     let lower = name.to_lowercase();
@@ -317,16 +370,7 @@ impl HuggingFaceCatalog {
     /// With no `filename`: the repository's GGUF files. With one: a preview of that file.
     pub async fn inspect(&self, args: &Value, max_gpu_memory: i64) -> Result<Value, HfError> {
         let repository = repository_id(args.get("repository"))?;
-        let requested = match args.get("contextWindow") {
-            None => None,
-            Some(v) => Some(
-                v.as_f64()
-                    .filter(|c| c.fract() == 0.0)
-                    .map(|c| c as i64)
-                    .filter(|c| (LOCAL_CONTEXT_MIN_TOKENS..=32768).contains(c))
-                    .ok_or_else(|| HfError::Invalid(format!("contextWindow must be between {LOCAL_CONTEXT_MIN_TOKENS} and 32768.")))?,
-            ),
-        };
+        let requested = requested_context(args)?;
         let info = self.http.get_json(&format!("{ORIGIN}/api/models/{repository}?blobs=true"), MAX_JSON).await.map_err(HfError::Failed)?;
         let flag = |k: &str| info.get(k).is_some_and(truthy);
         if flag("private") || flag("gated") || flag("disabled") {
@@ -351,52 +395,14 @@ impl HuggingFaceCatalog {
             }));
         };
         let Some(filename) = filename.as_str() else { return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.") };
-        if filename.chars().any(|c| c == '\\' || (c as u32) < 0x20) || filename.split('/').any(|p| p.is_empty() || p == "." || p == "..") || is_shard(filename)
-        {
-            return invalid("Select one complete GGUF file; split shards and traversal paths are unsupported.");
-        }
-        let file = files.iter().find(|e| e["rfilename"] == filename);
-        let size = file.and_then(|f| f.get("size")).and_then(Value::as_i64).filter(|s| (1..=MAX_SAFE_INTEGER).contains(s));
-        let sha256 = file
-            .and_then(|f| f.pointer("/lfs/sha256"))
-            .and_then(Value::as_str)
-            .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-        let (Some(file), Some(size), Some(sha256)) = (file, size, sha256) else {
-            return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
-        };
-        if file.pointer("/lfs/size").and_then(Value::as_i64) != Some(size) {
-            return failed("Selected GGUF is missing verified LFS size/SHA-256 metadata.");
-        }
+        let (size, sha256) = verified_gguf(&files, filename)?;
         let url = hugging_face_file_url(repository, sha, filename);
         let header = fetch_gguf_header(self.http.as_ref(), &url, size as u64).await?;
         let plan = match requested {
             None => default_gguf_memory_plan(&header, size, max_gpu_memory)?,
             Some(c) => gguf_memory_plan(&header, size, c)?,
         };
-        let digest: String = Sha256::digest(format!("{repository}|{sha}|{filename}").as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-        let id = format!("hf-{}", &digest[..24]);
-        let mut model = Map::from_iter([
-            ("id".to_owned(), json!(id)),
-            ("name".into(), json!(format!("{repository} · {filename}"))),
-            ("filename".into(), json!(format!("{id}.gguf"))),
-            ("remoteFilename".into(), json!(filename)),
-            ("repository".into(), json!(repository)),
-            ("revision".into(), json!(sha)),
-            ("source".into(), json!(format!("{ORIGIN}/{repository}/tree/{sha}"))),
-            ("url".into(), json!(url)),
-            ("size".into(), json!(size)),
-            ("sha256".into(), json!(sha256)),
-            ("license".into(), json!(license)),
-        ]);
-        model.extend(plan.as_object().expect("plan is an object").clone());
-        model.extend(Map::from_iter([
-            ("supportsFunctionCalling".to_owned(), Value::Null),
-            ("supportsReasoning".into(), Value::Null),
-            ("supportsImages".into(), json!(false)),
-            ("recommended".into(), json!(false)),
-            ("compatibility".into(), json!("GGUF metadata checked; runtime loading and tool support not yet verified")),
-        ]));
-        let model = Value::Object(model);
+        let model = preview_model(repository, sha, filename, &url, size, &sha256, license, &plan);
         let now = now_ms();
         let preview_id = uuid::Uuid::new_v4().to_string();
         {

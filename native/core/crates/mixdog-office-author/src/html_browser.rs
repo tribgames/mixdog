@@ -2,10 +2,9 @@
 //! shared render browser, the deadline and cancellation wiring around the layout work, the failure result, and the
 //! photographs of captured elements (`authoring/html-browser.mjs`).
 //!
-//! Node launched a Chrome of its own for each route and reaped it with the process. The product now has one render
-//! browser, launched, shared, idle-closed and guarded by the extension host (`BrowserEndpoint`); a route holds the
-//! lease for its whole run, works in a browser context of its own and gives both back on every exit path: the context
-//! is disposed with the connection, so even a run that is dropped half way leaves no page behind.
+//! A route holds the lease of the shared render browser (`BrowserEndpoint`) for its whole run, works in a browser
+//! context of its own and gives both back on every exit path: the context is disposed with the connection, so even a
+//! run that is dropped half way leaves no page behind.
 
 use std::collections::BTreeMap;
 use std::future::Future;

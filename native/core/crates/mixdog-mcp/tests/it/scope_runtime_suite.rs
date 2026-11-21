@@ -1,10 +1,3 @@
-//! The lifecycle of the sessions' MCP scopes (`scope_runtime.rs`) against real stdio servers
-//! (`mock/server.rs`): a scope released while an operation on it is in flight stays released, a
-//! second opener never sees a half-opened scope, operations on a scope run one at a time in
-//! arrival order, and a newer full connect voids what was requested before it. Every interleaving
-//! is made by gates in the configuration resolver: the test lets an operation go when the others
-//! have arrived, never after a delay.
-
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,7 +30,9 @@ use mixdog_mcp::server::ServerState;
 use serde_json::json;
 use tokio::sync::oneshot;
 
-const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
+fn mock_bin() -> String {
+    mixdog_testkit::bin_exe!("mixdog-mcp-mock-server")
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
@@ -235,7 +230,7 @@ fn io() -> McpIo {
     McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
 }
 fn config(name: &str) -> McpServerConfig {
-    McpServerConfig::from_entry(name, &json!({"command": MOCK}), &std::env::vars().collect()).unwrap()
+    McpServerConfig::from_entry(name, &json!({"command": mock_bin()}), &std::env::vars().collect()).unwrap()
 }
 impl Configs {
     fn set(&self, names: &[&str]) {
@@ -270,7 +265,7 @@ fn rig() -> Rig {
 async fn reconcile_returns_the_replacement_catalog_under_the_same_server_name() {
     let Rig { runtime, hub, configs, .. } = rig();
     let version = |tool: &str| {
-        let entry = json!({"command": MOCK, "env": {"MOCK_TOOLS": json!([tool]).to_string()}});
+        let entry = json!({"command": mock_bin(), "env": {"MOCK_TOOLS": json!([tool]).to_string()}});
         McpServerConfig::from_entry("plugin-demo", &entry, &std::env::vars().collect()).unwrap()
     };
     *lock(&configs.configs) = vec![version("before")];
@@ -290,7 +285,7 @@ async fn reconcile_returns_the_replacement_catalog_under_the_same_server_name() 
 async fn reconcile_acknowledges_removal_after_the_server_exits() {
     let Rig { runtime, hub, configs, _artifacts } = rig();
     let stopped = _artifacts.path().join("stopped");
-    let entry = json!({"command": MOCK, "env": {"MOCK_STOPPED": stopped}});
+    let entry = json!({"command": mock_bin(), "env": {"MOCK_STOPPED": stopped}});
     let server = McpServerConfig::from_entry("plugin-demo", &entry, &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![server];
     runtime.open("s1", "t1", "").await.unwrap();
@@ -306,7 +301,7 @@ async fn reconcile_acknowledges_removal_after_the_server_exits() {
 async fn a_shared_replacement_starts_after_the_last_owner_releases_its_predecessor() {
     let Rig { runtime, hub, configs, _artifacts } = rig();
     let stopped = _artifacts.path().join("stopped");
-    let version = |env| McpServerConfig::from_entry("plugin-demo", &json!({"command": MOCK, "env": env}), &std::env::vars().collect()).unwrap();
+    let version = |env| McpServerConfig::from_entry("plugin-demo", &json!({"command": mock_bin(), "env": env}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![version(json!({"MOCK_STOPPED": stopped}))];
     runtime.open("s1", "t1", "").await.unwrap();
     runtime.open("s2", "t2", "").await.unwrap();
@@ -339,7 +334,8 @@ async fn a_retained_server_dying_during_reconcile_does_not_hold_up_the_scheduled
     let retained = hub.server_in("s1", "retained").unwrap();
     let mut retained_state = retained.subscribe();
     let changing =
-        McpServerConfig::from_entry("changing", &json!({"command": MOCK, "env": {"MOCK_TOOLS": "[\"replacement\"]"}}), &std::env::vars().collect()).unwrap();
+        McpServerConfig::from_entry("changing", &json!({"command": mock_bin(), "env": {"MOCK_TOOLS": "[\"replacement\"]"}}), &std::env::vars().collect())
+            .unwrap();
     *lock(&configs.configs) = vec![config("retained"), changing];
     let reconcile = runtime.run("s1", Op::Reconcile);
     tokio::pin!(reconcile);
@@ -388,10 +384,6 @@ async fn a_fan_out_overtaken_by_a_release_cannot_resurrect_the_scope() {
     runtime.run("s1", Op::Reset).await;
     assert_eq!(configs.resolves(), resolves, "an operation on a released scope resolves nothing");
 }
-/// Node's `disconnectAll({ scopeId })` of the runtime's scope drops its servers and voids what is in
-/// flight, and nothing more: the runtime stays readable (`mcpStatus` lists its servers `disconnected`) and
-/// a reset connects it again (`connect.mjs:107`, `:142`). Releasing the runtime scope, by its owner or on the
-/// hub, does the same here; a session scope released for good stays gone.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_runtime_scope_stays_readable_after_its_servers_are_dropped() {
     let Rig { runtime, hub, configs, .. } = rig();
@@ -549,10 +541,6 @@ async fn a_panic_in_the_first_connect_is_recorded_and_a_later_reconcile_recovers
     assert!(ready(&hub.server_in("s1", "alpha").unwrap().state()), "the reconcile connected the server");
     assert_eq!(runtime.failure_of("s1"), None, "an operation that applied clears the failure");
 }
-/// Node's reconcile (`server-connection.mjs` `reconcileServers`, `server-connection.test.mjs:33`): a
-/// server whose connect failed is connected again by the next reconcile with its configuration
-/// unchanged, one attempt per reconcile, and a connected one is left alone. A one-server toggle
-/// (`Op::Only`, `reconnectSingleMcpServer`) connects its own failed server once and no other.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_server_is_connected_again_by_the_next_operation_once_per_operation() {
     let Rig { runtime, hub, configs, .. } = rig();
@@ -560,7 +548,7 @@ async fn a_failed_server_is_connected_again_by_the_next_operation_once_per_opera
     let down = dir.path().join("down");
     std::fs::write(&down, "").unwrap();
     let server = |name: &str| {
-        let entry = json!({"command": MOCK, "env": {"MOCK_STARTS": dir.path().join(name), "MOCK_DOWN_WHILE": down}});
+        let entry = json!({"command": mock_bin(), "env": {"MOCK_STARTS": dir.path().join(name), "MOCK_DOWN_WHILE": down}});
         McpServerConfig::from_entry(name, &entry, &std::env::vars().collect()).unwrap()
     };
     let starts = |name: &str| std::fs::read_to_string(dir.path().join(name)).unwrap_or_default().lines().count();
@@ -677,10 +665,6 @@ async fn a_control_thread_in_the_runtime_scope_neither_owns_nor_releases_it() {
     assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()), "the control thread's close leaves the scope");
     assert!(!hub.is_released(&scope) && ready(&hub.server_in(&scope, "alpha").unwrap().state()));
 }
-/// A request with no session starts the runtime scope and gets its id back while the first connect is
-/// still pending, as Node's `mcpStatus()` answers during the boot's background connect; a second start
-/// is the same scope and opens nothing; what waits in Node (an operation) queues behind the connect on the
-/// scope's barrier and runs after it, in its own turn.
 #[tokio::test(flavor = "multi_thread")]
 async fn starting_the_runtime_scope_does_not_wait_for_its_connect_but_an_operation_does() {
     let Rig { runtime, hub, configs, .. } = rig();
@@ -708,13 +692,6 @@ async fn starting_the_runtime_scope_does_not_wait_for_its_connect_but_an_operati
     assert_eq!(configs.resolves(), 2, "the operation resolved after the first connect, in its own turn");
     assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()));
 }
-/// The first connect's generation is taken when the scope is registered, not when its task first runs
-/// (Node's `connectAll` bumps synchronously, `connect.mjs:98-103`). On a current-thread runtime the
-/// spawned task is not polled until this test awaits, so the reconcile below is requested while the
-/// first connect has not started: it must capture a generation that already counts that connect. When
-/// the first connect then fails (held at a gate, then panicking) the reconcile still runs and connects
-/// the server; before the reservation it captured generation 0, the late bump voided it, and the scope
-/// was left failed with nothing connected.
 #[tokio::test]
 async fn a_reconcile_requested_before_the_first_connect_has_run_still_runs_when_that_connect_fails() {
     let Rig { runtime, hub, configs, .. } = rig();
@@ -844,7 +821,7 @@ async fn the_first_request_waits_for_a_superseding_connect_without_renewing_its_
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn the_wait_for_a_first_connect_is_not_made_when_a_servers_startup_budget_is_disabled() {
     let Rig { runtime, configs, .. } = rig();
-    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": MOCK, "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
+    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": mock_bin(), "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![config("beta"), unbounded];
     let (entered, go) = configs.arm();
     runtime.start("s-unbounded", "t1", "/w").unwrap();
@@ -854,10 +831,6 @@ async fn the_wait_for_a_first_connect_is_not_made_when_a_servers_startup_budget_
     assert_eq!(started.elapsed(), std::time::Duration::ZERO, "the held connect was not waited for");
     go.send(()).unwrap();
 }
-/// `syncScopeRoot` (mcp-glue/connect.mjs:28, :111; server-connection.mjs:70) over `setMcpScopeRoot`
-/// (mcp/client.mjs:1603): a server that follows its scope (a plugin's, `_mixdogRootsFollowScope`) advertises the
-/// folder the scope was opened in, and when the session's folder changes the reconcile keeps its connection and
-/// tells it the roots changed; it then lists the new folder.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cwd_change_readvertises_the_roots_of_the_scopes_following_servers() {
     async fn asked(server: &McpServer, tool: &str) -> String {
@@ -871,7 +844,7 @@ async fn a_cwd_change_readvertises_the_roots_of_the_scopes_following_servers() {
     let uri = |root: &std::path::Path| url::Url::from_file_path(root).unwrap().to_string();
 
     let Rig { runtime, hub, configs, .. } = rig();
-    let following = McpServerConfig::from_entry("plug", &json!({"command": MOCK, "_mixdogRootsFollowScope": true}), &std::env::vars().collect()).unwrap();
+    let following = McpServerConfig::from_entry("plug", &json!({"command": mock_bin(), "_mixdogRootsFollowScope": true}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![following];
     runtime.open("s1", "t1", first.to_str().unwrap()).await.unwrap();
     let plug = hub.server_in("s1", "plug").unwrap();
@@ -905,7 +878,7 @@ async fn plugin_data_folders_are_made_only_by_the_operations_that_connect() {
     }
     let Rig { runtime, configs, .. } = rig();
     // A disabled startup budget: the readiness wait resolves, then returns at once.
-    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": MOCK, "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
+    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": mock_bin(), "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
     *lock(&configs.configs) = vec![unbounded];
     *lock(&configs.data_folders) = vec![("alpha".to_owned(), PathBuf::from("/d/alpha")), ("beta".to_owned(), PathBuf::from("/d/beta"))];
     let (entered, go) = configs.arm();

@@ -1,8 +1,3 @@
-//! [`SystemAuthor`]: the [`AuthorHost`] of a process. The files go through the lanes, the sessions through the engine's registry,
-//! the documents are laid out by the shared render browser, measured by the inline audit and drawn by the render engine.
-//!
-//! A pptxgenjs script runs on the script interpreter of the install ([`super::script_runtime`]), in a process of its own.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

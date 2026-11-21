@@ -1,8 +1,5 @@
-//! Sessioned fuzzy file search (DS §4.5; port of `project-file-search.ts`
-//! ranking and walk rules). The tree is walked once per root on the maintenance
-//! lane and kept while a session is open; the watcher marks it stale. Scoring
-//! runs on the bulk CPU lane. A new `update` supersedes the running one, which
-//! stops without publishing.
+//! Sessioned fuzzy file search. The tree is walked once per root and kept while a session is open; the watcher marks it
+//! stale. A new `update` supersedes the running one, which stops without publishing.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -322,7 +319,7 @@ mod tests {
         }
         std::fs::write(root.join("d/deep/needle-file.rs"), "").unwrap();
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
-        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
+        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::without_backend(Arc::new(Null))));
         // The walk past the cap has a time budget (400 ms by default); a loaded machine must not
         // decide this test, so it gets a budget no walk reaches.
         let config = SessionConfig {
@@ -344,8 +341,7 @@ mod tests {
         assert!(files.contains("d/deep/needle-file.rs"), "{files}");
         // A longer query containing the first one is answered from the finished walk.
         sessions.search(&session, 0, "needle-file.r".into(), false).await.unwrap();
-        // A watch that is still settling gives no coverage, so the first index may not have been cached and the searches
-        // then ran on a later one: the finished walk is kept on the index the session holds now.
+        // The finished walk is kept on the index the session holds.
         let current = sessions.index_for(&session, 0, 0, &root).await.unwrap().unwrap();
         assert!(current.beyond.lock().unwrap().is_some());
         assert!(publisher.state()["files"].to_string().contains("needle-file.rs"));
@@ -418,8 +414,7 @@ mod tests {
         assert!(publisher.state()["files"].to_string().contains("a\u{fffd}.txt"), "{}", publisher.state());
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn overlapping_searches_share_the_walk_and_a_reopen_sees_invalidated_files() {
+    fn walk_fixture() -> (tempfile::TempDir, PathBuf, Arc<SearchSessions>, SessionConfig) {
         let tokens = mixdog_rt::testing::tokens();
         let lanes =
             Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
@@ -427,7 +422,7 @@ mod tests {
         let root = crate::pathguard::canonical(dir.path()).unwrap();
         std::fs::write(root.join("before.txt"), "").unwrap();
         let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
-        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
+        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::without_backend(Arc::new(Null))));
         let config = SessionConfig {
             roots: vec![root.clone()],
             limit: None,
@@ -437,25 +432,39 @@ mod tests {
             scan_cap: None,
             beyond_budget: None,
         };
-        let session = |id: &str| sessions.sessions.lock().unwrap().get(id).cloned().unwrap();
+        (dir, root, sessions, config)
+    }
+
+    fn session_of(sessions: &SearchSessions, id: &str) -> Arc<Session> {
+        sessions.sessions.lock().unwrap().get(id).cloned().unwrap()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn overlapping_searches_share_the_walk_and_a_reopen_keeps_the_unchanged_index() {
+        let (_dir, root, sessions, config) = walk_fixture();
         sessions.start("first", config.clone()).unwrap();
         sessions.start("peer", config.clone()).unwrap();
-        let (first, peer) = (session("first"), session("peer"));
+        let (first, peer) = (session_of(&sessions, "first"), session_of(&sessions, "peer"));
         let (a, b) = tokio::join!(sessions.index_for(&first, 0, 0, &root), sessions.index_for(&peer, 0, 0, &root));
         let (a, b) = (a.unwrap().unwrap(), b.unwrap().unwrap());
         assert!(Arc::ptr_eq(&a, &b), "both searches use the same completed walk");
         sessions.stop("first");
-        sessions.start("unchanged", config.clone()).unwrap();
-        let reopened = sessions.index_for(&session("unchanged"), 0, 0, &root).await.unwrap().unwrap();
+        sessions.start("unchanged", config).unwrap();
+        let reopened = sessions.index_for(&session_of(&sessions, "unchanged"), 0, 0, &root).await.unwrap().unwrap();
         assert!(Arc::ptr_eq(&reopened, &b), "the peer kept the unchanged index watched");
+    }
 
-        sessions.stop("unchanged");
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_reopen_sees_files_invalidated_while_no_session_of_its_own_was_open() {
+        let (_dir, root, sessions, config) = walk_fixture();
+        sessions.start("peer", config.clone()).unwrap();
+        sessions.index_for(&session_of(&sessions, "peer"), 0, 0, &root).await.unwrap().unwrap();
         std::fs::rename(root.join("before.txt"), root.join("after.txt")).unwrap();
         // Only the old subscriber owns the queued event; its replacement has not subscribed yet.
         crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
         let publisher = sessions.start("changed", config).unwrap();
         sessions.stop("peer");
-        let changed = session("changed");
+        let changed = session_of(&sessions, "changed");
         sessions.search(&changed, 0, "after".into(), false).await.unwrap();
         let files = publisher.state()["files"].to_string();
         assert!(files.contains("after.txt"), "{files}");
@@ -475,10 +484,18 @@ mod tests {
         assert_eq!(built_during_changes.files, ["during.txt"], "the query gets an answer without retrying");
         let next = sessions.index_for(&changed, 0, 0, &root).await.unwrap().unwrap();
         assert!(next.files.iter().any(|f| f == "after.txt"), "the invalidated walk was not cached");
+        sessions.stop("changed");
+    }
 
-        // Losing the backend watch must bypass the old index even without a file-change batch.
+    #[tokio::test(flavor = "current_thread")]
+    async fn losing_the_backend_watch_bypasses_the_old_index() {
+        let (_dir, root, sessions, config) = walk_fixture();
+        let publisher = sessions.start("changed", config).unwrap();
+        let changed = session_of(&sessions, "changed");
+        sessions.search(&changed, 0, "before".into(), false).await.unwrap();
+        assert!(publisher.state()["files"].to_string().contains("before.txt"));
         sessions.watcher.unwatch(&index_watch_id("changed", 0));
-        std::fs::rename(root.join("after.txt"), root.join("unwatched.txt")).unwrap();
+        std::fs::rename(root.join("before.txt"), root.join("unwatched.txt")).unwrap();
         sessions.search(&changed, 0, "unwatched".into(), false).await.unwrap();
         assert!(publisher.state()["files"].to_string().contains("unwatched.txt"));
         std::fs::rename(root.join("unwatched.txt"), root.join("moved-again.txt")).unwrap();

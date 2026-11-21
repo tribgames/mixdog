@@ -74,10 +74,6 @@ impl Worktrees {
         Ok(count)
     }
 
-    /// A squash, rebase or cherry-pick merge leaves the branch's commits unreachable from
-    /// `reference` although their changes are there. Merged only when merging `tip` into
-    /// `reference` would leave its tree exactly as it is; a branch's own unreachable merge
-    /// commit is unmerged work, and anything git cannot decide counts as unmerged.
     async fn changes_contained_in(&self, cwd: &Path, tip: &str, reference: &str, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
         let git = &self.scm().git;
         let merges = git.outcome(cancel, cwd, &["rev-list", "--count", "--merges", tip, "--not", reference], &RunOptions::read()).await?;

@@ -15,7 +15,9 @@ use mixdog_launch::ensure_core::EnsureOptions;
 use mixdog_launch::ensure_core::ensure_core;
 use serde_json::Value;
 
-const FAKE_CORE: &str = env!("CARGO_BIN_EXE_fake_core");
+fn fake_core_bin() -> String {
+    mixdog_testkit::bin_exe!("fake_core")
+}
 const WAIT: Duration = Duration::from_secs(30);
 
 struct World {
@@ -36,7 +38,7 @@ impl World {
 
     fn options(&self, mode: &str) -> EnsureOptions {
         EnsureOptions {
-            bin: Some(PathBuf::from(FAKE_CORE)),
+            bin: Some(PathBuf::from(fake_core_bin())),
             ready_timeout: WAIT,
             discovery_path: Some(self.runtime.join("daemon.json")),
             data_dir: Some(self.data.clone()),

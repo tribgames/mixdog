@@ -177,10 +177,6 @@ impl WireCodec for CompatChatCodec {
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let info = self.config.models.get(&request.model);
-        // A Gemini-family model behind this route (google/gemini-* on OpenRouter) fails the whole
-        // request on one schema Google rejects; such a tool is left out and reported like on the
-        // native Gemini routes. Every other model's `parameters` must be a valid 2020-12 object
-        // schema; a draft-07 one is lowered, a broken one left out and reported.
         let tools = if is_gemini_family_model(&request.model) {
             gemini_accepted_tools(&request.tools, &mut |e| report_exclusion(&request.options, e))
         } else {

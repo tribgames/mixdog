@@ -280,6 +280,58 @@ fn spend_pool(spend: &Map<String, Value>) -> Option<SpendPool> {
     Some(SpendPool { limit, used, remaining })
 }
 
+/// The included-plan windows: per-lane progress percentages when reported.
+fn lane_windows(included: &Map<String, Value>, reset_at: Option<f64>, spend_exhausted: bool) -> Vec<Value> {
+    let lanes = [("Basic", included.get("autoPercentUsed"), true), ("API", included.get("apiPercentUsed"), false)];
+    let mut windows: Vec<Value> = Vec::new();
+    for (label, value, auto) in lanes {
+        let n = if value.is_none() { f64::NAN } else { to_number_of(value) };
+        if !n.is_finite() {
+            continue;
+        }
+        let mut row = Map::new();
+        row.insert("label".into(), label.into());
+        row.insert("source".into(), "cursor-dashboard".into());
+        row.insert("usedPct".into(), usage_percent(n).map_or(Value::Null, jn));
+        let mut row = with_reset(row, reset_at);
+        // The scope is which models the lane covers; `binding` is whether a full lane refuses them.
+        row.insert(if auto { "models" } else { "except" }.into(), serde_json::json!(AUTO_POOL_MODELS));
+        if !spend_exhausted {
+            row.insert("binding".into(), Value::Bool(false));
+        }
+        windows.push(Value::Object(row));
+    }
+    windows
+}
+
+/// The one dollar window of an account whose lanes report no percentage.
+fn included_dollar_window(plan: &Map<String, Value>, balance: &Map<String, Value>, reset_at: Option<f64>) -> Value {
+    let name = plan.get("planName").filter(|v| truthy(Some(v))).map(mixdog_js::value_to_string);
+    let mut row = Map::new();
+    row.insert("label".into(), name.map_or_else(|| "Included usage".to_owned(), |n| format!("{n} included")).into());
+    row.insert("source".into(), "cursor-dashboard".into());
+    for key in ["limitUsd", "usedUsd", "remainingUsd"] {
+        row.insert(key.into(), balance[key].clone());
+    }
+    Value::Object(with_reset(row, reset_at))
+}
+
+/// The usage-based spend window; none when the account has no spend limit data.
+/// Figures that are all zero (or below) state nothing: proto3 omits zeros, so they are no limit data.
+fn spend_window(spend: &SpendPool, reset_at: Option<f64>) -> Option<Value> {
+    if ![spend.limit, spend.used, spend.remaining].iter().any(|v| v.is_some_and(|v| v > 0.0)) {
+        return None;
+    }
+    let mut row = Map::new();
+    row.insert("label".into(), "Usage-based spend".into());
+    row.insert("source".into(), "cursor-dashboard".into());
+    for (key, cents) in [("limitUsd", spend.limit), ("usedUsd", spend.used), ("remainingUsd", spend.remaining)] {
+        if let Some(cents) = cents {
+            row.insert(key.into(), cents_to_usd(cents));
+        }
+    }
+    Some(Value::Object(with_reset(row, reset_at)))
+}
 /// `normalizeCursorUsage(usage, planResponse)` (without the provider name `getUsageSnapshot` adds).
 pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<String, Value>) -> Value {
     let empty = Map::new();
@@ -312,50 +364,11 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
     // spend data at all (proto3 omits zeros, so absence cannot say "disabled"), leaves eligibility unknown.
     let spend_exhausted = spend.as_ref().is_some_and(SpendPool::exhausted);
 
-    // The included-plan windows: per-lane progress percentages when reported, else one dollar window.
-    let lanes = [("Basic", included.get("autoPercentUsed"), true), ("API", included.get("apiPercentUsed"), false)];
-    let mut windows: Vec<Value> = Vec::new();
-    for (label, value, auto) in lanes {
-        let n = if value.is_none() { f64::NAN } else { to_number_of(value) };
-        if !n.is_finite() {
-            continue;
-        }
-        let mut row = Map::new();
-        row.insert("label".into(), label.into());
-        row.insert("source".into(), "cursor-dashboard".into());
-        row.insert("usedPct".into(), usage_percent(n).map_or(Value::Null, jn));
-        let mut row = with_reset(row, reset_at);
-        // The scope is which models the lane covers; `binding` is whether a full lane refuses them.
-        row.insert(if auto { "models" } else { "except" }.into(), serde_json::json!(AUTO_POOL_MODELS));
-        if !spend_exhausted {
-            row.insert("binding".into(), Value::Bool(false));
-        }
-        windows.push(Value::Object(row));
-    }
+    let mut windows = lane_windows(&included, reset_at, spend_exhausted);
     if let Some(b) = balance.as_ref().filter(|_| windows.is_empty()) {
-        let name = plan.get("planName").filter(|v| truthy(Some(v))).map(mixdog_js::value_to_string);
-        let mut row = Map::new();
-        row.insert("label".into(), name.map_or_else(|| "Included usage".to_owned(), |n| format!("{n} included")).into());
-        row.insert("source".into(), "cursor-dashboard".into());
-        for key in ["limitUsd", "usedUsd", "remainingUsd"] {
-            row.insert(key.into(), b[key].clone());
-        }
-        windows.push(Value::Object(with_reset(row, reset_at)));
+        windows.push(included_dollar_window(&plan, b, reset_at));
     }
-    // The usage-based spend window; none when the account has no spend limit data.
-    // Figures that are all zero (or below) state nothing: proto3 omits zeros, so they are no limit data.
-    if let Some(spend) = spend.as_ref().filter(|s| [s.limit, s.used, s.remaining].iter().any(|v| v.is_some_and(|v| v > 0.0))) {
-        let mut row = Map::new();
-        row.insert("label".into(), "Usage-based spend".into());
-        row.insert("source".into(), "cursor-dashboard".into());
-        for (key, cents) in [("limitUsd", spend.limit), ("usedUsd", spend.used), ("remainingUsd", spend.remaining)] {
-            if let Some(cents) = cents {
-                row.insert(key.into(), cents_to_usd(cents));
-            }
-        }
-        windows.push(Value::Object(with_reset(row, reset_at)));
-    }
-
+    windows.extend(spend.as_ref().and_then(|s| spend_window(s, reset_at)));
     let text = |v: Option<&Value>| v.filter(|v| truthy(Some(v))).map_or_else(String::new, mixdog_js::value_to_string);
     let mut plan_block = Map::new();
     plan_block.insert("name".into(), text(plan.get("planName")).into());

@@ -1,5 +1,4 @@
-//! Owner: s4-engine-queue
-//! What may run at the same time (`command-queue.ts`). Gestures on one page serialize behind each other, named background
+//! What may run at the same time. Gestures on one page serialize behind each other, named background
 //! pages get their own queue so independent research runs in parallel, and observations overlap freely: a write still waits
 //! for the reads already in flight, so it never lands mid-observation.
 //!

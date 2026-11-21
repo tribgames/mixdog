@@ -210,14 +210,6 @@ impl<S: InputSink> Injector<S> {
         Injector { sink, buttons: Vec::new(), keys: Vec::new(), failing: false, failure_unreported: false, desktop_lost: None }
     }
 
-    /// Insert `inputs`. An insert of **zero** events gets one resync of the
-    /// input desktop and one retry; a partial insert is not retried (the
-    /// inserted events would be sent twice). Anything short of a full insert
-    /// is a failure; the first failure after a success (or the start) begins
-    /// a streak, which the helper reports once. A resync that cannot attach
-    /// the input desktop is not an input failure but a lost desktop: it is
-    /// kept for the helper, which suspends capture and input until its own
-    /// attach path succeeds.
     fn emit(&mut self, inputs: &[INPUT]) -> bool {
         if inputs.is_empty() {
             return true;

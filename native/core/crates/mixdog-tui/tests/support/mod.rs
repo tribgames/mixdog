@@ -1,10 +1,3 @@
-//! Support of the pty end-to-end and performance tests (`e2e_pty.rs`, `perf_pty.rs`).
-//!
-//! The terminal UI runs as a child of the test: the test binary itself, run again on the `tui_child` test with the child's
-//! options in [`CHILD_ENV`], calls `mixdog_tui::run::run_tui` exactly as the entry calls it, on the slave side of a
-//! pseudo-terminal ([`pty`]). The core it connects to is the real `mixdogd`, started by the launcher's `ensure_core` on a
-//! private root ([`daemon`]), and the model it talks to is a stand-in provider the test scripts ([`provider`]). What the
-//! terminal shows is read back through the VT grid of `mixdog_term::testing`.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the harness lays out an install, runs processes and waits on a pseudo-terminal")]
 #![allow(dead_code, reason = "each test binary uses its own part of the support")]
 

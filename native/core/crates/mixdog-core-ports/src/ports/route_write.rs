@@ -1,5 +1,4 @@
-//! The write side of the live route (Node's `rt.route` writes): `setRouteState`, and
-//! `refreshRouteEffort` (route-resolution.mjs:36), which fills the effort, Fast, context and
+//! The write side of the live route: replacing it, and refreshing the route, which fills the effort, Fast, context and
 //! display fields of the route once the provider and the model row are known. Adopting a route
 //! (`route/set`, `fast/set`) uses it; what an adopted route does to the thread is
 //! [`super::route::SessionRoutes`].
@@ -17,17 +16,16 @@ use super::route::{LiveRoute, Route, RouteSession};
 use mixdog_core_config::config::Config;
 
 /// The runtime's route cell per thread. The session owner implements it: the route is replaced
-/// whole, and every replacement advances the route generation (Node compared object identity;
-/// the generation is what a refresh that began earlier checks before it writes).
+/// whole, and every replacement advances the route generation, which a refresh that began
+/// earlier checks before it writes.
 pub trait RouteCell: LiveRoute {
     /// `setRouteState(route)`: replaces the route and advances its generation.
     fn set_route_state(&self, thread: &ThreadId, route: Route);
     /// Advanced by every [`Self::set_route_state`].
     fn route_generation(&self, thread: &ThreadId) -> u64;
-    /// The route the thread's runtime boots on, `resolveRoute(getConfig(), request)`: the one its creator passed
-    /// (`resolveInitialConfigState`) or its resumed session holds (`setRoute(resumedRoute)`, `resume.mjs`). It is no
-    /// `setRouteState`: the generation stays, and a route set on the thread in this process stands. A request the config
-    /// does not resolve leaves the route as it is.
+    /// The route the thread's runtime boots on: the one its creator passed or its resumed session holds, resolved
+    /// against the config. It is no `set_route_state`: the generation stays, and a route set on the thread in this
+    /// process stands. A request the config does not resolve leaves the route as it is.
     fn boot(&self, thread: &ThreadId, request: &Route);
 }
 

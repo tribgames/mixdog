@@ -39,10 +39,6 @@ pub fn ooxml_required(format: &str) -> Option<[&'static str; 2]> {
     }
 }
 
-/// The compiled pattern of a source and its flags, built once: a tag name builds a pattern, and the same few names
-/// recur across every part of every document. Some sources carry text of the call (a find text, a cell reference, a part
-/// name), so the cache starts over once it holds 1,024 patterns rather than growing for the life of the
-/// process.
 pub fn compiled(source: &str, flags: &str) -> Arc<JsRegex> {
     const COMPILED_LIMIT: usize = 1_024;
     static CACHE: LazyLock<Mutex<HashMap<String, Arc<JsRegex>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));

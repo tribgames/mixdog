@@ -114,6 +114,9 @@ impl ProcessManager for FakeProcesses {
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
 
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let rx = self.receivers.lock().unwrap().remove(handle).ok_or(ProcessError::UnknownHandle)?;
         Ok(Box::new(ChanSource(rx)))
@@ -410,7 +413,9 @@ fn the_hand_off_prelude_sets_paths_with_quotes_of_every_kind_in_the_clear() {
     child.stdin.take().unwrap().write_all(super::invocation::frame_powershell_script(&script).as_bytes()).unwrap();
     let output = child.wait_with_output().unwrap();
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), format!("{cwd}\n{cwd}\n{cwd}\n"));
+    // `TEMP` is read back as set; the location and process directory are the long form of a name a runner holds in 8.3 form.
+    let long = mixdog_workspace::pathguard::canonical(std::path::Path::new(&cwd)).unwrap().to_string_lossy().into_owned();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), format!("{cwd}\n{long}\n{long}\n"));
 }
 
 /// A shell source like the daemon's: the default is probed when first needed, kept, and dropped by
@@ -451,10 +456,6 @@ impl ShellSource for ChangingShell {
 
 const LONG_SLEEP: &str = if cfg!(windows) { "Start-Sleep 30" } else { "sleep 30" };
 
-/// Delegates to the real process manager and reports the first spawned process's exit. With
-/// `hold_caller`, the spawning caller is held after the spawn until the child has filled its
-/// replay ring (its reader is parked behind a subscriber) or has exited: the schedule where the
-/// job's task runs only after the child wrote more than the ring holds.
 struct ExitSignal {
     inner: mixdog_spawn::LocalProcessManager,
     exited: Mutex<Option<std::sync::mpsc::Sender<()>>>,
@@ -474,6 +475,9 @@ impl ProcessManager for ExitSignal {
         let spawned = self.inner.spawn_subscribed_with(request, options).await?;
         self.hold(&spawned.0.handle, ended).await;
         Ok(spawned)
+    }
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.inner.subscribe_holding(handle, from_seq)
     }
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         self.inner.subscribe(handle, from_seq)
@@ -757,10 +761,6 @@ async fn a_hoisted_script_of_a_tree_that_never_settled_is_removed_at_shutdown() 
     rig.runtime.drain_snapshots(&CancellationToken::new()).await;
     assert!(!path.exists(), "the shutdown removed {}", path.display());
 }
-/// Output past what memory holds of a stream (8 MiB) reads as Node reads it from the log: from its first line, with the
-/// omission counts of the whole stream, in the foreground result (`shellLogPiece`), a background task's completion and its
-/// tail replay, and a read resuming where an earlier one stopped (`readShellTaskOutput`). The counts are the ones Node's own
-/// delivery code gives for the same lines.
 #[tokio::test]
 async fn output_past_what_memory_holds_reads_as_its_log_does_in_node() {
     let rig = rig();
@@ -1344,13 +1344,11 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
         ))
     );
     // The launcher files exist for this installation and their directory leads PATH.
-    let launchers = rig.dir.path().join("data/skill-launchers");
-    let installed = std::fs::read_dir(&launchers).unwrap().next().unwrap().unwrap().path();
+    let installed = std::path::PathBuf::from(super::invocation::skill_launcher_dir(&skill_runtime(), &rig.dir.path().join("data").to_string_lossy()));
     assert!(installed.join("mixdog-skill-node.cmd").is_file());
     let (_, env) = rig.processes.seen.lock().unwrap()[0].clone();
     let path = env.set.iter().find(|(k, _)| k == "PATH" || k.eq_ignore_ascii_case("path")).unwrap();
-    let name = installed.file_name().unwrap().to_string_lossy().into_owned();
-    assert!(path.1.starts_with(&format!("{}skill-launchers\\{name};", &path.1[..path.1.find("skill-launchers").unwrap()])), "{}", path.1);
+    assert!(path.1.starts_with(&format!("{};", installed.display())), "{}", path.1);
 }
 /// The default program is probed once and kept; a setting change drops it, so the next spawn
 /// probes again (Node's `setConfiguredShell` clearing `_resolvedShell`); an unchanged value keeps it.
@@ -1445,10 +1443,7 @@ pub(super) fn real_rig() -> Rig {
     rig.manager = Arc::new(mixdog_spawn::LocalProcessManager::new(rig.tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
     rig
 }
-/// Both io-maintenance threads are held by jobs that do not return (two long searches or tree
-/// walks): 30 shell calls still start, run and record their output to their logs. The lanes are
-/// the real pooled ones (the test backend runs every lane job inline on the submitting thread)
-/// and are installed process-wide, so this test needs a process of its own (nextest).
+/// The lanes are installed process-wide: this test needs a process of its own (nextest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
     use mixdog_rt::LaneToken;
@@ -1485,10 +1480,7 @@ async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
     }
     drop(releases);
 }
-/// A job's log writes are held (a stalled disk): the writer takes chunks until it holds its cap of
-/// unwritten bytes, the collector then waits, and once the writes resume nothing is lost or
-/// reordered and the logs are complete when the writer closes. The drain runs on a real io-pty
-/// thread (process-wide executors, so a process of its own: nextest).
+/// The executors are process-wide: this test needs a process of its own (nextest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() {
     use super::spill::LOG_PENDING_CAP;
@@ -1723,10 +1715,7 @@ impl ExitSignal {
             .expect("the child fills its replay ring or exits while the caller is held");
     }
 }
-/// The job's log creation is held while the child writes twelve times what its replay ring holds
-/// (three merged output events) and exits: the output is already being taken (into the writer's
-/// queue, whose cap it stays under), so none of it is lost and the log holds all of it in order
-/// once the creation goes on. Real executors and processes (nextest).
+/// Real executors and processes: this test needs a process of its own (nextest).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn output_written_while_the_log_creation_is_held_is_not_lost() {
     const BYTES: usize = 192 * 1024;
@@ -2009,12 +1998,7 @@ fn kept_job(rig: &Rig, id: &str, record: serde_json::Value, stdout: &str) {
     std::fs::write(jobs.join(format!("{id}.stdout.log")), stdout).unwrap();
     std::fs::write(jobs.join(format!("{id}.stderr.log")), "").unwrap();
 }
-/// A background job this runtime does not hold (another one ran it before a restart) is answered from its kept record
-/// (`task-tool.mjs:411-444`, `stopJobKnownByRecord`): an ended one reads as recovered with its logs' output, one left
-/// running can be neither read nor controlled, a foreground command's record and another thread's job are unknown, and
-/// the list shows the thread's two.
-#[tokio::test]
-async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
+fn rig_with_kept_jobs() -> Rig {
     let rig = rig();
     let gone = std::process::id().wrapping_add(1);
     let (started, finished) = (golden_ms(), golden_ms() + 2000);
@@ -2032,8 +2016,13 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
         "",
     );
     kept_job(&rig, "task-fg", serde_json::json!({"pid": gone, "state": "finished"}), "FG\n");
-    let c = ctx(&rig, "c1");
+    rig
+}
 
+#[tokio::test]
+async fn an_ended_job_another_runtime_ran_reads_as_recovered_and_cannot_be_cancelled() {
+    let rig = rig_with_kept_jobs();
+    let c = ctx(&rig, "c1");
     let read = body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-done"})).await);
     assert!(
         read.starts_with("background task\ntask_id: task-done\nsurface: shell\nstatus: completed\nexit_code: 0\nstarted: 2026-01-02T03:04:05.678Z\nfinished: 2026-01-02T03:04:07.678Z\nrecovered: true\nlogs: "),
@@ -2041,6 +2030,12 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
     );
     assert!(read.contains("task-done.{stdout,stderr}.log\n\n[stdout]\nDONE"), "{read}");
     assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-done"})).await), "Error: task already completed: task-done");
+}
+
+#[tokio::test]
+async fn a_job_another_runtime_left_running_can_be_neither_read_nor_controlled() {
+    let rig = rig_with_kept_jobs();
+    let c = ctx(&rig, "c1");
     for action in ["read", "wait"] {
         assert_eq!(
             body(rig.task.call(&c, serde_json::json!({"action": action, "task_id": "task-live"})).await),
@@ -2051,29 +2046,42 @@ async fn a_background_job_another_runtime_ran_answers_from_its_kept_record() {
         body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-live"})).await),
         "Error: task process control is unavailable after restart: task-live"
     );
+    let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
+    assert_eq!(
+        control.stop_job(&ThreadId::from("t"), "task-live").await,
+        serde_json::json!({ "stopped": false, "error": "task process control is unavailable after restart: task-live" })
+    );
+}
+
+#[tokio::test]
+async fn a_foreground_record_and_another_threads_job_are_unknown() {
+    let rig = rig_with_kept_jobs();
+    let c = ctx(&rig, "c1");
     assert_eq!(body(rig.task.call(&c, serde_json::json!({"action": "read", "task_id": "task-fg"})).await), "Error: task not found: task-fg");
     let mut other = ctx(&rig, "c2");
     other.thread_id = ThreadId::from("other");
     assert_eq!(body(rig.task.call(&other, serde_json::json!({"action": "read", "task_id": "task-done"})).await), "Error: task not found: task-done");
+}
+
+#[tokio::test]
+async fn the_list_shows_the_threads_recovered_jobs() {
+    let rig = rig_with_kept_jobs();
+    let c = ctx(&rig, "c1");
     assert_eq!(
         body(rig.task.call(&c, serde_json::json!({"action": "list"})).await),
         "background tasks: 0\n[recovered shell tasks]\n- task-done shell completed recovered=true command=\"echo DONE\"\n- task-live shell state-unavailable recovered=true command=\"sleep 9\""
     );
+}
 
+#[tokio::test]
+async fn stopping_an_ended_job_another_runtime_ran_answers_finished() {
+    let rig = rig_with_kept_jobs();
     let control = ShellControl::new(rig.runtime.clone(), rig.manager.clone());
-    let owner = ThreadId::from("t");
     assert_eq!(
-        control.stop_job(&owner, "task-done").await,
+        control.stop_job(&ThreadId::from("t"), "task-done").await,
         serde_json::json!({ "stopped": false, "finished": true, "error": "task already completed: task-done" })
     );
-    assert_eq!(
-        control.stop_job(&owner, "task-live").await,
-        serde_json::json!({ "stopped": false, "error": "task process control is unavailable after restart: task-live" })
-    );
 }
-/// `reconcileRecoveredShellJobCompletions`: a background job whose record a process that is gone left running ends as
-/// failed, its record says so, and its owner is told once with the output its log kept; a job a live process runs and
-/// one that ended stay as they are.
 #[tokio::test]
 async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_owner_is_told() {
     let told = Arc::new(Told::default());
@@ -2216,10 +2224,6 @@ async fn a_finished_command_answers_its_exit_code_and_its_output() {
     let text = body(rig.shell.call(&ctx(&rig, "c1"), serde_json::json!({"command": "echo golden-out"})).await);
     assert_eq!(text, "[exit code: 0]\n\ngolden-out\n");
 }
-/// The first job of a runtime removes the logs of ended jobs older than a week (`sweepExpiredShellOutput`), beside
-/// the command and never on its path: the command completes while the sweep is held. Only logs whose ownership
-/// record shows their job ended are taken: a running job's week-silent logs (another process's) and a user's file named
-/// like a log stay. Later jobs sweep nothing, and a job's own record shows it ended once it has.
 #[tokio::test]
 async fn the_first_job_sweeps_the_ended_jobs_logs_older_than_a_week_once_beside_the_command() {
     let rig = rig();

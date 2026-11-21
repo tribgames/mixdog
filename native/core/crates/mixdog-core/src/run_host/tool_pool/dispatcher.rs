@@ -1,8 +1,3 @@
-//! `ToolDispatcher` (what `call_tool` runs its target through) over the tool registry and the
-//! live session: the target meets the gate, approval wait, hooks, argument coercion and
-//! PostToolUse a direct call of it would (`session/loop/tool-exec.mjs` `executeToolOwned`, which
-//! Node reaches by projecting the `call_tool` onto its target in the loop).
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,10 +1,3 @@
-//! The supervised `ssh -N -L` child: one task owns the child, keeps the same local port across restarts (an attached
-//! client's stream simply reconnects through the new child), restarts on the [`TunnelBackoff`] schedule, and stops for
-//! good on a terminal failure (a changed host key, a refused login, a client that is not installed).
-//!
-//! Every forward binds 127.0.0.1 only (`tunnel_args` writes the bind address), and a forward's remote end is the
-//! loopback of the server.
-
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU16, Ordering};

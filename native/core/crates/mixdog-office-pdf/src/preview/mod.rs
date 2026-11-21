@@ -1,19 +1,14 @@
 //! Read-only viewing for documents no browser can open by itself (`pdf/document-preview.mjs`).
 //!
 //! One LibreOffice pass converts a Word, Excel or PowerPoint document (or its OpenDocument and legacy form) to a PDF; without
-//! LibreOffice Microsoft Office renders a private read-only copy through [`mixdog_office_com`]. The viewer then shows that PDF,
-//! and a surface that cannot show a PDF receives rasterised pages instead.
+//! LibreOffice Microsoft Office renders a private read-only copy through [`mixdog_office_com`].
 //!
 //! [`DocumentPreview::preview_pdf`] is `documentPreviewPdf`: the cached PDF of one document, converted when needed, with the
 //! protection of the document read from its container before any engine starts (the coded errors below).
-//! [`DocumentPreview::preview_pages`] is `documentPreviewPages`: pages of a converted PDF as base64 images from a memory cache
-//! and a disk cache. The engines (LibreOffice, Microsoft Office, the page rasteriser) are injected as [`PreviewEngines`] and
-//! [`PageRenderer`]; [`SystemEngines`] and [`RasterPages`] are the ones a process uses. The `document.*` handlers (path guard,
-//! parameter checks, the LibreOffice status and install) live in the ext-host worker and call this.
+//! [`DocumentPreview::preview_pages`] is `documentPreviewPages`: pages of a converted PDF as base64 images.
 //!
-//! Every scratch directory this module creates holds document content (a private copy for Microsoft Office, a decrypted
-//! package, an unlocked PDF): see [`remove_tracked_preview_scratch_sync`]. A document opened with its password is never written
-//! to the cache, and nothing of it outlives the process.
+//! Every scratch directory this module creates holds document content: see [`remove_tracked_preview_scratch_sync`]. A document
+//! opened with its password is never written to the cache, and nothing of it outlives the process.
 
 mod cache;
 mod convert;
@@ -117,11 +112,8 @@ impl std::fmt::Display for PreviewError {
     }
 }
 
-/// Runs `job` on `lane` and waits for its answer. File work of a preview is not abortable (Node's is not either): where a
-/// request's cancellation counts, the caller checks it.
-///
-/// The future is boxed here, where its `Send` is proved for any job: left as an `async fn`, a caller that has to be `Send`
-/// cannot prove it through the higher-ranked job closures.
+/// Runs `job` on `lane` and waits for its answer. The future is boxed here, where its `Send` is proved for any job: left as an
+/// `async fn`, a caller that has to be `Send` cannot prove it through the higher-ranked job closures.
 pub(crate) fn job<L, R, F>(lane: L, work: F) -> BoxFuture<'static, Result<R, PreviewError>>
 where
     L: LaneToken,

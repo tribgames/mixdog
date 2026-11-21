@@ -168,33 +168,33 @@ impl Uia {
         }
     }
 
-    /// Every element of the window in document order, up to `limit`
-    /// (Snapshot-Window's cached FindAll).
+    /// The control types a snapshot lists, and a focusable text surface: where a terminal or editor takes input,
+    /// even when its control type reads as static text.
+    fn snapshot_condition(&self, include_noninteractive: bool) -> windows::core::Result<IUIAutomationCondition> {
+        let mut roles: Vec<&str> = crate::a11y::INTERACTIVE_ROLES.to_vec();
+        if include_noninteractive {
+            roles.extend(NONINTERACTIVE);
+        }
+        let mut conditions = Vec::new();
+        for role in roles {
+            conditions.push(property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role)))?);
+        }
+        let has_text = property_condition(&self.automation, UIA_IsTextPatternAvailablePropertyId, VARIANT::from(true))?;
+        let focusable = property_condition(&self.automation, UIA_IsKeyboardFocusablePropertyId, VARIANT::from(true))?;
+        // SAFETY: plain factory call.
+        conditions.push(unsafe { self.automation.CreateAndCondition(&has_text, &focusable) }?);
+        any_of(&self.automation, conditions)
+    }
+
+    /// Every element of the window in document order, up to `limit`.
     pub(super) fn cached_snapshot(&self, window: &WindowInfo, include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String> {
         // snapshot_window has refused already; the other callers of this
         // read have not.
         if let Some(refusal) = integrity_refusal(&native::integrity(window.handle)) {
             return Err(refusal);
         }
-        let mut roles: Vec<&str> = crate::a11y::INTERACTIVE_ROLES.to_vec();
-        if include_noninteractive {
-            roles.extend(NONINTERACTIVE);
-        }
         let to_error = |error: windows::core::Error| error.message();
-        let mut conditions = Vec::new();
-        for role in roles {
-            conditions.push(property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role))).map_err(to_error)?);
-        }
-        // A focusable text surface is where a terminal or editor takes input,
-        // even when its control type reads as static text.
-        let text_surface = {
-            let has_text = property_condition(&self.automation, UIA_IsTextPatternAvailablePropertyId, VARIANT::from(true)).map_err(to_error)?;
-            let focusable = property_condition(&self.automation, UIA_IsKeyboardFocusablePropertyId, VARIANT::from(true)).map_err(to_error)?;
-            // SAFETY: plain factory call.
-            unsafe { self.automation.CreateAndCondition(&has_text, &focusable) }.map_err(to_error)?
-        };
-        conditions.push(text_surface);
-        let condition = any_of(&self.automation, conditions).map_err(to_error)?;
+        let condition = self.snapshot_condition(include_noninteractive).map_err(to_error)?;
         let cache = self.cache().map_err(to_error)?;
         let (automation, condition, cache) = (Mta::new(self.automation.clone()), Mta::new(condition), Mta::new(cache));
         let handle = window.handle;
@@ -228,9 +228,8 @@ impl Uia {
 
 impl Uia {
     /// The on-screen lines of a text surface, each with its whitespace
-    /// collapsed (Get-VisibleTextLines); `None` when the provider did not
-    /// serve them, an error when the read outlasted the snapshot's deadline
-    /// (MixBoundedUia.VisibleText).
+    /// collapsed; `None` when the provider did not serve them, an error when
+    /// the read outlasted the snapshot's deadline.
     pub(super) fn visible_lines(&self, element: &IUIAutomationElement) -> Result<Option<Vec<String>>, String> {
         let element = Mta::new(element.clone());
         self.bounded("the visible text read", move || Ok(read_visible_lines(&element.get())))

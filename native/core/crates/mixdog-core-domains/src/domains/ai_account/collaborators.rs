@@ -67,10 +67,9 @@ pub trait VertexAdc: Send + Sync {
     async fn login(&self, project_id: &str) -> Result<Option<String>, String>;
 }
 
-/// The custom-provider section of `provider-admin.mjs`. Each call is the `login.mjs` wrapper:
-/// after it succeeds `AuthRefresh::after_credential_change` has run. `body_lone_units` (save,
-/// test, discovery) is the number of lone surrogates the client's `requestBody` held
-/// (`CallContext::lone_surrogates`): Node measures each as its six-character escape.
+/// After a call succeeds `AuthRefresh::after_credential_change` has run. `body_lone_units` (save, test, discovery) is
+/// the number of lone surrogates the client's `requestBody` held (`CallContext::lone_surrogates`): Node measures each
+/// as its six-character escape.
 #[async_trait]
 pub trait CustomProviders: Send + Sync {
     async fn save(&self, input: Value, body_lone_units: usize) -> Result<Value, Failure>;

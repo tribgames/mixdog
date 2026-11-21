@@ -1,4 +1,4 @@
-//! The `MIXDOG_TUI_SCROLL_*` tunables of `transcript-window.mjs` and the wheel acceleration of `mouse-input/wheel-router.mjs`.
+//! The `MIXDOG_TUI_SCROLL_*` tunables and the wheel acceleration step.
 //!
 //! Boolean variables default on: `0`/`false`/`off`/`no` (case-insensitive, trimmed) turn one off, an unrecognised value keeps
 //! the default. Integer variables take the floor of the value read as a JavaScript number and must be at least one, else the

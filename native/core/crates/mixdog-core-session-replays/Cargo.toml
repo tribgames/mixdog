@@ -37,14 +37,14 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 arc-swap = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-tools = { workspace = true, features = ["policy-observer", "test-support"] }
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 sha1 = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }
-mixdog-core-session ={ workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 async-trait = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 mixdog-agent = { workspace = true, features = ["test-support"] }

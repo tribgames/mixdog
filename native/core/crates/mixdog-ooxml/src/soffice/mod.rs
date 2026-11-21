@@ -299,6 +299,18 @@ fn with_computed_values(original: &mut Package, produced: &Package) -> Result<Ve
     original.generate()
 }
 
+fn recalculation_blocker(path: &Path, zip: &Package) -> Option<&'static str> {
+    if path.extension().map(|extension| extension.to_string_lossy().to_lowercase()).as_deref() != Some("xlsx") {
+        return Some(
+            "Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.",
+        );
+    }
+    if zip.names().iter().any(|name| EXTERNAL_LINK.is_match(name)) {
+        return Some("Portable formula recalculation is blocked because LibreOffice may invalidate external workbook links.");
+    }
+    None
+}
+
 fn read_error(error: &std::io::Error, path: &Path) -> String {
     os_message(error, "open", path)
 }
@@ -469,9 +481,6 @@ impl Soffice {
         let source = mixdog_fsio::read(proof, path).map_err(|error| read_error(&error, path))?;
         let mut zip = Package::load(&source)?;
         let (formula_count, missing_cached_values) = workbook_formula_counts(&zip);
-        // A cached value is not a fresh one. Editing an input leaves every dependent formula's cache in place, so a workbook that was
-        // written, closed, and reopened answered with the numbers from before the edit, and an error a guard had swallowed stayed
-        // swallowed. The edit path marks the workbook for a full calculation, and that mark is what staleness looks like on disk.
         let stale = workbook_calculation(&zip.text("xl/workbook.xml")).full_calc_on_load;
         let needed = formula_count > 0 && (force || stale || missing_cached_values > 0);
         let counts = |report: &mut Map<String, Value>| {
@@ -497,15 +506,8 @@ impl Soffice {
             report.insert("reason".to_owned(), Value::String(reason));
             Value::Object(report)
         };
-        if path.extension().map(|extension| extension.to_string_lossy().to_lowercase()).as_deref() != Some("xlsx") {
-            return Ok(unavailable(
-                false,
-                "Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks."
-                    .to_owned(),
-            ));
-        }
-        if zip.names().iter().any(|name| EXTERNAL_LINK.is_match(name)) {
-            return Ok(unavailable(false, "Portable formula recalculation is blocked because LibreOffice may invalidate external workbook links.".to_owned()));
+        if let Some(reason) = recalculation_blocker(path, &zip) {
+            return Ok(unavailable(false, reason.to_owned()));
         }
         let Some(program) = self.program() else {
             return Ok(unavailable(false, "LibreOffice is unavailable for portable XLSX recalculation.".to_owned()));
@@ -529,7 +531,6 @@ impl Soffice {
             report.insert("stale".to_owned(), Value::Bool(true));
         }
         report.insert("backend".to_owned(), Value::from("libreoffice"));
-        // A clean status proves the formulas evaluate, not that they are right.
         report.insert("status".to_owned(), Value::from(if errors.total > 0 { "errors_found" } else { "success" }));
         counts(&mut report);
         report.insert("totalErrors".to_owned(), Value::from(errors.total));

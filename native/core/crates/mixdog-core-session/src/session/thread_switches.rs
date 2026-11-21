@@ -1,18 +1,3 @@
-//! What a workflow or orchestration-mode choice does to the thread's own session, and what a
-//! desktop context switch does to the session it leaves: the session half of
-//! `thread/setWorkflow`, `thread/setOrchestrationMode` (`switchSessionWorkflow`,
-//! `switchSessionOrchestrationMode`, `settingsReachCurrentSession`, `applyPendingSessionSwitches`
-//! of `session-runtime/tool-policy/session-switches.mjs`, `workflow-overlay.mjs`,
-//! `mode-switch.mjs`, `pending-switches.mjs` and the notices of `session/manager/`) and of
-//! `thread/switchContext` (`lifecycle/session-switch/context-switch.mjs`).
-//!
-//! The switch is a pure change of the session's header ([`switch_workflow`], [`switch_mode`],
-//! [`apply_pending`]); [`SessionSwitchAdapter`] reads the live thread, runs it and lands the
-//! change as one durable header patch, then the display-only transcript boundary on the switch
-//! anchor row (an amend of that row's `meta`, like Node's replaced anchor message). The prompt
-//! side (the workflow pack, its denied tools, the mode texts) is [`WorkflowSurface`], the
-//! run-host's.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,7 +52,7 @@ pub struct WorkflowTarget {
 }
 
 /// A surface answer that could not be given: a lane read that could not run, or a session record
-/// Node's code would throw on. The switch stops with this text; nothing is switched on a guess.
+/// that cannot be read. The switch stops with this text; nothing is switched on a guess.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SurfaceFailure(pub String);
 
@@ -490,7 +475,7 @@ struct Resolved {
     target: WorkflowTarget,
 }
 
-/// What `resolveWorkflow` found: the workflow, or the sentence Node throws for a gone one.
+/// What the workflow lookup found: the workflow, or the sentence for a gone one.
 enum Resolution {
     Found(Resolved),
     Gone(String),
@@ -697,7 +682,7 @@ fn session_mode_is_agent(session: &Header) -> bool {
     }
 }
 
-/// `codingLead(session)` (`agent-profile-fold.mjs`): a Lead of the coding mode, the session whose agents ride the
+/// A Lead of the coding mode: the session whose agents ride the
 /// agent list reminder of every turn.
 pub fn coding_lead(session: &Header) -> bool {
     let owner = session.get("owner").map(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase());
@@ -828,8 +813,7 @@ pub async fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, 
 
 // ---- the live thread ----------------------------------------------------------------------------
 
-/// A boundary on the switch anchor row: Node replaces the anchor message with its `meta[field]`
-/// extended; the row's body is amended the same way (`thread/reactions/apply`, the amend of a
+/// A boundary on the switch anchor row: the row's body is amended (`thread/reactions/apply`, the amend of a
 /// row body). `false` when there is no stored row to mark: no message, or the anchor is a
 /// compaction's replacement entry (no history row).
 pub async fn record_meta_boundary(directory: &SessionDirectory, thread: &ThreadId, boundary: &Boundary) -> Result<bool, mixdog_core_api::CoreError> {
@@ -958,7 +942,7 @@ impl SessionSwitchAdapter {
                 SwitchOp::Pending => apply_pending(&mut session, &*self.surface, loaded.facts.now).await?,
             };
             let Some(switched) = switched else { return Ok(None) };
-            // A workflow staged while a turn runs shows at once (`currentWorkflow` of `boot/facade.mjs` resolves the staged id):
+            // A workflow staged while a turn runs shows at once:
             // the header holds the id, so the meta the switch answers is kept beside it, in the one write that stages it (the
             // state then shows the staged workflow in its first frame, and after a restart). It leaves with the id.
             match session.get("pendingWorkflowId").filter(|id| truthy(Some(id))) {
@@ -1021,12 +1005,8 @@ impl SessionSwitches for SessionSwitchAdapter {
 /// What a desktop context switch does to the thread it leaves, beyond closing it:
 /// `invalidateContextStatusCache()` and `invalidatePreSessionToolSurface()` (the surface generation).
 ///
-/// Divergence (decisions.md, "wp-run-host: thread/switchContext retargets no global"): Node also
-/// clears its route-preparation gate and retargets its single runtime for the NEXT session
-/// (`setDesktopSession`, `applyResolvedCwd`, `setRoute(resolveRoute(config, {}))` +
-/// `refreshRouteEffort`). The daemon has no such state: the next thread takes its cwd and desktop
-/// session from its own `thread/start`, its route cell resolves the configured Lead route on first
-/// read, and no route-preparation gate exists. Those calls are not made.
+/// The next thread takes its cwd and desktop session from its own `thread/start`, and its route cell resolves the configured
+/// Lead route on first read; nothing is retargeted here.
 pub trait ContextTarget: Send + Sync {
     fn invalidate(&self, thread: &ThreadId);
 }
@@ -1037,7 +1017,6 @@ pub struct GaugeTarget(pub Arc<dyn ContextStatusCache>, pub mixdog_core_base::su
 impl ContextTarget for GaugeTarget {
     fn invalidate(&self, thread: &ThreadId) {
         self.0.invalidate(thread);
-        // `invalidatePreSessionToolSurface()`, right after the cache (`context-switch.mjs`).
         self.1.bump();
     }
 }
@@ -1052,8 +1031,7 @@ pub(crate) fn is_scratch(thread: &str, committed: &[Value], live: &[Value]) -> b
     [committed, live].iter().all(|items| !has_user_conversation(items) && !completed(items))
 }
 
-/// [`ContextSwitch`] over the session directory: the open thread is closed as Node closes the
-/// outgoing session, then the next context is set up.
+/// [`ContextSwitch`] over the session directory: the open thread is closed, then the next context is set up.
 pub struct SessionContextSwitch {
     directory: Arc<SessionDirectory>,
     threads: SessionThreads,
@@ -1084,10 +1062,6 @@ impl SessionContextSwitch {
         } else if !self.close.detach(thread.as_str(), CONTEXT_SWITCH_REASON, false).await {
             return Err(format!("session close failed (reason={CONTEXT_SWITCH_REASON}); the current session is kept"));
         }
-        // Its memory (`void ingestSessionIntoMemory(session)`, `context-switch.mjs:35`) is ingested once, by the close
-        // itself: the closed thread unloads and its unload ingests the model context without the switch waiting.
-        // `releaseSessionWork(session.id, cleanupReason)` (`context-switch.mjs`): the session's own background tasks
-        // are cancelled and its gateway route cleared, as a delete releases them.
         self.directory.deps().deletion.release_session_work(thread.as_str(), CONTEXT_SWITCH_REASON).await;
         Ok(())
     }

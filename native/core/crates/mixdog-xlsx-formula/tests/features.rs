@@ -474,6 +474,10 @@ fn degrees_of_freedom_ceilings_follow_excel() {
     xl_rel("=CHIINV(0.5,9999999999)", 9999999998.333334);
     // CHISQ.INV.RT / CHIINV have no ceiling in Excel
     xl_rel("=CHIINV(0.5,10000000001)", 10000000000.333334);
+}
+
+#[test]
+fn degrees_of_freedom_above_the_ceiling_are_num_errors() {
     for limited in [
         "=CHISQ.DIST(1,10000000001,TRUE)",
         "=CHISQ.DIST.RT(1,10000000001)",
@@ -762,7 +766,11 @@ fn ranges_follow_excel_for_text_blanks_and_error_cells() {
     xl_rel("=T.TEST(E1:E4,F1:F4,2,1)", 0.1296117202215108);
     xl_rel("=T.TEST(E2:E4,F1:F3,2,1)", 0.09546596626670922);
     xl_rel("=T.TEST(A1:A4,F1:F4,2,2)", 0.823098858571037);
-    // CHISQ.TEST: a pair with a text or blank cell is left out, the degrees of freedom keep the range's shape
+}
+
+#[test]
+fn chisq_test_leaves_out_pairs_with_text_or_blank_cells() {
+    // the degrees of freedom keep the range's shape
     xl_rel("=CHISQ.TEST(A1:A2,A3:A4)", 0.12663045794761724);
     xl_rel("=CHISQ.TEST(A1:B1,A2:B2)", 0.4795001221869535);
     xl_rel("=CHISQ.TEST(E1:E2,F1:F2)", 0.4795001221869535);
@@ -772,6 +780,10 @@ fn ranges_follow_excel_for_text_blanks_and_error_cells() {
     // a single cell has no degrees of freedom
     xl_error("=CHISQ.TEST(A1,A2)", ErrorValue::Na);
     xl_error("=CHISQ.TEST(A1:A1,A2:A2)", ErrorValue::Na);
+}
+
+#[test]
+fn an_error_cell_or_argument_in_a_statistical_range_is_the_result() {
     for (formula, expected) in [
         ("=CHISQ.TEST(A1:A2,C1:C2)", ErrorValue::Div0),
         ("=CHISQ.TEST(A1:A2,D1:D2)", ErrorValue::Num),
@@ -1069,10 +1081,22 @@ fn gamma_and_normal_functions_are_accurate_in_their_hard_regions() {
     ] {
         rel(f, want);
     }
-    // Excel's GAUSS(1E-10) = 3.9894310077670525E-11 is off by 2e-6; the exact 3.9894228040143268E-11 is returned (lead's rule)
+}
+
+#[test]
+fn gauss_of_a_tiny_argument_is_exact_where_excel_is_off() {
+    // Excel's GAUSS(1E-10) = 3.9894310077670525E-11 is off by 2e-6
     rel("=GAUSS(1E-10)", 3.9894228040143268e-11);
-    // 1 - NORM.S.DIST(8.2) would be 1.1e-16 + noise; the tail from erfc (mpmath 100 digits)
+}
+
+#[test]
+fn z_test_tail_far_from_the_mean_is_not_negative() {
+    // 1 - NORM.S.DIST(8.2) would be 1.1e-16 + noise; the tail comes from erfc
     assert!(num("=Z.TEST(A1:A5,0,0.1)") >= 0.0);
+}
+
+#[test]
+fn gamma_domain_errors_are_num() {
     assert_eq!(error("=GAMMA(0)"), ErrorValue::Num);
     assert_eq!(error("=GAMMA(-3)"), ErrorValue::Num);
     assert_eq!(error("=GAMMA(171.7)"), ErrorValue::Num); // Excel: #NUM! (result beyond the double range)
@@ -1270,12 +1294,10 @@ impl Context for ProbSheet {
     }
 }
 
-#[test]
-fn every_registered_distribution_name_has_an_independently_referenced_accuracy_case() {
-    // One case per registered name (85), each value from mpmath at 80 digits (closed forms, regularized incomplete
-    // functions, findroot on them for the inverses, exact integer binomials), rounded to f64; the legacy names and the
-    // aliases are checked on their own, not by equality with the modern name.
-    let cases: [(&str, &str, f64); 85] = [
+/// One case per registered name, each value from mpmath at 80 digits (closed forms, regularized incomplete
+/// functions, findroot on them for the inverses, exact integer binomials), rounded to f64.
+fn accuracy_cases() -> [(&'static str, &'static str, f64); 85] {
+    [
         ("BETA.DIST", "=BETA.DIST(0.4,2,3,TRUE)", 0.52480000000000004),
         ("BETADIST", "=BETADIST(0.4,2,3)", 0.52480000000000004),
         ("BETA.INV", "=BETA.INV(0.3,2,3)", 0.27238394207510534),
@@ -1361,16 +1383,24 @@ fn every_registered_distribution_name_has_an_independently_referenced_accuracy_c
         ("WEIBULLDIST", "=WEIBULLDIST(2,1.5,3,TRUE)", 0.41977020402532718),
         ("Z.TEST", "=Z.TEST(A1:A4,2,1)", 0.15865525393145705),
         ("ZTEST", "=ZTEST(A1:A4,2,1)", 0.15865525393145705),
-    ];
+    ]
+}
+
+#[test]
+fn the_accuracy_cases_cover_exactly_the_registered_distribution_names() {
     let source = include_str!("../src/functions/distributions.rs");
     let table = &source[source.find("pub const FUNCTIONS: Table").unwrap()..];
     let table = &table[..table.find("];").unwrap()];
     let mut registered: Vec<&str> = table.lines().filter_map(|l| l.trim_start().strip_prefix("(\"")?.split('"').next()).collect();
     registered.sort_unstable();
-    let mut covered: Vec<&str> = cases.iter().map(|c| c.0).collect();
+    let mut covered: Vec<&str> = accuracy_cases().iter().map(|c| c.0).collect();
     covered.sort_unstable();
     assert_eq!(covered, registered, "the cases must cover exactly the registered names");
-    for (name, formula, want) in cases {
+}
+
+#[test]
+fn every_registered_distribution_name_answers_its_own_accuracy_case() {
+    for (name, formula, want) in accuracy_cases() {
         assert!(library().resolve(name).is_some(), "{name} is not registered");
         let got = match with_local_zone(Tz::UTC, || {
             if formula.contains("X1:X4") { evaluate_formula(formula, &mut ProbSheet) } else { evaluate_formula(formula, &mut ExcelSheet) }
@@ -1418,7 +1448,7 @@ fn subnormal_probabilities_are_zero_in_excel_and_in_the_engine() {
     // formula literals below 2.2E-308 down to 1E-310 are #DIV/0!/#NUM! exactly like 0, and smaller ones are refused
     // by the formula parser. So the subnormal range has no behaviour of its own: it is the zero case, #DIV/0! at one
     // degree of freedom and #NUM! from two (T.INV, T.INV.2T, TINV, df 1,2,3,5,10 probed with the value held in a
-    // cell). The earlier "T.INV(1E-320,1) = 0" was a stale cell in the probe script after the literal was refused.
+    // cell).
     use ErrorValue::{Div0, Num};
     for (f, want) in [
         ("=T.INV(1E-309,1)", Div0),
@@ -1516,6 +1546,13 @@ fn quantiles_search_the_worksheet_coordinate_with_exact_crossings() {
 /// balanced, tiny, nearly full and unequal margins, k at the mode and 1, 10 and 40 deviations either side), counts at
 /// and above 2^53, the review's inputs, and quantiles at the ends of their ranges.
 fn adversarial_grid() -> Vec<String> {
+    let mut out = hypergeometric_grid();
+    out.extend(large_count_formulas());
+    out.extend(EXTREME_FORMULAS.iter().map(|f| f.to_string()));
+    out
+}
+
+fn hypergeometric_grid() -> Vec<String> {
     let mut out = Vec::new();
     for big_n in [1e6, 2f64.powi(53), 2e16, 1e100, 1e308] {
         for (n, k) in [
@@ -1539,53 +1576,57 @@ fn adversarial_grid() -> Vec<String> {
             }
         }
     }
+    out
+}
+
+fn large_count_formulas() -> Vec<String> {
+    let mut out = Vec::new();
     for k in [2f64.powi(53), 2f64.powi(53) + 2.0, 1e16, 2f64.powi(63), 1e300] {
         out.push(format!("=POISSON.DIST({k:e},{k:e},TRUE)"));
         out.push(format!("=NEGBINOM.DIST({k:e},{k:e},0.5,TRUE)"));
         out.push(format!("=NEGBINOM.DIST({k:e},3,0.5,FALSE)"));
     }
-    for f in [
-        "=HYPGEOM.DIST(1E16,1E16,1E16,2E16,FALSE)",
-        "=HYPGEOM.DIST(1E16,1E16,1E16,2E16,TRUE)",
-        "=GAMMA.DIST(1.7E308,1E308,1,TRUE)",
-        "=GAMMA.DIST(1E-200,0.5,1E200,TRUE)",
-        "=NORM.DIST(1E308,-1E308,1E308,TRUE)",
-        "=NORM.DIST(4E-199,0,1E-200,FALSE)",
-        "=BETA.DIST(1E-98,100,1E100,TRUE)",
-        "=BETA.DIST(0.9,2.5,1E-300,TRUE)",
-        "=BETA.DIST(1E-300,1E-300,1E-300,TRUE)",
-        "=T.DIST.RT(3,1E9)",
-        "=F.DIST.RT(1,1E10,2)",
-        "=TDIST(1,1E10,1)",
-        "=BINOM.DIST(5E9,1E10,0.5,TRUE)",
-        "=BINOM.DIST.RANGE(2147483646,0.5,1000000000,1100000000)",
-        "=BINOM.INV(2147483646,0.5,0.5)",
-        "=GAMMA.INV(0.5,1E308,1)",
-        "=GAMMA.INV(0.5,1E-300,1)",
-        "=BETA.INV(0.5,1E300,1E300)",
-        "=BETA.INV(1E-300,1E-300,1E300)",
-        "=T.INV(1E-300,1)",
-        "=T.INV.2T(1E-300,1E10)",
-        "=F.INV(1E-300,1E10,1)",
-        "=CHISQ.INV.RT(1E-300,1E15)",
-        "=CHISQ.INV(1E-160,1)",
-        "=LOGNORM.INV(1E-300,-700,30)",
-        "=NORM.INV(0.3,1E308,1E308)",
-        "=NORM.DIST(2.5,2.2250738585072014E-308,2.5,TRUE)",
-        "=LOGNORM.DIST(3,1E300,1E300,TRUE)",
-        "=LOGNORM.INV(0.1,-700,2)",
-        "=LOGNORM.INV(0.1,700,1)",
-        "=GAMMA.DIST(5E-21,1E-20,1,TRUE)",
-        "=GAMMA.DIST(1.1,1E-200,1E200,TRUE)",
-        "=GAMMA.DIST(5E-321,1E-20,1E-300,TRUE)",
-        "=GAMMA.INV(1E-300,1,1)",
-        "=GAMMA.INV(2.2250738585072014E-308,1,2.5)",
-        "=GAMMA.INV(0.75,0.01,2.2250738585072014E-308)",
-    ] {
-        out.push(f.to_string());
-    }
     out
 }
+
+const EXTREME_FORMULAS: &[&str] = &[
+    "=HYPGEOM.DIST(1E16,1E16,1E16,2E16,FALSE)",
+    "=HYPGEOM.DIST(1E16,1E16,1E16,2E16,TRUE)",
+    "=GAMMA.DIST(1.7E308,1E308,1,TRUE)",
+    "=GAMMA.DIST(1E-200,0.5,1E200,TRUE)",
+    "=NORM.DIST(1E308,-1E308,1E308,TRUE)",
+    "=NORM.DIST(4E-199,0,1E-200,FALSE)",
+    "=BETA.DIST(1E-98,100,1E100,TRUE)",
+    "=BETA.DIST(0.9,2.5,1E-300,TRUE)",
+    "=BETA.DIST(1E-300,1E-300,1E-300,TRUE)",
+    "=T.DIST.RT(3,1E9)",
+    "=F.DIST.RT(1,1E10,2)",
+    "=TDIST(1,1E10,1)",
+    "=BINOM.DIST(5E9,1E10,0.5,TRUE)",
+    "=BINOM.DIST.RANGE(2147483646,0.5,1000000000,1100000000)",
+    "=BINOM.INV(2147483646,0.5,0.5)",
+    "=GAMMA.INV(0.5,1E308,1)",
+    "=GAMMA.INV(0.5,1E-300,1)",
+    "=BETA.INV(0.5,1E300,1E300)",
+    "=BETA.INV(1E-300,1E-300,1E300)",
+    "=T.INV(1E-300,1)",
+    "=T.INV.2T(1E-300,1E10)",
+    "=F.INV(1E-300,1E10,1)",
+    "=CHISQ.INV.RT(1E-300,1E15)",
+    "=CHISQ.INV(1E-160,1)",
+    "=LOGNORM.INV(1E-300,-700,30)",
+    "=NORM.INV(0.3,1E308,1E308)",
+    "=NORM.DIST(2.5,2.2250738585072014E-308,2.5,TRUE)",
+    "=LOGNORM.DIST(3,1E300,1E300,TRUE)",
+    "=LOGNORM.INV(0.1,-700,2)",
+    "=LOGNORM.INV(0.1,700,1)",
+    "=GAMMA.DIST(5E-21,1E-20,1,TRUE)",
+    "=GAMMA.DIST(1.1,1E-200,1E200,TRUE)",
+    "=GAMMA.DIST(5E-321,1E-20,1E-300,TRUE)",
+    "=GAMMA.INV(1E-300,1,1)",
+    "=GAMMA.INV(2.2250738585072014E-308,1,2.5)",
+    "=GAMMA.INV(0.75,0.01,2.2250738585072014E-308)",
+];
 
 #[test]
 fn a_standard_score_a_hair_from_one_keeps_the_tails_at_the_gamma_mode() {

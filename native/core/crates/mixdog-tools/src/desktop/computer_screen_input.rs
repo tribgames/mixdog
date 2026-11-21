@@ -409,6 +409,9 @@ mod tests {
             Ok(SpawnedProcess { handle, pid: 1 })
         }
 
+        fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            self.subscribe(handle, from_seq)
+        }
         fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             let mut runs = lock(&self.runs);
             let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;

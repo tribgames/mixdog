@@ -456,6 +456,59 @@ fn resolve_pptx_deck_plan(input: &Value, tokens: &Value, art_direction: &Value) 
     Value::Object(plan)
 }
 
+/// The tokens of a request: the pack's, then the art direction's, then the request's own palette and typography, each
+/// repaired by the discipline; with the record of what the discipline changed.
+fn resolve_design_tokens(input: &Value, pack: &Value, art_direction: &Value) -> (Value, Value) {
+    let direction_tokens = if prop(art_direction, "applyTokens").is_some_and(truthy) {
+        let selected = prop(art_direction, "selected");
+        json!({
+            "colors": opt_prop(selected, "palette").cloned().unwrap_or(Value::Null),
+            "typography": opt_prop(selected, "typography").cloned().unwrap_or(Value::Null),
+        })
+    } else {
+        Value::Object(Map::new())
+    };
+    let empty = Value::Object(Map::new());
+    let palette = prop(input, "palette").filter(|palette| plain_object(palette)).unwrap_or(&empty);
+    let base_tokens = merge(prop(pack, "tokens").unwrap_or(&Value::Null), &direction_tokens);
+    let typography_discipline = normalize_typography_tokens(prop(input, "typography"), prop(&base_tokens, "typography"));
+    let base_colors = prop(&base_tokens, "colors").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut palette_source = base_colors.clone();
+    for key in js_object_keys(palette.as_object().expect("an object")) {
+        let fallback = first_truthy(&[base_colors.get(key), base_colors.get("ink")]).cloned().unwrap_or(Value::Null);
+        palette_source.insert(key.clone(), hex(palette.get(key), fallback));
+    }
+    let palette_discipline = normalize_palette_tokens(&Value::Object(palette_source));
+    let tokens = merge(
+        &base_tokens,
+        &json!({
+            "colors": Value::Object(palette_discipline.colors.clone()),
+            "typography": Value::Object(typography_discipline.typography.clone()),
+        }),
+    );
+    let discipline = json!({
+        "replacedFonts": typography_discipline.replaced,
+        "fontFamilyCount": typography_discipline.family_count,
+        "paletteAdjustments": palette_discipline.adjustments,
+    });
+    (tokens, discipline)
+}
+
+fn review_switches(input: &Value, format: &str) -> Value {
+    let flag = |key: &str| Value::Bool(prop(input, key) == Some(&Value::Bool(true)));
+    let required = format == "pptx" || (is_not_false(prop(input, "review")) && format != "csv" && format != "tsv");
+    json!({
+        "required": required,
+        "allowTextOnly": flag("allowTextOnly"),
+        "allowRepetition": flag("allowRepetition"),
+        "allowDecorativeLines": flag("allowDecorativeLines"),
+        "allowSyntheticVisuals": flag("allowSyntheticVisuals"),
+        "allowFlatRhythm": flag("allowFlatRhythm"),
+        "allowUnsafeFonts": flag("allowUnsafeFonts"),
+        "frontier": is_not_false(prop(input, "frontier")) && first_truthy(&[prop(input, "content"), prop(input, "creative")]).is_some(),
+    })
+}
+
 /// `resolveOfficeDesign(format, request, { library })`: the design in force for a request. `request` is a profile name
 /// or a request object; `composition` is what the composition system makes of it (purpose, expression mode, recent
 /// compositions). The errors are the texts of the ones Node throws.
@@ -486,33 +539,7 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
         return Err(format!("Unknown Office design profile \"{profile}\". Use one of: {known}"));
     };
     let art_direction = resolve_office_art_direction(&normalized_format, input, &profile, &composition.purpose, &composition.expression_mode);
-    let direction_tokens = if prop(&art_direction, "applyTokens").is_some_and(truthy) {
-        let selected = prop(&art_direction, "selected");
-        json!({
-            "colors": opt_prop(selected, "palette").cloned().unwrap_or(Value::Null),
-            "typography": opt_prop(selected, "typography").cloned().unwrap_or(Value::Null),
-        })
-    } else {
-        Value::Object(Map::new())
-    };
-    let empty = Value::Object(Map::new());
-    let palette = prop(input, "palette").filter(|palette| plain_object(palette)).unwrap_or(&empty);
-    let base_tokens = merge(prop(pack, "tokens").unwrap_or(&Value::Null), &direction_tokens);
-    let typography_discipline = normalize_typography_tokens(prop(input, "typography"), prop(&base_tokens, "typography"));
-    let base_colors = prop(&base_tokens, "colors").and_then(Value::as_object).cloned().unwrap_or_default();
-    let mut palette_source = base_colors.clone();
-    for key in js_object_keys(palette.as_object().expect("an object")) {
-        let fallback = first_truthy(&[base_colors.get(key), base_colors.get("ink")]).cloned().unwrap_or(Value::Null);
-        palette_source.insert(key.clone(), hex(palette.get(key), fallback));
-    }
-    let palette_discipline = normalize_palette_tokens(&Value::Object(palette_source));
-    let tokens = merge(
-        &base_tokens,
-        &json!({
-            "colors": Value::Object(palette_discipline.colors.clone()),
-            "typography": Value::Object(typography_discipline.typography.clone()),
-        }),
-    );
+    let (tokens, discipline) = resolve_design_tokens(input, pack, &art_direction);
     let deck = (normalized_format == "pptx").then(|| resolve_pptx_deck_plan(input, &tokens, &art_direction));
     let density_written = js_to_lowercase(&text(prop(input, "density")));
     let density = if ["light", "balanced", "dense"].contains(&density_written.as_str()) { density_written } else { "balanced".to_owned() };
@@ -549,14 +576,7 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
         },
     );
     put("tokens", tokens);
-    put(
-        "discipline",
-        json!({
-            "replacedFonts": typography_discipline.replaced,
-            "fontFamilyCount": typography_discipline.family_count,
-            "paletteAdjustments": palette_discipline.adjustments,
-        }),
-    );
+    put("discipline", discipline);
     put("format", opt_prop(prop(pack, "formats"), &normalized_format).filter(|entry| truthy(entry)).cloned().unwrap_or_else(|| Value::Object(Map::new())));
     if let Some(deck) = deck {
         put("deck", deck);
@@ -575,21 +595,7 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
             _ => Value::Array(Vec::new()),
         },
     );
-    let flag = |key: &str| Value::Bool(prop(input, key) == Some(&Value::Bool(true)));
-    let required = normalized_format == "pptx" || (is_not_false(prop(input, "review")) && normalized_format != "csv" && normalized_format != "tsv");
-    put(
-        "review",
-        json!({
-            "required": required,
-            "allowTextOnly": flag("allowTextOnly"),
-            "allowRepetition": flag("allowRepetition"),
-            "allowDecorativeLines": flag("allowDecorativeLines"),
-            "allowSyntheticVisuals": flag("allowSyntheticVisuals"),
-            "allowFlatRhythm": flag("allowFlatRhythm"),
-            "allowUnsafeFonts": flag("allowUnsafeFonts"),
-            "frontier": is_not_false(prop(input, "frontier")) && first_truthy(&[prop(input, "content"), prop(input, "creative")]).is_some(),
-        }),
-    );
+    put("review", review_switches(input, &normalized_format));
     Ok(Value::Object(design))
 }
 

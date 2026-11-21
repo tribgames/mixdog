@@ -284,6 +284,55 @@ fn win32_path(parts: &[&str]) -> String {
     format!("{drive}\\{}", segments.join("\\"))
 }
 
+fn trusted_keys_of(env: &Environment, source: &Value) -> Map<String, Value> {
+    let mut trusted_keys = match prop(source, "trustedKeys") {
+        Some(Value::Object(map)) => map.clone(),
+        _ => Map::new(),
+    };
+    let environment_key = js_trim(&env.pack_public_key.replace("\\n", "\n")).to_owned();
+    if !environment_key.is_empty() {
+        let id = if env.pack_key_id.is_empty() { "environment".to_owned() } else { env.pack_key_id.clone() };
+        trusted_keys.insert(id, Value::String(environment_key));
+    }
+    trusted_keys
+}
+
+struct TemplateSettings {
+    directories: Vec<String>,
+    discover_installed: bool,
+    default_templates: Map<String, Value>,
+}
+
+fn template_settings(env: &Environment, source: &Value, base: &Path, library_templates: &Path) -> TemplateSettings {
+    let environment_directories = js_trim(&env.template_dirs);
+    let listed = prop(source, "templateDirectories").and_then(Value::as_array);
+    let has_explicit_directories = listed.is_some() || !environment_directories.is_empty();
+    let configured_directories: Vec<String> = match listed {
+        Some(items) => items.iter().map(|entry| resolve_config_path(env, &text(Some(entry)), base)).collect(),
+        None => {
+            let delimiter = if cfg!(windows) { ';' } else { ':' };
+            environment_directories.split(delimiter).map(|entry| resolve_config_path(env, entry, base)).collect()
+        }
+    };
+    let discover_installed = match prop(source, "discoverInstalledTemplates") {
+        None | Some(Value::Null) => !has_explicit_directories,
+        Some(flag) => *flag != Value::Bool(false),
+    };
+    let mut directories = vec![library_templates.to_string_lossy().into_owned()];
+    if discover_installed {
+        directories.extend(default_office_template_directories(env));
+    }
+    directories.extend(configured_directories.into_iter().filter(|entry| !entry.is_empty()));
+    let mut default_templates = match prop(source, "defaultTemplates") {
+        Some(Value::Object(map)) => map.clone(),
+        _ => Map::new(),
+    };
+    if discover_installed && !default_templates.get("pptx").is_some_and(truthy) {
+        default_templates.insert("pptx".to_owned(), Value::String("mixdog-executive".to_owned()));
+    }
+    TemplateSettings { directories, discover_installed, default_templates }
+}
+
 /// `loadConfig(dataDir, override)`: the override object when it is one, else the config file (the variable
 /// `MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG`, else `<library>/config.json`; a relative path is taken against the working
 /// directory), with the environment variables applied.
@@ -296,41 +345,8 @@ pub fn load_config<P: ReadProof>(proof: &P, env: &Environment, data_dir: &Path, 
         _ => read_json(proof, &config_path, Value::Object(Map::new())),
     };
     let base = config_path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let mut trusted_keys = match prop(&source, "trustedKeys") {
-        Some(Value::Object(map)) => map.clone(),
-        _ => Map::new(),
-    };
-    let environment_key = js_trim(&env.pack_public_key.replace("\\n", "\n")).to_owned();
-    if !environment_key.is_empty() {
-        let id = if env.pack_key_id.is_empty() { "environment".to_owned() } else { env.pack_key_id.clone() };
-        trusted_keys.insert(id, Value::String(environment_key));
-    }
-    let environment_directories = js_trim(&env.template_dirs);
-    let listed = prop(&source, "templateDirectories").and_then(Value::as_array);
-    let has_explicit_directories = listed.is_some() || !environment_directories.is_empty();
-    let configured_directories: Vec<String> = match listed {
-        Some(items) => items.iter().map(|entry| resolve_config_path(env, &text(Some(entry)), &base)).collect(),
-        None => {
-            let delimiter = if cfg!(windows) { ';' } else { ':' };
-            environment_directories.split(delimiter).map(|entry| resolve_config_path(env, entry, &base)).collect()
-        }
-    };
-    let discover_installed_templates = match prop(&source, "discoverInstalledTemplates") {
-        None | Some(Value::Null) => !has_explicit_directories,
-        Some(flag) => *flag != Value::Bool(false),
-    };
-    let mut directories = vec![paths.templates.to_string_lossy().into_owned()];
-    if discover_installed_templates {
-        directories.extend(default_office_template_directories(env));
-    }
-    directories.extend(configured_directories.into_iter().filter(|entry| !entry.is_empty()));
-    let mut default_templates = match prop(&source, "defaultTemplates") {
-        Some(Value::Object(map)) => map.clone(),
-        _ => Map::new(),
-    };
-    if discover_installed_templates && !default_templates.get("pptx").is_some_and(truthy) {
-        default_templates.insert("pptx".to_owned(), Value::String("mixdog-executive".to_owned()));
-    }
+    let trusted_keys = trusted_keys_of(env, &source);
+    let templates = template_settings(env, &source, &base, &paths.templates);
     let manifest_url = if env.pack_url.is_empty() { text(prop(&source, "manifestUrl")) } else { env.pack_url.clone() };
     let pack_id = match prop(&source, "packId") {
         Some(id) if truthy(id) => safe_id(Some(id), "config packId")?,
@@ -348,9 +364,9 @@ pub fn load_config<P: ReadProof>(proof: &P, env: &Environment, data_dir: &Path, 
         pack_id,
         channel: js_to_lowercase(js_trim(&channel_text)),
         check_interval_ms: 10_000.0_f64.max(interval.min(24.0 * 60.0 * 60.0 * 1000.0)),
-        template_directories: dedupe(directories),
-        discover_installed_templates,
-        default_templates,
+        template_directories: dedupe(templates.directories),
+        discover_installed_templates: templates.discover_installed,
+        default_templates: templates.default_templates,
     })
 }
 

@@ -14,13 +14,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str) {
-    let rules_dir = package_dir.join("rules").join(kind);
-    // Re-run when a rule file is added, removed, or edited. Watching the
-    // directory covers add/remove; each file is watched for edits below.
-    println!("cargo:rerun-if-changed={}", rules_dir.display());
-
-    let mut sources: Vec<PathBuf> = match std::fs::read_dir(&rules_dir) {
+fn rule_sources(rules_dir: &Path) -> Vec<PathBuf> {
+    let mut sources: Vec<PathBuf> = match std::fs::read_dir(rules_dir) {
         Ok(entries) => entries
             .filter_map(Result::ok)
             .map(|entry| entry.path())
@@ -29,15 +24,15 @@ fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str)
                     && path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"))
             })
             .collect(),
-        // No directory yet (or unreadable): bundle nothing.
         Err(_) => Vec::new(),
     };
-    // Deterministic order so the generated stream — and therefore rule
-    // precedence within the bundle — never depends on directory iteration.
     sources.sort();
+    sources
+}
 
+fn concatenate(kind: &str, sources: &[PathBuf]) -> String {
     let mut bundle = String::new();
-    for path in &sources {
+    for path in sources {
         println!("cargo:rerun-if-changed={}", path.display());
         let Ok(text) = std::fs::read_to_string(path) else {
             println!("cargo:warning=mixdog-graph {kind} rules skipped (unreadable): {}", path.display());
@@ -51,14 +46,20 @@ fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str)
         if !bundle.is_empty() {
             bundle.push_str("\n---\n");
         }
-        // `# file:` markers keep rule-parse diagnostics traceable back to the
-        // authoring file even though everything lands in one stream.
         bundle.push_str("# file: ");
         bundle.push_str(&path.file_name().unwrap_or_default().to_string_lossy());
         bundle.push('\n');
         bundle.push_str(text);
         bundle.push('\n');
     }
+    bundle
+}
+
+fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str) {
+    let rules_dir = package_dir.join("rules").join(kind);
+    println!("cargo:rerun-if-changed={}", rules_dir.display());
+    let sources = rule_sources(&rules_dir);
+    let bundle = concatenate(kind, &sources);
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let out_path = out_dir.join(out_file);
@@ -68,7 +69,6 @@ fn bundle_rules(package_dir: &Path, kind: &str, out_file: &str, count_env: &str)
             panic!("failed to write {}: {error}", out_path.display());
         });
     }
-    // Also expose the source count so a build log can show the bundle size.
     println!("cargo:rustc-env={count_env}={}", sources.len());
 }
 

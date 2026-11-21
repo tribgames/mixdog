@@ -1,6 +1,5 @@
-//! Raw-row embedding (`flushRawEmbeddings` of `memory-embed.mjs`): freshly
-//! ingested transcript rows become dense-searchable without waiting for a
-//! background cycle. Local inference only. Rows are claimed `FOR UPDATE SKIP
+//! Raw-row embedding: freshly ingested transcript rows become
+//! dense-searchable without waiting for a background cycle. Local inference only. Rows are claimed `FOR UPDATE SKIP
 //! LOCKED` in batches, so concurrent flushes embed disjoint rows, and a vector
 //! cache keyed by (model, text hash) spares repeated texts.
 
@@ -100,6 +99,54 @@ const PRUNE_DELETE_SQL: &str = "DELETE FROM memory.embedding_cache
 
 fn parse_vector(text: &str) -> Vec<f32> {
     text.trim_start_matches('[').trim_end_matches(']').split(',').map(|n| string_to_number(n) as f32).collect()
+}
+
+/// The cache's model key: the bare model id for the default dtype, else the dtype-qualified identity, so another
+/// variant never reuses vectors that established different dimensions.
+fn cache_model_key(provider: &EmbeddingProvider) -> String {
+    let model_id = provider.model_id();
+    if config::normalize_dtype(model_id, provider.dtype()) == config::normalize_dtype(model_id, None) {
+        model_id.to_owned()
+    } else {
+        config::identity(None, model_id, provider.dtype()).to_string()
+    }
+}
+
+async fn store_cache_misses(
+    client: &deadpool_postgres::Object,
+    model: &str,
+    misses: Vec<&(String, Vec<u8>)>,
+    vectors: Vec<std::sync::Arc<Vec<f32>>>,
+    found: &mut std::collections::HashMap<Vec<u8>, Vec<f32>>,
+) -> Result<()> {
+    let mut miss_hashes = Vec::new();
+    let mut miss_sql = Vec::new();
+    for ((_, hash), vector) in misses.into_iter().zip(vectors) {
+        if !vector.is_empty() {
+            miss_hashes.push(hash.clone());
+            miss_sql.push(embedding_to_sql(&vector));
+            found.insert(hash.clone(), vector.to_vec());
+        }
+    }
+    client
+        .execute(
+            "INSERT INTO memory.embedding_cache (model_id, text_hash, vector)
+             SELECT $1, unnest($2::bytea[]), unnest($3::text[])::halfvec
+             ON CONFLICT (model_id, text_hash) DO NOTHING",
+            &[&model, &miss_hashes, &miss_sql],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn record_batch_dims(client: &deadpool_postgres::Object, found: &std::collections::HashMap<Vec<u8>, Vec<f32>>) -> Result<()> {
+    let Some(first) = found.values().next() else { return Ok(()) };
+    let dims = first.len();
+    if found.values().any(|v| v.len() != dims) {
+        return Err(MemoryError::Embedding("mixed dimensions in an indexing batch".into()));
+    }
+    crate::memory::schema::record_vector_dims(client, dims).await?;
+    Ok(())
 }
 
 /// Flushes raw rows' embeddings for one database.
@@ -397,14 +444,7 @@ impl RawEmbedFlush {
             return Ok(Vec::new());
         }
         let provider = self.provider.as_ref().ok_or_else(|| MemoryError::Embedding("no embedding model".into()))?;
-        let model_id = provider.model_id();
-        // Legacy keys are kept for the default dtype; other variants
-        // must not trust that cache to establish a custom schema's dimensions.
-        let model = if config::normalize_dtype(model_id, provider.dtype()) == config::normalize_dtype(model_id, None) {
-            model_id.to_owned()
-        } else {
-            config::identity(None, model_id, provider.dtype()).to_string()
-        };
+        let model = cache_model_key(provider);
         let entries: Vec<(String, Vec<u8>)> = texts
             .iter()
             .map(|t| {
@@ -438,41 +478,19 @@ impl RawEmbedFlush {
             }
         }
         if !misses.is_empty() {
-            let mut miss_hashes = Vec::new();
-            let mut miss_sql = Vec::new();
-            for ((_, hash), vector) in misses.into_iter().zip(vectors) {
-                if !vector.is_empty() {
-                    miss_hashes.push(hash.clone());
-                    miss_sql.push(embedding_to_sql(&vector));
-                    found.insert(hash.clone(), vector.to_vec());
-                }
-            }
-            client
-                .execute(
-                    "INSERT INTO memory.embedding_cache (model_id, text_hash, vector)
-                     SELECT $1, unnest($2::bytea[]), unnest($3::text[])::halfvec
-                     ON CONFLICT (model_id, text_hash) DO NOTHING",
-                    &[&model, &miss_hashes, &miss_sql],
-                )
-                .await?;
+            store_cache_misses(client, &model, misses, vectors, &mut found).await?;
         }
         if let Some(outcome) = self.maybe_prune(client).await {
             *pruned = Some(outcome);
         }
-        if let Some(first) = found.values().next() {
-            let dims = first.len();
-            if found.values().any(|v| v.len() != dims) {
-                return Err(MemoryError::Embedding("mixed dimensions in an indexing batch".into()));
-            }
-            crate::memory::schema::record_vector_dims(client, dims).await?;
-        }
+        record_batch_dims(client, &found).await?;
         Ok(entries.iter().map(|(_, hash)| found.get(hash).cloned().unwrap_or_default()).collect())
     }
 
     /// Row-count retention for the cache, at most once per interval: the
     /// oldest rows go first; far over the cap the regenerable table is truncated.
-    /// It runs on the batch's connection, as Node's (a TRUNCATE on another one
-    /// would wait for this transaction's lock on the cache table).
+    /// It runs on the batch's connection: a TRUNCATE on another one would wait
+    /// for this transaction's lock on the cache table.
     async fn maybe_prune(&self, client: &deadpool_postgres::Object) -> Option<Result<PruneOutcome>> {
         {
             // `maybePruneEmbCache` (memory-embed.mjs:25-29): the next allowed prune, in `Date.now()` ms.

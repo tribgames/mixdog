@@ -99,18 +99,7 @@ pub async fn sync_in(tx: &Client) -> Result<Directory> {
     let mut result = Directory::new();
     for key in keys {
         let current = groups.remove(&key).unwrap_or_default();
-        let old = previous.get(&key);
-        let old_ids = old.map(|state| state.record_ids.clone()).unwrap_or_default();
-        let live: BTreeSet<i64> = current.iter().copied().collect();
-        let mut seen = BTreeSet::new();
-        let retained: Vec<i64> = old_ids.iter().copied().filter(|id| live.contains(id) && seen.insert(*id)).collect();
-        let known: BTreeSet<i64> = retained.iter().copied().collect();
-        let mut record_ids = retained;
-        record_ids.extend(current.iter().copied().filter(|id| !known.contains(id)));
-        let revision_missing = old.is_none_or(|state| state.revision.is_empty());
-        let changed = revision_missing || old_ids != record_ids;
-        let state =
-            IndexState { revision: if changed { uuid::Uuid::new_v4().to_string() } else { old.map(|s| s.revision.clone()).unwrap_or_default() }, record_ids };
+        let (state, changed) = reconcile(previous.get(&key), &current);
         if changed {
             let meta_key = format!("{PREFIX}{key}");
             #[cfg(test)]
@@ -120,6 +109,20 @@ pub async fn sync_in(tx: &Client) -> Result<Directory> {
         result.insert(key, state);
     }
     Ok(result)
+}
+
+fn reconcile(old: Option<&IndexState>, current: &[i64]) -> (IndexState, bool) {
+    let old_ids = old.map(|state| state.record_ids.clone()).unwrap_or_default();
+    let live: BTreeSet<i64> = current.iter().copied().collect();
+    let mut seen = BTreeSet::new();
+    let retained: Vec<i64> = old_ids.iter().copied().filter(|id| live.contains(id) && seen.insert(*id)).collect();
+    let known: BTreeSet<i64> = retained.iter().copied().collect();
+    let mut record_ids = retained;
+    record_ids.extend(current.iter().copied().filter(|id| !known.contains(id)));
+    let revision_missing = old.is_none_or(|state| state.revision.is_empty());
+    let changed = revision_missing || old_ids != record_ids;
+    let revision = if changed { uuid::Uuid::new_v4().to_string() } else { old.map(|s| s.revision.clone()).unwrap_or_default() };
+    (IndexState { revision, record_ids }, changed)
 }
 
 /// The public position (1-based) and revision of stored entry `id`, when it is live.

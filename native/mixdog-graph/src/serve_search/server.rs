@@ -2,22 +2,9 @@
 // request lines into scheduled searches, and the two transports.
 use super::*;
 
-// ── Idle reclaim watchdog ───────────────────────────────────────────────────
-// A resident server that has gone quiet must not keep pinning its warm file
-// inventory and signature cache. How it lets go depends on who owns the
-// process, which is what IdlePolicy selects.
-//
-// Standalone (`--serve-search`): exit. The server normally dies with its owner
-// — when the host's stdin write handle closes, the request loop reads EOF and
-// returns — but that signal never arrives if the owner is force-killed while
-// another process still holds the pipe's write end, and Windows reaps nothing
-// on parent exit, so orphaned servers piled up across restarts. The JS client
-// respawns transparently on the next call. Mirrors the mixdog-patch watchdog.
-//
-// In-process (Node-API addon): the host owns the process, so exiting would
-// take the host down with it. Drop the caches instead and keep serving.
-//
 // Tunable via MIXDOG_SEARCH_SERVER_IDLE_MS (default 300000ms); 0 disables it.
+// Standalone exits on idle because Windows reaps nothing on parent exit and a
+// force-killed owner's pipe can stay open elsewhere, so EOF never arrives.
 pub(super) const DEFAULT_SERVE_SEARCH_IDLE_MS: u64 = 300_000;
 
 /// How a server reclaims once the idle window expires.

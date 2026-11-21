@@ -1,4 +1,4 @@
-//! The transcript over the store: the stored Node-shaped message bodies the run's history
+//! The transcript over the store: the stored message bodies the run's history
 //! came from, for compaction's hashing and budgets (WP-COMPACT `MessageRows`).
 
 use std::collections::HashMap;
@@ -37,10 +37,6 @@ mod transcript_convert;
 mod transcript_divider;
 #[path = "transcript_live.rs"]
 mod transcript_live;
-/// `promptDisplayText` (`queue-helpers.mjs`) of a prompt whose text parts hold no stored attachment: `promptContentText` over the parts
-/// that are not media references (`idle-auto-clear-gate.mjs:10-24`, the one `queue-helpers.mjs:10` imports): a string part as it is, the
-/// text of a text part, `[Image]` for an image, `[File]` for a file, the text of any other part, one per line.
-/// `None` for a prompt with a text part holding a stored attachment (`isAttachmentReference`), whose text Node reads from the store.
 fn inline_prompt_text(message: &Value) -> Option<String> {
     let parts = message.as_array()?;
     let held = |part: &Value| part.get("attachmentRef").and_then(Value::as_str).is_some_and(is_attachment_ref);
@@ -67,8 +63,8 @@ fn inline_prompt_text(message: &Value) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// `promptContentImageMeta` (`queue-helpers.mjs:146`): the image parts of a queued prompt, byte-free, each named by the pasted image
-/// at its position (`options.pastedImages`, in the order Node's `Object.values` gives).
+/// The image parts of a queued prompt, byte-free, each named by the pasted image
+/// at its position (`options.pastedImages`, in value order).
 pub fn image_meta(entry: &Value) -> Vec<Value> {
     let Some(parts) = entry.get("message").and_then(Value::as_array) else { return Vec::new() };
     let named: Vec<&Value> = entry.pointer("/options/pastedImages").and_then(Value::as_object).map(|map| map.values().collect()).unwrap_or_default();
@@ -79,7 +75,7 @@ pub fn image_meta(entry: &Value) -> Vec<Value> {
         .map(|(index, part)| {
             let meta = named.get(index).filter(|meta| meta.is_object());
             let held = |key: &str| meta.and_then(|meta| meta.get(key)).filter(|value| !value.is_null());
-            // `part.data` when it is a string, else `part.content` when that is (`queue-helpers.mjs:152-154`); its UTF-16 length is the fallback size.
+            // `part.data` when it is a string, else `part.content` when that is; its UTF-16 length is the fallback size.
             let data = part.get("data").and_then(Value::as_str).or_else(|| part.get("content").and_then(Value::as_str)).unwrap_or_default();
             // `Number(part.sizeBytes) || data.length`: a numeric string, a float or a boolean counts; NaN and 0 fall back.
             let size = mixdog_js::to_number_of(part.get("sizeBytes"));
@@ -316,7 +312,7 @@ mod tests {
         assert_eq!(records[3], None);
     }
 
-    /// `sizeBytes` is any JS number (`Number(claimed) || 0`, `attachments/store.mjs:410`): a fractional claim parses, is echoed as given and
+    /// `sizeBytes` is any JS number: a fractional claim parses, is echoed as given and
     /// is the record's size when no stored blob names one.
     #[test]
     fn a_fractional_size_bytes_parses_and_is_recorded_as_given() {
@@ -330,6 +326,72 @@ mod tests {
         let content: mixdog_protocol::PromptContent = serde_json::from_value(wire).expect("the untagged content parses");
         assert!(matches!(content, mixdog_protocol::PromptContent::Parts(_)));
     }
+
+    #[test]
+    fn a_user_message_records_the_stored_attachments_of_its_parts_and_pasted_buffers() {
+        let part_ref = "a".repeat(64);
+        let image_ref = format!("sha256:{}", "b".repeat(64));
+        let input: TurnInput = serde_json::from_value(json!({
+            "prompt": [
+                { "type": "text", "text": "look" },
+                { "type": "text", "textKind": "file", "attachmentRef": part_ref, "sizeBytes": 5, "mimeType": "text/markdown", "filename": "n.md" },
+            ],
+            "options": {
+                "pastedImages": { "1": { "id": 1, "type": "image", "attachmentRef": image_ref, "sizeBytes": 7, "mediaType": "image/png", "filename": "p.png" } },
+                "pastedTexts": { "2": { "id": 2, "attachmentRef": "c".repeat(64), "sizeBytes": 3, "source": "file" } },
+            },
+        }))
+        .expect("turn input");
+        let message = RecordTranscript.user_message(&input, 0);
+        let attachments = &message["meta"]["transcript"]["attachments"];
+        let by_id = |id: &str| attachments.as_array().unwrap().iter().find(|a| a["id"] == id).cloned().unwrap_or(Value::Null);
+        assert_eq!(attachments.as_array().unwrap().len(), 3);
+        assert_eq!(by_id(&part_ref)["name"], json!("n.md"));
+        assert_eq!(by_id(&"b".repeat(64))["kind"], json!("image"));
+        assert_eq!(by_id(&"b".repeat(64))["size"], json!(7));
+        assert_eq!(by_id(&"c".repeat(64))["name"], json!("attachment.txt"));
+        assert_eq!(by_id(&"c".repeat(64))["mimeType"], json!("text/plain"));
+    }
+}
+
+fn stored_attachments(input: &TurnInput) -> Vec<Value> {
+    let options = input.options.as_ref();
+    let bare = |reference: &str| reference.trim_start_matches("sha256:").to_owned();
+    let mut stored: Vec<Value> = Vec::new();
+    if let PromptContent::Parts(parts) = &input.prompt {
+        for part in parts {
+            if let Some(entry) = part_attachment(part, options.and_then(|o| o.attachment_sizes.as_ref())).filter(|e| !stored.iter().any(|s| s["id"] == e["id"]))
+            {
+                stored.push(entry);
+            }
+        }
+    }
+    for image in options.and_then(|o| o.pasted_images.as_ref()).into_iter().flat_map(|m| m.values()) {
+        let Some(reference) = image.attachment_ref.as_deref() else {
+            continue;
+        };
+        let mut entry = json!({
+            "id": bare(reference), "kind": "image", "name": image.filename,
+            "mimeType": image.media_type, "size": image.size_bytes.unwrap_or(0),
+        });
+        if let Some(original) = image.original_ref.as_deref() {
+            entry["original"] = json!({ "attachmentRef": bare(original), "mimeType": image.original_media_type });
+        }
+        stored.push(entry);
+    }
+    for text in options.and_then(|o| o.pasted_texts.as_ref()).into_iter().flat_map(|m| m.values()) {
+        let Some(reference) = text.attachment_ref.as_deref() else {
+            continue;
+        };
+        let file = text.source.as_deref() == Some("file");
+        let name =
+            text.filename.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| (if file { "attachment.txt" } else { "pasted-text.txt" }).to_owned());
+        stored.push(json!({
+            "id": bare(reference), "kind": "text", "name": name,
+            "mimeType": text.mime_type.as_deref().filter(|mime| !mime.is_empty()).unwrap_or("text/plain"), "size": text.size_bytes.unwrap_or(0),
+        }));
+    }
+    transcript_rows::normalize_attachments(Some(&Value::Array(stored)))
 }
 
 impl Transcript for RecordTranscript {
@@ -366,7 +428,7 @@ impl Transcript for RecordTranscript {
     }
 
     /// `{id, text, enqueuedAt?, clientSubmissionId?}`: the entry's display text as the composer showed it, and the submission it
-    /// answers (Node's queue entry is named by it, `makeQueueEntry`; a client matches its pending bubble by that id).
+    /// answers (a client matches its pending bubble by that id).
     fn queued(&self, qid: &str, entry: &Value) -> Value {
         let shown = entry.pointer("/options/displayText").and_then(Value::as_str).filter(|text| !js_trim(text).is_empty());
         let text = match shown {
@@ -382,9 +444,9 @@ impl Transcript for RecordTranscript {
                 }
             }
         };
-        // The fields Node's client projection reads of a queue entry (`session-state-projection.mjs:33-49`): the text cut to 2000 UTF-16
-        // units, the mode (`prompt` when the entry names none), the priority (`next` when none, `defaultQueuePriority`), the sender's
-        // source fields (`transcriptSourceFields`) and the image list when the prompt has images (`promptContentImageMeta`).
+        // The fields a client projection reads of a queue entry: the text cut to 2000 UTF-16
+        // units, the mode (`prompt` when the entry names none), the priority (`next` when none), the sender's
+        // source fields and the image list when the prompt has images.
         let mut row = json!({
             "id": qid,
             "text": mixdog_js::slice_utf16(&text, 2_000),
@@ -414,7 +476,7 @@ impl Transcript for RecordTranscript {
             PromptContent::Text(text) => json!(text),
             // The parts are the model content as they are: the same fields on the wire, a stored
             // attachment named by its `attachmentRef` included.
-            // `mergePromptContents` (`queue-helpers.mjs:120`): one inline text part is its plain string.
+            // One inline text part is its plain string.
             PromptContent::Parts(parts) if matches!(parts.as_slice(), [PromptPart::Text { text: Some(_), .. }]) => {
                 let PromptPart::Text { text: Some(text), .. } = &parts[0] else { unreachable!() };
                 json!(text)
@@ -422,8 +484,8 @@ impl Transcript for RecordTranscript {
             PromptContent::Parts(parts) => Value::Array(parts.iter().map(|part| serde_json::to_value(part).expect("protocol types serialize")).collect()),
         };
         let options = input.options.as_ref();
-        // `stableMessageId` (`transcript-metadata.mjs`): every prompt gets its own `msg_` id. The client's
-        // submission id is not one: Node keeps it as the queue entry's id and the turn's `submissionIds`.
+        // Every prompt gets its own `msg_` id. The client's
+        // submission id is not one: it is the queue entry's id and the turn's `submissionIds`.
         let message_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
         let mut transcript = json!({ "messageId": message_id });
         if let Some(at) = options.and_then(|o| o.submitted_at) {
@@ -436,45 +498,7 @@ impl Transcript for RecordTranscript {
         if originals_missing > 0 {
             transcript["originalImagesMissing"] = json!(originals_missing);
         }
-        let bare = |reference: &str| reference.trim_start_matches("sha256:").to_owned();
-        let mut stored: Vec<Value> = Vec::new();
-        // `attachmentsForIntake`: the stored attachments the prompt's own parts name come first.
-        if let PromptContent::Parts(parts) = &input.prompt {
-            for part in parts {
-                if let Some(entry) = part_attachment(part, input.options.as_ref().and_then(|o| o.attachment_sizes.as_ref()))
-                    .filter(|e| !stored.iter().any(|s| s["id"] == e["id"]))
-                {
-                    stored.push(entry);
-                }
-            }
-        }
-        for image in options.and_then(|o| o.pasted_images.as_ref()).into_iter().flat_map(|m| m.values()) {
-            let Some(reference) = image.attachment_ref.as_deref() else {
-                continue;
-            };
-            let mut entry = json!({
-                "id": bare(reference), "kind": "image", "name": image.filename,
-                "mimeType": image.media_type, "size": image.size_bytes.unwrap_or(0),
-            });
-            if let Some(original) = image.original_ref.as_deref() {
-                entry["original"] = json!({ "attachmentRef": bare(original), "mimeType": image.original_media_type });
-            }
-            stored.push(entry);
-        }
-        for text in options.and_then(|o| o.pasted_texts.as_ref()).into_iter().flat_map(|m| m.values()) {
-            let Some(reference) = text.attachment_ref.as_deref() else {
-                continue;
-            };
-            // `attachmentsForIntake` (`attachments/store.mjs:707-715`): a text names itself by its source.
-            let file = text.source.as_deref() == Some("file");
-            let name =
-                text.filename.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| (if file { "attachment.txt" } else { "pasted-text.txt" }).to_owned());
-            stored.push(json!({
-                "id": bare(reference), "kind": "text", "name": name,
-                "mimeType": text.mime_type.as_deref().filter(|mime| !mime.is_empty()).unwrap_or("text/plain"), "size": text.size_bytes.unwrap_or(0),
-            }));
-        }
-        let stored = transcript_rows::normalize_attachments(Some(&Value::Array(stored)));
+        let stored = stored_attachments(input);
         if !stored.is_empty() {
             transcript["attachments"] = Value::Array(stored);
         }
@@ -487,7 +511,7 @@ impl Transcript for RecordTranscript {
         summary_of_list_row(id, &list, row.archived)
     }
 }
-/// The thread's list row as the catalog index keeps it (`list`, Node's `_sessionSummary`) and
+/// The thread's list row as the catalog index keeps it and
 /// the archived flag beside it.
 pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -> ThreadSummary {
     let desktop = list.get("desktopSession").unwrap_or(&Value::Null);
@@ -503,7 +527,7 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
         "projectPath": desktop.get("projectPath").cloned().unwrap_or(Value::Null),
         "compactCount": list["compactCount"],
     });
-    // The roster states these only when they are so (`desktop-state.ts:273-276`, `withArchiveFlags`).
+    // The roster states these only when they are so.
     if archived {
         out["archived"] = json!(true);
     }
@@ -528,7 +552,6 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
     if let Some(created) = list["createdAt"].as_f64().filter(|at| *at > 0.0) {
         out["createdAt"] = json!(created as i64);
     }
-    // `withFavoriteFlags`, `withReadCursors`, `withRetiredFlags` of `desktop-session-metadata.ts`.
     if list["favoriteAt"].as_f64().is_some_and(|at| at > 0.0) {
         out["favorite"] = json!(true);
     }

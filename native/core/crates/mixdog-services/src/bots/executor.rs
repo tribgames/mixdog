@@ -1,12 +1,6 @@
-//! A routine may name an executor: a workflow sub-agent (Worker, …) on its own configured
-//! route (routine-executor.mjs). Each fire is then carried out by that sub-agent first,
-//! headless and to its end, and only its final report goes to the owner bot's home thread,
-//! which relays it. No executor = the bot does the work itself.
-//!
-//! The executor is a delegatable workflow agent: never a bot (contact agent) or Mixy, never
-//! one that is unknown or turned off — refused when the routine is saved and again when it
-//! fires (a sub-agent that disappeared or was turned off since fails the fire; nothing falls
-//! back).
+//! The executor of a routine is a delegatable workflow agent: never a bot or Mixy, never one
+//! that is unknown or turned off. It is refused when the routine is saved and again when it
+//! fires; nothing falls back.
 
 use mixdog_rt::CancelView;
 use serde_json::Value;

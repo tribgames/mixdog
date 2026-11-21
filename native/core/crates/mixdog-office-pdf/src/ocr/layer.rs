@@ -1,10 +1,5 @@
 //! The invisible text layer of a recognised page (`pdf/pdf-ocr.mjs` `placeRecognizedText`, and the drawing of pdf-lib's
 //! `drawText` with `opacity: 0`).
-//!
-//! A page is planned first ([`plan_page`]): whole lines where the row is intact and single words otherwise, each fitted to
-//! its box in both directions so that extraction reads it as one phrase and layout queries land where the picture shows
-//! it. The plan is then drawn ([`draw_layer`]): one content stream per page, in a graphics state of opacity 0 over the
-//! page's own content, and the one font written once into the document.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -183,9 +178,61 @@ fn hex_string(bytes: &[u8]) -> String {
     out
 }
 
+/// The content stream of the invisible text of one page: the runs set in the font under the names given.
+fn layer_stream(font: &Font, placements: &[Placement], font_key: &str, state_key: &str) -> Result<String, EmbedError> {
+    let mut ops = format!("q\n/{state_key} gs\nBT\n0 0 0 rg\n");
+    for placement in placements {
+        let encoded = font.encode_text(&placement.text)?;
+        ops.push_str(&format!(
+            "/{font_key} {} Tf\n1 0 0 1 {} {} Tm\n{} Tj\n",
+            number_to_string(placement.size),
+            number_to_string(placement.x),
+            number_to_string(placement.y),
+            hex_string(&encoded),
+        ));
+    }
+    ops.push_str("ET\nQ\n");
+    Ok(ops)
+}
+
+/// The names and objects a layer stream refers to.
+struct LayerResources {
+    font_key: String,
+    state_key: String,
+    font_ref: Ref,
+    state_ref: Ref,
+}
+
+/// Appends `ops` after the page's own content (wrapped, so that an unbalanced one cannot leak its state into the layer)
+/// and names the font and the graphics state in the page's resources.
+fn attach_layer(document: &mut PdfDocument, rng: &mut SuffixRng, page: Ref, ops: &str, layer: &LayerResources) {
+    let mut resources = page_resources(document, page);
+    let mut fonts = sub_dictionary(document, &resources, "Font");
+    let mut states = sub_dictionary(document, &resources, "ExtGState");
+    let font_name = if fonts.has(&layer.font_key) { fresh_name(rng, "F", &fonts) } else { layer.font_key.clone() };
+    let state_name = if states.has(&layer.state_key) { fresh_name(rng, "GS", &states) } else { layer.state_key.clone() };
+    fonts.set(&font_name, Obj::Ref(layer.font_ref));
+    states.set(&state_name, Obj::Ref(layer.state_ref));
+    resources.set("Font", Obj::Dict(Arc::new(fonts)));
+    resources.set("ExtGState", Obj::Dict(Arc::new(states)));
+    let ops =
+        ops.replace(&format!("/{} ", layer.font_key), &format!("/{font_name} ")).replace(&format!("/{} gs", layer.state_key), &format!("/{state_name} gs"));
+    let existing = content_refs(document, page);
+    let mut contents: Vec<Obj> = Vec::with_capacity(existing.len() + 3);
+    if !existing.is_empty() {
+        contents.push(Obj::Ref(stream_of(document, b"q\n")));
+        contents.extend(existing);
+        contents.push(Obj::Ref(stream_of(document, b"Q\n")));
+    }
+    contents.push(Obj::Ref(stream_of(document, ops.as_bytes())));
+    document.store_mut().modify_dict(page, |dict| {
+        dict.set("Resources", Obj::Dict(Arc::new(resources)));
+        dict.set("Contents", Obj::Array(Arc::new(contents)));
+    });
+}
+
 /// Writes the invisible text of each `(page, placements)` onto `document`: the font once, a graphics state of opacity 0
-/// once, and one content stream per page appended after the page's own (which is wrapped so that an unbalanced one cannot
-/// leak its state into the layer).
+/// once, and one content stream per page appended after the page's own.
 pub fn draw_layer(document: &mut PdfDocument, font: &Font, pages: &[(Ref, Vec<Placement>)]) -> Result<(), EmbedError> {
     let mut rng = SuffixRng::default();
     let font_key = rng.name("F", 10);
@@ -193,22 +240,9 @@ pub fn draw_layer(document: &mut PdfDocument, font: &Font, pages: &[(Ref, Vec<Pl
     // The text is encoded before the font is written: an embedded face keeps only the glyphs that were encoded.
     let mut streams: Vec<(Ref, String)> = Vec::new();
     for (page, placements) in pages {
-        if placements.is_empty() {
-            continue;
+        if !placements.is_empty() {
+            streams.push((*page, layer_stream(font, placements, &font_key, &state_key)?));
         }
-        let mut ops = format!("q\n/{state_key} gs\nBT\n0 0 0 rg\n");
-        for placement in placements {
-            let encoded = font.encode_text(&placement.text)?;
-            ops.push_str(&format!(
-                "/{font_key} {} Tf\n1 0 0 1 {} {} Tm\n{} Tj\n",
-                number_to_string(placement.size),
-                number_to_string(placement.x),
-                number_to_string(placement.y),
-                hex_string(&encoded),
-            ));
-        }
-        ops.push_str("ET\nQ\n");
-        streams.push((*page, ops));
     }
     if streams.is_empty() {
         return Ok(());
@@ -219,30 +253,9 @@ pub fn draw_layer(document: &mut PdfDocument, font: &Font, pages: &[(Ref, Vec<Pl
     state.set("ca", Obj::Num(0.0));
     state.set("CA", Obj::Num(0.0));
     let state_ref = document.store_mut().register(Obj::Dict(Arc::new(state)));
+    let layer = LayerResources { font_key, state_key, font_ref, state_ref };
     for (page, ops) in streams {
-        let mut resources = page_resources(document, page);
-        let mut fonts = sub_dictionary(document, &resources, "Font");
-        let mut states = sub_dictionary(document, &resources, "ExtGState");
-        // The names are the same for every page; a page that already uses one of them gets its own.
-        let font_name = if fonts.has(&font_key) { fresh_name(&mut rng, "F", &fonts) } else { font_key.clone() };
-        let state_name = if states.has(&state_key) { fresh_name(&mut rng, "GS", &states) } else { state_key.clone() };
-        fonts.set(&font_name, Obj::Ref(font_ref));
-        states.set(&state_name, Obj::Ref(state_ref));
-        resources.set("Font", Obj::Dict(Arc::new(fonts)));
-        resources.set("ExtGState", Obj::Dict(Arc::new(states)));
-        let ops = ops.replace(&format!("/{font_key} "), &format!("/{font_name} ")).replace(&format!("/{state_key} gs"), &format!("/{state_name} gs"));
-        let existing = content_refs(document, page);
-        let mut contents: Vec<Obj> = Vec::with_capacity(existing.len() + 3);
-        if !existing.is_empty() {
-            contents.push(Obj::Ref(stream_of(document, b"q\n")));
-            contents.extend(existing);
-            contents.push(Obj::Ref(stream_of(document, b"Q\n")));
-        }
-        contents.push(Obj::Ref(stream_of(document, ops.as_bytes())));
-        document.store_mut().modify_dict(page, |dict| {
-            dict.set("Resources", Obj::Dict(Arc::new(resources)));
-            dict.set("Contents", Obj::Array(Arc::new(contents)));
-        });
+        attach_layer(document, &mut rng, page, &ops, &layer);
     }
     Ok(())
 }

@@ -1,10 +1,9 @@
-//! Explicit MCP OAuth sign-in flows (`session-runtime/mcp-oauth-login.mjs`): the only interactive
-//! MCP connect. A flow signs one configured server in, hands the authorization URL back to the
+//! Explicit MCP OAuth sign-in flows: the only interactive MCP connect. A flow signs one configured server in, hands the authorization URL back to the
 //! caller (opening the host browser only when asked), and is then polled until it settles. One
 //! sign-in per server: a new one replaces the pending one.
 //!
 //! The login itself is the core's [`LoginSession`] (the loopback callback, the pasted code, the
-//! token exchange); this registry keeps the flows readable by id, as Node's module-level map does.
+//! token exchange); this registry keeps the flows readable by id.
 
 use std::collections::HashMap;
 use std::sync::Arc;

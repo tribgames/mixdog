@@ -3,11 +3,9 @@
     clippy::disallowed_types,
     reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
 )]
-//! "Download to this PC": a stepwise, cancellable copy of one server file into this PC's download folder
-//! (`createServerDownloads` of the desktop's server-file-access.ts). Each step moves one ranged read, so the
-//! caller owns progress and cancel. The server is untrusted: every size, offset and byte count it returns is
-//! checked here before anything is decoded, allocated or written because of it. Only a file fetched here may
-//! later be opened ([`ServerDownloads::was_downloaded`]).
+//! "Download to this PC": a stepwise, cancellable copy of one server file into this PC's download folder, one ranged read per
+//! step. The server is untrusted: every size, offset and byte count it returns is checked before use. Only a file fetched here
+//! may later be opened ([`ServerDownloads::was_downloaded`]).
 
 use std::collections::HashMap;
 use std::collections::HashSet;

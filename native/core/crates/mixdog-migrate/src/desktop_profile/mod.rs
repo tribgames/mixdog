@@ -1,17 +1,3 @@
-//! The `desktopProfile` kind group of the one-time migration (SPEC §4.11): locating the
-//! Electron profile `<P>`, planning its items, and converting, moving and verifying
-//! them. It plugs into the item framework (`crate::framework`) as an `ItemDriver`; the
-//! manifest, journal, state machine, disposal and quarantine are the framework's.
-//!
-//! Every file is read the way the desktop reads it: the same validation, the same
-//! normalization (session titles included) and, for a damaged state file, the same
-//! restore of its `.bak` (the damaged file is kept as an expected `carried_set_aside`).
-//!
-//! The session items take the desktop's per-session metadata from this driver
-//! (`SessionMetaSource`).
-
-// The migration is a sanctioned blocking-I/O home (RL §13): it runs once, before the runtime,
-// on its own thread, reading the Electron profile and the state database directly.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one-time migration: blocking std::fs and rusqlite on the migration thread")]
 
 mod config_values;

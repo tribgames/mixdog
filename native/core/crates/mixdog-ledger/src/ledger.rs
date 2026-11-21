@@ -1,11 +1,3 @@
-//! The ledger as `usage-stats-api.mjs` uses it: every read first settles the writes queued
-//! before it (a send's record is in the statistics requested after it), and a statistics read
-//! also refreshes the prices of unpriced records.
-//!
-//! The history import of `getUsageStats` (`importUsageHistory`, in [`crate::history`]) runs
-//! before the first statistics read, when the refresher has history enabled: the legacy usage
-//! files and the earlier daemon's trace rows that the ledger does not hold yet are imported once.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

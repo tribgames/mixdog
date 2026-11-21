@@ -1,10 +1,3 @@
-//! What the context gauge shows, what a compaction plans before it summarizes anything, and how a thread's
-//! usage figures are written, each stated on a literal session header and a small transcript.
-//!
-//! The compaction policy reads its `MIXDOG_*` tuning variables through the environment it is given
-//! (`StatusInput::env` / `Books::env`), the header first. Tests that do not exercise a variable give it
-//! an environment with none set; the ones that do give it exactly the variables they name.
-
 use crate::compact_support;
 
 use compact_support::MapVars;
@@ -21,6 +14,7 @@ use mixdog_agent::compact::pressure::Header;
 use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::ImageDescriptor;
 use mixdog_agent::compact::pressure::ImageIdentities;
+use mixdog_agent::compact::pressure::Inspections;
 use mixdog_agent::compact::pressure::Route;
 use mixdog_agent::compact::pressure::Settled;
 use mixdog_agent::compact::pressure::StatusInput;
@@ -40,8 +34,10 @@ use mixdog_agent::env::CompactPass;
 use mixdog_agent::env::CompactTrigger;
 use mixdog_agent::env::PassStage;
 use mixdog_agent::message::AgentMessage;
+use mixdog_agent::message::ToolKind;
 use mixdog_ai::registry::keys::Environment;
 use mixdog_core_api::domain::provider::ContentPart;
+use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
 use serde_json::Value;
@@ -603,4 +599,53 @@ fn an_agent_mode_thread_ignores_the_headers_off_but_not_the_switch_variable() {
     assert!(checks_under(Some(false), true, &switch("1")));
     assert!(!checks_under(Some(false), true, &switch("0")));
     assert!(!checks_under(None, true, &switch("off")));
+}
+
+fn inspected_entries(messages: &[AgentMessage], tools: &[ToolDefinition]) -> Vec<(String, String, String, String)> {
+    books!(meter, signer);
+    let session = header(json!({ "id": "s1", "provider": "openai", "model": "m" }));
+    let input = status(&session, messages, true, tools, &meter, &signer);
+    let annotations = |_: &str| mixdog_agent::compact::tool_schema::ToolAnnotations::default();
+    let shown = Inspections::new().attach(context_status(&input), &input, &annotations, Some(&json!({ "inspect": true })));
+    shown["inspection"]["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|e| {
+            let text = |key: &str| e[key].as_str().unwrap_or_default().to_owned();
+            (text("id"), text("category"), text("group"), text("label"))
+        })
+        .collect()
+}
+
+fn row(id: &str, category: &str, group: &str, label: &str) -> (String, String, String, String) {
+    (id.into(), category.into(), group.into(), label.into())
+}
+
+#[test]
+fn the_inspector_lists_each_message_numbered_per_role_and_each_tool_result_under_its_tool() {
+    let messages = vec![
+        AgentMessage::user("fix the parser"),
+        AgentMessage::assistant("reading", vec![ToolCall { id: "c1".into(), name: "read".into(), arguments: json!({}), native_type: None }]),
+        AgentMessage::tool_text("c1", "file body", ToolKind::Normal),
+        AgentMessage::user("thanks"),
+    ];
+    let entries = inspected_entries(&messages, &[tool()]);
+    assert_eq!(
+        entries,
+        vec![
+            row("message:0", "user", "user", "user · 1"),
+            row("message:1", "assistant", "assistant", "assistant · 1"),
+            row("message:2", "toolResults", "read", "read · 1"),
+            row("message:3", "user", "user", "user · 2"),
+            row("tool:0", "tools", "active", "read"),
+        ]
+    );
+}
+
+#[test]
+fn the_inspector_prices_a_reminder_around_a_message_apart_from_the_message() {
+    let messages = vec![AgentMessage::user("<system-reminder>\nCore memory\nprefers tabs\n</system-reminder>\n\nfix the parser")];
+    let entries = inspected_entries(&messages, &[]);
+    assert_eq!(entries, vec![row("message:0:section:0:injected", "system", "reminder", "System reminder"), row("message:0", "user", "user", "user · 1")]);
 }

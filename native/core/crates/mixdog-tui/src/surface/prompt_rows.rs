@@ -1,9 +1,6 @@
-//! The row counts the prompt box and the text-entry panel reserve (`app/text-layout.mjs` row reservation and
-//! `app/use-prompt-layout-rows.mjs`).
-//!
-//! The wrap arithmetic itself (`wrappedTextRows`, `wrappedDetailRows`, `textEntryReservedRows`) is the widgets' own
-//! (`mixdog_tui_widgets::text_layout`); this module adds the two reservations only the shell layout makes and keeps the
-//! row counts in step with the draft.
+//! The row counts the prompt box and the text-entry panel reserve. The wrap arithmetic itself is the widgets' own
+//! (`mixdog_tui_widgets::text_layout`); this module adds the two reservations only the shell layout makes and keeps the row counts in
+//! step with the draft.
 
 use mixdog_termtext::policy::display_width;
 use mixdog_termtext::wrap::{WrapOptions, wrap_ansi};

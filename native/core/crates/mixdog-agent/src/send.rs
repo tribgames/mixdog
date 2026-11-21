@@ -54,8 +54,7 @@ use crate::run::Run;
 /// arguments would likely be cut again.
 const TOOL_INPUT_CUT_NOTICE: &str = "[mixdog-runtime] The previous response was cut off in transit while a tool call's arguments were still streaming, so that call never ran. This was a network interruption, not a tool failure; tools remain available. Do not resend the same large arguments in one call: split the content across several smaller tool calls (for example, write the first part, then append or patch the rest), keeping each call well under about 8K tokens of arguments.";
 
-/// `CONTENT_FILTER_NOTICE` (`send-with-recovery.mjs:360`): the guidance a content-filter replay carries. The
-/// `[mixdog-runtime]` prefix keeps it out of the visible transcript.
+/// The guidance a content-filter replay carries. The `[mixdog-runtime]` prefix keeps it out of the visible transcript.
 const CONTENT_FILTER_NOTICE: &str = "[mixdog-runtime] The previous response was stopped by the provider content filter before it completed. Continue the task, but rephrase or avoid the content that likely triggered the filter; do not repeat it verbatim.";
 
 /// The provider's own re-issue of a send (`ProviderAdapter::recover_spent`: the non-streaming request of the
@@ -85,6 +84,19 @@ struct Failure {
     reasoning_shown: bool,
 }
 
+fn fail(error: ProviderError, builder: ResponseBuilder, midstream: bool, shown_chars: usize, reasoning_shown: bool) -> Result<ModelResponse, Box<Failure>> {
+    let mut partial = builder.finish();
+    if partial.replay.is_empty()
+        && let Some(replay) = &error.partial_replay
+    {
+        partial.replay.push((**replay).clone());
+    }
+    if partial.thinking_blocks.is_none() && !error.partial_thinking_blocks.is_empty() {
+        partial.thinking_blocks = Some(serde_json::Value::Array(error.partial_thinking_blocks.clone()));
+    }
+    Err(Box::new(Failure { error, partial, midstream, shown_chars, reasoning_shown }))
+}
+
 /// What the session's fallback chain did with a failure.
 enum Route {
     /// No chain, or it kept the error as it was.
@@ -97,17 +109,13 @@ enum Route {
 
 enum Recovery {
     Proceed(Box<ModelResponse>),
-    /// Run another attempt of the same logical send on the provider's own ladder (the decider's `Retry` or `Fallback` on the
-    /// request and stream rows for a send that showed nothing, the provider's re-issue): inside Node's `provider.send`, the
-    /// same round of its loop.
+    /// Another attempt of the same logical send on the provider's own ladder, in the same round.
     Replay,
-    /// Run another attempt of the same logical send as the loop's own replay (the connection and recovery rows, a send
-    /// whose shown output was withdrawn or that was cut in a tool call's arguments, the content-filter replay: Node's
-    /// `retry_transport`), which Node's loop runs as a new round (`applyRetryAction`, then `beginIteration` and
-    /// `sendProviderRequest`).
+    /// Another attempt of the same logical send as the loop's own replay (the connection and recovery rows, withdrawn
+    /// output, a cut tool call's arguments, the content-filter replay), in a new round.
     LoopReplay,
-    /// The request itself changed (a dropped tool, repaired replay, stripped images): the old
-    /// send ended in its failure and the replay is a new logical send, in a new round of Node's loop.
+    /// The request itself changed (a dropped tool, repaired replay): the old send ended in its failure and the replay is
+    /// a new logical send in a new round.
     Rebuilt,
     RetryRound,
 }
@@ -206,15 +214,9 @@ fn first_class(midstream: bool) -> RetryClass {
 }
 
 /// Session-level replay once the provider rows are spent: after a connect failure,
-/// or while the server stays unavailable. A transport fault is otherwise not
-/// replayed by the loop, before the first byte or after the headers alike:
-/// `sendWithRecovery` reads the provider's spent ladder (`providerRecoveryExhausted`)
-/// as final for everything but a connect failure and an unavailable server
-/// (`providerRecoveryEnded`, `send-with-recovery.mjs:190`), and a reset or a cut
-/// stream is neither (`golden/connect_errors.json`: `reset`, `cutRole`, `cutText`).
-/// The exception: a provider whose stream ladder leaves a spent cut unmarked
-/// ([`RetryPolicy::stream_cut_loop_replay`]) hands it to the loop's transport row
-/// (`transportReplayPermitted`: a stream cut is retryable, and nothing was shown).
+/// or while the server stays unavailable. A transport fault is otherwise final, before the first byte or after the
+/// headers alike (`golden/connect_errors.json`: `reset`, `cutRole`, `cutText`), except a provider whose stream ladder
+/// leaves a spent cut unmarked ([`RetryPolicy::stream_cut_loop_replay`]), which hands it to the loop's transport row.
 fn escalate(class: RetryClass, error: &ProviderError, policy: &RetryPolicy) -> Option<RetryClass> {
     if !matches!(class, RetryClass::Request | RetryClass::Midstream) {
         return None;
@@ -241,8 +243,7 @@ fn repeated_overload_stop(policy: &RetryPolicy, state: &RetryState, error: &Prov
         && policy.overload.fallback_after.is_some_and(|after| state.consecutive_overloads() + 1 >= after)
 }
 
-/// The provider's retry policy for one request: `retry_529: false` (Node `opts.retry529 === false`,
-/// `retry-executor.mjs`) stops an overload retrying, ahead of the overload fallback.
+/// The provider's retry policy for one request: `retry_529: false` stops an overload retrying, ahead of the overload fallback.
 fn request_policy<'a>(provider: &'a dyn ProviderAdapter, model: &str, retry_529: bool) -> std::borrow::Cow<'a, RetryPolicy> {
     let policy = provider.retry_policy_for(model);
     if retry_529 {
@@ -327,9 +328,6 @@ impl Run {
         // One identity per send, shared by its attempts: the run's options would hand every send of the run the same one.
         options.send_identity = self.send_identity.clone();
         options.provider_state = self.provider_state.clone();
-        // `options.tail_generation` is the generation of the history `self.messages` holds: stamped where the run's
-        // transcript was loaded, moved on only by this run's own rewrite (`adopt_compacted`), never read from the gate here,
-        // so a rewrite this run did not make refuses its old body instead of stamping it as current.
         let provider = Arc::clone(&self.provider);
         options.send_group = Some(self.send_group.get_or_insert_with(|| SendGroup::new(provider)).id.clone());
         // The output-limit escalation is one-shot: this attempt alone carries it.
@@ -505,8 +503,6 @@ impl Run {
                 }
                 Err(failure) => failure,
             };
-            // The session's cache owner refused the attempt before transport: the transcript would be written cold, so it is
-            // compacted (or the user told why not) and the rebuilt request is admitted again.
             if let Some(refusal) = failure.error.tail_refusal {
                 use mixdog_core_api::domain::cache_tail::TailRefusal;
                 if let Some(ticket) = self.side_ticket.take() {
@@ -515,8 +511,6 @@ impl Run {
                 use mixdog_core_api::domain::cache_tail::Claimed;
                 let Some(gate) = self.config.options.tail_gate.clone() else { return Err(AgentError::Provider(Box::new(failure.error))) };
                 let wait = match refusal {
-                    // The rewrite is taken here, synchronously with its use: the lease is the ownership, so this future
-                    // cancelled or dropped mid-rewrite releases it to the next cold caller.
                     TailRefusal::Rebuild(cold) => match gate.claim(cold) {
                         Claimed::Owner(lease) => {
                             // A failed reduction hands back the leave of this request, which the next build carries.
@@ -528,10 +522,6 @@ impl Run {
                     },
                     // Another caller owns the rewrite of this history: its outcome decides this attempt too.
                     TailRefusal::Wait(ticket) => Some(ticket),
-                    // The run's transcript predates a rewrite it did not make (only this run's own rewrite moves the
-                    // generation it carries): it is never stamped again and sent. The run goes on from the history the store
-                    // holds now, with that history's generation; a store that names the very generation the run already
-                    // carries has no newer history to give (the book left memory), and the turn ends.
                     TailRefusal::Stale => {
                         let Some(history) = self.config.history.clone() else { return Err(AgentError::Provider(Box::new(failure.error))) };
                         let reloaded = crate::env::or_cancelled(&self.cancel, history.reload()).await.ok_or(AgentError::Aborted)?;
@@ -580,9 +570,9 @@ impl Run {
         }
     }
 
-    /// A replay Node's loop runs as a new round starts the `loop` row's marks again, after the failed round's wait and
-    /// notice: `beginIteration` sets `iterT0` and `sendProviderRequest` sets `sendStartedAt`, so the row of the send that
-    /// settles times that round alone. `request_started_ms`, which the usage and cache figures read, is left as it is.
+    /// A replay run as a new round restarts the `loop` row's marks after the failed round's wait and notice, so the
+    /// row of the send that settles times that round alone. `request_started_ms`, which the usage and cache figures read,
+    /// is left as it is.
     fn begin_replay_round(&mut self) {
         let now = self.env.clock.now_ms();
         self.iteration_started_ms = now;
@@ -718,69 +708,13 @@ impl Run {
     }
 
     /// Exactly one attempt: admission, the stream, its fold.
+    /// The provider request is I/O: an agent job's slot goes back to the pool for its length.
     async fn attempt_once(&mut self, request: Arc<ModelRequest>) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
         let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
-        let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
-            let mut partial = builder.finish();
-            // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).
-            if partial.replay.is_empty()
-                && let Some(replay) = &error.partial_replay
-            {
-                partial.replay.push((**replay).clone());
-            }
-            Err(Box::new(Failure { error, partial, midstream, shown_chars: shown, reasoning_shown: reasoning }))
+        let request = match self.prepare_request(request).await? {
+            Ok(request) => request,
+            Err(error) => return Ok(fail(*error, builder, false, 0, false)),
         };
-        // Stored text attachments become their text in every request; the saved
-        // messages keep the reference.
-        let request = match self.config.attachments.clone() {
-            Some(resolver) => {
-                let mut built = (*request).clone();
-                let messages = std::mem::take(&mut built.messages);
-                let resolved =
-                    or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref())).await.ok_or(AgentError::Aborted)?;
-                let resolved = match resolved {
-                    // A text-only route reads and lowers its stored files itself.
-                    Ok(messages) if self.config.text_only.is_none() => {
-                        // The engine this request goes to says what it takes as a document (a gateway's Messages
-                        // engine differs from its Chat wire).
-                        let support = self.provider.media_support(&request).await;
-                        let resolved =
-                            or_cancelled(&self.cancel, crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf))
-                                .await
-                                .ok_or(AgentError::Aborted)?;
-                        // `preparePdfTextForProvider`, and the text of an Office file, for every provider.
-                        match (resolved, self.config.file_text.clone()) {
-                            (Ok(messages), Some(media)) => {
-                                or_cancelled(&self.cancel, media.prepare_for_route(messages, support)).await.ok_or(AgentError::Aborted)?
-                            }
-                            (resolved, _) => resolved,
-                        }
-                    }
-                    other => other,
-                };
-                match resolved {
-                    Ok(messages) => {
-                        built.messages = messages;
-                        Arc::new(built)
-                    }
-                    Err(error) => return Ok(fail(*error, builder, false, 0, false)),
-                }
-            }
-            None => request,
-        };
-        // A text-only route degrades and checks the request on every attempt.
-        let request = match self.config.text_only.clone() {
-            Some(text_only) => {
-                let built = (*request).clone();
-                let prepared = or_cancelled(&self.cancel, crate::text_only::prepare_text_only_request(&text_only, built)).await.ok_or(AgentError::Aborted)?;
-                match prepared {
-                    Ok(done) => Arc::new(done),
-                    Err(error) => return Ok(fail(*error, builder, false, 0, false)),
-                }
-            }
-            None => request,
-        };
-        // The provider request is I/O: an agent job's slot goes back to the pool for its length.
         let Some(slot) = self.config.slot.clone() else { return self.exchange(request, builder).await };
         let mut settled = None;
         let turn = self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel));
@@ -814,22 +748,61 @@ impl Run {
         }
     }
 
+    /// The request as every attempt sends it: stored text attachments become their text (the saved messages keep the
+    /// reference), and a text-only route degrades and checks it.
+    async fn prepare_request(&mut self, request: Arc<ModelRequest>) -> Result<Result<Arc<ModelRequest>, Box<ProviderError>>, AgentError> {
+        let request = match self.config.attachments.clone() {
+            Some(resolver) => {
+                let mut built = (*request).clone();
+                let messages = std::mem::take(&mut built.messages);
+                let resolved =
+                    or_cancelled(&self.cancel, crate::attachments::resolve_text_attachments(messages, resolver.as_ref())).await.ok_or(AgentError::Aborted)?;
+                let resolved = match resolved {
+                    // A text-only route reads and lowers its stored files itself.
+                    Ok(messages) if self.config.text_only.is_none() => {
+                        // The engine this request goes to says what it takes as a document (a gateway's Messages
+                        // engine differs from its Chat wire).
+                        let support = self.provider.media_support(&request).await;
+                        let resolved =
+                            or_cancelled(&self.cancel, crate::attachments::resolve_media_attachments(messages, resolver.as_ref(), support.native_pdf))
+                                .await
+                                .ok_or(AgentError::Aborted)?;
+                        // `preparePdfTextForProvider`, and the text of an Office file, for every provider.
+                        match (resolved, self.config.file_text.clone()) {
+                            (Ok(messages), Some(media)) => {
+                                or_cancelled(&self.cancel, media.prepare_for_route(messages, support)).await.ok_or(AgentError::Aborted)?
+                            }
+                            (resolved, _) => resolved,
+                        }
+                    }
+                    other => other,
+                };
+                match resolved {
+                    Ok(messages) => {
+                        built.messages = messages;
+                        Arc::new(built)
+                    }
+                    Err(error) => return Ok(Err(error)),
+                }
+            }
+            None => request,
+        };
+        let request = match self.config.text_only.clone() {
+            Some(text_only) => {
+                let built = (*request).clone();
+                let prepared = or_cancelled(&self.cancel, crate::text_only::prepare_text_only_request(&text_only, built)).await.ok_or(AgentError::Aborted)?;
+                match prepared {
+                    Ok(done) => Arc::new(done),
+                    Err(error) => return Ok(Err(error)),
+                }
+            }
+            None => request,
+        };
+        Ok(Ok(request))
+    }
+
     /// The provider request and the fold of its stream.
     async fn exchange(&mut self, request: Arc<ModelRequest>, mut builder: ResponseBuilder) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
-        let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
-            let mut partial = builder.finish();
-            // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).
-            if partial.replay.is_empty()
-                && let Some(replay) = &error.partial_replay
-            {
-                partial.replay.push((**replay).clone());
-            }
-            // The cut turn's signed thinking (`partialThinkingBlocks`) is kept whether or not an exact replay could be built.
-            if partial.thinking_blocks.is_none() && !error.partial_thinking_blocks.is_empty() {
-                partial.thinking_blocks = Some(serde_json::Value::Array(error.partial_thinking_blocks.clone()));
-            }
-            Err(Box::new(Failure { error, partial, midstream, shown_chars: shown, reasoning_shown: reasoning }))
-        };
         let provider = Arc::clone(&self.provider);
         self.trace("request-prepared", format_args!("provider={} model={} messages={}", provider.id().as_str(), self.model, request.messages.len()));
         // The provider's own `requesting` stages (`onStageChange`): those it raises before a send's first attempt and
@@ -868,9 +841,6 @@ impl Run {
         // This exchange is a submission of its own, for a provider outside the driver as for one inside it: the run's record of
         // an earlier submission's attempt stops being current before any provider work begins.
         self.emit(RunEvent::SubmissionStarted { id: identity.begin_submission() });
-        // The projection is rebuilt from the transcript for every request.
-        // The provider's own stages are delivered as they are raised ([`Self::deliver_raised`]): the attempt may already be
-        // reading the response's first output when it returns, and the liveness clock starts at the request.
         let deliver = |stage: &'static str, payload: Option<serde_json::Value>| self.deliver_raised(stage, payload);
         let send = async {
             let wiring = self.config.effort.as_ref();
@@ -1093,9 +1063,6 @@ impl Run {
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
         let Failure { mut error, partial, midstream, shown_chars, reasoning_shown } = fail;
-        // Every attempt a transport fault ended, retried or not, names the fault and the connection it rode in the daemon log
-        // (a turn's `[ask-error]` line names only the last one): `TruncatedStream` is a body that ended cleanly before its
-        // terminal event. No message text: a refusal's body may echo what the request carried.
         if let Some(fault) = &error.transport {
             mixdog_rt::node_stderr!(
                 "[attempt-error] session={} provider={} model={} phase={} code={} delivery={:?} fault={fault:?} connection={}",
@@ -1124,18 +1091,9 @@ impl Run {
             error.recovery_exhausted = true;
             reissue_failed = true;
         }
-        // Parsed tool calls survive a cut stream: continuing is not replaying.
-        // The calls resolve and run exactly once, and the next request carries
-        // them forward. A half-streamed call is never one of them.
-        // When a tool input was still streaming at the cut, the turn continues
-        // only if every complete call was already dispatched: nothing committed
-        // may reference an undispatched call. The in-flight call is dropped
-        // unrun and the model told to split it. A call the stream handed over is dispatched whether or not it was admitted
-        // for an eager run (`recoverableToolCalls`, `send-with-recovery.mjs:720`).
         let input_cut = error.exposure.tool_input_cut;
         let recoverable = !partial.tool_calls.is_empty() && (!input_cut || partial.tool_calls.iter().all(|c| self.stream_dispatched(&c.id)));
         if is_stream_cut(&error) && recoverable {
-            // `recoverPartialToolCalls`' trace (`send-with-recovery.mjs:769`), at the round's iteration (`nextIteration`).
             self.emit(RunEvent::PartialToolRecovery(PartialToolRecovery {
                 iteration: self.iterations + 1,
                 tool_calls: partial.tool_calls.len(),
@@ -1168,8 +1126,6 @@ impl Run {
         let reasoning_only = shown_chars == 0 && reasoning_shown;
         let text_shown = shown_chars > 0 || (error.exposure.text_emitted && !reasoning_only);
         let exposed = text_shown || reasoning_shown;
-        // Node continues text already shown when no reset channel exists, before
-        // considering replay. A refused reset on an existing channel still fails.
         if text_shown
             && is_stream_cut(&error)
             && partial.tool_calls.is_empty()
@@ -1198,9 +1154,6 @@ impl Run {
         let split_notice = decide_on.exposure.tool_input_cut;
         decide_on.exposure.tool_input_cut = false;
 
-        // A replay that withdraws shown output or carries the split-call notice is the loop's own (`retryTransport`,
-        // `recoverExposedStall`, `recoverToolInputCut`): it waits on the outer 5, 15, 30 s transport ladder and never
-        // takes a step of the provider's in-place row, which only a send of the same shape may.
         let mut class = if ws_owner_replay || retractable || split_notice { RetryClass::Transport } else { first_class(midstream) };
         let initial_class = class;
         let mut spent: Vec<RetryState> = Vec::new();
@@ -1300,7 +1253,6 @@ impl Run {
                 ),
                 _ => (next.count(None).retries, row_max(next.class())),
             };
-            // Node's attempt is the one about to run, of the run's attempts.
             let mut payload =
                 mixdog_ai::retry::stage::reconnecting(&decide_on, used + 1, max.saturating_add(1), delay, u64::try_from(self.env.clock.now_ms()).unwrap_or(0));
             self.scheduled(&mut payload, &next, delay, &format!("{reason:?}"), replay_safe);
@@ -1314,9 +1266,6 @@ impl Run {
                 self.push(AgentMessage::sourced(Source::StreamCutRecovery, TOOL_INPUT_CUT_NOTICE)).await?;
             }
         }
-        // Node's provider never re-issues a send that showed output or was cut in a tool call's arguments
-        // (`retry-executor.mjs`: `replaySafe`, `isToolInputCut`): its loop replays it (`retryTransport`,
-        // `recoverExposedStall`, `recoverToolInputCut`), in a new round as its connection and recovery replays.
         Ok(if loop_replay || retractable || split_notice { Recovery::LoopReplay } else { Recovery::Replay })
     }
 
@@ -1361,14 +1310,14 @@ impl Run {
         true
     }
 
-    /// `isReplayableContentFilter` (`send-with-recovery.mjs:352`): a `content_filter` refusal on a provider that opted in
+    /// A `content_filter` refusal on a provider that opted in
     /// (`retryPolicy.contentFilterRetryable`).
     fn content_filter_replayable(&self, error: &ProviderError) -> bool {
         self.provider.retry_policy_for(&self.model).content_filter_retryable
             && error.code.as_deref().is_some_and(|code| code.trim().eq_ignore_ascii_case("content_filter"))
     }
 
-    /// The content-filter replay (`send-with-recovery.mjs:464-475`): under the transport row's budget and wait, and
+    /// The content-filter replay: under the transport row's budget and wait, and
     /// only when nothing reached the user or what did was withdrawn, the send is replayed with a guidance notice for
     /// the model (`contentFilterNotice`); otherwise the refusal surfaces.
     async fn replay_after_content_filter(
@@ -1498,7 +1447,6 @@ impl Run {
         }
         // The departing provider owns nothing of the new route's work.
         self.emit(RunEvent::SubmissionStarted { id: mixdog_core_api::domain::provider::next_submission_id() });
-        // A new route takes a fresh snapshot of the tools (`route-fallback.mjs`).
         self.fixed_surface = None;
         let next = switch.request.options;
         let options = &mut self.config.options;
@@ -1547,13 +1495,10 @@ impl Run {
         self.provider_state = None;
         self.provider_state_changed = true;
         self.baseline = None;
-        // The new route's requests are measured from scratch (`route-fallback.mjs`).
         self.carry.prefix_guard = None;
         self.carry.cache.changed |= self.carry.cache.observation.take().is_some();
         self.cache_break_keys.clear();
         self.emit(RunEvent::Stage(Stage::Notice { message: switch.notice, tone: Tone::Info }));
-        // The session's durable hop publishes the full route. A second model-only update can
-        // override the seated route (or a newer explicit pick) without carrying its tuning.
     }
 
     /// A failure no retry covers ends the ask unless the route changes.
@@ -1580,15 +1525,12 @@ impl Run {
             compactor.prepare(&self.messages).await;
         }
         let estimate = self.env.compactor.as_ref().map(|c| c.estimate_tokens(&self.messages));
-        // Node states `sessionRef.contextWindow` (null when the session states none) whether automatic
-        // compaction is on or off (`recoverContextOverflow`); only the reserve comes from the policy.
         let context_window = settings.and_then(|s| s.context_window).filter(|window| *window > 0);
         let overflow = AgentError::ContextOverflow(Box::new(ContextOverflow {
             stage: "send",
             provider: self.provider.id().to_string(),
             model: self.model.clone(),
             context_window,
-            // Node passes the window as the budget, not the boundary.
             budget_tokens: context_window,
             reserve_tokens: policy.as_ref().map(|p| p.reserve_tokens),
             message_tokens_est: estimate,

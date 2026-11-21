@@ -1,8 +1,3 @@
-//! The machine a terminal UI child runs on: a private root (data folder, runtime root, home, working folder), the real
-//! `mixdogd` laid out beside a `js-runtime.json` as the replays lay it out, a config that points the Anthropic provider at the
-//! stand-in and marks onboarding done, and the environment of the child. The core is started by the child itself, through the
-//! launcher's `ensure_core`, and is ended with the workspace.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -63,6 +58,27 @@ fn built_daemon() -> PathBuf {
     }
 }
 
+fn point_config_at_stand_in(config_path: &Path, provider: &Provider) {
+    let mut config: Value = serde_json::from_str(&std::fs::read_to_string(config_path).expect("the config")).expect("config JSON");
+    config["agent"]["providers"][PROVIDER]["baseURL"] = json!(provider.base_url());
+    config["agent"]["onboarding"] = json!({
+        "completed": true,
+        "version": 1,
+        "completedAt": "2026-01-01T00:00:00.000Z",
+        "starterGuide": { "closed": true, "welcomed": true, "visited": [] }
+    });
+    std::fs::write(config_path, serde_json::to_string_pretty(&config).expect("config text")).expect("the config is written");
+}
+
+fn lay_out_install(tmp: &Path) -> (tempfile::TempDir, PathBuf) {
+    let install = tempfile::Builder::new().prefix("pty-install-").tempdir_in(tmp).expect("the install folder");
+    let exe = install.path().join(if cfg!(windows) { "mixdogd.exe" } else { "mixdogd" });
+    std::fs::hard_link(built_daemon(), &exe).or_else(|_| std::fs::copy(built_daemon(), &exe).map(|_| ())).expect("mixdogd is laid out");
+    let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().expect("the package root");
+    std::fs::write(install.path().join("js-runtime.json"), json!({ "program": "node", "packageRoot": package }).to_string()).expect("js-runtime.json");
+    (install, exe)
+}
+
 impl Workspace {
     pub fn new(setup: Setup) -> Self {
         let provider = Provider::start();
@@ -84,22 +100,8 @@ impl Workspace {
         let root = boundary.root_dir.clone();
 
         // The config: the stand-in as the provider's endpoint, onboarding and the starter guide done.
-        let config_path = boundary.data_dir.join("mixdog-config.json");
-        let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&config_path).expect("the config")).expect("config JSON");
-        config["agent"]["providers"][PROVIDER]["baseURL"] = json!(provider.base_url());
-        config["agent"]["onboarding"] = json!({
-            "completed": true,
-            "version": 1,
-            "completedAt": "2026-01-01T00:00:00.000Z",
-            "starterGuide": { "closed": true, "welcomed": true, "visited": [] }
-        });
-        std::fs::write(&config_path, serde_json::to_string_pretty(&config).expect("config text")).expect("the config is written");
-
-        let install = tempfile::Builder::new().prefix("pty-install-").tempdir_in(tmp).expect("the install folder");
-        let exe = install.path().join(if cfg!(windows) { "mixdogd.exe" } else { "mixdogd" });
-        std::fs::hard_link(built_daemon(), &exe).or_else(|_| std::fs::copy(built_daemon(), &exe).map(|_| ())).expect("mixdogd is laid out");
-        let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().expect("the package root");
-        std::fs::write(install.path().join("js-runtime.json"), json!({ "program": "node", "packageRoot": package }).to_string()).expect("js-runtime.json");
+        point_config_at_stand_in(&boundary.data_dir.join("mixdog-config.json"), &provider);
+        let (install, exe) = lay_out_install(tmp);
 
         let cwd = root.join("project");
         std::fs::create_dir_all(&cwd).expect("the working folder");

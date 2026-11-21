@@ -42,10 +42,6 @@ fn packaged(app: &AppEntry) -> bool {
     app.app_id.contains('!')
 }
 
-/// The one catalogue entry the bare name `target` means (Find-InstalledApp,
-/// runtime-window.ps1:120-143). Several matches stay unlaunched rather than
-/// becoming a guess, except that a single packaged app among them wins: it is
-/// the one Windows itself would open for a bare name like "notepad".
 fn find_catalogue_entry<'a>(installed: &'a [AppEntry], target: &str) -> Res<Option<&'a AppEntry>> {
     // PowerShell `-eq`: one case-insensitive equality, Unicode included.
     let wanted = target.to_lowercase();

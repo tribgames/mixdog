@@ -1,6 +1,6 @@
 //! The one-time preparation of a session's new worktree at the first turn it runs there
 //! (frozen dependency installs), with its progress for viewers and the compact note the agent
-//! gets with that turn (Node `worktree-setup.mjs`).
+//! gets with that turn.
 //!
 //! The setup belongs to the worktree it was made for, whichever path made it (a worktree
 //! task, a branch selection, `git worktree add`): its registry entry keeps it pending

@@ -245,6 +245,21 @@ async fn the_time_cap_ends_the_goal_when_its_deadline_fires() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_capped_goal_arms_its_first_warning_ten_minutes_before_the_cap() {
+    let rig = Rig::new();
+    rig.say("finish quickly --time 1h").await;
+    let timers = rig.world.timers.lock().unwrap();
+    let warning = timers.iter().find(|(kind, ..)| *kind == TimerKind::Warning).expect("a warning is armed");
+    assert_eq!(warning.1, HOUR - 10.0 * MINUTE + 250.0);
+    drop(timers);
+    let uncapped = Rig::new();
+    uncapped.say("tidy up").await;
+    assert!(uncapped.world.timers.lock().unwrap().iter().all(|(kind, ..)| *kind != TimerKind::Warning && *kind != TimerKind::Deadline));
+    rig.runtime.close().await;
+    uncapped.runtime.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_settled_turn_moves_the_goal_by_how_it_ended() {
     let rig = Rig::new();
     rig.say("long job").await;

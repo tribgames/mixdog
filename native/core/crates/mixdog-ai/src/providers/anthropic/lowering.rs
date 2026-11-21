@@ -1,8 +1,3 @@
-//! Lowering of the neutral transcript to Messages API messages: tool-call id
-//! projection, assistant replay, tool results, folding of user text into the
-//! trailing tool result, and the final tool-pair repair. Cache markers are
-//! applied afterwards (see `body`), on the final array.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -300,10 +295,20 @@ fn fold_user_text_into_tool_result_tail(result: &mut [WireMessage], content: &Wi
     {
         return false;
     }
-    let texts: Vec<String> = match content {
+    let Some(texts) = foldable_texts(content) else {
+        return false;
+    };
+    if texts.is_empty() {
+        return true;
+    }
+    append_text_to_tool_result(tail, texts.join("\n\n"))
+}
+
+fn foldable_texts(content: &WireContent) -> Option<Vec<String>> {
+    match content {
         WireContent::Text(text) => {
             let trimmed = text.trim();
-            if trimmed.is_empty() { Vec::new() } else { vec![trimmed.to_owned()] }
+            Some(if trimmed.is_empty() { Vec::new() } else { vec![trimmed.to_owned()] })
         }
         WireContent::Blocks(parts) => {
             let mut texts = Vec::new();
@@ -315,16 +320,15 @@ fn fold_user_text_into_tool_result_tail(result: &mut [WireMessage], content: &Wi
                             texts.push(trimmed.to_owned());
                         }
                     }
-                    _ => return false,
+                    _ => return None,
                 }
             }
-            texts
+            Some(texts)
         }
-    };
-    if texts.is_empty() {
-        return true;
     }
-    let joined = texts.join("\n\n");
+}
+
+fn append_text_to_tool_result(tail: &mut Value, joined: String) -> bool {
     match tail.get("content").cloned() {
         Some(Value::String(existing)) => {
             let next = if is_blank(&existing) { joined } else { format!("{existing}\n\n{joined}") };
@@ -371,6 +375,35 @@ pub(crate) struct LowerContext<'a> {
     pub available_tools: &'a HashSet<String>,
 }
 
+fn already_sent(message: &Message) -> bool {
+    message.source == Some(MessageSource::StreamCutRecovery) || message.sent_request_tail
+}
+
+fn push_tool_result(result: &mut Vec<WireMessage>, message: &Message, cx: &LowerContext<'_>, wire_id: &dyn Fn(&str) -> String) {
+    let references = tool_references(message, cx.own_provider);
+    let content = tool_result_content(message, &references, cx.available_tools);
+    let (content, hoisted) = if message.is_error { split_error_content(content) } else { (content, Vec::new()) };
+    let mut block = json!({
+        "type": "tool_result",
+        "tool_use_id": message.tool_call_id.as_deref().map(wire_id).unwrap_or_default(),
+        "content": wire_to_json(content),
+    });
+    if message.is_error {
+        block["is_error"] = Value::Bool(true);
+    }
+    match result.last_mut().and_then(WireMessage::user_blocks_mut) {
+        Some(blocks) => {
+            blocks.push(block);
+            blocks.extend(hoisted);
+        }
+        None => {
+            let mut blocks = vec![block];
+            blocks.extend(hoisted);
+            result.push(WireMessage::new("user", WireContent::Blocks(blocks)));
+        }
+    }
+}
+
 pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec<WireMessage> {
     let ids = wire_id_map(messages);
     let wire_id = |id: &str| ids.get(id).cloned().unwrap_or_else(|| id.to_owned());
@@ -391,29 +424,8 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
             continue;
         }
         if message.role == Role::Tool {
-            let references = tool_references(message, cx.own_provider);
-            let content = tool_result_content(message, &references, cx.available_tools);
-            let (content, hoisted) = if message.is_error { split_error_content(content) } else { (content, Vec::new()) };
-            let mut block = json!({
-                "type": "tool_result",
-                "tool_use_id": message.tool_call_id.as_deref().map(wire_id).unwrap_or_default(),
-                "content": wire_to_json(content),
-            });
-            if message.is_error {
-                block["is_error"] = Value::Bool(true);
-            }
-            match result.last_mut().and_then(WireMessage::user_blocks_mut) {
-                Some(blocks) => {
-                    blocks.push(block);
-                    blocks.extend(hoisted);
-                }
-                None => {
-                    let mut blocks = vec![block];
-                    blocks.extend(hoisted);
-                    result.push(WireMessage::new("user", WireContent::Blocks(blocks)));
-                }
-            }
-            if message.source == Some(MessageSource::StreamCutRecovery) || message.sent_request_tail {
+            push_tool_result(&mut result, message, cx, &wire_id);
+            if already_sent(message) {
                 sent.insert(result.len() - 1);
             }
             continue;
@@ -438,7 +450,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
         if is_user && !steering && !turn_boundary {
             let content = normalize_content(&message.content);
             if fold_user_text_into_tool_result_tail(&mut result, &content) {
-                if message.source == Some(MessageSource::StreamCutRecovery) || message.sent_request_tail {
+                if already_sent(message) {
                     sent.insert(result.len() - 1);
                 }
                 continue;

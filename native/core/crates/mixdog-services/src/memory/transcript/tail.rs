@@ -10,7 +10,7 @@ use mixdog_js::{js_trim, json_parse};
 use mixdog_rt::{CancellationToken, LaneToken};
 use mixdog_statefile::{metadata, read_range};
 
-use super::rows::{cwd_from_transcript_path, transcript_row_from_line};
+use super::rows::{TranscriptRow, cwd_from_transcript_path, transcript_row_from_line};
 use super::{Position, TranscriptIngest};
 use crate::memory::error::Result;
 use crate::memory::project::resolve_project_id;
@@ -21,10 +21,6 @@ const ADOPT_SESSION_ROW_SQL: &str = "UPDATE entries SET source_ref = $1
      WHERE id = (SELECT id FROM entries WHERE session_id = $2 AND role = $3 AND content = $4 AND source_ref LIKE 'session:%' ORDER BY id LIMIT 1)
        AND NOT EXISTS (SELECT 1 FROM entries WHERE source_ref = $1)";
 
-/// Bytes appended since `prev`; none when there is nothing new. A truncate or rewrite (size below
-/// the persisted offset) restarts at zero and bumps the generation: the rewritten lines would
-/// otherwise reuse the same `transcript:<uuid>#<index>` references and be dropped by
-/// `ON CONFLICT DO NOTHING`.
 struct Tail {
     text: String,
     bytes: f64,
@@ -32,6 +28,10 @@ struct Tail {
     generation: f64,
 }
 
+/// Bytes appended since `prev`; none when there is nothing new. A truncate or rewrite (size below
+/// the persisted offset) restarts at zero and bumps the generation: the rewritten lines would
+/// otherwise reuse the same `transcript:<uuid>#<index>` references and be dropped by
+/// `ON CONFLICT DO NOTHING`.
 async fn read_tail(ingest: &TranscriptIngest, path: &Path, prev: Position) -> Result<Option<Tail>> {
     let file = path.to_owned();
     let lane = ingest.io.maintenance;
@@ -73,21 +73,44 @@ fn source_ref(uuid: &str, index: f64, generation: f64) -> String {
     if generation > 0.0 { format!("transcript:{uuid}#{index}@g{}", mixdog_js::number_to_string(generation)) } else { format!("transcript:{uuid}#{index}") }
 }
 
+/// No cwd resolves to COMMON (project NULL); the process cwd would misclassify rows. A read
+/// that never ran is an error instead: the offset stays and the next sweep ingests the rows.
+async fn project_of(ingest: &TranscriptIngest, path: &Path, cwd: Option<&Path>) -> Result<Option<String>> {
+    let resolved = match cwd.filter(|c| !c.as_os_str().is_empty()) {
+        Some(cwd) => Some(cwd.to_owned()),
+        None => cwd_from_transcript_path(ingest.io.maintenance, path).await?,
+    };
+    Ok(match &resolved {
+        Some(cwd) => resolve_project_id(ingest.io.durability, cwd).await?,
+        None => None,
+    })
+}
+
+/// A line the session's own ingest stored first (a `session:` row of the same message) is that row: it takes the line's
+/// reference instead of a second copy coming back from recall. Otherwise the row is inserted; the count is the rows added.
+async fn store_row(ingest: &TranscriptIngest, row: &TranscriptRow, reference: &str, uuid: &str, turn: i32, project_id: Option<&str>) -> Result<u64> {
+    let adopted = ingest.db.execute(ADOPT_SESSION_ROW_SQL, &[&reference, &uuid, &row.role, &row.content]).await?;
+    if adopted > 0 {
+        return Ok(0);
+    }
+    let ts = row.ts_ms as i64;
+    ingest
+        .db
+        .execute(
+            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT DO NOTHING",
+            &[&ts, &row.role, &row.content, &reference, &uuid, &turn, &project_id, &row.time_source],
+        )
+        .await
+}
+
 /// `ingestTranscriptTail`: the number of rows inserted.
 pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd: Option<&Path>) -> Result<usize> {
     let key = path.to_string_lossy().into_owned();
     let Some(tail) = read_tail(ingest, path, ingest.offsets.snapshot(&key)).await? else { return Ok(0) };
     let uuid = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let resolved = match cwd.filter(|c| !c.as_os_str().is_empty()) {
-        Some(cwd) => Some(cwd.to_owned()),
-        None => cwd_from_transcript_path(ingest.io.maintenance, path).await?,
-    };
-    // No cwd resolves to COMMON (project NULL); the process cwd would misclassify rows. A read
-    // that never ran is an error instead: the offset stays and the next sweep ingests the rows.
-    let project_id = match &resolved {
-        Some(cwd) => resolve_project_id(ingest.io.durability, cwd).await?,
-        None => None,
-    };
+    let project_id = project_of(ingest, path, cwd).await?;
     let mut boundary = Position { bytes: tail.bytes, line_index: tail.line_index, generation: tail.generation };
     let mut index = tail.line_index;
     let mut count = 0;
@@ -117,25 +140,7 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
                 );
                 break;
             }
-            let (ts, turn) = (row.ts_ms as i64, index as i32);
-            // A line the session's own ingest stored first (a `session:` row of the same message) is that row: it takes the line's
-            // reference instead of a second copy coming back from recall.
-            let adopted = ingest.db.execute(ADOPT_SESSION_ROW_SQL, &[&reference, &uuid, &row.role, &row.content]).await;
-            let inserted = match adopted {
-                Ok(0) => {
-                    ingest
-                        .db
-                        .execute(
-                            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT DO NOTHING",
-                            &[&ts, &row.role, &row.content, &reference, &uuid, &turn, &project_id, &row.time_source],
-                        )
-                        .await
-                }
-                Ok(_) => Ok(0),
-                Err(error) => Err(error),
-            };
+            let inserted = store_row(ingest, &row, &reference, &uuid, index as i32, project_id.as_deref()).await;
             inserts += 1;
             // The kill-point matrix of a restart (`memory/tests/jobs.rs`): the process dies after its n-th insert
             // returned, before the position is saved. A no-op without the `kill-points` feature.

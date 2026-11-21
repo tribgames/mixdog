@@ -1,4 +1,4 @@
-//! The design review of an Office document: `src/runtime/office/quality/design-review.mjs` (fonts and colours read straight
+//! The design review of an Office document (fonts and colours read straight
 //! from the saved shapes, discipline, the deck-scale readings, the composition sequence) with the modules it is built
 //! from: [`authored`] (rules that hold for authored decks), [`critique`] (the model's visual critique and its
 //! acknowledgement gate), [`diversity`] (how the pages of a deck differ), [`rubric`] (a deck's score) and

@@ -1,9 +1,3 @@
-//! Which arriving completions show a live card (Node's `notification-router.mjs`,
-//! `execution-delivery.mjs` `pushCard`, `execution-dedup.mjs`): the status-only skip, one card
-//! per execution and presentation phase (`card:<execution_id>:b0|b1`), no card for a
-//! successful bodyless preview, and none once the execution's body was shown. The card itself
-//! is the transcript's (`transcript_response::agent_response`).
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;

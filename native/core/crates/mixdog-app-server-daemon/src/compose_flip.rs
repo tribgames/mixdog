@@ -3442,7 +3442,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         durability: b.tokens.durability_io,
         maintenance: b.tokens.maintenance_io,
     };
-    let startup_probes = Arc::new(mixdog_core::run_host::prewarm::StartupProbes::new(prompt_io, b.process_manager.clone()));
+    let startup_probes = Arc::new(mixdog_core::run_host::prewarm::StartupProbes::new(prompt_io, b.tokens.cpu_interactive, b.process_manager.clone()));
     let startup_observed = Arc::new(mixdog_core_prompt::prompt::probes::StartupObservations::new(clock_agent.clone()));
     let prompt_facts =
         Arc::new(mixdog_core::run_host::prewarm::PromptFacts::from_process(b.package_root.join("src"), b.data_dir.clone(), config.stored_instruction_files()));

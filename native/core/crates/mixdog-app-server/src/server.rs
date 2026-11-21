@@ -647,21 +647,7 @@ impl Shared {
         slot: crate::connection::Slot,
     ) -> Inbound {
         let id = request.id.clone();
-        if let Err(data) = precheck(spec, request.params.as_ref()) {
-            drop(slot);
-            self.reject(conn, &id, &data);
-            return Inbound::Continue;
-        }
-        // A lone surrogate in a field that is not free text refuses the frame naming that field, before any validator reads
-        // the field (a validator would refuse the U+FFFD it reads with its own, less precise, reason).
-        if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
-            drop(slot);
-            self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
-            return Inbound::Continue;
-        }
-        if spec.method != INITIALIZE
-            && let Err(data) = validate::check(spec.method, request.params.as_ref())
-        {
+        if let Err(data) = frame_refusal(spec, &request) {
             drop(slot);
             self.reject(conn, &id, &data);
             return Inbound::Continue;
@@ -825,7 +811,7 @@ impl Shared {
             conn.sink.coalesce_appends();
         }
         // Before the response: the client sends nothing the registry must know about until it has read it.
-        self.core.connection_opened(conn.id, origin, &device, kind);
+        let device = self.core.connection_opened(conn.id, origin, &device, kind);
         let response = v1::InitializeResponse {
             defaults_separation: Some(config.defaults_separation.clone()),
             user_agent: config.user_agent.clone(),
@@ -961,11 +947,6 @@ impl Shared {
         }
     }
 
-    /// A method served by the core: the thread directory or a loaded thread for the thread
-    /// namespaces (a request that names a `threadId` is addressed to that thread), the domain
-    /// service that claims the exact method for every other one. A thread-namespace method a
-    /// domain service claims (`thread/continueInModel`, `thread/quotaResume/*`: they act on the
-    /// route and on daemon-wide stores, not on the thread's actor) goes to that service.
     fn route(
         &self,
         conn: &Connection,
@@ -1097,10 +1078,6 @@ impl Shared {
         }
     }
 
-    /// A subscribing reply (P §6.4). A connection that already follows the feed, in this window and from a position
-    /// of this epoch, is answered with the subscription it holds ([`FeedSource::carries`]): its lane delivers on, so
-    /// nothing it delivered is sent again. Otherwise: allocate the subscription, attach, and write the response with
-    /// the lane release, so no lane frame can precede it. Server requests follow the response (P §8.3).
     fn finish_subscribe(&self, conn: &Connection, id: &RequestId, sub: Subscribe) {
         let Subscribe { result, feed, window, resume_from } = sub;
         let Value::Object(result) = result else {
@@ -1278,6 +1255,19 @@ fn has_blob_ref(value: &Value) -> bool {
         Value::Array(entries) => entries.iter().any(has_blob_ref),
         _ => false,
     }
+}
+
+/// The refusal a request's final params earn before decoding: the shape rules, a lone surrogate outside free text (named by field,
+/// before any validator reads the U+FFFD it would refuse with a less precise reason) and the method's validator.
+fn frame_refusal(spec: &MethodSpec, request: &JsonRpcRequest) -> Result<(), Box<ErrorData>> {
+    precheck(spec, request.params.as_ref())?;
+    if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
+        return Err(Box::new(lone_refusal(&format!("{}.params", spec.method), at)));
+    }
+    if spec.method != INITIALIZE {
+        validate::check(spec.method, request.params.as_ref())?;
+    }
+    Ok(())
 }
 
 /// Request shape rules that hold for every method (P §4.3, §9.1), checked on the raw params

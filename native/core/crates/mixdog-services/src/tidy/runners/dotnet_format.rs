@@ -215,6 +215,56 @@ mod cleanup_tests {
     }
 }
 
+async fn run_spawns(req: &RunRequest, verify: bool, spawns: &[Spawn1], root: &Path) -> RunnerResult {
+    let lane = req.lane;
+    let (mut diagnostics, mut changed, mut stderr) = (Vec::new(), Vec::new(), String::new());
+    for (index, spawn) in spawns.iter().enumerate() {
+        let report = root.join(format!("report-{index}.json"));
+        let mut args = req.args.clone();
+        args.extend(["whitespace".to_owned(), spawn.folder.clone(), "--folder".to_owned()]);
+        if verify {
+            args.push("--verify-no-changes".into());
+        }
+        args.extend(["--report".to_owned(), report.to_string_lossy().into_owned(), "--include".to_owned()]);
+        args.extend(spawn.files.iter().map(|file| path_arg(file)));
+        let r = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
+        stderr.push_str(&r.stderr);
+        if let Some(why) = stopped(req, ID, &r) {
+            return engine_stopped(why);
+        }
+        if is_unsupported(&r.stderr, &r.stdout) {
+            return unsupported(&r);
+        }
+        if !verify {
+            // Without `--verify-no-changes` the exit code is the write's own.
+            if r.code != 0 {
+                return engine_stopped(format!("{ID} did not complete its fix: {}", said(&r)));
+            }
+            continue;
+        }
+        // An unread report is not a clean one: `dotnet format` may have found anything.
+        let text = match read_report(lane, &report).await {
+            Ok(text) => text,
+            Err(why) => return engine_stopped(why),
+        };
+        let parsed = parse_dotnet_format_report(&text, &req.cwd);
+        // With `--verify-no-changes` a non-zero exit is "would change": one with nothing reported is not.
+        if parsed.changed_files.is_empty() && parsed.diagnostics.is_empty() && r.code != 0 {
+            return engine_stopped(format!("{ID} did not complete: {}", said(&r)));
+        }
+        diagnostics.extend(parsed.diagnostics);
+        changed.extend(parsed.changed_files);
+    }
+    let unique = unique_paths(changed);
+    let t = if unique.is_empty() { tail600(&stderr) } else { String::new() };
+    RunnerResult {
+        diagnostics: if verify { diagnostics } else { Vec::new() },
+        changed_files: if verify { unique } else { Vec::new() },
+        stderr_tail: t,
+        ..Default::default()
+    }
+}
+
 async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     let spawns = plan_spawns(&req.files, &req.cwd, req.files_per_spawn);
     if spawns.is_empty() {
@@ -225,55 +275,7 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     if io_on_lane(lane, move || create_report_dir(&made)).await.is_err() {
         return engine_stopped(format!("{ID} could not run: cannot create a report directory"));
     }
-    let outcome = async {
-        let (mut diagnostics, mut changed, mut stderr) = (Vec::new(), Vec::new(), String::new());
-        for (index, spawn) in spawns.iter().enumerate() {
-            let report = root.join(format!("report-{index}.json"));
-            let mut args = req.args.clone();
-            args.extend(["whitespace".to_owned(), spawn.folder.clone(), "--folder".to_owned()]);
-            if verify {
-                args.push("--verify-no-changes".into());
-            }
-            args.extend(["--report".to_owned(), report.to_string_lossy().into_owned(), "--include".to_owned()]);
-            args.extend(spawn.files.iter().map(|file| path_arg(file)));
-            let r = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
-            stderr.push_str(&r.stderr);
-            if let Some(why) = stopped(req, ID, &r) {
-                return engine_stopped(why);
-            }
-            if is_unsupported(&r.stderr, &r.stdout) {
-                return unsupported(&r);
-            }
-            if !verify {
-                // Without `--verify-no-changes` the exit code is the write's own.
-                if r.code != 0 {
-                    return engine_stopped(format!("{ID} did not complete its fix: {}", said(&r)));
-                }
-                continue;
-            }
-            // An unread report is not a clean one: `dotnet format` may have found anything.
-            let text = match read_report(lane, &report).await {
-                Ok(text) => text,
-                Err(why) => return engine_stopped(why),
-            };
-            let parsed = parse_dotnet_format_report(&text, &req.cwd);
-            // With `--verify-no-changes` a non-zero exit is "would change": one with nothing reported is not.
-            if parsed.changed_files.is_empty() && parsed.diagnostics.is_empty() && r.code != 0 {
-                return engine_stopped(format!("{ID} did not complete: {}", said(&r)));
-            }
-            diagnostics.extend(parsed.diagnostics);
-            changed.extend(parsed.changed_files);
-        }
-        let unique = unique_paths(changed);
-        let t = if unique.is_empty() { tail600(&stderr) } else { String::new() };
-        RunnerResult {
-            diagnostics: if verify { diagnostics } else { Vec::new() },
-            changed_files: if verify { unique } else { Vec::new() },
-            stderr_tail: t,
-            ..Default::default()
-        }
-    }
-    .await;
+    let outcome = run_spawns(req, verify, &spawns, &root).await;
     let removed = match on_lane(lane, move || mixdog_core_base::support::remove_dir_all_forced(&root)).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(failure)) => Err(failure_text(&failure)),

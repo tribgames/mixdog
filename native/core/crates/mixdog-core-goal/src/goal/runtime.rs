@@ -1,4 +1,4 @@
-//! `goal-runtime.mjs` + `goal-store.mjs`: the per-session Goal record, its serialized mutations,
+//! The per-session Goal record, its serialized mutations,
 //! the commit, listener publication and the visible/stored snapshots.
 //!
 //! A mutation is one job on the durability lane: it holds the record's file lock, reads the
@@ -630,27 +630,10 @@ impl<'a> Tx<'a> {
             return Err(error);
         }
         if let Some(admission) = admission.filter(|_| guarded) {
-            let mut failure = None;
-            let mut accepted = true;
-            let mut check = |f: &(dyn Fn() -> GoalResult<bool> + Send)| match f() {
-                Ok(ok) => ok,
-                Err(error) => {
-                    failure = Some(error);
-                    false
-                }
-            };
-            if let Some(is_current) = &admission.is_current {
-                accepted = check(is_current.as_ref());
-            }
-            if accepted && let Some(accept) = &admission.accept {
-                accepted = check(accept.as_ref());
-            }
-            if !accepted {
+            let verdict = Self::admitted(admission);
+            if !matches!(verdict, Ok(true)) {
                 self.rollback(previous.as_ref())?;
-                return match failure {
-                    Some(error) => Err(error),
-                    None => Ok(None),
-                };
+                return verdict.map(|_| None);
             }
         }
         if let Some(committed) = &committed {
@@ -659,6 +642,28 @@ impl<'a> Tx<'a> {
         self.arm_after_write();
         self.emit();
         Ok(public_goal(committed.as_ref(), self.now()))
+    }
+
+    fn admitted(admission: &Admission) -> GoalResult<bool> {
+        let mut failure = None;
+        let mut accepted = true;
+        let mut check = |f: &(dyn Fn() -> GoalResult<bool> + Send)| match f() {
+            Ok(ok) => ok,
+            Err(error) => {
+                failure = Some(error);
+                false
+            }
+        };
+        if let Some(is_current) = &admission.is_current {
+            accepted = check(is_current.as_ref());
+        }
+        if accepted && let Some(accept) = &admission.accept {
+            accepted = check(accept.as_ref());
+        }
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(accepted),
+        }
     }
 
     fn rollback(&mut self, previous: Option<&Goal>) -> GoalResult<()> {

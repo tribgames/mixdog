@@ -1,8 +1,3 @@
-//! `act`: the helper `sequence` a tool call became, run as `runBoundedSequence` (`host/sequence-runner.ts`) and
-//! `executeComputerSequenceSteps` (`input/sequence.ts`): its steps validated before any is sent, sent one at a time with one
-//! row each, stopped by a failed or uncertain step or a target transition, its holds released, then a capture of the window
-//! the sequence ended on.
-
 use std::time::Duration;
 
 use mixdog_core_api::domain::computer::ComputerError;
@@ -718,6 +713,67 @@ Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": []
     }
 }
 
+/// The reply of a sequence: its rows, the verdict on how it ended, and the observation of the window it ended on. It names the
+/// tool's action (`act`), not the helper's `sequence`.
+fn sequence_reply(window_id: &str, total_steps: usize, sequence: Sequence, mut capture_after: Map<String, Value>) -> Value {
+    let Sequence { rows, completed_steps, stopped_reason, final_window_id, last_transition, activation_unprotected } = sequence;
+    let completed = completed_steps == total_steps && stopped_reason.is_empty();
+    let unavailable = capture_after.get("ok") == Some(&json!(false));
+    let pixel_unavailable = capture_after.get("pixel_status") == Some(&json!("unavailable"));
+    let result_code = if !stopped_reason.is_empty() {
+        stopped_reason.clone()
+    } else if unavailable {
+        capture_after.get("code").and_then(Value::as_str).filter(|code| !code.is_empty()).unwrap_or("observation_unavailable").to_owned()
+    } else {
+        String::new()
+    };
+    let verdict = if completed && !unavailable {
+        let mut verdict = json!({ "decision": "verify_fresh_state" });
+        if pixel_unavailable {
+            verdict["recommended"] = json!("use_semantic_target");
+        }
+        verdict
+    } else {
+        let recommended = if stopped_reason == "target_transition" {
+            "switch_target"
+        } else if unavailable {
+            "recapture"
+        } else {
+            "inspect_failed_step"
+        };
+        json!({ "decision": "escalate", "recommended": recommended })
+    };
+    let successor = final_window_id != window_id;
+    capture_after.insert("target_reason".into(), json!(if successor { "sequence_successor" } else { "original_target" }));
+    if successor {
+        capture_after.insert("previous_window_id".into(), json!(window_id));
+    }
+    let mut payload = Map::new();
+    payload.insert("ok".into(), json!(completed && !unavailable));
+    if activation_unprotected {
+        payload.insert("activation_protection".into(), json!("unavailable"));
+    }
+    payload.insert("action".into(), json!("act"));
+    payload.insert("window_id".into(), json!(window_id));
+    payload.insert("completed".into(), json!(completed));
+    payload.insert("completed_steps".into(), json!(completed_steps));
+    payload.insert("total_steps".into(), json!(total_steps));
+    payload.insert("steps".into(), Value::Array(rows));
+    if !stopped_reason.is_empty() {
+        payload.insert("stopped_reason".into(), json!(stopped_reason));
+    }
+    if !result_code.is_empty() {
+        payload.insert("code".into(), json!(result_code));
+    }
+    if let Some(transition) = last_transition {
+        payload.insert("window_transition".into(), transition);
+    }
+    payload.insert("goal_verified".into(), json!(false));
+    payload.insert("verdict".into(), verdict);
+    payload.insert("capture_after".into(), Value::Object(capture_after));
+    Value::Object(payload)
+}
+
 impl ProcessComputerBackend {
     /// `runBoundedSequence`: the window the call names, its steps, and a capture of the window the sequence ended on.
     pub(super) async fn act(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
@@ -756,74 +812,18 @@ impl ProcessComputerBackend {
                 });
             }
         };
-        let Sequence { rows, completed_steps, stopped_reason, final_window_id, last_transition, activation_unprotected } = sequence;
         let total_steps = planned.len();
         // A hold that may still keep the target non-activatable outranks why the steps stopped and waits for no observation.
         if let Some(held) = held {
-            let last_completed = rows.iter().filter(|row| row["ok"] == true).count();
+            let last_completed = sequence.rows.iter().filter(|row| row["ok"] == true).count();
             let last = if last_completed > 0 { format!(" (last completed step {last_completed})") } else { String::new() };
-            let stopped = if stopped_reason.is_empty() { String::new() } else { format!(", stopped: {stopped_reason}") };
-            return Err(cleanup_unconfirmed(format!("{held}; completed {completed_steps}/{total_steps} steps{last}{stopped}")));
+            let stopped = if sequence.stopped_reason.is_empty() { String::new() } else { format!(", stopped: {}", sequence.stopped_reason) };
+            return Err(cleanup_unconfirmed(format!("{held}; completed {}/{total_steps} steps{last}{stopped}", sequence.completed_steps)));
         }
-        let completed = completed_steps == total_steps && stopped_reason.is_empty();
         // A window transition or an unfinished sequence earns the whole observation, not a delta.
-        let full = !stopped_reason.is_empty() || last_transition.as_ref().is_some_and(retargets);
-        let (mut capture_after, observed) = self.observe_after(&command, &final_window_id, full, cancel).await?;
-        let unavailable = capture_after.get("ok") == Some(&json!(false));
-        let pixel_unavailable = capture_after.get("pixel_status") == Some(&json!("unavailable"));
-        let result_code = if !stopped_reason.is_empty() {
-            stopped_reason.clone()
-        } else if unavailable {
-            capture_after.get("code").and_then(Value::as_str).filter(|code| !code.is_empty()).unwrap_or("observation_unavailable").to_owned()
-        } else {
-            String::new()
-        };
-        let verdict = if completed && !unavailable {
-            let mut verdict = json!({ "decision": "verify_fresh_state" });
-            if pixel_unavailable {
-                verdict["recommended"] = json!("use_semantic_target");
-            }
-            verdict
-        } else {
-            let recommended = if stopped_reason == "target_transition" {
-                "switch_target"
-            } else if unavailable {
-                "recapture"
-            } else {
-                "inspect_failed_step"
-            };
-            json!({ "decision": "escalate", "recommended": recommended })
-        };
-        let successor = final_window_id != window_id;
-        capture_after.insert("target_reason".into(), json!(if successor { "sequence_successor" } else { "original_target" }));
-        if successor {
-            capture_after.insert("previous_window_id".into(), json!(window_id));
-        }
-        // The reply names the tool's action: the helper's `sequence` is what `act` became.
-        let mut payload = Map::new();
-        payload.insert("ok".into(), json!(completed && !unavailable));
-        if activation_unprotected {
-            payload.insert("activation_protection".into(), json!("unavailable"));
-        }
-        payload.insert("action".into(), json!("act"));
-        payload.insert("window_id".into(), json!(window_id));
-        payload.insert("completed".into(), json!(completed));
-        payload.insert("completed_steps".into(), json!(completed_steps));
-        payload.insert("total_steps".into(), json!(total_steps));
-        payload.insert("steps".into(), Value::Array(rows));
-        if !stopped_reason.is_empty() {
-            payload.insert("stopped_reason".into(), json!(stopped_reason));
-        }
-        if !result_code.is_empty() {
-            payload.insert("code".into(), json!(result_code));
-        }
-        if let Some(transition) = last_transition {
-            payload.insert("window_transition".into(), transition);
-        }
-        payload.insert("goal_verified".into(), json!(false));
-        payload.insert("verdict".into(), verdict);
-        payload.insert("capture_after".into(), Value::Object(capture_after));
-        let mut parts = vec![ToolPart::Text(Value::Object(payload).to_string())];
+        let full = !sequence.stopped_reason.is_empty() || sequence.last_transition.as_ref().is_some_and(retargets);
+        let (capture_after, observed) = self.observe_after(&command, &sequence.final_window_id, full, cancel).await?;
+        let mut parts = vec![ToolPart::Text(sequence_reply(&window_id, total_steps, sequence, capture_after).to_string())];
         parts.extend(observed);
         Ok(parts)
     }
@@ -1036,10 +1036,6 @@ impl ProcessComputerBackend {
         }
     }
 
-    /// `captureAfterSemanticAction` (`host/action-reply.ts`) for one window operation, launch or menu: the observation of the window
-    /// the action ended on joins its reply as `capture_after`, with the frame after it. The target is the transition's successor, else
-    /// the window the action named; a launch waits for its window's layout to settle first (`awaitSettledLayout`). Skipped, and
-    /// said so, when the target closed or a launch has no proven successor window (it never authorizes capturing the foreground app).
     pub(super) async fn capture_after_semantic(
         &self,
         action: &str,

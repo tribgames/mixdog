@@ -28,13 +28,7 @@ fn main() {
         "--abort-cleanup" => std::process::exit(abort::run()),
         "--version" => println!("mixdog-computer {}", env!("CARGO_PKG_VERSION")),
         "--probe" => std::process::exit(host::probe()),
-        // `--cursor-watchdog <parent_pid>`: the child that keeps the cursor
-        // theme and restores it when its parent dies (CursorTheme.cs).
         "--cursor-watchdog" => std::process::exit(platform::cursor_watchdog(&std::env::args().nth(2).unwrap_or_default())),
-        // `--elevated-request <dir> ...`: the one-action worker a UAC launch
-        // starts (elevated-program.ts).
-        // `--screen-input`: the remote screen's input process
-        // (remote-screen/screen-input-host.ts).
         "--screen-input" => std::process::exit(screen_input::run()),
         "--elevated-request" => {
             let args: Vec<String> = std::env::args().skip(2).collect();

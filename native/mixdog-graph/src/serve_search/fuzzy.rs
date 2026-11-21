@@ -249,10 +249,6 @@ fn rank_live_walk(
     let (live, _waiter) = store.join_live_walk(walk_key, root, &scope.parsed, keep_warm, scope.inventory_lease_ms, watched);
     let mut cursor = 0usize;
     loop {
-        // Materialize the wire-relative strings the ranker scores once, under
-        // the published-files lock, instead of cloning every PathBuf into a
-        // temporary batch first: that was costly across hundreds of thousands
-        // of broad candidates.
         let take = |files: &[PathBuf]| -> Vec<String> {
             files.iter().filter(|file| scope.filter.allows(file)).map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file))).collect()
         };

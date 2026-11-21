@@ -165,38 +165,35 @@ pub async fn log(git: &Git, cancel: &CancellationToken, cwd: &Path, query: &str,
         return Ok(Vec::new());
     }
     let unpushed = unpushed_commits(git, cancel, cwd).await?;
-    Ok(output
-        .stdout_text()
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            let mut fields = line.split('\u{1f}');
-            let mut next = || fields.next().unwrap_or("").to_owned();
-            let hash = next();
-            let short_hash = next();
-            let parents = next();
-            let decorations = next();
-            let subject = next();
-            let when = next();
-            let author = next();
-            let authored_at = next();
-            let decoded = decode_refs(&decorations);
-            GitLogEntry {
-                pushed: !unpushed.contains(&hash),
-                parents: parents.split_whitespace().map(str::to_owned).collect(),
-                hash,
-                short_hash,
-                subject,
-                when,
-                author,
-                authored_at,
-                refs: decoded.refs,
-                tags: decoded.tags,
-                branches: decoded.branches,
-                remotes: decoded.remotes,
-            }
-        })
-        .collect())
+    Ok(output.stdout_text().lines().filter(|line| !line.is_empty()).map(|line| log_entry(line, &unpushed)).collect())
+}
+
+fn log_entry(line: &str, unpushed: &HashSet<String>) -> GitLogEntry {
+    let mut fields = line.split('\u{1f}');
+    let mut next = || fields.next().unwrap_or("").to_owned();
+    let hash = next();
+    let short_hash = next();
+    let parents = next();
+    let decorations = next();
+    let subject = next();
+    let when = next();
+    let author = next();
+    let authored_at = next();
+    let decoded = decode_refs(&decorations);
+    GitLogEntry {
+        pushed: !unpushed.contains(&hash),
+        parents: parents.split_whitespace().map(str::to_owned).collect(),
+        hash,
+        short_hash,
+        subject,
+        when,
+        author,
+        authored_at,
+        refs: decoded.refs,
+        tags: decoded.tags,
+        branches: decoded.branches,
+        remotes: decoded.remotes,
+    }
 }
 
 /// Commits not on the upstream. Without an upstream no commit of HEAD is on a remote.

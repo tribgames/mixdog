@@ -554,12 +554,9 @@ pub fn normalize(input: &Value) -> Checked<Value> {
     normalize_input(input, 0)
 }
 
-/// [`normalize`] of a client's input whose top-level `requestBody` held `body_lone_units` lone
-/// surrogates (`CallContext::lone_surrogates`), each measured as Node measures it.
-pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> {
-    let Some(input) = input.as_object() else { return fail("config must be an object") };
+/// The v2 source of an input: a v2 entry validated at its top level, or a legacy one migrated; `true` when it was legacy.
+fn versioned_source(input: &Obj) -> Checked<(Obj, bool)> {
     let version = input.get("schemaVersion").filter(|version| !version.is_null());
-    let legacy = version.is_none();
     let source = match version {
         None => {
             if input.contains_key("modelOverrides") || input.contains_key("discovery") {
@@ -607,6 +604,13 @@ pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> 
             input.clone()
         }
     };
+    Ok((source, version.is_none()))
+}
+/// [`normalize`] of a client's input whose top-level `requestBody` held `body_lone_units` lone
+/// surrogates (`CallContext::lone_surrogates`), each measured as Node measures it.
+pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> {
+    let Some(input) = input.as_object() else { return fail("config must be an object") };
+    let (source, legacy) = versioned_source(input)?;
     let name = match source.get("name").filter(|name| !name.is_null()) {
         Some(name) => bounded_text(Some(name), "name", MAX_NAME)?,
         None => String::new(),
@@ -675,4 +679,53 @@ pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> 
         out.insert("modelWires".into(), Value::Object(model_wires));
     }
     Ok(Value::Object(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v2() -> Value {
+        json!({"schemaVersion": 2, "name": "Gateway", "protocol": "openai-chat", "baseURL": "https://gateway.example/v1"})
+    }
+
+    #[test]
+    fn a_v2_entry_is_normalized_to_its_secret_free_form() {
+        let out = normalize(&v2()).unwrap();
+        assert_eq!(out["type"], "custom");
+        assert_eq!(out["schemaVersion"], 2);
+        assert_eq!(out["name"], "Gateway");
+        assert_eq!(out["auth"], "key");
+        assert_eq!(out["enabled"], true);
+        assert_eq!(out["discovery"], json!({"newModelsHidden": false}));
+        assert_eq!(out["modelOverrides"], json!({}));
+    }
+
+    #[test]
+    fn a_legacy_model_list_becomes_overrides_and_hides_new_models() {
+        let mut legacy = v2();
+        legacy.as_object_mut().unwrap().remove("schemaVersion");
+        legacy["models"] = json!([{"id": "m1"}]);
+        let out = normalize(&legacy).unwrap();
+        assert_eq!(out["schemaVersion"], 2);
+        assert_eq!(out["discovery"], json!({"newModelsHidden": true}));
+        assert!(out["modelOverrides"].as_object().unwrap().contains_key("m1"));
+    }
+
+    #[test]
+    fn schema_version_gates_are_refused_with_their_texts() {
+        let mut legacy = v2();
+        legacy.as_object_mut().unwrap().remove("schemaVersion");
+        legacy["headers"] = json!({});
+        assert_eq!(normalize(&legacy).unwrap_err(), "[custom-provider] headers require schemaVersion 2");
+        let mut future = v2();
+        future["schemaVersion"] = json!(3);
+        assert_eq!(normalize(&future).unwrap_err(), "[custom-provider] unsupported schemaVersion 3; update mixdog to use this provider");
+        let mut unknown = v2();
+        unknown["surprise"] = json!(1);
+        assert_eq!(normalize(&unknown).unwrap_err(), "[custom-provider] config has unsupported field: surprise");
+        let mut nameless = v2();
+        nameless["name"] = json!("  ");
+        assert_eq!(normalize(&nameless).unwrap_err(), "[custom-provider] name is required");
+    }
 }

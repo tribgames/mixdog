@@ -3,6 +3,8 @@
 //! dead-tag send fallback and explicit-tag spawn resolution live here; the flows they call
 //! (prepare, dispatch, start a job) are the host's.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -15,6 +17,7 @@ use mixdog_tools::orch::agent::TaskResult;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use super::error_text::ErrorText;
 use super::host::CallerScopes;
@@ -23,14 +26,21 @@ use super::host::DispatchOptions;
 use super::host::Environment;
 use super::host::Job;
 use super::host::ListOptions;
+use super::host::MemberClose;
+use super::host::MemberOutcome;
+use super::host::OpenSession;
+use super::host::Recovered;
 use super::host::Registry;
 use super::host::ResolveOptions;
 use super::host::SendFlow;
 use super::host::Sessions;
 use super::host::SpawnFlow;
 use super::host::SpawnOptions;
+use super::host::TaskFacts;
 use super::host::Tasks;
 use super::host::TerminalTrace;
+use super::host::Topology;
+use super::host::TurnMark;
 use super::host::Views;
 use super::model_select::ModelCatalog;
 use super::model_select::resolve_requested_model;
@@ -45,6 +55,8 @@ use super::scope::clean_str;
 use super::views::is_open_idle;
 
 const CLOSE_REASON: &str = "cancelled by agent close";
+/// The reason an owner's close is recorded with on each session of the tree.
+const AGENT_CLOSE_REASON: &str = "cli-agent-close";
 /// `closeFailureReason`'s fallback: the close left no barrier failure to name.
 const CLOSE_NOT_RECORDED: &str = "the session close was not recorded";
 
@@ -213,8 +225,8 @@ pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, sessi
         return Ok(false);
     }
     let mut ordered = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    visit_descendants_first(sessions, id, &mut seen, &mut ordered);
+    let mut seen = HashSet::new();
+    visit_descendants_first(&|current| sessions.child_session_ids(current), id, &mut seen, &mut ordered);
     let _cancelling = sessions.begin_cancellation(&ordered);
     let mut closed = false;
     let mut failures = Vec::new();
@@ -230,19 +242,26 @@ pub async fn cancel_agent_tree(sessions: &dyn Sessions, tasks: &dyn Tasks, sessi
             Err(error) => failures.push(error),
         }
     }
+    tree_outcome(closed, failures, ordered.len())
+}
+
+/// A tree's close once every member was tried: one failure's text, or for several the count of the failed among the
+/// tree's `members` and each text; otherwise whether any member was there to close.
+fn tree_outcome(closed: bool, mut failures: Vec<String>, members: usize) -> Result<bool, String> {
     match failures.len() {
         0 => Ok(closed),
         1 => Err(failures.remove(0)),
-        count => Err(format!("agent tree cancel failed for {count} of {} sessions: {}", ordered.len(), failures.join("; "))),
+        count => Err(format!("agent tree cancel failed for {count} of {members} sessions: {}", failures.join("; "))),
     }
 }
 
-fn visit_descendants_first(sessions: &dyn Sessions, current: &str, seen: &mut std::collections::HashSet<String>, ordered: &mut Vec<String>) {
+/// The tree below `current` (each session once across `seen`), descendants first.
+fn visit_descendants_first(children: &dyn Fn(&str) -> Vec<String>, current: &str, seen: &mut HashSet<String>, ordered: &mut Vec<String>) {
     if !seen.insert(current.to_owned()) {
         return;
     }
-    for child in sessions.child_session_ids(current) {
-        visit_descendants_first(sessions, &child, seen, ordered);
+    for child in children(current) {
+        visit_descendants_first(children, &child, seen, ordered);
     }
     ordered.push(current.to_owned());
 }
@@ -296,27 +315,18 @@ pub async fn close_resolved(
     let mut hide_failed = Vec::new();
     sessions.clear_statusline_route(session_id);
     cancel_session_tasks(tasks, session_id, target, scope);
-    // Close (and stamp the cancel) before dropping the worker row, so the row never
-    // outlives an unrecorded cancel. Closing a runtime cancels its work; only explicit
-    // session deletion may tombstone the conversation. An owner's close (not a process
-    // exit's) is recorded on the session itself, so a later reuse of its reaped tag never
-    // continues it.
-    let ok = cancel_agent_tree(sessions, tasks, session_id, "cli-agent-close", CloseOptions { tombstone: false, owner_close: !keep_row }).await?;
+    let ok = cancel_agent_tree(sessions, tasks, session_id, AGENT_CLOSE_REASON, CloseOptions { tombstone: false, owner_close: !keep_row }).await?;
     if let Some(id) = &task_id_out {
         tasks.cancel(id, CLOSE_REASON);
     }
     // Drop the row only once the cancellation is durably recorded: a failed close that
     // still forgot the row would leave no cancelled state behind.
     if ok && !keep_row {
-        registry.forget_terminal_session(tag.as_deref(), session_id);
-        for descendant in &descendants {
-            registry.remove_worker_row(descendant);
-        }
         // The sessions stay open (a send reuses them), so a later scan, even after a
-        // restart, would list them again: remember the owner closed them.
+        // restart, would list them again: the owner's close is remembered on each.
+        registry.release_closed(tag.as_deref(), session_id, &descendants);
         let mut released = vec![session_id.to_owned()];
         released.extend(descendants.iter().cloned());
-        registry.mark_released(&released);
         // A closed agent's session is hidden from the lists; a send that uses it again lists it again.
         hide_failed = sessions.hide_sessions(&released).await;
     }
@@ -328,6 +338,303 @@ pub async fn close_resolved(
 
 fn is_lead_pool_agent(agent: &str) -> bool {
     clean_str(agent).to_lowercase() == "lead"
+}
+
+/// The collaborators of [`cleanup_idle`], owned: a close it accepted goes on after its caller stops waiting.
+#[derive(Clone)]
+pub struct CleanupParts {
+    pub registry: Arc<dyn Registry>,
+    pub sessions: Arc<dyn Sessions>,
+    pub tasks: Arc<dyn Tasks>,
+}
+
+/// What [`cleanup_idle`] did.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct CleanupReport {
+    pub agents_closed: u64,
+    pub gone_rows_cleared: u64,
+    pub leftovers_hidden: usize,
+    pub not_closed: Vec<Value>,
+    pub not_hidden: Vec<Value>,
+    /// The scope's worker rows a list shows, as the cleanup ends.
+    pub workers: usize,
+    /// The scope's jobs, as the cleanup ends.
+    pub tasks: usize,
+    /// The cancellation stopped it before every planned close was begun.
+    pub cancelled: bool,
+}
+
+/// An open idle worker the plan closes with the agents below it: `members` descendants first and the root last, each
+/// member in one tree of the whole cleanup.
+struct Tree {
+    row: TagRecord,
+    lead: bool,
+    members: Vec<Member>,
+}
+
+struct Member {
+    id: String,
+    /// The turn the plan judged idle.
+    turn: Option<TurnMark>,
+}
+
+/// The one reading a cleanup decides from.
+struct CleanupPlan {
+    scope: Scope,
+    gone: Vec<TagRecord>,
+    trees: Vec<Tree>,
+    open: Vec<OpenSession>,
+    jobs: Vec<TaskFacts>,
+    scoped_jobs: Vec<TaskFacts>,
+}
+
+async fn plan_cleanup(parts: &CleanupParts, scope: &Scope, topology: Topology) -> CleanupPlan {
+    let CleanupParts { registry, sessions, tasks } = parts;
+    let Topology { children, present, leads, open } = topology;
+    let mut plan =
+        CleanupPlan { scope: scope.clone(), gone: Vec::new(), trees: Vec::new(), open, jobs: tasks.list(&Scope::default()), scoped_jobs: tasks.list(scope) };
+    let mut visited = HashSet::new();
+    for row in registry.read_worker_rows(scope).unwrap_or_default() {
+        let id = clean_str(&row.session_id);
+        if id.is_empty() {
+            continue;
+        }
+        // A row of any status whose session was deleted is only a leftover. A listed session is there.
+        if !present.contains(&id) && sessions.session_gone(&id).await {
+            plan.gone.push(row);
+            continue;
+        }
+        if !is_open_idle(&row.status, &row.stage) || visited.contains(&id) {
+            continue;
+        }
+        let mut members = Vec::new();
+        visit_descendants_first(&|current| children.get(current).cloned().unwrap_or_default(), &id, &mut visited, &mut members);
+        // A tree whose every session its owner closed, with no turn started on any since, is closed already: a scan
+        // indexed it again so a send reaches it.
+        if members.iter().all(|member| registry.is_released(member)) {
+            continue;
+        }
+        let members = members.into_iter().map(|id| Member { turn: registry.turn_mark(&id), id }).collect();
+        plan.trees.push(Tree { lead: leads.contains(&id), row, members });
+    }
+    plan
+}
+
+/// `agent cleanup`'s closes (`close-flow.mjs`), over one plan read from `topology` (the listing of the agent sessions
+/// the caller's refresh made, [`Registry::refresh_topology`]): the rows whose session was deleted are dropped, and each
+/// open idle worker whose last result was delivered is closed with the agents below it, as `agent close` closes it;
+/// then the idle sessions of the scope no row points to are hidden.
+///
+/// The plan is applied on a task of its own: a member whose close began is closed, released and hidden whether or not
+/// the caller still waits. `cancel` is read before each member's close; once it is cancelled no other close begins.
+/// Each tree is read again before its close: one that is no longer owned, open and idle, whose member is running or at
+/// another turn than the plan judged idle, or that holds an unread result, is left alone, and each member's stamp lands
+/// only at that turn. The agent-status signals of the planned sessions are announced once, at its end.
+pub async fn cleanup_idle(
+    parts: CleanupParts,
+    scope: &Scope,
+    (topology, recovered): (Topology, Recovered),
+    cancel: CancellationToken,
+) -> Result<CleanupReport, String> {
+    let scope = scope.clone();
+    // The task owns what the scan recovered from before the plan is read: a caller that stops waiting leaves one announcement.
+    let cleanup = async move {
+        let plan = plan_cleanup(&parts, &scope, topology).await;
+        apply_cleanup(parts, plan, recovered, cancel).await
+    };
+    mixdog_rt::spawn("agent-cleanup", mixdog_rt::TaskClass::Work, cleanup).await.map_err(|error| format!("agent cleanup: {error}"))
+}
+
+async fn apply_cleanup(parts: CleanupParts, plan: CleanupPlan, recovered: Recovered, cancel: CancellationToken) -> CleanupReport {
+    let CleanupParts { registry, sessions, tasks } = &parts;
+    let Recovered { sessions: scanned, holds: scan_holds } = recovered;
+    let held: Vec<String> = scanned
+        .into_iter()
+        .chain(plan.gone.iter().map(|row| clean_str(&row.session_id)))
+        .chain(plan.trees.iter().flat_map(|tree| tree.members.iter().map(|m| m.id.clone())))
+        .collect();
+    let hold = sessions.hold_publication(&held);
+    // What the refresh's scan wrote is owed to this hold from here.
+    drop(scan_holds);
+    let mut report = CleanupReport::default();
+    let mut removed = HashSet::new();
+    for row in &plan.gone {
+        if cancel.is_cancelled() {
+            report.cancelled = true;
+            break;
+        }
+        let id = clean_str(&row.session_id);
+        cancel_planned_jobs(&**tasks, &plan.scoped_jobs, &id, &id);
+        // The tag goes only while it is this row's: it may have been bound to another session since the plan.
+        registry.forget_terminal_session(Some(&clean_str(&row.tag)), &id);
+        tasks.forget_lost(&id);
+        removed.insert(id);
+        report.gone_rows_cleared += 1;
+    }
+    for tree in &plan.trees {
+        if report.cancelled || cancel.is_cancelled() {
+            report.cancelled = true;
+            break;
+        }
+        close_tree(&parts, &plan, tree, &cancel, &mut report, &mut removed).await;
+    }
+    if !report.cancelled {
+        let (hidden, failed) = hide_leftovers(&parts, &plan, &removed).await;
+        report.leftovers_hidden = hidden;
+        for failed in failed {
+            report.not_hidden.push(json!({ "tag": Value::Null, "sessionId": failed.session_id, "reason": failed.reason }));
+        }
+    }
+    sessions.publish_held(hold).await;
+    // Counted once the cleanup's writes landed: what the scope lists as the reply is made.
+    report.tasks = tasks.list(&plan.scope).len();
+    report.workers = registry
+        .read_worker_rows(&plan.scope)
+        .unwrap_or_default()
+        .iter()
+        .filter(|row| !clean_str(&row.tag).is_empty() && !registry.is_released(&clean_str(&row.session_id)))
+        .count();
+    report
+}
+
+fn tag_or_null(tag: &str) -> Value {
+    if tag.is_empty() { Value::Null } else { Value::String(tag.to_owned()) }
+}
+
+/// The planned jobs bound to `session_id` or `target`, cancelled before the session closes.
+fn cancel_planned_jobs(tasks: &dyn Tasks, jobs: &[TaskFacts], session_id: &str, target: &str) {
+    for job in jobs.iter().filter(|job| job.session_id.as_deref() == Some(session_id) || job.tag.as_deref() == Some(target)) {
+        tasks.cancel(&job.task_id, CLOSE_REASON);
+    }
+}
+
+/// One tree of the plan, closed as [`close_resolved`] closes it once it is read again: each member under the tree's
+/// admission guard and only at the turn the plan judged idle; its jobs (and the root's statusline route) go once its
+/// stamp landed. A tree stopped partway (a cancellation, a member that moved on, a failure) leaves its stamped members
+/// closed, released and hidden, and the rest as they were.
+async fn close_tree(
+    parts: &CleanupParts,
+    plan: &CleanupPlan,
+    tree: &Tree,
+    cancel: &CancellationToken,
+    report: &mut CleanupReport,
+    removed: &mut HashSet<String>,
+) {
+    let CleanupParts { registry, sessions, tasks } = parts;
+    let root = clean_str(&tree.row.session_id);
+    let ids: Vec<String> = tree.members.iter().map(|member| member.id.clone()).collect();
+    let Some(row) = registry.worker_row(&root) else { return };
+    if !is_open_idle(&row.status, &row.stage) || !plan.scope.owns(&row.owner) {
+        return;
+    }
+    for member in &tree.members {
+        if sessions.turn_in_flight(&member.id) || registry.turn_mark(&member.id) != member.turn {
+            return;
+        }
+        let current = if member.id == root { Some(row.clone()) } else { registry.worker_row(&member.id) };
+        if current.is_some_and(|current| !result_delivered(&**tasks, &current, &plan.scope)) {
+            return;
+        }
+    }
+    let not_closed = |reason: String| json!({ "tag": tag_or_null(&row.tag), "sessionId": root, "reason": reason });
+    if tree.lead {
+        report.not_closed.push(not_closed(format!("agent close: target \"{root}\" is a Lead session")));
+        return;
+    }
+    // No turn is admitted in the tree from here.
+    let _cancelling = sessions.begin_cancellation(&ids);
+    let tag = registry.tag_for_session(&root);
+    let (mut closed, mut stamped, mut failures, mut moved) = (false, Vec::new(), Vec::new(), None);
+    for member in &tree.members {
+        if cancel.is_cancelled() {
+            report.cancelled = true;
+            break;
+        }
+        let fence = MemberClose { turn: member.turn.clone(), stamped: registry.is_released(&member.id) };
+        match sessions.close_member(&member.id, AGENT_CLOSE_REASON, CloseOptions { tombstone: false, owner_close: true }, fence).await {
+            Ok(MemberOutcome::Moved) => {
+                moved = Some(member.id.clone());
+                break;
+            }
+            Ok(outcome) => {
+                if member.id == root {
+                    sessions.clear_statusline_route(&root);
+                    cancel_planned_jobs(&**tasks, &plan.scoped_jobs, &root, &root);
+                }
+                tasks.cancel_owned(&member.id, AGENT_CLOSE_REASON);
+                for job in plan.jobs.iter().filter(|job| job.session_id.as_deref() == Some(member.id.as_str())) {
+                    tasks.cancel(&job.task_id, AGENT_CLOSE_REASON);
+                }
+                if outcome == MemberOutcome::Closed {
+                    closed = true;
+                    stamped.push(member.id.clone());
+                }
+            }
+            Err(error) => failures.push(error),
+        }
+    }
+    let whole = moved.is_none() && !report.cancelled;
+    // A tree left as it was (the first member moved on, or the cancellation came first) is no failure.
+    let failure = match (tree_outcome(closed, failures, ids.len()), &moved) {
+        (Err(reason), _) => Some(reason),
+        (Ok(_), Some(member)) if !stamped.is_empty() => Some(format!("agent close: \"{member}\" started another turn during the cleanup")),
+        (Ok(false), None) if whole => Some(CLOSE_NOT_RECORDED.to_owned()),
+        _ => None,
+    };
+    let complete = whole && failure.is_none();
+    if let Some(reason) = failure {
+        report.not_closed.push(not_closed(reason));
+    }
+    // A member a turn started on since its close keeps its row: it is released only at the turn the plan judged idle.
+    let at: HashMap<String, Option<TurnMark>> = tree.members.iter().map(|member| (member.id.clone(), member.turn.clone())).collect();
+    let released = if complete {
+        let released = registry.release_closed_at(tag.as_deref(), &root, &ids[..ids.len() - 1], &at);
+        if released.contains(&root) {
+            report.agents_closed += 1;
+        } else {
+            report.not_closed.push(not_closed(format!("agent close: \"{root}\" started another turn during the cleanup")));
+        }
+        released
+    } else {
+        // The root comes last. One that closed gives its tag back as in a whole close: the next scan indexes it again and
+        // the cleanup after it reaches the members left open below it. One left open keeps its tag and row.
+        let Some((last, rest)) = stamped.split_last() else { return };
+        let tag = if *last == root { tag.as_deref() } else { None };
+        registry.release_closed_at(tag, last, rest, &at)
+    };
+    removed.extend(released.iter().cloned());
+    for failed in sessions.hide_sessions(&released).await {
+        report.not_hidden.push(json!({ "tag": tag_or_null(&row.tag), "sessionId": failed.session_id, "reason": failed.reason }));
+    }
+}
+
+/// `hideLeftovers`: the idle sessions of the scope's agents that no worker row points to (what earlier closes left open)
+/// are hidden, not closed; a session this cleanup closed was hidden with its close. Answers how many were hidden and
+/// the ones that stay listed.
+async fn hide_leftovers(parts: &CleanupParts, plan: &CleanupPlan, closed: &HashSet<String>) -> (usize, Vec<HideFailed>) {
+    let CleanupParts { registry, sessions, tasks } = parts;
+    let mut pointed: HashSet<String> = registry.read_worker_rows(&Scope::default()).unwrap_or_default().iter().map(|row| clean_str(&row.session_id)).collect();
+    pointed.extend(registry.bound_sessions());
+    let mut leftovers = Vec::new();
+    for session in &plan.open {
+        let (id, tag, status) = (clean_str(&session.id), clean_str(&session.tag), clean_str(&session.status));
+        if id.is_empty() || pointed.contains(&id) || closed.contains(&id) {
+            continue;
+        }
+        if tag.is_empty() || is_lead_pool_agent(&session.agent) || !plan.scope.owns(&session.owner) {
+            continue;
+        }
+        if !(status.is_empty() || status == "idle") || sessions.turn_in_flight(&id) || sessions.is_hidden(&id).await {
+            continue;
+        }
+        // The row Node builds here names the session and its tag only: the tag's owner is the caller.
+        let row = TagRecord { session_id: id.clone(), tag, ..TagRecord::default() };
+        if result_delivered(&**tasks, &row, &plan.scope) {
+            leftovers.push(id);
+        }
+    }
+    let failed = sessions.hide_sessions(&leftovers).await;
+    (leftovers.len().saturating_sub(failed.len()), failed)
 }
 
 /// `errorLine`: the presented text, headed `Error:` unless it already is.
@@ -349,13 +656,13 @@ impl AgentRuntime {
 
     /// One request. A failure is the tool's answer, as text, not an error of the call.
     pub async fn handle(&self, args: &Value, caller: &Caller) -> AgentReply {
-        match self.run(args, caller).await {
+        match self.run(args, caller, &CancellationToken::new()).await {
             Ok(reply) => reply,
             Err(message) => AgentReply::Text(error_line(&self.deps.errors.present(&message))),
         }
     }
 
-    async fn run(&self, args: &Value, caller: &Caller) -> Result<AgentReply, String> {
+    async fn run(&self, args: &Value, caller: &Caller, cancel: &CancellationToken) -> Result<AgentReply, String> {
         // A tool call reads every legacy tombstone with its owner.
         self.deps.registry.resolve_tombstone_owners();
         let kind = clean(args.get("type"));
@@ -363,7 +670,9 @@ impl AgentRuntime {
         let scope = Scope::of(args, &caller.scope);
         // Rebuild tag ownership from canonical records even if a daemon crash happened before
         // the auxiliary worker row was flushed.
-        if self.deps.sessions.rehydrate_agent_sessions().await {
+        // A cleanup makes this refresh itself, from the one listing it plans over.
+        let rehydrated = self.deps.sessions.rehydrate_agent_sessions().await;
+        if rehydrated && kind != "cleanup" {
             self.deps.registry.refresh_tags_from_sessions(true, &scope).await;
         }
         let views = &self.deps.views;
@@ -382,7 +691,7 @@ impl AgentRuntime {
                 Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope).await })
             }
             "read" => self.read_job(args, &scope).await,
-            "cleanup" => self.cleanup(args, &scope).await,
+            "cleanup" => self.cleanup(args, &scope, rehydrated, cancel).await,
             "cancel" | "close" => Ok(AgentReply::Closed(self.close(args, caller, false).await?)),
             "send" => self.send(args, caller, &scope).await,
             "spawn" => self.spawn(args, caller, &scope).await,
@@ -409,10 +718,6 @@ impl AgentRuntime {
 
     // ---- close / cleanup -------------------------------------------------------------------
 
-    /// Stale local metadata only: `resolve_tag` found no session in this scope, so there is no
-    /// sessionId-safe worker row to delete. `tags`/`tagAgents` are shared by every caller on
-    /// the canonical agent, so a binding alone does not prove the caller owns it: only a live
-    /// session or a persisted row inside the caller's scope does.
     fn tag_bound_by_caller(&self, target: &str, scope: &Scope) -> bool {
         let registry = &self.deps.registry;
         let live = registry.tag_session(target).and_then(|id| registry.live_session(&id));
@@ -468,127 +773,31 @@ impl AgentRuntime {
         .await
     }
 
-    /// `releaseIdle(row, scopedContext)`: closes an idle agent whose last result was delivered.
-    async fn release_idle(&self, row: &TagRecord, scope: &Scope) -> IdleOutcome {
-        let AgentDeps { registry, sessions, tasks, .. } = &self.deps;
-        if sessions.session_gone(&row.session_id).await {
-            drop_gone_row(&**registry, &**tasks, &clean_str(&row.tag), &row.session_id);
-            return IdleOutcome::Gone;
-        }
-        if sessions.turn_in_flight(&row.session_id) {
-            return IdleOutcome::Busy;
-        }
-        if !result_delivered(&**tasks, row, scope) {
-            return IdleOutcome::Undelivered;
-        }
-        let caller = Caller { scope: scope.clone(), cwd: String::new(), ..Caller::default() };
-        match self.close(&json!({ "sessionId": row.session_id }), &caller, false).await {
-            Ok(view) if view.session_gone => IdleOutcome::Gone,
-            Ok(view) if view.closed => IdleOutcome::Closed { hide_failed: view.hide_failed },
-            Ok(view) => IdleOutcome::Failed { reason: view.reason },
-            Err(error) => IdleOutcome::Failed { reason: Some(error) },
-        }
-    }
-
-    /// `hideLeftovers`: the idle records of the caller's agents that no worker row points to (what earlier closes left
-    /// open) are hidden, not closed. Answers how many were hidden and the ones that stay listed.
-    async fn hide_leftovers(&self, scope: &Scope) -> (usize, Vec<HideFailed>) {
-        let AgentDeps { registry, sessions, tasks, .. } = &self.deps;
-        let mut pointed: std::collections::HashSet<String> =
-            registry.read_worker_rows(&Scope::default()).unwrap_or_default().iter().map(|row| clean_str(&row.session_id)).collect();
-        pointed.extend(registry.bound_sessions());
-        let mut leftovers = Vec::new();
-        for session in sessions.open_sessions() {
-            let (id, tag, status) = (clean_str(&session.id), clean_str(&session.tag), clean_str(&session.status));
-            if id.is_empty() || pointed.contains(&id) {
-                continue;
-            }
-            if tag.is_empty() || is_lead_pool_agent(&session.agent) || !scope.owns(&session.owner) {
-                continue;
-            }
-            if !(status.is_empty() || status == "idle") || sessions.turn_in_flight(&id) || sessions.is_hidden(&id).await {
-                continue;
-            }
-            // The row Node builds here names the session and its tag only: the tag's owner is the caller.
-            let row = TagRecord { session_id: id.clone(), tag, ..TagRecord::default() };
-            if result_delivered(&**tasks, &row, scope) {
-                leftovers.push(id);
-            }
-        }
-        let failed = sessions.hide_sessions(&leftovers).await;
-        (leftovers.len().saturating_sub(failed.len()), failed)
-    }
-
-    /// `cleanup` (`close-flow.mjs`): finished jobs and stale tags go; then every worker row of the caller whose session
-    /// was deleted is dropped, every idle agent whose last result was delivered is closed, and the idle agent sessions no
-    /// row points to are hidden. Node also forgets the hidden ids of deleted sessions (`forgetGoneHidden`); the hiding
-    /// here is the session header's own flag, which goes with the session.
-    async fn cleanup(&self, args: &Value, scope: &Scope) -> Result<AgentReply, String> {
+    /// `rehydrated`: the stored agent sessions were reloaded, so the refresh scans them as the call's preamble would.
+    async fn cleanup(&self, args: &Value, scope: &Scope, rehydrated: bool, cancel: &CancellationToken) -> Result<AgentReply, String> {
         let registry = &self.deps.registry;
+        let listed = registry.refresh_topology(rehydrated || wants_session_scan(args), scope).await;
         let before = registry.tag_count() as i64;
-        registry.refresh_tags_from_sessions(wants_session_scan(args), scope).await;
         let cleaned = self.deps.tasks.cleanup(scope, args.get("force") == Some(&Value::Bool(true)));
-        let (mut agents_closed, mut gone_rows_cleared) = (0u64, 0u64);
-        let (mut not_closed, mut not_hidden) = (Vec::new(), Vec::new());
-        let tag_or_null = |tag: &str| if tag.is_empty() { Value::Null } else { Value::String(tag.to_owned()) };
-        for row in registry.read_worker_rows(scope).unwrap_or_default() {
-            let session_id = clean_str(&row.session_id);
-            if session_id.is_empty() {
-                continue;
-            }
-            // A row of any status whose session was deleted is only a leftover.
-            if self.deps.sessions.session_gone(&session_id).await {
-                cancel_session_tasks(&*self.deps.tasks, &session_id, &session_id, scope);
-                drop_gone_row(&**registry, &*self.deps.tasks, &clean_str(&row.tag), &session_id);
-                gone_rows_cleared += 1;
-                continue;
-            }
-            if !is_open_idle(&row.status, &row.stage) {
-                continue;
-            }
-            match self.release_idle(&row, scope).await {
-                IdleOutcome::Closed { hide_failed } => {
-                    agents_closed += 1;
-                    for failed in hide_failed {
-                        not_hidden.push(json!({ "tag": tag_or_null(&row.tag), "sessionId": failed.session_id, "reason": failed.reason }));
-                    }
-                }
-                IdleOutcome::Gone => gone_rows_cleared += 1,
-                IdleOutcome::Failed { reason } => {
-                    let mut entry = json!({ "tag": tag_or_null(&row.tag), "sessionId": session_id });
-                    if let Some(reason) = reason {
-                        entry["reason"] = Value::String(reason);
-                    }
-                    not_closed.push(entry);
-                }
-                IdleOutcome::Parked | IdleOutcome::Busy | IdleOutcome::Undelivered => {}
-            }
-        }
-        let (leftovers_hidden, leftovers_failed) = self.hide_leftovers(scope).await;
-        for failed in leftovers_failed {
-            not_hidden.push(json!({ "tag": Value::Null, "sessionId": failed.session_id, "reason": failed.reason }));
-        }
+        let parts = CleanupParts { registry: Arc::clone(registry), sessions: Arc::clone(&self.deps.sessions), tasks: Arc::clone(&self.deps.tasks) };
+        let report = cleanup_idle(parts, scope, listed, cancel.clone()).await?;
         let tags_removed = before - registry.tag_count() as i64;
-        let tasks = self.deps.views.list_jobs(scope).await.len();
-        // Cleanup reports how many worker rows remain known (idle/terminal included).
-        let workers =
-            self.deps.views.list(scope, ListOptions { scan_sessions: wants_session_scan(args), include_terminal: true, ..ListOptions::default() }).await.len();
         let mut reply = serde_json::Map::new();
         reply.insert("tasksRemoved".into(), json!(cleaned.removed));
         reply.insert("tagsRemoved".into(), json!(tags_removed));
-        reply.insert("agentsClosed".into(), json!(agents_closed));
-        if gone_rows_cleared > 0 {
-            reply.insert("goneRowsCleared".into(), json!(gone_rows_cleared));
+        reply.insert("agentsClosed".into(), json!(report.agents_closed));
+        if report.gone_rows_cleared > 0 {
+            reply.insert("goneRowsCleared".into(), json!(report.gone_rows_cleared));
         }
-        reply.insert("leftoversHidden".into(), json!(leftovers_hidden));
-        if !not_closed.is_empty() {
-            reply.insert("notClosed".into(), Value::Array(not_closed));
+        reply.insert("leftoversHidden".into(), json!(report.leftovers_hidden));
+        if !report.not_closed.is_empty() {
+            reply.insert("notClosed".into(), Value::Array(report.not_closed));
         }
-        if !not_hidden.is_empty() {
-            reply.insert("notHidden".into(), Value::Array(not_hidden));
+        if !report.not_hidden.is_empty() {
+            reply.insert("notHidden".into(), Value::Array(report.not_hidden));
         }
-        reply.insert("tasks".into(), json!(tasks));
-        reply.insert("workers".into(), json!(workers));
+        reply.insert("tasks".into(), json!(report.tasks));
+        reply.insert("workers".into(), json!(report.workers));
         Ok(AgentReply::Json(Value::Object(reply)))
     }
 
@@ -612,10 +821,6 @@ impl AgentRuntime {
         }
     }
 
-    /// A retained row, a reap tombstone, or (once a pruned row's tombstone has expired) the
-    /// tag's own session record proves that this terminal owned the tag. Unknown tags stay
-    /// errors even when the caller supplies an agent/cwd: typo absorption requires persisted
-    /// same-tag evidence.
     fn inherited_tag_identity(&self, tag: &str, caller: &Caller, args: &Value, caller_cwd: &str) -> Option<Inherited> {
         let registry = &self.deps.registry;
         let row = registry.read_worker_rows(&caller.scope).ok().and_then(|rows| rows.into_iter().find(|r| clean_str(&r.tag) == tag));
@@ -650,11 +855,6 @@ impl AgentRuntime {
         Some(Inherited { tombstone, session_id, resume_session_id, agent, cwd })
     }
 
-    /// Dead-tag fallback: a same-scope follow-up can land after its tag was reaped, or after
-    /// its session was closed or deleted. A reaped tag whose saved session is still stored and
-    /// open continues that session (`resumed`, prior context kept). Otherwise a FRESH session
-    /// is respawned under the same tag with the message as its brief (`respawned: true`).
-    /// Only tag-addressed sends fall back; explicit sessionId sends keep erroring.
     async fn respawn_dead_tag_send(&self, error: String, args: &Value, caller: &Caller, scope: &Scope) -> Result<AgentReply, String> {
         let tag = clean(args.get("tag"));
         if tag.is_empty() || tag.starts_with("sess_") || !is_dead_target(&error) {
@@ -717,13 +917,6 @@ impl AgentRuntime {
 
     // ---- spawn -----------------------------------------------------------------------------
 
-    /// Explicit-tag spawn priority (an auto tag always creates a fresh session):
-    ///   1) live session -> send to it (reuse; it queues if busy)
-    ///   2) lingering terminal trace -> reap the trace and spawn fresh under the same tag
-    ///   3) reaped tag (tombstone, or past it this owner's last session record) whose saved
-    ///      session can continue -> resume it; a tombstone whose session cannot -> fresh spawn
-    ///      inheriting agent/cwd (`respawned`)
-    ///   4) genuinely new tag -> fresh deferred spawn
     async fn resolve_explicit_tag_spawn(&self, tag: &str, args: &Value, caller: &Caller, scope: &Scope) -> Result<SpawnPlan, String> {
         let registry = &self.deps.registry;
         let caller_cwd = caller.cwd.as_str();
@@ -850,6 +1043,8 @@ impl AgentPort for AgentRuntime {
         {
             object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
         }
-        self.run(&args, &caller).await.map_err(|message| PortError::Failed { capability: "agent".to_owned(), message: self.deps.errors.present(&message) })
+        self.run(&args, &caller, request.cancel)
+            .await
+            .map_err(|message| PortError::Failed { capability: "agent".to_owned(), message: self.deps.errors.present(&message) })
     }
 }

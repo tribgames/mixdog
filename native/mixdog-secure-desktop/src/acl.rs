@@ -400,10 +400,6 @@ mod tests {
         }
     }
 
-    /// A fresh directory under `%TEMP%` plus the subdirectories made in it. The
-    /// ACLs under test lock the running user out of everything but ownership,
-    /// so on drop the user (the owner) is given full control back, then the
-    /// tree is removed. Nothing outside it is ever touched.
     struct TempTree {
         root: PathBuf,
         dirs: Vec<PathBuf>,
@@ -439,10 +435,6 @@ mod tests {
     fn on_disk_an_inherit_only_grant_is_ignored_on_its_directory_and_counted_where_it_is_inherited() {
         let user = current_user_sid().unwrap();
         let mut tree = TempTree::new("inherit");
-        // The ancestor, like a stock root: trusted principals, plus an
-        // inherit-only Authenticated Users "modify" for new children. The
-        // running user keeps create-subdirectory only (benign on a directory)
-        // so the test can make children below it.
         let ancestor = format!("D:P{TRUSTED}(A;OICIIO;{AU_MODIFY})(A;;0x6;;;{user})");
         assert_eq!(set_dacl(&tree.root, &ancestor, true), ERROR_SUCCESS);
         assert_eq!(disk_verdict(&tree.root, DIR), Ok(()), "the ancestor itself");
@@ -465,10 +457,7 @@ mod tests {
             let tree = TempTree::new("noaccess");
             let made = tree.root.join("made");
             assert_eq!(set_dacl(&tree.root, &format!("D:P(A;{flags};FA;;;{user})"), true), ERROR_SUCCESS);
-            // Judged from the on-disk DACL alone: whether a create here would
-            // succeed also depends on the caller's token privileges (an
-            // elevated CI runner can hold backup/restore rights), which say
-            // nothing about what the ACE grants.
+            // Token privileges (backup/restore on an elevated runner) can let a create succeed regardless of the ACE, so judge the DACL itself.
             assert_eq!(effective_rights(&tree.root, &user) & ADD_FILE_OR_SUBDIRECTORY, 0, "{flags}: an inherit-only grant must give its holder no add rights");
             // The same grant without IO does open the directory.
             assert_eq!(set_dacl(&tree.root, &format!("D:P(A;OICI;FA;;;{user})"), true), ERROR_SUCCESS);

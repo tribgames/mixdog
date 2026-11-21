@@ -517,26 +517,9 @@ struct FileEntry {
     scan: Scan,
 }
 
-/// `inventory(root, { today })`; the error is the message of the `Error` the script throws.
-pub fn inventory<P: ReadProof>(proof: &P, root: &str, today: &str) -> Result<Report, String> {
-    if !mixdog_fsio::metadata(proof, Path::new(root)).is_ok_and(|meta| meta.is_dir()) {
-        return Err(format!("not a directory: {root}"));
-    }
-    let mut walk = Walk { proof, root, dirs: 0, found: Vec::new() };
-    walk.visit(Path::new(root), "", 0)?;
-    let mut files: Vec<FileEntry> = Vec::new();
-    for Candidate { path, rel, found } in walk.found {
-        let text = read_head(proof, &path, &joined(root, &rel))?;
-        let lang = match found {
-            Found::RustText if !PATTERNS.rust_test.is_match(&text) => continue,
-            Found::RustText => Lang::Rust,
-            Found::Lang(lang) => lang,
-        };
-        let (lane, area) = (lane_of(&rel), area_of(&rel));
-        files.push(FileEntry { scan: scan_text(&text, today, lang), file: rel, lang, lane, area });
-    }
+fn area_rows(files: &[FileEntry]) -> Vec<AreaRow> {
     let mut areas: Vec<AreaRow> = Vec::new();
-    for entry in &files {
+    for entry in files {
         let at = match areas.iter().position(|row| row.area == entry.area) {
             Some(at) => at,
             None => {
@@ -569,6 +552,28 @@ pub fn inventory<P: ReadProof>(proof: &P, root: &str, today: &str) -> Result<Rep
         }
     }
     areas.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| locale_compare(&a.area, &b.area)));
+    areas
+}
+
+/// `inventory(root, { today })`; the error is the message of the `Error` the script throws.
+pub fn inventory<P: ReadProof>(proof: &P, root: &str, today: &str) -> Result<Report, String> {
+    if !mixdog_fsio::metadata(proof, Path::new(root)).is_ok_and(|meta| meta.is_dir()) {
+        return Err(format!("not a directory: {root}"));
+    }
+    let mut walk = Walk { proof, root, dirs: 0, found: Vec::new() };
+    walk.visit(Path::new(root), "", 0)?;
+    let mut files: Vec<FileEntry> = Vec::new();
+    for Candidate { path, rel, found } in walk.found {
+        let text = read_head(proof, &path, &joined(root, &rel))?;
+        let lang = match found {
+            Found::RustText if !PATTERNS.rust_test.is_match(&text) => continue,
+            Found::RustText => Lang::Rust,
+            Found::Lang(lang) => lang,
+        };
+        let (lane, area) = (lane_of(&rel), area_of(&rel));
+        files.push(FileEntry { scan: scan_text(&text, today, lang), file: rel, lang, lane, area });
+    }
+    let areas = area_rows(&files);
     let attention: Vec<Attention> = files
         .iter()
         .flat_map(|entry| {

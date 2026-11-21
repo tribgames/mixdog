@@ -1,10 +1,5 @@
-//! A spawn: what it will be, the session it creates and the job that runs it (Node
-//! `spawn-flow/spawn-plan.mjs`, `spawn-prep.mjs`, `deferred-spawn.mjs`). A spawn runs entirely
-//! inside its job: prepared, its worker row flipped to running, and cancellation checked around
-//! the turn.
-//!
-//! A spawn that has not finished preparing within `SPAWN_PREP_DEADLINE` fails
-//! (`prepareWithDeadline`); a session it prepares after that is closed.
+//! A spawn: its plan, the session it creates and the job that runs it. A spawn that has not
+//! finished preparing within `SPAWN_PREP_DEADLINE` fails; a session it prepares after that is closed.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -58,10 +53,6 @@ use crate::env::Clock;
 const SPAWN_PREP_DEADLINE: Duration = Duration::from_secs(120);
 const SPAWN_PREP_TIMED_OUT: &str = "agent spawn prep timed out before session bind";
 
-/// What `prepareWithDeadline` does with the work it stops waiting for: it goes on in its own task, and what it
-/// produces then goes to `late`, which tears it down.
-/// The struct states the bounds its `Drop` needs (a `Drop` impl may not add any), and names the value type `T`
-/// and `late`'s future `F` through `produces`.
 struct Unclaimed<T, W, L, F>
 where
     T: Send + 'static,
@@ -92,10 +83,8 @@ where
     }
 }
 
-/// `prepareWithDeadline`: `work`'s outcome, or the timeout's message once `deadline` passes. The
-/// work runs in the caller's own task, as Node's does (its continuation is the next microtask, not another
-/// task's turn); what it produces after the caller stopped waiting (the deadline passed, or the caller was
-/// dropped) goes to `late`, which tears it down.
+/// `work`'s outcome, or the timeout's message once `deadline` passes. What the work produces after the
+/// caller stopped waiting (the deadline passed, or the caller was dropped) goes to `late`, which tears it down.
 async fn within_deadline<T, W, L, F>(deadline: Duration, work: W, late: L) -> Result<T, String>
 where
     T: Send + 'static,
@@ -220,7 +209,7 @@ impl SpawnFlowImpl {
         }
     }
 
-    /// `resolveSpawnPlan`: the shared validations (agent, preset, tag, cwd, prompt).
+    /// The shared validations (agent, preset, tag, cwd, prompt).
     pub async fn resolve_spawn_plan(&self, args: &Value, caller_cwd: Option<&str>, context: &SpawnContext) -> Result<SpawnPlan, String> {
         let world = &self.world;
         let config = world.load_config().await?;
@@ -257,8 +246,14 @@ impl SpawnFlowImpl {
         if existing.is_some() {
             return Err(format!("agent spawn: tag \"{tag}\" already exists"));
         }
-        // Workers share their Lead's execution root. While the Lead runs in its worktree that
-        // root is locked: neither `args.cwd` nor an inherited cwd can send a worker elsewhere.
+        let worker_cwd = self.worker_cwd(args, caller_cwd, context);
+        let prompt = resolve_prompt(args, &worker_cwd, &*self.env).await?;
+        Ok(SpawnPlan { config, agent, agent_perm, preset_name, preset, tag, worker_cwd, prompt })
+    }
+
+    /// Workers share their Lead's execution root. While the Lead runs in its worktree that
+    /// root is locked: neither `args.cwd` nor an inherited cwd can send a worker elsewhere.
+    fn worker_cwd(&self, args: &Value, caller_cwd: Option<&str>, context: &SpawnContext) -> String {
         let owners = [context.owner_id(), context.caller_id()];
         let locked = self.admission.workspace_cwd_lock(&owners).filter(|l| !l.is_empty());
         let current = self.env.current_dir();
@@ -269,9 +264,7 @@ impl SpawnFlowImpl {
             .unwrap_or_else(|| current.clone());
         let base_cwd = resolve_path(&current, &base_source);
         let requested = clean(args.get("cwd"));
-        let worker_cwd = if locked.is_none() && !requested.is_empty() { resolve_path(&base_cwd, &requested) } else { base_cwd };
-        let prompt = resolve_prompt(args, &worker_cwd, &*self.env).await?;
-        Ok(SpawnPlan { config, agent, agent_perm, preset_name, preset, tag, worker_cwd, prompt })
+        if locked.is_none() && !requested.is_empty() { resolve_path(&base_cwd, &requested) } else { base_cwd }
     }
 
     /// `spawnSessionSpec`: the normalized in-process agent session spec.
@@ -476,11 +469,10 @@ impl SpawnFlowImpl {
         })
     }
 
-    /// `runToCompletion`: one workflow agent run to its end for a caller with no session to hand
-    /// the result to (a routine's executor). `context.caller_session_id` is the id the agent is
-    /// created under. Resolves the agent's session id and final content; fails when the agent
-    /// fails or is cancelled, or `cancel` fires (which cancels it silently). The agent's session is
-    /// closed afterwards.
+    /// One workflow agent run to its end for a caller with no session to hand the result to (a
+    /// routine's executor). `context.caller_session_id` is the id the agent is created under.
+    /// Resolves the agent's session id and final content; fails when the agent fails or is
+    /// cancelled, or `cancel` fires (which cancels it silently). The agent's session is closed afterwards.
     pub async fn run_to_completion(
         self: &Arc<Self>,
         args: &Value,

@@ -140,6 +140,16 @@ impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
         }
         self.inner.spawn(request).await
     }
+    fn subscribe_holding(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<
+        Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>,
+        mixdog_core_api::domain::process::ProcessError,
+    > {
+        self.inner.subscribe_holding(handle, from_seq)
+    }
     fn subscribe(
         &self,
         handle: &mixdog_protocol::ProcessHandle,
@@ -315,12 +325,16 @@ fn local_processes() -> Arc<LocalProcessManager> {
 fn store(processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager>, data: &Path) -> Worktrees {
     Worktrees::new(Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, data.join("scratch")), data.to_path_buf())
 }
+/// A temporary folder at its real path: the store keeps the real path of a checkout, and a test names it through its own.
+pub fn real_tempdir() -> tempfile::TempDir {
+    tempfile::Builder::new().tempdir_in(mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).unwrap()).unwrap()
+}
 pub fn rig() -> Rig {
     rig_over(|worktrees| worktrees)
 }
 /// [`rig`] over a managed store that `shape` has changed (a host cleanup added).
 fn rig_over(shape: impl FnOnce(Worktrees) -> Worktrees) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let repo = repo_with_one_commit(dir.path());
     let data = dir.path().join("data");
     let worktrees = Arc::new(shape(store(local_processes(), &data)));
@@ -564,7 +578,7 @@ async fn a_recovery_session_refuses_its_turn_and_a_creation_intent_provisions_at
 /// `dirty`: the project folder changes before the restore.
 async fn claim_fails_after_a_carry(dirty: bool) -> (tempfile::TempDir, Result<(), ScmFailure>, Vec<Value>, String, String) {
     use super::worktree_ops::{Ops, TxScope};
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let repo = repo_with_one_commit(dir.path());
     std::fs::write(repo.join("f.txt"), "changed\n").unwrap();
     let processes = Arc::new(DirtiesBeforeRestore { inner: local_processes(), armed: AtomicBool::new(dirty) });
@@ -691,7 +705,7 @@ async fn a_partly_removed_worktree_reports_what_is_left() {
 /// A repository with one commit, and the session layer's worktree operations over a fresh managed store whose settings (the
 /// store's own and the session layer's) are `settings`: returns the folder that holds both, the repository and the operations.
 fn ops_over_a_fresh_store(settings: Arc<dyn SettingsSource>) -> (tempfile::TempDir, PathBuf, super::worktree_ops::Ops) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = real_tempdir();
     let repo = repo_with_one_commit(dir.path());
     let worktrees = store(local_processes(), &dir.path().join("data")).with_settings(settings.clone());
     let ops = super::worktree_ops::Ops { wt: Arc::new(worktrees), settings, runtime_token: "rt".into() };

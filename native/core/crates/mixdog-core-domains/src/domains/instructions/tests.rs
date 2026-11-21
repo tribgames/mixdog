@@ -120,10 +120,7 @@ fn writers_of_one_file_never_collide_on_a_temp_name() {
     names.sort();
     assert_eq!(names, ["none.md", "none.md.bak"]);
 }
-/// The text of an `fs` failure is Node's `<errno>: <description>, <syscall> '<path>'` with the
-/// syscall of the step Node's own code path fails at. The one difference from Node is the temp
-/// file's name: Node and Rust each draw their own 8 random bytes (`<name>.mixdog-tmp-<16 hex>`),
-/// so that part is compared by shape, never by value.
+
 #[test]
 fn a_failed_write_reads_as_the_node_error_of_the_same_step() {
     use mixdog_core_base::support::FsFailure;

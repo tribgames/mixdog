@@ -248,19 +248,29 @@ fn find_element(snapshot: &Value, role: &str) -> Value {
         .clone()
 }
 
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    ONE_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn session(name: &str) -> (Fixture, Host, String) {
+    let title = format!("MixdogComputerFixture-{name}-{}", std::process::id());
+    let fixture = Fixture::open(&title);
+    (fixture, Host::start(4242), title)
+}
+
 /// DS-COMP-1: the harness's observe/act/verify scenarios against a fixture
 /// window, through the resident-helper protocol.
 #[test]
 #[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
-fn windows_backend_serves_the_computer_protocol() {
+fn windows_backend_observes_the_fixture_window() {
     if !live() {
         return;
     }
-    let title = format!("MixdogComputerFixture-{}", std::process::id());
-    let fixture = Fixture::open(&title);
-    let mut host = Host::start(4242);
+    let _serial = serial();
+    let (fixture, mut host, title) = session("observe");
 
-    // Observation.
     let listing = host.ok(json!({ "action": "list_windows" }));
     let row = listing["windows"].as_array().unwrap().iter().find(|row| row["id"] == json!(fixture.id())).expect("fixture is listed");
     assert_eq!(row["title"], json!(title));
@@ -279,7 +289,6 @@ fn windows_backend_serves_the_computer_protocol() {
     assert_eq!(capture["capture_source"], json!("window_surface"));
     assert_eq!(capture["width"], json!(460));
     use base64::Engine;
-    // A window narrower than the default 1280 cap is delivered unscaled, as JPEG.
     assert_eq!(capture["image"]["mimeType"], json!("image/jpeg"));
     assert_eq!(capture["image_width"], json!(460));
     let jpeg = base64::engine::general_purpose::STANDARD.decode(capture["image"]["data"].as_str().unwrap()).unwrap();
@@ -287,27 +296,44 @@ fn windows_backend_serves_the_computer_protocol() {
 
     let status = host.ok(json!({ "action": "ocr_status" }));
     assert!(status["available"].is_boolean());
+}
 
-    // Accessibility.
+#[test]
+#[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
+fn windows_backend_acts_on_accessibility_elements() {
+    if !live() {
+        return;
+    }
+    let _serial = serial();
+    let (fixture, mut host, _title) = session("semantic");
+
     let snapshot = host.ok(json!({ "action": "snapshot", "window_id": fixture.id() }));
     let edit = find_element(&snapshot, "Edit");
     let button = find_element(&snapshot, "Button");
     assert_eq!(edit["source"], json!("uia"));
     assert_eq!(button["name"], json!("Press me"));
 
-    // Semantic actions.
     let set = host.ok(json!({ "action": "set_value", "ref": edit["ref"], "text": "semantic" }));
     assert_eq!(set["verified"], json!(true));
     assert_eq!(fixture.edit_text(), "semantic");
     let before = CLICKS.load(Ordering::SeqCst);
     let invoked = host.ok(json!({ "action": "invoke", "ref": button["ref"] }));
     assert_eq!(invoked["delivery_accepted"], json!(true));
-    // Delivered by the fixture's own message pump, which raises its signal after counting it.
     wait_until(|| CLICKS.load(Ordering::SeqCst) > before);
     assert_eq!(CLICKS.load(Ordering::SeqCst), before + 1);
+}
 
-    // Background input, delivered as messages to the fixture alone.
-    host.ok(json!({ "action": "set_value", "ref": edit["ref"], "text": "" }));
+#[test]
+#[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
+fn windows_backend_delivers_background_input_to_the_fixture_alone() {
+    if !live() {
+        return;
+    }
+    let _serial = serial();
+    let (fixture, mut host, _title) = session("background");
+
+    let snapshot = host.ok(json!({ "action": "snapshot", "window_id": fixture.id() }));
+    let button = find_element(&snapshot, "Button");
     assert_eq!(fixture.focused(), fixture.edit, "the fixture's own queue focuses its edit");
     let typed = host.ok(json!({ "action": "type", "window_id": fixture.id(), "text": "Hi 한글", "delivery": "background" }));
     assert_eq!(typed["delivery_accepted"], json!(true), "{typed}");
@@ -325,11 +351,19 @@ fn windows_backend_serves_the_computer_protocol() {
         "x": button["center_x"], "y": button["center_y"],
     }));
     assert_eq!(clicked["delivery_accepted"], json!(true), "{clicked}");
-    // Delivered by the fixture's own message pump, which raises its signal after counting it.
     wait_until(|| CLICKS.load(Ordering::SeqCst) > before);
     assert_eq!(CLICKS.load(Ordering::SeqCst), before + 1);
+}
 
-    // Window operations.
+#[test]
+#[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
+fn windows_backend_moves_minimizes_restores_and_closes_the_fixture() {
+    if !live() {
+        return;
+    }
+    let _serial = serial();
+    let (fixture, mut host, _title) = session("window-ops");
+
     host.ok(json!({ "action": "move_window", "window_id": fixture.id(), "x": 160, "y": 160, "width": 480, "height": 280 }));
     let moved = host.ok(json!({ "action": "window_bounds", "window_id": fixture.id() }));
     assert_eq!((moved["x"].as_i64(), moved["width"].as_i64()), (Some(160), Some(480)));
@@ -338,7 +372,6 @@ fn windows_backend_serves_the_computer_protocol() {
     let restored = host.ok(json!({ "action": "window_state", "window_id": fixture.id(), "state": "restore" }));
     assert_eq!(restored["verified"], json!(true));
     host.ok(json!({ "action": "close_window", "window_id": fixture.id() }));
-    // The pump ends (and raises) once the window is destroyed.
     wait_until(|| !fixture.exists());
     assert!(!fixture.exists(), "the fixture closed");
 }

@@ -357,6 +357,12 @@ fn fault(code: &str, part: &str, message: String) -> Value {
 /// resolves: a slide on two layouts, one notes page claimed by two slides, a master listing a layout its relationships do
 /// not name, and two masters sharing one theme part.
 fn presentation_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
+    let mut faults = slide_faults(zip, entries);
+    faults.extend(master_faults(zip, entries));
+    faults
+}
+
+fn slide_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
     let mut faults = Vec::new();
     let mut notes_owners: HashMap<String, String> = HashMap::new();
     let slide_part = compiled(r"^ppt\/slides\/slide\d+\.xml$", "");
@@ -377,6 +383,11 @@ fn presentation_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
             }
         }
     }
+    faults
+}
+
+fn master_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
+    let mut faults = Vec::new();
     // pptxgenjs points the notes master at the slide master's theme. PowerPoint opens that deck only while
     // <p:notesMasterIdLst> directly follows <p:sldIdLst>.
     let presentation = compiled(r"<!--[\s\S]*?-->", "g").replace_all_with(&zip.text("ppt/presentation.xml"), |_| String::new());
@@ -2055,8 +2066,7 @@ mod tests {
         assert_eq!(answer["malformedXml"], json!([{ "part": "word/document.xml", "error": "about:blank:2:23: unexpected close tag." }]));
     }
 
-    #[test]
-    fn relationships_are_checked_for_duplicates_external_targets_and_dangling_targets() {
+    fn mixed_relationships_answer() -> Value {
         let mut package = docx();
         package.set(
             "word/_rels/document.xml.rels",
@@ -2064,13 +2074,27 @@ mod tests {
                 r#"<Relationships xmlns="{RELATIONSHIP_NS}"><Relationship Id="rId1" Type="t" Target="styles.xml"/><Relationship Id="rId1" Type="t" Target="media/a%20b.png"/><Relationship Id="rId2" Type="t" Target="https://example.com/?a=1&amp;b=2" TargetMode="External"/><Relationship Id="rId3" Type="t" Target="../../outside.xml"/></Relationships>"#
             ),
         );
-        let answer = validate(&package, "docx", &ValidateOptions::default());
+        validate(&package, "docx", &ValidateOptions::default())
+    }
+
+    #[test]
+    fn a_repeated_relationship_id_fails_the_package() {
+        let answer = mixed_relationships_answer();
         assert_eq!(answer["ok"], false);
         assert_eq!(answer["duplicateRelationshipIds"], json!([{ "relationship": "word/_rels/document.xml.rels", "id": "rId1" }]));
+    }
+
+    #[test]
+    fn an_external_relationship_is_listed_with_its_decoded_target() {
         assert_eq!(
-            answer["externalRelationships"],
+            mixed_relationships_answer()["externalRelationships"],
             json!([{ "relationship": "word/_rels/document.xml.rels", "id": "rId2", "target": "https://example.com/?a=1&b=2" }])
         );
+    }
+
+    #[test]
+    fn relationship_targets_that_resolve_to_no_part_are_missing() {
+        let answer = mixed_relationships_answer();
         let missing = answer["missingRelationships"].as_array().expect("a list");
         assert_eq!(missing.len(), 3);
         assert_eq!(missing[0]["resolved"], "word/styles.xml");

@@ -555,6 +555,34 @@ impl Parser {
         convert_glyphs(charstrings, subrs)
     }
 
+    /// The `StartData` section of a CID-keyed file: `length` binary bytes, or `length` bytes decoded from the
+    /// hexadecimal digits that follow (`None` when they are fewer).
+    fn read_start_data(&mut self, length: usize, is_hex: bool) -> Option<Vec<u8>> {
+        let binary = get_bytes(&mut self.stream, if is_hex { None } else { Some(length) });
+        if !is_hex {
+            return Some(binary);
+        }
+        let mut decoded = vec![0u8; length];
+        let (mut digit1, mut j) = (-1i32, 0usize);
+        for &digit in &binary {
+            if j >= length {
+                break;
+            }
+            if !is_hex_digit(i32::from(digit)) {
+                continue;
+            }
+            if digit1 < 0 {
+                digit1 = i32::from(digit);
+                continue;
+            }
+            let value = (digit1 as u8 as char).to_digit(16).unwrap_or(0) * 16 + (digit as char).to_digit(16).unwrap_or(0);
+            decoded[j] = value as u8;
+            j += 1;
+            digit1 = -1;
+        }
+        (j == length).then_some(decoded)
+    }
+
     /// pdf.js `extractCidKeyedFontProgram`: a CID-keyed Type 1 file (`StartData` with a CIDMap). `None` when the file
     /// is not one the converter can read.
     fn extract_cid_keyed_font_program(&mut self, properties: &mut Properties) -> Option<Program> {
@@ -626,31 +654,7 @@ impl Parser {
                 return None;
             }
         }
-        let mut binary = get_bytes(&mut self.stream, if start_data_is_hex { None } else { Some(start_data_length) });
-        if start_data_is_hex {
-            let mut decoded = vec![0u8; start_data_length];
-            let (mut digit1, mut j) = (-1i32, 0usize);
-            for &digit in &binary {
-                if j >= start_data_length {
-                    break;
-                }
-                if !is_hex_digit(i32::from(digit)) {
-                    continue;
-                }
-                if digit1 < 0 {
-                    digit1 = i32::from(digit);
-                    continue;
-                }
-                let value = (digit1 as u8 as char).to_digit(16).unwrap_or(0) * 16 + (digit as char).to_digit(16).unwrap_or(0);
-                decoded[j] = value as u8;
-                j += 1;
-                digit1 = -1;
-            }
-            if j != start_data_length {
-                return None;
-            }
-            binary = decoded;
-        }
+        let binary = self.read_start_data(start_data_length, start_data_is_hex)?;
         let (cid_count, cid_map_offset, fd_bytes, gd_bytes) = (cid_count as usize, cid_map_offset as usize, fd_bytes as usize, gd_bytes as usize);
         let cid_entry_size = fd_bytes + gd_bytes;
         let read_uint = |offset: usize, byte_count: usize| -> u32 {

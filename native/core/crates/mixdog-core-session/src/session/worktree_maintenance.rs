@@ -1,5 +1,4 @@
-//! The managed-worktree maintenance the session runtime drives (Node `worktree-maintenance.mjs`
-//! and the daemon's startup reconcile and idle cleanup): the startup reconcile, the periodic
+//! The managed-worktree maintenance the session runtime drives: the startup reconcile, the periodic
 //! cleanup, a deleted session's cleanup and the archive marks. The policy and every removal
 //! are `mixdog-scm`'s [`Worktrees`]; this layer supplies what only the session runtime knows:
 //! the sessions of this process (each counts as a live owner, read again before each removal)
@@ -109,7 +108,7 @@ impl WorktreeMaintenance {
         self.worktrees.run_worktree_cleanup(&self.sessions, &self.options(), cancel).await
     }
 
-    /// The daemon's worktree jobs (Node `daemon.mjs`): the startup reconcile, off the boot path,
+    /// The daemon's worktree jobs: the startup reconcile, off the boot path,
     /// and the `worktree-cleanup` task on `schedule` (due 3 minutes after this call, then
     /// hourly, only at an idle tick). Both report through `log`; `schedule` must be ticking
     /// (`MaintenanceSchedule::start`) and carry the "no session is mid-turn" idle probe.

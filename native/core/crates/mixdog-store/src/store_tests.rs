@@ -798,14 +798,6 @@ async fn group_file_session(members: usize) -> GroupFile {
     g
 }
 
-/// A group file (FORMAT.md §3.6 invariant G) holds no anchor a reader could use without its group and is never
-/// reverse-scanned, so a valid checkpoint line inside its members (stale or forged) is never used, wherever it lies
-/// relative to the reverse-scan windows (inside the first, across its start, between them, across the second's start,
-/// before it, before the lookback beyond it); and the file is used only whole. Whole, the session holds every member. Cut
-/// anywhere after the head — right after it too, the whole group missing — or with a member damaged, it holds exactly
-/// what it held before the group, record for record, and is damaged. With the head damaged the file has no anchor and the
-/// log does not open. With a segment after the group file the open uses that segment's checkpoint (written once the group
-/// file was durable); a damaged member then fails its positioned read and the forward read stops at the group file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
     use crate::schema::frame::*;
@@ -860,8 +852,15 @@ async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
             assert_eq!(&g.seen_with(&file).await, want, "{shape}, a checkpoint line {class}");
         }
     }
+}
 
-    // What follows the group file: the next write starts a new segment with a checkpoint.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_segment_after_a_group_file_opens_from_its_own_checkpoint() {
+    let g = group_file_session(60).await;
+    let member = (g.head_len + g.bytes.len()) / 2;
+    let mut member_damaged = g.bytes.clone();
+    member_damaged[member] ^= 0x01;
+    // The next write starts a new segment with a checkpoint.
     let opened = g.env.reopen("s1").await;
     let deps = g.env.deps();
     let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
@@ -885,12 +884,6 @@ async fn a_group_file_is_used_only_whole_wherever_a_stale_checkpoint_lies() {
     assert!(read.is_err(), "a damaged member fails its positioned read");
 }
 
-/// Every byte of a group file (a small one: the reader decides the kind from the names, not the size): cut at every
-/// offset, zero from every offset, one byte changed at every offset. Inside the head the file has no anchor and the log
-/// does not open; anywhere after it — cut right after the head too, the whole group missing — the session holds exactly
-/// what it held before the group and is damaged; only the whole file gives the group. The open's whole state and the
-/// forward read's records (bodies, order) are compared each time: a member folded before the group failed its check is
-/// in neither. The reader o1 shipped opens none of them, the whole file included.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_byte_of_a_group_file_recovers_before_or_after_the_group() {
     use sha2::Digest;
@@ -1082,11 +1075,6 @@ async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
     assert!(opened.bytes_read <= REVERSE_SCAN_MAX + window, "{} of {size}", opened.bytes_read);
 }
 
-/// The reader o1 shipped (vendored, `framing_o1`) over EVERY file of logs with groups in every position — in-place groups,
-/// a group file, the segment after it — never misreads them and truncates nothing. A segment it opens from its newest
-/// anchor: up to its first group marker it returns what this reader returns; there it stops with damage (the first member
-/// fails its ordinal; damage, not a torn tail) and the marker is no record to its record layer; a member read by position
-/// reads the same. A group file it does not open at all: no line of it is an anchor and its first frame is no record.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_old_reader_never_misreads_a_log_with_groups() {
     use crate::schema::frame::*;
@@ -1915,12 +1903,6 @@ async fn a_deleted_base_keeps_its_files_until_its_last_fork_is_deleted() {
     assert!(purge().await.unwrap().is_empty());
 }
 
-/// Opening the store runs the boot purge before it returns the store. A crash right after a
-/// purge unlinked the first log file leaves a folder no rebuild indexes; a half-finished
-/// create leaves an empty folder or one holding only the first file's publish tmp; a crash
-/// before a delete's purge leaves a complete deleted session. The open removes all of them,
-/// with a rebuild and without one (the index still holding their rows); a complete live
-/// session stays.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opening_the_store_removes_what_a_crash_left_before_any_thread_opens() {
     let env = Env::new();
@@ -2537,12 +2519,6 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
 }
 
-/// The sessions whose reference set (`offloadSources`) names a session are one index read, with a copy still being
-/// made by this boot (a mark another boot left is no copy in progress); a deleted one is not listed. A session whose
-/// header holds no set, or one computed under earlier rules (no `offloadSourcesRules`: the review's `["sess_b"]` of a
-/// transcript naming `TOOL-RESULTS/SESS_A/` too), is unknown, not empty, until a scan of its transcript at the ordinal
-/// it is projected to is stored (a scan at another ordinal is not), and an earlier-rules set's rows stay (a set only
-/// grows); a set taken out of a header leaves its session unknown and its rows kept.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
     let env = Env::new();
@@ -3093,11 +3069,6 @@ async fn a_failed_reconcile_fails_every_access() {
         _ = expired => panic!("a_failed_reconcile_fails_every_access, at {}: not within 60 s", reached.lock().unwrap()),
     }
 }
-/// On the production lanes (not the inline test backend): the open returns while the
-/// reconcile of a crash-cut session still waits to start, and every way into the index waits
-/// for it (a read, a write, and a read from inside a read-lane job, which the open's callers
-/// make while the store is fresh), then sees the rows it projected. Each access is seen
-/// waiting at the gate before the test releases the reconcile, and answers only after.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
@@ -3260,13 +3231,7 @@ async fn the_model_context_starts_at_the_newest_compaction_with_amends_applied()
     let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":5,"reason":"edit"}))]).await;
     assert_eq!(model_context(&env, own(), None, 10).await, pairs(&[("a", "one"), ("h", "skill"), ("b", "b")]));
 }
-/// The aliases the incremental writer keeps are the aliases a fresh rebuild from the same logs holds, after frames of every
-/// kind (items under submission ids, display rows, amends that name another submission id, an amend of an item of the base,
-/// a compaction, a model switch, runs, approvals, a rewind over amended rows, a fork), and a purge takes a session's aliases
-/// with its rows. Frame kinds that touch ids a cursor names: `item` (adds), `amend` (adds the amended body's ids to the
-/// amended row); the others leave `history_alias` alone, and a rewind keeps the rows it supersedes (the reader joins `history`).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs() {
+async fn alias_env() -> (Env, Vec<u64>, Vec<u64>) {
     let named = |kind: &str, iid: &str, submission: &str| {
         let body = json!({"content":iid,"role":"user","meta":{"transcript":{"clientSubmissionId":submission}}});
         match kind {
@@ -3310,7 +3275,12 @@ async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs()
     let child = env.create("c1", Some(("s1", end))).await;
     let (child, _) = env.commit(child, vec![named("item", "c2", "S2"), named("amend", "c2", "S6"), named("amend", "u3", "S7")]).await;
     drop((w, child));
+    (env, o, after)
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs() {
+    let (env, o, after) = alias_env().await;
     let live = aliases_in(&env.data.join(INDEX_FILE));
     let fresh = env.data.join("fresh.sqlite");
     project_index(&env.data, &fresh, &["s1".to_owned(), "c1".to_owned()]).unwrap();
@@ -3333,7 +3303,11 @@ async fn the_aliases_kept_incrementally_equal_those_of_a_rebuild_from_the_logs()
         assert!(has(session, alias, ordinal), "{session} {alias} {ordinal}: {live:?}");
     }
     assert!(!live.iter().any(|(_, alias, _)| alias == "G" || alias == "S7"), "an amend that reaches no row names nothing: {live:?}");
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_purge_takes_a_sessions_aliases_with_its_rows() {
+    let (env, _, _) = alias_env().await;
     env.store.mark_deleted("c1").await.unwrap();
     env.store.purge_deleted(tokens().maintenance_io, env.data.clone()).await.unwrap();
     assert!(aliases_in(&env.data.join(INDEX_FILE)).iter().all(|(session, _, _)| session == "s1"));
@@ -3344,10 +3318,6 @@ fn model_switch(iid: &str, ordinal: u64, model: &str, at: i64) -> Encoded {
         "entry":{"inline":{"provider":"openai","modelId":model,"at":at}}});
     crate::encode::encode_record(serde_json::from_value(record).unwrap()).unwrap()
 }
-/// 1.4.5 anchors a switch on whatever message `modelSwitchAnchorIndex` picks, a compaction's
-/// summary or context ack included, and bounds no model id. A boundary on a replacement
-/// entry is the divider's: by entry position, then oldest level first, then record order;
-/// it lives while the compaction does. A 300 KiB model id goes to a blob and reads back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
     let env = Env::new();
@@ -3414,11 +3384,6 @@ async fn model_switches_anchor_on_a_compaction_entry_and_hold_any_model_id() {
     assert_eq!(entry(base(), "sum").await, None, "a rewound compaction holds no entry");
     drop((w, child));
 }
-/// A `model_switch` belongs to its anchor row (the 1.4.5 anchor message's
-/// `meta.modelSwitches`): shown on that row while it is live, through a rewind that covers
-/// the record but keeps the anchor (a retry), in a fork up to its fork point and past a cut
-/// that keeps the anchor; gone with the anchor. It is no history row, and a rebuild from the
-/// logs gives the same pages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_switches_follow_their_anchor_row() {
     let env = Env::new();
@@ -3477,10 +3442,7 @@ async fn model_switches_follow_their_anchor_row() {
 /// One query lists every session with the fields the idle sweep decides from (its owner, status,
 /// timestamps, activity baseline, message count) and its newest log file's mtime; the heartbeat's
 /// catalog reads the same listing without the agent-only sessions, in pages.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
-    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
-    use crate::sqlite::listing::RecordStamp;
+async fn listing_env() -> Env {
     let env = Env::new();
     let w = env.create("l1", None).await;
     let (w, _) = env.commit(w, vec![user("a", "one"), answer("b")]).await;
@@ -3505,7 +3467,13 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
     let log = |id: &str| env.dir(id).join(log_name(0));
     std::fs::File::options().write(true).open(log("l1")).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(5000)).unwrap();
     std::fs::remove_file(log("l3")).unwrap();
+    env
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_idle_sweep_lists_every_session_with_its_decision_fields_and_log_mtime() {
+    use crate::sqlite::listing::RecordStamp;
+    let env = listing_env().await;
     let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
     let by = |id: &str| swept.iter().find(|s| s.id == id).unwrap().clone();
     assert_eq!(swept.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["l1", "l2", "l3"], "agent-only sessions are swept too");
@@ -3521,7 +3489,12 @@ async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
         ("user", "closed", true, RecordStamp::Absent),
         "no owner lists as the summary row's 'user'"
     );
+}
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_heartbeat_catalog_reads_the_sweep_listing_without_agent_only_sessions_in_pages() {
+    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    let env = listing_env().await;
     let ids = |rows: Vec<crate::sqlite::listing::Listed>| rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
     let first = env.store.list_sessions(false, None, Some(1)).await.unwrap();
     assert_eq!(first[0].row["sourceName"], "agent:mixy@run");

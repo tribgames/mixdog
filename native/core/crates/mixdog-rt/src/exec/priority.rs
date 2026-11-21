@@ -1,9 +1,8 @@
-//! Per-thread OS priority (RL §3): set by the thread itself when it starts.
+//! Per-thread OS priority, set by the thread itself when it starts.
 //!
 //! - Windows: `SetThreadPriority` `ABOVE_NORMAL` / `NORMAL` / `BELOW_NORMAL`.
-//! - Linux: per-thread `setpriority` with nice 0 for above-normal and normal, +10 for
-//!   below-normal. The baseline is nice 0, and raising a priority needs no privilege because
-//!   "above" is expressed by lowering the others.
+//! - Linux: per-thread `setpriority` with nice 0 for above-normal and normal, +10 for below-normal. The baseline is nice 0, and
+//!   raising a priority needs no privilege because "above" is expressed by lowering the others.
 //! - macOS: QoS `user-interactive` / `default` / `utility`.
 
 use std::io;

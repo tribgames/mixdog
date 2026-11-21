@@ -867,6 +867,61 @@ pub fn order_chart_children(xml: &str) -> Rewrite {
 
 // the package
 
+/// The text of a chart part after the series, fonts, axis ids and child order are normalised, with the `invertIfNegative`
+/// elements removed and whether anything else changed.
+fn normalize_chart_part(zip: &mut Package, part: &str, xml: &str, result: &mut Normalized) -> Result<(String, usize, bool), String> {
+    let (mut text, removed) = normalize_chart_series(xml);
+    let mut changed = false;
+    let merged = merge_accent_series(&text);
+    if merged.changed {
+        text = merged.xml;
+        changed = true;
+        result.merged_charts += 1;
+        merge_embedded_workbook(zip, part, &merged.values)?;
+    }
+    let fonts = normalize_chart_fonts(&text);
+    if fonts.changed > 0 {
+        text = fonts.xml;
+        changed = true;
+    }
+    let axes = prune_undeclared_axis_ids(&text);
+    if axes.changed {
+        text = axes.xml;
+        changed = true;
+    }
+    let ordered = order_chart_children(&text);
+    if ordered.changed {
+        text = ordered.xml;
+        changed = true;
+    }
+    Ok((text, removed, changed))
+}
+
+/// The text of a slide, layout or master part after the paragraph properties, gradients, shape ids and icons are
+/// normalised, with the paragraph properties removed and whether anything else changed.
+fn normalize_slide_part(zip: &mut Package, part: &str, xml: &str, result: &mut Normalized) -> Result<(String, usize, bool), String> {
+    let paragraphs = normalize_paragraph_properties(xml);
+    let (mut text, removed, mut changed) = (paragraphs.xml, paragraphs.removed, paragraphs.changed);
+    let native = native_gradients(&text)?;
+    if native.changed > 0 {
+        text = native.xml;
+        changed = true;
+        result.gradients += native.changed;
+    }
+    let identified = unique_shape_ids(&text);
+    if identified.changed > 0 {
+        text = identified.xml;
+        changed = true;
+    }
+    let (with_icons, attached) = attach_svg_icons(zip, part, &text);
+    if attached > 0 {
+        text = with_icons;
+        changed = true;
+        result.vector_icons += attached;
+    }
+    Ok((text, removed, changed))
+}
+
 /// `normalizeAuthoredPptx` on a package already read: the parts it changes are set in place (a new part, the notes
 /// master's own theme or an icon, goes last).
 pub fn normalize_package(zip: &mut Package) -> Result<Normalized, String> {
@@ -874,56 +929,11 @@ pub fn normalize_package(zip: &mut Package) -> Result<Normalized, String> {
     let mut result = Normalized::default();
     for part in parts {
         let xml = zip.text(&part);
-        let chart = CHART_PARTS.is_match(&part);
-        let (mut text, removed, mut changed) = if chart {
-            let (text, removed) = normalize_chart_series(&xml);
-            (text, removed, false)
+        let (text, removed, changed) = if CHART_PARTS.is_match(&part) {
+            normalize_chart_part(zip, &part, &xml, &mut result)?
         } else {
-            let paragraphs = normalize_paragraph_properties(&xml);
-            (paragraphs.xml, paragraphs.removed, paragraphs.changed)
+            normalize_slide_part(zip, &part, &xml, &mut result)?
         };
-        if chart {
-            let merged = merge_accent_series(&text);
-            if merged.changed {
-                text = merged.xml;
-                changed = true;
-                result.merged_charts += 1;
-                merge_embedded_workbook(zip, &part, &merged.values)?;
-            }
-            let fonts = normalize_chart_fonts(&text);
-            if fonts.changed > 0 {
-                text = fonts.xml;
-                changed = true;
-            }
-            let axes = prune_undeclared_axis_ids(&text);
-            if axes.changed {
-                text = axes.xml;
-                changed = true;
-            }
-            let ordered = order_chart_children(&text);
-            if ordered.changed {
-                text = ordered.xml;
-                changed = true;
-            }
-        } else {
-            let native = native_gradients(&text)?;
-            if native.changed > 0 {
-                text = native.xml;
-                changed = true;
-                result.gradients += native.changed;
-            }
-            let identified = unique_shape_ids(&text);
-            if identified.changed > 0 {
-                text = identified.xml;
-                changed = true;
-            }
-            let (with_icons, attached) = attach_svg_icons(zip, &part, &text);
-            if attached > 0 {
-                text = with_icons;
-                changed = true;
-                result.vector_icons += attached;
-            }
-        }
         if removed == 0 && !changed {
             continue;
         }

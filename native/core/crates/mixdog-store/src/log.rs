@@ -210,6 +210,15 @@ pub fn read_head<L: IoLane>(_lane: &InLane<L>, dir: &Path) -> Result<HeadRead, O
     read_head_of(dir, list_logs(dir)?)
 }
 
+/// `read_head` of a newest file that is a group file: never reverse-scanned, only its head frame is read here and
+/// `read_tail` reads the rest forward in chunks (§6.3). A file that does not start with a head has no anchor.
+fn read_group_head(dir: &Path, files: Vec<u32>, newest: u32, file: &mut File, path: &Path, size: u64) -> Result<HeadRead, OpenError> {
+    let (buf, anchor_ordinal) = GroupFileHead::read(file, path, size)?.map_or((Vec::new(), 0), |head| (head.frame, head.ordinal));
+    let bytes_read = buf.len() as u64;
+    let scan = framing::Scan { frames: Vec::new(), end: ScanEnd::Clean };
+    Ok(HeadRead { dir: dir.to_path_buf(), files, newest, size, buf, window_start: 0, scan, anchor_start: 0, anchor_ordinal, bytes_read, group_file: true })
+}
+
 /// `read_head` over the listing `files` (the newest of them is read).
 fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
     let Some(&newest) = files.last() else {
@@ -219,40 +228,37 @@ fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
     let size = file.metadata().map_err(err(IoOp::Read, &path))?.len();
 
-    // A group file is never reverse-scanned: only its head frame is read here; `read_tail` reads
-    // the rest forward in chunks (§6.3). A file that does not start with a head has no anchor.
-    let mut bytes_read = 0u64;
     let group_file = is_group_file(&files, newest);
     if group_file {
-        let (buf, anchor_ordinal) = GroupFileHead::read(&mut file, &path, size)?.map_or((Vec::new(), 0), |head| (head.frame, head.ordinal));
-        bytes_read += buf.len() as u64;
-        let scan = framing::Scan { frames: Vec::new(), end: ScanEnd::Clean };
-        return Ok(HeadRead {
-            dir: dir.to_path_buf(),
-            files,
-            newest,
-            size,
-            buf,
-            window_start: 0,
-            scan,
-            anchor_start: 0,
-            anchor_ordinal,
-            bytes_read,
-            group_file,
-        });
+        return read_group_head(dir, files, newest, &mut file, &path, size);
     }
+    let mut bytes_read = 0u64;
+    let AnchorWindow { buf, window_start, anchor_start, anchor_ordinal } = locate_anchor(&mut file, &path, size, &mut bytes_read)?;
+    let scan = framing::scan(&buf, window_start, anchor_start, anchor_ordinal);
+    Ok(HeadRead { dir: dir.to_path_buf(), files, newest, size, buf, window_start, scan, anchor_start, anchor_ordinal, bytes_read, group_file })
+}
 
-    // Reverse scan: the clean-close case needs the last frame and the `GROUP_LOOKBACK` bytes
-    // before it; the bound is REVERSE_SCAN_MAX (+1 byte so the LF before the anchor is in the
-    // window) plus that lookback.
+struct AnchorWindow {
+    buf: Vec<u8>,
+    window_start: u64,
+    anchor_start: usize,
+    anchor_ordinal: u64,
+}
+
+/// The tail window of a file of `size` bytes that holds its newest anchor, read backwards from the end. The clean-close
+/// case needs the last frame and the `GROUP_LOOKBACK` bytes before it: the bound is `REVERSE_SCAN_MAX` (+1 byte so the LF
+/// before the anchor is in the window) plus that lookback. With no anchor within the bound the newest file is damaged
+/// somewhere: it is read whole from its first frame (every file starts with an anchor), so the forward scan validates
+/// every group and locates any damage exactly.
+fn locate_anchor(file: &mut File, path: &Path, size: u64, bytes_read: &mut u64) -> Result<AnchorWindow, IoError> {
     let mut buf = Vec::new();
     let mut window_start = size;
     let mut want = MAX_FRAME_LEN as u64 + 1;
     let found = loop {
         let start = size.saturating_sub(want);
         if start < window_start {
-            let mut more = read_range(&mut file, &path, start, (window_start - start) as usize)?;
-            bytes_read += more.len() as u64;
+            let mut more = read_range(file, path, start, (window_start - start) as usize)?;
+            *bytes_read += more.len() as u64;
             more.extend_from_slice(&buf);
             buf = more;
             window_start = start;
@@ -267,22 +273,27 @@ fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
             break None;
         }
     };
-    let (anchor_start, anchor_ordinal) = match found {
-        Some(a) => (a.start, a.ordinal),
-        None => {
-            // No anchor within the bound: the newest file is damaged somewhere. Read it whole from
-            // its first frame (every file starts with an anchor), so the forward scan validates
-            // every group and locates any damage exactly.
-            let all = read_range(&mut file, &path, 0, size as usize)?;
-            bytes_read += window_start;
-            buf = all;
-            window_start = 0;
-            let ordinal = std::str::from_utf8(buf.get(..ORDINAL_DIGITS).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()).unwrap_or(0);
-            (0, ordinal)
-        }
-    };
-    let scan = framing::scan(&buf, window_start, anchor_start, anchor_ordinal);
-    Ok(HeadRead { dir: dir.to_path_buf(), files, newest, size, buf, window_start, scan, anchor_start, anchor_ordinal, bytes_read, group_file })
+    if let Some(a) = found {
+        return Ok(AnchorWindow { buf, window_start, anchor_start: a.start, anchor_ordinal: a.ordinal });
+    }
+    let all = read_range(file, path, 0, size as usize)?;
+    *bytes_read += window_start;
+    let anchor_ordinal = ordinal_of(&all).unwrap_or(0);
+    Ok(AnchorWindow { buf: all, window_start: 0, anchor_start: 0, anchor_ordinal })
+}
+
+pub(crate) fn ordinal_of(header: &[u8]) -> Option<u64> {
+    std::str::from_utf8(header.get(..ORDINAL_DIGITS).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok())
+}
+
+/// A body reader over `blobs` that notes its losses in `gone` and adds the bytes it reads to `bytes_read`.
+fn counting<'a>(
+    blobs: &'a BlobStore,
+    gone: &'a RefCell<Vec<crate::schema::bounded::Digest>>,
+    bytes_read: &'a mut u64,
+) -> impl FnMut(&crate::schema::blob::BodyBlob) -> Result<Vec<u8>, String> + 'a {
+    let mut read = crate::fold::noting(blobs, gone);
+    move |blob| read(blob).inspect(|bytes| *bytes_read += bytes.len() as u64)
 }
 
 /// The newest anchor of the newest log file, the fold right after it and the position of the frame that follows it: what
@@ -376,7 +387,7 @@ struct GroupFileHead {
 impl GroupFileHead {
     fn read(file: &mut File, path: &Path, size: u64) -> Result<Option<Self>, IoError> {
         let header = read_range(file, path, 0, size.min(HEADER_LEN as u64) as usize)?;
-        let Some(ordinal) = std::str::from_utf8(header.get(..ORDINAL_DIGITS).unwrap_or_default()).ok().and_then(|t| u64::from_str_radix(t, 16).ok()) else {
+        let Some(ordinal) = ordinal_of(&header) else {
             return Ok(None);
         };
         let frame_len = match framing::check_header(&header, ordinal) {
@@ -430,13 +441,7 @@ fn read_group_file(mut head: HeadRead, blobs: &BlobStore, index: &dyn LineageInd
     let session_name = head.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut bytes_read = head.bytes_read;
     let gone = RefCell::new(Vec::new());
-    let mut resolve = |b: &crate::schema::blob::BodyBlob| {
-        let digest = &b.descriptor().digest;
-        blobs.read_unlaned(digest).inspect(|bytes| bytes_read += bytes.len() as u64).map_err(|e| {
-            crate::fold::note_loss(&gone, digest, &e);
-            e.to_string()
-        })
-    };
+    let mut resolve = counting(blobs, &gone, &mut bytes_read);
     // A head state or a member body whose blob is missing or corrupt: the fold is salvaged from the whole log (FORMAT.md
     // §4.5).
     let (before, lost) = match fold_at_anchor(checkpoint, FramePos { ordinal, file_no: head.newest, offset: 0 }, &session_name, &mut resolve) {
@@ -491,6 +496,7 @@ fn read_group_file(mut head: HeadRead, blobs: &BlobStore, index: &dyn LineageInd
     };
     let last_is_anchor = status != LogStatus::Clean;
     head.buf = frame;
+    drop(resolve);
     head.bytes_read = bytes_read + log_bytes;
     Ok(TailRead { head, fold, anchor_offset: 0, status, committed_end, records: Vec::new(), effects: Vec::new(), last_is_anchor, lost })
 }
@@ -515,13 +521,7 @@ pub fn read_tail<L: IoLane>(_lane: &InLane<L>, head: HeadRead, blobs: &BlobStore
     let anchor_pos = FramePos { ordinal: anchor.ordinal, file_no: newest, offset: window_start + anchor.start as u64 };
     let session_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let gone = RefCell::new(Vec::new());
-    let mut resolve = |b: &crate::schema::blob::BodyBlob| {
-        let digest = &b.descriptor().digest;
-        blobs.read_unlaned(digest).inspect(|bytes| bytes_read += bytes.len() as u64).map_err(|e| {
-            crate::fold::note_loss(&gone, digest, &e);
-            e.to_string()
-        })
-    };
+    let mut resolve = counting(blobs, &gone, &mut bytes_read);
     let anchor_record = parse_record(anchor.payload(buf)).map_err(OpenError::Format)?;
 
     // Fold the tail; a committed frame that is not a valid record is damage of the record
@@ -572,6 +572,7 @@ pub fn read_tail<L: IoLane>(_lane: &InLane<L>, head: HeadRead, blobs: &BlobStore
     // The salvaged fold already holds the tail.
     let positions = if salvaged { Vec::new() } else { positions };
     let mut head = head;
+    drop(resolve);
     head.bytes_read = bytes_read;
     Ok(TailRead { head, fold, anchor_offset, status, committed_end, records: positions, effects, last_is_anchor, lost })
 }
@@ -666,10 +667,7 @@ pub(crate) fn first_ordinal_unlaned(dir: &Path) -> Result<u64, OpenError> {
     let path = dir.join(log_name(0));
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
     let digits = read_range(&mut file, &path, 0, ORDINAL_DIGITS)?;
-    std::str::from_utf8(&digits)
-        .ok()
-        .and_then(|t| u64::from_str_radix(t, 16).ok())
-        .ok_or_else(|| OpenError::Format(format!("{}: no frame header", path.display())))
+    ordinal_of(&digits).ok_or_else(|| OpenError::Format(format!("{}: no frame header", path.display())))
 }
 
 /// `read_frame` when only the position is known (open-set records, whose checkpoint
@@ -781,57 +779,14 @@ fn read_forward_group_file(file: &mut File, path: &Path, files: &[u32], from: Fr
     };
     let head_len = head.frame.len() as u64;
     let damaged = ForwardEnd::Damaged(GroupFileHead::damage(file_no, head.ordinal));
-    let mut frames = Vec::new();
-    if from.offset == 0 {
-        let mut check = framing::GroupCheck::new(head.marker, head.ordinal + 1, false);
-        let mut all_records = true;
-        let mut at = head_len;
-        while at < size {
-            let n = (size - at).min(GROUP_CHECK_CHUNK as u64) as usize;
-            let chunk = read_range(file, path, at, n)?;
-            let fed = check.feed_members(&chunk, |ordinal, start, payload| {
-                let offset = head_len + start as u64;
-                match parse_record(payload) {
-                    Ok(record) if offset < window => frames.push((record, FramePos { ordinal, file_no, offset }, (payload.len() + FRAME_OVERHEAD) as u64)),
-                    Ok(_) => {}
-                    Err(_) => all_records = false,
-                }
-            });
-            if fed.is_err() {
-                return ended(damaged);
-            }
-            at += n as u64;
-        }
-        if check.finish().is_err() || !all_records {
-            return ended(damaged);
-        }
-        frames.insert(0, (head.checkpoint, FramePos { ordinal: head.ordinal, file_no, offset: 0 }, head_len));
+    let frames = if from.offset == 0 {
+        enter_group_file(file, path, head, file_no, size, window)?
     } else {
-        if from.offset < head_len || from.offset > size {
-            return ended(damaged);
-        }
-        let buf = read_range(file, path, from.offset, (size - from.offset).min(window) as usize)?;
-        let (mut p, mut ordinal) = (0, from.ordinal);
-        while buf.len() - p >= HEADER_LEN {
-            let Ok(Some(len)) = framing::check_header(&buf[p..p + HEADER_LEN], ordinal) else {
-                return ended(damaged);
-            };
-            let frame_len = len + FRAME_OVERHEAD;
-            if buf.len() - p < frame_len {
-                break;
-            }
-            let Some(record) = framing::check_frame(&buf[p..p + frame_len], ordinal).ok().and_then(|payload| parse_record(payload).ok()) else {
-                return ended(damaged);
-            };
-            frames.push((record, FramePos { ordinal, file_no, offset: from.offset + p as u64 }, frame_len as u64));
-            p += frame_len;
-            ordinal += 1;
-        }
-        // The window holds a whole frame unless the file ends inside one.
-        if p == 0 && from.offset < size {
-            return ended(damaged);
-        }
-    }
+        continue_group_file(file, path, from, head_len, size, window)?
+    };
+    let Some(frames) = frames else {
+        return ended(damaged);
+    };
     let after = frames.last().map_or(from, |(_, p, l)| FramePos { ordinal: p.ordinal + 1, file_no, offset: p.offset + l });
     let next = if after.offset < size {
         ForwardEnd::More(after)
@@ -842,6 +797,70 @@ fn read_forward_group_file(file: &mut File, path: &Path, files: &[u32], from: Fr
         }
     };
     Ok(ForwardRead { frames, next })
+}
+
+type ForwardFrames = Vec<(Record, FramePos, u64)>;
+
+/// The head's `checkpoint` and the members that start within `window` of a group file read from its head, once the group
+/// checks whole with every member a record; `None` when it does not.
+fn enter_group_file(file: &mut File, path: &Path, head: GroupFileHead, file_no: u32, size: u64, window: u64) -> Result<Option<ForwardFrames>, OpenError> {
+    let head_len = head.frame.len() as u64;
+    let mut frames = Vec::new();
+    let mut check = framing::GroupCheck::new(head.marker, head.ordinal + 1, false);
+    let mut all_records = true;
+    let mut at = head_len;
+    while at < size {
+        let n = (size - at).min(GROUP_CHECK_CHUNK as u64) as usize;
+        let chunk = read_range(file, path, at, n)?;
+        let fed = check.feed_members(&chunk, |ordinal, start, payload| {
+            let offset = head_len + start as u64;
+            match parse_record(payload) {
+                Ok(record) if offset < window => frames.push((record, FramePos { ordinal, file_no, offset }, (payload.len() + FRAME_OVERHEAD) as u64)),
+                Ok(_) => {}
+                Err(_) => all_records = false,
+            }
+        });
+        if fed.is_err() {
+            return Ok(None);
+        }
+        at += n as u64;
+    }
+    if check.finish().is_err() || !all_records {
+        return Ok(None);
+    }
+    frames.insert(0, (head.checkpoint, FramePos { ordinal: head.ordinal, file_no, offset: 0 }, head_len));
+    Ok(Some(frames))
+}
+
+/// The members of a group file read on from `from` (a member's start), each frame checked on its own within the extent
+/// the head names; `None` on any damage.
+fn continue_group_file(file: &mut File, path: &Path, from: FramePos, head_len: u64, size: u64, window: u64) -> Result<Option<ForwardFrames>, OpenError> {
+    if from.offset < head_len || from.offset > size {
+        return Ok(None);
+    }
+    let buf = read_range(file, path, from.offset, (size - from.offset).min(window) as usize)?;
+    let mut frames = Vec::new();
+    let (mut p, mut ordinal) = (0, from.ordinal);
+    while buf.len() - p >= HEADER_LEN {
+        let Ok(Some(len)) = framing::check_header(&buf[p..p + HEADER_LEN], ordinal) else {
+            return Ok(None);
+        };
+        let frame_len = len + FRAME_OVERHEAD;
+        if buf.len() - p < frame_len {
+            break;
+        }
+        let Some(record) = framing::check_frame(&buf[p..p + frame_len], ordinal).ok().and_then(|payload| parse_record(payload).ok()) else {
+            return Ok(None);
+        };
+        frames.push((record, FramePos { ordinal, file_no: from.file_no, offset: from.offset + p as u64 }, frame_len as u64));
+        p += frame_len;
+        ordinal += 1;
+    }
+    // The window holds a whole frame unless the file ends inside one.
+    if p == 0 && from.offset < size {
+        return Ok(None);
+    }
+    Ok(Some(frames))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1220,50 +1239,29 @@ impl LogWriter {
             (false, true) => (self.file_no + 1, 0),
             (false, false) => (self.file_no, end),
         };
-        // More than one record frame is a group (FORMAT.md §3.6): the members' count, bytes and SHA-256 are named before
-        // them, so recovery takes all of them or none. In place that is a marker frame after the leading checkpoint,
-        // which stays outside the group: it is the state before the batch. In a group file the head frame carries both
-        // (the checkpoint and the group's fields), so the file holds no frame a reader could anchor at without being
-        // told its group. No checkpoint follows a group in the same write (§3.6 invariant).
-        let members = batch.len();
-        let cp_ordinal = self.fold.next_ordinal;
-        let first_member = cp_ordinal + u64::from(checkpoint.is_some());
-        let head_len = match &checkpoint {
-            Some(cp) if group_file => GROUP_MARKER_LEN + 1 + cp.payload.len() + FRAME_OVERHEAD,
-            Some(cp) => cp.frame_len(),
-            None => 0,
-        };
-        let marker_len = if members > 1 && !group_file { GROUP_MARKER_LEN + FRAME_OVERHEAD } else { 0 };
-        // The frames before the members are written last (they name the members' bytes): their room first.
-        let lead = head_len + marker_len;
-        let mut buf = vec![0; lead];
-        buf.reserve(batch_len as usize);
-        let mut positions = Vec::with_capacity(members + 1);
-        let mut lens = Vec::with_capacity(members + 1);
-        if checkpoint.is_some() {
-            positions.push(FramePos { ordinal: cp_ordinal, file_no, offset: base });
-            lens.push(head_len as u64);
-        }
-        for (ordinal, e) in (first_member..).zip(&batch) {
-            positions.push(FramePos { ordinal, file_no, offset: base + buf.len() as u64 });
-            lens.push(e.frame_len() as u64);
-            framing::encode_into(&mut buf, ordinal, &e.payload);
-        }
-        let mut lead_frames = Vec::with_capacity(lead);
-        match &checkpoint {
-            Some(cp) if group_file => framing::encode_into(&mut lead_frames, cp_ordinal, &group_file_head(members as u64, &buf[lead..], &cp.payload)),
-            Some(cp) => framing::encode_into(&mut lead_frames, cp_ordinal, &cp.payload),
-            None => {}
-        }
-        if marker_len > 0 {
-            framing::encode_into(&mut lead_frames, first_member, &group_marker(members as u64, &buf[lead..]));
-        }
-        buf[..lead].copy_from_slice(&lead_frames);
-        // Blobs before the frames that reference them (SM §7.5).
+        let (buf, positions, lens) = frame_batch(&batch, checkpoint.as_ref(), group_file, self.fold.next_ordinal, file_no, base, batch_len);
         for blob in checkpoint.iter().chain(&batch).flat_map(|e| &e.blobs) {
             deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?;
         }
+        self.write_batch(&batch, &buf, rotate, file_no, end)?;
+        let frames = self.fold_durable(&batch, checkpoint.is_some(), effects, &positions, &lens, &mut lookup);
+        if checkpoint.is_some() {
+            self.since_anchor = buf.len() as u64;
+        } else {
+            self.since_anchor += buf.len() as u64;
+        }
+        self.last_is_anchor = batch.is_empty() && checkpoint.is_some();
+        self.sealed = group_file;
+        let skip = usize::from(checkpoint.is_some());
+        Ok(BatchAck {
+            positions: positions[skip..].to_vec(),
+            projection: Projection { session: self.fold.session.clone(), frames, head: std::sync::Arc::new(CatalogHead::of(&self.fold)) },
+        })
+    }
 
+    #[cfg_attr(not(feature = "crash-hook"), allow(unused_variables, reason = "only the crash hook reads the batch"))]
+    fn write_batch(&mut self, batch: &[Encoded], buf: &[u8], rotate: bool, file_no: u32, end: u64) -> Result<(), AppendError> {
+        let deps = self.deps.clone();
         #[cfg(feature = "crash-hook")]
         let records: Vec<Record> = batch.iter().map(|e| e.record.clone()).collect();
         #[cfg(feature = "crash-hook")]
@@ -1277,7 +1275,7 @@ impl LogWriter {
             revalidate(&deps)?;
             let path = self.path(file_no);
             // A failed publish leaves the writer Clean on the old file (SM §8 rule 4).
-            deps.io.publish(&path, &buf).map_err(AppendError::BarrierFailed)?;
+            deps.io.publish(&path, buf).map_err(AppendError::BarrierFailed)?;
             self.file_no = file_no;
             self.file = deps.io.open_append(&path).ok();
             self.state = WriterState::Clean { end: buf.len() as u64 };
@@ -1287,10 +1285,9 @@ impl LogWriter {
                 Ok(f) => f,
                 Err(e) => return Err(AppendError::BarrierFailed(e)),
             };
-            // An injected write fault stops the write half way, as a full disk does.
             let write = match write_fault {
                 Some(fault) => file.write_at(end, &buf[..buf.len() / 2]).and(Err(fault)),
-                None => file.write_at(end, &buf),
+                None => file.write_at(end, buf),
             };
             self.state = WriterState::Dirty { acked: end, written };
             if let Err(e) = write {
@@ -1312,21 +1309,29 @@ impl LogWriter {
         }
         #[cfg(feature = "crash-hook")]
         let _ = fsio::append_step(fsio::AppendStep::Synced, &records);
+        Ok(())
+    }
 
-        // Durable: phase 2 of the fold, then the projection.
+    fn fold_durable(
+        &mut self,
+        batch: &[Encoded],
+        led_by_checkpoint: bool,
+        effects: Vec<crate::fold::Effect>,
+        positions: &[FramePos],
+        lens: &[u64],
+        lookup: &mut crate::fold::ResolveBody<'_>,
+    ) -> Vec<ProjectedFrame> {
         let mut frames = Vec::with_capacity(positions.len());
         let mut records = batch.iter();
         let mut effects = effects.into_iter();
-        for (i, (&pos, &frame_len)) in positions.iter().zip(&lens).enumerate() {
-            let (effect, kind, op, receipt) = match &checkpoint {
-                Some(cp) if i == 0 => (crate::fold::Effect::None, crate::projection::FrameKind::Other, None, None),
-                _ => {
-                    let record = &records.next().expect("one record per frame").record;
-                    // The bodies are in the batch (or already stored): the fold read them too.
-                    let (kind, op) = project(record, &mut lookup).expect("batch body readable");
-                    let receipt = crate::projection::receipt(record, &mut lookup).expect("batch body readable");
-                    (effects.next().expect("one effect per record"), kind, op, receipt)
-                }
+        for (i, (&pos, &frame_len)) in positions.iter().zip(lens).enumerate() {
+            let (effect, kind, op, receipt) = if led_by_checkpoint && i == 0 {
+                (crate::fold::Effect::None, crate::projection::FrameKind::Other, None, None)
+            } else {
+                let record = &records.next().expect("one record per frame").record;
+                let (kind, op) = project(record, lookup).expect("batch body readable");
+                let receipt = crate::projection::receipt(record, lookup).expect("batch body readable");
+                (effects.next().expect("one effect per record"), kind, op, receipt)
             };
             self.fold.apply(effect, pos);
             frames.push(ProjectedFrame {
@@ -1340,18 +1345,7 @@ impl LogWriter {
                 visible_rows: self.fold.visible_rows,
             });
         }
-        if checkpoint.is_some() {
-            self.since_anchor = buf.len() as u64;
-        } else {
-            self.since_anchor += buf.len() as u64;
-        }
-        self.last_is_anchor = batch.is_empty() && checkpoint.is_some();
-        self.sealed = group_file;
-        let skip = usize::from(checkpoint.is_some());
-        Ok(BatchAck {
-            positions: positions[skip..].to_vec(),
-            projection: Projection { session: self.fold.session.clone(), frames, head: std::sync::Arc::new(CatalogHead::of(&self.fold)) },
-        })
+        frames
     }
 
     fn encode_checkpoint(&self) -> Result<Encoded, AppendError> {
@@ -1410,6 +1404,56 @@ fn blob_lookup_many<'a>(
     }
 }
 
+/// The write buffer of a batch and the position and frame length of each frame in it, the leading checkpoint's first.
+///
+/// More than one record frame is a group (FORMAT.md §3.6): the members' count, bytes and SHA-256 are named before
+/// them, so recovery takes all of them or none. In place that is a marker frame after the leading checkpoint, which
+/// stays outside the group: it is the state before the batch. In a group file the head frame carries both (the
+/// checkpoint and the group's fields). No checkpoint follows a group in the same write (§3.6 invariant).
+fn frame_batch(
+    batch: &[Encoded],
+    checkpoint: Option<&Encoded>,
+    group_file: bool,
+    cp_ordinal: u64,
+    file_no: u32,
+    base: u64,
+    batch_len: u64,
+) -> (Vec<u8>, Vec<FramePos>, Vec<u64>) {
+    let members = batch.len();
+    let first_member = cp_ordinal + u64::from(checkpoint.is_some());
+    let head_len = match checkpoint {
+        Some(cp) if group_file => GROUP_MARKER_LEN + 1 + cp.payload.len() + FRAME_OVERHEAD,
+        Some(cp) => cp.frame_len(),
+        None => 0,
+    };
+    let marker_len = if members > 1 && !group_file { GROUP_MARKER_LEN + FRAME_OVERHEAD } else { 0 };
+    let lead = head_len + marker_len;
+    let mut buf = vec![0; lead];
+    buf.reserve(batch_len as usize);
+    let mut positions = Vec::with_capacity(members + 1);
+    let mut lens = Vec::with_capacity(members + 1);
+    if checkpoint.is_some() {
+        positions.push(FramePos { ordinal: cp_ordinal, file_no, offset: base });
+        lens.push(head_len as u64);
+    }
+    for (ordinal, e) in (first_member..).zip(batch) {
+        positions.push(FramePos { ordinal, file_no, offset: base + buf.len() as u64 });
+        lens.push(e.frame_len() as u64);
+        framing::encode_into(&mut buf, ordinal, &e.payload);
+    }
+    let mut lead_frames = Vec::with_capacity(lead);
+    match checkpoint {
+        Some(cp) if group_file => framing::encode_into(&mut lead_frames, cp_ordinal, &group_file_head(members as u64, &buf[lead..], &cp.payload)),
+        Some(cp) => framing::encode_into(&mut lead_frames, cp_ordinal, &cp.payload),
+        None => {}
+    }
+    if marker_len > 0 {
+        framing::encode_into(&mut lead_frames, first_member, &group_marker(members as u64, &buf[lead..]));
+    }
+    buf[..lead].copy_from_slice(&lead_frames);
+    (buf, positions, lens)
+}
+
 // ---------------------------------------------------------------------------------------
 // Repair
 
@@ -1426,6 +1470,22 @@ pub fn escape_key(key: &str) -> String {
     out
 }
 
+/// The quarantine key and folder of this repair of `damage`: the first of the place's keys whose folder holds no
+/// reason file (the reason is written last, so such a folder is this repair interrupted).
+fn free_quarantine_key(data_dir: &Path, session: &str, damage: Damage) -> (String, PathBuf) {
+    use crate::schema::migration::{QUARANTINE_DIR, REASON_FILE};
+    let place = format!("damage/{session}/{}/{}", damage.file_no, damage.offset);
+    let quarantined = data_dir.join(QUARANTINE_DIR).join("session_damage");
+    (1u32..)
+        .map(|nth| if nth == 1 { place.clone() } else { format!("{place}/{nth}") })
+        .map(|key| {
+            let qdir = quarantined.join(escape_key(&key));
+            (key, qdir)
+        })
+        .find(|(_, qdir)| !qdir.join(REASON_FILE).exists())
+        .expect("a place has a free quarantine key")
+}
+
 /// The user-confirmed `session.repair` (FORMAT.md §3.4): moves the bytes from the damage
 /// point to the end of that file, and every newer log file, into quarantine, truncates at
 /// the damage point and syncs. A damaged group file (§3.6) is used whole or not at all: it is
@@ -1435,19 +1495,7 @@ pub fn repair_damage(_lane: &InLane<DurabilityIo>, data_dir: &Path, session: &st
     use crate::schema::migration::*;
     let dir = data_dir.join("sessions").join(session);
     let _writing = crate::log_epoch::writing(session);
-    // The same place can be damaged again after a repair (a group file's number is free once the file is moved away; a
-    // cut file is written again from the cut): each repair keeps its own evidence. A folder with no reason file is this
-    // repair, interrupted (the reason is written last), and is finished; one with a reason is an earlier repair's.
-    let place = format!("damage/{session}/{}/{}", damage.file_no, damage.offset);
-    let quarantined = data_dir.join(QUARANTINE_DIR).join("session_damage");
-    let (key, qdir) = (1u32..)
-        .map(|nth| if nth == 1 { place.clone() } else { format!("{place}/{nth}") })
-        .map(|key| {
-            let qdir = quarantined.join(escape_key(&key));
-            (key, qdir)
-        })
-        .find(|(_, qdir)| !qdir.join(REASON_FILE).exists())
-        .expect("a place has a free quarantine key");
+    let (key, qdir) = free_quarantine_key(data_dir, session, damage);
     let files = list_logs(&dir).map_err(|e| match e {
         OpenError::Io(e) => e,
         other => IoError { op: IoOp::List, path: dir.clone(), source: io::Error::other(other.to_string()) },

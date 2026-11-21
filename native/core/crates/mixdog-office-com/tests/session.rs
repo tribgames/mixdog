@@ -1,10 +1,3 @@
-//! The session lifecycle against the replaying fake dispatch object and the scripted platform: open and create per format,
-//! visible and background, attach, the refusals, the answers, and the close. Every call the port makes is compared with the
-//! call log of its scenario, in order, and every line the host writes is compared with the line the script writes.
-//!
-//! The logs here are written by hand from `office-com-session-host.ps1`; the logs recorded from the PowerShell host against
-//! Office (`tests/scenarios/session.json`, run on a PC with Microsoft Office) are held to the same ports once they exist.
-
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;

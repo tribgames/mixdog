@@ -1,11 +1,6 @@
-//! `notification_clicks`: a click on a desktop toast, reported by the host as
-//! `host/notification/clicked{threadId}`.
-//!
-//! In Node the whole reaction is the desktop's own: the toast is released, the click is reported to the desktop diagnostics log as
-//! `turn-notification-clicked {sessionId}`, and the session is opened in the renderer after the window is raised. The host process
-//! still does all three at the click (`apps/desktop/src/main/host/notification.ts`: the presenter's `activate(threadId)` raises the
-//! window and opens the session it names), so the core owes only the trace of it that Node's diagnostics log carries (decisions.md,
-//! "Notification clicks").
+//! A click on a desktop toast, reported by the host as `host/notification/clicked{threadId}`.
+//! The host already raises the window and opens the session; the core only owes the
+//! `turn-notification-clicked {sessionId}` trace that Node's diagnostics log carries.
 
 use mixdog_core_domains::domains::host::NotificationClicks;
 use mixdog_protocol::ThreadId;

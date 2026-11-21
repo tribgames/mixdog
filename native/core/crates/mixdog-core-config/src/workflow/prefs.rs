@@ -1,8 +1,3 @@
-//! `setModelPreferences`: whether each model of one provider is listed in the model picker and
-//! whether it is a favorite (`provider-auth/login.mjs`, `services/provider-admin.mjs`
-//! `saveModelPreferences`). Both live in `modelSettings["provider/model"]`; a custom
-//! provider's visibility is its own `modelOverrides[id].hidden`.
-
 use mixdog_ai::catalog::is_known_provider;
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
@@ -82,18 +77,10 @@ fn object_of(value: Option<&Value>) -> Map<String, Value> {
     value.and_then(Value::as_object).cloned().unwrap_or_default()
 }
 
-/// `saveModelPreferences(cfgMod, provider, changes)`: the config to store and the answer.
-pub(crate) fn prepare(agent: &Doc, provider: &Value, changes: &Value, host: &dyn WorkflowHost) -> Result<Preferences, String> {
-    let provider = provider_text(provider);
-    let changes = changes_of(changes)?;
-    let custom = is_custom_provider_id(&provider);
-    let full = Value::Object(agent.clone());
-    let known_proxy = custom && changes.iter().all(|change| change.hidden.is_none()) && host.proxy_provider_registered(&provider);
-    if !known_proxy && !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
-        return Err(format!("unknown provider \"{provider}\""));
-    }
+/// `modelSettings` with each change applied; a custom provider's `hidden` lives in its own overrides instead.
+fn model_settings_after(agent: &Doc, provider: &str, custom: bool, changes: &[Change]) -> Map<String, Value> {
     let mut model_settings = object_of(agent.get("modelSettings"));
-    for change in &changes {
+    for change in changes {
         let key = format!("{provider}/{}", change.model);
         let mut setting = object_of(model_settings.get(&key));
         if let Some(hidden) = change.hidden
@@ -116,29 +103,47 @@ pub(crate) fn prepare(agent: &Doc, provider: &Value, changes: &Value, host: &dyn
             model_settings.insert(key, Value::Object(setting));
         }
     }
+    model_settings
+}
+
+/// The stored entry of a custom provider with `hidden` set in the overrides of the changed models.
+fn custom_provider_after_hiding(providers: &Map<String, Value>, provider: &str, hidden: &[&Change], host: &dyn WorkflowHost) -> Result<Value, String> {
+    let entry = providers.get(provider).cloned().unwrap_or(Value::Null);
+    let current = host.normalize_stored_custom_config(&entry)?;
+    let mut overrides = object_of(current.get("modelOverrides"));
+    for change in hidden {
+        let mut next = object_of(overrides.get(&change.model));
+        next.insert("hidden".into(), Value::Bool(change.hidden == Some(true)));
+        overrides.insert(change.model.clone(), Value::Object(next));
+    }
+    let mut next_current = current.as_object().cloned().unwrap_or_default();
+    next_current.insert("modelOverrides".into(), Value::Object(overrides));
+    let config = host.normalize_stored_custom_config(&Value::Object(next_current))?;
+    let mut saved = config.as_object().cloned().unwrap_or_default();
+    saved.insert("type".into(), json!("custom"));
+    saved.insert("enabled".into(), Value::Bool(entry.get("enabled") != Some(&Value::Bool(false))));
+    Ok(Value::Object(saved))
+}
+
+/// `saveModelPreferences(cfgMod, provider, changes)`: the config to store and the answer.
+pub(crate) fn prepare(agent: &Doc, provider: &Value, changes: &Value, host: &dyn WorkflowHost) -> Result<Preferences, String> {
+    let provider = provider_text(provider);
+    let changes = changes_of(changes)?;
+    let custom = is_custom_provider_id(&provider);
+    let full = Value::Object(agent.clone());
+    let known_proxy = custom && changes.iter().all(|change| change.hidden.is_none()) && host.proxy_provider_registered(&provider);
+    if !known_proxy && !is_known_provider(&provider, &full, &|id| host.provider_available(id)) {
+        return Err(format!("unknown provider \"{provider}\""));
+    }
     let mut after = agent.clone();
-    after.insert("modelSettings".into(), Value::Object(model_settings));
+    after.insert("modelSettings".into(), Value::Object(model_settings_after(agent, &provider, custom, &changes)));
     let hidden: Vec<&Change> = if custom { changes.iter().filter(|change| change.hidden.is_some()).collect() } else { Vec::new() };
     if !hidden.is_empty() {
         host.require_local_provider_management()?;
-        let providers = object_of(agent.get("providers"));
-        let entry = providers.get(&provider).cloned().unwrap_or(Value::Null);
-        let current = host.normalize_stored_custom_config(&entry)?;
-        let mut overrides = object_of(current.get("modelOverrides"));
-        for change in &hidden {
-            let mut next = object_of(overrides.get(&change.model));
-            next.insert("hidden".into(), Value::Bool(change.hidden == Some(true)));
-            overrides.insert(change.model.clone(), Value::Object(next));
-        }
-        let mut next_current = current.as_object().cloned().unwrap_or_default();
-        next_current.insert("modelOverrides".into(), Value::Object(overrides));
-        let config = host.normalize_stored_custom_config(&Value::Object(next_current))?;
-        let mut saved = config.as_object().cloned().unwrap_or_default();
-        saved.insert("type".into(), json!("custom"));
-        saved.insert("enabled".into(), Value::Bool(entry.get("enabled") != Some(&Value::Bool(false))));
-        let mut next_providers = providers;
-        next_providers.insert(provider.clone(), Value::Object(saved));
-        after.insert("providers".into(), Value::Object(next_providers));
+        let mut providers = object_of(agent.get("providers"));
+        let saved = custom_provider_after_hiding(&providers, &provider, &hidden, host)?;
+        providers.insert(provider.clone(), saved);
+        after.insert("providers".into(), Value::Object(providers));
     }
     Ok(Preferences {
         result: json!({ "provider": provider, "changed": changes.len(), "customCatalogChanged": !hidden.is_empty() }),

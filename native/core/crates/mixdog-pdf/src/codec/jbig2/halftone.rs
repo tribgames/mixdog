@@ -194,9 +194,7 @@ impl Context<'_> {
             let mut cx = vec![ArithCx::default(); generic::context_count(dict.template)];
             let mut decoder = ArithDecoder::new(self.stream.data(), self.stream.byte_index());
             let patterns = dict.decode_arith(&mut decoder, &mut cx).ok_or(Failure)?;
-            self.stream.set_byte_index(decoder.byte_index());
-            self.stream.align_byte();
-            self.stream.add_offset(2);
+            self.stream.end_arith(decoder.byte_index());
             patterns
         };
         segment.result = SegmentResult::Patterns(patterns);
@@ -254,9 +252,7 @@ impl Context<'_> {
             let mut cx = vec![ArithCx::default(); generic::context_count(region.template)];
             let mut decoder = ArithDecoder::new(stream.data(), stream.byte_index());
             let image = region.decode_arith(&mut decoder, &mut cx).ok_or(Failure)?;
-            stream.set_byte_index(decoder.byte_index());
-            stream.align_byte();
-            stream.add_offset(2);
+            stream.end_arith(decoder.byte_index());
             image
         };
         Self::finish_region(segment, image, &info, page, 20);

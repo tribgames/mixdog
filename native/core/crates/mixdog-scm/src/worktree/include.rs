@@ -491,14 +491,28 @@ mod tests {
     }
 }
 
-/// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
-/// too large to fingerprint.
+/// The explicit copy/link entries as `(rel, link, line, from a pattern)`, the usable patterns, and a warning per unusable line.
+fn split_entries(entries: &[IncludeEntry]) -> (Vec<(String, bool, usize, bool)>, Vec<String>, Vec<String>) {
+    let (mut planned, mut patterns, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
+    for entry in entries {
+        match entry {
+            IncludeEntry::Copy { rel, line } => planned.push((rel.clone(), false, *line, false)),
+            IncludeEntry::Link { rel, line } => planned.push((rel.clone(), true, *line, false)),
+            IncludeEntry::Pattern { pattern: Some(p), .. } => patterns.push(p.clone()),
+            IncludeEntry::Pattern { line, .. } | IncludeEntry::Invalid { line } => warnings.push(format!("include-invalid:{line}")),
+        }
+    }
+    (planned, patterns, warnings)
+}
+
 /// `names.sort()` of JavaScript: UTF-16 code-unit order, which puts a supplementary character before U+E000..U+FFFF (Rust's string
 /// order, by code point, does the reverse). A digest recorded by Node hashes its entries in that order.
 fn sort_js(names: &mut [String]) {
     names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
 }
 
+/// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
+/// too large to fingerprint.
 fn tree_digest(path: &Path) -> Option<String> {
     let mut hash = Sha256::new();
     let mut count = 0usize;
@@ -729,46 +743,27 @@ impl Worktrees {
         warnings: &mut Vec<String>,
         cancel: &CancellationToken,
     ) -> Result<Vec<String>, ScmFailure> {
+        match self.select_ignored_matches(root, patterns, warnings, cancel).await? {
+            Some(selected) => Ok(selected),
+            None => {
+                warnings.push("include-invalid:patterns".into());
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// `None` when git cannot use the patterns.
+    async fn select_ignored_matches(
+        &self,
+        root: &Path,
+        patterns: &[String],
+        warnings: &mut Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<String>>, ScmFailure> {
         let excludes: Vec<String> = patterns.iter().map(|p| format!("--exclude={p}")).collect();
-        let git = &self.scm().git;
-        let list = |extra: Vec<String>| {
-            let excludes = excludes.clone();
-            async move {
-                let mut args: Vec<&str> = vec!["ls-files", "-z", "--others", "--ignored"];
-                let head: Vec<String> = extra.iter().take_while(|a| *a != "--").cloned().collect();
-                args.extend(head.iter().map(String::as_str));
-                args.extend(excludes.iter().map(String::as_str));
-                let tail: Vec<String> = extra.iter().skip_while(|a| *a != "--").cloned().collect();
-                args.extend(tail.iter().map(String::as_str));
-                let out = git.outcome(cancel, root, &args, &RunOptions::read()).await?;
-                if !out.success() {
-                    return Ok::<_, ScmFailure>(None);
-                }
-                Ok(Some(nul_records(&out.stdout_text()).map(str::to_owned).collect::<Vec<String>>()))
-            }
-        };
-        let repo_ignored = |paths: Vec<String>| async move {
-            let mut ignored = HashSet::new();
-            for batch in paths.chunks(CHECK_IGNORE_BATCH) {
-                let mut args = vec!["-c", "core.quotePath=false", "check-ignore", "--"];
-                args.extend(batch.iter().map(String::as_str));
-                let out = git.outcome(cancel, root, &args, &RunOptions::read()).await?;
-                if out.code.is_none_or(|c| c > 1) {
-                    return Ok::<_, ScmFailure>(None);
-                }
-                ignored.extend(out.stdout_text().lines().filter(|l| !l.is_empty()).map(str::to_owned));
-            }
-            Ok(Some(ignored))
-        };
         let mut selected: Vec<String> = Vec::new();
-        let Some(candidates) = list(vec!["--directory".into(), "--no-empty-directory".into()]).await? else {
-            warnings.push("include-invalid:patterns".into());
-            return Ok(Vec::new());
-        };
-        let Some(ignored) = repo_ignored(candidates.clone()).await? else {
-            warnings.push("include-invalid:patterns".into());
-            return Ok(Vec::new());
-        };
+        let Some(candidates) = self.list_ignored(root, &["--directory", "--no-empty-directory"], &excludes, &[], cancel).await? else { return Ok(None) };
+        let Some(ignored) = self.check_ignored(root, &candidates, cancel).await? else { return Ok(None) };
         for path in candidates {
             if ignored.contains(&path) {
                 selected.push(path);
@@ -777,14 +772,8 @@ impl Worktrees {
             if !path.ends_with('/') {
                 continue;
             }
-            let Some(files) = list(vec!["--".into(), path.clone()]).await? else {
-                warnings.push("include-invalid:patterns".into());
-                return Ok(Vec::new());
-            };
-            let Some(inside) = repo_ignored(files.clone()).await? else {
-                warnings.push("include-invalid:patterns".into());
-                return Ok(Vec::new());
-            };
+            let Some(files) = self.list_ignored(root, &[], &excludes, &["--", path.as_str()], cancel).await? else { return Ok(None) };
+            let Some(inside) = self.check_ignored(root, &files, cancel).await? else { return Ok(None) };
             selected.extend(files.into_iter().filter(|f| inside.contains(f)));
             if selected.len() > MAX_PATTERN_MATCHES {
                 break;
@@ -793,9 +782,45 @@ impl Worktrees {
         if selected.len() > MAX_PATTERN_MATCHES {
             // A partial copy would be worse than none.
             warnings.push(format!("include-truncated:{}", selected.len()));
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
-        Ok(selected.into_iter().map(|p| p.trim_end_matches(['/', '\\']).to_owned()).collect())
+        Ok(Some(selected.into_iter().map(|p| p.trim_end_matches(['/', '\\']).to_owned()).collect()))
+    }
+
+    /// The untracked paths `patterns` (as `excludes`) match that git ignores; `None` when git refuses the listing.
+    async fn list_ignored(
+        &self,
+        root: &Path,
+        flags: &[&str],
+        excludes: &[String],
+        pathspec: &[&str],
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<String>>, ScmFailure> {
+        let mut args: Vec<&str> = vec!["ls-files", "-z", "--others", "--ignored"];
+        args.extend(flags);
+        args.extend(excludes.iter().map(String::as_str));
+        args.extend(pathspec);
+        let out = self.scm().git.outcome(cancel, root, &args, &RunOptions::read()).await?;
+        if !out.success() {
+            return Ok(None);
+        }
+        let listing = out.stdout_text();
+        Ok(Some(nul_records(&listing).map(str::to_owned).collect()))
+    }
+
+    /// Which of `paths` the repository's own ignore rules cover; `None` when `git check-ignore` fails.
+    async fn check_ignored(&self, root: &Path, paths: &[String], cancel: &CancellationToken) -> Result<Option<HashSet<String>>, ScmFailure> {
+        let mut ignored = HashSet::new();
+        for batch in paths.chunks(CHECK_IGNORE_BATCH) {
+            let mut args = vec!["-c", "core.quotePath=false", "check-ignore", "--"];
+            args.extend(batch.iter().map(String::as_str));
+            let out = self.scm().git.outcome(cancel, root, &args, &RunOptions::read()).await?;
+            if out.code.is_none_or(|c| c > 1) {
+                return Ok(None);
+            }
+            ignored.extend(out.stdout_text().lines().filter(|l| !l.is_empty()).map(str::to_owned));
+        }
+        Ok(Some(ignored))
     }
 
     /// Resolves and validates every entry against the repository before anything is allocated.
@@ -808,17 +833,7 @@ impl Worktrees {
         cancel: &CancellationToken,
     ) -> Result<IncludePlan, ScmFailure> {
         let root_real = strip_verbatim(std::fs::canonicalize(root)?);
-        let mut warnings = Vec::new();
-        let mut patterns: Vec<String> = Vec::new();
-        let mut planned: Vec<(String, bool, usize, bool)> = Vec::new();
-        for entry in entries {
-            match entry {
-                IncludeEntry::Copy { rel, line } => planned.push((rel.clone(), false, *line, false)),
-                IncludeEntry::Link { rel, line } => planned.push((rel.clone(), true, *line, false)),
-                IncludeEntry::Pattern { pattern: Some(p), .. } => patterns.push(p.clone()),
-                IncludeEntry::Pattern { line, .. } | IncludeEntry::Invalid { line } => warnings.push(format!("include-invalid:{line}")),
-            }
-        }
+        let (mut planned, patterns, mut warnings) = split_entries(entries);
         let explicit: Vec<String> = planned.iter().map(|(rel, ..)| key(rel)).collect();
         let matched = if patterns.is_empty() { Vec::new() } else { self.ignored_pattern_matches(&root_real, &patterns, &mut warnings, cancel).await? };
         let overlaps = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"));

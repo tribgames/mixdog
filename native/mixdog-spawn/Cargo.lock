@@ -1454,7 +1454,6 @@ dependencies = [
  "log",
  "memchr",
  "mio",
- "moxcms",
  "nom",
  "num",
  "num-bigint",
@@ -1525,16 +1524,6 @@ dependencies = [
  "zerotrie",
  "zerovec",
  "zlib-rs",
-]
-
-[[package]]
-name = "moxcms"
-version = "0.7.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac9557c559cd6fc9867e122e20d2cbefc9ca29d80d027a8e39310920ed2f0a97"
-dependencies = [
- "num-traits",
- "pxfm",
 ]
 
 [[package]]
@@ -1800,12 +1789,6 @@ dependencies = [
  "idna",
  "psl-types",
 ]
-
-[[package]]
-name = "pxfm"
-version = "0.1.30"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "quinn"

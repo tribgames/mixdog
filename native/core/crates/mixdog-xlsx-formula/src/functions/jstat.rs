@@ -99,31 +99,26 @@ impl N {
 }
 /// A cumulative probability and its right tail, each computed on its own side.
 pub(super) type Tails = Result<(f64, f64), SpecialError>;
-/// The quantile of a distribution whose cumulative and right tail at `x` come from `tails`. The root is found on the
-/// tail that is at most one half (a right tail `1 - p` is exact for `p >= 1/2`), so a tiny probability keeps its
-/// precision; `lo`/`hi` bracket the variable.
 /// A root found at the bottom of the bracket is the lower end of the support, 0 (Excel: F.INV.RT(1,3,3), T.INV.2T(1,3)).
 fn bottom_is_zero(root: Result<f64, SpecialError>) -> Result<f64, SpecialError> {
     root.map(|x| if x == X_MIN { 0.0 } else { x })
 }
+/// The quantile of a distribution whose cumulative and right tail at `x` come from `tails`. The root is found on the
+/// tail that is at most one half (a right tail `1 - p` is exact for `p >= 1/2`), so a tiny probability keeps its
+/// precision; `lo`/`hi` bracket the variable.
 fn quantile(tails: impl Fn(f64) -> Tails, p: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    bottom_is_zero(quantile_unfloored(tails, p, lo, hi))
-}
-fn quantile_unfloored(tails: impl Fn(f64) -> Tails, p: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    if p > 0.5 { quantile_rt(tails, 1.0 - p, lo, hi) } else { solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, p) }
+    bottom_is_zero(if p > 0.5 { quantile_rt(tails, 1.0 - p, lo, hi) } else { solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, p) })
 }
 /// The quantile whose right tail is `q`; for `q > 1/2` the left tail `1 - q` (exact) is the small one.
 fn quantile_rt(tails: impl Fn(f64) -> Tails, q: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    bottom_is_zero(quantile_rt_unfloored(tails, q, lo, hi))
-}
-fn quantile_rt_unfloored(tails: impl Fn(f64) -> Tails, q: f64, lo: f64, hi: f64) -> Result<f64, SpecialError> {
-    if q > 0.5 { solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, 1.0 - q) } else { solve_monotone(|x| tails(x).map(|t| t.1), lo, hi, true, q) }
-}
-pub(super) fn beta_tails(x: f64, y: f64, a: f64, b: f64) -> Tails {
-    beta_inc_xy(x, y, a, b)
+    bottom_is_zero(if q > 0.5 {
+        solve_monotone(|x| tails(x).map(|t| t.0), lo, hi, false, 1.0 - q)
+    } else {
+        solve_monotone(|x| tails(x).map(|t| t.1), lo, hi, true, q)
+    })
 }
 pub(super) fn beta_inv(p: f64, a: f64, b: f64) -> Result<f64, SpecialError> {
-    quantile(|x| beta_tails(x, 1.0 - x, a, b), p, X_MIN, 1.0)
+    quantile(|x| beta_inc_xy(x, 1.0 - x, a, b), p, X_MIN, 1.0)
 }
 pub(super) fn central_f_tails(x: f64, a: f64, b: f64) -> Tails {
     // written with u = b/a so that a*x cannot overflow for a finite x

@@ -917,10 +917,6 @@ fn presentation_metric_issues<P: ReadProof>(
     for detached in review_stat_label_proximity(&boxes, 36.0) {
         issues.push(tagged("warning", "text-metrics", &detached));
     }
-    // The measured read that rides on author and batch sees the same geometry the design review sees: an element a few points
-    // off an axis its neighbours share, a margin breach, a collision. A defect is cheapest to answer in the turn that wrote
-    // it, not one call later. Contrast stays with the metrics pass above, which measures it against the resolved surface. A
-    // PDF's designed sheets (printSheet) are held to the print type floors, not a screen's.
     let mut document = snapshot_pptx(zip, &json!({}), measurer).map_err(|error| error.to_string())?;
     if truthy(options.get("printSheet")) {
         if let Value::Object(fields) = &mut document {
@@ -977,12 +973,15 @@ struct BrokenWord {
     width: f64,
 }
 
+fn table_grid_columns(table: &str) -> Vec<f64> {
+    let grid = compiled(r"<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>", "").find(table).map_or("", |range| &table[range]);
+    compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect()
+}
+
 /// A word wider than its cell is broken between letters: "Sun" set as "Su / n", a date "11" stacked as "1 / 1". Word and
 /// LibreOffice both do it without a warning, so the column reads as a typo on the printed page.
 fn broken_cell_word<P: ReadProof>(measurer: &TextMeasurer<'_, P>, table: &str) -> Result<Option<BrokenWord>, String> {
-    let grid = compiled(r"<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>", "").find(table).map_or("", |range| &table[range]);
-    let columns: Vec<f64> =
-        compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
+    let columns = table_grid_columns(table);
     if columns.is_empty() {
         return Ok(None);
     }
@@ -1069,9 +1068,7 @@ fn document_table_issues<P: ReadProof>(measurer: &TextMeasurer<'_, P>, document:
                 Some("text-metrics"),
             ));
         }
-        let grid = compiled(r"<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>", "").find(&table.xml).map_or("", |range| &table.xml[range]);
-        let columns: Vec<f64> =
-            compiled(r#"<w:gridCol\b[^>]*\bw:w="(\d+)""#, "g").captures_iter(grid).map(|found| string_to_number(found.get(1).unwrap_or(""))).collect();
+        let columns = table_grid_columns(&table.xml);
         if columns.is_empty() {
             continue;
         }
@@ -1266,26 +1263,28 @@ fn sheet_value_issues(sheet: &Value) -> Vec<Value> {
     issues
 }
 
+/// The snapshot the content audit reads: the whole workbook, or only the sheet and range the call named.
+fn audit_snapshot_options(options: &Value) -> Value {
+    if !(truthy(options.get("sheet")) || truthy(options.get("range"))) {
+        return json!({ "full": true });
+    }
+    let mut selected = Map::new();
+    selected.insert("paged".to_owned(), Value::Bool(true));
+    for key in ["sheet", "range"] {
+        if let Some(value) = options.get(key) {
+            selected.insert(key.to_owned(), value.clone());
+        }
+    }
+    selected.insert("offset".to_owned(), json_number(0.0));
+    selected.insert("limit".to_owned(), json_number(9_007_199_254_740_991.0));
+    Value::Object(selected)
+}
+
 /// What the workbook's values say: formula errors, uncached formulas, how far the audit read, the profile's required sheets,
 /// pictures without a description.
 fn workbook_content_issues<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, options: &Value) -> Result<Vec<Value>, String> {
     let mut issues = Vec::new();
-    let selective = truthy(options.get("sheet")) || truthy(options.get("range"));
-    let snapshot_options = if selective {
-        let mut selected = Map::new();
-        selected.insert("paged".to_owned(), Value::Bool(true));
-        for key in ["sheet", "range"] {
-            if let Some(value) = options.get(key) {
-                selected.insert(key.to_owned(), value.clone());
-            }
-        }
-        selected.insert("offset".to_owned(), json_number(0.0));
-        selected.insert("limit".to_owned(), json_number(9_007_199_254_740_991.0));
-        Value::Object(selected)
-    } else {
-        json!({ "full": true })
-    };
-    let snapshot = snapshot_xlsx(measurer, zip, &snapshot_options)?;
+    let snapshot = snapshot_xlsx(measurer, zip, &audit_snapshot_options(options))?;
     let sheets = list(snapshot.get("sheets"));
     for sheet in sheets {
         issues.extend(sheet_value_issues(sheet));
@@ -1294,10 +1293,6 @@ fn workbook_content_issues<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &P
     // sheet still audits.
     let workbook_sheet_list = workbook_sheets(zip);
     let sheet_names: Vec<String> = workbook_sheet_list.iter().map(|sheet| sheet.name.clone()).collect();
-    // Every formula carries a cached value and the workbook is still marked for a full calculation: the numbers on this page
-    // are the ones from before the edit that set the mark. A successful recalculation clears it, and a workbook whose formulas
-    // were never calculated at all is already reported as formula_cache_missing, so this is the case a clean-looking cache
-    // hides.
     let mut cached_formulas = 0;
     let mut uncached_formulas = 0;
     for sheet in &workbook_sheet_list {
@@ -1420,6 +1415,28 @@ mod tests {
         let issues = document_ink_issues(&body(table));
         assert_eq!(issues[0]["path"], "/body/tbl[1]/row[1]/cell[1]");
         assert!(issues[0]["message"].as_str().unwrap_or("").starts_with("Cell text contrast is "));
+    }
+
+    #[test]
+    fn a_table_grid_wider_than_the_text_column_is_reported() {
+        let registry = mixdog_fonts::registry::Registry::new();
+        let measurer = TextMeasurer::new(&mixdog_fsio::Unlaned, &registry);
+        let table = "<w:tbl><w:tblGrid><w:gridCol w:w=\"20000\"/></w:tblGrid><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>";
+        let issues = document_table_issues(&measurer, &body(table)).expect("table audit");
+        assert_eq!(codes(&issues), ["table_wider_than_page"]);
+        assert_eq!(issues[0]["path"], "/body/table[1]");
+        assert!(issues[0]["message"].as_str().unwrap_or("").starts_with("Table spans 13.89in across a "));
+    }
+
+    #[test]
+    fn a_selective_audit_pages_the_named_sheet_and_a_plain_one_reads_everything() {
+        assert_eq!(audit_snapshot_options(&json!({})), json!({ "full": true }));
+        let selected = audit_snapshot_options(&json!({ "sheet": "S", "range": "A1:B2", "pages": [1] }));
+        assert_eq!(selected["paged"], true);
+        assert_eq!(selected["sheet"], "S");
+        assert_eq!(selected["range"], "A1:B2");
+        assert_eq!(selected["offset"], 0);
+        assert!(selected.get("pages").is_none());
     }
 
     #[test]

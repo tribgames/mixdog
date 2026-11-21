@@ -1,9 +1,3 @@
-//! `anthropic-prefix-trace.mjs`: a diagnostic per-block fingerprint of an Anthropic request body: the tools, each system
-//! block, the thinking parameters, the cache marker positions and, at each marked message, a chained hash of the messages up
-//! to it, as short hashes only. The last two requests per session are kept in memory so a usage-detected cache miss (the agent
-//! loop's `actual_cache_miss`) can say which block, marker or message breakpoint moved; the latest one also rides on the
-//! session record (`providerPrefixBaseline`), so the first request after a restart is compared with the last one before it.
-
 use std::sync::Mutex;
 use std::sync::PoisonError;
 

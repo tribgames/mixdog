@@ -1,7 +1,7 @@
 //! Where a run's findings sit in the working tree: files already modified or untracked versus
 //! files clean in the repository. `fix apply:true` writes every fixable finding inside the caller's
 //! paths, so a directory scope rewrites files nobody touched; the split is a report the caller
-//! reads before writing. Scope still comes from `paths`; nothing here derives one from a diff.
+//! reads before writing.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;

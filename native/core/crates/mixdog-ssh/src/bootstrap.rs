@@ -1,11 +1,3 @@
-//! Bootstrap of a server connection (LR §8.1): probe the platform and the installed state, upload this desktop's
-//! `mixdogd` when its version directory is missing, and let `mixdogd server-ensure` on the server decide, with the one
-//! `compat::order`, whether the running core is attached to, replaced (this desktop is newer) or refused (this desktop
-//! is older). Nothing here compares versions; the server's answer is the decision.
-//!
-//! Every run is one `ssh <target> <command>` ([`remote_shell_command`] of [`remote_program_script`]): the server prints
-//! `MIXDOG_PLATFORM`, then `MIXDOG_RESULT <json>` or `MIXDOG_ERROR <code> <message>` (see [`install_wire`](crate::install_wire)).
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex, PoisonError};

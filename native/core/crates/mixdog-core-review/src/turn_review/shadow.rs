@@ -103,7 +103,7 @@ pub(super) fn safe_relative_path(root: &str, value: &str) -> R<String> {
     Ok(rel.replace('\\', "/"))
 }
 
-fn nul_list(bytes: &[u8]) -> Vec<String> {
+pub(super) fn nul_list(bytes: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(bytes).split('\0').map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).collect()
 }
 
@@ -416,35 +416,7 @@ impl ShadowRepos {
             self.shared.note_review_changed();
             return;
         }
-        let roots: Vec<(usize, String)> = states
-            .iter()
-            .enumerate()
-            .flat_map(|(i, s)| {
-                let mut keys = vec![shadow_key(&s.root)];
-                if s.canonical_key != keys[0] {
-                    keys.push(s.canonical_key.clone());
-                }
-                keys.into_iter().map(move |k| (i, k))
-            })
-            .collect();
-        let mut stamped: HashSet<usize> = HashSet::new();
-        let mut seen: HashSet<String> = HashSet::new();
-        for value in list {
-            if stamped.len() == states.len() {
-                break;
-            }
-            let spelled = shadow_key(&nodepath::resolve_host(&[value]));
-            if !seen.insert(spelled) {
-                continue;
-            }
-            let key = shadow_key(&canonical_path(value));
-            let dir = if key.ends_with('/') { key.clone() } else { format!("{key}/") };
-            for (index, root) in &roots {
-                if key == *root || key.starts_with(&format!("{root}/")) || root.starts_with(&dir) {
-                    stamped.insert(*index);
-                }
-            }
-        }
+        let stamped = roots_touched_by(&states, &list);
         let any = !stamped.is_empty();
         for index in stamped {
             states[index].state.lock().unwrap_or_else(|e| e.into_inner()).change_stamp += 1;
@@ -452,6 +424,26 @@ impl ShadowRepos {
         if any {
             self.shared.note_review_changed();
         }
+    }
+
+    async fn retire_root_state(&self, key: &str, state: &Arc<Root>) {
+        let _guard = state.lock.acquire().await;
+        state.state.lock().unwrap_or_else(|e| e.into_inner()).forgotten = true;
+        {
+            let mut states = self.shared.states.lock().unwrap_or_else(|e| e.into_inner());
+            if states.get(key).is_some_and(|s| Arc::ptr_eq(s, state)) {
+                states.shift_remove(key);
+            }
+        }
+        let gc = state.gc.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(gc) = gc {
+            if gc.started.load(Ordering::SeqCst) {
+                let _ = gc.task.await;
+            } else {
+                gc.task.abort();
+            }
+        }
+        self.shared.maintained.lock().unwrap_or_else(|e| e.into_inner()).remove(&state.git_dir);
     }
 
     /// `forgetTurnWorktreeRoot(root)`: serialize behind the root's pending capture work, remove its
@@ -482,23 +474,7 @@ impl ShadowRepos {
                 continue;
             }
             add_dir(state.git_dir.clone(), &mut git_dirs);
-            let _guard = state.lock.acquire().await;
-            state.state.lock().unwrap_or_else(|e| e.into_inner()).forgotten = true;
-            {
-                let mut states = self.shared.states.lock().unwrap_or_else(|e| e.into_inner());
-                if states.get(&key).is_some_and(|s| Arc::ptr_eq(s, &state)) {
-                    states.shift_remove(&key);
-                }
-            }
-            let gc = state.gc.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(gc) = gc {
-                if gc.started.load(Ordering::SeqCst) {
-                    let _ = gc.task.await;
-                } else {
-                    gc.task.abort();
-                }
-            }
-            self.shared.maintained.lock().unwrap_or_else(|e| e.into_inner()).remove(&state.git_dir);
+            self.retire_root_state(&key, &state).await;
         }
         for git_dir in git_dirs {
             if self.shared.disk.lstat(&git_dir).await.ok().flatten().is_none() {
@@ -513,6 +489,77 @@ impl ShadowRepos {
         }
         (removed, kept)
     }
+}
+
+/// Indexes of the roots a path lies under or contains.
+fn roots_touched_by(states: &[Arc<Root>], paths: &[&String]) -> HashSet<usize> {
+    let roots: Vec<(usize, String)> = states
+        .iter()
+        .enumerate()
+        .flat_map(|(i, s)| {
+            let mut keys = vec![shadow_key(&s.root)];
+            if s.canonical_key != keys[0] {
+                keys.push(s.canonical_key.clone());
+            }
+            keys.into_iter().map(move |k| (i, k))
+        })
+        .collect();
+    let mut stamped: HashSet<usize> = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for value in paths {
+        if stamped.len() == states.len() {
+            break;
+        }
+        let spelled = shadow_key(&nodepath::resolve_host(&[value.as_str()]));
+        if !seen.insert(spelled) {
+            continue;
+        }
+        let key = shadow_key(&canonical_path(value));
+        let dir = if key.ends_with('/') { key.clone() } else { format!("{key}/") };
+        for (index, root) in &roots {
+            if key == *root || key.starts_with(&format!("{root}/")) || root.starts_with(&dir) {
+                stamped.insert(*index);
+            }
+        }
+    }
+    stamped
+}
+
+/// The `--raw --numstat --patch -z` output of one `git diff`; `None` when it does not parse.
+fn parse_combined_diff(text: &str) -> Option<Combined> {
+    if text.is_empty() {
+        return Some(Combined::default());
+    }
+    let mut name_status: Vec<String> = Vec::new();
+    let mut cursor = 0usize;
+    let token = |cursor: &mut usize| -> Option<String> {
+        let end = text[*cursor..].find('\0')? + *cursor;
+        let value = text[*cursor..end].to_owned();
+        *cursor = end + 1;
+        Some(value)
+    };
+    while text[cursor..].starts_with(':') {
+        let header = token(&mut cursor)?;
+        let status = header.rsplit(' ').next().unwrap_or("").to_owned();
+        if status.is_empty() {
+            return None;
+        }
+        let mut paths = vec![token(&mut cursor)];
+        if status.starts_with('R') || status.starts_with('C') {
+            paths.push(token(&mut cursor));
+        }
+        if paths.iter().any(|p| p.as_deref().is_none_or(str::is_empty)) {
+            return None;
+        }
+        name_status.push(status);
+        name_status.extend(paths.into_iter().flatten());
+    }
+    let numstat_end = if text[cursor..].starts_with('\0') { cursor } else { cursor + text[cursor..].find("\0\0")? + 1 };
+    Some(Combined {
+        statuses: parse_name_status(&format!("{}\0", name_status.join("\0"))),
+        stats: parse_numstat(&text[cursor..numstat_end]),
+        sections: sections_by_path(&text[numstat_end + 1..]),
+    })
 }
 
 impl Root {
@@ -1015,47 +1062,7 @@ impl Root {
         if out.code != 0 {
             return Ok(None);
         }
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        if text.is_empty() {
-            return Ok(Some(Combined::default()));
-        }
-        let mut name_status: Vec<String> = Vec::new();
-        let mut cursor = 0usize;
-        let token = |cursor: &mut usize| -> Option<String> {
-            let end = text[*cursor..].find('\0')? + *cursor;
-            let value = text[*cursor..end].to_owned();
-            *cursor = end + 1;
-            Some(value)
-        };
-        while text[cursor..].starts_with(':') {
-            let Some(header) = token(&mut cursor) else { return Ok(None) };
-            let status = header.rsplit(' ').next().unwrap_or("").to_owned();
-            if status.is_empty() {
-                return Ok(None);
-            }
-            let mut paths = vec![token(&mut cursor)];
-            if status.starts_with('R') || status.starts_with('C') {
-                paths.push(token(&mut cursor));
-            }
-            if paths.iter().any(|p| p.as_deref().is_none_or(str::is_empty)) {
-                return Ok(None);
-            }
-            name_status.push(status);
-            name_status.extend(paths.into_iter().flatten());
-        }
-        let numstat_end = if text[cursor..].starts_with('\0') {
-            cursor
-        } else {
-            match text[cursor..].find("\0\0") {
-                Some(i) => cursor + i + 1,
-                None => return Ok(None),
-            }
-        };
-        Ok(Some(Combined {
-            statuses: parse_name_status(&format!("{}\0", name_status.join("\0"))),
-            stats: parse_numstat(&text[cursor..numstat_end]),
-            sections: sections_by_path(&text[numstat_end + 1..]),
-        }))
+        Ok(parse_combined_diff(&String::from_utf8_lossy(&out.stdout)))
     }
 
     /// After the whole range overflowed: patches read in path batches, the smallest changes first.

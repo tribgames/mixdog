@@ -71,25 +71,34 @@ fn secrets() -> (Arc<Keychain>, McpServerSecrets) {
 }
 
 #[tokio::test]
-async fn a_client_secret_is_saved_trimmed_for_a_server_with_a_client_id_and_forgotten_when_the_id_is_cleared() {
+async fn a_client_secret_is_saved_trimmed_for_a_server_with_a_client_id() {
     let (keychain, secrets) = secrets();
     let cfg = json!({"url": "https://x.example/mcp", "oauthClientId": "cid"});
     secrets.store_oauth_client_secret(&json!({"oauthClientSecret": "  s3cret  "}), &cfg, &json!({})).await.unwrap();
     assert_eq!(*keychain.log.lock().unwrap(), ["client:https://x.example/mcp:s3cret"]);
-    keychain.log.lock().unwrap().clear();
+}
 
-    // A client id with no secret typed keeps the stored one: nothing is written.
+#[tokio::test]
+async fn a_client_id_with_no_secret_typed_keeps_the_stored_one() {
+    let (keychain, secrets) = secrets();
+    let cfg = json!({"url": "https://x.example/mcp", "oauthClientId": "cid"});
     secrets.store_oauth_client_secret(&json!({}), &cfg, &json!({"oauthClientId": "cid"})).await.unwrap();
     assert!(keychain.log.lock().unwrap().is_empty());
+}
 
-    // The id is cleared: the secret kept under the previous address is deleted (an empty secret deletes).
+#[tokio::test]
+async fn a_cleared_client_id_deletes_the_secret_kept_under_the_previous_address() {
+    let (keychain, secrets) = secrets();
     let cleared = json!({"url": "https://x.example/mcp"});
     let before = json!({"url": "https://old.example/mcp", "oauthClientId": "cid"});
     secrets.store_oauth_client_secret(&json!({}), &cleared, &before).await.unwrap();
-    assert_eq!(*keychain.log.lock().unwrap(), ["client:https://old.example/mcp:"]);
-    keychain.log.lock().unwrap().clear();
+    assert_eq!(*keychain.log.lock().unwrap(), ["client:https://old.example/mcp:"], "an empty secret deletes");
+}
 
-    // A server with no URL, or one that never had a client id, stores nothing.
+#[tokio::test]
+async fn a_server_with_no_url_or_that_never_had_a_client_id_stores_no_client_secret() {
+    let (keychain, secrets) = secrets();
+    let cleared = json!({"url": "https://x.example/mcp"});
     secrets.store_oauth_client_secret(&json!({"oauthClientSecret": "x"}), &json!({"command": "run"}), &json!({})).await.unwrap();
     secrets.store_oauth_client_secret(&json!({}), &cleared, &json!({})).await.unwrap();
     assert!(keychain.log.lock().unwrap().is_empty());
@@ -126,7 +135,7 @@ fn a_servers_sign_in_is_kept_under_its_address_or_its_accounts_own_key_and_only_
 }
 
 #[tokio::test]
-async fn a_failed_save_puts_every_account_back_and_reports_the_first_failure() {
+async fn a_failed_save_writes_back_what_an_account_held_before() {
     let (keychain, secrets) = secrets();
     let cfg = json!({"url": "https://x.example/mcp", "oauthClientId": "cid"});
     let input = json!({"oauthClientSecret": "new"});
@@ -134,11 +143,15 @@ async fn a_failed_save_puts_every_account_back_and_reports_the_first_failure() {
     keychain.held.lock().unwrap().insert(account.clone(), "old".to_owned());
     let snapshot = secrets.snapshot(&input, &cfg, &json!({})).await.unwrap();
     secrets.restore(snapshot).await.unwrap();
-    assert_eq!(*keychain.log.lock().unwrap(), [format!("write:{account}:old")], "what it held before is written back");
-    keychain.log.lock().unwrap().clear();
+    assert_eq!(*keychain.log.lock().unwrap(), [format!("write:{account}:old")]);
+}
 
-    // Nothing held before: restoring deletes what the failed save wrote.
-    keychain.held.lock().unwrap().clear();
+#[tokio::test]
+async fn a_failed_save_deletes_what_an_account_did_not_hold_and_reports_the_first_failure() {
+    let (keychain, secrets) = secrets();
+    let cfg = json!({"url": "https://x.example/mcp", "oauthClientId": "cid"});
+    let input = json!({"oauthClientSecret": "new"});
+    let account = oauth_client_secret_account("https://x.example/mcp").unwrap();
     let snapshot = secrets.snapshot(&input, &cfg, &json!({})).await.unwrap();
     keychain.failing.lock().unwrap().push(account.clone());
     assert_eq!(secrets.restore(snapshot).await.unwrap_err(), format!("cannot write {account}"));
@@ -150,13 +163,17 @@ fn gmail_server(address: &str) -> Value {
 }
 
 #[tokio::test]
-async fn a_gmail_app_password_is_saved_without_its_spaces_and_an_edit_without_one_keeps_the_stored_one() {
+async fn a_gmail_app_password_is_saved_without_its_spaces_under_the_lower_cased_address() {
     let (keychain, secrets) = secrets();
     let cfg = gmail_server("Me@Example.com");
     secrets.store_gmail_app_password(&json!({"appPassword": "abcd efgh ijkl mnop"}), &cfg, true).await.unwrap();
-    assert_eq!(*keychain.log.lock().unwrap(), ["gmail:me@example.com:abcdefghijklmnop"], "the address is lower-cased, the spaces are gone");
-    keychain.log.lock().unwrap().clear();
+    assert_eq!(*keychain.log.lock().unwrap(), ["gmail:me@example.com:abcdefghijklmnop"]);
+}
 
+#[tokio::test]
+async fn a_gmail_app_password_refusal_an_edit_without_one_or_a_server_that_is_not_gmail_saves_nothing() {
+    let (keychain, secrets) = secrets();
+    let cfg = gmail_server("Me@Example.com");
     let format = "GMAIL_APP_PASSWORD_FORMAT: An app password has 16 characters.";
     assert_eq!(secrets.store_gmail_app_password(&json!({"appPassword": "short"}), &cfg, false).await.unwrap_err(), format);
     assert_eq!(secrets.store_gmail_app_password(&json!({}), &cfg, true).await.unwrap_err(), format, "a new connection needs one");

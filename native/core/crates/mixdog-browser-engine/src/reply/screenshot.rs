@@ -1,5 +1,4 @@
-//! Owner: s4-engine-reply
-//! A screenshot in the reply (`reply-screenshot.ts`, and the persisting part of `frame-files.ts`). It is bound to the snapshot it
+//! A screenshot in the reply. It is bound to the snapshot it
 //! was taken with, so coordinates read off the image can be trusted against that snapshot id: a page that changed between the two
 //! is refused, and a full-page capture is inspection only and binds nothing. The picture goes into the reply, or beside the run
 //! when the caller asked to keep pixels out of the conversation; a frame that cannot go to a file stays in the reply rather than

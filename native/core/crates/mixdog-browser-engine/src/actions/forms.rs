@@ -1,11 +1,3 @@
-//! Owner: s4-engine-actions-forms
-//! Form controls addressed by ref (`actions/forms.ts`): text entry, selection, checkboxes, and answering the dialog that a
-//! submit may have opened. File uploads are the upload module's.
-//!
-//! A handler reads the command and drives the page through a [`FormContext`], which the command runner implements over the
-//! page's state: it resolves targets to refs, runs a mutation behind the read-only recovery preflight (`mutate_ref`), keeps the
-//! effect baseline and builds the settled reply. The handlers never reach the host except for the keys and the dialog answer.
-
 use std::future::Future;
 use std::pin::Pin;
 
@@ -131,49 +123,67 @@ pub async fn fill(context: &mut dyn FormContext) -> Result<ToolReply, RefError> 
     let command = context.command().clone();
     let submit = truthy(command.get("submit"));
     if let Some(account) = command.get("savedAccount").and_then(Value::as_str) {
-        // A stored login: the host writes the password itself; the handler only learns whether the form took it.
-        check_cancel(context)?;
-        let filled = context.fill_stored(account).await?;
-        check_cancel(context)?;
-        if !filled.password_filled {
-            return Err(failed(if filled.reason.as_deref() == Some("no-password-field") {
-                "no visible password field in this page (a sign-in form inside an embedded frame is never filled); open the sign-in form or its password step first"
-            } else {
-                "the password field did not accept the stored login"
-            }));
-        }
+        fill_stored_login(context, account).await?;
         return after_edit(context, submit).await;
     }
     let fields: Vec<Value> = command.get("fields").and_then(Value::as_array).cloned().unwrap_or_default();
-    // A code or secret the caller marked: registered before the page sees it, so no reply, snapshot or error of this session
-    // repeats it.
     if command.get("sensitive") == Some(&Value::Bool(true)) {
-        let actions = context.ref_actions();
-        let marked = std::iter::once(command.get("text")).chain(fields.iter().flat_map(|field| [field.get("text"), field.get("value")]));
-        for value in marked.flatten().filter_map(Value::as_str).filter(|value| !value.is_empty()) {
-            (actions.remember_secret)(value);
-        }
+        remember_secrets(context, &command, &fields);
     }
     if fields.is_empty() {
-        let Some(ref_id) = context.action_ref().await? else {
-            return Err(failed("fill requires ref, target, or fields"));
-        };
-        // One control: text for an input, or a checked state for a checkbox or radio; exactly one of the two.
-        let text = command.get("text").and_then(Value::as_str).map(str::to_string);
-        let checked = command.get("checked").and_then(Value::as_bool);
-        if text.is_some() == checked.is_some() {
-            return Err(failed("fill requires text or checked"));
-        }
-        let actions = context.ref_actions();
-        let editable = text.is_some();
-        let operation = match (text, checked) {
-            (Some(text), _) => mutation(move |ref_id| async move { actions.fill_ref(&ref_id, &text).await.map(|_| ()) }),
-            (None, Some(checked)) => mutation(move |ref_id| async move { actions.set_checked_ref(&ref_id, checked).await }),
-            (None, None) => return Err(failed("fill requires text or checked")),
-        };
-        context.mutate_ref(&ref_id, operation, editable).await?;
-        return after_edit(context, submit).await;
+        fill_one_control(context, &command).await?;
+    } else {
+        fill_fields(context, &fields).await?;
     }
+    after_edit(context, submit).await
+}
+
+/// The host writes the password itself; the handler only learns whether the form took it.
+async fn fill_stored_login(context: &mut dyn FormContext, account: &str) -> Result<(), RefError> {
+    check_cancel(context)?;
+    let filled = context.fill_stored(account).await?;
+    check_cancel(context)?;
+    if !filled.password_filled {
+        return Err(failed(if filled.reason.as_deref() == Some("no-password-field") {
+            "no visible password field in this page (a sign-in form inside an embedded frame is never filled); open the sign-in form or its password step first"
+        } else {
+            "the password field did not accept the stored login"
+        }));
+    }
+    Ok(())
+}
+
+/// A code or secret the caller marked is registered before the page sees it, so no reply, snapshot or error of this session
+/// repeats it.
+fn remember_secrets(context: &dyn FormContext, command: &Value, fields: &[Value]) {
+    let actions = context.ref_actions();
+    let marked = std::iter::once(command.get("text")).chain(fields.iter().flat_map(|field| [field.get("text"), field.get("value")]));
+    for value in marked.flatten().filter_map(Value::as_str).filter(|value| !value.is_empty()) {
+        (actions.remember_secret)(value);
+    }
+}
+
+/// One control: text for an input, or a checked state for a checkbox or radio; exactly one of the two.
+async fn fill_one_control(context: &mut dyn FormContext, command: &Value) -> Result<(), RefError> {
+    let Some(ref_id) = context.action_ref().await? else {
+        return Err(failed("fill requires ref, target, or fields"));
+    };
+    let text = command.get("text").and_then(Value::as_str).map(str::to_string);
+    let checked = command.get("checked").and_then(Value::as_bool);
+    if text.is_some() == checked.is_some() {
+        return Err(failed("fill requires text or checked"));
+    }
+    let actions = context.ref_actions();
+    let editable = text.is_some();
+    let operation = match (text, checked) {
+        (Some(text), _) => mutation(move |ref_id| async move { actions.fill_ref(&ref_id, &text).await.map(|_| ()) }),
+        (None, Some(checked)) => mutation(move |ref_id| async move { actions.set_checked_ref(&ref_id, checked).await }),
+        (None, None) => return Err(failed("fill requires text or checked")),
+    };
+    context.mutate_ref(&ref_id, operation, editable).await
+}
+
+async fn fill_fields(context: &mut dyn FormContext, fields: &[Value]) -> Result<(), RefError> {
     if fields.len() > MAX_FILL_FIELDS {
         return Err(failed(format!("fill requires at most {MAX_FILL_FIELDS} fields")));
     }
@@ -208,7 +218,7 @@ pub async fn fill(context: &mut dyn FormContext) -> Result<ToolReply, RefError> 
             )));
         }
     }
-    after_edit(context, submit).await
+    Ok(())
 }
 
 /// One field of a multi-field fill: exactly one of `text`/`value`, `values`, or `checked`.

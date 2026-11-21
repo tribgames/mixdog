@@ -1,11 +1,3 @@
-//! Guard over the whole engine: the host connection is lost at each host call of a mutating command (navigate, reload, back, a
-//! navigate into a background tab the command opens, a cookie write), and every one of those commands answers as a command that may have executed
-//! (`CommandFailure::connection_lost`), whichever layer between the host call and the answer would have swallowed or worded the
-//! error. A refusal at the very first call, before anything was handed over, is not that.
-//!
-//! Each command runs against a scripted host written here; a first, whole pass counts its host calls and checks the script is the
-//! one the command follows.
-
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

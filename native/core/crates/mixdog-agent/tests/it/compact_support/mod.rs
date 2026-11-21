@@ -51,10 +51,6 @@ impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
     }
 }
 
-/// The core keeps the last call's prompt total (`lastPromptTokens`) beside Node's split, for the context panel: an
-/// intended departure from Node's header (`set_last` in `usage_metrics`). Where the core wrote it, it is the recorded
-/// split's prompt (the input, plus the cache counts an input that excludes them leaves out) or unknown with it; it is
-/// then put back as `before` held it, so everything else is compared as recorded.
 pub fn without_prompt_total(got: &mut serde_json::Map<String, Value>, before: &serde_json::Map<String, Value>, want: &Value, input_excludes_cache: bool) {
     const KEY: &str = "lastPromptTokens";
     if got.get(KEY) == before.get(KEY) {

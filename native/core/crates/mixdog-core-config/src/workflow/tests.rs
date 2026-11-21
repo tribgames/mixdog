@@ -66,6 +66,65 @@ impl WorkflowHost for Host {
     fn web_search_route_saved(&self, _route: &Value) {}
 }
 
+fn doc(value: Value) -> Doc {
+    value.as_object().unwrap().clone()
+}
+
+fn host() -> Host {
+    Host { main: Mutex::new(json!({})), custom_agents: Vec::new(), capable: false, adopted: Mutex::default() }
+}
+
+#[test]
+fn a_completion_stores_the_lead_route_and_the_agent_routes_it_was_sent() {
+    let before = doc(json!({ "agents": { "maintainer": { "provider": "openai", "model": "old" }, "explore": { "provider": "openai", "model": "keep" } } }));
+    let payload = json!({
+        "workflowRoutes": { "lead": { "provider": "openai", "model": "gpt-5" }, "agent": { "provider": "openai", "model": "w" }, "memory": null },
+        "agentRoutes": { "explore": null, "unlisted": { "provider": "openai", "model": "x" } },
+    });
+    let done = super::onboarding::completed(&before, &payload, &json!({}), &[], "2026-01-01T00:00:00Z").unwrap();
+    assert_eq!(done.lead.as_ref().unwrap()["model"], "gpt-5");
+    assert_eq!(done.after["default"], "workflow-lead");
+    let presets = done.after["presets"].as_array().unwrap();
+    assert_eq!(presets.len(), 1);
+    assert_eq!(presets[0]["id"], "workflow-lead");
+    let agents = done.after["agents"].as_object().unwrap();
+    assert_eq!(agents.keys().collect::<Vec<_>>(), ["worker"], "memory and explore were cleared, an unlisted agent was ignored");
+    assert_eq!(agents["worker"]["model"], "w");
+    assert_eq!(done.after["onboarding"]["completed"], true);
+    assert_eq!(done.after["onboarding"]["completedAt"], "2026-01-01T00:00:00Z");
+}
+
+#[test]
+fn a_completion_adopts_a_sent_default_route_and_a_custom_agent_may_be_routed() {
+    let payload = json!({ "defaultRoute": { "provider": "openai", "model": "gpt-5" }, "agentRoutes": { "mine": { "provider": "openai", "model": "m" } } });
+    let done = super::onboarding::completed(&Doc::new(), &payload, &json!({}), &["mine".to_owned()], "now").unwrap();
+    assert_eq!(done.lead.as_ref().unwrap()["model"], "gpt-5");
+    assert_eq!(done.after["default"], "workflow-lead");
+    assert_eq!(done.after["agents"]["mine"]["model"], "m");
+    assert!(super::onboarding::completed(&Doc::new(), &Value::Null, &json!({}), &[], "now").is_err());
+}
+
+#[test]
+fn model_preferences_are_stored_per_model_and_a_custom_provider_keeps_its_visibility_in_its_overrides() {
+    let host = host();
+    let plain = doc(json!({ "modelSettings": { "openai/gone": { "favorite": true } } }));
+    let changes = json!([{ "model": "a", "hidden": true, "favorite": true }, { "model": "gone", "favorite": false }]);
+    let saved = super::prefs::prepare(&plain, &json!("openai"), &changes, &host).unwrap();
+    assert_eq!(saved.after["modelSettings"], json!({ "openai/a": { "hidden": true, "favorite": true } }));
+    assert_eq!(saved.result, json!({ "provider": "openai", "changed": 2, "customCatalogChanged": false }));
+    assert!(!saved.custom_catalog_changed);
+
+    let id = "custom-12345678-1234-1234-1234-123456789abc";
+    let custom = doc(json!({ "providers": { id: { "type": "custom", "name": "P" } } }));
+    let changes = json!([{ "model": "m", "hidden": true, "favorite": true }]);
+    let saved = super::prefs::prepare(&custom, &json!(id), &changes, &host).unwrap();
+    assert_eq!(saved.after["modelSettings"], json!({ format!("{id}/m"): { "favorite": true } }));
+    assert_eq!(saved.after["providers"][id]["modelOverrides"], json!({ "m": { "hidden": true } }));
+    assert_eq!((saved.after["providers"][id]["type"].clone(), saved.after["providers"][id]["enabled"].clone()), (json!("custom"), json!(true)));
+    assert!(saved.custom_catalog_changed);
+    assert!(super::prefs::prepare(&plain, &json!("nope"), &json!([]), &host).is_err());
+}
+
 /// The pushed sections hold what the session actions return (`listPresets`, `getWebSearchRoute`, `listWorkflows`,
 /// `getOnboardingStatus`), and a pass pushes only the one whose value changed.
 #[tokio::test]

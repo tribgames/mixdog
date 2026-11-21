@@ -568,6 +568,33 @@ impl Chart {
     }
 }
 
+fn area_look(fill: &Option<Fill>, border: &Option<ChartBorder>) -> String {
+    let mut xml = match fill {
+        Some(fill) if set_text(&fill.color).is_some() => color_selection(fill),
+        _ => "<a:noFill/>".to_owned(),
+    };
+    match border {
+        Some(border) => xml.push_str(&format!(
+            "<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>",
+            num(val_to_pts(border.pt.unwrap_or(0.0))),
+            color_selection_of(border.color.as_deref().unwrap_or(""))
+        )),
+        None => xml.push_str("<a:ln><a:noFill/></a:ln>"),
+    }
+    xml
+}
+
+fn pt_xml(position: usize, text: &str) -> String {
+    format!("<c:pt idx=\"{position}\"><c:v>{text}</c:v></c:pt>")
+}
+
+fn series_name_xml(column: &str, name: &str) -> String {
+    format!(
+        "  <c:tx>    <c:strRef>      <c:f>Sheet1!${column}$1</c:f>      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>    </c:strRef>  </c:tx>",
+        encode_xml_entities(name)
+    )
+}
+
 /// The part of `addChartDefinition` that corrects and defaults the options (the colour list and the object name are
 /// settled by the caller).
 fn resolve(kind: ChartKind, options: &mut ChartOptions) {
@@ -709,6 +736,14 @@ impl Chart {
         color_element(color, "")
     }
 
+    fn data_border_line(border: &ChartBorder, cap: &str) -> String {
+        format!(
+            "<a:ln w=\"{}\" cap=\"{cap}\"><a:solidFill>{}</a:solidFill><a:prstDash val=\"solid\"/><a:round/></a:ln>",
+            num(val_to_pts(border.pt.unwrap_or(0.0))),
+            Self::colour(border.color.as_deref().unwrap_or(""))
+        )
+    }
+
     fn chart_corner(&self) -> (f64, f64) {
         let value = |dim: Option<Dim>| match dim {
             Some(Dim::Number(value)) => value,
@@ -796,18 +831,7 @@ impl Chart {
             xml.push_str(&self.data_table());
         }
         xml.push_str("  <c:spPr>");
-        match &o.plot_area.fill {
-            Some(fill) if set_text(&fill.color).is_some() => xml.push_str(&color_selection(fill)),
-            _ => xml.push_str("<a:noFill/>"),
-        }
-        match &o.plot_area.border {
-            Some(border) => xml.push_str(&format!(
-                "<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>",
-                num(val_to_pts(border.pt.unwrap_or(0.0))),
-                color_selection_of(border.color.as_deref().unwrap_or(""))
-            )),
-            None => xml.push_str("<a:ln><a:noFill/></a:ln>"),
-        }
+        xml.push_str(&area_look(&o.plot_area.fill, &o.plot_area.border));
         xml.push_str("    <a:effectLst/>");
         xml.push_str("  </c:spPr>");
         xml.push_str("</c:plotArea>");
@@ -821,18 +845,7 @@ impl Chart {
         }
         xml.push_str("</c:chart>");
         xml.push_str("<c:spPr>");
-        match &o.chart_area.fill {
-            Some(fill) if set_text(&fill.color).is_some() => xml.push_str(&color_selection(fill)),
-            _ => xml.push_str("<a:noFill/>"),
-        }
-        match &o.chart_area.border {
-            Some(border) => xml.push_str(&format!(
-                "<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>",
-                num(val_to_pts(border.pt.unwrap_or(0.0))),
-                color_selection_of(border.color.as_deref().unwrap_or(""))
-            )),
-            None => xml.push_str("<a:ln><a:noFill/></a:ln>"),
-        }
+        xml.push_str(&area_look(&o.chart_area.fill, &o.chart_area.border));
         xml.push_str("  <a:effectLst/>");
         xml.push_str("</c:spPr>");
         xml.push_str("<c:externalData r:id=\"rId1\"><c:autoUpdate val=\"0\"/></c:externalData>");
@@ -980,6 +993,92 @@ impl Chart {
         xml
     }
 
+    fn series_labels(&self, color: &str) -> String {
+        let o = &self.options;
+        let mut xml = String::from("<c:dLbls>");
+        xml.push_str(&format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", self.label_format_code()));
+        if o.data_label_bkgrd_colors {
+            xml.push_str(&format!("<c:spPr><a:solidFill>{}</a:solidFill></c:spPr>", Self::colour(color)));
+        }
+        xml.push_str(&format!("<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>{}</a:pPr></a:p></c:txPr>", self.label_run_properties(false)));
+        if let Some(position) = set_text(&o.data_label_position) {
+            xml.push_str(&format!("<c:dLblPos val=\"{position}\"/>"));
+        }
+        xml.push_str("<c:showLegendKey val=\"0\"/>");
+        xml.push_str(&format!("<c:showVal val=\"{}\"/>", flag(o.show_value)));
+        xml.push_str(&format!(
+            "<c:showCatName val=\"0\"/><c:showSerName val=\"{}\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/>",
+            flag(o.show_ser_name)
+        ));
+        xml.push_str(&format!("<c:showLeaderLines val=\"{}\"/>", flag(o.show_leader_lines)));
+        xml.push_str("</c:dLbls>");
+        xml
+    }
+
+    /// One `c:dPt` per bar of a single-series chart that takes a colour for each bar (a negative one its inverted colour).
+    fn bar_point_fills(&self, series: &ChartData) -> String {
+        let o = &self.options;
+        let mut xml = String::new();
+        for (position, value) in series.values.iter().enumerate() {
+            let negative = value.is_some_and(|value| value < 0.0);
+            let palette: &[String] = match (&o.inverted_colors, negative) {
+                (Some(inverted), true) => inverted,
+                _ => &self.colors,
+            };
+            let chosen = if palette.is_empty() { "undefined" } else { palette[position % palette.len()].as_str() };
+            xml.push_str("  <c:dPt>");
+            xml.push_str(&format!("    <c:idx val=\"{position}\"/>"));
+            xml.push_str("      <c:invertIfNegative val=\"0\"/>");
+            xml.push_str("    <c:bubble3D val=\"0\"/>");
+            xml.push_str("    <c:spPr>");
+            if o.line_size == Some(0.0) {
+                xml.push_str("<a:ln><a:noFill/></a:ln>");
+            } else {
+                xml.push_str("<a:solidFill>");
+                xml.push_str(&format!("  <a:srgbClr val=\"{chosen}\"/>"));
+                xml.push_str("</a:solidFill>");
+            }
+            xml.push_str(&shadow_element(&o.shadow));
+            xml.push_str("    </c:spPr>");
+            xml.push_str("  </c:dPt>");
+        }
+        xml
+    }
+
+    /// The `c:cat` of a series: a date list under a category format code, else the (multi-level) label list.
+    fn category_reference(&self, series: &ChartData) -> String {
+        let points = series.labels[0].len();
+        let mut xml = String::from("<c:cat>");
+        if let Some(code) = set_text(&self.options.cat_label_format_code) {
+            xml.push_str("  <c:numRef>");
+            xml.push_str(&format!("    <c:f>Sheet1!$A$2:$A${}</c:f>", points + 1));
+            xml.push_str("    <c:numCache>");
+            xml.push_str(&format!("      <c:formatCode>{code}</c:formatCode>"));
+            xml.push_str(&format!("      <c:ptCount val=\"{points}\"/>"));
+            for (position, label) in series.labels[0].iter().enumerate() {
+                xml.push_str(&pt_xml(position, &encode_xml_entities(label)));
+            }
+            xml.push_str("    </c:numCache>");
+            xml.push_str("  </c:numRef>");
+        } else {
+            xml.push_str("  <c:multiLvlStrRef>");
+            xml.push_str(&format!("    <c:f>Sheet1!$A$2:${}${}</c:f>", column_name(series.labels.len()), points + 1));
+            xml.push_str("    <c:multiLvlStrCache>");
+            xml.push_str(&format!("      <c:ptCount val=\"{points}\"/>"));
+            for group in &series.labels {
+                xml.push_str("<c:lvl>");
+                for (position, label) in group.iter().enumerate() {
+                    xml.push_str(&pt_xml(position, &encode_xml_entities(label)));
+                }
+                xml.push_str("</c:lvl>");
+            }
+            xml.push_str("    </c:multiLvlStrCache>");
+            xml.push_str("  </c:multiLvlStrRef>");
+        }
+        xml.push_str("</c:cat>");
+        xml
+    }
+
     /// The series of an area, bar, line or radar chart plus the chart's own tail.
     fn category_chart(&self) -> Result<String, String> {
         let o = &self.options;
@@ -1004,48 +1103,19 @@ impl Chart {
             let value_column = column_name(index + labels + 1);
             xml.push_str("<c:ser>");
             xml.push_str(&format!("  <c:idx val=\"{index}\"/><c:order val=\"{index}\"/>"));
-            xml.push_str("  <c:tx>");
-            xml.push_str("    <c:strRef>");
-            xml.push_str(&format!("      <c:f>Sheet1!${value_column}$1</c:f>"));
-            xml.push_str(&format!(
-                "      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>",
-                encode_xml_entities(&series.name)
-            ));
-            xml.push_str("    </c:strRef>");
-            xml.push_str("  </c:tx>");
+            xml.push_str(&series_name_xml(&value_column, &series.name));
             xml.push_str("  <c:spPr>");
             xml.push_str(&self.series_fill(color));
             if matches!(kind, ChartKind::Line | ChartKind::Radar) {
                 xml.push_str(&self.series_line(color)?);
             } else if let Some(border) = &o.data_border {
-                xml.push_str(&format!(
-                    "<a:ln w=\"{}\" cap=\"{}\"><a:solidFill>{}</a:solidFill><a:prstDash val=\"solid\"/><a:round/></a:ln>",
-                    num(val_to_pts(border.pt.unwrap_or(0.0))),
-                    line_cap(o.line_cap.as_deref())?,
-                    Self::colour(border.color.as_deref().unwrap_or(""))
-                ));
+                xml.push_str(&Self::data_border_line(border, line_cap(o.line_cap.as_deref())?));
             }
             xml.push_str(&shadow_element(&o.shadow));
             xml.push_str("  </c:spPr>");
             xml.push_str("  <c:invertIfNegative val=\"0\"/>");
             if kind != ChartKind::Radar {
-                xml.push_str("<c:dLbls>");
-                xml.push_str(&format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", self.label_format_code()));
-                if o.data_label_bkgrd_colors {
-                    xml.push_str(&format!("<c:spPr><a:solidFill>{}</a:solidFill></c:spPr>", Self::colour(color)));
-                }
-                xml.push_str(&format!("<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>{}</a:pPr></a:p></c:txPr>", self.label_run_properties(false)));
-                if let Some(position) = set_text(&o.data_label_position) {
-                    xml.push_str(&format!("<c:dLblPos val=\"{position}\"/>"));
-                }
-                xml.push_str("<c:showLegendKey val=\"0\"/>");
-                xml.push_str(&format!("<c:showVal val=\"{}\"/>", flag(o.show_value)));
-                xml.push_str(&format!(
-                    "<c:showCatName val=\"0\"/><c:showSerName val=\"{}\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/>",
-                    flag(o.show_ser_name)
-                ));
-                xml.push_str(&format!("<c:showLeaderLines val=\"{}\"/>", flag(o.show_leader_lines)));
-                xml.push_str("</c:dLbls>");
+                xml.push_str(&self.series_labels(color));
             }
             if matches!(kind, ChartKind::Line | ChartKind::Radar) {
                 xml.push_str(&self.marker(self.marker_color(index), color));
@@ -1054,58 +1124,9 @@ impl Chart {
                 && self.data.len() == 1
                 && ((self.colors_given && self.colors.len() > 1) || o.inverted_colors.as_ref().is_some_and(|colors| !colors.is_empty()))
             {
-                for (position, value) in series.values.iter().enumerate() {
-                    let negative = value.is_some_and(|value| value < 0.0);
-                    let palette: &[String] = match (&o.inverted_colors, negative) {
-                        (Some(inverted), true) => inverted,
-                        _ => &self.colors,
-                    };
-                    let chosen = if palette.is_empty() { "undefined" } else { palette[position % palette.len()].as_str() };
-                    xml.push_str("  <c:dPt>");
-                    xml.push_str(&format!("    <c:idx val=\"{position}\"/>"));
-                    xml.push_str("      <c:invertIfNegative val=\"0\"/>");
-                    xml.push_str("    <c:bubble3D val=\"0\"/>");
-                    xml.push_str("    <c:spPr>");
-                    if o.line_size == Some(0.0) {
-                        xml.push_str("<a:ln><a:noFill/></a:ln>");
-                    } else {
-                        xml.push_str("<a:solidFill>");
-                        xml.push_str(&format!("  <a:srgbClr val=\"{chosen}\"/>"));
-                        xml.push_str("</a:solidFill>");
-                    }
-                    xml.push_str(&shadow_element(&o.shadow));
-                    xml.push_str("    </c:spPr>");
-                    xml.push_str("  </c:dPt>");
-                }
+                xml.push_str(&self.bar_point_fills(series));
             }
-            xml.push_str("<c:cat>");
-            if let Some(code) = set_text(&o.cat_label_format_code) {
-                xml.push_str("  <c:numRef>");
-                xml.push_str(&format!("    <c:f>Sheet1!$A$2:$A${}</c:f>", points + 1));
-                xml.push_str("    <c:numCache>");
-                xml.push_str(&format!("      <c:formatCode>{code}</c:formatCode>"));
-                xml.push_str(&format!("      <c:ptCount val=\"{points}\"/>"));
-                for (position, label) in series.labels[0].iter().enumerate() {
-                    xml.push_str(&format!("<c:pt idx=\"{position}\"><c:v>{}</c:v></c:pt>", encode_xml_entities(label)));
-                }
-                xml.push_str("    </c:numCache>");
-                xml.push_str("  </c:numRef>");
-            } else {
-                xml.push_str("  <c:multiLvlStrRef>");
-                xml.push_str(&format!("    <c:f>Sheet1!$A$2:${}${}</c:f>", column_name(labels), points + 1));
-                xml.push_str("    <c:multiLvlStrCache>");
-                xml.push_str(&format!("      <c:ptCount val=\"{points}\"/>"));
-                for group in &series.labels {
-                    xml.push_str("<c:lvl>");
-                    for (position, label) in group.iter().enumerate() {
-                        xml.push_str(&format!("<c:pt idx=\"{position}\"><c:v>{}</c:v></c:pt>", encode_xml_entities(label)));
-                    }
-                    xml.push_str("</c:lvl>");
-                }
-                xml.push_str("    </c:multiLvlStrCache>");
-                xml.push_str("  </c:multiLvlStrRef>");
-            }
-            xml.push_str("</c:cat>");
+            xml.push_str(&self.category_reference(series));
             xml.push_str("<c:val>");
             xml.push_str("  <c:numRef>");
             xml.push_str(&format!("<c:f>Sheet1!${value_column}$2:${value_column}${}</c:f>", points + 1));
@@ -1114,7 +1135,7 @@ impl Chart {
             xml.push_str(&format!("      <c:formatCode>{value_format}</c:formatCode>"));
             xml.push_str(&format!("      <c:ptCount val=\"{points}\"/>"));
             for (position, value) in series.values.iter().enumerate() {
-                xml.push_str(&format!("<c:pt idx=\"{position}\"><c:v>{}</c:v></c:pt>", point_text(*value)));
+                xml.push_str(&pt_xml(position, &point_text(*value)));
             }
             xml.push_str("    </c:numCache>");
             xml.push_str("  </c:numRef>");
@@ -1149,15 +1170,7 @@ impl Chart {
             xml.push_str("<c:ser>");
             xml.push_str(&format!("  <c:idx val=\"{index}\"/>"));
             xml.push_str(&format!("  <c:order val=\"{index}\"/>"));
-            xml.push_str("  <c:tx>");
-            xml.push_str("    <c:strRef>");
-            xml.push_str(&format!("      <c:f>Sheet1!${}$1</c:f>", column_name(index + 2)));
-            xml.push_str(&format!(
-                "      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>",
-                encode_xml_entities(&series.name)
-            ));
-            xml.push_str("    </c:strRef>");
-            xml.push_str("  </c:tx>");
+            xml.push_str(&series_name_xml(&column_name(index + 2), &series.name));
             xml.push_str("  <c:spPr>");
             xml.push_str(&self.series_fill(color));
             xml.push_str(&self.series_line(color)?);
@@ -1174,7 +1187,7 @@ impl Chart {
             xml.push_str("      <c:formatCode>General</c:formatCode>");
             xml.push_str(&format!("      <c:ptCount val=\"{}\"/>", x.values.len()));
             for (position, value) in x.values.iter().enumerate() {
-                xml.push_str(&format!("<c:pt idx=\"{position}\"><c:v>{}</c:v></c:pt>", point_text(*value)));
+                xml.push_str(&pt_xml(position, &point_text(*value)));
             }
             xml.push_str("    </c:numCache>");
             xml.push_str("  </c:numRef>");
@@ -1187,7 +1200,7 @@ impl Chart {
             xml.push_str("      <c:formatCode>General</c:formatCode>");
             xml.push_str(&format!("      <c:ptCount val=\"{}\"/>", x.values.len()));
             for position in 0..x.values.len() {
-                xml.push_str(&format!("<c:pt idx=\"{position}\"><c:v>{}</c:v></c:pt>", point_text(series.values.get(position).copied().flatten())));
+                xml.push_str(&pt_xml(position, &point_text(series.values.get(position).copied().flatten())));
             }
             xml.push_str("    </c:numCache>");
             xml.push_str("  </c:numRef>");
@@ -1204,137 +1217,146 @@ impl Chart {
     /// The labels of the points of a scatter series (`showLabel`): the text of each point, with or without its X and Y
     /// values, or the chart's own X and Y labels.
     fn scatter_labels(&self, series: &ChartData) -> Result<String, String> {
-        let o = &self.options;
-        let format = o.data_label_format_scatter.as_deref().unwrap_or("");
+        let format = self.options.data_label_format_scatter.as_deref().unwrap_or("");
         let chart_uuid = uuid("-xxxx-xxxx-xxxx-xxxxxxxxxxxx");
+        match format {
+            "custom" | "customXY" => self.custom_point_labels(series, format == "customXY", &chart_uuid),
+            "XY" => Ok(self.xy_labels()),
+            _ => Ok(String::new()),
+        }
+    }
+
+    /// One `c:dLbl` per point carrying the point's own text (`custom`), with the series name and the X and Y values
+    /// after it (`customXY`).
+    fn custom_point_labels(&self, series: &ChartData, with_values: bool, chart_uuid: &str) -> Result<String, String> {
+        let o = &self.options;
         let lang = self.lang();
         let mut xml = String::new();
-        if format == "custom" || format == "customXY" {
-            let Some(labels) = series.labels.first() else {
-                return Err("Cannot read properties of undefined (reading '0')".to_owned());
-            };
-            xml.push_str("<c:dLbls>");
-            for (position, label) in labels.iter().enumerate() {
-                xml.push_str("  <c:dLbl>");
-                xml.push_str(&format!("    <c:idx val=\"{position}\"/>"));
-                xml.push_str("    <c:tx>");
-                xml.push_str("      <c:rich>");
-                xml.push_str("            <a:bodyPr>");
-                xml.push_str("                <a:spAutoFit/>");
-                xml.push_str("            </a:bodyPr>");
-                xml.push_str("            <a:lstStyle/>");
-                xml.push_str("            <a:p>");
-                xml.push_str("                <a:pPr>");
-                xml.push_str("                    <a:defRPr/>");
-                xml.push_str("                </a:pPr>");
+        let Some(labels) = series.labels.first() else {
+            return Err("Cannot read properties of undefined (reading '0')".to_owned());
+        };
+        xml.push_str("<c:dLbls>");
+        for (position, label) in labels.iter().enumerate() {
+            xml.push_str("  <c:dLbl>");
+            xml.push_str(&format!("    <c:idx val=\"{position}\"/>"));
+            xml.push_str("    <c:tx>");
+            xml.push_str("      <c:rich>");
+            xml.push_str("            <a:bodyPr>");
+            xml.push_str("                <a:spAutoFit/>");
+            xml.push_str("            </a:bodyPr>");
+            xml.push_str("            <a:lstStyle/>");
+            xml.push_str("            <a:p>");
+            xml.push_str("                <a:pPr>");
+            xml.push_str("                    <a:defRPr/>");
+            xml.push_str("                </a:pPr>");
+            xml.push_str("              <a:r>");
+            xml.push_str(&format!("                    <a:rPr lang=\"{lang}\" dirty=\"0\"/>"));
+            xml.push_str(&format!("                    <a:t>{}</a:t>", encode_xml_entities(label)));
+            xml.push_str("              </a:r>");
+            if with_values && !label.chars().all(|ch| ch == ' ') {
+                let name = encode_xml_entities(&series.name);
                 xml.push_str("              <a:r>");
-                xml.push_str(&format!("                    <a:rPr lang=\"{lang}\" dirty=\"0\"/>"));
-                xml.push_str(&format!("                    <a:t>{}</a:t>", encode_xml_entities(label)));
+                xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
+                xml.push_str("                  <a:t> (</a:t>");
                 xml.push_str("              </a:r>");
-                if format == "customXY" && !label.chars().all(|ch| ch == ' ') {
-                    let name = encode_xml_entities(&series.name);
-                    xml.push_str("              <a:r>");
-                    xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
-                    xml.push_str("                  <a:t> (</a:t>");
-                    xml.push_str("              </a:r>");
-                    xml.push_str(&format!("              <a:fld id=\"{{{}}}\" type=\"XVALUE\">", uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")));
-                    xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\"/>"));
-                    xml.push_str("                  <a:pPr>");
-                    xml.push_str("                      <a:defRPr/>");
-                    xml.push_str("                  </a:pPr>");
-                    xml.push_str(&format!("                  <a:t>[{name}</a:t>"));
-                    xml.push_str("              </a:fld>");
-                    xml.push_str("              <a:r>");
-                    xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
-                    xml.push_str("                  <a:t>, </a:t>");
-                    xml.push_str("              </a:r>");
-                    xml.push_str(&format!("              <a:fld id=\"{{{}}}\" type=\"YVALUE\">", uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")));
-                    xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\"/>"));
-                    xml.push_str("                  <a:pPr>");
-                    xml.push_str("                      <a:defRPr/>");
-                    xml.push_str("                  </a:pPr>");
-                    xml.push_str(&format!("                  <a:t>[{name}]</a:t>"));
-                    xml.push_str("              </a:fld>");
-                    xml.push_str("              <a:r>");
-                    xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
-                    xml.push_str("                  <a:t>)</a:t>");
-                    xml.push_str("              </a:r>");
-                    xml.push_str(&format!("              <a:endParaRPr lang=\"{lang}\" dirty=\"0\"/>"));
-                }
-                xml.push_str("            </a:p>");
-                xml.push_str("      </c:rich>");
-                xml.push_str("    </c:tx>");
-                xml.push_str("    <c:spPr>");
-                xml.push_str("        <a:noFill/>");
-                xml.push_str("        <a:ln>");
-                xml.push_str("            <a:noFill/>");
-                xml.push_str("        </a:ln>");
-                xml.push_str("        <a:effectLst/>");
-                xml.push_str("    </c:spPr>");
-                if let Some(position) = set_text(&o.data_label_position) {
-                    xml.push_str(&format!(" <c:dLblPos val=\"{position}\"/>"));
-                }
-                xml.push_str("    <c:showLegendKey val=\"0\"/>");
-                xml.push_str("    <c:showVal val=\"0\"/>");
-                xml.push_str("    <c:showCatName val=\"0\"/>");
-                xml.push_str("    <c:showSerName val=\"0\"/>");
-                xml.push_str("    <c:showPercent val=\"0\"/>");
-                xml.push_str("    <c:showBubbleSize val=\"0\"/>");
-                xml.push_str("       <c:showLeaderLines val=\"1\"/>");
-                xml.push_str("    <c:extLst>");
-                xml.push_str(
-                    "      <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"/>",
-                );
-                xml.push_str(
-                    "      <c:ext uri=\"{C3380CC4-5D6E-409C-BE32-E72D297353CC}\" xmlns:c16=\"http://schemas.microsoft.com/office/drawing/2014/chart\">",
-                );
-                let unique = position + 1;
-                let padding = &"00000000"[..8 - unique.to_string().len().min(8)];
-                xml.push_str(&format!("            <c16:uniqueId val=\"{{{padding}{unique}{chart_uuid}}}\"/>"));
-                xml.push_str("      </c:ext>");
-                xml.push_str("        </c:extLst>");
-                xml.push_str("</c:dLbl>");
+                xml.push_str(&format!("              <a:fld id=\"{{{}}}\" type=\"XVALUE\">", uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")));
+                xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\"/>"));
+                xml.push_str("                  <a:pPr>");
+                xml.push_str("                      <a:defRPr/>");
+                xml.push_str("                  </a:pPr>");
+                xml.push_str(&format!("                  <a:t>[{name}</a:t>"));
+                xml.push_str("              </a:fld>");
+                xml.push_str("              <a:r>");
+                xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
+                xml.push_str("                  <a:t>, </a:t>");
+                xml.push_str("              </a:r>");
+                xml.push_str(&format!("              <a:fld id=\"{{{}}}\" type=\"YVALUE\">", uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")));
+                xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\"/>"));
+                xml.push_str("                  <a:pPr>");
+                xml.push_str("                      <a:defRPr/>");
+                xml.push_str("                  </a:pPr>");
+                xml.push_str(&format!("                  <a:t>[{name}]</a:t>"));
+                xml.push_str("              </a:fld>");
+                xml.push_str("              <a:r>");
+                xml.push_str(&format!("                  <a:rPr lang=\"{lang}\" baseline=\"0\" dirty=\"0\"/>"));
+                xml.push_str("                  <a:t>)</a:t>");
+                xml.push_str("              </a:r>");
+                xml.push_str(&format!("              <a:endParaRPr lang=\"{lang}\" dirty=\"0\"/>"));
             }
-            xml.push_str("</c:dLbls>");
-        }
-        if format == "XY" {
-            xml.push_str("<c:dLbls>");
+            xml.push_str("            </a:p>");
+            xml.push_str("      </c:rich>");
+            xml.push_str("    </c:tx>");
             xml.push_str("    <c:spPr>");
             xml.push_str("        <a:noFill/>");
             xml.push_str("        <a:ln>");
             xml.push_str("            <a:noFill/>");
             xml.push_str("        </a:ln>");
-            xml.push_str("          <a:effectLst/>");
+            xml.push_str("        <a:effectLst/>");
             xml.push_str("    </c:spPr>");
-            xml.push_str("    <c:txPr>");
-            xml.push_str("        <a:bodyPr>");
-            xml.push_str("            <a:spAutoFit/>");
-            xml.push_str("        </a:bodyPr>");
-            xml.push_str("        <a:lstStyle/>");
-            xml.push_str("        <a:p>");
-            xml.push_str("            <a:pPr>");
-            xml.push_str("                <a:defRPr/>");
-            xml.push_str("            </a:pPr>");
-            xml.push_str("            <a:endParaRPr lang=\"en-US\"/>");
-            xml.push_str("        </a:p>");
-            xml.push_str("    </c:txPr>");
             if let Some(position) = set_text(&o.data_label_position) {
                 xml.push_str(&format!(" <c:dLblPos val=\"{position}\"/>"));
             }
             xml.push_str("    <c:showLegendKey val=\"0\"/>");
-            xml.push_str(&format!(" <c:showVal val=\"{}\"/>", flag(o.show_label)));
-            xml.push_str(&format!(" <c:showCatName val=\"{}\"/>", flag(o.show_label)));
-            xml.push_str(&format!(" <c:showSerName val=\"{}\"/>", flag(o.show_ser_name)));
+            xml.push_str("    <c:showVal val=\"0\"/>");
+            xml.push_str("    <c:showCatName val=\"0\"/>");
+            xml.push_str("    <c:showSerName val=\"0\"/>");
             xml.push_str("    <c:showPercent val=\"0\"/>");
             xml.push_str("    <c:showBubbleSize val=\"0\"/>");
+            xml.push_str("       <c:showLeaderLines val=\"1\"/>");
             xml.push_str("    <c:extLst>");
-            xml.push_str("        <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\">");
-            xml.push_str("            <c15:showLeaderLines val=\"1\"/>");
-            xml.push_str("        </c:ext>");
-            xml.push_str("    </c:extLst>");
-            xml.push_str("</c:dLbls>");
+            xml.push_str("      <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"/>");
+            xml.push_str("      <c:ext uri=\"{C3380CC4-5D6E-409C-BE32-E72D297353CC}\" xmlns:c16=\"http://schemas.microsoft.com/office/drawing/2014/chart\">");
+            let unique = position + 1;
+            let padding = &"00000000"[..8 - unique.to_string().len().min(8)];
+            xml.push_str(&format!("            <c16:uniqueId val=\"{{{padding}{unique}{chart_uuid}}}\"/>"));
+            xml.push_str("      </c:ext>");
+            xml.push_str("        </c:extLst>");
+            xml.push_str("</c:dLbl>");
         }
+        xml.push_str("</c:dLbls>");
         Ok(xml)
+    }
+
+    /// The group `c:dLbls` of a scatter series that shows each point's X and Y.
+    fn xy_labels(&self) -> String {
+        let o = &self.options;
+        let mut xml = String::new();
+        xml.push_str("<c:dLbls>");
+        xml.push_str("    <c:spPr>");
+        xml.push_str("        <a:noFill/>");
+        xml.push_str("        <a:ln>");
+        xml.push_str("            <a:noFill/>");
+        xml.push_str("        </a:ln>");
+        xml.push_str("          <a:effectLst/>");
+        xml.push_str("    </c:spPr>");
+        xml.push_str("    <c:txPr>");
+        xml.push_str("        <a:bodyPr>");
+        xml.push_str("            <a:spAutoFit/>");
+        xml.push_str("        </a:bodyPr>");
+        xml.push_str("        <a:lstStyle/>");
+        xml.push_str("        <a:p>");
+        xml.push_str("            <a:pPr>");
+        xml.push_str("                <a:defRPr/>");
+        xml.push_str("            </a:pPr>");
+        xml.push_str("            <a:endParaRPr lang=\"en-US\"/>");
+        xml.push_str("        </a:p>");
+        xml.push_str("    </c:txPr>");
+        if let Some(position) = set_text(&o.data_label_position) {
+            xml.push_str(&format!(" <c:dLblPos val=\"{position}\"/>"));
+        }
+        xml.push_str("    <c:showLegendKey val=\"0\"/>");
+        xml.push_str(&format!(" <c:showVal val=\"{}\"/>", flag(o.show_label)));
+        xml.push_str(&format!(" <c:showCatName val=\"{}\"/>", flag(o.show_label)));
+        xml.push_str(&format!(" <c:showSerName val=\"{}\"/>", flag(o.show_ser_name)));
+        xml.push_str("    <c:showPercent val=\"0\"/>");
+        xml.push_str("    <c:showBubbleSize val=\"0\"/>");
+        xml.push_str("    <c:extLst>");
+        xml.push_str("        <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\">");
+        xml.push_str("            <c15:showLeaderLines val=\"1\"/>");
+        xml.push_str("        </c:ext>");
+        xml.push_str("    </c:extLst>");
+        xml.push_str("</c:dLbls>");
+        xml
     }
 
     /// The pie or doughnut chart: one series, a point and a label per category.
@@ -1366,6 +1388,43 @@ impl Chart {
             xml.push_str(&shadow_element(&o.shadow));
         }
         xml.push_str("  </c:spPr>");
+        xml.push_str(&self.pie_point_fills(points));
+        xml.push_str(&self.pie_labels(points));
+        xml.push_str("<c:cat>");
+        xml.push_str("  <c:strRef>");
+        xml.push_str(&format!("    <c:f>Sheet1!$A$2:$A${}</c:f>", points + 1));
+        xml.push_str("    <c:strCache>");
+        xml.push_str(&format!("         <c:ptCount val=\"{points}\"/>"));
+        for (index, label) in series.labels[0].iter().enumerate() {
+            xml.push_str(&pt_xml(index, &encode_xml_entities(label)));
+        }
+        xml.push_str("    </c:strCache>");
+        xml.push_str("  </c:strRef>");
+        xml.push_str("</c:cat>");
+        xml.push_str("  <c:val>");
+        xml.push_str("    <c:numRef>");
+        xml.push_str(&format!("      <c:f>Sheet1!$B$2:$B${}</c:f>", points + 1));
+        xml.push_str("      <c:numCache>");
+        xml.push_str(&format!("           <c:ptCount val=\"{points}\"/>"));
+        for (index, value) in series.values.iter().enumerate() {
+            xml.push_str(&pt_xml(index, &point_text(*value)));
+        }
+        xml.push_str("      </c:numCache>");
+        xml.push_str("    </c:numRef>");
+        xml.push_str("  </c:val>");
+        xml.push_str("  </c:ser>");
+        let angle = truthy(o.first_slice_ang).map_or(0.0, round);
+        xml.push_str(&format!("  <c:firstSliceAng val=\"{}\"/>", num(angle)));
+        if kind == ChartKind::Doughnut {
+            xml.push_str(&format!("<c:holeSize val=\"{}\"/>", o.hole_size.map_or_else(|| "50".to_owned(), num)));
+        }
+        xml.push_str(&format!("</c:{}Chart>", kind.name()));
+        xml
+    }
+
+    fn pie_point_fills(&self, points: usize) -> String {
+        let o = &self.options;
+        let mut xml = String::new();
         for index in 0..points {
             xml.push_str("<c:dPt>");
             xml.push_str(&format!(" <c:idx val=\"{index}\"/>"));
@@ -1373,17 +1432,19 @@ impl Chart {
             xml.push_str(" <c:spPr>");
             xml.push_str(&format!("<a:solidFill>{}</a:solidFill>", Self::colour(self.marker_color(index))));
             if let Some(border) = &o.data_border {
-                xml.push_str(&format!(
-                    "<a:ln w=\"{}\" cap=\"flat\"><a:solidFill>{}</a:solidFill><a:prstDash val=\"solid\"/><a:round/></a:ln>",
-                    num(val_to_pts(border.pt.unwrap_or(0.0))),
-                    Self::colour(border.color.as_deref().unwrap_or(""))
-                ));
+                xml.push_str(&Self::data_border_line(border, "flat"));
             }
             xml.push_str(&shadow_element(&o.shadow));
             xml.push_str("  </c:spPr>");
             xml.push_str("</c:dPt>");
         }
-        xml.push_str("<c:dLbls>");
+        xml
+    }
+
+    fn pie_labels(&self, points: usize) -> String {
+        let o = &self.options;
+        let kind = self.kind;
+        let mut xml = String::from("<c:dLbls>");
         for index in 0..points {
             xml.push_str("<c:dLbl>");
             xml.push_str(&format!(" <c:idx val=\"{index}\"/>"));
@@ -1432,35 +1493,6 @@ impl Chart {
         xml.push_str("    <c:showBubbleSize val=\"0\"/>");
         xml.push_str(&format!(" <c:showLeaderLines val=\"{}\"/>", flag(o.show_leader_lines)));
         xml.push_str("</c:dLbls>");
-        xml.push_str("<c:cat>");
-        xml.push_str("  <c:strRef>");
-        xml.push_str(&format!("    <c:f>Sheet1!$A$2:$A${}</c:f>", points + 1));
-        xml.push_str("    <c:strCache>");
-        xml.push_str(&format!("         <c:ptCount val=\"{points}\"/>"));
-        for (index, label) in series.labels[0].iter().enumerate() {
-            xml.push_str(&format!("<c:pt idx=\"{index}\"><c:v>{}</c:v></c:pt>", encode_xml_entities(label)));
-        }
-        xml.push_str("    </c:strCache>");
-        xml.push_str("  </c:strRef>");
-        xml.push_str("</c:cat>");
-        xml.push_str("  <c:val>");
-        xml.push_str("    <c:numRef>");
-        xml.push_str(&format!("      <c:f>Sheet1!$B$2:$B${}</c:f>", points + 1));
-        xml.push_str("      <c:numCache>");
-        xml.push_str(&format!("           <c:ptCount val=\"{points}\"/>"));
-        for (index, value) in series.values.iter().enumerate() {
-            xml.push_str(&format!("<c:pt idx=\"{index}\"><c:v>{}</c:v></c:pt>", point_text(*value)));
-        }
-        xml.push_str("      </c:numCache>");
-        xml.push_str("    </c:numRef>");
-        xml.push_str("  </c:val>");
-        xml.push_str("  </c:ser>");
-        let angle = truthy(o.first_slice_ang).map_or(0.0, round);
-        xml.push_str(&format!("  <c:firstSliceAng val=\"{}\"/>", num(angle)));
-        if kind == ChartKind::Doughnut {
-            xml.push_str(&format!("<c:holeSize val=\"{}\"/>", o.hole_size.map_or_else(|| "50".to_owned(), num)));
-        }
-        xml.push_str(&format!("</c:{}Chart>", kind.name()));
         xml
     }
 
@@ -1788,5 +1820,36 @@ mod tests {
         assert!(xml.contains("<c:y val=\"0\" />"), "a fraction over one is dropped and reads as zero");
         assert!(xml.contains("<c:w val=\"1\" />"));
         assert!(xml.contains("<c:h val=\"0.5\" />"));
+    }
+
+    fn scatter_xml(format: &str) -> String {
+        let x = ChartData { name: "X".to_owned(), labels: vec![vec![]], values: vec![Some(1.0), Some(2.0)] };
+        let y = ChartData { name: "Y".to_owned(), labels: vec![vec!["first".to_owned(), "second".to_owned()]], values: vec![Some(3.0), Some(4.0)] };
+        let options = ChartOptions { show_label: true, data_label_format_scatter: Some(format.to_owned()), ..ChartOptions::default() };
+        Chart::new(ChartKind::Scatter, vec![x, y], options, 1, 1, 0).expect("a scatter chart").xml().expect("the chart part")
+    }
+
+    #[test]
+    fn a_custom_scatter_label_is_the_text_of_its_point() {
+        let xml = scatter_xml("custom");
+        assert_eq!(xml.matches("<c:dLbl>").count(), 2);
+        assert!(xml.contains("<a:t>first</a:t>") && xml.contains("<a:t>second</a:t>"));
+        assert!(!xml.contains("XVALUE"));
+    }
+
+    #[test]
+    fn a_custom_xy_scatter_label_adds_the_series_name_and_both_values() {
+        let xml = scatter_xml("customXY");
+        assert_eq!(xml.matches("<c:dLbl>").count(), 2);
+        assert_eq!(xml.matches("type=\"XVALUE\"").count(), 2);
+        assert_eq!(xml.matches("type=\"YVALUE\"").count(), 2);
+        assert!(xml.contains("<a:t>[Y</a:t>"));
+    }
+
+    #[test]
+    fn an_xy_scatter_label_is_one_group_that_shows_each_point_as_it_is() {
+        let xml = scatter_xml("XY");
+        assert!(!xml.contains("<c:dLbl>"));
+        assert!(xml.contains("<c15:showLeaderLines val=\"1\"/>"));
     }
 }

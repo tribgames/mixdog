@@ -151,3 +151,19 @@ fn a_tiling_pattern_repeats_its_cell_across_the_filled_area() {
         assert_eq!(page.at(x, y), WHITE, "gap at {x},{y}");
     }
 }
+
+#[test]
+fn a_cell_wider_than_its_step_overlaps_the_next_cell() {
+    let pattern = crate::render_support::stream(
+        "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 5] /XStep 10 /YStep 10 /Resources << >>",
+        b"1 0 0 rg 15 0 5 5 re f",
+    );
+    let page = render("/Pattern cs /P scn 0 0 20 20 re f", "/Pattern << /P 5 0 R >>", &[pattern]);
+    // The square at x 15..20 of the cell at 0 is also the square at 5..10 of the cell to its left.
+    for (x, y) in [(7, 17), (17, 17), (7, 7), (17, 7)] {
+        assert_eq!(page.at(x, y), [255, 0, 0, 255], "overlap at {x},{y}");
+    }
+    for (x, y) in [(2, 17), (12, 17), (7, 12)] {
+        assert_eq!(page.at(x, y), WHITE, "gap at {x},{y}");
+    }
+}

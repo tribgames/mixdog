@@ -1,9 +1,3 @@
-//! Preserve-move items (SPEC §4.11): the remote-access identity, selected-file grants,
-//! PC-access revokes, editor backups and editor recovery move from `<P>` to `<D>`. Bytes
-//! are unchanged; secrets are copied into the stage with owner-only access created with
-//! the file, so the move never leaves a readable copy. The source is deleted by the
-//! disposal phase, after verification.
-
 use std::path::Path;
 use std::path::PathBuf;
 

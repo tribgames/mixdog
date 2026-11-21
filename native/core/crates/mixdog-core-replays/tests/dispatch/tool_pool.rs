@@ -553,10 +553,3 @@ async fn read_quotes_the_stored_transcript_from_its_newest_row() {
         assert!(message.contains(want), "{message}");
     }
 }
-
-// --- `session action=list|send|create|status|bots` (`fixtures/session-control-cases`) ------------------------------------------
-
-// --- the production listing (`fixtures/session-listing`) -------------------------------------------------------------------
-// The session-control sets script the catalog (the recorder answered `listSessions` / `readRow` itself), so `session action=list` is
-// compared there through [`ScriptedListing`]; the listing the product binds, [`StoreListing`] over the store, is compared here against
-// Node's real catalog over the same sessions.

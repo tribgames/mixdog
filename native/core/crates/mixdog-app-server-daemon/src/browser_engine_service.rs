@@ -1,4 +1,3 @@
-//! Owner: s4-core-events-service
 //! The daemon service of the browser engine's host lane: what the desktop pushes (`host/browser/events`, `host/browser/page/facts`,
 //! `host/browser/userInput`) goes to the engine's [`EngineSink`], and the end of the desktop's claim goes there as
 //! [`EngineSink::host_gone`]. Only the connection the engine lane is served by (the latest `browserEngine` claim) is believed: a

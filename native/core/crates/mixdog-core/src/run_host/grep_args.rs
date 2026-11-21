@@ -209,14 +209,10 @@ fn clamp_context_head_limit(a: &mut Args) {
     }
 }
 
-fn guard_grep(a: &mut Args) -> Option<String> {
-    for key in ["include_noise", "text"] {
-        if a.get(key).is_some_and(|v| !v.is_boolean()) {
-            return Some(format!("Error: grep arg \"{key}\" must be a boolean"));
-        }
-    }
-    const PATTERN_KEYS: [&str; 4] = ["pattern", "query", "regex", "needle"];
-    const GLOB_KEYS: [&str; 4] = ["glob", "file_pattern", "include", "files"];
+const PATTERN_KEYS: [&str; 4] = ["pattern", "query", "regex", "needle"];
+const GLOB_KEYS: [&str; 4] = ["glob", "file_pattern", "include", "files"];
+
+fn guard_pattern_and_glob_args(a: &mut Args) -> Option<String> {
     for k in PATTERN_KEYS {
         if let Some(v) = a.get(k) {
             let coerced = coerce_pattern_values(v);
@@ -242,6 +238,10 @@ fn guard_grep(a: &mut Args) -> Option<String> {
             }
         }
     }
+    None
+}
+
+fn guard_path_args(a: &mut Args) -> Option<String> {
     for k in ["path", "root"] {
         if !a.contains_key(k) {
             continue;
@@ -267,6 +267,10 @@ fn guard_grep(a: &mut Args) -> Option<String> {
             return Some(format!("Error: grep arg \"{k}\" must be string or string[] (got {})", describe_type(&a[k])));
         }
     }
+    None
+}
+
+fn guard_numeric_args(a: &mut Args) -> Option<String> {
     // `section` is the fan-out cursor (`fs/specs/grep.json`): a non-negative integer like `offset`.
     for k in ["head_limit", "offset", "section"] {
         if let Some(err) = check_int_in_range(a, k, 0.0, MAX_INT, false) {
@@ -282,7 +286,16 @@ fn guard_grep(a: &mut Args) -> Option<String> {
             return Some(err);
         }
     }
-    if let Some(err) = guard_mode_args(a) {
+    None
+}
+
+fn guard_grep(a: &mut Args) -> Option<String> {
+    for key in ["include_noise", "text"] {
+        if a.get(key).is_some_and(|v| !v.is_boolean()) {
+            return Some(format!("Error: grep arg \"{key}\" must be a boolean"));
+        }
+    }
+    if let Some(err) = guard_pattern_and_glob_args(a).or_else(|| guard_path_args(a)).or_else(|| guard_numeric_args(a)).or_else(|| guard_mode_args(a)) {
         return Some(err);
     }
     clamp_context_head_limit(a);

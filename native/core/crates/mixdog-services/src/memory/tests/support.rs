@@ -7,12 +7,7 @@ use tempfile::TempDir;
 use crate::memory::pg::cluster::{PgCluster, PgRuntime};
 use crate::memory::pg::db::{Db, Schema};
 
-/// Where a test's cluster starts scanning for a port: one the OS just handed out, so parallel tests and other builds on this machine
-/// start apart, and never inside a range Windows reserves (Hyper-V / WinNAT keep 100-port blocks, 58284-58824 on 2026-11-12, that
-/// refuse every bind: a fixed range landed inside them and the scan of its 200 ports took 410 s and failed).
-///
-/// A start scans upward (`cluster::PORT_SPAN` ports): a port among the last `PORT_SPAN` of the range has fewer than that above it, so
-/// it is held and another is asked for. There are only `PORT_SPAN` such ports, so this ends.
+/// Windows reserves 100-port blocks (Hyper-V / WinNAT; 58284-58824 on 2026-11-12) that refuse every bind, so the scan starts at a port the OS just handed out.
 pub fn preferred_port() -> u16 {
     let mut held = Vec::new();
     loop {

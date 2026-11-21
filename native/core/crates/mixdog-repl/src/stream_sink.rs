@@ -1,10 +1,8 @@
-//! `repl/stream-sink.mjs`: the live assistant stream of one REPL turn: batched writes to the terminal, the accumulated
-//! streamed text, the "where is the cursor" flags the tool cards and the final re-render depend on, and the erase that
-//! replaces the raw stream with rendered markdown.
+//! The live assistant stream of one REPL turn: batched writes to the terminal, the accumulated streamed text, the cursor flags the
+//! tool cards and the final re-render depend on, and the erase that replaces the raw stream with rendered markdown.
 //!
-//! Node batched the writes with a timer of 8 ms. Here the sink holds the pending text and the instant the batch is due
-//! ([`StreamSink::next_deadline`]); the turn loop sleeps until it and calls [`StreamSink::flush_due`], so the bytes that
-//! reach the terminal are the same.
+//! The sink holds the pending text and the instant the batch is due ([`StreamSink::next_deadline`]); the turn loop sleeps until
+//! it and calls [`StreamSink::flush_due`].
 
 use std::io;
 use std::time::Duration;

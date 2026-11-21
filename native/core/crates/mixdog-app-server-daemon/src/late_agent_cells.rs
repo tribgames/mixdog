@@ -1,16 +1,3 @@
-//! The two cycles of production `AgentEffects`.
-//!
-//! The agent definitions (`build_agents`) are built before everything else, and their effects
-//! reach two things that are built from them or after the session directory:
-//! - the channel stack: `DefinitionAgents::new(agents)` is inside `RoutineRuntime`'s host, and
-//!   `ServiceChannels { admin, runtime }` is what `DaemonAgentEffects` reloads and purges through;
-//! - the route service: `ChatRoutes::new(route_service)` is the setter `AgentRouteFollow` hands a
-//!   saved bot route to, and `RouteService` needs the built directory (`SessionRouteAdapter`).
-//!
-//! Each cell is bound once, when what it waits for exists, and the composition verifies both
-//! before the listener accepts. A change of the definitions comes from a client request, so none
-//! reaches an unbound cell; unbound, a call is refused with the reason.
-
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;

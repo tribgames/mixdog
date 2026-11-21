@@ -72,3 +72,57 @@ fn a_batch_that_fails_midway_leaves_the_document_as_it_was() {
     assert!(run(&path, &operations).is_err());
     assert!(mixdog_testkit::read(&path) == before, "the first operation was not kept");
 }
+
+#[test]
+fn an_auto_link_with_no_address_on_the_pages_says_what_to_pass_instead() {
+    let path = three_pages("nourls");
+    let refused = run(&path, &[json!({ "op": "add_link", "urls": true })]).unwrap_err();
+    assert_eq!(refused, "add_link urls:true found no http(s) address in the selected pages; pass find or a box instead");
+}
+
+#[test]
+fn an_auto_link_points_each_address_on_the_page_at_itself_without_its_trailing_punctuation() {
+    let path = three_pages("urls");
+    run(&path, &[json!({ "op": "add_text", "text": "see https://example.test/a, now", "page": 1, "x": 72, "y": 600 })]).expect("stamped");
+    let rows = run(&path, &[json!({ "op": "add_link", "urls": true, "page": 1 })]).expect("linked");
+    assert_eq!(rows[0]["links"], json!(1));
+    assert_eq!(rows[0]["urls"], json!(["https://example.test/a"]));
+}
+
+#[test]
+fn a_merge_appends_the_pages_of_another_document_and_reports_where_they_start() {
+    let path = three_pages("merge-into");
+    let other = three_pages("merge-from");
+    let rows =
+        run(&path, &[json!({ "op": "merge_pdf", "sources": [{ "path": other.to_string_lossy(), "pages": [2], "title": "Second" }], "bookmarks": true })])
+            .expect("merged");
+    assert_eq!(rows[0]["pagesAdded"], json!(1));
+    assert_eq!(rows[0]["pageCount"], json!(4));
+    assert_eq!(rows[0]["bookmarks"], json!(1));
+    assert_eq!(rows[0]["sources"][0]["pages"], json!([2]));
+    assert_eq!(rows[0]["sources"][0]["at"], json!(4));
+    assert_eq!(rows[0]["sources"][0]["title"], json!("Second"));
+    assert!(words(&path).contains("Section 2 follows"));
+}
+
+#[test]
+fn a_merge_at_an_index_inserts_each_source_after_the_one_before_it() {
+    let path = three_pages("merge-at");
+    let other = three_pages("merge-at-from");
+    let rows = run(&path, &[json!({ "op": "merge_pdf", "sources": [other.to_string_lossy(), other.to_string_lossy()], "index": 1 })]).expect("merged");
+    assert_eq!(rows[0]["pagesAdded"], json!(6));
+    assert_eq!(rows[0]["sources"][0]["at"], json!(1));
+    assert_eq!(rows[0]["sources"][1]["at"], json!(4));
+    assert_eq!(rows[0]["pageCount"], json!(9));
+}
+
+#[test]
+fn a_compress_row_reports_the_size_the_file_ended_with() {
+    let path = three_pages("compress");
+    let before = mixdog_testkit::read(&path).len();
+    let rows = run(&path, &[json!({ "op": "compress" })]).expect("applied");
+    let after = mixdog_testkit::read(&path).len();
+    assert_eq!(rows[0]["bytesAfter"], json!(after));
+    assert_eq!(rows[0]["changed"], json!(after != before));
+    assert!(rows[0]["note"].as_str().is_some_and(|note| note.contains("images are not resampled") || note.contains("Images are not resampled")));
+}

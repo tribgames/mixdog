@@ -249,41 +249,48 @@ impl<D: RelayDeps> Relay<D> {
     /// connection only. A screen resync error requires a fresh authenticated connection, not a
     /// retry on this one.
     pub async fn forward(&self, client: &str, signal: &ClientSignal, origin: Origin) -> Result<(), String> {
-        let ClientSignal::Ready { source, viewer_attempt, .. } = signal else {
-            if let ClientSignal::CancelScreen { source, viewer_attempt, .. } = signal {
-                let handoff = self.state().screen_replay(client, origin).handoff.clone();
-                if !self.deps.screen_authorized(client, origin).await {
-                    return Err(SCREEN_REFUSED.to_owned());
-                }
-                let _handoff = handoff.acquire().await.expect("the handoff gate is never closed");
-                let source_key = source.key();
-                let key = key(client, &source_key);
-                {
-                    let mut state = self.state();
-                    let matches = state.attempts.get(&key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt == Some(*viewer_attempt));
-                    // The connection may have left during authorization or while waiting for handoff.
-                    let Some(replay) = state.existing_replay(client, origin).filter(|replay| Arc::ptr_eq(&replay.handoff, &handoff)) else {
-                        return Ok(());
-                    };
-                    replay.cancel(&source_key, *viewer_attempt)?;
-                    if matches {
-                        state.attempts.remove(&key);
-                    }
-                }
-                return self.deps.forward(client, signal, None, origin).await;
-            }
-            if matches!(signal.source(), Source::Screen { .. }) && !self.deps.screen_authorized(client, origin).await {
-                return Err(SCREEN_REFUSED.to_owned());
-            }
-            // A take-over is promoted only after its first picture of the fitted layout went out:
-            // earlier media-readys are dropped, the phone re-sends.
-            if let (ClientSignal::MediaReady { .. }, Source::Browser { session_id }) = (signal, signal.source())
-                && self.deps.awaiting_fit(client, session_id)
-            {
+        match signal {
+            ClientSignal::Ready { source, viewer_attempt, .. } => self.forward_ready(client, signal, source, viewer_attempt, origin).await,
+            ClientSignal::CancelScreen { source, viewer_attempt, .. } => self.forward_cancel_screen(client, signal, source, *viewer_attempt, origin).await,
+            _ => self.forward_plain(client, signal, origin).await,
+        }
+    }
+
+    async fn forward_cancel_screen(&self, client: &str, signal: &ClientSignal, source: &Source, viewer_attempt: u64, origin: Origin) -> Result<(), String> {
+        let handoff = self.state().screen_replay(client, origin).handoff.clone();
+        if !self.deps.screen_authorized(client, origin).await {
+            return Err(SCREEN_REFUSED.to_owned());
+        }
+        let _handoff = handoff.acquire().await.expect("the handoff gate is never closed");
+        let source_key = source.key();
+        let key = key(client, &source_key);
+        {
+            let mut state = self.state();
+            let matches = state.attempts.get(&key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt == Some(viewer_attempt));
+            let Some(replay) = state.existing_replay(client, origin).filter(|replay| Arc::ptr_eq(&replay.handoff, &handoff)) else {
                 return Ok(());
+            };
+            replay.cancel(&source_key, viewer_attempt)?;
+            if matches {
+                state.attempts.remove(&key);
             }
-            return self.deps.forward(client, signal, None, origin).await;
-        };
+        }
+        self.deps.forward(client, signal, None, origin).await
+    }
+
+    async fn forward_plain(&self, client: &str, signal: &ClientSignal, origin: Origin) -> Result<(), String> {
+        if matches!(signal.source(), Source::Screen { .. }) && !self.deps.screen_authorized(client, origin).await {
+            return Err(SCREEN_REFUSED.to_owned());
+        }
+        if let (ClientSignal::MediaReady { .. }, Source::Browser { session_id }) = (signal, signal.source())
+            && self.deps.awaiting_fit(client, session_id)
+        {
+            return Ok(());
+        }
+        self.deps.forward(client, signal, None, origin).await
+    }
+
+    async fn forward_ready(&self, client: &str, signal: &ClientSignal, source: &Source, viewer_attempt: &Option<u64>, origin: Origin) -> Result<(), String> {
         // The attempt is registered before anything is awaited, so the order `ready`s were
         // decoded in decides which one is current.
         let source_key = source.key();

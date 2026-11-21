@@ -583,25 +583,7 @@ impl<'a, P: ReadProof> TextMeasurer<'a, P> {
         let substituted = !fonts.is_empty();
         let allowance = if substituted { options.tolerance * 1.12 } else { options.tolerance };
         if measured.height > usable_height * allowance {
-            let mut message = format!(
-                "Text needs about {}pt but the shape allows {}pt.",
-                number_to_string(math::round(measured.height)),
-                number_to_string(math::round(usable_height))
-            );
-            if substituted {
-                message.push_str(" The font is not installed here, so the measurement is approximate.");
-            }
-            let mut issue = json!({
-                "code": "text_overflow",
-                "path": path,
-                "message": message,
-                "overflow": json_number(math::round(measured.height - usable_height)),
-                "lines": measured.lines,
-            });
-            if substituted {
-                issue["approximate"] = Value::Bool(true);
-            }
-            issues.push(issue);
+            issues.push(text_overflow_issue(&path, &measured, usable_height, substituted));
         }
         if !text_box.wrap && measured.width > usable_width * options.tolerance {
             issues.push(json!({
@@ -745,6 +727,28 @@ fn largest_font_size(paragraphs: &[Paragraph]) -> f64 {
 
 fn has_text(text_box: &TextBox) -> bool {
     text_box.paragraphs.iter().any(|paragraph| !js_trim(&paragraph.text).is_empty())
+}
+
+fn text_overflow_issue(path: &str, measured: &BlockMetrics, usable_height: f64, substituted: bool) -> Value {
+    let mut message = format!(
+        "Text needs about {}pt but the shape allows {}pt.",
+        number_to_string(math::round(measured.height)),
+        number_to_string(math::round(usable_height))
+    );
+    if substituted {
+        message.push_str(" The font is not installed here, so the measurement is approximate.");
+    }
+    let mut issue = json!({
+        "code": "text_overflow",
+        "path": path,
+        "message": message,
+        "overflow": json_number(math::round(measured.height - usable_height)),
+        "lines": measured.lines,
+    });
+    if substituted {
+        issue["approximate"] = Value::Bool(true);
+    }
+    issue
 }
 
 /// Two readings of the same fault: a box narrower than its longest word breaks mid-word, and a box only a little wider
@@ -1071,54 +1075,56 @@ pub fn review_vertical_balance(bounds: &[Bound], slide_width: f64, slide_height:
             }
             continue;
         }
-        let top = content.iter().fold(f64::INFINITY, |least, shape| math::min(least, shape.top));
-        let bottom = content.iter().fold(f64::NEG_INFINITY, |most, shape| math::max(most, shape.top + shape.height));
-        let top_empty = math::max(0.0, top);
-        let bottom_empty = math::max(0.0, slide_height - bottom);
-        let heavy_bottom = bottom_empty > slide_height * 0.3 && bottom_empty - top_empty > slide_height * 0.24;
-        let heavy_top = top_empty > slide_height * 0.3 && top_empty - bottom_empty > slide_height * 0.24;
-        if !heavy_bottom && !heavy_top {
-            // The footer and the page number sit at the bottom of every slide: the hollow band is the real reading.
-            let (depth, band_top) = hollow_band(&content);
-            if depth > HOLLOW_BAND {
-                issues.push(json!({
-                    "code": "vertical_imbalance",
-                    "path": slide_path,
-                    "message": format!(
-                        "An empty band {}pt deep ({}in) runs from {}pt to {}pt with content above and below it; extend a region into the band or move the lower block up.",
-                        number_to_string(math::round(depth)),
-                        math::to_fixed(depth / 72.0, 2),
-                        number_to_string(math::round(band_top)),
-                        number_to_string(math::round(band_top + depth))
-                    ),
-                    "hollowBand": json_number(math::round(depth)),
-                    "hollowTop": json_number(math::round(band_top)),
-                }));
-            }
-            continue;
-        }
-        let message = if heavy_bottom {
-            format!(
-                "Content ends {}pt above the slide bottom while starting {}pt from the top; rebalance the layout or extend content regions downward.",
-                number_to_string(math::round(bottom_empty)),
-                number_to_string(math::round(top_empty))
-            )
-        } else {
-            format!(
-                "Content starts {}pt from the slide top while ending {}pt above the bottom; rebalance the layout upward.",
-                number_to_string(math::round(top_empty)),
-                number_to_string(math::round(bottom_empty))
-            )
-        };
-        issues.push(json!({
-            "code": "vertical_imbalance",
-            "path": slide_path,
-            "message": message,
-            "emptyTop": json_number(math::round(top_empty)),
-            "emptyBottom": json_number(math::round(bottom_empty)),
-        }));
+        issues.extend(vertical_imbalance_issue(&slide_path, &content, slide_height));
     }
     issues
+}
+
+fn vertical_imbalance_issue(slide_path: &str, content: &[&Bound], slide_height: f64) -> Option<Value> {
+    let top = content.iter().fold(f64::INFINITY, |least, shape| math::min(least, shape.top));
+    let bottom = content.iter().fold(f64::NEG_INFINITY, |most, shape| math::max(most, shape.top + shape.height));
+    let top_empty = math::max(0.0, top);
+    let bottom_empty = math::max(0.0, slide_height - bottom);
+    let heavy_bottom = bottom_empty > slide_height * 0.3 && bottom_empty - top_empty > slide_height * 0.24;
+    let heavy_top = top_empty > slide_height * 0.3 && top_empty - bottom_empty > slide_height * 0.24;
+    if !heavy_bottom && !heavy_top {
+        let (depth, band_top) = hollow_band(content);
+        return (depth > HOLLOW_BAND).then(|| {
+            json!({
+                "code": "vertical_imbalance",
+                "path": slide_path,
+                "message": format!(
+                    "An empty band {}pt deep ({}in) runs from {}pt to {}pt with content above and below it; extend a region into the band or move the lower block up.",
+                    number_to_string(math::round(depth)),
+                    math::to_fixed(depth / 72.0, 2),
+                    number_to_string(math::round(band_top)),
+                    number_to_string(math::round(band_top + depth))
+                ),
+                "hollowBand": json_number(math::round(depth)),
+                "hollowTop": json_number(math::round(band_top)),
+            })
+        });
+    }
+    let message = if heavy_bottom {
+        format!(
+            "Content ends {}pt above the slide bottom while starting {}pt from the top; rebalance the layout or extend content regions downward.",
+            number_to_string(math::round(bottom_empty)),
+            number_to_string(math::round(top_empty))
+        )
+    } else {
+        format!(
+            "Content starts {}pt from the slide top while ending {}pt above the bottom; rebalance the layout upward.",
+            number_to_string(math::round(top_empty)),
+            number_to_string(math::round(bottom_empty))
+        )
+    };
+    Some(json!({
+        "code": "vertical_imbalance",
+        "path": slide_path,
+        "message": message,
+        "emptyTop": json_number(math::round(top_empty)),
+        "emptyBottom": json_number(math::round(bottom_empty)),
+    }))
 }
 
 /// `reviewStatLabelProximity(boxes, { maximumGap })`: declared value and label pairs, and a large figure far from any
@@ -1128,52 +1134,54 @@ pub fn review_stat_label_proximity(boxes: &[TextBox], maximum_gap: f64) -> Vec<V
     for (slide, shapes) in by_slide(boxes, |text_box| text_box.frame.slide) {
         let frames: Vec<RelationBox> = shapes.iter().map(|text_box| text_box.frame.clone()).collect();
         issues.extend(review_declared_relations(&frames, maximum_gap));
-        for (at, text_box) in shapes.iter().enumerate() {
-            if text_box.frame.relation.as_ref().is_some_and(|relation| relation.role == "value") {
-                continue;
-            }
-            let texts: Vec<&str> = text_box.paragraphs.iter().map(|paragraph| paragraph.text.as_str()).collect();
-            let text = js_trim(&texts.join(" ")).to_owned();
-            let size = largest_font_size(&text_box.paragraphs);
-            if size < 28.0 || text.is_empty() || utf16_len(&text) > 16 || !text.chars().any(|character| character.is_ascii_digit()) {
-                continue;
-            }
-            let letters = LETTER.find_iter(&text).count();
-            let compact = text.chars().filter(|character| !is_js_space(*character)).map(char::len_utf16).sum::<usize>();
-            if letters as f64 > compact as f64 * 0.5 {
-                continue;
-            }
-            let mut nearest: Option<f64> = None;
-            for (other_at, candidate) in shapes.iter().enumerate() {
-                if other_at == at
-                    || largest_font_size(&candidate.paragraphs) > 20.0
-                    || !candidate.paragraphs.iter().any(|paragraph| !js_trim(&paragraph.text).is_empty())
-                {
-                    continue;
-                }
-                let distance = rectangle_gap(&text_box.frame, &candidate.frame);
-                if nearest.is_none_or(|known| distance < known) {
-                    nearest = Some(distance);
-                }
-            }
-            let Some(gap) = nearest else { continue };
-            if gap <= maximum_gap {
-                continue;
-            }
-            issues.push(json!({
-                "code": "stat_label_detached",
-                "severity": "info",
-                "confidence": "inferred",
-                "path": format!("/slide[{}]/shape[{}]", number_to_string(slide), number_to_string(text_box.frame.shape)),
-                "message": format!(
-                    "The stat \"{text}\" is {}pt from the nearest small text. Its label is unknown; inspect the relationship before moving either element.",
-                    number_to_string(math::round(gap))
-                ),
-                "gap": json_number(math::round(gap)),
-            }));
+        for at in 0..shapes.len() {
+            issues.extend(detached_stat_issue(slide, &shapes, at, maximum_gap));
         }
     }
     issues
+}
+
+fn detached_stat_issue(slide: f64, shapes: &[&TextBox], at: usize, maximum_gap: f64) -> Option<Value> {
+    let text_box = shapes[at];
+    if text_box.frame.relation.as_ref().is_some_and(|relation| relation.role == "value") {
+        return None;
+    }
+    let texts: Vec<&str> = text_box.paragraphs.iter().map(|paragraph| paragraph.text.as_str()).collect();
+    let text = js_trim(&texts.join(" ")).to_owned();
+    let size = largest_font_size(&text_box.paragraphs);
+    if size < 28.0 || text.is_empty() || utf16_len(&text) > 16 || !text.chars().any(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    let letters = LETTER.find_iter(&text).count();
+    let compact = text.chars().filter(|character| !is_js_space(*character)).map(char::len_utf16).sum::<usize>();
+    if letters as f64 > compact as f64 * 0.5 {
+        return None;
+    }
+    let mut nearest: Option<f64> = None;
+    for (other_at, candidate) in shapes.iter().enumerate() {
+        if other_at == at
+            || largest_font_size(&candidate.paragraphs) > 20.0
+            || !candidate.paragraphs.iter().any(|paragraph| !js_trim(&paragraph.text).is_empty())
+        {
+            continue;
+        }
+        let distance = rectangle_gap(&text_box.frame, &candidate.frame);
+        if nearest.is_none_or(|known| distance < known) {
+            nearest = Some(distance);
+        }
+    }
+    let gap = nearest.filter(|gap| *gap > maximum_gap)?;
+    Some(json!({
+        "code": "stat_label_detached",
+        "severity": "info",
+        "confidence": "inferred",
+        "path": format!("/slide[{}]/shape[{}]", number_to_string(slide), number_to_string(text_box.frame.shape)),
+        "message": format!(
+            "The stat \"{text}\" is {}pt from the nearest small text. Its label is unknown; inspect the relationship before moving either element.",
+            number_to_string(math::round(gap))
+        ),
+        "gap": json_number(math::round(gap)),
+    }))
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::time::Instant;
 
+use super::goaway::ConnState;
 use super::h1::Conn;
 
 pub enum Idle {
@@ -108,17 +109,29 @@ pub enum At {
     Put,
     /// A request found no idle connection and is about to dial.
     Dial,
+    /// An HTTP/2 exchange has its connection and is about to open its stream.
+    Stream,
+    /// An HTTP/2 stream is open and its body not queued yet: held, the body waits until the peer has closed the stream.
+    Body,
+    /// A stream refused its body, and its response gave the error that closed it.
+    Refused,
 }
 
 #[cfg(test)]
 type Hook = Box<dyn FnOnce() + Send>;
 
+#[cfg(test)]
+type Gate = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
 #[derive(Default)]
 pub struct Pool {
     state: Mutex<State>,
     counter: AtomicU64,
+    conns: Mutex<HashMap<u64, Arc<ConnState>>>,
     #[cfg(test)]
     hooks: Mutex<HashMap<At, Hook>>,
+    #[cfg(test)]
+    gates: Mutex<HashMap<At, Gate>>,
     /// The exchanges whose connection's fate is not settled yet ([`Flight`]), and a wake for [`Pool::settled`].
     #[cfg(any(test, feature = "test-support"))]
     flights: (std::sync::atomic::AtomicUsize, tokio::sync::Notify),
@@ -155,9 +168,30 @@ pub struct H2Guard {
     pool: Arc<Pool>,
     key: String,
     id: u64,
+    /// The connection's frame facts once the guard is about to open a stream, with the stream's number once it holds it.
+    conn: Option<(Arc<ConnState>, Option<u32>)>,
 }
 
 impl H2Guard {
+    /// The connection's open streams and the exchanges holding a handle, as a log fragment; empty when not tracked.
+    pub fn counts(&self) -> String {
+        self.conn.as_ref().map_or_else(String::new, |(conn, _)| conn.counts())
+    }
+
+    /// The guard is about to open a stream on `conn` ([`ConnState::reserve`]).
+    pub fn reserve(&mut self, conn: Arc<ConnState>) {
+        conn.reserve();
+        self.conn = Some((conn, None));
+    }
+
+    /// The reserved stream is `stream`, held until the guard drops.
+    pub fn attach(&mut self, stream: u32) {
+        if let Some((conn, held @ None)) = &mut self.conn {
+            conn.hold(stream);
+            *held = Some(stream);
+        }
+    }
+
     /// The connection this stream rides ended, or the peer is closing it: no later request is given it. Streams already on
     /// it run on, and the connection is closed by its own task when the last of them ends.
     pub fn retire(&self) {
@@ -167,6 +201,11 @@ impl H2Guard {
 
 impl Drop for H2Guard {
     fn drop(&mut self) {
+        match &self.conn {
+            Some((conn, Some(stream))) => conn.release(*stream),
+            Some((conn, None)) => conn.unreserve(),
+            None => {}
+        }
         self.pool.h2_closed_stream(&self.key, self.id);
     }
 }
@@ -459,11 +498,24 @@ impl Pool {
         self.hooks.lock().unwrap().insert(at, Box::new(run));
     }
 
+    /// Whether a test held `at`.
     #[cfg(test)]
-    pub fn at(&self, at: At) {
+    pub fn at(&self, at: At) -> bool {
         let hook = self.hooks.lock().unwrap().remove(&at);
-        if let Some(hook) = hook {
-            hook();
+        hook.map(|hook| hook()).is_some()
+    }
+
+    /// The first operation to reach `at` waits there, once, until `wait` is done.
+    #[cfg(test)]
+    pub fn gate(&self, at: At, wait: impl std::future::Future<Output = ()> + Send + 'static) {
+        self.gates.lock().unwrap().insert(at, Box::pin(wait));
+    }
+
+    #[cfg(test)]
+    pub async fn pass(&self, at: At) {
+        let gate = self.gates.lock().unwrap().remove(&at);
+        if let Some(gate) = gate {
+            gate.await;
         }
     }
 
@@ -515,7 +567,20 @@ impl Pool {
                 state.idle.entry(key.clone()).or_default().push(Idle::H2 { id, send });
             }
         }
-        H2Guard { pool: self.clone(), key, id }
+        H2Guard { pool: self.clone(), key, id, conn: None }
+    }
+
+    /// The GOAWAY facts of HTTP/2 connection `id`, kept until its task ends.
+    pub fn track_conn(&self, conn: Arc<ConnState>, id: u64) {
+        self.conns.lock().unwrap_or_else(PoisonError::into_inner).insert(id, conn);
+    }
+
+    pub fn conn_state(&self, id: u64) -> Option<Arc<ConnState>> {
+        self.conns.lock().unwrap_or_else(PoisonError::into_inner).get(&id).cloned()
+    }
+
+    pub fn forget_conn(&self, id: u64) {
+        self.conns.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
     }
 
     /// undici closes an h2 session that has had no stream for keepAliveTimeout (client-h2.js, setHttp2IdleTimeout).
@@ -661,7 +726,7 @@ impl Pool {
             Idle::H1 { conn, until, .. } if Instant::now() < until && !conn.is_closed() => Some(Taken::H1(conn)),
             Idle::H1 { conn, .. } => Some(Taken::Vacant(conn.into_slot())),
             Idle::Vacant { slot } => Some(Taken::Vacant(slot)),
-            Idle::H2 { id, send } => Some(Taken::H2 { id, send, guard: H2Guard { pool: self.clone(), key: key.to_owned(), id } }),
+            Idle::H2 { id, send } => Some(Taken::H2 { id, send, guard: H2Guard { pool: self.clone(), key: key.to_owned(), id, conn: None } }),
         }
     }
 

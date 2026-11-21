@@ -1,10 +1,3 @@
-//! The thread methods of the route and quota-card actions: `thread/continueInModel`
-//! (`continueSessionInModel`, model-route/set-route.mjs) and `thread/quotaResume/schedule` /
-//! `thread/quotaResume/cancel` (`scheduleQuotaResume` / `cancelQuotaResume`,
-//! tui/session/quota-resume.mjs). The app-server hands these to the domain that claims them
-//! instead of the thread's actor: they act on the route and the daemon-wide quota-resume store,
-//! and only read the thread through [`QuotaResumeSessions`] (WP-SESSION).
-
 use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
 use std::sync::Arc;
 
@@ -37,10 +30,6 @@ pub struct ThreadRouteService {
 }
 
 impl ThreadRouteService {
-    /// `continueSessionInModel(sessionId, next)`: the selection is adopted and the conversation
-    /// switched in place, only after its latest settled turn failed on exhausted provider quota
-    /// (`session-api/lifecycle.mjs`; a running turn is not such a turn, so Node's separate busy
-    /// refusal is this one here).
     async fn continue_in_model(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: ThreadContinueInModelParams = decode(req)?;
         let route = req.params.get("route").and_then(Value::as_object).cloned().unwrap_or_default();

@@ -186,15 +186,33 @@ fn model_sheet() -> Value {
 }
 
 #[test]
-fn financial_model_audit_reports_modelling_discipline_and_every_profile_reports_workbook_hygiene() {
+fn financial_model_audit_reports_modelling_discipline() {
     let model = model_sheet();
-    let names = ["Model", "Input Sheet"];
-    let financial = audit(std::slice::from_ref(&model), "financial-model", &names, &[]);
+    let financial = audit(std::slice::from_ref(&model), "financial-model", &["Model", "Input Sheet"], &[]);
     assert_eq!(codes_at(&financial, "inline_constant_in_formula"), ["/sheet[Model]/cell[E2]"]);
     assert_eq!(codes_at(&financial, "formula_pattern_inconsistency"), ["/sheet[Model]/cell[E2]"]);
     assert_eq!(codes_at(&financial, "formula_inconsistency"), ["/sheet[Model]/cell[D3]"]);
-    // A schedule whose periods run down the page carries the same defect in the other direction: a pasted result between the
-    // formulas of one column was read only as an input without a source, never as the break in the schedule.
+    assert_eq!(codes_at(&financial, "rogue_hardcode"), ["/sheet[Model]/cell[F3]"]);
+    assert_eq!(codes_at(&financial, "unguarded_division"), ["/sheet[Model]/cell[B4]"]);
+    assert_eq!(codes_at(&financial, "percentage_stored_as_whole"), ["/sheet[Model]/cell[B5]"]);
+    assert_eq!(codes_at(&financial, "year_with_thousands_separator"), ["/sheet[Model]/cell[B6]"]);
+    assert_eq!(codes_at(&financial, "unquoted_sheet_reference"), ["/sheet[Model]/cell[B7]"]);
+    assert_eq!(codes_at(&financial, "external_link_reference"), ["/sheet[Model]/cell[B8]"]);
+    assert_eq!(codes_at(&financial, "input_cells_unmarked"), ["/sheet[Model]"]);
+    assert_eq!(financial.iter().find(|issue| issue.code == "input_cells_unmarked").expect("a finding").severity, "info");
+}
+
+#[test]
+fn every_profile_reports_workbook_hygiene() {
+    let plain = audit(&[model_sheet()], "", &["Model", "Input Sheet"], &[]);
+    let mut plain_codes: Vec<&str> = plain.iter().map(|issue| issue.code).collect();
+    plain_codes.sort_unstable();
+    plain_codes.dedup();
+    assert_eq!(plain_codes, ["external_link_reference", "percentage_stored_as_whole", "unquoted_sheet_reference", "year_with_thousands_separator"]);
+}
+
+#[test]
+fn a_pasted_result_between_the_formulas_of_a_downward_schedule_is_the_break_in_it() {
     let downward = sheet(
         "Schedule",
         &[
@@ -217,25 +235,11 @@ fn financial_model_audit_reports_modelling_discipline_and_every_profile_reports_
     );
     let schedule = audit(&[downward], "financial-model", &["Schedule"], &[]);
     assert_eq!(codes_at(&schedule, "formula_inconsistency"), ["/sheet[Schedule]/cell[C4]"]);
-    // The inputs the schedule reads are not interruptions: only the cell the formulas of one column bracket is.
     assert!(codes_at(&schedule, "rogue_hardcode").is_empty());
-    assert_eq!(codes_at(&financial, "rogue_hardcode"), ["/sheet[Model]/cell[F3]"]);
-    assert_eq!(codes_at(&financial, "unguarded_division"), ["/sheet[Model]/cell[B4]"]);
-    assert_eq!(codes_at(&financial, "percentage_stored_as_whole"), ["/sheet[Model]/cell[B5]"]);
-    assert_eq!(codes_at(&financial, "year_with_thousands_separator"), ["/sheet[Model]/cell[B6]"]);
-    assert_eq!(codes_at(&financial, "unquoted_sheet_reference"), ["/sheet[Model]/cell[B7]"]);
-    assert_eq!(codes_at(&financial, "external_link_reference"), ["/sheet[Model]/cell[B8]"]);
-    assert_eq!(codes_at(&financial, "input_cells_unmarked"), ["/sheet[Model]"]);
-    assert_eq!(financial.iter().find(|issue| issue.code == "input_cells_unmarked").expect("a finding").severity, "info");
+}
 
-    let plain = audit(std::slice::from_ref(&model), "", &names, &[]);
-    let mut plain_codes: Vec<&str> = plain.iter().map(|issue| issue.code).collect();
-    plain_codes.sort_unstable();
-    plain_codes.dedup();
-    assert_eq!(plain_codes, ["external_link_reference", "percentage_stored_as_whole", "unquoted_sheet_reference", "year_with_thousands_separator"]);
-
-    // A column of figures under #,##0 passes through the year range sooner or later, and every such figure was reported as a
-    // year rendered with a separator; the column beside it says which it is.
+#[test]
+fn a_figure_in_the_year_range_is_a_year_only_when_its_column_is_all_years() {
     let quantities = sheet(
         "Volume",
         &[
@@ -247,7 +251,6 @@ fn financial_model_audit_reports_modelling_discipline_and_every_profile_reports_
         ],
     );
     assert!(codes_at(&audit(&[quantities], "", &[], &[]), "year_with_thousands_separator").is_empty());
-    // A column whose numbers are all in the year range is a year column, and the separator is the defect.
     let years = sheet(
         "Plan",
         &[
@@ -257,8 +260,10 @@ fn financial_model_audit_reports_modelling_discipline_and_every_profile_reports_
         ],
     );
     assert_eq!(codes_at(&audit(&[years], "", &[], &[]), "year_with_thousands_separator"), ["/sheet[Plan]/cell[A2]", "/sheet[Plan]/cell[A3]"]);
+}
 
-    // Numbers stored as text never sum; a year written as text is deliberate.
+#[test]
+fn numbers_stored_as_text_are_reported_but_a_year_written_as_text_is_not() {
     let textual = sheet(
         "Text",
         &[
@@ -270,8 +275,11 @@ fn financial_model_audit_reports_modelling_discipline_and_every_profile_reports_
         ],
     );
     assert_eq!(codes_at(&audit(&[textual], "", &[], &[]), "number_stored_as_text"), ["/sheet[Text]/cell[A2]", "/sheet[Text]/cell[B2]"]);
+}
 
-    // A marked input (blue font in the COM color encoding) satisfies the legend rule.
+#[test]
+fn a_marked_input_satisfies_the_legend_rule() {
+    let model = model_sheet();
     let marked_cells: Vec<Value> = model
         .get("cells")
         .and_then(Value::as_array)
@@ -305,8 +313,7 @@ fn excel_cell_styles_normalize_to_the_portable_shape() {
     );
 }
 
-#[test]
-fn layout_hygiene_reports_an_unfrozen_header_on_a_long_sheet_and_unformatted_numeric_table_columns_as_information() {
+fn long_sheet() -> Value {
     let mut rows: Vec<(String, Value)> = Vec::new();
     for row in 2..=30 {
         rows.push((format!("A{row}"), json!({ "value": format!("item {row}"), "dataType": "text" })));
@@ -319,19 +326,28 @@ fn layout_hygiene_reports_an_unfrozen_header_on_a_long_sheet_and_unformatted_num
         ("C1", json!({ "value": "Year", "dataType": "text" })),
     ];
     entries.extend(rows.iter().map(|(reference, entry)| (reference.as_str(), entry.clone())));
-    let long = with(
+    with(
         &sheet("Long", &entries),
         json!({
             "freezePanes": { "frozen": false, "splitRow": 0, "splitColumn": 0 },
             "tables": [{ "path": "/sheet[Long]/table[1]", "index": 1, "name": "Items", "range": "A1:C30" }]
         }),
-    );
+    )
+}
+
+#[test]
+fn an_unfrozen_header_on_a_long_sheet_and_an_unformatted_numeric_table_column_are_information() {
+    let long = long_sheet();
     let findings = audit(std::slice::from_ref(&long), "", &[], &[]);
     assert_eq!(codes_at(&findings, "header_not_frozen"), ["/sheet[Long]"]);
     assert_eq!(codes_at(&findings, "numeric_column_unformatted"), ["/sheet[Long]/table[1]"]);
     assert!(findings.iter().find(|issue| issue.code == "numeric_column_unformatted").expect("a finding").message.starts_with("Column B of Items"));
-    // Several unformatted columns are one finding about that table: repeated per column they all carry the table's path and
-    // read as duplicates.
+    assert!(findings.iter().all(|issue| issue.severity == "info"));
+}
+
+#[test]
+fn several_unformatted_columns_of_one_table_are_one_finding() {
+    let long = long_sheet();
     let long_cells = long["cells"].as_array().expect("cells").clone();
     let two_columns_cells: Vec<Value> = long_cells
         .iter()
@@ -353,8 +369,12 @@ fn layout_hygiene_reports_an_unfrozen_header_on_a_long_sheet_and_unformatted_num
         .collect();
     assert_eq!(grouped.len(), 1, "{grouped:?}");
     assert!(grouped[0].message.starts_with("Columns B, C of Items"), "{}", grouped[0].message);
-    assert!(findings.iter().all(|issue| issue.severity == "info"));
+}
 
+#[test]
+fn a_formatted_table_under_a_frozen_header_reports_nothing_and_an_unknown_freeze_state_is_no_finding() {
+    let long = long_sheet();
+    let long_cells = long["cells"].as_array().expect("cells").clone();
     let formatted_cells: Vec<Value> = long_cells
         .iter()
         .map(|cell| {
@@ -365,7 +385,7 @@ fn layout_hygiene_reports_an_unfrozen_header_on_a_long_sheet_and_unformatted_num
         .collect();
     let formatted = with(&long, json!({ "freezePanes": { "frozen": true, "splitRow": 1, "splitColumn": 0 }, "cells": formatted_cells }));
     assert!(audit(std::slice::from_ref(&formatted), "", &[], &[]).is_empty());
-    // Excel reports freezePanes only for the active sheet; an unknown state is not a finding.
+    // Excel reports freezePanes only for the active sheet.
     assert!(audit(&[with(&formatted, json!({ "freezePanes": null }))], "", &[], &[]).is_empty());
 }
 
@@ -397,9 +417,8 @@ fn paths_of(result: &Value, code: &str) -> Vec<String> {
     list(&result["issues"]).iter().filter(|entry| entry["code"] == code).map(|entry| text(&entry["path"]).to_owned()).collect()
 }
 
-#[test]
-fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_result_without_repeats() {
-    let model = sheet(
+fn notes_model() -> Value {
+    sheet(
         "Model",
         &[
             ("B1", json!({ "value": 0.05, "note": "user brief 2026-09-06" })),
@@ -407,8 +426,11 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
             ("C2", json!({ "formula": "B2*(1+$B$1)", "value": 105 })),
             ("E9", json!({ "value": 42 })),
         ],
-    );
-    let checks = with(
+    )
+}
+
+fn checks_sheet() -> Value {
+    with(
         &sheet(
             "Checks",
             &[
@@ -419,12 +441,18 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
             ],
         ),
         json!({ "notes": [{ "cell": "B3", "text": "count of checks" }] }),
-    );
-    let findings = audit(&[model.clone(), checks.clone()], "financial-model", &[], &[]);
+    )
+}
+
+#[test]
+fn financial_model_audit_reads_notes_and_the_checks_sheet() {
+    let findings = audit(&[notes_model(), checks_sheet()], "financial-model", &[], &[]);
     assert_eq!(codes_at(&findings, "hardcode_missing_source"), ["/sheet[Model]/cell[B2]"]);
     assert_eq!(codes_at(&findings, "failed_check"), ["/sheet[Checks]/cell[B2]"]);
+}
 
-    // Records inside an Excel table are data the table sources, not assumptions.
+#[test]
+fn records_inside_an_excel_table_are_data_the_table_sources_not_assumptions() {
     let data = with(
         &sheet(
             "Data",
@@ -440,7 +468,11 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
         json!({ "tables": [{ "path": "/sheet[Data]/table[1]", "index": 1, "name": "Items", "range": "A1:B3", "style": "" }] }),
     );
     assert_eq!(codes_at(&audit(&[data], "financial-model", &[], &[]), "hardcode_missing_source"), ["/sheet[Data]/cell[B9]"]);
+}
 
+#[test]
+fn the_shared_audit_merges_into_a_host_result_without_repeats() {
+    let (model, checks) = (notes_model(), checks_sheet());
     let host = json!({
         "ok": true,
         "issues": [
@@ -457,7 +489,11 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
     assert_eq!(merged["sharedAudit"]["added"], list(&merged["issues"]).len() - 1);
     let scoped = merge_xlsx_formula_audit(&json!({ "issues": [] }), &document, "financial-model", "Checks");
     assert!(list(&scoped["issues"]).iter().all(|entry| text(&entry["path"]).starts_with("/sheet[Checks]")));
+}
 
+#[test]
+fn the_host_keeps_its_verdicts_for_a_sheet_the_shared_audit_read_no_cells_of() {
+    let model = notes_model();
     // Excel's full read carries no cells for a sheet past 500 cells; the host's verdicts for that sheet stay, since the shared
     // audit saw nothing there.
     let unread = merge_xlsx_formula_audit(
@@ -467,6 +503,10 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
         "",
     );
     assert_eq!(paths_of(&unread, "hardcode_missing_source"), ["/sheet[Big]/cell[B1501]", "/sheet[Model]/cell[B2]"]);
+}
+
+#[test]
+fn the_host_loses_a_verdict_only_for_a_cell_the_shared_audit_read_itself() {
     // A read cut at its window (a used range running to row 1501) saw only its first cells: the host keeps its verdict for a
     // cell past the cut, and loses it only for a cell the shared audit read itself.
     let big = with(&sheet("Big", &[("A1", json!({ "value": "x" })), ("B1", json!({ "value": 21 }))]), json!({ "truncated": true }));
@@ -485,7 +525,10 @@ fn financial_model_audit_reads_notes_the_checks_sheet_and_merges_into_a_host_res
         .map(|entry| (text(&entry["path"]).to_owned(), text(&entry["message"]).to_owned()))
         .collect();
     assert_eq!(kept, [("/sheet[Big]/cell[B1501]".to_owned(), "host".to_owned())]);
+}
 
+#[test]
+fn one_unsourced_input_line_is_one_finding() {
     // One unsourced input line is one finding: reported per cell, a four-period input row filled the answer and pushed the
     // model's own faults out of it.
     let row = sheet(

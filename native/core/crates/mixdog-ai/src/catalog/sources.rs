@@ -138,8 +138,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn an_adapters_listing_reaches_the_catalog_with_its_picker_fields() {
+    async fn list_through_the_catalog() -> (mixdog_core_api::domain::provider::ModelRecord, ModelRecord) {
         mixdog_rt::testing::tokens();
         let mut provider = MockProvider::new([]);
         let mut listed = mixdog_core_api::domain::provider::ModelRecord::new("m1");
@@ -177,30 +176,53 @@ mod tests {
         };
         provider.models = vec![listed.clone()];
         let source = ModelSource::of_adapter("mock".into(), Arc::new(provider)).expect("the mock lists models");
-        let records = source.list().await.unwrap();
+        let mut records = source.list().await.unwrap();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].provider, ProviderId::from("mock"));
-        assert_eq!(records[0].reasoning, Capability::No);
-        assert!(records[0].hidden);
-        assert_eq!(records[0].default_effort.as_deref(), Some("high"));
-        assert_eq!(records[0].mode.as_deref(), Some("chat"));
-        assert_eq!(records[0].created, Some(1_700_000_000));
-        assert_eq!(records[0].alias_target.as_deref(), Some("anthropic/claude-x"));
-        assert_eq!(records[0].wire, listed.wire);
-        let cached: ModelRecord = serde_json::from_value(serde_json::to_value(&records[0]).unwrap()).unwrap();
+        (listed, records.remove(0))
+    }
+
+    fn through_the_cache_file(record: &ModelRecord) -> ModelRecord {
+        serde_json::from_value(serde_json::to_value(record).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_adapters_listing_reaches_the_catalog_with_its_picker_fields() {
+        let (listed, record) = list_through_the_catalog().await;
+        assert_eq!(record.provider, ProviderId::from("mock"));
+        assert_eq!(record.reasoning, Capability::No);
+        assert!(record.hidden);
+        assert_eq!(record.default_effort.as_deref(), Some("high"));
+        assert_eq!(record.mode.as_deref(), Some("chat"));
+        assert_eq!(record.created, Some(1_700_000_000));
+        assert_eq!(record.alias_target.as_deref(), Some("anthropic/claude-x"));
+        assert_eq!(record.wire, listed.wire);
+        assert_eq!(record.max_context_window, Some(1_000_000));
+        assert_eq!(record.picker, listed.picker, "an empty access list stays empty, not absent");
+    }
+
+    #[tokio::test]
+    async fn the_catalog_cache_keeps_the_wire_ids_and_the_context_ceiling() {
+        let (listed, record) = list_through_the_catalog().await;
+        let cached = through_the_cache_file(&record);
         assert_eq!(cached.wire, listed.wire, "the catalog cache keeps the wire ids");
-        assert_eq!(records[0].max_context_window, Some(1_000_000));
-        let cached_json = serde_json::to_value(&records[0]).unwrap();
-        assert_eq!(cached_json["maxContextWindow"], 1_000_000, "the cached row carries Node's key");
+        assert_eq!(serde_json::to_value(&record).unwrap()["maxContextWindow"], 1_000_000, "the cached row carries Node's key");
         assert_eq!(cached.max_context_window, Some(1_000_000));
-        assert_eq!(
-            (cached_json["rates"]["input"].as_f64(), cached_json["rates"]["output"].as_f64(), cached_json["rates"]["cacheRead"].as_f64()),
-            (Some(0.4), Some(1.6), Some(0.0)),
-        );
-        assert_eq!((cached.rates.cache_write, cached.rates), (None, records[0].rates), "a price that is not finite is left out");
-        assert_eq!(records[0].picker, listed.picker, "an empty access list stays empty, not absent");
-        // Every fact the `model/list` row reads survives the bridge and the cache file.
-        for record in [&records[0], &cached] {
+    }
+
+    #[tokio::test]
+    async fn a_listed_price_that_is_not_finite_is_left_out() {
+        let (_, record) = list_through_the_catalog().await;
+        let json = serde_json::to_value(&record).unwrap();
+        assert_eq!((json["rates"]["input"].as_f64(), json["rates"]["output"].as_f64(), json["rates"]["cacheRead"].as_f64()), (Some(0.4), Some(1.6), Some(0.0)));
+        let cached = through_the_cache_file(&record);
+        assert_eq!((cached.rates.cache_write, cached.rates), (None, record.rates));
+    }
+
+    #[tokio::test]
+    async fn every_fact_the_model_list_row_reads_survives_the_bridge_and_the_cache_file() {
+        let (listed, record) = list_through_the_catalog().await;
+        let cached = through_the_cache_file(&record);
+        for record in [&record, &cached] {
             assert_eq!(record.name.as_deref(), Some("m1-name"));
             assert_eq!(record.display_name.as_deref(), Some("m1-name"), "the label falls back to the name");
             assert_eq!(record.provider_name.as_deref(), Some("My Gateway"));

@@ -273,6 +273,77 @@ fn paint_category_grid(painter: &mut Painter, x: i32, y: i32, categories: &[Cate
     rows
 }
 
+fn compaction_line(compaction: Option<&Value>) -> String {
+    let tokens_part = |key: &str, label: &str| part_of(field(compaction, key), |value| format!("{label} {}", format_tokens_of(Some(value))));
+    metric_value(&[
+        part_of(field(compaction, "stage"), |value| if value.as_str() == Some("pending") { String::new() } else { value_to_string(value) }),
+        part_of(field(compaction, "state"), value_to_string),
+        part_of(field(compaction, "type"), |value| format!("type {}", value_to_string(value))),
+        tokens_part("triggerTokens", "trigger"),
+        tokens_part("boundaryTokens", "boundary"),
+        tokens_part("pressureTokens", "pressure"),
+        tokens_part("reserveTokens", "reserve"),
+    ])
+}
+
+fn source_line(detail: Option<&Value>, window_tokens: f64) -> String {
+    let usage = field(detail, "usage");
+    let speed = field(field(detail, "speed"), "outputTokensPerSecond");
+    let speed_part = if is_nullish(speed) {
+        String::new()
+    } else {
+        let n = to_number_of(speed);
+        format!("{} tok/s", if n < 10.0 { to_fixed(n, 1) } else { number_to_string(round(n)) })
+    };
+    let raw_window = field(usage, "rawWindowTokens");
+    metric_value(&[
+        context_measurement_label(field(usage, "measurementSource").and_then(Value::as_str).unwrap_or("")).to_owned(),
+        if truthy(field(usage, "effective")) {
+            format!("effective {}", format_tokens(Some(window_tokens)))
+        } else {
+            format!("window {}", format_tokens(Some(window_tokens)))
+        },
+        if truthy(raw_window) && strictly_differs(raw_window, field(usage, "windowTokens")) {
+            format!("raw {}", format_tokens_of(raw_window))
+        } else {
+            String::new()
+        },
+        speed_part,
+    ])
+}
+
+fn api_line(last_api: Option<&Value>, cache: Option<&Value>) -> String {
+    let raw_input = field(last_api, "rawInputTokens");
+    metric_value(&[
+        format!("last ctx {}", format_tokens_of(field(last_api, "contextTokens"))),
+        format!("uncached/out {}/{}", format_tokens_of(field(last_api, "inputTokens")), format_tokens_of(field(last_api, "outputTokens"))),
+        if truthy(raw_input) && strictly_differs(raw_input, field(last_api, "inputTokens")) {
+            format!("raw in {}", format_tokens_of(raw_input))
+        } else {
+            String::new()
+        },
+        part_of(field(cache, "writeTokens"), |value| format!("write {}", format_tokens_of(Some(value)))),
+        format!("cache {}", if truthy(field(cache, "hitRate")) { text_or_empty(field(cache, "hitRate")) } else { "N/A".to_owned() }),
+    ])
+}
+
+/// The categories of the grid, ending in the free space, and the window their bars are measured against.
+fn usage_categories(semantic: Option<&Value>, schema: Option<&Value>, window_tokens: f64, raw_window_tokens: f64) -> (Vec<Category>, f64) {
+    let mut categories = vec![
+        Category { label: "System prompt", tokens: bucket_tokens(semantic, &["system", "workflow", "workspace", "environment", "other"]) },
+        Category { label: "System tools", tokens: bucket_tokens(schema, &["code", "web", "mutation", "channels", "setup", "other", "control", "session"]) },
+        Category { label: "MCP tools", tokens: bucket_tokens(schema, &["mcp"]) },
+        Category { label: "Custom agents", tokens: bucket_tokens(schema, &["agents"]) },
+        Category { label: "Memory files", tokens: bucket_tokens(semantic, &["memory"]) + bucket_tokens(schema, &["memory"]) },
+        Category { label: "Skills", tokens: bucket_tokens(schema, &["skills"]) },
+        Category { label: "Messages", tokens: bucket_tokens(semantic, &["chat", "assistant", "toolResults"]) },
+        Category { label: "Reasoning tokens", tokens: bucket_tokens(semantic, &["reasoning"]) },
+    ];
+    let categorized_tokens: f64 = categories.iter().map(|category| category.tokens).sum();
+    categories.push(Category { label: "Free space", tokens: (window_tokens - categorized_tokens).max(0.0) });
+    (categories, raw_window_tokens.max(categorized_tokens))
+}
+
 /// `ContextUsageView`: what a context report says. Returns its rows.
 fn paint_usage_view(painter: &mut Painter, x: i32, y: i32, props: &ContextPanelProps, state: &ContextPanelState, detail: &Value) -> u16 {
     let columns = props.columns;
@@ -298,65 +369,10 @@ fn paint_usage_view(painter: &mut Painter, x: i32, y: i32, props: &ContextPanelP
     let summary_text = format!("{} / {} \u{b7} {} free", format_tokens(used_tokens), format_tokens(Some(window_tokens)), format_tokens(free_tokens));
     let pct_text = if used_tokens.is_none() { "\u{2014}".to_owned() } else { format!("{} used", percent_label(used_tokens, window_tokens)) };
     let bar_width = 12.max(34.min(inner as i64 - cells(&summary_text) as i64 - cells(&pct_text) as i64 - 5)) as usize;
-    let system_prompt_tokens = bucket_tokens(semantic, &["system", "workflow", "workspace", "environment", "other"]);
-    let system_tools_tokens = bucket_tokens(schema, &["code", "web", "mutation", "channels", "setup", "other", "control", "session"]);
-    let tokens_part = |key: &str, label: &str| part_of(field(compaction, key), |value| format!("{label} {}", format_tokens_of(Some(value))));
-    let compaction_line = metric_value(&[
-        part_of(field(compaction, "stage"), |value| if value.as_str() == Some("pending") { String::new() } else { value_to_string(value) }),
-        part_of(field(compaction, "state"), value_to_string),
-        part_of(field(compaction, "type"), |value| format!("type {}", value_to_string(value))),
-        tokens_part("triggerTokens", "trigger"),
-        tokens_part("boundaryTokens", "boundary"),
-        tokens_part("pressureTokens", "pressure"),
-        tokens_part("reserveTokens", "reserve"),
-    ]);
-    let speed = field(field(detail, "speed"), "outputTokensPerSecond");
-    let speed_part = if is_nullish(speed) {
-        String::new()
-    } else {
-        let n = to_number_of(speed);
-        format!("{} tok/s", if n < 10.0 { to_fixed(n, 1) } else { number_to_string(round(n)) })
-    };
-    let raw_window = field(usage, "rawWindowTokens");
-    let source_line = metric_value(&[
-        context_measurement_label(field(usage, "measurementSource").and_then(Value::as_str).unwrap_or("")).to_owned(),
-        if truthy(field(usage, "effective")) {
-            format!("effective {}", format_tokens(Some(window_tokens)))
-        } else {
-            format!("window {}", format_tokens(Some(window_tokens)))
-        },
-        if truthy(raw_window) && strictly_differs(raw_window, field(usage, "windowTokens")) {
-            format!("raw {}", format_tokens_of(raw_window))
-        } else {
-            String::new()
-        },
-        speed_part,
-    ]);
-    let raw_input = field(last_api, "rawInputTokens");
-    let api_line = metric_value(&[
-        format!("last ctx {}", format_tokens_of(field(last_api, "contextTokens"))),
-        format!("uncached/out {}/{}", format_tokens_of(field(last_api, "inputTokens")), format_tokens_of(field(last_api, "outputTokens"))),
-        if truthy(raw_input) && strictly_differs(raw_input, field(last_api, "inputTokens")) {
-            format!("raw in {}", format_tokens_of(raw_input))
-        } else {
-            String::new()
-        },
-        part_of(field(cache, "writeTokens"), |value| format!("write {}", format_tokens_of(Some(value)))),
-        format!("cache {}", if truthy(field(cache, "hitRate")) { text_or_empty(field(cache, "hitRate")) } else { "N/A".to_owned() }),
-    ]);
-    let mut categories = vec![
-        Category { label: "System prompt", tokens: system_prompt_tokens },
-        Category { label: "System tools", tokens: system_tools_tokens },
-        Category { label: "MCP tools", tokens: bucket_tokens(schema, &["mcp"]) },
-        Category { label: "Custom agents", tokens: bucket_tokens(schema, &["agents"]) },
-        Category { label: "Memory files", tokens: bucket_tokens(semantic, &["memory"]) + bucket_tokens(schema, &["memory"]) },
-        Category { label: "Skills", tokens: bucket_tokens(schema, &["skills"]) },
-        Category { label: "Messages", tokens: bucket_tokens(semantic, &["chat", "assistant", "toolResults"]) },
-        Category { label: "Reasoning tokens", tokens: bucket_tokens(semantic, &["reasoning"]) },
-    ];
-    let categorized_tokens: f64 = categories.iter().map(|category| category.tokens).sum();
-    let category_window_tokens = raw_window_tokens.max(categorized_tokens);
-    categories.push(Category { label: "Free space", tokens: (window_tokens - categorized_tokens).max(0.0) });
+    let compaction_line = compaction_line(compaction);
+    let source_line = source_line(detail, window_tokens);
+    let api_line = api_line(last_api, cache);
+    let (categories, category_window_tokens) = usage_categories(semantic, schema, window_tokens, raw_window_tokens);
 
     let pct_width = 10.min(inner);
     let mut at = x;

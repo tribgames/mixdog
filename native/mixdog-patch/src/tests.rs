@@ -120,12 +120,6 @@ fn windows_atomic_replace_retries_only_lock_style_errors() {
 
 #[test]
 fn normalized_tier_matches_typographic_interior_context() {
-    // Source whose INTERIOR context line carries an em-dash (U+2014), a
-    // non-breaking space (U+00A0), and curly double quotes (U+201C/U+201D).
-    // The patch is authored in plain ASCII. Without the Unicode-
-    // normalization tier this interior context line would mismatch and the
-    // hunk would be rejected (interior content drift is not tolerated by the
-    // outer-context fuzz budget); with it, the hunk applies at zero fuzz.
     let source = "old first\nconfig\u{00A0}\u{2014} \u{201C}value\u{201D}\nold last\n";
     let entry = Entry {
         old_file: "f".to_string(),
@@ -143,16 +137,6 @@ fn normalized_tier_matches_typographic_interior_context() {
 
 #[test]
 fn far_exact_block_beats_nearer_normalized_block() {
-    // Two candidate blocks for the same single-line delete:
-    //   idx 1: a NEAR typographic variant (em-dash + curly quotes) that
-    //          only matches the ASCII patch after Unicode normalization.
-    //   idx 5: a FAR exact ASCII match.
-    // The hunk targets old_start=2 (target_idx=1), so the normalized block
-    // sits at distance 0 and the exact block at distance 4. Before the
-    // norm_count tiebreak, both scored fuzz 0 and the nearer normalized
-    // block would have won (mis-anchoring onto typographic source). The fix
-    // requires a block that matched WITHOUT normalization to always win,
-    // regardless of distance.
     let source = concat!(
         "alpha\n",
         "config \u{2014} \u{201C}x\u{201D}\n", // idx 1: normalized-only, NEAR
@@ -462,4 +446,121 @@ fn edit2_nfc_respects_char_boundary() {
     let src = "x\u{00E9}y";
     let res = locate_invariant_safe_spans(src, "\u{0301}", false);
     assert!(res.is_err());
+}
+
+#[test]
+fn parse_patch_reads_entries_and_keeps_header_lookalike_body_lines() {
+    let patch = "--- a/f.txt\t2024\n+++ b/f.txt\n@@ -1 +1 @@\n--- x\n+++ y\n@@ -9 +9 @@\n-q\n+r\n--- g.txt\n+++ g.txt\n@@ -1 +1 @@\n-a\n+b\n";
+    let entries = parse_patch(patch).expect("well-formed patch");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].old_file, "a/f.txt");
+    assert_eq!(entries[0].new_file, "b/f.txt");
+    assert_eq!(entries[0].hunks.len(), 2);
+    assert_eq!(entries[0].hunks[0].old_start, 1);
+    assert_eq!(entries[0].hunks[0].lines, ["--- x", "+++ y"]);
+    assert_eq!(entries[0].hunks[1].old_start, 9);
+    assert_eq!(entries[0].hunks[1].lines, ["-q", "+r"]);
+    assert_eq!(entries[1].old_file, "g.txt");
+    assert_eq!(entries[1].hunks[0].lines, ["-a", "+b"]);
+}
+
+#[test]
+fn parse_patch_rejects_a_hunk_body_longer_than_its_declared_counts() {
+    let err = parse_patch("--- f\n+++ f\n@@ -1 +1 @@\n-a\n-b\n+c\n").expect_err("body exceeds counts");
+    assert_eq!(err, "malformed patch: hunk body exceeds declared line counts");
+}
+
+#[test]
+fn parse_patch_rejects_a_hunk_cut_short_of_its_declared_counts() {
+    let err = parse_patch("--- f\n+++ f\n@@ -1,2 +1,2 @@\n-a\n+b\n").expect_err("hunk is incomplete");
+    assert_eq!(err, "malformed patch: incomplete hunk (EOF before declared line counts consumed)");
+}
+
+const TWO_FILE_PATCH: &str = "--- a.txt\n+++ a.txt\n@@ -1 +1 @@\n-one\n+ONE\n--- b.txt\n+++ b.txt\n@@ -1 +1 @@\n-nope\n+x\n";
+
+fn two_file_dir(tag: &str) -> PathBuf {
+    let dir = temp_dir(tag);
+    fs::write(dir.join("a.txt"), b"one\n").unwrap();
+    fs::write(dir.join("b.txt"), b"two\n").unwrap();
+    dir
+}
+
+#[test]
+fn a_batch_with_one_rejected_entry_writes_nothing_when_partial_results_are_refused() {
+    let dir = two_file_dir("batch-all-or-nothing");
+    let err = apply_patch_to_base(&dir, TWO_FILE_PATCH, false, &ApplyOptions::default()).expect_err("b.txt cannot apply");
+    assert_eq!(err, "b.txt: hunk rejected in b.txt");
+    assert_eq!(fs::read(dir.join("a.txt")).unwrap(), b"one\n");
+    assert_eq!(fs::read(dir.join("b.txt")).unwrap(), b"two\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_batch_with_one_rejected_entry_still_applies_the_others_when_partial_results_are_allowed() {
+    let dir = two_file_dir("batch-isolated");
+    let opts = ApplyOptions { fuzz_factor: 2, reject_partial: false };
+    let stats = apply_patch_to_base(&dir, TWO_FILE_PATCH, false, &opts).expect("isolated mode reports failures in the stats");
+    assert_eq!(stats.files, 1);
+    assert_eq!(stats.failed.len(), 1);
+    assert_eq!(stats.failed[0].descriptor, "b.txt");
+    assert_eq!(stats.failed[0].reason, "hunk rejected in b.txt");
+    assert_eq!(stats.content_hashes, vec![sha256_hex(b"ONE\n")]);
+    assert_eq!(fs::read(dir.join("a.txt")).unwrap(), b"ONE\n");
+    assert_eq!(fs::read(dir.join("b.txt")).unwrap(), b"two\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_dry_run_batch_counts_the_files_without_writing_them() {
+    let dir = temp_dir("batch-dry-run");
+    fs::write(dir.join("a.txt"), b"one\n").unwrap();
+    let patch = "--- a.txt\n+++ a.txt\n@@ -1 +1 @@\n-one\n+ONE\n";
+    let stats = apply_patch_to_base(&dir, patch, true, &ApplyOptions::default()).expect("dry run");
+    assert_eq!(stats.files, 1);
+    assert_eq!(fs::read(dir.join("a.txt")).unwrap(), b"one\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_exact_edit_replaces_the_match_and_reports_its_hash() {
+    let dir = temp_dir("edit-replace");
+    let path = dir.join("f.txt");
+    fs::write(&path, b"alpha\nbeta\n").unwrap();
+    let (stats, tier) = apply_invariant_safe_edit_to_path(&path, b"beta", b"BETA", false, false).expect("edit applies");
+    assert_eq!(tier, EditTier::Exact);
+    assert_eq!(stats.replacements, 1);
+    assert_eq!(stats.content_hash, sha256_hex(b"alpha\nBETA\n"));
+    assert_eq!(fs::read(&path).unwrap(), b"alpha\nBETA\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_exact_edit_that_deletes_a_line_takes_its_terminator_with_it() {
+    let dir = temp_dir("edit-delete");
+    let path = dir.join("f.txt");
+    fs::write(&path, b"alpha\r\nbeta\r\ngamma\r\n").unwrap();
+    apply_invariant_safe_edit_to_path(&path, b"beta", b"", false, false).expect("edit applies");
+    assert_eq!(fs::read(&path).unwrap(), b"alpha\r\ngamma\r\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_exact_edit_dry_run_leaves_the_file_untouched() {
+    let dir = temp_dir("edit-dry-run");
+    let path = dir.join("f.txt");
+    fs::write(&path, b"alpha\nbeta\n").unwrap();
+    let (stats, _) = apply_invariant_safe_edit_to_path(&path, b"beta", b"BETA", false, true).expect("dry run");
+    assert_eq!(stats.replacements, 1);
+    assert_eq!(fs::read(&path).unwrap(), b"alpha\nbeta\n");
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn an_exact_edit_with_a_missing_needle_names_the_nearest_line() {
+    let dir = temp_dir("edit-miss");
+    let path = dir.join("f.txt");
+    fs::write(&path, b"first\n    indented_value = 1\n").unwrap();
+    let err = apply_invariant_safe_edit_to_path(&path, b"indented_value = 2", b"x", false, false).expect_err("no match");
+    assert_eq!(err, "old_string not found; nearest match on line 2: indented_value = 1");
+    fs::remove_dir_all(&dir).ok();
 }

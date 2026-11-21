@@ -7,6 +7,7 @@ use mixdog_js::{js_trim, json_stringify, slice_utf16, to_number_of, value_to_str
 use serde_json::{Value, json};
 
 use super::config::{is_pass_reply, without_pass_marker};
+use super::turn_prompt::js_truthy;
 
 #[cfg(test)]
 mod feature_tests;
@@ -37,16 +38,6 @@ impl SessionAnswer {
     }
 }
 
-/// A JS truthy field.
-fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|number| number != 0.0 && !number.is_nan()),
-        Some(_) => true,
-    }
-}
-
 fn kind(item: &Value) -> Option<&str> {
     item.get("kind").and_then(Value::as_str)
 }
@@ -69,7 +60,7 @@ fn before(at: Option<&Value>, started_at: f64) -> Option<bool> {
 /// incomplete projection is pending (`None`), not permission to substitute an earlier answer.
 pub fn session_final_answer(snapshot: &Value, started_at: &Value) -> Option<SessionAnswer> {
     let started_at = started_at.as_f64().filter(|started_at| started_at.is_finite())?;
-    if !truthy(Some(snapshot)) || truthy(snapshot.get("busy")) || truthy(snapshot.get("streamingTail")) {
+    if !js_truthy(Some(snapshot)) || js_truthy(snapshot.get("busy")) || js_truthy(snapshot.get("streamingTail")) {
         return None;
     }
     let items = items(snapshot);
@@ -111,7 +102,7 @@ pub fn session_final_answer(snapshot: &Value, started_at: &Value) -> Option<Sess
 /// `emptyFinishedTurn`: a turn that finished without any reply text. A member saying nothing
 /// passes (`session_final_answer` waits for text, which never comes).
 pub fn empty_finished_turn(snapshot: &Value, started_at: &Value) -> Option<SessionAnswer> {
-    if !truthy(Some(snapshot)) || truthy(snapshot.get("busy")) || truthy(snapshot.get("streamingTail")) {
+    if !js_truthy(Some(snapshot)) || js_truthy(snapshot.get("busy")) || js_truthy(snapshot.get("streamingTail")) {
         return None;
     }
     let items = items(snapshot);
@@ -157,7 +148,7 @@ pub fn tool_summaries(snapshot: &Value, started_at: f64) -> Vec<(String, String)
             kind(item) == Some("tool") && at >= started_at
         })
         .map(|item| {
-            let name = if truthy(item.get("name")) { value_to_string(&item["name"]) } else { "tool".to_owned() };
+            let name = if js_truthy(item.get("name")) { value_to_string(&item["name"]) } else { "tool".to_owned() };
             let result = match item.get("result") {
                 Some(Value::String(text)) => text.clone(),
                 Some(Value::Null) | None => json_stringify(&Value::String(String::new())),

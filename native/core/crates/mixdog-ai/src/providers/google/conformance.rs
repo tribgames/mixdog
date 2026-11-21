@@ -1,9 +1,3 @@
-//! Recorded-fixture conformance of the Google providers: the intercepted
-//! exchanges of the Node implementation under
-//! `fixtures/providers-intercepted/{gemini,vertex-ai-adc,vertex-ai-api-key,
-//! antigravity-oauth}` are replayed against the codec, the adapters and the
-//! retry rows.
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;

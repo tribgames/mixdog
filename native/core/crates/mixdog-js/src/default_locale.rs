@@ -32,59 +32,60 @@ fn split_id(input: &str) -> (String, String, String, Vec<String>) {
     let variants = pieces.filter(|p| !p.is_empty()).map(str::to_uppercase).collect();
     (language, script, region, variants)
 }
+fn canonical_from_language_tag(input: &str) -> String {
+    let tag = input.replace('_', "-").to_lowercase();
+    let tag = TABLES["legacy"].get(&tag).and_then(Value::as_str).unwrap_or(&tag);
+    let pieces: Vec<_> = tag.split('-').collect();
+    let Some(start) = pieces.iter().position(|p| p.len() == 1) else {
+        return canonical_id(tag);
+    };
+    let base = canonical_id(&pieces[..start].join("_"));
+    let mut keywords = BTreeMap::new();
+    let mut i = start;
+    while i < pieces.len() {
+        let key = pieces[i];
+        i += 1;
+        let begin = i;
+        if key == "x" {
+            i = pieces.len()
+        } else {
+            while i < pieces.len() && pieces[i].len() != 1 {
+                i += 1
+            }
+        }
+        let body = &pieces[begin..i];
+        if key == "u" {
+            let mut j = 0;
+            while j < body.len() && body[j].len() > 2 {
+                j += 1
+            }
+            if j > 0 {
+                let mut attributes = body[..j].to_vec();
+                attributes.sort_unstable();
+                attributes.dedup();
+                keywords.insert("attribute".to_owned(), attributes.join("-"));
+            }
+            while j < body.len() {
+                let bcp_key = body[j];
+                j += 1;
+                let first = j;
+                while j < body.len() && body[j].len() > 2 {
+                    j += 1
+                }
+                let value = if first == j { "true".into() } else { body[first..j].join("-") };
+                let legacy_key = TABLES["keys"].as_object().unwrap().iter().find(|(_, v)| v.as_str() == Some(bcp_key)).map_or(bcp_key, |(k, _)| k.as_str());
+                let legacy_value = TABLES["reverseTypes"][legacy_key].get(&value).and_then(Value::as_str).unwrap_or(&value);
+                keywords.insert(legacy_key.to_owned(), legacy_value.to_owned());
+            }
+        } else {
+            keywords.insert(key.to_owned(), body.join("-"));
+        }
+    }
+    with_keywords(base, keywords)
+}
 fn canonical_id(input: &str) -> String {
     if !input.contains('@') && input.split(['_', '-']).any(|p| p.len() == 1) {
-        let tag = input.replace('_', "-").to_lowercase();
-        let tag = TABLES["legacy"].get(&tag).and_then(Value::as_str).unwrap_or(&tag);
-        let pieces: Vec<_> = tag.split('-').collect();
-        if let Some(start) = pieces.iter().position(|p| p.len() == 1) {
-            let base = canonical_id(&pieces[..start].join("_"));
-            let mut keywords = BTreeMap::new();
-            let mut i = start;
-            while i < pieces.len() {
-                let key = pieces[i];
-                i += 1;
-                let begin = i;
-                if key == "x" {
-                    i = pieces.len()
-                } else {
-                    while i < pieces.len() && pieces[i].len() != 1 {
-                        i += 1
-                    }
-                }
-                let body = &pieces[begin..i];
-                if key == "u" {
-                    let mut j = 0;
-                    while j < body.len() && body[j].len() > 2 {
-                        j += 1
-                    }
-                    if j > 0 {
-                        let mut attributes = body[..j].to_vec();
-                        attributes.sort_unstable();
-                        attributes.dedup();
-                        keywords.insert("attribute".to_owned(), attributes.join("-"));
-                    }
-                    while j < body.len() {
-                        let bcp_key = body[j];
-                        j += 1;
-                        let first = j;
-                        while j < body.len() && body[j].len() > 2 {
-                            j += 1
-                        }
-                        let value = if first == j { "true".into() } else { body[first..j].join("-") };
-                        let legacy_key =
-                            TABLES["keys"].as_object().unwrap().iter().find(|(_, v)| v.as_str() == Some(bcp_key)).map_or(bcp_key, |(k, _)| k.as_str());
-                        let legacy_value = TABLES["reverseTypes"][legacy_key].get(&value).and_then(Value::as_str).unwrap_or(&value);
-                        keywords.insert(legacy_key.to_owned(), legacy_value.to_owned());
-                    }
-                } else {
-                    keywords.insert(key.to_owned(), body.join("-"));
-                }
-            }
-            return with_keywords(base, keywords);
-        } else {
-            return canonical_id(tag);
-        }
+        return canonical_from_language_tag(input);
     }
     let (input, keyword_text) = input.split_once('@').unwrap_or((input, ""));
     let input = input.split('.').next().unwrap_or(input);
@@ -113,38 +114,7 @@ fn with_keywords(mut base: String, keywords: BTreeMap<String, String>) -> String
     }
     base
 }
-fn language_tag(id: &str) -> String {
-    if matches!(id, "en_US_POSIX" | "c") {
-        return "en-US".into();
-    }
-    let (base, keyword_text) = id.split_once('@').unwrap_or((id, ""));
-    let (language, script, region, variants) = split_id(base);
-    let language = mapped("languageTags", &language);
-    let mut result = if (2..=8).contains(&language.len()) && language.bytes().all(|b| b.is_ascii_alphabetic()) { language } else { "und".into() };
-    if !script.is_empty() {
-        result.push('-');
-        result.push_str(&script)
-    }
-    if !region.is_empty() {
-        result.push('-');
-        result.push_str(&mapped("regionTags", &region))
-    }
-    let mut private = Vec::new();
-    let mut posix = false;
-    for variant in variants {
-        let v = variant.to_lowercase();
-        if v == "posix" {
-            posix = true;
-            continue;
-        }
-        let valid = (5..=8).contains(&v.len()) || (v.len() == 4 && v.as_bytes()[0].is_ascii_digit());
-        if valid && v.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            result.push('-');
-            result.push_str(&v)
-        } else if (1..=8).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            private.push(v)
-        }
-    }
+fn keyword_extensions(keyword_text: &str, posix: bool) -> BTreeMap<String, String> {
     let mut extensions = BTreeMap::new();
     let mut unicode = BTreeMap::new();
     let mut attributes = String::new();
@@ -181,6 +151,41 @@ fn language_tag(id: &str) -> String {
     if !u.is_empty() {
         extensions.insert("u".into(), u.join("-"));
     }
+    extensions
+}
+fn language_tag(id: &str) -> String {
+    if matches!(id, "en_US_POSIX" | "c") {
+        return "en-US".into();
+    }
+    let (base, keyword_text) = id.split_once('@').unwrap_or((id, ""));
+    let (language, script, region, variants) = split_id(base);
+    let language = mapped("languageTags", &language);
+    let mut result = if (2..=8).contains(&language.len()) && language.bytes().all(|b| b.is_ascii_alphabetic()) { language } else { "und".into() };
+    if !script.is_empty() {
+        result.push('-');
+        result.push_str(&script)
+    }
+    if !region.is_empty() {
+        result.push('-');
+        result.push_str(&mapped("regionTags", &region))
+    }
+    let mut private = Vec::new();
+    let mut posix = false;
+    for variant in variants {
+        let v = variant.to_lowercase();
+        if v == "posix" {
+            posix = true;
+            continue;
+        }
+        let valid = (5..=8).contains(&v.len()) || (v.len() == 4 && v.as_bytes()[0].is_ascii_digit());
+        if valid && v.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            result.push('-');
+            result.push_str(&v)
+        } else if (1..=8).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            private.push(v)
+        }
+    }
+    let mut extensions = keyword_extensions(keyword_text, posix);
     let mut private_extension = extensions.remove("x").unwrap_or_default();
     if !private.is_empty() {
         if !private_extension.is_empty() {

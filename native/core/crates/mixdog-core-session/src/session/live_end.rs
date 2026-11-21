@@ -1,9 +1,8 @@
-//! The live end of a turn: Node's `turnDoneItem` (`src/tui/session/turn.mjs:573-601`), built from what the run
-//! showed while it ran, not from the durable completion (`failedTurnCompletion`, `ask-turn-failure.mjs:26-45`;
-//! `attachAssistantTranscriptCompletion`, `ask-turn-settle.mjs`) the history restores from. The two share the
-//! turn's own identity (and for a failure the failure record, `turnFailureRecord`); the live row adds the stream's
-//! counters (`finalOutputTokens`, `accumulatedThinkingMs`, `cards.toolCards`) and stamps the close time, where the
-//! completion stamps the start.
+//! The live end of a turn, built from what the run showed while it ran, not from the durable
+//! completion the history restores from. The two share the turn's own identity (and for a failure
+//! the failure record); the live row adds the stream's counters (`finalOutputTokens`,
+//! `accumulatedThinkingMs`, `cards.toolCards`) and stamps the close time, where the completion
+//! stamps the start.
 
 use std::collections::HashSet;
 
@@ -33,13 +32,6 @@ pub fn done_verb(turn: usize) -> &'static str {
     DONE_VERBS[(turn * 5 + 2) % DONE_VERBS.len()]
 }
 
-/// A shown item as the live turn holds it (`turn.mjs`, `turn-tool-cards.mjs`), not as a restore rebuilds it from the record:
-/// an assistant row carries its turn's `attemptId` and `completionVerb` and `streaming: false`; the turn's input row carries
-/// no `checkpointId` (the turn's end does); a tool row reads as the turn's card, an aggregate even for one call
-/// ([`mixdog_protocol::ToolRun::live`]). `attempt` is the stored row's own `attemptId`, `verb` the open turn's.
-/// A reply the history does not stamp (the partial reply of a cancelled turn is stored as the bare message) reads live as
-/// the stream's text, untrimmed (`stream.assistantText`, `raw`), under the turn's route and identity (`turn`: the input
-/// row's `meta.transcript`) and its own `messageId`, stamped `at` the time it showed.
 pub(crate) fn live_form(
     mut item: mixdog_protocol::ThreadItem,
     attempt: Option<&str>,
@@ -106,11 +98,6 @@ pub(crate) fn live_form(
     item
 }
 
-/// A result shown live for its call's card: the card completes when the result lands (`completedAt: Date.now()`,
-/// `applyAggregateCallFields` and `applyAggregateResult`, `tool-card-results/aggregate-result.mjs:30-46`), not at the time
-/// its call was recorded, which a restore reads for both (`restoredToolCallItems`). A call whose wait for the person the
-/// turn's abort ended (`abort_ended`, by call id) reads, live, what that wait settled with and its eager entry noticed to the
-/// card (`Error: <abort reason>`, eager-dispatch/entry.mjs:39-44), where the stored result is the interruption's `Cancelled`.
 pub(crate) fn live_result(
     mut update: mixdog_protocol::ThreadItem,
     at: i64,
@@ -233,10 +220,6 @@ impl LiveCounts {
         }
     }
 
-    /// The batches due by `now` flush, in time order. The text batch (`flushTextBatch`) shows the reply's row once a completed
-    /// line has visible text (`streamingVisibleTextNow`, `visibleText.trim()`) and publishes the unfinished line with it; the
-    /// unfinished-line timer (`schedulePartial` -> `publishPartial`, `partialNow`) publishes the reply's text once it is not
-    /// blank. The first of them claims the row's identity and its time (`claimAssistantIdentity`), which the row keeps.
     fn flush_until(&mut self, now: i64) {
         loop {
             let text = self.flush_due.filter(|due| *due <= now);
@@ -277,11 +260,6 @@ impl LiveCounts {
         self.reasoning_units += units(text);
     }
 
-    /// One provider batch of tool calls (`openToolCalls`, `turn-tool-cards.mjs:160-176` `visibleToolCalls`): the open
-    /// thinking segment ends for any batch with a call, and each call that gets a card is counted (`trackCard` pushes
-    /// one entry per call, aggregate or standalone, so same-category calls merging into one card change nothing). A
-    /// call gets no card when it is a task wait, a hidden control tool or a built-in skill load, unless it has no id.
-    /// The skill source is read only when the batch carries a skill call.
     pub(crate) fn tool_batch(&mut self, calls: &[Value], skills: &dyn BuiltinSkills, now: i64) {
         let calls: Vec<&Value> = calls.iter().filter(|call| truthy(call)).collect();
         if calls.is_empty() {
@@ -326,11 +304,6 @@ impl LiveCounts {
     }
 }
 
-/// `turnDoneItem` of a turn that ended with `status` (`turnOutcome`), as the row Node's transcript holds, keys in
-/// Node's order. `final_assistant` is the turn's last reply (`stream.currentAssistantId`, set when the turn finished
-/// normally). `record` is the `turnFailureRecord` of a failure (the turn's `failureDetail`, `failureDiagnostic`,
-/// `quota`, `errorKind`), empty for another end. `facts.raw` is the turn's `meta.transcript`, of which Node's
-/// `routeMeta` is all but `at` and `messageId`.
 pub(crate) fn live_end_row(
     counts: &LiveCounts,
     facts: &Facts<'_>,

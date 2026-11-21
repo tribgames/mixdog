@@ -325,15 +325,9 @@ impl SecretFill {
         if chars.next().is_none() {
             return Ok(());
         }
-        // A background write sets one control's value, so a segmented code input (one digit per
-        // box) keeps only the first digit. The field is read back and identified by the element
-        // the bound ref pointed at, not by a ref. Best effort: a read that fails or finds nothing
-        // leaves the result the write itself produced.
+        // A background write sets one control's value: a segmented code input keeps only its first digit.
         let Some(field) = self.read_bound_field(thread, window_id, reference).await else { return Ok(()) };
-        // Real keystrokes (focus advancing box to box) only when the field is positively
-        // re-identified, is not a password, and holds just the first character: a one-character
-        // box. The foreground delivery is held to this window and refuses when the foreground moves.
-        if field.is_password || Some(&field.value) != first.as_ref() {
+        if !is_one_character_box(&field, first.as_ref()) {
             return Ok(());
         }
         let foreground = json!({
@@ -346,6 +340,10 @@ impl SecretFill {
         });
         self.computer.execute(thread, foreground).await.map(drop)
     }
+}
+
+fn is_one_character_box(field: &BoundField, first: Option<&String>) -> bool {
+    !field.is_password && Some(&field.value) == first
 }
 
 /// The `host/browser/command` method the desktop serves.

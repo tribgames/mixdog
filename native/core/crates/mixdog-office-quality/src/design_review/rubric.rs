@@ -1,4 +1,4 @@
-//! `pptx-deck-rubric.mjs`: a deck's score, read from what the runtime already measures. The rubric benchmarks the field
+//! A deck's score, read from what the runtime already measures. The rubric benchmarks the field
 //! settled on grade a finished deck against fixed criteria; this is the local stand-in: every check reads a number the
 //! composition receipt or the measured review produced, so one round can be compared with the last instead of judged by
 //! eye. It grades, it never gates: a deliberate breathing page or a motif plane costs points and is still the right
@@ -201,6 +201,11 @@ pub fn score_deck(reads: &dyn AuthorReads, receipt: Option<&Value>, issue_count:
         add("object_scale", clamp01((largest - 0.1) / (0.35 - 0.1)), json_number(fixed(largest, 2)));
     }
 
+    deck_score_report(&checks, slides.len())
+}
+
+/// The weighted score, the three weakest weighted checks and one row per check.
+fn deck_score_report(checks: &[Check], slide_count: usize) -> Value {
     let total: f64 = checks.iter().fold(0.0, |sum, check| sum + check.weight);
     let score = if total == 0.0 {
         Value::Null
@@ -225,7 +230,7 @@ pub fn score_deck(reads: &dyn AuthorReads, receipt: Option<&Value>, issue_count:
             Value::Object(row)
         })
         .collect();
-    json!({ "score": score, "slides": slides.len(), "checks": rows, "weakest": weakest, "note": NOTE })
+    json!({ "score": score, "slides": slide_count, "checks": rows, "weakest": weakest, "note": NOTE })
 }
 
 #[cfg(test)]

@@ -46,14 +46,6 @@ pub(super) fn positive_env_usize(name: &str) -> Option<usize> {
     std::env::var(name).ok().and_then(|raw| raw.parse::<usize>().ok()).filter(|n| *n > 0)
 }
 
-/// Request id whose handler must panic, for the isolation probe.
-///
-/// `contain_search_panic` promises that one panicking request comes back as
-/// that request's error while the resident server keeps serving. Whether the
-/// promise HOLDS depends on the panic strategy the binary was built with, so
-/// it can only be proven from outside the process, against a real build. This
-/// knob is how the integration suite injects the panic instead of waiting for
-/// a genuine bug to appear in a handler.
 pub(super) fn panic_probe_id() -> Option<u64> {
     static PROBE: OnceLock<Option<u64>> = OnceLock::new();
     *PROBE.get_or_init(|| std::env::var("MIXDOG_SEARCH_PANIC_PROBE_ID").ok().and_then(|raw| raw.trim().parse::<u64>().ok()))

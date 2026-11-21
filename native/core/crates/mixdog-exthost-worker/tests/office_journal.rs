@@ -19,7 +19,7 @@ use serde_json::json;
 
 fn pool() -> ExtHostPool {
     ExtHostPool::new(ExtHostConfig {
-        program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
+        program: PathBuf::from(mixdog_testkit::bin_exe!("ext_worker_dev")),
         args: Vec::new(),
         workers: 1,
         pending_cap: 64,

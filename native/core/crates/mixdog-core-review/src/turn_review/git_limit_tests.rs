@@ -55,6 +55,9 @@ impl ProcessManager for Wedged {
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
     }
 
+    fn subscribe_holding(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.subscribe(handle, from_seq)
+    }
     fn subscribe(&self, handle: &ProcessHandle, _: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let limit = self.pending.lock().unwrap().iter().find(|(h, _)| h == handle).map(|(_, limit)| *limit).ok_or(ProcessError::UnknownHandle)?;
         Ok(Box::new(HeldUntilLimit(limit)))

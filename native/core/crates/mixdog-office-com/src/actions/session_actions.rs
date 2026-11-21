@@ -1,9 +1,3 @@
-//! `Invoke-SessionAction` and the session handler around it: every action of an open session, on the document its state
-//! holds (`office-com-session-host.ps1`).
-//!
-//! A session answers through `Session-Response` ([`crate::state::session_response`]): the common fields, the isolation report
-//! of a background session, then the action's own fields.
-
 use mixdog_fsio::WriteProof;
 
 use super::Actions;

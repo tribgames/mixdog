@@ -1,15 +1,13 @@
-//! The `remoteAccess` domain: the desktop's remote-access operations (`desktop-service.ts`
-//! `remoteAccess*` and `remote-push-methods.ts`), served over the [`RemoteRuntime`]. Every
-//! result and refusal sentence is today's: a setting returns the settings view, `rotate` and
-//! `revokeClient` return the descriptor, `resolveClaim` a boolean, the rest `null` or `true`.
+//! The `remoteAccess` domain: the desktop's remote-access operations, served over the
+//! [`RemoteRuntime`]. A setting returns the settings view, `rotate` and `revokeClient` return the
+//! descriptor, `resolveClaim` a boolean, the rest `null` or `true`.
 //!
 //! `resolveClaim` carries `claimId` and `approve`, `pairCode` its `action`; `input` is the operation's
-//! argument list as the Node dispatcher received it for `settleOwedControllerKeys` `[keys, unknown]`; `registerNativePush`
-//! carries the one record; `deliverScreenControllerKey` the key itself. The paired device of a
-//! phone-side call is the credential id the relay named for the caller's connection.
+//! argument list (`[keys, unknown]` for `settleOwedControllerKeys`); `registerNativePush` carries the
+//! one record; `deliverScreenControllerKey` the key itself. The paired device of a phone-side call is
+//! the credential id the relay named for the caller's connection.
 //!
-//! The three Web Push methods are the PC-signed path the phone still uses while it knows no relay
-//! key (push-notification-bridge.ts); they keep their store, key and refusal sentences.
+//! The three Web Push methods are the PC-signed path the phone still uses while it knows no relay key.
 
 use std::sync::Arc;
 

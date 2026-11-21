@@ -292,33 +292,25 @@ pub fn paint_text_entry(painter: &mut Painter, x: i32, y: i32, props: &TextEntry
     let value_row = hint_row + 2;
     let label_width = cells(&props.prompt_label) as i32;
     let ansi = runs_to_ansi(&value_runs(&plan.value.segments));
+    let plain: String = plan
+        .value
+        .segments
+        .iter()
+        .map(|segment| match segment {
+            Segment::Plain(text) | Segment::Selected(text) => text.as_str(),
+        })
+        .collect();
     if props.multiline {
         painter.line(cx, value_row, &props.prompt_label, themed(Key::Inactive));
         let area = Rect::new((cx + label_width) as u16, value_row as u16, props.content_cells() as u16, content);
         // A text wider than its box is laid out one cell wider than the box, as Yoga measures it, so a blank at the end of a
         // full row stays on that row; the box clips the extra cell.
-        let plain: String = plan
-            .value
-            .segments
-            .iter()
-            .map(|segment| match segment {
-                Segment::Plain(text) | Segment::Selected(text) => text.as_str(),
-            })
-            .collect();
         let text_width = props.content_cells() + usize::from(text_width(&plain) > props.content_cells());
         let previous = painter.push_clip(area);
         painter.text(cx + label_width, value_row, &ansi, themed(Key::Text), text_width, TextWrap::Hard);
         painter.pop_clip(previous);
     } else {
         // The label and the value share the row; a value as wide as the row takes cells from the label.
-        let plain: String = plan
-            .value
-            .segments
-            .iter()
-            .map(|segment| match segment {
-                Segment::Plain(text) | Segment::Selected(text) => text.as_str(),
-            })
-            .collect();
         let modes = (TextWrap::Wrap, TextWrap::TruncateEnd);
         let split = split_row(&props.prompt_label, &plain, props.columns.saturating_sub(4), modes, Justify::Start);
         painter.text(cx, value_row, &props.prompt_label, themed(Key::Inactive), split.left_cells, modes.0);

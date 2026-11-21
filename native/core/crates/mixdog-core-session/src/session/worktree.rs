@@ -1,4 +1,4 @@
-//! The Lead session's workspace transitions (Node `session-runtime/workspace`): entering the
+//! The Lead session's workspace transitions: entering the
 //! retained or a new worktree, running in a branch's checkout, returning to the project
 //! folder, merging and removing the worktree. Every transition is one serialized, revisioned
 //! commit: admitted against turns and other workspace changes, checked for an idle Lead,

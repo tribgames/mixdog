@@ -372,14 +372,11 @@ async fn a_relay_without_an_identity_answers_404_to_the_whole_webpush_family() {
 }
 
 #[tokio::test]
-async fn each_pc_delivers_through_its_own_association_and_unauthorized_senders_are_refused() {
+async fn registration_without_a_valid_per_browser_credential_binds_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let relay = start(dir.path(), Options::default()).await;
-    let (token_a, token_b) = (relay.token_a.clone(), relay.token_b.clone());
-    let leg_a = relay.ready_leg(dir.path(), PC_A).await;
-    let leg_b = relay.ready_leg(dir.path(), PC_B).await;
-    assert_eq!(leg_a.frames("relay-capabilities", 1).await[0]["webPush"], json!(1));
-    assert_eq!(leg_a.frames("webpush-subscriptions", 1).await[0]["subscriptions"], json!([]));
+    let token_a = relay.token_a.clone();
+    let _leg_a = relay.ready_leg(dir.path(), PC_A).await;
 
     // No credential, a wrong credential, a cross-site page: nothing is bound.
     assert_eq!(relay.post("/webpush/register", "", &register_body("a")).await.status, 401);
@@ -397,6 +394,19 @@ async fn each_pc_delivers_through_its_own_association_and_unauthorized_senders_a
         )
         .await;
     assert_eq!(cookie.status, 401);
+    assert!(!Registry::open(dir.path()).has(PC_A, BROWSER_A, ENDPOINT));
+    relay.finish().await;
+}
+
+#[tokio::test]
+async fn each_pc_delivers_through_its_own_association_and_revocation_and_unregistration_end_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let relay = start(dir.path(), Options::default()).await;
+    let (token_a, token_b) = (relay.token_a.clone(), relay.token_b.clone());
+    let leg_a = relay.ready_leg(dir.path(), PC_A).await;
+    let leg_b = relay.ready_leg(dir.path(), PC_B).await;
+    assert_eq!(leg_a.frames("relay-capabilities", 1).await[0]["webPush"], json!(1));
+    assert_eq!(leg_a.frames("webpush-subscriptions", 1).await[0]["subscriptions"], json!([]));
 
     // The browser registers ONE subscription with BOTH PCs, each with its own credential.
     assert_eq!(relay.post("/webpush/register", &token_a, &register_body("a")).await.status, 200);

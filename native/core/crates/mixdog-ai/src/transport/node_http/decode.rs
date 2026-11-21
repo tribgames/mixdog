@@ -138,123 +138,21 @@ impl Stage {
     /// Up to [`STEP`] bytes of output; empty when it needs more input or has stopped.
     fn step(&mut self) -> io::Result<Vec<u8>> {
         let mut out = Vec::with_capacity(STEP);
-        let mut stopping = false;
-        while !self.stopped && !stopping && out.len() < STEP {
-            let input = self.input.left();
-            match &mut self.codec {
-                Codec::Gzip { inner, between } => {
-                    if *between {
-                        // zlib.cc: another member follows unless the next byte is 0, which ends the stream.
-                        match input.first() {
-                            None => break,
-                            Some(0) => {
-                                stopping = true;
-                                break;
-                            }
-                            Some(_) => {
-                                *inner = flate2::Decompress::new_gzip(15);
-                                *between = false;
-                            }
-                        }
-                        continue;
-                    }
-                    // Called with no input too: the inflater may still hold output a full step left behind.
-                    let (before_in, before_out) = (inner.total_in(), out.len());
-                    let status = inner.decompress_vec(input, &mut out, flate2::FlushDecompress::Sync).map_err(|e| zlib_error(&e))?;
-                    let used = (inner.total_in() - before_in) as usize;
-                    *between = status == flate2::Status::StreamEnd;
-                    self.input.consume(used);
-                    if used == 0 && out.len() == before_out && !*between {
-                        break;
-                    }
-                }
-                Codec::Deflate(inner) => {
-                    if inner.is_none() {
-                        let Some(first) = input.first() else { break };
-                        // The first byte tells zlib (CM = 8) from a raw stream (`createInflate`).
-                        *inner = Some(flate2::Decompress::new(first & 0x0f == 8));
-                    }
-                    let Some(inner) = inner.as_mut() else { break };
-                    let (before_in, before_out) = (inner.total_in(), out.len());
-                    let status = inner.decompress_vec(input, &mut out, flate2::FlushDecompress::Sync).map_err(|e| zlib_error(&e))?;
-                    let used = (inner.total_in() - before_in) as usize;
-                    self.input.consume(used);
-                    if status == flate2::Status::StreamEnd {
-                        stopping = true;
-                        break;
-                    }
-                    if used == 0 && out.len() == before_out {
-                        break;
-                    }
-                }
-                Codec::Brotli(state) => {
-                    let start = out.len();
-                    out.resize(STEP, 0);
-                    let (mut available_in, mut input_offset) = (input.len(), 0usize);
-                    let (mut available_out, mut output_offset, mut total_out) = (STEP - start, start, 0usize);
-                    let result = BrotliDecompressStream(
-                        &mut available_in,
-                        &mut input_offset,
-                        input,
-                        &mut available_out,
-                        &mut output_offset,
-                        &mut out,
-                        &mut total_out,
-                        &mut **state,
-                    );
-                    out.truncate(output_offset);
-                    self.input.consume(input_offset);
-                    match result {
-                        BrotliResult::ResultFailure => return Err(invalid("Decompression failed")),
-                        BrotliResult::ResultSuccess => {
-                            stopping = true;
-                            break;
-                        }
-                        BrotliResult::NeedsMoreInput => break,
-                        // Output still held: the next call drains it, input or not.
-                        BrotliResult::NeedsMoreOutput => {}
-                    }
-                }
-                Codec::Zstd { inner, in_frame, between } => {
-                    if *between {
-                        // Another frame follows when its magic (or a skippable frame's) does; anything else ends it.
-                        if input.len() < 4 {
-                            break;
-                        }
-                        let frame = input[..4] == [0x28, 0xb5, 0x2f, 0xfd] || (input[0] & 0xf0 == 0x50 && input[1..4] == [0x2a, 0x4d, 0x18]);
-                        if !frame {
-                            stopping = true;
-                            break;
-                        }
-                        *between = false;
-                    }
-                    if input.is_empty() && !*in_frame {
-                        break;
-                    }
-                    let start = out.len();
-                    out.resize(STEP, 0);
-                    let mut src = InBuffer::around(input);
-                    let mut dst = OutBuffer::around_pos(&mut out[..], start);
-                    let hint = inner.run(&mut src, &mut dst).map_err(|e| invalid(e.to_string()))?;
-                    let (used, written) = (src.pos(), dst.pos());
-                    out.truncate(written);
-                    self.input.consume(used);
-                    if used > 0 {
-                        *in_frame = true;
-                    }
-                    if hint == 0 {
-                        *in_frame = false;
-                        *between = true;
-                        continue;
-                    }
-                    if used == 0 && written == start {
-                        break;
-                    }
+        while !self.stopped && out.len() < STEP {
+            let flow = match &mut self.codec {
+                Codec::Gzip { inner, between } => step_gzip(&mut self.input, inner, between, &mut out)?,
+                Codec::Deflate(inner) => step_deflate(&mut self.input, inner, &mut out)?,
+                Codec::Brotli(state) => step_brotli(&mut self.input, state, &mut out)?,
+                Codec::Zstd { inner, in_frame, between } => step_zstd(&mut self.input, inner, in_frame, between, &mut out)?,
+            };
+            match flow {
+                Flow::Again => {}
+                Flow::Wait => break,
+                Flow::Stop => {
+                    self.stop();
+                    break;
                 }
             }
-        }
-        if stopping {
-            self.stop();
         }
         Ok(out)
     }
@@ -267,6 +165,114 @@ impl Stage {
             _ => Ok(()),
         }
     }
+}
+
+/// What a codec's turn leaves for [`Stage::step`]: run it again, wait for more input, or the stream is over.
+enum Flow {
+    Again,
+    Wait,
+    Stop,
+}
+
+fn step_gzip(input: &mut Input, inner: &mut flate2::Decompress, between: &mut bool, out: &mut Vec<u8>) -> io::Result<Flow> {
+    if *between {
+        // zlib.cc: another member follows unless the next byte is 0, which ends the stream.
+        return Ok(match input.left().first() {
+            None => Flow::Wait,
+            Some(0) => Flow::Stop,
+            Some(_) => {
+                *inner = flate2::Decompress::new_gzip(15);
+                *between = false;
+                Flow::Again
+            }
+        });
+    }
+    // Called with no input too: the inflater may still hold output a full step left behind.
+    let (before_in, before_out) = (inner.total_in(), out.len());
+    let status = inner.decompress_vec(input.left(), out, flate2::FlushDecompress::Sync).map_err(|e| zlib_error(&e))?;
+    let used = (inner.total_in() - before_in) as usize;
+    *between = status == flate2::Status::StreamEnd;
+    input.consume(used);
+    Ok(if used == 0 && out.len() == before_out && !*between { Flow::Wait } else { Flow::Again })
+}
+
+fn step_deflate(input: &mut Input, inner: &mut Option<flate2::Decompress>, out: &mut Vec<u8>) -> io::Result<Flow> {
+    if inner.is_none() {
+        let Some(first) = input.left().first() else { return Ok(Flow::Wait) };
+        // The first byte tells zlib (CM = 8) from a raw stream (`createInflate`).
+        *inner = Some(flate2::Decompress::new(first & 0x0f == 8));
+    }
+    let Some(inner) = inner.as_mut() else { return Ok(Flow::Wait) };
+    let (before_in, before_out) = (inner.total_in(), out.len());
+    let status = inner.decompress_vec(input.left(), out, flate2::FlushDecompress::Sync).map_err(|e| zlib_error(&e))?;
+    let used = (inner.total_in() - before_in) as usize;
+    input.consume(used);
+    Ok(if status == flate2::Status::StreamEnd {
+        Flow::Stop
+    } else if used == 0 && out.len() == before_out {
+        Flow::Wait
+    } else {
+        Flow::Again
+    })
+}
+
+fn step_brotli(input: &mut Input, state: &mut BrotliDecoder, out: &mut Vec<u8>) -> io::Result<Flow> {
+    let start = out.len();
+    out.resize(STEP, 0);
+    let data = input.left();
+    let (mut available_in, mut input_offset) = (data.len(), 0usize);
+    let (mut available_out, mut output_offset, mut total_out) = (STEP - start, start, 0usize);
+    let result = BrotliDecompressStream(&mut available_in, &mut input_offset, data, &mut available_out, &mut output_offset, out, &mut total_out, state);
+    out.truncate(output_offset);
+    input.consume(input_offset);
+    match result {
+        BrotliResult::ResultFailure => Err(invalid("Decompression failed")),
+        BrotliResult::ResultSuccess => Ok(Flow::Stop),
+        BrotliResult::NeedsMoreInput => Ok(Flow::Wait),
+        // Output still held: the next call drains it, input or not.
+        BrotliResult::NeedsMoreOutput => Ok(Flow::Again),
+    }
+}
+
+fn step_zstd(
+    input: &mut Input,
+    inner: &mut zstd::stream::raw::Decoder<'static>,
+    in_frame: &mut bool,
+    between: &mut bool,
+    out: &mut Vec<u8>,
+) -> io::Result<Flow> {
+    let data = input.left();
+    if *between {
+        // Another frame follows when its magic (or a skippable frame's) does; anything else ends it.
+        if data.len() < 4 {
+            return Ok(Flow::Wait);
+        }
+        let frame = data[..4] == [0x28, 0xb5, 0x2f, 0xfd] || (data[0] & 0xf0 == 0x50 && data[1..4] == [0x2a, 0x4d, 0x18]);
+        if !frame {
+            return Ok(Flow::Stop);
+        }
+        *between = false;
+    }
+    if data.is_empty() && !*in_frame {
+        return Ok(Flow::Wait);
+    }
+    let start = out.len();
+    out.resize(STEP, 0);
+    let mut src = InBuffer::around(data);
+    let mut dst = OutBuffer::around_pos(&mut out[..], start);
+    let hint = inner.run(&mut src, &mut dst).map_err(|e| invalid(e.to_string()))?;
+    let (used, written) = (src.pos(), dst.pos());
+    out.truncate(written);
+    input.consume(used);
+    if used > 0 {
+        *in_frame = true;
+    }
+    if hint == 0 {
+        *in_frame = false;
+        *between = true;
+        return Ok(Flow::Again);
+    }
+    Ok(if used == 0 && written == start { Flow::Wait } else { Flow::Again })
 }
 
 /// What `content-encoding` asks of the body.

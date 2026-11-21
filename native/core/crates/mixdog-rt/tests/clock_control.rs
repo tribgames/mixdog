@@ -1,8 +1,3 @@
-//! The virtual clock as a controller drives it (feature `virtual-clock`). Each test is the controller: it starts this test binary again
-//! as the core (the `core` test, under [`ROLE`]), which boots the executors as `mixdogd` does (`exec::boot`) and connects to the
-//! test's loopback listener. The core reports what it did as `node_log` lines (`event <name> <V>`), which the test reads from
-//! its stderr in order and which the clock's `wait` sees. Every wait has one deadline and names what it waits for; a core ends
-//! when its control connection closes, so no path leaves a process behind.
 #![cfg(feature = "virtual-clock")]
 #![allow(
     clippy::disallowed_methods,

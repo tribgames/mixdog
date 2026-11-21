@@ -25,9 +25,14 @@ use mixdog_protocol::ToolApprovalResult;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::ApprovalPhase;
 use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::MetaRecord;
+use mixdog_store::schema::record::ModelSwitchRecord;
 use mixdog_store::schema::record::QueueAction;
+use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::schema::record::RunPhase;
+use mixdog_store::schema::record::RunRecord;
 use serde_json::Value;
 
 use super::prompt_history;
@@ -231,6 +236,23 @@ pub(crate) fn title_of(header: &Header) -> Option<String> {
     header.get("title").and_then(Value::as_str).map(str::to_owned)
 }
 
+/// The completion a record settles: the receipt of a model item's tool result, or the delivered dequeue of a completion.
+fn completion_receipt_of(record: &Record) -> Option<String> {
+    match record {
+        Record::Item(item) if item.model => match &item.body {
+            Slot::Inline(body) => mixdog_store::completion_receipts::tool_receipt(body),
+            _ => None,
+        },
+        Record::Queue(queue)
+            if queue.action == QueueAction::Dequeue
+                && queue.reason == Some(mixdog_store::schema::record::DequeueReason::Delivered)
+                && queue.qid.as_str().starts_with("completion_") =>
+        {
+            Some(queue.qid.as_str().to_owned())
+        }
+        _ => None,
+    }
+}
 /// Today's `toolApprovalResult` for a resolution.
 pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> ToolApprovalResult {
     let mut result = ToolApprovalResult {
@@ -428,6 +450,10 @@ impl SessionState {
     /// at the end of the window; it lives and goes with `ordinal` (the `compacted` frame's).
     pub fn push_shown(&mut self, ordinal: u64, item: ThreadItem) {
         self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), prompt: None, messages: 0 });
+        self.trim_window();
+    }
+
+    fn trim_window(&mut self) {
         while self.window.len() > self.view_items {
             self.window.pop_front();
             self.has_older = true;
@@ -476,10 +502,7 @@ impl SessionState {
                 self.live.retain(|live| live.item.id() != item.id());
                 let at = before.as_ref().and_then(|before| self.window.iter().position(|row| row.item.id() == before)).unwrap_or(self.window.len());
                 self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None, messages: 0 });
-                while self.window.len() > self.view_items {
-                    self.window.pop_front();
-                    self.has_older = true;
-                }
+                self.trim_window();
             }
             Change::Settled { item, .. } => {
                 if !self.window.iter().any(|row| row.item.id() == item.id()) {
@@ -496,10 +519,7 @@ impl SessionState {
                     row.item = Arc::new(card.clone());
                 } else {
                     self.window.push_back(WindowItem { ordinal: None, item: Arc::new(card.clone()), prompt: None, messages: 0 });
-                    while self.window.len() > self.view_items {
-                        self.window.pop_front();
-                        self.has_older = true;
-                    }
+                    self.trim_window();
                 }
             }
         }
@@ -522,21 +542,7 @@ impl SessionState {
     }
 
     fn apply_record(&mut self, record: &Record, display: &Display, ordinal: Option<u64>) {
-        let receipt = match record {
-            Record::Item(item) if item.model => match &item.body {
-                Slot::Inline(body) => mixdog_store::completion_receipts::tool_receipt(body),
-                _ => None,
-            },
-            Record::Queue(queue)
-                if queue.action == QueueAction::Dequeue
-                    && queue.reason == Some(mixdog_store::schema::record::DequeueReason::Delivered)
-                    && queue.qid.as_str().starts_with("completion_") =>
-            {
-                Some(queue.qid.as_str().to_owned())
-            }
-            _ => None,
-        };
-        if let Some(qid) = receipt {
+        if let Some(qid) = completion_receipt_of(record) {
             mixdog_store::completion_receipts::record(&mut self.header, &qid);
             self.queue.retain(|q| q.qid != qid);
         }
@@ -550,107 +556,8 @@ impl SessionState {
                 }
                 self.sections.title = title_of(&self.header);
             }
-            Record::Meta(meta) => {
-                if let Slot::Inline(change) = &meta.change {
-                    // An earlier setEffort section describes the old selection. A new persisted route
-                    // (including a staged pick with no effort of its own) supersedes it.
-                    // A quota hop moves the seated route only: a pick held for the next turn keeps the effort choice
-                    // published for it.
-                    let hop = change.set.contains_key("routeFallbackIndex") && change.set.contains_key("routeFallbackFailures");
-                    let pick_held = hop
-                        && self.header.contains_key("pendingRoute")
-                        && !change.set.contains_key("pendingRoute")
-                        && !change.unset.iter().any(|u| u == "pendingRoute");
-                    if !pick_held
-                        && ["model", "provider", "effort", "pendingRoute"].iter().any(|k| change.set.contains_key(*k) || change.unset.iter().any(|u| u == k))
-                        && let Some(route) = self.sections.route.as_mut()
-                    {
-                        route.effort = None;
-                    }
-                    if hop && let Some(route) = self.sections.route.as_mut() {
-                        // A hop replaces the seated route. An explicit pendingRoute still owns the selected route.
-                        route.session_provider = None;
-                        route.session_model = None;
-                        route.provider = None;
-                        route.model = None;
-                        route.fast = None;
-                        route.fast_capable = None;
-                        route.auto_effort = None;
-                        route.model_parameters = None;
-                        route.selected_context_window = None;
-                        if !pick_held {
-                            route.effort_options = None;
-                        }
-                        route.turn_effort = None;
-                    }
-                    for key in &change.unset {
-                        self.header.shift_remove(key);
-                    }
-                    for (key, value) in &change.set {
-                        self.header.insert(key.clone(), value.clone());
-                    }
-                    self.sections.title = title_of(&self.header);
-                }
-            }
-            Record::Item(item) => {
-                if let Some(turn) = item.turn.as_ref() {
-                    match (item.role.as_ref().map(|role| role.as_str()), self.runs.get_mut(turn.as_str())) {
-                        (Some("assistant"), Some(draft)) => draft.message_committed(),
-                        (Some("user"), Some(draft)) if draft.input.is_none() => draft.input = Some(item.iid.as_str().to_owned()),
-                        // A run's input row precedes its `run{started}`.
-                        (Some("user"), None) => self.next_input = Some((turn.as_str().to_owned(), item.iid.as_str().to_owned())),
-                        _ => {}
-                    }
-                }
-                if let Some(prompt) = item.prompt_text() {
-                    prompt_history::push_session(&mut self.prompt_session, prompt);
-                    self.remerge_prompts();
-                }
-                let mut messages = u32::from(item.model);
-                if item.role.as_ref().is_some_and(|role| role.as_str() == "user")
-                    && (!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_)))))
-                    && let Some(ordinal) = ordinal
-                {
-                    self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
-                }
-                let Display::Items(shown) = display else {
-                    if let Some(last) = self.window.back_mut() {
-                        last.messages += messages;
-                    }
-                    return;
-                };
-                if !shown.iter().any(|shown| matches!(shown, Shown::Item(_))) || !item.visible {
-                    if let Some(last) = self.window.back_mut() {
-                        last.messages += messages;
-                    }
-                    messages = 0;
-                }
-                for shown in shown {
-                    match shown {
-                        Shown::Item(new) => {
-                            self.live.retain(|live| live.item.id() != new.id());
-                            if !item.visible {
-                                continue;
-                            }
-                            // The prompt fact belongs to the row's user item, its first.
-                            let prompt = matches!(new, ThreadItem::UserMessage { .. }).then(|| item.prompt_text().map(str::to_owned)).flatten();
-                            let row = WindowItem { ordinal, item: Arc::new(new.clone()), prompt, messages: std::mem::take(&mut messages) };
-                            // A live-only row of the same item (the text settled before a tool call) becomes the record's row,
-                            // where it was shown.
-                            if let Some(shown) = self.window.iter_mut().find(|shown| shown.ordinal.is_none() && shown.item.id() == new.id()) {
-                                *shown = row;
-                                continue;
-                            }
-                            self.window.push_back(row);
-                            while self.window.len() > self.view_items {
-                                self.window.pop_front();
-                                self.has_older = true;
-                            }
-                        }
-                        Shown::Update(update) => self.merge(update),
-                    }
-                }
-            }
+            Record::Meta(meta) => self.apply_meta(meta),
+            Record::Item(item) => self.apply_item(item, display, ordinal),
             Record::Amend(_) => {
                 if let Display::Items(shown) = display {
                     for shown in shown {
@@ -671,35 +578,7 @@ impl SessionState {
                     .unwrap_or_else(|| self.window.iter().rposition(|row| row.ordinal.is_some()).map_or(0, |last| last + 1));
                 self.window.truncate(cut);
             }
-            Record::Run(run) => match run.phase {
-                RunPhase::Started => {
-                    let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
-                    self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
-                    // `turn.mjs` `runTurn`: the turn begins busy, its spinner requesting (the session's toasts, running tools and
-                    // `setupChanged` stay the session's own); the run's end clears the section below.
-                    let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
-                    runtime.busy = true;
-                    if let Some(at) = run.at {
-                        let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
-                        let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
-                        runtime.spinner = Some(super::spinner::started(turns, at));
-                    }
-                }
-                RunPhase::Attempt => {}
-                RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
-                    self.runs.remove(run.rid.as_str());
-                    self.live.retain(|live| live.turn.as_str() != run.rid.as_str());
-                    // Runtime hints belong to the run that set them; the toast queue and `setupChanged` are the session's own (a toast
-                    // expires on its own timer, `pushToast`; the settings announcement is not a run's).
-                    self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime {
-                        toasts: held.toasts,
-                        setup_changed: held.setup_changed,
-                        command_busy: held.command_busy,
-                        command_status: held.command_status,
-                        ..Default::default()
-                    });
-                }
-            },
+            Record::Run(run) => self.apply_run(run),
             Record::Approval(approval) => match approval.phase {
                 ApprovalPhase::Requested => {
                     self.approvals.insert(approval.aid.as_str().to_owned(), PendingApprovalRow { rid: approval.rid.as_str().to_owned() });
@@ -714,73 +593,14 @@ impl SessionState {
                     }
                 }
             },
-            Record::Queue(queue) => match queue.action {
-                QueueAction::Enqueue => {
-                    let entry = match &queue.entry {
-                        Some(Slot::Inline(entry)) => entry.clone(),
-                        _ => Value::Null,
-                    };
-                    let display = match display {
-                        Display::Queued(row) => row.clone(),
-                        _ => Value::Null,
-                    };
-                    self.queue.push(Queued { qid: queue.qid.as_str().to_owned(), entry, display });
-                }
-                QueueAction::Update => {
-                    if let (Some(queued), Some(Slot::Inline(entry))) = (self.queue.iter_mut().find(|q| q.qid == queue.qid.as_str()), &queue.entry) {
-                        queued.entry = entry.clone();
-                    }
-                }
-                QueueAction::Prioritize => {
-                    if let (Some(at), Some(Slot::Inline(entry))) = (self.queue.iter().position(|q| q.qid == queue.qid.as_str()), &queue.entry) {
-                        let mut queued = self.queue.remove(at);
-                        queued.entry = entry.clone();
-                        self.queue.insert(0, queued);
-                    }
-                }
-                QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
-            },
-            // The boundary row follows its anchor's rows (and the anchor's earlier boundaries)
-            // while the anchor is in view; it lives and goes with the anchor's ordinal.
-            Record::ModelSwitch(switch) => {
-                let Display::Items(shown) = display else {
-                    return;
-                };
-                let anchor = Some(switch.anchor.ordinal);
-                let Some(last) = self.window.iter().rposition(|row| row.ordinal == anchor) else {
-                    return;
-                };
-                for (at, shown) in shown.iter().enumerate() {
-                    let Shown::Item(new) = shown else { continue };
-                    self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None, messages: 0 });
-                }
-                while self.window.len() > self.view_items {
-                    self.window.pop_front();
-                    self.has_older = true;
-                }
-            }
-            // A live compaction shows its divider at the end of the window; it lives and goes
-            // with the `compacted` record's ordinal, as a restored one does.
-            Record::Compacted(_) => {
-                let Display::Items(shown) = display else {
-                    return;
-                };
-                for shown in shown {
-                    if let Shown::Item(new) = shown {
-                        self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None, messages: 0 });
-                    }
-                }
-                while self.window.len() > self.view_items {
-                    self.window.pop_front();
-                    self.has_older = true;
-                }
-            }
+            Record::Queue(queue) => self.apply_queue(queue, display),
+            Record::ModelSwitch(switch) => self.apply_model_switch(switch, display),
+            Record::Compacted(_) => self.apply_compacted(display, ordinal),
             Record::Draft(draft) => {
                 if let (Some(run), Slot::Inline(body)) = (self.runs.get_mut(draft.rid.as_str()), &draft.body) {
                     run.apply(body);
                 }
             }
-            // The store's fold of a Stop (`work_stops::apply`): its identities are terminal and its queue copies leave.
             Record::WorkStop(stop) => {
                 let body = match &stop.body {
                     Some(Slot::Inline(body)) => Some(body),
@@ -793,6 +613,179 @@ impl SessionState {
         }
     }
 
+    fn apply_meta(&mut self, meta: &MetaRecord) {
+        let Slot::Inline(change) = &meta.change else { return };
+        let hop = change.set.contains_key("routeFallbackIndex") && change.set.contains_key("routeFallbackFailures");
+        let pick_held =
+            hop && self.header.contains_key("pendingRoute") && !change.set.contains_key("pendingRoute") && !change.unset.iter().any(|u| u == "pendingRoute");
+        if !pick_held
+            && ["model", "provider", "effort", "pendingRoute"].iter().any(|k| change.set.contains_key(*k) || change.unset.iter().any(|u| u == k))
+            && let Some(route) = self.sections.route.as_mut()
+        {
+            route.effort = None;
+        }
+        if hop && let Some(route) = self.sections.route.as_mut() {
+            route.session_provider = None;
+            route.session_model = None;
+            route.provider = None;
+            route.model = None;
+            route.fast = None;
+            route.fast_capable = None;
+            route.auto_effort = None;
+            route.model_parameters = None;
+            route.selected_context_window = None;
+            if !pick_held {
+                route.effort_options = None;
+            }
+            route.turn_effort = None;
+        }
+        for key in &change.unset {
+            self.header.shift_remove(key);
+        }
+        for (key, value) in &change.set {
+            self.header.insert(key.clone(), value.clone());
+        }
+        self.sections.title = title_of(&self.header);
+    }
+
+    fn apply_item(&mut self, item: &ItemRecord, display: &Display, ordinal: Option<u64>) {
+        if let Some(turn) = item.turn.as_ref() {
+            match (item.role.as_ref().map(|role| role.as_str()), self.runs.get_mut(turn.as_str())) {
+                (Some("assistant"), Some(draft)) => draft.message_committed(),
+                (Some("user"), Some(draft)) if draft.input.is_none() => draft.input = Some(item.iid.as_str().to_owned()),
+                // A run's input row precedes its `run{started}`.
+                (Some("user"), None) => self.next_input = Some((turn.as_str().to_owned(), item.iid.as_str().to_owned())),
+                _ => {}
+            }
+        }
+        if let Some(prompt) = item.prompt_text() {
+            prompt_history::push_session(&mut self.prompt_session, prompt);
+            self.remerge_prompts();
+        }
+        let mut messages = u32::from(item.model);
+        if item.role.as_ref().is_some_and(|role| role.as_str() == "user")
+            && (!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_)))))
+            && let Some(ordinal) = ordinal
+        {
+            self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
+        }
+        let Display::Items(shown) = display else {
+            if let Some(last) = self.window.back_mut() {
+                last.messages += messages;
+            }
+            return;
+        };
+        if !shown.iter().any(|shown| matches!(shown, Shown::Item(_))) || !item.visible {
+            if let Some(last) = self.window.back_mut() {
+                last.messages += messages;
+            }
+            messages = 0;
+        }
+        for shown in shown {
+            match shown {
+                Shown::Item(new) => {
+                    self.live.retain(|live| live.item.id() != new.id());
+                    if !item.visible {
+                        continue;
+                    }
+                    // The prompt fact belongs to the row's user item, its first.
+                    let prompt = matches!(new, ThreadItem::UserMessage { .. }).then(|| item.prompt_text().map(str::to_owned)).flatten();
+                    let row = WindowItem { ordinal, item: Arc::new(new.clone()), prompt, messages: std::mem::take(&mut messages) };
+                    // A live-only row of the same item (the text settled before a tool call) becomes the record's row,
+                    // where it was shown.
+                    if let Some(shown) = self.window.iter_mut().find(|shown| shown.ordinal.is_none() && shown.item.id() == new.id()) {
+                        *shown = row;
+                        continue;
+                    }
+                    self.window.push_back(row);
+                    self.trim_window();
+                }
+                Shown::Update(update) => self.merge(update),
+            }
+        }
+    }
+
+    fn apply_run(&mut self, run: &RunRecord) {
+        match run.phase {
+            RunPhase::Started => {
+                let input = self.next_input.take().filter(|(rid, _)| rid == run.rid.as_str()).map(|(_, iid)| iid);
+                self.runs.insert(run.rid.as_str().to_owned(), super::turn_draft::RunDraft { input, ..Default::default() });
+                let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                runtime.busy = true;
+                if let Some(at) = run.at {
+                    let turns = self.context().stats.as_ref().and_then(|stats| stats.get("turns")).and_then(Value::as_u64).unwrap_or(0);
+                    let runtime = self.sections.runtime.get_or_insert_with(ThreadRuntime::default);
+                    runtime.spinner = Some(super::spinner::started(turns, at));
+                }
+            }
+            RunPhase::Attempt => {}
+            RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
+                self.runs.remove(run.rid.as_str());
+                self.live.retain(|live| live.turn.as_str() != run.rid.as_str());
+                self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime {
+                    toasts: held.toasts,
+                    setup_changed: held.setup_changed,
+                    command_busy: held.command_busy,
+                    command_status: held.command_status,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    fn apply_queue(&mut self, queue: &QueueRecord, display: &Display) {
+        match queue.action {
+            QueueAction::Enqueue => {
+                let entry = match &queue.entry {
+                    Some(Slot::Inline(entry)) => entry.clone(),
+                    _ => Value::Null,
+                };
+                let display = match display {
+                    Display::Queued(row) => row.clone(),
+                    _ => Value::Null,
+                };
+                self.queue.push(Queued { qid: queue.qid.as_str().to_owned(), entry, display });
+            }
+            QueueAction::Update => {
+                if let (Some(queued), Some(Slot::Inline(entry))) = (self.queue.iter_mut().find(|q| q.qid == queue.qid.as_str()), &queue.entry) {
+                    queued.entry = entry.clone();
+                }
+            }
+            QueueAction::Prioritize => {
+                if let (Some(at), Some(Slot::Inline(entry))) = (self.queue.iter().position(|q| q.qid == queue.qid.as_str()), &queue.entry) {
+                    let mut queued = self.queue.remove(at);
+                    queued.entry = entry.clone();
+                    self.queue.insert(0, queued);
+                }
+            }
+            QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
+        }
+    }
+
+    /// The boundary row follows its anchor's rows (and the anchor's earlier boundaries) while the anchor is in view; it lives and
+    /// goes with the anchor's ordinal.
+    fn apply_model_switch(&mut self, switch: &ModelSwitchRecord, display: &Display) {
+        let Display::Items(shown) = display else { return };
+        let anchor = Some(switch.anchor.ordinal);
+        let Some(last) = self.window.iter().rposition(|row| row.ordinal == anchor) else { return };
+        for (at, shown) in shown.iter().enumerate() {
+            let Shown::Item(new) = shown else { continue };
+            self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None, messages: 0 });
+        }
+        self.trim_window();
+    }
+
+    /// A live compaction shows its divider at the end of the window; it lives and goes with the `compacted` record's ordinal, as a
+    /// restored one does.
+    fn apply_compacted(&mut self, display: &Display, ordinal: Option<u64>) {
+        let Display::Items(shown) = display else { return };
+        for shown in shown {
+            if let Shown::Item(new) = shown {
+                self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None, messages: 0 });
+            }
+        }
+        self.trim_window();
+    }
     fn apply_section(&mut self, section: Section) {
         let s = &mut self.sections;
         match section {

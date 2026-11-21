@@ -1,11 +1,9 @@
-//! Six-digit pairing codes and one-time tickets (`lib/pair-codes.mjs`, pairing v2). The main PC asks for a short-lived code
-//! for its device route while Settings -> Connection is open; a phone, another PC or a browser enters it and learns the route
-//! plus a one-time ticket. The code never grants access: the ticket only lets the following claim say "entered a code" on the
-//! approval dialog, and the desktop still decides. Codes and tickets are secrets of a few minutes' life: they are held in
-//! memory only and never written to any log or to disk.
+//! Six-digit pairing codes and one-time tickets (pairing v2). The main PC asks for a short-lived code for its device route; a
+//! phone, another PC or a browser enters it and learns the route plus a one-time ticket. The code never grants access: the ticket
+//! only lets the following claim say "entered a code" on the approval dialog, and the desktop still decides. Codes and tickets are
+//! held in memory only and never written to any log or to disk.
 //!
-//! Every method that reads the clock has an `_at` form taking `Date.now()` as an argument; the plain form reads
-//! [`now_ms`], the clock of `mixdog_rt`.
+//! Every method that reads the clock has an `_at` form taking `Date.now()` as an argument; the plain form reads [`now_ms`].
 
 use std::collections::{BTreeMap, HashMap};
 

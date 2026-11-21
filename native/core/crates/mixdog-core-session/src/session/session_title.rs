@@ -400,9 +400,7 @@ impl SessionTitles {
         });
     }
 
-    /// `scheduleFirst(session, prompt, { after })`: whether a first title was started. `after`
-    /// holds the model call back until the turn shows its first output (a failed release drops it).
-    pub fn schedule_first(self: &Arc<Self>, session: &TitleSession, prompt: &Value, after: Option<BoxFuture<'static, Result<(), ()>>>) -> bool {
+    fn first_source_of(&self, session: &TitleSession, prompt: &Value) -> Option<String> {
         let id = session.id.as_str();
         {
             let state = self.state();
@@ -412,27 +410,38 @@ impl SessionTitles {
                 || session.title_locked
                 || matches!(session.stage.as_deref(), Some("first" | "third"))
             {
-                return false;
+                return None;
             }
         }
         if session.messages.iter().any(|m| m.get("role") == Some(&json!("user")) && !message_text(m, "user").is_empty()) {
-            return false;
+            return None;
         }
         let source = first_source(prompt);
-        if source.is_empty() {
+        (!source.is_empty()).then_some(source)
+    }
+
+    fn promote_greeting(self: &Arc<Self>, id: &str, greeting: &'static str) {
+        self.log(&format!("generated id={id} stage=first title={} deterministic=greeting", serde_json::to_string(greeting).unwrap_or_default()));
+        let (titles, id) = (self.clone(), id.to_owned());
+        mixdog_rt::spawn("session-title", TaskClass::Work, async move {
+            if let Err(error) = titles.promote(&id, greeting, Stage::First).await {
+                titles.state().forget(Stage::First, &id);
+                titles.log(&format!("failed id={id} stage=first error={error}"));
+            }
+        });
+    }
+
+    /// `scheduleFirst(session, prompt, { after })`: whether a first title was started. `after`
+    /// holds the model call back until the turn shows its first output (a failed release drops it).
+    pub fn schedule_first(self: &Arc<Self>, session: &TitleSession, prompt: &Value, after: Option<BoxFuture<'static, Result<(), ()>>>) -> bool {
+        let id = session.id.as_str();
+        let Some(source) = self.first_source_of(session, prompt) else {
             return false;
-        }
+        };
         self.state().remember(Stage::First, id);
         let greeting = greeting_title(&source);
         if !greeting.is_empty() {
-            self.log(&format!("generated id={id} stage=first title={} deterministic=greeting", serde_json::to_string(greeting).unwrap_or_default()));
-            let (titles, id, title) = (self.clone(), id.to_owned(), greeting);
-            mixdog_rt::spawn("session-title", TaskClass::Work, async move {
-                if let Err(error) = titles.promote(&id, title, Stage::First).await {
-                    titles.state().forget(Stage::First, &id);
-                    titles.log(&format!("failed id={id} stage=first error={error}"));
-                }
-            });
+            self.promote_greeting(id, greeting);
             return true;
         }
         let (titles, id) = (self.clone(), id.to_owned());

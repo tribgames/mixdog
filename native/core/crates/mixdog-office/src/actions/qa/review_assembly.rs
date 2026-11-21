@@ -1,6 +1,3 @@
-//! The QA verdict: every issue source merged and normalized, the checklist, the polish plan, the release-quality score, and the
-//! review record the transaction and the caller keep (`core/office-qa/review-assembly.mjs`).
-
 use mixdog_js::{json_number, to_number_of};
 use mixdog_office_base::values::truthy;
 use mixdog_office_quality::checklist::evaluate_office_checklist;
@@ -89,42 +86,7 @@ pub fn assemble_qa_review(input: &Assembly<'_>) -> Assembled {
     merged.extend(list(checklist.get("issues")));
     let combined_issues_after = normalize_office_review_issues(&merged);
     let polish_plan = build_office_polish_plan(format, &combined_issues_after);
-    // Pages reviewed, not images: past twelve pages the render is contact sheets that each carry several pages, and the coverage
-    // must count those pages.
-    let reviewed_pages = {
-        let reviewed = to_number_of(preview.pointer("/visualCoverage/reviewed"));
-        if reviewed.is_nan() || reviewed == 0.0 { preview.get("_images").and_then(Value::as_array).map_or(0.0, |images| images.len() as f64) } else { reviewed }
-    };
-    let page_count = preview.get("pageCount").cloned().unwrap_or(Value::Null);
-    let page_total = to_number_of(Some(&page_count));
-    let plan_coverage = if *format == "pptx" && page_total != 0.0 && !page_total.is_nan() {
-        json_number(design.review_slide_plans.len() as f64 / page_total)
-    } else {
-        json!(1)
-    };
-    let quality = score_office_release_quality(&json!({
-        "format": format,
-        "aesthetics": render_review.get("aesthetics").cloned().unwrap_or(Value::Null),
-        "issues": combined_issues_after,
-        "renderedPages": json_number(reviewed_pages),
-        "expectedPages": page_count,
-        "structuralAvailable": design.current_snapshot.is_some(),
-        "planCoverage": plan_coverage,
-    }));
-    let mut diff = visual_diff.as_object().cloned().unwrap_or_default();
-    diff.insert(
-        "images".to_owned(),
-        Value::Array(
-            diff_images
-                .iter()
-                .map(|image| {
-                    let mut fields: Map<String, Value> = image.as_object().cloned().unwrap_or_default();
-                    fields.retain(|key, _| key != "data");
-                    Value::Object(fields)
-                })
-                .collect(),
-        ),
-    );
+    let quality = release_quality(format, preview, design, render_review, &combined_issues_after);
     let mut review = Map::new();
     review.insert("createdAt".to_owned(), Value::String(created_at.clone()));
     review.insert("output".to_owned(), preview.get("output").cloned().unwrap_or(Value::Null));
@@ -141,13 +103,86 @@ pub fn assemble_qa_review(input: &Assembly<'_>) -> Assembled {
     review.insert("checklist".to_owned(), checklist);
     review.insert("polishPlan".to_owned(), polish_plan);
     review.insert("trust".to_owned(), (*trust).clone());
-    review.insert("visualDiff".to_owned(), Value::Object(diff));
+    review.insert("visualDiff".to_owned(), visual_diff_record(visual_diff, diff_images));
     Assembled { review: Value::Object(review), combined_issues_after }
+}
+
+/// Pages reviewed, not images: past twelve pages the render is contact sheets that each carry several pages.
+fn release_quality(format: &str, preview: &Value, design: &DesignStage, render_review: &Value, issues: &[Value]) -> Value {
+    let reviewed_pages = {
+        let reviewed = to_number_of(preview.pointer("/visualCoverage/reviewed"));
+        if reviewed.is_nan() || reviewed == 0.0 { preview.get("_images").and_then(Value::as_array).map_or(0.0, |images| images.len() as f64) } else { reviewed }
+    };
+    let page_count = preview.get("pageCount").cloned().unwrap_or(Value::Null);
+    let page_total = to_number_of(Some(&page_count));
+    let plan_coverage =
+        if format == "pptx" && page_total != 0.0 && !page_total.is_nan() { json_number(design.review_slide_plans.len() as f64 / page_total) } else { json!(1) };
+    score_office_release_quality(&json!({
+        "format": format,
+        "aesthetics": render_review.get("aesthetics").cloned().unwrap_or(Value::Null),
+        "issues": issues,
+        "renderedPages": json_number(reviewed_pages),
+        "expectedPages": page_count,
+        "structuralAvailable": design.current_snapshot.is_some(),
+        "planCoverage": plan_coverage,
+    }))
+}
+
+/// The visual diff with its images listed without their pixels.
+fn visual_diff_record(visual_diff: &Value, diff_images: &[Value]) -> Value {
+    let mut diff = visual_diff.as_object().cloned().unwrap_or_default();
+    diff.insert(
+        "images".to_owned(),
+        Value::Array(
+            diff_images
+                .iter()
+                .map(|image| {
+                    let mut fields: Map<String, Value> = image.as_object().cloned().unwrap_or_default();
+                    fields.retain(|key, _| key != "data");
+                    Value::Object(fields)
+                })
+                .collect(),
+        ),
+    );
+    Value::Object(diff)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_review_record_counts_the_images_as_pages_and_lists_diff_images_without_pixels() {
+        let preview = json!({ "output": "o.pdf", "pageCount": 2, "_images": [{}, {}], "visualCoverage": { "reviewed": 0 } });
+        let design = DesignStage { design_review: json!({ "issues": [] }), current_snapshot: None, review_slide_plans: Vec::new(), page_roles: json!({}) };
+        let (baseline, visual_diff) = (json!({ "output": "b.pdf" }), json!({ "available": true }));
+        let diff_images = [json!({ "page": 1, "path": "p.png", "data": "AAAA" })];
+        let (before, after, render_review, trust, args) =
+            (json!({ "issueCount": 1 }), json!({ "issues": [] }), json!({ "issues": [] }), Value::Null, json!({}));
+        let assembled = assemble_qa_review(&Assembly {
+            format: "docx",
+            created: true,
+            args: &args,
+            preview: &preview,
+            baseline: &baseline,
+            visual_diff: &visual_diff,
+            diff_images: &diff_images,
+            before: &before,
+            after: &after,
+            fixes: 3,
+            design: &design,
+            render_review: &render_review,
+            trust: &trust,
+            created_at: "t0".to_owned(),
+        });
+        let review = &assembled.review;
+        assert_eq!(review["visualDiff"], json!({ "available": true, "images": [{ "page": 1, "path": "p.png" }] }));
+        assert_eq!(review["baselineOutput"], "b.pdf");
+        assert_eq!((review["createdAt"].clone(), review["fixesApplied"].clone(), review["issuesBefore"].clone()), (json!("t0"), json!(3), json!(1)));
+        assert_eq!(review["quality"]["evidence"]["renderedPages"], json!(2));
+        assert_eq!(review["quality"]["evidence"]["expectedPages"], json!(2));
+        assert_eq!(review["quality"]["evidence"]["structuralAvailable"], json!(false));
+    }
 
     #[test]
     fn an_opened_document_that_reads_like_instructions_carries_a_security_issue_and_a_created_one_does_not() {

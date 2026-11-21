@@ -1,35 +1,9 @@
-// The declaration head (`sig`) and the byte scans it is built from.
-//
-// Everything here reads the SOURCE TEXT of a declaration node, never the parse
-// tree: the head is the source between the declaration start and its body, and
-// the same word scans answer where the declared name sits (`name_line`) and
-// which modifier keywords a language's visibility rule can see.
-
 /// Bytes of a declaration node scanned for its head. A head longer than this
 /// is cut here; `SIG_MAX_CHARS` cuts it again after whitespace collapsing.
 const HEAD_SCAN_BYTES: usize = 1024;
 /// `sig` length cap in CHARACTERS, before the `…` marker.
 const SIG_MAX_CHARS: usize = 160;
 
-/// The declaration head of a symbol as one line: the source from the start of
-/// the declaration node up to — and excluding — its body, with every
-/// whitespace run (indentation and the newlines of a multi-line signature)
-/// collapsed to a single space, cut to `SIG_MAX_CHARS` characters plus `…`.
-///
-/// The head ends at the first, at bracket depth zero, of
-///   * `{` — a braced body (`fn f() {`, `class C {`, `resource "x" "y" {`),
-///   * `=` — an initializer or an expression body (`def m(): Int = 1`,
-///     `const x: Foo = 1`, which keeps the type annotation the value hides).
-///     Two `=` do NOT end the head: one inside a type argument list
-///     (`fn gen<T = u8>()`, a generic default) and one that is part of the
-///     declared name (Ruby's `def name=(value)`). A FUNCTION-VALUED
-///     initializer does not end it either — see `initializer_head_end`,
-///   * `;` — the end of a bodyless declaration (`def m; end`),
-///   * `:` that ends its line — a Python/Ruby-style block opener. A `:` with
-///     more on the line is a type annotation (`function f(a: number): void`),
-///   * a newline AFTER the name has appeared — the body of a keyword-delimited
-///     language (`function f(a)\n … end`). Before the name it is part of the
-///     signature (`static void\nlate_name(void)`), so it does not cut.
 pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str) -> String {
     if start >= text.len() {
         return String::new();
@@ -60,11 +34,6 @@ pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str)
                 cut = index;
                 break;
             }
-            // `=` opens an initializer or an expression body (`def m = 1`,
-            // `int X => x`), but `==` / `!=` / `<=` / `>=` are part of the
-            // declaration itself (`bool operator ==(Object other)`), a `=`
-            // inside a type argument list is a generic default, and a `=` the
-            // name itself ends in is Ruby's setter syntax.
             b'=' if depth <= 0 && angle <= 0 && !is_comparison(bytes, index) && name_end.is_none_or(|at| index >= at) => {
                 cut = initializer_head_end(window, index).unwrap_or(index);
                 break;
@@ -84,20 +53,6 @@ pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str)
     collapse_head(&window[..cut])
 }
 
-/// End of a FUNCTION-VALUED initializer's head, measured from the `=` at
-/// `eq`, or `None` when the initializer is a plain value.
-///
-/// `const f = (a, b) => a + b`, `add = function(a, b) { … }` and
-/// `handler = async (event) => …` declare a callable whose parameter list is
-/// exactly the signature a reader wants, but the declaration node starts at
-/// the BINDING, so cutting at the `=` would leave `f` — the name again, i.e.
-/// no `sig` at all. The head therefore runs
-///   * through the `=>` of an arrow (`f = (a, b) =>`), or
-///   * up to the body of a function expression (`add = function(a, b)`).
-///
-/// Anything else — an object, a call, a conditional, a class expression — is
-/// a VALUE and the head still ends at the `=`, which keeps
-/// `const x: Foo = make()` reporting its type annotation.
 fn initializer_head_end(window: &str, eq: usize) -> Option<usize> {
     let bytes = window.as_bytes();
     let mut index = skip_spaces(bytes, eq + 1);
@@ -187,10 +142,6 @@ fn collapse_head(head: &str) -> String {
     cut
 }
 
-/// Line the declared name sits on. Identical to the declaration start line
-/// except for signatures that put the name on a later line (`static void\nf()`).
-/// Only the head of the declaration is scanned: a name that is not in it is
-/// reported at the declaration start.
 pub(super) fn name_line(text: &str, start: usize, end: usize, start_line: u32, name: &str) -> u32 {
     const HEAD_BYTES: usize = 2048;
     if name.is_empty() || start >= text.len() {

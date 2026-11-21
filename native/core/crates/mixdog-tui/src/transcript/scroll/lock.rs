@@ -1,5 +1,4 @@
-//! The render-time anchor lock (`transcript-anchor-lock.mjs::resolveRenderScrollOffset`) and the post-commit reconciliation of
-//! the scroll state against the geometry that just rendered (`transcript-anchor-sync.mjs`).
+//! The render-time anchor lock and the post-commit reconciliation of the scroll state against the geometry that just rendered.
 
 use serde_json::Value;
 
@@ -150,10 +149,6 @@ impl TranscriptScroll {
         let current = Current { ids: frame.ids, prefix_rows: frame.prefix_rows, total_rows: frame.total_rows, view_rows, max_rows: frame.max_rows };
         let desired = self.anchor.as_ref().and_then(|anchor| resolve_anchor_scroll_offset(anchor, &current));
         let Some(desired) = desired else {
-            // The anchor item is gone (removal or compaction). On growth that is a transient identity gap: re-capture next
-            // frame. When the anchored rows were deleted the reading position no longer exists, and leaving the lock pinned the
-            // target above zero for good with auto-scroll released. A compaction commit can net-grow the frame it lands in, so a
-            // target that no longer fits the transcript is the same deletion signal without the sign assumption.
             if row_delta < 0 || current_target > max_scroll {
                 self.pin_scroll_to_bottom(current_offset, true);
             } else {

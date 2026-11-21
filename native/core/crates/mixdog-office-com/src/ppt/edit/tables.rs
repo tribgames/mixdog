@@ -104,8 +104,7 @@ fn right_columns(values: &[Value], rows: i32, columns: i32) -> Result<Vec<i32>> 
 }
 
 /// `add_table`: the unstyled portable table (no theme style, a rule under the header, hairlines between the rows, figures on
-/// the right edge of their column), proportional column widths, centred cells, and the rules applied in a second pass on both
-/// cells that share an edge.
+/// the right edge of their column), proportional column widths and centred cells.
 pub(crate) fn add_table(presentation: &Com, op: &Value) -> Result<Value> {
     let slide = slide_of(presentation, op)?;
     let values = array_of(&prop(op, "values"));
@@ -128,57 +127,76 @@ pub(crate) fn add_table(presentation: &Com, op: &Value) -> Result<Value> {
     attempt(|| shape.member("Table")?.call_member("ApplyStyle", &[bstr("{2D5ABB26-0587-4C30-8999-92F81FD0307C}"), boolean(false)]).map(|_| ()));
     let figure_columns = right_columns(&values, rows, columns)?;
     let properties = prop(op, "properties");
-    // columnWidths share the frame's width in their proportions, as the portable writer's grid does.
-    let declared: Vec<f64> = pipeline(&prop(&properties, "columnWidths")).iter().filter(|width| present(width)).map(double).collect::<Result<_>>()?;
+    size_table(&shape, &properties, width, rows, columns)?;
+    fill_table_cells(&shape, &properties, &values, rows, columns, &figure_columns)?;
+    rule_table(&shape, rows, columns)?;
+    Ok(record(vec![
+        ("op", Value::string("add_table")),
+        ("changed", Value::Bool(true)),
+        ("shape", Value::String(string_value(&shape.member("Name")?))),
+        ("rows", Value::Int(rows)),
+        ("columns", Value::Int(columns)),
+    ]))
+}
+
+/// The column widths (`columnWidths` share the frame's width in their proportions, as the portable writer's grid does) and the
+/// header and body row heights.
+fn size_table(shape: &Com, properties: &Value, width: f32, rows: i32, columns: i32) -> Result<()> {
+    let declared: Vec<f64> = pipeline(&prop(properties, "columnWidths")).iter().filter(|width| present(width)).map(double).collect::<Result<_>>()?;
     let declared_sum: f64 = declared.iter().sum();
     if declared.len() as i32 == columns && declared_sum > 0.0 && declared.iter().all(|width| *width > 0.0) {
         for column in 1..=columns {
             let share = (f64::from(width) * declared[column as usize - 1] / declared_sum) as f32;
-            walk(&shape, &["Table", "Columns"])?.item_at(column)?.set_member("Width", r4(share))?;
+            walk(shape, &["Table", "Columns"])?.item_at(column)?.set_member("Width", r4(share))?;
         }
     }
-    let header_height = prop(&properties, "headerRowHeight");
+    let header_height = prop(properties, "headerRowHeight");
     if truthy(&header_height) {
-        walk(&shape, &["Table", "Rows"])?.item_at(1)?.set_member("Height", r4(single(&header_height)?))?;
+        walk(shape, &["Table", "Rows"])?.item_at(1)?.set_member("Height", r4(single(&header_height)?))?;
     }
-    let body_height = prop(&properties, "bodyRowHeight");
+    let body_height = prop(properties, "bodyRowHeight");
     if truthy(&body_height) {
         for row in 2..=rows {
-            walk(&shape, &["Table", "Rows"])?.item_at(row)?.set_member("Height", r4(single(&body_height)?))?;
+            walk(shape, &["Table", "Rows"])?.item_at(row)?.set_member("Height", r4(single(&body_height)?))?;
         }
     }
+    Ok(())
+}
+
+/// The text of every cell, its face, the header's fill and ink and the right edge of the columns of figures.
+fn fill_table_cells(shape: &Com, properties: &Value, values: &[Value], rows: i32, columns: i32, figure_columns: &[i32]) -> Result<()> {
     for row in 1..=rows {
         for column in 1..=columns {
-            let value = cell_value(&values, row as usize, column as usize);
-            let cell = cell_shape(&shape, row, column)?;
+            let value = cell_value(values, row as usize, column as usize);
+            let cell = cell_shape(shape, row, column)?;
             walk(&cell, &["TextFrame", "TextRange"])?.set_member("Text", bstr(&text_of(&value)))?;
             // Centred in its row, as the portable writer anchors a cell: top-anchored, a row taller than its line left the
             // text against the rule above it.
             attempt(|| put_path(&cell, &["TextFrame", "VerticalAnchor"], i4(3)));
-            let font_name = prop(&properties, "fontName");
+            let font_name = prop(properties, "fontName");
             if truthy(&font_name) {
                 set_font_name(&walk(&cell, &["TextFrame", "TextRange", "Font"])?, &text_of(&font_name))?;
             }
-            let font_size = prop(&properties, "fontSize");
+            let font_size = prop(properties, "fontSize");
             if truthy(&font_size) {
                 put_path(&cell, &["TextFrame", "TextRange", "Font", "Size"], r4(single(&font_size)?))?;
             }
-            let ink = prop(&properties, "color");
+            let ink = prop(properties, "color");
             if truthy(&ink) {
                 put_path(&cell, &["TextFrame", "TextRange", "Font", "Color", "RGB"], color(&ink)?)?;
             }
             if row == 1 {
-                let header_fill = prop(&properties, "headerFillColor");
+                let header_fill = prop(properties, "headerFillColor");
                 if truthy(&header_fill) {
                     put_path(&cell, &["Fill", "ForeColor", "RGB"], color(&header_fill)?)?;
                 }
-                let header_ink = prop(&properties, "headerColor");
+                let header_ink = prop(properties, "headerColor");
                 if truthy(&header_ink) {
                     put_path(&cell, &["TextFrame", "TextRange", "Font", "Color", "RGB"], color(&header_ink)?)?;
                 }
                 put_path(&cell, &["TextFrame", "TextRange", "Font", "Bold"], i4(-1))?;
             } else {
-                let body_fill = prop(&properties, "bodyFillColor");
+                let body_fill = prop(properties, "bodyFillColor");
                 if truthy(&body_fill) {
                     put_path(&cell, &["Fill", "ForeColor", "RGB"], color(&body_fill)?)?;
                 }
@@ -188,8 +206,12 @@ pub(crate) fn add_table(presentation: &Com, op: &Value) -> Result<Value> {
             }
         }
     }
-    // The rules go on once the text is in, as a second pass, and each one on both cells that share the edge (this row's
-    // bottom, the next row's top): written per cell while filling, PowerPoint kept only the last row's rule.
+    Ok(())
+}
+
+/// The rules, a second pass once the text is in, each on both cells that share the edge (this row's bottom, the next row's top):
+/// written per cell while filling, PowerPoint kept only the last row's rule.
+fn rule_table(shape: &Com, rows: i32, columns: i32) -> Result<()> {
     for row in 1..=rows {
         let rule_color = color_text(if row == 1 { "9AA3AD" } else { "D8DCE0" })?;
         let rule_weight = if row == 1 { i4(1) } else { Com::R8(0.5) };
@@ -209,13 +231,7 @@ pub(crate) fn add_table(presentation: &Com, op: &Value) -> Result<Value> {
             });
         }
     }
-    Ok(record(vec![
-        ("op", Value::string("add_table")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::String(string_value(&shape.member("Name")?))),
-        ("rows", Value::Int(rows)),
-        ("columns", Value::Int(columns)),
-    ]))
+    Ok(())
 }
 
 /// `[double]$table.Columns.Item($_).Width` for every column.

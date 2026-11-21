@@ -1,5 +1,5 @@
 //! The desktop host's foreground-lock lease over stdio: a request line on
-//! stdout, its answer on stdin (MixForegroundLockHost, MixForegroundLock.cs:328-443).
+//! stdout, its answer on stdin.
 //! Only the process that started this host holds the write end of its stdin,
 //! so nothing else can answer, and an answer counts only when it names the
 //! request waiting: its action and sequence, and for a release the lease.

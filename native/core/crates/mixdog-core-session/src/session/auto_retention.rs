@@ -1,27 +1,3 @@
-//! Settings → General → Sessions: archive conversations nobody used for a while and delete the ones archived long
-//! enough (Node `apps/desktop/src/main/session-auto-retention.ts`, scheduled by `desktop-service.ts:1141`). The archive is the
-//! user's own (`thread/archive`: sub-agent sessions and worktrees follow) and the delete is `thread/delete {ifIdle}`, whose
-//! `busy`, `not-archived` and `favorite` refusals are the last guard. Sub-agent sessions keep their own retention
-//! (`sub_agent_retention`).
-//!
-//! DECIDED DEPARTURE FROM NODE: Node ran a capped pass (50 sessions) every 15 minutes, after a 10-minute start delay, and only
-//! while the computer had been idle 15 minutes (`SESSION_RETENTION_INTERVAL_MS`, `_START_DELAY_MS`, `_MIN_IDLE_SECONDS`,
-//! `_PASS_CAP`; its tests recorded them). That idle condition came from a desktop answer and silently disabled the cycle when
-//! the answer was missing. Here retention is one complete pass in the background once the core has started, and again when
-//! either option changes (a pass under way is superseded by one with the new values); a pass judges every session and acts on
-//! all that are due. The rule, the delete clock and every guard are Node's.
-//!
-//! The rule is [`judge`]. Node's `retentionJudge` returned null for any exemption and otherwise the action; every exemption
-//! and every age test is a conjunct of that, so they are evaluated here cheapest first (the live checks that cost a read last)
-//! without changing the answer. Where each fact comes from is on [`Session`].
-//!
-//! What Node did around a session that has no counterpart: its lifecycle lock, version and resident-state token (the desktop's
-//! own lifecycle actions raced the pass through them). Here the pass reads the session again right before it acts; the archive
-//! of a session with its sub-agent sessions is prepared with every member held by its own actor, judged again while held, and
-//! committed as one transaction of the archive authority admitted on its writer ([`super::archive_trees`]); the idle delete
-//! decides atomically with the turn gate itself. One tree at a time, each releasing what it opened (acknowledged) before the
-//! next starts, so a first pass over a thousand old sessions holds one tree's sessions at most.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -149,11 +125,6 @@ pub trait AutoRetentionHost: Send + Sync {
     /// `window_ms`; else every sub-session under it with its activity stamp. `fresh`: read now, never from the listing the plan was
     /// made on (the final judgment before an archive).
     async fn sub_sessions(&self, id: &str, now: f64, window_ms: f64, fresh: bool) -> Result<Option<Vec<(String, f64)>>, String>;
-    /// The archive of `id` with every sub-agent session under it, as one unit: prepared with each member held by its own actor,
-    /// judged again from fresh reads under `policy` while held, with the record read after the hold (the sub-agent sessions judged
-    /// must be exactly the ones held, the exemptions the ones the held entries state), then committed in one transaction that
-    /// `admit` admits on the state writer; what it opened is released, acknowledged, before it answers. Owned to its end even if
-    /// the caller goes away.
     async fn archive_tree(&self, id: &str, now: f64, policy: Policy, admit: Admit) -> Result<TreeOutcome, String>;
     /// The idle-only delete: refused (nothing closed or deleted) unless the session is still archived, idle, at `last_used_at`
     /// and `activity`, unwatched and without an approval showing, and `cancel` has not fired; decided by the session's own actor.
@@ -301,12 +272,6 @@ enum Outcome {
     Refused,
 }
 
-/// Acts on one planned session. The judgment is made again from fresh reads, a delete first asking whether its worktree holds
-/// work and then judging once more. Each read runs to its end (a read that opened a session releases it), and `cancel` is asked
-/// after it: a stop acts on nothing further. Immediately before a delete is admitted the policy is read again and the stop signal
-/// asked again; the delete itself is decided by the session's own actor. An archive is the tree's own unit
-/// ([`AutoRetentionHost::archive_tree`]), admitted on the state writer by the stop, `cancel` and the policy identity read here
-/// first, before the policy.
 async fn act(
     host: &dyn AutoRetentionHost,
     id: &str,

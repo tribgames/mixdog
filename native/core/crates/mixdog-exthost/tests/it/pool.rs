@@ -112,11 +112,11 @@ fn worker_count_follows_the_cores_and_the_setting() {
 fn fake_browser(mode: &str, pid_file: Option<&Path>) -> (PathBuf, Vec<std::ffi::OsString>) {
     let mut args = vec![mode.into()];
     args.extend(pid_file.map(|file| file.as_os_str().to_owned()));
-    (env!("CARGO_BIN_EXE_ext_fake_browser").into(), args)
+    (mixdog_testkit::bin_exe!("ext_fake_browser").into(), args)
 }
 fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
     ExtHostConfig {
-        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+        program: mixdog_testkit::bin_exe!("ext_fake_worker").into(),
         args: extra.iter().map(Into::into).collect(),
         workers,
         pending_cap: 64,
@@ -202,11 +202,6 @@ async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
     assert_eq!(finish(&mut waiting).await.1.unwrap(), json!("after"));
     assert!(matches!(pool.stop_worker(ExtWorkerId(999)), Err(ExtError::UnknownWorker)));
 }
-/// A parser that never looks at the cancel (the PDF read after its 60,000 ms deadline drops the call): the process is ended
-/// once `CANCEL_GRACE` has passed, with nobody stopping the worker, and the next call (the only worker is the parser's) is
-/// answered by a fresh worker: that answer is the fact this waits on, and the parser's process is gone by then. The grace
-/// is the pool's own seam (`ExtHostPool::with_grace`): it ends only when this test releases it, the test's one explicit
-/// advance of the grace; before that the parser is found alive and the next call unanswered.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_parser_that_ignores_the_cancel_is_ended_after_the_grace() {
     let asked = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
@@ -297,11 +292,6 @@ async fn a_worker_that_exits_normally_takes_its_lingering_helper_with_it() {
 async fn a_chunk_beyond_the_window_terminates_the_worker() {
     let pool = ExtHostPool::new(config(1, &["overrun"])).unwrap();
     let mut greedy = pool.call(call("a", "chunks", json!({"bytes": 3 * 1024 * 1024}))).unwrap();
-    // Nothing is read, so the window cannot reopen: the worker is killed once it overruns. There
-    // is one worker and the greedy call holds it until it is gone, so this other thread's call can
-    // only be answered by a fresh worker: its answer is the proof that the first one was terminated.
-    // (Watching the status for 'busy' and then 'empty' misses the busy phase when the overrun comes
-    // within one poll.)
     assert_eq!(run(&pool, call("b", "echo", json!(42))).await, json!(42));
     let (_, outcome) = finish(&mut greedy).await;
     assert!(matches!(outcome, Err(ExtError::HostExited { .. })), "{outcome:?}");

@@ -1,8 +1,8 @@
 id: no-boolean-literal-compare
 language: TypeScript
 severity: info
-message: Comparison against a boolean literal.
-note: When the operand is a boolean, `x === true` is just `x` and `x === false` is `!x`. When it is not, the literal comparison is usually the bug. Drop the literal only for a proven boolean; this rule has no autofix.
+message: Comparison of a boolean expression against a boolean literal.
+note: 'Only for an operand that is a boolean by construction (`!x`, a comparison or `instanceof`/`in` expression, `Boolean(x)`): there `x === true` is just `x` and `x === false` is `!x`. A comparison of any other operand can be a deliberate tri-state test (the value may also be undefined or null), so it is not reported. This rule has no autofix.'
 rule:
   any:
     - pattern: $A === true
@@ -21,3 +21,15 @@ rule:
     - pattern: false == $A
     - pattern: true != $A
     - pattern: false != $A
+constraints:
+  A:
+    any:
+      - kind: unary_expression
+        has:
+          field: operator
+          regex: '^!$'
+      - kind: binary_expression
+        has:
+          field: operator
+          regex: '^(===|!==|==|!=|<|>|<=|>=|instanceof|in)$'
+      - pattern: Boolean($$$)

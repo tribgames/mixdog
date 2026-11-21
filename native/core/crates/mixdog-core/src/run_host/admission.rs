@@ -1,5 +1,4 @@
-//! Process-wide admission for memory-heavy agent work and foreground child shells (Node
-//! `shared/resource-admission.mjs`, `ResourceAdmissionController`), and the agent lane's
+//! Process-wide admission for memory-heavy agent work and foreground child shells, and the agent lane's
 //! [`Admission`] seam over it.
 //!
 //! Running work is never revoked: a full pool keeps a new request in one bounded queue, shared by
@@ -9,9 +8,8 @@
 //!
 //! An agent's slot is only held while it does local work: [`Held::run_yielded`] hands it back
 //! while a provider request is in flight and takes it again, in the queue, before the caller
-//! goes on (`runYielded`). A nested agent acquired under a held one
+//! goes on. A nested agent acquired under a held one
 //! ([`ResourceAdmission::acquire_under`]) suspends its parent the same way until it is released.
-//! Node reaches both through an ambient async-local lease; here the lease is passed explicitly.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -378,11 +376,11 @@ impl Held {
         self.controller.lock().leases.get(&self.id).is_some_and(|l| l.counted)
     }
 
-    /// `runYielded`: hands the slot back while `task` (a provider request) is in flight and takes
+    /// Hands the slot back while `task` (a provider request) is in flight and takes
     /// it again, in the queue, before returning. Only an agent lease yields; a shell's lease just
     /// runs the task. A failed task (`Err`) keeps the lease suspended — the owner's next
     /// successful call takes it again, or the owner releases it — so the failure reaches the
-    /// caller even when every slot is busy, as in Node. `on_restore_wait` runs when the slot
+    /// caller even when every slot is busy. `on_restore_wait` runs when the slot
     /// cannot be had at once (a display hint). A cancelled re-acquisition is the outer error.
     pub async fn run_yielded<T, E>(
         &self,
@@ -498,8 +496,7 @@ impl ResourceAdmission {
         self.acquire_under(None, pool, owner_key, priority, cancel).await
     }
 
-    /// `acquire` made while `parent` (an agent lease) is held, the scoped dependency of Node's
-    /// ambient lease: the parent gives its slot up until this lease is released, so nested work
+    /// `acquire` made while `parent` (an agent lease) is held: the parent gives its slot up until this lease is released, so nested work
     /// cannot starve its own caller. A shell never suspends its agent.
     pub async fn acquire_under(&self, parent: Option<&Held>, pool: Pool, owner_key: Option<&str>, priority: Priority, cancel: &Cancel) -> Result<Held, String> {
         let owner: String = owner_key.map(|k| mixdog_js::js_trim(k).chars().take(240).collect()).unwrap_or_default();

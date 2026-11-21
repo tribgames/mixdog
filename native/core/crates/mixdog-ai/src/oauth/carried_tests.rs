@@ -548,10 +548,6 @@ fn long_credential(rng: &mut Rng) -> String {
     }
 }
 
-/// The registry changes under a stream: each round registers a random credential after its stream began (its first chunk
-/// ends before the credential's encoding does), the rest arriving in random chunks, and none of its encodings leaves. The
-/// registry holds 2,000 more values besides, retired one after the other by their account's refreshes; a random one of
-/// them (the oldest every tenth round) under random encodings is found as well.
 #[test]
 fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
     let mut rng = Rng(0xD1B5_4A32_D192_ED03);
@@ -649,15 +645,6 @@ fn a_scan_holds_no_lock_and_a_registration_never_waits_for_it() {
     assert_eq!(scanned, "one [REDACTED] two registered-during-the-scan-9e7b", "the scan read the index of its beginning");
     assert_eq!(scrub.redact_str(text), "one [REDACTED] two [REDACTED]");
 }
-/// The bounds, at 512 and 10,000 JWT-sized values (1.2 KiB, the most an access token takes), each a source's own (10,000
-/// is more than the caps let the registry hold besides what sources yield: 8,192):
-/// - one more value (what a send does before it is dispatched) touches the entries of its own 28 forms, whatever the
-///   registry holds (asserted);
-/// - the registry's estimated bytes a value (asserted under 16 KiB);
-/// - the registration latency while two threads scan 1 MiB texts (the largest chunk) against the registry without pause;
-/// - one scan of 1 MiB in 64 chunks.
-///
-/// Timings are printed (`--nocapture`; the release profile's are the commit's figures).
 #[test]
 fn registries_of_512_and_10000_jwt_sized_values() {
     use std::sync::atomic::AtomicBool;

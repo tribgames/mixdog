@@ -165,6 +165,18 @@ fn open_owned_document(app: &Obj, format: &str, path: &str, visible: bool) -> Re
     Ok(document)
 }
 
+/// A visible deck's window handle, asked again up to [`WINDOW_ATTEMPTS`] times while it is 0.
+fn wait_for_deck_window(env: &Env<'_>, work: &Work, mut hwnd: i64) -> i64 {
+    for _ in 0..WINDOW_ATTEMPTS {
+        if hwnd != 0 {
+            break;
+        }
+        env.platform.sleep(WINDOW_PAUSE_MS);
+        hwnd = application_hwnd(env, work.app.as_ref(), work.document.as_ref(), "pptx");
+    }
+    hwnd
+}
+
 /// What an open has built so far, for the cleanup of a failed one.
 struct Work {
     app: Option<Obj>,
@@ -247,18 +259,9 @@ impl<P: WriteProof> Opening<'_, P> {
         let env_copy = self.env;
         let env = &env_copy;
         let request = self.request;
-        let (format, path, mode) = (request.format.as_str(), request.path.as_str(), request.mode);
+        let (format, mode) = (request.format.as_str(), request.mode);
         if !request.create && matches!(mode, Mode::Attach | Mode::Visible) {
-            work.document = find_running_document_exact(env, format, path)?;
-            if let Some(document) = &work.document {
-                // The document belongs to the application that already held it: nothing below may close it.
-                work.ownership = Ownership::Attached;
-                work.app = document.get("Application").map_err(text)?.into_obj();
-            } else if mode == Mode::Attach {
-                return Err(format!("The exact document is not registered as open in Microsoft Office: {path}"));
-            } else if env.platform.file_appears_open(std::path::Path::new(path)) {
-                return Err(format!("The document appears open but its exact COM object is unavailable; refusing to open a duplicate: {path}"));
-            }
+            self.attach_running_document(work)?;
         }
         if work.document.is_none() {
             self.start_application_and_document(work)?;
@@ -270,13 +273,7 @@ impl<P: WriteProof> Opening<'_, P> {
 
         let mut hwnd = application_hwnd(env, work.app.as_ref(), work.document.as_ref(), format);
         if mode == Mode::Visible && format == "pptx" {
-            for _ in 0..WINDOW_ATTEMPTS {
-                if hwnd != 0 {
-                    break;
-                }
-                env.platform.sleep(WINDOW_PAUSE_MS);
-                hwnd = application_hwnd(env, work.app.as_ref(), work.document.as_ref(), format);
-            }
+            hwnd = wait_for_deck_window(env, work, hwnd);
         }
         let foreground_activated = mode == Mode::Visible && format == "pptx" && set_office_foreground(env, hwnd);
         work.process_id = window_process_id(env.platform, hwnd);
@@ -315,6 +312,24 @@ impl<P: WriteProof> Opening<'_, P> {
             document_id: format!("{}:{}", request.format, request.path.to_lowercase()),
             chart_excel: super::ChartExcel::default(),
         })
+    }
+
+    /// Takes the exact document a running application holds, if there is one; refuses where a new open would be wrong.
+    fn attach_running_document(&self, work: &mut Work) -> Result<(), String> {
+        let env = &self.env;
+        let request = self.request;
+        let path = request.path.as_str();
+        work.document = find_running_document_exact(env, &request.format, path)?;
+        if let Some(document) = &work.document {
+            // The document belongs to the application that already held it: nothing below may close it.
+            work.ownership = Ownership::Attached;
+            work.app = document.get("Application").map_err(text)?.into_obj();
+        } else if request.mode == Mode::Attach {
+            return Err(format!("The exact document is not registered as open in Microsoft Office: {path}"));
+        } else if env.platform.file_appears_open(std::path::Path::new(path)) {
+            return Err(format!("The document appears open but its exact COM object is unavailable; refusing to open a duplicate: {path}"));
+        }
+        Ok(())
     }
 
     /// A new application, identified before anything is opened in it, and the document in it.

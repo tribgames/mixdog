@@ -1,9 +1,5 @@
-//! `pdf.render` and `pdf.ocr` of the real worker, driven through the pool over `ext_worker_dev` and replayed against what
-//! Node's `renderPdfPages` answered (`fixtures/office-render-pages/golden.json`): the result object without the pixels (they
-//! travel as chunks, one per top-level image in `images` order, and each entry carries `bytes` in place of `data`), the error
-//! messages, the nothing-written-beside-the-PDF rule, the approved-path guard and a cancel in the middle of a render. The pixels
-//! themselves are held to the recording by `mixdog-office-pdf`'s own twin test; here a chunk is checked to be the PNG the entry
-//! names. Recognition needs the engine downloaded on first use, which no test starts: only its path guard is exercised.
+//! Replayed against Node's `renderPdfPages` (`fixtures/office-render-pages/golden.json`); the pixels are held to it by
+//! `mixdog-office-pdf`'s own twin test. Recognition downloads its engine on first use, so only its path guard is exercised.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -18,7 +14,7 @@ const PNG_MAGIC: [u8; 4] = [0x89, 0x50, 0x4e, 0x47];
 
 fn pool(workers: usize) -> ExtHostPool {
     ExtHostPool::new(ExtHostConfig {
-        program: PathBuf::from(env!("CARGO_BIN_EXE_ext_worker_dev")),
+        program: PathBuf::from(mixdog_testkit::bin_exe!("ext_worker_dev")),
         args: Vec::new(),
         workers,
         pending_cap: 64,

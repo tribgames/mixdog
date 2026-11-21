@@ -425,7 +425,33 @@ pub fn set_table_values(shape_xml: &str, values: &[Value]) -> Result<Value, Stri
     if rows.is_empty() {
         return Err("PPTX table has no rows".to_owned());
     }
-    let mut inner = table.inner.clone();
+    let (mut inner, filled_rows, filled_cells, removed_rows) = fill_table_rows(&table.inner, &rows, values)?;
+    let added_columns = values.iter().filter_map(Value::as_array).map(Vec::len).max().unwrap_or(0).saturating_sub(element_spans(&inner, "a:gridCol").len());
+    if added_columns > 0 {
+        inner = grow_table_columns(&inner, values, added_columns)?;
+    }
+    let (inner, appended, added_height) = append_table_rows(&inner, values)?;
+    let mut answer = Map::new();
+    answer.insert("xml".to_owned(), Value::String(format!("{}{inner}{}", &shape_xml[..table.start], &shape_xml[table.end..])));
+    answer.insert("rows".to_owned(), Value::from(filled_rows + appended));
+    answer.insert("cells".to_owned(), Value::from(filled_cells));
+    answer.insert("capacity".to_owned(), Value::from(rows.len()));
+    if appended > 0 {
+        answer.insert("addedRows".to_owned(), Value::from(appended));
+    }
+    if added_columns > 0 {
+        answer.insert("addedColumns".to_owned(), Value::from(added_columns));
+    }
+    answer.insert("addedHeight".to_owned(), json_number(added_height));
+    if removed_rows > 0 {
+        answer.insert("removedRows".to_owned(), Value::from(removed_rows));
+    }
+    Ok(Value::Object(answer))
+}
+
+/// The table's rows filled from `values` (rows past the data are removed); answers the XML, the rows and cells filled and the rows removed.
+fn fill_table_rows(table_inner: &str, rows: &[crate::xml::Span], values: &[Value]) -> Result<(String, usize, usize, usize), String> {
+    let mut inner = table_inner.to_owned();
     let mut filled_rows = 0_usize;
     let mut filled_cells = 0_usize;
     let mut removed_rows = 0_usize;
@@ -450,45 +476,53 @@ pub fn set_table_values(shape_xml: &str, values: &[Value]) -> Result<Value, Stri
         inner = format!("{}<a:tr{attrs}>{body}</a:tr>{}", &inner[..row.start], &inner[row.end..]);
         filled_rows += 1;
     }
-    let columns = values.iter().filter_map(Value::as_array).map(Vec::len).max().unwrap_or(0);
+    Ok((inner, filled_rows, filled_cells, removed_rows))
+}
+
+/// `added_columns` copies of the last column appended to the grid and every row, the grid's width shared among all columns.
+fn grow_table_columns(table_inner: &str, values: &[Value], added_columns: usize) -> Result<String, String> {
+    let mut inner = table_inner.to_owned();
     let grid = element_spans(&inner, "a:gridCol");
-    let added_columns = columns.saturating_sub(grid.len());
-    if added_columns > 0 {
-        let last = grid.last().ok_or_else(|| MISSING_PART.to_owned())?;
-        let frame: f64 = grid.iter().fold(0.0, |total, column| total + stated_width(&column.xml));
-        let mut widths: Vec<f64> = grid.iter().map(|column| stated_width(&column.xml)).collect();
-        widths.extend(std::iter::repeat_n(stated_width(&last.xml), added_columns));
-        let grown = widths.iter().fold(0.0, |total, width| total + width);
-        let mut shared: Vec<f64> = widths.iter().map(|width| if grown != 0.0 { math::round(width * frame / grown) } else { *width }).collect();
-        if grown != 0.0 {
-            let sum = shared.iter().fold(0.0, |total, width| total + width);
-            if let Some(end) = shared.last_mut() {
-                *end += frame - sum;
-            }
-        }
-        inner = format!("{}{}{}", &inner[..last.end], last.xml.repeat(added_columns), &inner[last.end..]);
-        let column = Cell::new(0_usize);
-        inner = compiled(r#"<a:gridCol\b([^>]*?)\bw="\d+""#, "g").replace_all_with(&inner, |found| {
-            let at = column.get();
-            column.set(at + 1);
-            format!("<a:gridCol{}w=\"{}\"", found.get(1).unwrap_or(""), shared.get(at).map_or_else(|| "undefined".to_owned(), |width| num(*width)))
-        });
-        let current = element_spans(&inner, "a:tr");
-        for row_index in (0..current.len()).rev() {
-            let row = &current[row_index];
-            let cells = element_spans(&row.xml, "a:tc");
-            let last_cell = cells.last().ok_or_else(|| MISSING_PART.to_owned())?;
-            let source = values.get(row_index).and_then(Value::as_array);
-            let mut extra = String::new();
-            for offset in 0..added_columns {
-                let text =
-                    source.and_then(|cells_of| cells_of.get(cells.len() + offset)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
-                extra.push_str(&set_table_cell_text(&last_cell.xml, &text)?);
-            }
-            let next_row = format!("{}{extra}{}", &row.xml[..last_cell.end], &row.xml[last_cell.end..]);
-            inner = format!("{}{next_row}{}", &inner[..row.start], &inner[row.end..]);
+    let last = grid.last().ok_or_else(|| MISSING_PART.to_owned())?;
+    let frame: f64 = grid.iter().fold(0.0, |total, column| total + stated_width(&column.xml));
+    let mut widths: Vec<f64> = grid.iter().map(|column| stated_width(&column.xml)).collect();
+    widths.extend(std::iter::repeat_n(stated_width(&last.xml), added_columns));
+    let grown = widths.iter().fold(0.0, |total, width| total + width);
+    let mut shared: Vec<f64> = widths.iter().map(|width| if grown != 0.0 { math::round(width * frame / grown) } else { *width }).collect();
+    if grown != 0.0 {
+        let sum = shared.iter().fold(0.0, |total, width| total + width);
+        if let Some(end) = shared.last_mut() {
+            *end += frame - sum;
         }
     }
+    inner = format!("{}{}{}", &inner[..last.end], last.xml.repeat(added_columns), &inner[last.end..]);
+    let column = Cell::new(0_usize);
+    inner = compiled(r#"<a:gridCol\b([^>]*?)\bw="\d+""#, "g").replace_all_with(&inner, |found| {
+        let at = column.get();
+        column.set(at + 1);
+        format!("<a:gridCol{}w=\"{}\"", found.get(1).unwrap_or(""), shared.get(at).map_or_else(|| "undefined".to_owned(), |width| num(*width)))
+    });
+    let current = element_spans(&inner, "a:tr");
+    for row_index in (0..current.len()).rev() {
+        let row = &current[row_index];
+        let cells = element_spans(&row.xml, "a:tc");
+        let last_cell = cells.last().ok_or_else(|| MISSING_PART.to_owned())?;
+        let source = values.get(row_index).and_then(Value::as_array);
+        let mut extra = String::new();
+        for offset in 0..added_columns {
+            let text =
+                source.and_then(|cells_of| cells_of.get(cells.len() + offset)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
+            extra.push_str(&set_table_cell_text(&last_cell.xml, &text)?);
+        }
+        let next_row = format!("{}{extra}{}", &row.xml[..last_cell.end], &row.xml[last_cell.end..]);
+        inner = format!("{}{next_row}{}", &inner[..row.start], &inner[row.end..]);
+    }
+    Ok(inner)
+}
+
+/// The rows `values` holds beyond the table, each a copy of the last row; answers the XML, the rows added and their height.
+fn append_table_rows(table_inner: &str, values: &[Value]) -> Result<(String, usize, f64), String> {
+    let mut inner = table_inner.to_owned();
     let mut added_height = 0.0;
     let current = element_spans(&inner, "a:tr");
     let mut appended = Vec::new();
@@ -508,22 +542,7 @@ pub fn set_table_values(shape_xml: &str, values: &[Value]) -> Result<Value, Stri
     if let (false, Some(template)) = (appended.is_empty(), current.last()) {
         inner = format!("{}{}{}", &inner[..template.end], appended.concat(), &inner[template.end..]);
     }
-    let mut answer = Map::new();
-    answer.insert("xml".to_owned(), Value::String(format!("{}{inner}{}", &shape_xml[..table.start], &shape_xml[table.end..])));
-    answer.insert("rows".to_owned(), Value::from(filled_rows + appended.len()));
-    answer.insert("cells".to_owned(), Value::from(filled_cells));
-    answer.insert("capacity".to_owned(), Value::from(rows.len()));
-    if !appended.is_empty() {
-        answer.insert("addedRows".to_owned(), Value::from(appended.len()));
-    }
-    if added_columns > 0 {
-        answer.insert("addedColumns".to_owned(), Value::from(added_columns));
-    }
-    answer.insert("addedHeight".to_owned(), json_number(added_height));
-    if removed_rows > 0 {
-        answer.insert("removedRows".to_owned(), Value::from(removed_rows));
-    }
-    Ok(Value::Object(answer))
+    Ok((inner, appended.len(), added_height))
 }
 
 /// `shapeFrame(shapeXml)`: the shape's offset and extent in points, or `None` when it states none.
@@ -587,9 +606,14 @@ const SHAPE_FILLS: [&str; 6] = ["a:noFill", "a:solidFill", "a:gradFill", "a:blip
 /// `updateShapeGeometry(shape, properties)`: the shape with its description (`altText`), frame (`left`, `top`, `width`,
 /// `height`, `rotation`) and fill (`fillColor`, `fillTransparency`) set from the properties.
 pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
+    let described = with_alt_text(shape, properties);
+    let framed = with_frame(&described, properties);
+    with_fill(&framed, properties)
+}
+
+/// Alternative text lives on the shape's name element, and a reader (or the audit that asks for it) has no other place to look.
+fn with_alt_text(shape: &str, properties: &Value) -> String {
     let mut next = shape.to_owned();
-    // Alternative text lives on the shape's name element, and a reader (or the audit that asks for it) has no other place to
-    // look.
     if is_set(properties.get("altText")) {
         let description = text_or_empty(properties.get("altText"));
         next = crate::slide_shapes::replace_first_with(&compiled(r"<p:cNvPr\b[^>]*?(/?)>", ""), &next, |found| {
@@ -601,6 +625,12 @@ pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
             format!("{head}{described}{}", if self_closing { "/>" } else { ">" })
         });
     }
+    next
+}
+
+/// The frame (`left`, `top`, `width`, `height`, `rotation`) written where the shape keeps its geometry.
+fn with_frame(shape: &str, properties: &Value) -> String {
+    let mut next = shape.to_owned();
     if ["left", "top", "width", "height", "rotation"].iter().any(|key| is_set(properties.get(*key))) {
         // A chart or a table sits in a graphic frame, and a frame keeps its geometry in <p:xfrm> where a shape or picture keeps
         // it in <a:xfrm>. Writing the shape form left the chart exactly where it was and answered that nothing had changed, so
@@ -648,6 +678,12 @@ pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
             });
         }
     }
+    next
+}
+
+/// The shape's own fill (`fillColor`, `fillTransparency`) replaced, ahead of its outline and effects.
+fn with_fill(shape: &str, properties: &Value) -> String {
+    let mut next = shape.to_owned();
     // A transparency alone keeps the fill's colour, as the Office backend's Fill.Transparency does; it was dropped here.
     let fill_color: Option<Value> = match properties.get("fillColor").filter(|value| !value.is_null()) {
         Some(color) => Some(color.clone()),
@@ -682,4 +718,101 @@ pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
 /// `nextShapeId(xml)`: one more than the highest shape id the slide uses.
 pub fn next_shape_id(xml: &str) -> f64 {
     compiled(r#"\bcNvPr\s+id="(\d+)""#, "g").captures_iter(xml).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(1.0, math::max) + 1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn cell(text: &str) -> String {
+        format!("<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>{text}</a:t></a:r></a:p></a:txBody></a:tc>")
+    }
+
+    fn table(rows: &[&[&str]], widths: &[u32]) -> String {
+        let grid: String = widths.iter().map(|width| format!("<a:gridCol w=\"{width}\"/>")).collect();
+        let body: String = rows.iter().map(|row| format!("<a:tr h=\"100\">{}</a:tr>", row.iter().map(|text| cell(text)).collect::<String>())).collect();
+        format!("<p:graphicFrame><a:graphic><a:graphicData><a:tbl><a:tblGrid>{grid}</a:tblGrid>{body}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>")
+    }
+
+    fn texts(xml: &str) -> Vec<String> {
+        compiled(r"<a:t>([^<]*)</a:t>", "g").captures_iter(xml).map(|found| found.get(1).unwrap_or("").to_owned()).collect()
+    }
+
+    #[test]
+    fn set_table_values_fills_cells_in_place() {
+        let shape = table(&[&["a", "b"], &["c", "d"]], &[3000, 3000]);
+        let done = set_table_values(&shape, &[json!(["w", "x"]), json!(["y", "z"])]).unwrap();
+        assert_eq!((done["rows"].clone(), done["cells"].clone(), done["capacity"].clone()), (json!(2), json!(4), json!(2)));
+        assert_eq!(done["addedHeight"], json!(0));
+        assert!(done.get("addedRows").is_none() && done.get("addedColumns").is_none() && done.get("removedRows").is_none());
+        assert_eq!(texts(done["xml"].as_str().unwrap()), ["w", "x", "y", "z"]);
+    }
+
+    #[test]
+    fn set_table_values_grows_columns_and_rows_and_shares_the_width() {
+        let shape = table(&[&["a", "b"], &["c", "d"]], &[3000, 3000]);
+        let done = set_table_values(&shape, &[json!(["1", "2", "3"]), json!(["4", "5", "6"]), json!(["7", "8", "9"])]).unwrap();
+        assert_eq!((done["addedColumns"].clone(), done["addedRows"].clone(), done["addedHeight"].clone()), (json!(1), json!(1), json!(100)));
+        let xml = done["xml"].as_str().unwrap();
+        assert_eq!(texts(xml), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+        assert_eq!(xml.matches("<a:gridCol w=\"2000\"/>").count(), 3);
+    }
+
+    #[test]
+    fn set_table_values_drops_rows_the_data_does_not_reach() {
+        let shape = table(&[&["a", "b"], &["c", "d"]], &[3000, 3000]);
+        let done = set_table_values(&shape, &[json!(["w"])]).unwrap();
+        assert_eq!(done["removedRows"], json!(1));
+        assert_eq!(done["rows"], json!(1));
+        assert_eq!(texts(done["xml"].as_str().unwrap()), ["w", ""]);
+    }
+
+    #[test]
+    fn set_table_values_refuses_a_shape_without_a_table() {
+        assert_eq!(set_table_values("<p:sp/>", &[]).unwrap_err(), "PPTX shape does not contain a table");
+    }
+
+    const SHAPE: &str = "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Box\"/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"100\" y=\"200\"/><a:ext cx=\"300\" cy=\"400\"/></a:xfrm><a:ln><a:solidFill><a:srgbClr val=\"00FF00\"/></a:solidFill></a:ln></p:spPr></p:sp>";
+
+    #[test]
+    fn update_shape_geometry_sets_the_description_on_the_name_element() {
+        let described = update_shape_geometry(SHAPE, &json!({ "altText": "A box" }));
+        assert!(described.contains("<p:cNvPr id=\"2\" name=\"Box\" descr=\"A box\"/>"), "{described}");
+        let cleared = update_shape_geometry(&described, &json!({ "altText": "" }));
+        assert!(!cleared.contains("descr="), "{cleared}");
+    }
+
+    #[test]
+    fn update_shape_geometry_moves_one_edge_and_keeps_the_rest_of_the_frame() {
+        let moved = update_shape_geometry(SHAPE, &json!({ "left": 10 }));
+        assert!(moved.contains("<a:xfrm><a:off x=\"127000\" y=\"200\"/><a:ext cx=\"300\" cy=\"400\"/></a:xfrm>"), "{moved}");
+        let turned = update_shape_geometry(SHAPE, &json!({ "rotation": 90 }));
+        assert!(turned.contains("<a:xfrm rot=\"5400000\"><a:off x=\"100\" y=\"200\"/><a:ext cx=\"300\" cy=\"400\"/></a:xfrm>"), "{turned}");
+    }
+
+    #[test]
+    fn update_shape_geometry_writes_a_graphic_frame_geometry_as_p_xfrm() {
+        let frame = "<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"3\" name=\"Chart\"/></p:nvGraphicFramePr></p:graphicFrame>";
+        let placed = update_shape_geometry(frame, &json!({ "left": 1, "top": 2, "width": 3, "height": 4 }));
+        assert!(placed.contains("</p:nvGraphicFramePr><p:xfrm><a:off x=\"12700\" y=\"25400\"/><a:ext cx=\"38100\" cy=\"50800\"/></p:xfrm>"), "{placed}");
+    }
+
+    #[test]
+    fn update_shape_geometry_replaces_the_shape_fill_ahead_of_its_outline() {
+        let filled = update_shape_geometry(SHAPE, &json!({ "fillColor": "FF0000" }));
+        let fill = filled.find("<a:solidFill><a:srgbClr val=\"FF0000\"").expect("a fill");
+        assert!(fill < filled.find("<a:ln>").unwrap(), "{filled}");
+        assert!(filled.contains("<a:ln><a:solidFill><a:srgbClr val=\"00FF00\"/>"), "{filled}");
+        let cleared = update_shape_geometry(&filled, &json!({ "fillColor": null }));
+        assert!(cleared.contains("<a:noFill/><a:ln>") && !cleared.contains("FF0000"), "{cleared}");
+    }
+
+    #[test]
+    fn update_shape_geometry_keeps_the_fill_colour_when_only_transparency_is_given() {
+        let filled = update_shape_geometry(SHAPE, &json!({ "fillColor": "FF0000" }));
+        let faded = update_shape_geometry(&filled, &json!({ "fillTransparency": 50 }));
+        assert!(faded.contains("<a:srgbClr val=\"FF0000\"><a:alpha val=\"50000\"/>"), "{faded}");
+    }
 }

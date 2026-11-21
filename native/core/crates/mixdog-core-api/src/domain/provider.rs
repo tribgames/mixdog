@@ -492,6 +492,9 @@ pub struct Exposure {
 pub enum DeliveryState {
     /// No request byte reached the socket.
     NotSent,
+    /// The request was written, and the protocol proves the server did not process it (a stream above the peer's
+    /// GOAWAY last-stream-id, or REFUSED_STREAM, before any response header): it is safe to send again.
+    NotProcessed,
     /// The request was written; no response status arrived.
     Ambiguous,
     /// A response status (or WS acceptance of the request) arrived.

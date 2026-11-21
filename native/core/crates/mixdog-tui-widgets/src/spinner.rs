@@ -157,19 +157,7 @@ impl SpinnerProgress {
     /// `useSpinnerProgress` for one tick.
     pub fn advance(&mut self, input: &ProgressInput<'_>) -> ProgressDisplay {
         let now = input.now;
-        if self.turn_anchor != input.started_at {
-            self.turn_anchor = input.started_at;
-            self.paused_total = 0.0;
-            self.pause_start = 0.0;
-        }
-        if input.paused && self.pause_start == 0.0 {
-            self.pause_start = now;
-        } else if !input.paused && self.pause_start != 0.0 {
-            self.paused_total += (now - self.pause_start).max(0.0);
-            self.pause_start = 0.0;
-        }
-        let paused_ms = self.paused_total + if self.pause_start != 0.0 { (now - self.pause_start).max(0.0) } else { 0.0 };
-        let elapsed_ms = (input.raw_elapsed_ms - paused_ms).max(0.0);
+        let elapsed_ms = self.unpaused_elapsed_ms(input);
 
         let output = or_zero(input.output_tokens);
         let target = or_zero(if output != 0.0 { output } else { input.tokens }).max(0.0);
@@ -189,9 +177,35 @@ impl SpinnerProgress {
         let stall_ms = now - self.last_grow;
         let is_stalled = !input.reduced_motion && target > 0.0 && stall_ms > STALL_TIMEOUT_MS;
         let raw_intensity = if is_stalled { ((stall_ms - STALL_TIMEOUT_MS) / STALL_FADE_MS).min(1.0) } else { 0.0 };
-        // Exponential fade toward the target, one step per frame.
+        self.smooth_stall(raw_intensity, input.frame);
+
+        // The token counter moves smoothly toward the current turn's output token count; input totals are not shown.
+        let displayed = self.advance_counter(target, input.reduced_motion);
+        ProgressDisplay { elapsed_ms, stalled_intensity: self.stall_smooth, displayed_output_tokens: displayed }
+    }
+
+    /// The elapsed time of the turn without the time it spent paused; a new turn resets the pause accounting.
+    fn unpaused_elapsed_ms(&mut self, input: &ProgressInput<'_>) -> f64 {
+        let now = input.now;
+        if self.turn_anchor != input.started_at {
+            self.turn_anchor = input.started_at;
+            self.paused_total = 0.0;
+            self.pause_start = 0.0;
+        }
+        if input.paused && self.pause_start == 0.0 {
+            self.pause_start = now;
+        } else if !input.paused && self.pause_start != 0.0 {
+            self.paused_total += (now - self.pause_start).max(0.0);
+            self.pause_start = 0.0;
+        }
+        let paused_ms = self.paused_total + if self.pause_start != 0.0 { (now - self.pause_start).max(0.0) } else { 0.0 };
+        (input.raw_elapsed_ms - paused_ms).max(0.0)
+    }
+
+    /// Exponential fade toward the target, one step per frame.
+    fn smooth_stall(&mut self, raw_intensity: f64, frame: f64) {
         if raw_intensity > 0.0 || self.stall_smooth > 0.0 {
-            let dt = input.frame - self.last_stall_tick;
+            let dt = frame - self.last_stall_tick;
             if dt > 0.0 {
                 let mut current = self.stall_smooth;
                 let mut step = 0.0;
@@ -207,11 +221,7 @@ impl SpinnerProgress {
                 self.stall_smooth = current;
             }
         }
-        self.last_stall_tick = input.frame;
-
-        // The token counter moves smoothly toward the current turn's output token count; input totals are not shown.
-        let displayed = self.advance_counter(target, input.reduced_motion);
-        ProgressDisplay { elapsed_ms, stalled_intensity: self.stall_smooth, displayed_output_tokens: displayed }
+        self.last_stall_tick = frame;
     }
 
     fn advance_counter(&mut self, target: f64, reduced_motion: bool) -> f64 {

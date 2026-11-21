@@ -1,8 +1,3 @@
-//! A tool step is published as it happens. Nothing of it waits for a gate, for another call, or for its batch to end: the
-//! feed carries, in the order the session accepted them, the usage, the cards, a finished call's result, the batch's start, the
-//! person's own message, a notice and a toast, while a call of the batch is still blocked; a client that attaches then reads what
-//! the live feed told. Every check waits on an explicit barrier of the run (its `sent`/`go` channels), never on elapsed time.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -151,10 +146,6 @@ fn view_order(turn: &Turn) -> Vec<String> {
     turn.handle.cell.view.load_full().items.iter().map(|item: &Arc<ThreadItem>| item.id().as_str().to_owned()).collect()
 }
 
-/// The owner's case. Calls start as their blocks stream, so the first finishes while the second is still blocked, and the step's
-/// usage came after the first's gate; the ids the model request reported (a compat decoder's synthetic ones) are not the ones the
-/// batch returned. Before the blocked call is released the feed carries the usage, both cards, the first's result, the batch's
-/// start, a message the person sent and a toast; a framed consumer is told after each.
 #[tokio::test(start_paused = true)]
 async fn a_step_with_a_call_still_blocked_is_published_as_it_happens() {
     let mut turn = Turn::start(|port, mut barrier| async move {

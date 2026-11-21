@@ -286,7 +286,7 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
     let mut create = Host {
         directory: directory.clone(),
         projects: vec![ProjectRow { name: "App".into(), path: "C:/work/app".into() }],
-        folders: vec!["C:/proj/scratch".into()],
+        folders: vec![scratch()],
         new_task_default: None,
         worktree: Worktree::Entered,
         created: Mutex::default(),
@@ -335,9 +335,18 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
     Sending { tool: SessionTool::new(Arc::new(port), callers()), turns, homes, efforts, host: create, _data: data }
 }
 
+/// A folder the host sends sessions to, spelled as an absolute path of the system the test runs on.
+fn proj() -> &'static str {
+    if cfg!(windows) { "C:/proj" } else { "/proj" }
+}
+
+fn scratch() -> String {
+    format!("{}/scratch", proj())
+}
+
 impl Sending {
     async fn call(&self, caller: &str, surface: SurfaceKind, args: Value) -> (bool, String) {
-        let cwd = AbsPath::new("C:/proj").unwrap_or_else(|| AbsPath::new(std::env::temp_dir()).expect("absolute"));
+        let cwd = AbsPath::new(proj()).expect("absolute");
         let ctx = ToolContext { thread_id: ThreadId::from(caller), tool: "session".into(), surface, cwd, ..ctx() };
         match self.tool.call(&ctx, args).await {
             Ok(out) => match &out.parts[..] {
@@ -429,7 +438,7 @@ async fn create_starts_a_task_session_on_the_lead_route_and_sends_it_the_brief_a
     let answer = world.answer(json!({ "action": "create", "brief": "Port the parser.\nKeep the tests." })).await;
     assert_eq!(answer, json!({ "session_id": TASK, "status": "started", "title": "Port the parser.", "project": null }));
     let created = world.host.created.lock().expect("created");
-    assert_eq!((&created[0]["provider"], &created[0]["model"], &created[0]["cwd"]), (&json!("openai"), &json!("gpt-5"), &json!("C:/proj")));
+    assert_eq!((&created[0]["provider"], &created[0]["model"], &created[0]["cwd"]), (&json!("openai"), &json!("gpt-5"), &json!(proj())));
     assert_eq!(created[0]["desktopSession"], json!({ "classification": "task", "projectPath": null }));
     let origin = &created[0]["sessionProfile"]["taskOrigin"];
     assert_eq!(
@@ -483,8 +492,8 @@ async fn a_registered_projects_folder_is_where_the_task_starts_and_the_answer_na
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_folder_that_is_no_registered_project_is_used_when_it_exists_and_refused_when_it_does_not() {
     let world = sending(|_| {}).await;
-    let answer = world.answer(json!({ "action": "create", "brief": "Fix it.", "project": "C:/proj/scratch" })).await;
-    assert_eq!(answer["project"], "C:/proj/scratch");
+    let answer = world.answer(json!({ "action": "create", "brief": "Fix it.", "project": scratch() })).await;
+    assert_eq!(answer["project"], scratch());
     let missing = world.as_bot(json!({ "action": "create", "brief": "Fix it.", "project": "nowhere" })).await;
     assert_eq!(missing, (false, "session: \"nowhere\" is neither a registered Project nor an existing directory; run list-projects".to_owned()));
 }
@@ -515,7 +524,7 @@ async fn a_worktree_is_entered_before_the_brief_is_sent_and_named_when_asked() {
 async fn a_worktree_needs_a_registered_project_and_an_attended_conversation() {
     let world = sending(|_| {}).await;
     assert_eq!(
-        world.as_bot(json!({ "action": "create", "brief": "x", "project": "C:/proj/scratch", "worktree": { "mode": "worktree" } })).await,
+        world.as_bot(json!({ "action": "create", "brief": "x", "project": scratch(), "worktree": { "mode": "worktree" } })).await,
         (false, "session: WORKTREE_PROJECT_UNKNOWN: A worktree needs a registered Project; run list-projects.".to_owned())
     );
     assert_eq!(

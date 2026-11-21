@@ -1,12 +1,6 @@
-//! Leaked tool-call recovery (`providers/lib/leaked-toolcall.mjs`).
-//!
-//! A model sometimes writes a tool call as plain assistant text (`<invoke …>`,
-//! `<function_calls>`, Gemma `<function name=…>`, gpt-oss harmony
-//! `<|channel|>…to=functions.NAME…<|call|>`) instead of a structured call.
-//! The scanner suppresses the tags from the visible text and, when the payload
-//! names a tool the request offered, recovers a real call. Everything else is
-//! kept as text. The decoders feed their text through a [`LeakGuard`] and
-//! dispatch what it recovers through a [`Dedupe`].
+//! Leaked tool-call recovery: a model sometimes writes a tool call as text (`<invoke …>`, `<function_calls>`, Gemma
+//! `<function name=…>`, gpt-oss harmony `<|channel|>…to=functions.NAME…<|call|>`); a payload naming an offered tool is
+//! recovered as a real call.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;

@@ -1,10 +1,3 @@
-//! A media run on a chosen provider account (`provider-auth-binding.mjs` `withProviderAccount`,
-//! `lanes.mjs` `mediaLaneAccountProvider`): the pinned account of a lane is the one its
-//! credentials come from, for the whole listing or generation, while every other provider keeps
-//! its own selected account. Node scopes this with an async-local store; here the account is an
-//! explicit [`AccountScope`] the lane sources are built with ([`ScopedLaneSources`]), so nothing
-//! is ambient.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

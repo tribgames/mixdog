@@ -274,6 +274,31 @@ struct Entry {
     gate: Option<String>,
 }
 
+impl Entry {
+    fn created(abs: AbsPath, shown: String, added: usize, content: Vec<u8>) -> Self {
+        Self { kind: EKind::Create, abs, shown, added, removed: 0, content, before: None, js: true, native: None, error: None, gate: None }
+    }
+
+    fn deleted(abs: AbsPath, shown: String, removed: usize, before: Option<Vec<u8>>, js: bool, native: Option<NativeEntry>) -> Self {
+        Self { kind: EKind::Delete, abs, shown, added: 0, removed, content: Vec::new(), before, js, native, error: None, gate: None }
+    }
+
+    fn modified_native(
+        abs: AbsPath,
+        shown: String,
+        (added, removed): (usize, usize),
+        before: Option<Vec<u8>>,
+        native: NativeEntry,
+        gate: Option<String>,
+    ) -> Self {
+        Self { kind: EKind::Modify, abs, shown, added, removed, content: Vec::new(), before, js: false, native: Some(native), error: None, gate }
+    }
+
+    fn modified_js(abs: AbsPath, shown: String, (added, removed): (usize, usize), before: Option<Vec<u8>>, content: Vec<u8>, error: Option<String>) -> Self {
+        Self { kind: EKind::Modify, abs, shown, added, removed, content, before, js: true, native: None, error, gate: None }
+    }
+}
+
 struct RenameOp {
     src: AbsPath,
     dest: AbsPath,
@@ -296,106 +321,72 @@ struct RenameOp {
 async fn convert(ctx: &ToolContext, base: &AbsPath, section: &Section, fuzzy: bool, reject_partial: bool, notices: &mut Notices) -> R<Option<Entry>> {
     let abs = resolve_path(base, &section.path)?;
     let display = section.path.replace('\\', "/");
-    let out_of_base = !abs.as_path().starts_with(base.as_path());
-    let shown_path = normalize_output_path(&display);
-    let full_text = normalize_output_path(&abs.as_path().to_string_lossy());
     match section.kind {
-        Kind::Add => {
-            let mut content = section.lines.join("\n");
-            content.push('\n');
-            Ok(Some(Entry {
-                kind: EKind::Create,
-                abs,
-                shown: shown_path,
-                added: section.lines.len(),
-                removed: 0,
-                content: content.into_bytes(),
-                before: None,
-                js: true,
-                native: None,
-                error: None,
-                gate: None,
-            }))
-        }
-        Kind::Delete => {
-            // Only a file that reads as valid UTF-8 text within the snapshot limit has lines to show.
-            let bytes = read_present(ctx, &abs, SNAPSHOT_MAX_BYTES, true).await?;
-            let deleted_lines: Vec<String> = bytes
-                .as_deref()
-                .filter(|b| std::str::from_utf8(b).is_ok())
-                .and_then(|b| decode_patch_target(b).ok())
-                .map(|(text, _)| Lines::split(&text).text)
-                .unwrap_or_default();
-            let removed = deleted_lines.len();
-            let js = uses_js_writer(ctx, base, &abs, true).await?;
-            let native = (!js).then(|| NativeEntry::v4a(true, header_of(base, &abs, &display), abs.clone(), Vec::new(), deleted_lines));
-            Ok(Some(Entry {
-                kind: EKind::Delete,
-                abs,
-                shown: shown_path,
-                added: 0,
-                removed,
-                content: Vec::new(),
-                before: bytes,
-                js,
-                native,
-                error: None,
-                gate: None,
-            }))
-        }
-        Kind::Update => {
-            let bytes = match read_for_conversion(ctx, &abs).await? {
-                Ok(Some(bytes)) => bytes,
-                Ok(None) => return text_err(format!("V4A update target unreadable: {} (ENOENT).", section.path)),
-                Err(why) => return text_err(format!("V4A update target unreadable: {} ({why}).", section.path)),
-            };
-            let (text, codec) = decode_patch_target(&bytes)
-                .map_err(|reason| Stop::Text(format!("V4A update target unreadable: {} ({}).", section.path, decode_message(&reason, &full_text))))?;
-            let js = out_of_base || codec.encoding != Encoding::Utf8 || uses_js_writer(ctx, base, &abs, false).await?;
-            // The hunks are resolved the same way for both writers; only who applies them differs.
-            let hunks =
-                unified_update_hunks(&Lines::split(&text), &section.hunks, fuzzy, &section.path, &display, notices, reject_partial).map_err(Stop::Text)?;
-            if hunks.is_empty() {
-                return Ok(None);
-            }
-            let count = |tag: char| hunks.iter().flat_map(|h| &h.lines).filter(|l| l.starts_with(tag)).count();
-            let (added, removed) = (count('+'), count('-'));
-            if !js {
-                let native = NativeEntry::v4a(false, header_of(base, &abs, &display), abs.clone(), hunks, Vec::new());
-                return Ok(Some(Entry {
-                    kind: EKind::Modify,
-                    abs,
-                    shown: shown_path,
-                    added,
-                    removed,
-                    content: Vec::new(),
-                    before: Some(bytes),
-                    js: false,
-                    native: Some(native),
-                    error: None,
-                    gate: None,
-                }));
-            }
-            let fuzz = if fuzzy { 2 } else { 0 };
-            let (content, error) = match apply_unified_hunks(&Lines::split(&text), &hunks, fuzz, &shown_path) {
-                Ok(applied) => (encode_text(&applied.join(), codec), None),
-                Err(message) => (Vec::new(), Some(message)),
-            };
-            Ok(Some(Entry {
-                kind: EKind::Modify,
-                abs,
-                shown: shown_path,
-                added,
-                removed,
-                content,
-                before: Some(bytes),
-                js: true,
-                native: None,
-                error,
-                gate: None,
-            }))
-        }
+        Kind::Add => Ok(Some(add_entry(section, abs, &display))),
+        Kind::Delete => delete_entry(ctx, base, abs, &display).await.map(Some),
+        Kind::Update => update_entry(ctx, base, section, abs, &display, (fuzzy, reject_partial), notices).await,
     }
+}
+
+fn add_entry(section: &Section, abs: AbsPath, display: &str) -> Entry {
+    let mut content = section.lines.join("\n");
+    content.push('\n');
+    Entry::created(abs, normalize_output_path(display), section.lines.len(), content.into_bytes())
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn delete_entry(ctx: &ToolContext, base: &AbsPath, abs: AbsPath, display: &str) -> R<Entry> {
+    // Only a file that reads as valid UTF-8 text within the snapshot limit has lines to show.
+    let bytes = read_present(ctx, &abs, SNAPSHOT_MAX_BYTES, true).await?;
+    let deleted_lines: Vec<String> = bytes
+        .as_deref()
+        .filter(|b| std::str::from_utf8(b).is_ok())
+        .and_then(|b| decode_patch_target(b).ok())
+        .map(|(text, _)| Lines::split(&text).text)
+        .unwrap_or_default();
+    let removed = deleted_lines.len();
+    let js = uses_js_writer(ctx, base, &abs, true).await?;
+    let native = (!js).then(|| NativeEntry::v4a(true, header_of(base, &abs, display), abs.clone(), Vec::new(), deleted_lines));
+    Ok(Entry::deleted(abs, normalize_output_path(display), removed, bytes, js, native))
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn update_entry(
+    ctx: &ToolContext,
+    base: &AbsPath,
+    section: &Section,
+    abs: AbsPath,
+    display: &str,
+    (fuzzy, reject_partial): (bool, bool),
+    notices: &mut Notices,
+) -> R<Option<Entry>> {
+    let out_of_base = !abs.as_path().starts_with(base.as_path());
+    let shown_path = normalize_output_path(display);
+    let full_text = normalize_output_path(&abs.as_path().to_string_lossy());
+    let bytes = match read_for_conversion(ctx, &abs).await? {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return text_err(format!("V4A update target unreadable: {} (ENOENT).", section.path)),
+        Err(why) => return text_err(format!("V4A update target unreadable: {} ({why}).", section.path)),
+    };
+    let (text, codec) = decode_patch_target(&bytes)
+        .map_err(|reason| Stop::Text(format!("V4A update target unreadable: {} ({}).", section.path, decode_message(&reason, &full_text))))?;
+    let js = out_of_base || codec.encoding != Encoding::Utf8 || uses_js_writer(ctx, base, &abs, false).await?;
+    // The hunks are resolved the same way for both writers; only who applies them differs.
+    let hunks = unified_update_hunks(&Lines::split(&text), &section.hunks, fuzzy, &section.path, display, notices, reject_partial).map_err(Stop::Text)?;
+    if hunks.is_empty() {
+        return Ok(None);
+    }
+    let count = |tag: char| hunks.iter().flat_map(|h| &h.lines).filter(|l| l.starts_with(tag)).count();
+    let changed = (count('+'), count('-'));
+    if !js {
+        let native = NativeEntry::v4a(false, header_of(base, &abs, display), abs.clone(), hunks, Vec::new());
+        return Ok(Some(Entry::modified_native(abs, shown_path, changed, Some(bytes), native, None)));
+    }
+    let (content, error) = match apply_unified_hunks(&Lines::split(&text), &hunks, if fuzzy { 2 } else { 0 }, &shown_path) {
+        Ok(applied) => (encode_text(&applied.join(), codec), None),
+        Err(message) => (Vec::new(), Some(message)),
+    };
+    Ok(Some(Entry::modified_js(abs, shown_path, changed, Some(bytes), content, error)))
 }
 // ---- renames ----
 
@@ -570,6 +561,15 @@ fn delete_only_keys(targets: &[(AbsPath, bool)]) -> HashSet<String> {
     targets.iter().filter(|(p, delete)| *delete && !others.contains(&skey(p))).map(|(p, _)| skey(p)).collect()
 }
 
+/// The pre-patch state the review sees of a sequence's targets; nothing when no one is reviewing or the run is dry.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn snapshot_units(ctx: &ToolContext, opts: &Options, paths: &[AbsPath], targets: &[(AbsPath, bool)]) -> R<Vec<Snapshot>> {
+    if opts.dry || (ctx.review.is_none() && opts.state.is_none()) {
+        return Ok(Vec::new());
+    }
+    Ok(capture(ctx, paths, &delete_only_keys(targets)).await?.unwrap_or_default())
+}
+
 fn skey(abs: &AbsPath) -> String {
     mixdog_scm::locks::path_key(abs.as_path())
 }
@@ -712,12 +712,10 @@ async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: b
     }
 }
 
-/// Writes the renames and entries as one unit, or only checks them when `dry`. The error text is
-/// complete, including its `Error: ` prefix.
+/// Refuses, before anything is written, a binary or oversized edit target, an Add over an existing file and a JS-written
+/// delete of a missing one.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entries: &[Entry], opts: &Options, tx: &mut Tx) -> R<String> {
-    let (fuzzy, dry) = (opts.fuzzy, opts.dry);
-    // A binary or oversized target is refused before anything is written.
+async fn check_targets(ctx: &ToolContext, entries: &[Entry]) -> R<()> {
     for e in entries.iter().filter(|e| e.kind == EKind::Modify) {
         if let Some(refusal) = content_edit_refusal(ctx, &e.abs, &e.shown).await? {
             return text_err(format!("Error: {refusal}"));
@@ -742,6 +740,35 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
             EKind::Delete | EKind::Modify => {}
         }
     }
+    Ok(())
+}
+
+/// The error report of a native apply that skipped some files: the written ones summarised, each skipped one with the
+/// engine's reason and context.
+async fn native_partial_report(ctx: &ToolContext, units: &[NativeEntry], native: &[&Entry], skipped: &[(String, String)], fuzz: usize, dry: bool) -> String {
+    let skipped_names: Vec<String> = skipped.iter().flat_map(|(path, _)| [path.replace('\\', "/"), strip_diff_prefix(path).replace('\\', "/")]).collect();
+    let written: Vec<&Entry> =
+        native.iter().copied().filter(|e| !skipped_names.contains(&e.native.as_ref().map_or_else(String::new, |n| n.header.clone()))).collect();
+    let (verb, verb_label) = if dry { ("checked", "Checked") } else { ("applied", "Applied") };
+    let mut lines = vec![format!(
+        "Error: Patch Partially {verb_label} ({} {verb} · {} Skipped) (Native)",
+        count_label(written.len(), "File"),
+        count_label(skipped.len(), "File")
+    )];
+    lines.extend(summary(&written, false, dry).split('\n').skip(1).map(str::to_owned));
+    for (path, reason) in skipped {
+        let context = failure_context(ctx, units, path, fuzz).await;
+        lines.push(format!("  SKIP {} — {reason}{context}", if path.is_empty() { "(unknown)" } else { path.as_str() }));
+    }
+    lines.join("\n")
+}
+
+/// Writes the renames and entries as one unit, or only checks them when `dry`. The error text is
+/// complete, including its `Error: ` prefix.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entries: &[Entry], opts: &Options, tx: &mut Tx) -> R<String> {
+    let (fuzzy, dry) = (opts.fuzzy, opts.dry);
+    check_targets(ctx, entries).await?;
     // Deletes of files that are never snapshotted run last, as quarantine moves.
     let mut protected: Vec<&Entry> = Vec::new();
     if !dry {
@@ -776,22 +803,7 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
             Ok(stats) if !stats.failed.is_empty() => {
                 // Some files were skipped (`reject_partial: false`); the report is an error.
                 let skipped: Vec<(String, String)> = stats.failed.iter().map(|f| (f.descriptor.clone(), f.reason.clone())).collect();
-                let skipped_names: Vec<String> =
-                    skipped.iter().flat_map(|(path, _)| [path.replace('\\', "/"), strip_diff_prefix(path).replace('\\', "/")]).collect();
-                let written: Vec<&Entry> =
-                    native.iter().copied().filter(|e| !skipped_names.contains(&e.native.as_ref().map_or_else(String::new, |n| n.header.clone()))).collect();
-                let (verb, verb_label) = if dry { ("checked", "Checked") } else { ("applied", "Applied") };
-                let mut lines = vec![format!(
-                    "Error: Patch Partially {verb_label} ({} {verb} · {} Skipped) (Native)",
-                    count_label(written.len(), "File"),
-                    count_label(skipped.len(), "File")
-                )];
-                lines.extend(summary(&written, false, dry).split('\n').skip(1).map(str::to_owned));
-                for (path, reason) in &skipped {
-                    let context = failure_context(ctx, &units, path, fuzz).await;
-                    lines.push(format!("  SKIP {} — {reason}{context}", if path.is_empty() { "(unknown)" } else { path.as_str() }));
-                }
-                return Err(Stop::Text(lines.join("\n")));
+                return Err(Stop::Text(native_partial_report(ctx, &units, &native, &skipped, fuzz, dry).await));
             }
             Ok(_) => {
                 #[cfg(test)]
@@ -851,39 +863,48 @@ async fn apply_rename(ctx: &ToolContext, op: &RenameOp) -> R<()> {
     Ok(())
 }
 
-/// Writes the renames and the codec-preserving entries as one unit.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry]) -> R<()> {
-    let mut writes: Vec<WriteRequest> = Vec::new();
-    let mut removes: Vec<AbsPath> = Vec::new();
-    // A case-only rename names one file twice: it is rewritten where it is, then renamed.
-    let mut recased: Vec<(AbsPath, AbsPath)> = Vec::new();
+struct WritePlan {
+    writes: Vec<WriteRequest>,
+    removes: Vec<AbsPath>,
+    /// A case-only rename names one file twice: it is rewritten where it is, then renamed.
+    recased: Vec<(AbsPath, AbsPath)>,
+}
+
+fn plan_writes(renames: &[RenameOp], entries: &[&Entry]) -> WritePlan {
+    let mut plan = WritePlan { writes: Vec::new(), removes: Vec::new(), recased: Vec::new() };
     for op in renames {
         match (&op.dest_before, op.same_file) {
             (Some(before), true) => {
                 let path = if op.recase { op.src.clone() } else { op.dest.clone() };
-                writes.push(WriteRequest { path, content: op.content.clone(), precondition: WritePrecondition::ContentEquals(before.clone()) });
+                plan.writes.push(WriteRequest { path, content: op.content.clone(), precondition: WritePrecondition::ContentEquals(before.clone()) });
                 if op.recase {
-                    recased.push((op.src.clone(), op.dest.clone()));
+                    plan.recased.push((op.src.clone(), op.dest.clone()));
                 }
             }
             _ => {
-                writes.push(WriteRequest { path: op.dest.clone(), content: op.content.clone(), precondition: WritePrecondition::Absent });
-                removes.push(op.src.clone());
+                plan.writes.push(WriteRequest { path: op.dest.clone(), content: op.content.clone(), precondition: WritePrecondition::Absent });
+                plan.removes.push(op.src.clone());
             }
         }
     }
     for e in entries.iter().filter(|e| e.native.is_none()) {
         match e.kind {
-            EKind::Create => writes.push(WriteRequest { path: e.abs.clone(), content: e.content.clone(), precondition: WritePrecondition::Absent }),
-            EKind::Modify => writes.push(WriteRequest {
+            EKind::Create => plan.writes.push(WriteRequest { path: e.abs.clone(), content: e.content.clone(), precondition: WritePrecondition::Absent }),
+            EKind::Modify => plan.writes.push(WriteRequest {
                 path: e.abs.clone(),
                 content: e.content.clone(),
                 precondition: WritePrecondition::ContentEquals(e.before.clone().unwrap_or_default()),
             }),
-            EKind::Delete => removes.push(e.abs.clone()),
+            EKind::Delete => plan.removes.push(e.abs.clone()),
         }
     }
+    plan
+}
+
+/// Writes the renames and the codec-preserving entries as one unit.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry]) -> R<()> {
+    let WritePlan { writes, removes, recased } = plan_writes(renames, entries);
     // Nothing left to publish (the native engine wrote everything): no cancel check can call committed work aborted.
     if writes.is_empty() && removes.is_empty() {
         return Ok(());
@@ -1056,9 +1077,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     for unit in &units {
         targets.push((resolve_path(base, &unit.path)?, unit.kind == Kind::Delete));
     }
-    let delete_only = delete_only_keys(&targets);
-    let before =
-        if !dry && (ctx.review.is_some() || opts.state.is_some()) { capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default() } else { Vec::new() };
+    let before = snapshot_units(ctx, opts, &unit_paths, &targets).await?;
     let mut mutated: Vec<AbsPath> = Vec::new();
     let outcome: R<()> = async {
         for (i, unit) in units.iter().enumerate() {
@@ -1074,19 +1093,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
             // A rename runs as its own unit through the atomic rename executor, against the disk the
             // earlier units left behind.
             if unit.kind == Kind::Update && unit.move_path.is_some() {
-                let attempt = async {
-                    validate_rename(ctx, base, unit, &mut HashSet::new()).await?;
-                    let op = build_rename(ctx, base, unit, fuzzy).await?;
-                    if !dry {
-                        apply_rename(ctx, &op).await?;
-                    }
-                    R::Ok(if dry {
-                        format!("(dry-run) would rename {display} → {} (~{} lines touched)", op.shown_dest, op.lines_changed)
-                    } else {
-                        rename_line(&op, false)
-                    })
-                };
-                match attempt.await {
+                match rename_unit(ctx, base, unit, &display, opts).await {
                     Ok(text) => {
                         applied.push(text);
                         let (from, to) = (resolve_path(base, &unit.path)?, resolve_path(base, unit.move_path.as_deref().unwrap_or_default())?);
@@ -1137,6 +1144,17 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     Ok((wrap(&format!("{report}{tail}"), &mut notices), units))
 }
 
+/// A rename as its own sequence unit, through the atomic rename executor, against the disk the earlier units left behind.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn rename_unit(ctx: &ToolContext, base: &AbsPath, unit: &Section, display: &str, opts: &Options) -> R<String> {
+    validate_rename(ctx, base, unit, &mut HashSet::new()).await?;
+    let op = build_rename(ctx, base, unit, opts.fuzzy).await?;
+    if !opts.dry {
+        apply_rename(ctx, &op).await?;
+    }
+    Ok(if opts.dry { format!("(dry-run) would rename {display} → {} (~{} lines touched)", op.shown_dest, op.lines_changed) } else { rename_line(&op, false) })
+}
+
 /// A sequence unit the call's cancellation stopped: its writes check the token before each rename and published nothing
 /// of it, so it is a failed unit of the report (Node's `apply_patch aborted`), and the report still lists the units
 /// that were applied. Any other stop ends the run.
@@ -1164,53 +1182,58 @@ fn sequence_report(
         let head = format!("apply_patch: {} {} section(s)", if dry { "validated" } else { "applied" }, count);
         if applied_texts.is_empty() { head } else { format!("{head}\n{applied_texts}") }
     } else if !continue_after_failure {
-        let (index, failed_display, error) = &failures[0];
-        let committed = if dry {
-            format!("{} earlier section(s) were validated", applied.len())
-        } else {
-            format!("{} earlier section(s) were applied to disk (committed) and left in place", applied.len())
-        };
-        let mut lines = vec![format!(
-            "Error: apply_patch sequence stopped at section {}/{} ({failed_display}); {committed}; {} later section(s) were skipped (not attempted).",
-            index + 1,
-            count,
-            skipped.len()
-        )];
-        if !dry {
-            lines.push("Retry only the failed and skipped sections; do not resend committed sections.".to_owned());
-        }
-        if !applied_texts.is_empty() {
-            lines.push(format!("--- {} ---", if dry { "validated" } else { "applied (committed to disk)" }));
-            lines.push(applied_texts);
-        }
-        lines.push(format!("--- failed section: {failed_display} ---"));
-        lines.push(strip_error_prefix(error).to_owned());
-        if !skipped.is_empty() {
-            lines.push(format!("--- skipped (not attempted): {} ---", skipped.join(", ")));
-        }
-        lines.join("\n")
+        stopped_report(count, applied.len(), applied_texts, &failures[0], skipped, dry)
     } else {
-        let phrase = if dry {
-            format!("{}/{} file section(s) validated", applied.len(), count)
-        } else {
-            format!("{}/{} file(s) applied to disk (committed)", applied.len(), count)
-        };
-        let mut lines = vec![
-            format!("Error: apply_patch file-level partial: {phrase}; {} file(s) rejected and left unchanged.", failures.len()),
-            "Retry only the rejected files; do not resend committed files.".to_owned(),
-        ];
-        if !applied_texts.is_empty() {
-            lines.push(format!("--- {} ---", if dry { "validated" } else { "applied (committed to disk)" }));
-            lines.push(applied_texts);
-        }
-        for (i, display, error) in failures {
-            lines.push(format!("--- rejected file {}/{}: {display} ---", i + 1, count));
-            lines.push(strip_error_prefix(error).to_owned());
-        }
-        lines.join("\n")
+        partial_report(count, applied.len(), applied_texts, failures, dry)
     };
     let note = if dry && count > 1 { DRY_SEQUENCE_NOTE } else { "" };
     format!("{report}{note}")
+}
+
+fn push_applied(lines: &mut Vec<String>, applied_texts: String, dry: bool) {
+    if !applied_texts.is_empty() {
+        lines.push(format!("--- {} ---", if dry { "validated" } else { "applied (committed to disk)" }));
+        lines.push(applied_texts);
+    }
+}
+
+fn stopped_report(count: usize, applied: usize, applied_texts: String, failed: &(usize, String, String), skipped: &[String], dry: bool) -> String {
+    let (index, failed_display, error) = failed;
+    let committed = if dry {
+        format!("{applied} earlier section(s) were validated")
+    } else {
+        format!("{applied} earlier section(s) were applied to disk (committed) and left in place")
+    };
+    let mut lines = vec![format!(
+        "Error: apply_patch sequence stopped at section {}/{} ({failed_display}); {committed}; {} later section(s) were skipped (not attempted).",
+        index + 1,
+        count,
+        skipped.len()
+    )];
+    if !dry {
+        lines.push("Retry only the failed and skipped sections; do not resend committed sections.".to_owned());
+    }
+    push_applied(&mut lines, applied_texts, dry);
+    lines.push(format!("--- failed section: {failed_display} ---"));
+    lines.push(strip_error_prefix(error).to_owned());
+    if !skipped.is_empty() {
+        lines.push(format!("--- skipped (not attempted): {} ---", skipped.join(", ")));
+    }
+    lines.join("\n")
+}
+
+fn partial_report(count: usize, applied: usize, applied_texts: String, failures: &[(usize, String, String)], dry: bool) -> String {
+    let phrase = if dry { format!("{applied}/{count} file section(s) validated") } else { format!("{applied}/{count} file(s) applied to disk (committed)") };
+    let mut lines = vec![
+        format!("Error: apply_patch file-level partial: {phrase}; {} file(s) rejected and left unchanged.", failures.len()),
+        "Retry only the rejected files; do not resend committed files.".to_owned(),
+    ];
+    push_applied(&mut lines, applied_texts, dry);
+    for (i, display, error) in failures {
+        lines.push(format!("--- rejected file {}/{}: {display} ---", i + 1, count));
+        lines.push(strip_error_prefix(error).to_owned());
+    }
+    lines.join("\n")
 }
 
 fn strip_error_prefix(error: &str) -> &str {
@@ -1229,60 +1252,11 @@ impl ApplyPatchTool {
         if is_error_text(&output) {
             return output;
         }
-        let mut repeats: Vec<&Section> = Vec::new();
-        {
-            let mut seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
-            let scope = ctx.thread_id.as_str().to_owned();
-            let at = match seen.iter().position(|(s, _)| *s == scope) {
-                Some(at) => at,
-                None => {
-                    seen.push((scope, Vec::new()));
-                    while seen.len() > SEEN_SCOPES_CAP {
-                        seen.remove(0);
-                    }
-                    seen.len() - 1
-                }
-            };
-            for section in sections.iter().filter(|s| s.kind == Kind::Update && !s.hunks.is_empty()) {
-                let target = section.move_path.as_deref().unwrap_or(&section.path);
-                let Ok(abs) = resolve_path(base, target) else { continue };
-                let key = path_key(&abs);
-                if seen[at].1.contains(&key) {
-                    repeats.push(section);
-                } else {
-                    seen[at].1.push(key);
-                    while seen[at].1.len() > SEEN_FILES_CAP {
-                        seen[at].1.remove(0);
-                    }
-                }
-            }
-        }
-        if repeats.is_empty() {
-            return output;
-        }
+        let repeats = self.repeat_sections(ctx, base, sections);
         let mut chunks: Vec<String> = Vec::new();
         let mut chars = 0usize;
         for section in repeats.into_iter().take(EXCERPT_MAX_FILES) {
-            let target = section.move_path.as_deref().unwrap_or(&section.path);
-            let Ok(abs) = resolve_path(base, target) else { continue };
-            let Ok(Some(bytes)) = read_opt(ctx, &abs).await else { continue };
-            let file_lines: Vec<String> = String::from_utf8_lossy(&bytes).replace("\r\n", "\n").split('\n').map(str::to_owned).collect();
-            let new_side: Vec<String> =
-                section.hunks[0].lines.iter().filter(|l| matches!(l.as_bytes().first(), Some(b' ' | b'+'))).map(|l| l[1..].to_owned()).collect();
-            if new_side.is_empty() {
-                continue;
-            }
-            let Some(at) = (0..file_lines.len().saturating_sub(new_side.len() - 1)).find(|i| file_lines[*i..*i + new_side.len()] == new_side[..]) else {
-                continue;
-            };
-            let shown_n = new_side.len().min(EXCERPT_MAX_LINES);
-            let mut rows: Vec<String> = (0..shown_n).map(|i| format!("{:>5}| {}", at + i + 1, file_lines[at + i])).collect();
-            if new_side.len() > shown_n {
-                rows.push("     | …".to_owned());
-            }
-            let extra = section.hunks.len() - 1;
-            let more = if extra > 0 { format!(" (+{extra} more {})", if extra == 1 { "hunk" } else { "hunks" }) } else { String::new() };
-            let block = format!("{} lines {}-{}{more}:\n{}", target.replace('\\', "/"), at + 1, at + shown_n, rows.join("\n"));
+            let Some(block) = excerpt_block(ctx, base, section).await else { continue };
             chars += mixdog_js::utf16_len(&block);
             if chars > EXCERPT_MAX_CHARS {
                 break;
@@ -1294,6 +1268,59 @@ impl ApplyPatchTool {
         }
         format!("{output}\npost-patch state (verbatim — use for follow-up patches):\n{}", chunks.join("\n"))
     }
+
+    /// The sections whose file this thread already patched; the others are remembered as patched.
+    fn repeat_sections<'a>(&self, ctx: &ToolContext, base: &AbsPath, sections: &'a [Section]) -> Vec<&'a Section> {
+        let mut repeats: Vec<&Section> = Vec::new();
+        let mut seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
+        let scope = ctx.thread_id.as_str().to_owned();
+        let at = match seen.iter().position(|(s, _)| *s == scope) {
+            Some(at) => at,
+            None => {
+                seen.push((scope, Vec::new()));
+                while seen.len() > SEEN_SCOPES_CAP {
+                    seen.remove(0);
+                }
+                seen.len() - 1
+            }
+        };
+        for section in sections.iter().filter(|s| s.kind == Kind::Update && !s.hunks.is_empty()) {
+            let target = section.move_path.as_deref().unwrap_or(&section.path);
+            let Ok(abs) = resolve_path(base, target) else { continue };
+            let key = path_key(&abs);
+            if seen[at].1.contains(&key) {
+                repeats.push(section);
+            } else {
+                seen[at].1.push(key);
+                while seen[at].1.len() > SEEN_FILES_CAP {
+                    seen[at].1.remove(0);
+                }
+            }
+        }
+        repeats
+    }
+}
+
+/// The span the section's first hunk wrote, as it is on disk now, under its `path lines a-b` heading.
+async fn excerpt_block(ctx: &ToolContext, base: &AbsPath, section: &Section) -> Option<String> {
+    let target = section.move_path.as_deref().unwrap_or(&section.path);
+    let abs = resolve_path(base, target).ok()?;
+    let Ok(Some(bytes)) = read_opt(ctx, &abs).await else { return None };
+    let file_lines: Vec<String> = String::from_utf8_lossy(&bytes).replace("\r\n", "\n").split('\n').map(str::to_owned).collect();
+    let new_side: Vec<String> =
+        section.hunks[0].lines.iter().filter(|l| matches!(l.as_bytes().first(), Some(b' ' | b'+'))).map(|l| l[1..].to_owned()).collect();
+    if new_side.is_empty() {
+        return None;
+    }
+    let at = (0..file_lines.len().saturating_sub(new_side.len() - 1)).find(|i| file_lines[*i..*i + new_side.len()] == new_side[..])?;
+    let shown_n = new_side.len().min(EXCERPT_MAX_LINES);
+    let mut rows: Vec<String> = (0..shown_n).map(|i| format!("{:>5}| {}", at + i + 1, file_lines[at + i])).collect();
+    if new_side.len() > shown_n {
+        rows.push("     | …".to_owned());
+    }
+    let extra = section.hunks.len() - 1;
+    let more = if extra > 0 { format!(" (+{extra} more {})", if extra == 1 { "hunk" } else { "hunks" }) } else { String::new() };
+    Some(format!("{} lines {}-{}{more}:\n{}", target.replace('\\', "/"), at + 1, at + shown_n, rows.join("\n")))
 }
 
 fn error_code(text: &str) -> ToolErrorCode {
@@ -1370,6 +1397,41 @@ fn thrown(code: ToolErrorCode, message: &str) -> ToolError {
     fail(code, format!("Error: {message}"))
 }
 
+enum Parsed {
+    /// V4A sections, and whether repeated sections of one file merge (only a genuine V4A body does).
+    Sections(Vec<Section>, bool),
+    Unified(Vec<UFile>),
+}
+
+fn parse_failed(text: String) -> ToolError {
+    fail(error_code(&text), text)
+}
+
+/// Reads the patch as the format asked for, else as the one it looks like; a counted unified diff whose counts are wrong
+/// falls back to a V4A reading.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+fn parse_request(patch: &str, requested: &str) -> Result<Parsed, ToolError> {
+    if requested == "v4a" || is_v4a(patch) {
+        return parse_v4a(patch).map(|s| Parsed::Sections(s, true)).map_err(|e| parse_failed(format!("Error: apply_patch: V4A parse failed — {e}")));
+    }
+    if requested != "unified" && has_bare_hunk(patch) {
+        return parse_unified_as_v4a(patch, UnifiedAnchors::Bare)
+            .map(|s| Parsed::Sections(s, false))
+            .map_err(|e| parse_failed(format!("Error: apply_patch: bare @@ parse failed — {e}")));
+    }
+    let prepared = patch.strip_prefix('\u{FEFF}').unwrap_or(patch).replace("\r\n", "\n");
+    let message = match parse_patch(&prepared) {
+        Ok(files) => return Ok(Parsed::Unified(files)),
+        Err(message) => message,
+    };
+    if !can_fall_back_counted(patch, requested, &message) {
+        return Err(parse_failed(format!("Error: apply_patch: parse failed — {message}; prefer V4A envelope for multi-hunk edits (no @@ line counts)")));
+    }
+    parse_unified_as_v4a(patch, UnifiedAnchors::Counted)
+        .map(|s| Parsed::Sections(s, false))
+        .map_err(|fallback| parse_failed(format!("Error: apply_patch: parse failed — {message}; V4A fallback failed — {fallback}")))
+}
+
 #[async_trait]
 impl Tool for ApplyPatchTool {
     fn spec(&self) -> &ToolSpec {
@@ -1414,35 +1476,9 @@ impl Tool for ApplyPatchTool {
             None => ctx.cwd.clone(),
         };
         let opts = Options { fuzzy, reject_partial, dry: dry_run, state: self.state.clone() };
-        let parse_failed = |text: String| fail(error_code(&text), text);
-        let (sections, coalesce_sections) = if requested == "v4a" || is_v4a(patch) {
-            match parse_v4a(patch) {
-                Ok(s) => (s, true),
-                Err(e) => return Err(parse_failed(format!("Error: apply_patch: V4A parse failed — {e}"))),
-            }
-        } else if requested != "unified" && has_bare_hunk(patch) {
-            match parse_unified_as_v4a(patch, UnifiedAnchors::Bare) {
-                Ok(s) => (s, false),
-                Err(e) => return Err(parse_failed(format!("Error: apply_patch: bare @@ parse failed — {e}"))),
-            }
-        } else {
-            let prepared = patch.strip_prefix('\u{FEFF}').unwrap_or(patch).replace("\r\n", "\n");
-            match parse_patch(&prepared) {
-                Ok(files) => return self.call_unified(ctx, &base, files, &opts, ordered).await,
-                Err(message) => {
-                    if !can_fall_back_counted(patch, &requested, &message) {
-                        return Err(parse_failed(format!(
-                            "Error: apply_patch: parse failed — {message}; prefer V4A envelope for multi-hunk edits (no @@ line counts)"
-                        )));
-                    }
-                    match parse_unified_as_v4a(patch, UnifiedAnchors::Counted) {
-                        Ok(s) => (s, false),
-                        Err(fallback) => {
-                            return Err(parse_failed(format!("Error: apply_patch: parse failed — {message}; V4A fallback failed — {fallback}")));
-                        }
-                    }
-                }
-            }
+        let (sections, coalesce_sections) = match parse_request(patch, &requested)? {
+            Parsed::Unified(files) => return self.call_unified(ctx, &base, files, &opts, ordered).await,
+            Parsed::Sections(sections, coalesce) => (sections, coalesce),
         };
         let sections = redirect_sections(ctx, &base, sections).await?;
         let mut touched: Vec<AbsPath> = Vec::new();
@@ -1564,14 +1600,12 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
     if files.is_empty() {
         return text_err("Error: patch contained no file sections");
     }
-    let mut seen: Vec<(String, String)> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for file in &files {
         let Some(name) = target_name(file) else { continue };
-        let key = path_key(&resolve_path(base, strip_diff_prefix(name))?);
-        if seen.iter().any(|(k, _)| *k == key) {
+        if !seen.insert(path_key(&resolve_path(base, strip_diff_prefix(name))?)) {
             return text_err(format!("Error: apply_patch: multiple operations target {}", strip_diff_prefix(name).replace('\\', "/")));
         }
-        seen.push((key, name.to_owned()));
     }
     let mut entries = Vec::new();
     for file in &files {
@@ -1599,37 +1633,13 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
             UKind::Create => {
                 let mut content = lines().filter_map(|l| l.strip_prefix('+')).collect::<Vec<_>>().join("\n");
                 content.push('\n');
-                entries.push(Entry {
-                    kind: EKind::Create,
-                    abs,
-                    shown: shown_path,
-                    added,
-                    removed: 0,
-                    content: content.into_bytes(),
-                    before: None,
-                    js: true,
-                    native: None,
-                    error: None,
-                    gate: None,
-                });
+                entries.push(Entry::created(abs, shown_path, added, content.into_bytes()));
             }
             UKind::Delete => {
                 let before = read_present(ctx, &abs, SNAPSHOT_MAX_BYTES, true).await?;
                 let js = uses_js_writer(ctx, base, &abs, true).await?;
                 let native = (!js).then(|| native_entry(true));
-                entries.push(Entry {
-                    kind: EKind::Delete,
-                    abs,
-                    shown: shown_path,
-                    added: 0,
-                    removed,
-                    content: Vec::new(),
-                    before,
-                    js,
-                    native,
-                    error: None,
-                    gate: None,
-                });
+                entries.push(Entry::deleted(abs, shown_path, removed, before, js, native));
             }
             UKind::Modify => {
                 // Bytes the codec check can read; a file past the edit limit or absent is left to
@@ -1643,21 +1653,9 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
                     _ => None,
                 };
                 if !js {
-                    let native = native_entry(false);
                     let gate = decode_failure(&decoded);
-                    entries.push(Entry {
-                        kind: EKind::Modify,
-                        abs,
-                        shown: shown_path,
-                        added,
-                        removed,
-                        content: Vec::new(),
-                        before: bytes,
-                        js: false,
-                        native: Some(native),
-                        error: None,
-                        gate,
-                    });
+                    let native = native_entry(false);
+                    entries.push(Entry::modified_native(abs, shown_path, (added, removed), bytes, native, gate));
                     continue;
                 }
                 let (content, error) = match decoded {
@@ -1673,19 +1671,7 @@ async fn unified_entries(ctx: &ToolContext, base: &AbsPath, files: Vec<UFile>, f
                         (Vec::new(), Some(message))
                     }
                 };
-                entries.push(Entry {
-                    kind: EKind::Modify,
-                    abs,
-                    shown: shown_path,
-                    added,
-                    removed,
-                    content,
-                    before: bytes,
-                    js: true,
-                    native: None,
-                    error,
-                    gate: None,
-                });
+                entries.push(Entry::modified_js(abs, shown_path, (added, removed), bytes, content, error));
             }
         }
     }
@@ -1751,12 +1737,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
             targets.push((resolve_path(base, strip_diff_prefix(name))?, classify(file) == UKind::Delete));
         }
     }
-    let delete_only = delete_only_keys(&targets);
-    let before = if !opts.dry && (ctx.review.is_some() || opts.state.is_some()) {
-        capture(ctx, &unit_paths, &delete_only).await?.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let before = snapshot_units(ctx, opts, &unit_paths, &targets).await?;
     let mut mutated: Vec<AbsPath> = Vec::new();
     let outcome: R<()> = async {
         for (i, file) in files.into_iter().enumerate() {

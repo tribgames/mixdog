@@ -306,11 +306,6 @@ fn provider_aliases_gpt_versions_and_claude_order_are_the_documented_ones() {
     }
 }
 
-/// A web-search route as the documented rules normalise it (Node 1.4.5): the provider alias and the model are
-/// canonical and trimmed, an unknown effort or a non-boolean `fast` is dropped, the first candidate that names a route
-/// wins, and each way a fallback chain is wrong is refused in its own words. The text is compared, so the field order is
-/// part of the rule. Per row: the candidates, the route or the refusal, whether it is the default route, its whole chain
-/// and the fallbacks that execute after it.
 #[test]
 fn a_web_search_route_is_normalised_and_its_chain_checked_as_documented() {
     #[allow(clippy::type_complexity)]

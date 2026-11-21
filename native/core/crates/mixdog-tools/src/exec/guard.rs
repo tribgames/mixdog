@@ -1,4 +1,4 @@
-//! Guards against shell-tool misuse (`bash-tool/misuse-guard.mjs`, `worktree-add-guard.mjs`), run
+//! Guards against shell-tool misuse, run
 //! before policy, hooks and execution:
 //!   1. a leading whole-second sleep of 2 s or more is rejected (a wait belongs to background +
 //!      task wait);
@@ -9,8 +9,7 @@
 //!      hint is the refusal of [guard_call], issued when `cover::covering_tool_calls` proves the
 //!      whole command (every statement, flag and pipeline stage) is covered and the session offers
 //!      the named tool; it names the tool and its arguments. A command with a part no tool covers
-//!      runs without a note (Node's generic "use the read / grep / list tools" note and its
-//!      "Moved `cd …` into cwd." note are deliberately gone);
+//!      runs without a note;
 //!   4. a command mentioning `git … worktree add` is rejected (worktrees go through the git
 //!      tool; a textual check, so mentions as data are too).
 

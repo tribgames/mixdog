@@ -1,9 +1,3 @@
-//! The surfaces' control of the background shells of one thread: the structured stop of one job
-//! or of all of them (`stopBackgroundShellJob`, `stopBackgroundShellJobs`), the list `/stop`
-//! shows (`listStoppableShellJobs`), and the owner-wide cancel of a closing session
-//! (`cancelOwnedShellTrees` plus `cancelBackgroundTasks({surface: 'shell'})`). The cancel is the
-//! `task` tool's own, so a shell has one kill route.
-
 use std::sync::Arc;
 
 use mixdog_core_api::domain::process::ProcessManager;

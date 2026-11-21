@@ -380,6 +380,28 @@ fn same_window_lineage(previous: &DeltaState, window_id: &str, opts: &DeltaOptio
 
 /// Anything that cannot be proven a continuation (no baseline, another window or read, a dialog, a generation that did not
 /// advance, OCR rows, a delta no smaller) answers none and resets the baseline to this full list.
+/// The delta of the live `rows` against what the model holds, or `None` when it would not be shorter than the full list.
+fn delta_against(previous: &DeltaState, rows: &[(String, String, &Value)], elements: &[Value]) -> Option<Value> {
+    let held_prints: Vec<&str> = previous.held.iter().map(|held| held.fingerprint.as_str()).collect();
+    let live_prints: Vec<&str> = rows.iter().map(|(_, fingerprint, _)| fingerprint.as_str()).collect();
+    let pairs = align_rows(&pairable_keys(&held_prints, &live_prints, "held"), &pairable_keys(&live_prints, &held_prints, "live"));
+    let live_paired: HashSet<usize> = pairs.iter().map(|(_, live)| *live).collect();
+    let kept_held: HashSet<usize> = pairs.iter().map(|(held, _)| *held).collect();
+    let added: Vec<Value> = rows.iter().enumerate().filter(|(index, _)| !live_paired.contains(index)).map(|(_, (_, _, row))| delta_row(row)).collect();
+    let removed: Vec<Value> = previous.held.iter().enumerate().filter(|(index, _)| !kept_held.contains(index)).map(|(_, held)| json!(held.reference)).collect();
+    let named: Vec<(&str, &str)> = pairs.iter().map(|(held, live)| (previous.held[*held].reference.as_str(), rows[*live].0.as_str())).collect();
+    let mut delta = Map::new();
+    delta.insert("unchanged".into(), json!(pair_runs(&named)));
+    if !added.is_empty() {
+        delta.insert("added".into(), Value::Array(added));
+    }
+    if !removed.is_empty() {
+        delta.insert("removed".into(), Value::Array(removed));
+    }
+    let delta = Value::Object(delta);
+    (json_length(&delta) < json_length(&elements)).then_some(delta)
+}
+
 fn record_observation(
     store: &mut HashMap<String, DeltaState>,
     session: &str,
@@ -408,27 +430,7 @@ fn record_observation(
                 && same_window_lineage(previous, window_id, opts, generation, now)
                 && !previous.held.iter().any(|held| live_refs.contains(held.reference.as_str()))
         })
-        .and_then(|previous| {
-            let held_prints: Vec<&str> = previous.held.iter().map(|held| held.fingerprint.as_str()).collect();
-            let live_prints: Vec<&str> = rows.iter().map(|(_, fingerprint, _)| fingerprint.as_str()).collect();
-            let pairs = align_rows(&pairable_keys(&held_prints, &live_prints, "held"), &pairable_keys(&live_prints, &held_prints, "live"));
-            let live_paired: HashSet<usize> = pairs.iter().map(|(_, live)| *live).collect();
-            let kept_held: HashSet<usize> = pairs.iter().map(|(held, _)| *held).collect();
-            let added: Vec<Value> = rows.iter().enumerate().filter(|(index, _)| !live_paired.contains(index)).map(|(_, (_, _, row))| delta_row(row)).collect();
-            let removed: Vec<Value> =
-                previous.held.iter().enumerate().filter(|(index, _)| !kept_held.contains(index)).map(|(_, held)| json!(held.reference)).collect();
-            let named: Vec<(&str, &str)> = pairs.iter().map(|(held, live)| (previous.held[*held].reference.as_str(), rows[*live].0.as_str())).collect();
-            let mut delta = Map::new();
-            delta.insert("unchanged".into(), json!(pair_runs(&named)));
-            if !added.is_empty() {
-                delta.insert("added".into(), Value::Array(added));
-            }
-            if !removed.is_empty() {
-                delta.insert("removed".into(), Value::Array(removed));
-            }
-            let delta = Value::Object(delta);
-            (json_length(&delta) < json_length(&elements)).then(|| (delta, previous.consecutive_deltas + 1))
-        });
+        .and_then(|previous| delta_against(previous, &rows, elements).map(|delta| (delta, previous.consecutive_deltas + 1)));
     // The model applies a delta reply to its list, so it then holds exactly the live refs published here: the next delta
     // addresses these, not older ones.
     let (delta, consecutive_deltas) = match delta {

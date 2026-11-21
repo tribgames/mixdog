@@ -1,12 +1,3 @@
-//! The idle maintenance schedule, from `maintenance.rs`, in scripted timelines (times are milliseconds after a fixed start):
-//!
-//! - a task is registered due `initial_delay` after the registration time (`register_task`, line 401);
-//! - a tick runs the tasks whose due time is at or before the tick's time (line 467), in registration order (line 406);
-//! - the next due time is the tick's own time plus the interval, set before the task runs (line 488), so a task that ran
-//!   late runs late again rather than catching up;
-//! - the idle probe is asked before every task; a busy answer ends the tick with `busy` and leaves the due time as it was
-//!   (lines 481-482), so the task runs at the first idle tick;
-//! - a task that fails is reported to its `on_error` (line 493), keeps its next due time, and runs again at it.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

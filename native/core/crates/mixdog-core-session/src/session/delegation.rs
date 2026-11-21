@@ -1,17 +1,3 @@
-//! The bot chain a session acts in and the delegation a sub-agent works under, as Node keeps them.
-//!
-//! - The turn state (`runtime/shared/bot-hops.mjs`): `turnHop` and `turnBotChain` are stamped on
-//!   the session when a turn is prepared from its submission (`stampTurnHop`, called by
-//!   `ask-turn-execute.mjs:171`), raised when a bot's message is steered into the running turn
-//!   (`raiseTurnHop`, `loop/steering.mjs:145`), and read by `delegationChainOf`
-//!   (`session-runtime/bot-chain.mjs:21`) and the send tools. They live on the in-memory session
-//!   and are never persisted; here they are the [`TurnState`] of the session's control cell.
-//! - The `delegation` record (`human-gate/delegation.mjs`): `{ rootSessionId, via, path }`, written
-//!   to the new session's record at creation (`session-record.mjs:114`, [`delegation_for_new_session`])
-//!   and re-bound, with the `run` stamp, when another session sends it work
-//!   ([`rebind_patch`], `rebindDelegation`, delegation.mjs:196). The record is the session header,
-//!   so the stored fields are `delegation` and `run`.
-
 use std::collections::HashSet;
 use std::sync::Mutex;
 

@@ -1,9 +1,3 @@
-//! The earlier daemon's trace database, read for the usage rows it still holds. The database is
-//! opened as it was left (a running cluster named by its `postmaster.pid`), in one read-only
-//! repeatable-read transaction, and nothing in it is changed or repaired. A cluster that is
-//! named but cannot be reached is an error, not absence: importing without it would mark a
-//! history complete that is not.
-
 use std::future::Future;
 use std::pin::Pin;
 use std::task::Poll;

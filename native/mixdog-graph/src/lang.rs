@@ -4,10 +4,6 @@
 // language exists here exactly when the registry says it has graph extensions
 // AND outline rules. Adding a language starts in `scan_lang.rs` plus a rule
 // file.
-//
-// There is no comment/string masking layer any more: tokens, symbols and the
-// standalone symbol search all read the parse tree, where a comment or a
-// string body simply is not an identifier node.
 
 use crate::scan_lang::{self, LANG_INFOS};
 

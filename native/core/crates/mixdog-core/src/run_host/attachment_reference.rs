@@ -296,20 +296,27 @@ impl ReferencedMedia {
             Ok(path) => path,
             Err(()) => self.files.blob_path(&reference).ok()?,
         };
-        let mut meta = serde_json::Map::new();
-        meta.insert("attachmentRef".into(), serde_json::Value::String(reference.clone()));
-        meta.insert("kind".into(), serde_json::Value::String(if image { "image" } else { "pdf" }.to_owned()));
-        meta.insert("filename".into(), serde_json::Value::String(info.filename.clone()));
-        meta.insert("mimeType".into(), serde_json::Value::String(info.mime_type.clone()));
-        meta.insert("sizeBytes".into(), serde_json::Value::from(info.size_bytes));
-        if info.page_count > 0 {
-            meta.insert("pageCount".into(), serde_json::Value::from(info.page_count));
-        }
-        if let Some(pages) = info.text_pages {
-            meta.insert("textPages".into(), serde_json::Value::from(pages));
-        }
-        Some(ContentPart::Text(if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) }, Some(meta)))
+        Some(ContentPart::Text(
+            if image { image_reference_text(&info, &path) } else { pdf_reference_text(&info, &path) },
+            Some(reference_meta(&reference, image, &info)),
+        ))
     }
+}
+
+fn reference_meta(reference: &str, image: bool, info: &Info) -> serde_json::Map<String, serde_json::Value> {
+    let mut meta = serde_json::Map::new();
+    meta.insert("attachmentRef".into(), serde_json::Value::String(reference.to_owned()));
+    meta.insert("kind".into(), serde_json::Value::String(if image { "image" } else { "pdf" }.to_owned()));
+    meta.insert("filename".into(), serde_json::Value::String(info.filename.clone()));
+    meta.insert("mimeType".into(), serde_json::Value::String(info.mime_type.clone()));
+    meta.insert("sizeBytes".into(), serde_json::Value::from(info.size_bytes));
+    if info.page_count > 0 {
+        meta.insert("pageCount".into(), serde_json::Value::from(info.page_count));
+    }
+    if let Some(pages) = info.text_pages {
+        meta.insert("textPages".into(), serde_json::Value::from(pages));
+    }
+    meta
 }
 
 #[async_trait]

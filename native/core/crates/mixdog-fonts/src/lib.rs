@@ -1,7 +1,3 @@
-//! Integration status: metadata and immutable registration are verified independently.
-//! Measurement still awaits the exact text kernel and strict all-metric reference replay;
-//! the historical relaxed twin is not activation evidence.
-//!
 //! The font half of `@napi-rs/canvas` (`GlobalFonts` and `measureText`) and of fontkit, in Rust.
 //!
 //! * [`face`] reads a ttf, otf or ttc face: names, the weight/width/slant a font manager files it under, metrics,

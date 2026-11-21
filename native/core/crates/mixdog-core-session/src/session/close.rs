@@ -1,9 +1,3 @@
-//! `closeSession(id, reason)` with its tombstone (1.4.5 `session-close.mjs`,
-//! `store/lifecycle-barriers.mjs` `markSessionClosedAttempt`): the durable tombstone first, and
-//! only once it landed the running turn is aborted, the queued input dropped, the provider
-//! connections closed and the runtime cleared. A tombstone that did not land changes nothing
-//! else.
-
 use std::sync::Arc;
 
 use mixdog_ai::registry::providers::ProviderRegistry;
@@ -168,6 +162,35 @@ pub(crate) async fn stop_session_work(
     shells.cancel_owned(thread);
     abort_and_drop(directory, thread, reason, caller).await;
     read_state.release_session(thread.as_str());
+}
+
+/// [`stop_session_work`] of a thread a close found idle, done only if it still is: decided at the thread's start gate, so a
+/// turn either started first (`false`: nothing of the thread is touched) or starts after the close and keeps all of its
+/// work. `still` is the caller's own account of the turn the close was decided at. A thread with queued input is about to
+/// run it and counts as started. No turn is aborted and no queued input dropped: an idle thread has neither to lose.
+pub(crate) fn stop_idle_work(
+    directory: &SessionDirectory,
+    shells: &dyn OwnedShells,
+    read_state: &ReadState,
+    thread: &ThreadId,
+    reason: &str,
+    still: impl FnOnce() -> bool,
+) -> bool {
+    let handle = directory.handle(thread);
+    let stopped = directory.while_idle(thread, || {
+        if !still() || handle.as_ref().is_some_and(|handle| !handle.cell.queued.load().is_empty()) {
+            return None;
+        }
+        shells.cancel_owned(thread);
+        if let Some(handle) = &handle {
+            handle.cell.abort_compaction(&mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason));
+        }
+        Some(())
+    });
+    if stopped.is_some() {
+        read_state.release_session(thread.as_str());
+    }
+    stopped.is_some()
 }
 
 async fn abort_and_drop(directory: &SessionDirectory, thread: &ThreadId, reason: &str, caller: &'static str) {
@@ -482,11 +505,6 @@ impl super::directory::ExitClose for SessionClose {
                 return;
             }
         };
-        // `close(reason)` dispatches `SessionEnd` before `closeOwnSession` (`teardown.mjs:185-187`, `dispatchSessionEnd`: waited
-        // for no longer than 300 ms, a slower hook goes on by itself). The close below marks the actor closed, and the close
-        // work of a closed session fires none, so the exit's `SessionEnd` fires here, once (`session_ended`). A session
-        // already tombstoned has none to end (`if (!session?.id) return`). The payload's reason is `sessionEndReason(reason)` of
-        // the stop's own reason: `exit` for a signal or a shutdown, `other` for e.g. `no live session clients`.
         if header.get("closed") != Some(&Value::Bool(true))
             && let Some(handle) = self.directory.handle(thread)
             && !handle.cell.session_ended.swap(true, std::sync::atomic::Ordering::SeqCst)

@@ -1,8 +1,6 @@
-//! The session layer's side of a conversation import (`imported-session.mjs`
-//! `createImportedSession`, `apis.mjs` `createConversationImportApi`): an imported conversation
-//! becomes an ordinary Lead session on the current Main route, its tools and prompt seeded as
-//! `createSession` seeds them, its turns stored as plain user/assistant rows after the session
-//! header, with `importOrigin` provenance in the header.
+//! An imported conversation becomes an ordinary Lead session on the current Main route, its tools
+//! and prompt seeded as `createSession` seeds them, its turns stored as plain user/assistant rows
+//! after the session header, with `importOrigin` provenance in the header.
 //!
 //! A turn is stored through the same internal row append the room log uses
 //! (`thread/roomRows/append`): rows of no turn, durable once the append answers.
@@ -165,12 +163,6 @@ impl ImportSessions for DirectoryImportSessions {
         self.directory.stored_header(&ThreadId::from(id)).await.is_some()
     }
 
-    /// `prepareLeadOptions`: the route, then every configured provider ready; any failure is
-    /// `noModelRoute` (`error?.code || 'noModelRoute'`). Node first awaits
-    /// `awaitKeychainPrewarm()` (`provider-readiness.mjs`), which waits at most 5 s for
-    /// `keychain-cjs.cjs` to warm its secret read cache and never fails: every platform's warm-up
-    /// catches its own errors. The secret store here keeps no read cache and needs no warm-up
-    /// (the registry reads each key from the store when it builds), so nothing is awaited.
     async fn prepare_lead(&self) -> Result<(), String> {
         main_route(self.routes.as_ref())?;
         self.providers.ensure_providers_ready(None).await.map(|_| ()).map_err(|_| "noModelRoute".to_owned())

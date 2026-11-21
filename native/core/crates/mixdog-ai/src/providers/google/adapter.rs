@@ -1,9 +1,3 @@
-//! One [`ProviderAdapter`] for the three Google providers: encode, add
-//! credentials, send once, hand back the decoded stream. Retrying is above;
-//! the only repeat inside an attempt is the credential recovery of a 401
-//! (one refreshed credential, one resend), which is part of getting one
-//! request accepted.
-
 // Private names for existing callback/result shapes; representations are unchanged.
 type SettingLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
@@ -337,6 +331,26 @@ impl GoogleAdapter {
         self
     }
 
+    fn reattachable_cache(&self, request: &ModelRequest, inner: &Value, key: Option<&str>) -> Result<Option<Cached>, ProviderError> {
+        let sent = request
+            .options
+            .send_group
+            .as_ref()
+            .and_then(|group| self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(group).cloned());
+        if let (Some(sent), Some(key)) = (&sent, key)
+            && sent.credential != super::cache::policy::credential_fingerprint(key)
+        {
+            let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+            error.reauth_required = true;
+            error.message = "the credential changed during the request".into();
+            return Err(unary_failure(error));
+        }
+        Ok(sent.and_then(|sent| sent.cached).filter(|cached| {
+            let (Some(key), Some(cache), Some(ask)) = (key, &self.cache, Self::cache_ask(request, inner)) else { return false };
+            cache.keyed(key).can_reattach(&cached.state, &ask)
+        }))
+    }
+
     fn cache_ask<'a>(request: &'a ModelRequest, inner: &'a Value) -> Option<Ask<'a>> {
         if !request.options.hosted_tools.is_empty() {
             return None;
@@ -460,12 +474,6 @@ impl GoogleAdapter {
 }
 
 impl GoogleAdapter {
-    /// Vertex AI's roster: the fixed table, then the models the publisher listings add that the send path accepts and
-    /// the catalog's sanitizer keeps. The attempt is bounded by [`VERTEX_DISCOVERY_BUDGET`]; the flag is whether every
-    /// publisher answered. A listing is an answer, and so is the refusal of an account that may not list the
-    /// publisher: it adds nothing. A publisher that did not answer (a fault, a spent quota, the deadline) shows what
-    /// its last listing found, nothing before one, so an attempt that did not finish never lists less than the table
-    /// nor drops what was already discovered.
     async fn vertex_listing(&self, place: &super::serving::VertexPlace) -> (Vec<ModelRecord>, bool) {
         // An express API key serves Gemini models only.
         let publishers: &[&'static str] = if place.account == VertexAccount::Express { &["google"] } else { &["google", "anthropic"] };
@@ -692,21 +700,11 @@ impl ProviderAdapter for GoogleAdapter {
         Some(self)
     }
 
-    /// `GeminiProvider._doSend`: `requesting` once the request is built and again once its cache is settled, then
-    /// before every attempt (`run`) and before the non-streaming re-issue, and `reconnecting` before each retry wait
-    /// (`geminiRetryLogger`, gemini.mjs:239-246). Gemini models on the Gemini API and on Vertex AI run
-    /// `runGeminiStreamAttempts` (gemini.mjs:866-876, vertex-ai.mjs:382-398): the ladder by the response having opened;
-    /// Vertex AI passes no `onRetry`, so it raises no `reconnecting`. Antigravity (antigravity-transport.mjs:185) and
-    /// Vertex AI's Claude (vertex-ai.mjs:516) and open models raise it under their own ladders.
     fn send_stages(&self, model: &str) -> SendStages {
         let gemini_ladder = self.gemini_ladder(model);
         if !self.direct_gemini(model) {
             // Antigravity's attempt notes `model_thinking` once its request is on the wire (antigravity-transport.mjs:236).
             let model_thinking = matches!(self.codec.target(), Target::Antigravity { .. });
-            // Antigravity (antigravity-transport.mjs:216) and Vertex AI's open models (openai-compat-chat-send.mjs:276) raise
-            // `requesting` before every attempt of their ladder; Vertex AI's Claude (anthropic.mjs:300) and Gemini models
-            // (vertex-ai.mjs:382) once, before it.
-            // The open models raise it themselves, once their credential is in hand ([`Self::exchange`]).
             let own = self.codec.maas_model(model).is_some();
             let each_attempt = model_thinking;
             return SendStages {
@@ -757,23 +755,7 @@ impl ProviderAdapter for GoogleAdapter {
         let inner = self.codec.build_inner(&request)?;
         let global = self.uses_global(&request);
         let key = self.current_key().await.map_err(unary_failure)?;
-        let sent = request
-            .options
-            .send_group
-            .as_ref()
-            .and_then(|group| self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(group).cloned());
-        if let (Some(sent), Some(key)) = (&sent, &key)
-            && sent.credential != super::cache::policy::credential_fingerprint(key)
-        {
-            let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
-            error.reauth_required = true;
-            error.message = "the credential changed during the request".into();
-            return Err(unary_failure(error));
-        }
-        let mut cached = sent.and_then(|sent| sent.cached).filter(|cached| {
-            let (Some(key), Some(cache), Some(ask)) = (&key, &self.cache, Self::cache_ask(&request, &inner)) else { return false };
-            cache.keyed(key).can_reattach(&cached.state, &ask)
-        });
+        let mut cached = self.reattachable_cache(&request, &inner, key.as_deref())?;
         let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
         let streamed = self.codec.wire_at(&request, &inner, attach, global)?;
         let mut wire = streamed.clone();
@@ -825,11 +807,6 @@ impl ProviderAdapter for GoogleAdapter {
         Ok(Box::new(stream))
     }
 
-    /// The longest one attempt waits before its first output, which the agent watchdog's first-response deadlines are
-    /// floored above: the attempt's own first-byte window for the head and again for the first chunk (the Gemini API and
-    /// Antigravity; a model without a Gemini family keeps the shared 60 s window), and for Vertex AI the 600 s head bound
-    /// and its first-chunk window (a Flex route its own longer one), one deadline since its head is not marked. Never a sum
-    /// over the retry ladder: the watchdog's request clock restarts with each attempt.
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<FirstResponseBudget> {
         match self.codec.target() {
             // The Gemini API waits its one long window on each attempt of its request ladder.
@@ -901,11 +878,6 @@ impl BodyStream for EmptyBody {
     }
 }
 
-/// `isGeminiCachedContentError` (gemini.mjs:222-231) over the error `geminiRestError` makes of `body`: its message
-/// (`<label> <status>: ` and the first 300 characters of the body) and its `data`, lower-cased, name the cached
-/// content or the attached cache. `data` is the parsed payload whenever `payload?.error || payload` is truthy
-/// (gemini.mjs:199), which is whenever the payload itself is: an object or array whatever its `error`, a non-empty
-/// string, a number other than 0, `true`.
 fn names_cached_content(body: &[u8], cache_name: &str) -> bool {
     let text = String::from_utf8_lossy(body);
     let head = String::from_utf16_lossy(&text.encode_utf16().take(300).collect::<Vec<u16>>());
@@ -1141,39 +1113,37 @@ impl GoogleAdapter {
         }
     }
 
-    /// `_doSend` up to the first answer: the cache to attach (made under `key`), the generate call, the replay
-    /// without a cache the server refused, and the global location for a region that lacks the model.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn exchange_maas(&self, request: &Arc<ModelRequest>, model: &VertexModel) -> Result<Exchanged, ProviderError> {
+        self.auth.authorize().await?;
+        request.options.send_identity.raise_stage("requesting");
+        let (mut response, mut attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, model, false)?, false).await?;
+        let global = response.status == 404 && self.codec.falls_back_to_global(request);
+        if global {
+            (response, attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, model, true)?, false).await?;
+        }
+        Ok(Exchanged { response, queue: VecDeque::new(), global, attempt, cached: None, wire: None })
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn exchange_claude(&self, request: &Arc<ModelRequest>, model: &VertexModel) -> Result<Exchanged, ProviderError> {
+        let (mut response, mut attempt) = self.dispatch(request, &self.claude_fitted(request, model, false).await?).await?;
+        let global = response.status == 404 && self.codec.falls_back_to_global(request);
+        if global {
+            (response, attempt) = self.dispatch(request, &self.claude_fitted(request, model, true).await?).await?;
+        }
+        Ok(Exchanged { response, queue: VecDeque::new(), global, attempt, cached: None, wire: None })
+    }
+
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
-        let mut queue = VecDeque::new();
-        // Every model submission (a retry, the one after a key reload, a resend without a refused cache, the one on the global
-        // location, the one after a refreshed credential) is its own attempt of the driver: a fresh identity and the whole
-        // window, and nothing of the attempt it replaces carries over.
-        // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
         if let Some(model) = self.codec.maas_model(&request.model) {
-            // The compat send raises `requesting` before every attempt of its ladder (openai-compat-chat-send.mjs:276), after
-            // the access token has been fetched.
-            self.auth.authorize().await?;
-            request.options.send_identity.raise_stage("requesting");
-            let (mut response, mut attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, &model, false)?, false).await?;
-            let global = response.status == 404 && self.codec.falls_back_to_global(request);
-            if global {
-                (response, attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, &model, true)?, false).await?;
-            }
-            return Ok(Exchanged { response, queue, global, attempt, cached: None, wire: None });
+            return self.exchange_maas(request, &model).await;
         }
-        // Claude (`_sendClaude`): an Anthropic request through streamRawPredict, no explicit cache.
         if let Some(model) = self.codec.claude_model(&request.model) {
-            let (mut response, mut attempt) = self.dispatch(request, &self.claude_fitted(request, &model, false).await?).await?;
-            let global = response.status == 404 && self.codec.falls_back_to_global(request);
-            if global {
-                (response, attempt) = self.dispatch(request, &self.claude_fitted(request, &model, true).await?).await?;
-            }
-            return Ok(Exchanged { response, queue, global, attempt, cached: None, wire: None });
+            return self.exchange_claude(request, &model).await;
         }
-        // State changes reach the session only as stream events: Node persists
-        // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
-        // never from a failed send, so no error carries one.
+        let mut queue = VecDeque::new();
         let inner = self.codec.build_inner(request)?;
         let cache = self.cache.as_ref().map(|cache| cache.keyed(key.unwrap_or_default()));
         let mut cached = self.cached_prefix(cache.as_ref(), request, &inner).await;
@@ -1186,10 +1156,6 @@ impl GoogleAdapter {
             self.codec.wire_at(request, &inner, attach, global)?
         };
         let (mut response, mut attempt) = self.dispatch_with_key(request, &wire, key, false).await?;
-        // A cache the server refuses (gone, evicted, mismatched) is forgotten
-        // here and in the session, and the request runs once without it: a 400/404
-        // whose error names the cached content (`isGeminiCachedContentError`,
-        // gemini.mjs:222-231). Any other refusal is the request's error.
         if matches!(response.status, 400 | 404)
             && let Some(attached) = cached.take()
         {
@@ -1225,9 +1191,6 @@ impl GoogleAdapter {
     async fn attempt_served(&self, mut request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
         let mut key = self.current_key().await?;
         let mut sent = self.exchange(&request, key.as_deref()).await?;
-        // `GeminiProvider.send`: a typed 401 re-reads the provider's key, drops every cache made under the old one and
-        // the session's saved cache, and sends the whole request once more when the re-read finds a key. A second
-        // refusal surfaces as it is. The failed first exchange left nothing in the session (`sent.queue` is dropped).
         if sent.response.status == 401
             && let (Some(source), Some(old)) = (&self.reload, key.as_deref())
         {
@@ -1283,12 +1246,6 @@ impl GoogleAdapter {
 }
 
 impl GoogleAdapter {
-    /// `firstByteTimeoutMs` of the route's `consumeGeminiRestStreamResponse`: `GEMINI_FIRST_BYTE_TIMEOUT_MS` on the
-    /// Gemini API (`gemini.mjs:878`) and on Vertex AI, `VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS` for a Flex send there
-    /// (`vertex-ai.mjs:414`), and on Antigravity the first window of the model's family (`antigravityFirstBytePolicy`:
-    /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` for `gemini-pro`, else the Gemini window). Claude and open models on
-    /// Vertex AI stream through other consumers: none. The idle window never runs before the first output
-    /// (`idleAfterFirstChunk` of Node's Vertex Flex send holds for every route now): silence after the head ends at this window.
     fn first_byte_window(&self, request: &ModelRequest, gate: Option<&FirstByteGate>) -> Option<std::time::Duration> {
         if let Some(gate) = gate {
             return Some(gate.window());
@@ -1310,13 +1267,6 @@ impl GoogleAdapter {
         Some(std::time::Duration::from_millis(ms as u64))
     }
 
-    /// The first-byte policy of a send that waits for its response head under a window: one long window for every Gemini
-    /// route (285 s at the defaults; Antigravity Pro's own variable defaults to the same), and for the Gemini API and the
-    /// Antigravity Gemini families the same retry rule: the first attempt and one retry, headers and first-chunk timeouts
-    /// counted together, the window doubled up to the ceiling, which a default window already is. A model without a Gemini
-    /// family keeps the shared 60 s on the ordinary ladder. Vertex AI has none: its head is bounded by the 600 s fetch
-    /// bound and its first chunk by the window of [`Self::first_byte_window`] (285 s, a Flex route 570 s), the stream's timer; each
-    /// of its exchanges begins an attempt like any other, so a retry's clocks start fresh with no display-stage special case.
     fn first_byte_policy(&self, model: &str) -> Option<FirstBytePolicy> {
         match self.codec.target() {
             Target::Gemini { .. } => self.direct_gemini(model).then(|| self.first_byte.gemini_policy()),
@@ -1546,9 +1496,6 @@ impl GoogleStream {
         }
     }
 
-    /// A continued hop whose ladders are spent. Its last answer is judged as final; a failure that showed nothing and that
-    /// no long advice ended is re-issued once without streaming (`_recoverGeminiNonStreaming`). The token of an answer that
-    /// continues, or `None` once the turn ended or failed here.
     async fn spent(&mut self, mut err: ProviderError) -> Option<String> {
         let Decoder::Gemini(decoder) = &mut self.decoder else {
             self.fail_turn(err);
@@ -1604,11 +1551,6 @@ impl GoogleStream {
     }
 
     fn push(&mut self, events: Vec<StreamEvent>) {
-        // The decoder's events are the attempt's boundaries, and the driver follows the deadlines they install: a decoded
-        // payload ends the payload wait and starts the first-output one; semantic output ends that and starts the idle window,
-        // which only later semantic output renews. A chunk that carries none (a role-only or metadata one) is a payload and
-        // nothing more, so no number of them renews or replaces the first-output window. A wire whose decoder reports no chunks
-        // (Claude and open models) is read by its own events.
         if let Some(hop) = self.continuation.as_mut().and_then(|c| c.hop.as_mut())
             && events.iter().any(|event| !matches!(event, StreamEvent::ChunkProgress(_) | StreamEvent::ProviderKeepalive | StreamEvent::Usage(_)))
         {

@@ -134,10 +134,10 @@ pub fn parse_cookie_token(header: Option<&str>) -> String {
     parse_cookie_value(header, PAIRING_COOKIE_NAME)
 }
 
-/// `cookieCredentialAllowed`: whether a request's cookie may count as a credential. The app's own requests are same-origin
-/// (or browser-initiated, `Sec-Fetch-Site: none`) and an outside link opening the relay is a top-level document navigation.
-/// Anything else cross-site (a page in the opaque-origin preview frame, whose requests carry `Origin: null`) never
-/// authenticates by cookie. A browser without Fetch Metadata is judged by `SameSite=Lax` alone.
+/// Whether a request's cookie may count as a credential. The app's own requests are same-origin (or browser-initiated,
+/// `Sec-Fetch-Site: none`) and an outside link opening the relay is a top-level document navigation. Anything else cross-site
+/// (including the opaque-origin preview frame, whose requests carry `Origin: null`) never authenticates by cookie. A browser
+/// without Fetch Metadata is judged by `SameSite=Lax` alone.
 pub fn cookie_credential_allowed(headers: &Headers) -> bool {
     if js::js_trim(headers.get("origin").unwrap_or_default()).to_lowercase() == "null" {
         return false;

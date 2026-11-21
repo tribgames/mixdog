@@ -1,10 +1,3 @@
-//! Onboarding: the status the config reports and the two ways to finish it
-//! (`settings-profile-api.mjs` `getOnboardingStatus` / `skipOnboarding`,
-//! `workflow-agents-api/onboarding.mjs` `completeOnboarding`, `starter-guide-state.mjs`).
-//!
-//! The functions here build the config the save writes; the service stores it, then adopts the
-//! Lead route it chose.
-
 use mixdog_ai::service::admin_route::normalize_workflow_route;
 use mixdog_ai::service::admin_route::upsert_workflow_preset;
 use mixdog_ai::service::admin_route::workflow_preset_id;
@@ -126,6 +119,84 @@ pub(crate) fn object_payload(payload: &Value, key: &str) -> Option<Value> {
     payload.get(key).filter(|value| truthy(Some(*value)) && (value.is_object() || value.is_array())).cloned()
 }
 
+/// The presets, default, Lead route and agent routes a completion is building.
+struct Draft {
+    presets: Value,
+    default: Option<Value>,
+    lead: Option<Value>,
+    agents: Map<String, Value>,
+}
+
+impl Draft {
+    fn of(agent: &Doc) -> Self {
+        let presets = agent.get("presets").filter(|presets| presets.is_array()).cloned().unwrap_or_else(|| json!([]));
+        Self { presets, default: None, lead: None, agents: agent.get("agents").and_then(Value::as_object).cloned().unwrap_or_default() }
+    }
+
+    fn choose_lead(&mut self, route: Value) -> Result<(), String> {
+        self.presets = upsert_workflow_preset(&self.presets, "lead", &route)?;
+        self.default = Some(Value::String(workflow_preset_id("lead")));
+        self.lead = Some(route);
+        Ok(())
+    }
+
+    fn set_agent(&mut self, id: &str, route: Option<Value>) {
+        match route {
+            Some(route) => self.agents.insert(id.into(), route),
+            None => self.agents.shift_remove(id),
+        };
+    }
+
+    /// `payload.defaultRoute`: a sent route that normalizes becomes the Lead.
+    fn apply_default_route(&mut self, payload: &Value, main: &Value) -> Result<(), String> {
+        if has_own(payload, "defaultRoute")
+            && let Some(route) = normalize_workflow_route(&payload["defaultRoute"], main, true)?
+        {
+            self.choose_lead(route)?;
+        }
+        Ok(())
+    }
+
+    /// `payload.workflowRoutes`: the Lead, Agent (`worker`) and Memory (`maintainer`) slots; a slot sent empty clears its agent.
+    fn apply_slots(&mut self, payload: &Value, empty: &Value) -> Result<(), String> {
+        let slots = object_payload(payload, "workflowRoutes").unwrap_or(empty.clone());
+        for slot in WORKFLOW_ROUTE_SLOTS {
+            if !has_own(&slots, slot) {
+                continue;
+            }
+            let route = normalize_workflow_route(&slots[slot], empty, true)?;
+            match slot {
+                "lead" => {
+                    if let Some(route) = route {
+                        self.choose_lead(route)?;
+                    }
+                }
+                "agent" => self.set_agent("worker", route),
+                "memory" => self.set_agent("maintainer", route),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// `payload.agentRoutes`: only the fixed and the custom agents are configurable.
+    fn apply_agent_routes(&mut self, sent: &Value, custom_agents: &[String], empty: &Value) -> Result<(), String> {
+        let mut configurable: Vec<String> = FIXED_AGENT_IDS.iter().map(|id| (*id).to_owned()).collect();
+        for id in custom_agents {
+            if !configurable.contains(id) {
+                configurable.push(id.clone());
+            }
+        }
+        for id in configurable {
+            if has_own(sent, &id) {
+                let route = normalize_workflow_route(&sent[id.as_str()], empty, true)?;
+                self.set_agent(&id, route);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// `completeOnboarding(payload)`. `main` is the live Main route, the fallback of a sent
 /// `defaultRoute`; `custom_agents` the ids of the custom agents; `now` the completion time.
 pub(crate) fn completed(agent: &Doc, payload: &Value, main: &Value, custom_agents: &[String], now: &str) -> Result<Completion, String> {
@@ -134,75 +205,25 @@ pub(crate) fn completed(agent: &Doc, payload: &Value, main: &Value, custom_agent
     }
     let empty = Value::Object(Map::new());
     let previous = effective(agent).onboarding;
+    let mut draft = Draft::of(agent);
+    draft.apply_default_route(payload, main)?;
+    draft.apply_slots(payload, &empty)?;
+    if let Some(sent) = object_payload(payload, "agentRoutes") {
+        draft.apply_agent_routes(&sent, custom_agents, &empty)?;
+    }
     let mut after = agent.clone();
-    let mut presets = agent.get("presets").cloned().unwrap_or_else(|| json!([]));
-    if !presets.is_array() {
-        presets = json!([]);
-    }
-    let mut default: Option<Value> = None;
-    let mut agents = agent.get("agents").and_then(Value::as_object).cloned().unwrap_or_default();
-    let mut lead: Option<Value> = None;
-    if has_own(payload, "defaultRoute") {
-        let route = normalize_workflow_route(&payload["defaultRoute"], main, true)?;
-        if let Some(route) = route {
-            presets = upsert_workflow_preset(&presets, "lead", &route)?;
-            default = Some(Value::String(workflow_preset_id("lead")));
-            lead = Some(route);
-        }
-    }
-    let slots = object_payload(payload, "workflowRoutes").unwrap_or(empty.clone());
-    for slot in WORKFLOW_ROUTE_SLOTS {
-        if !has_own(&slots, slot) {
-            continue;
-        }
-        let route = normalize_workflow_route(&slots[slot], &empty, true)?;
-        match slot {
-            "lead" => {
-                if let Some(route) = route {
-                    presets = upsert_workflow_preset(&presets, "lead", &route)?;
-                    default = Some(Value::String(workflow_preset_id("lead")));
-                    lead = Some(route);
-                }
-            }
-            "agent" | "memory" => {
-                let id = if slot == "agent" { "worker" } else { "maintainer" };
-                match route {
-                    Some(route) => agents.insert(id.into(), route),
-                    None => agents.shift_remove(id),
-                };
-            }
-            _ => {}
-        }
-    }
-    if let Some(value) = default {
+    if let Some(value) = draft.default {
         after.insert("default".into(), value);
     }
-    after.insert("presets".into(), presets);
-    if let Some(sent) = object_payload(payload, "agentRoutes") {
-        let mut configurable: Vec<String> = FIXED_AGENT_IDS.iter().map(|id| (*id).to_owned()).collect();
-        for id in custom_agents {
-            if !configurable.contains(id) {
-                configurable.push(id.clone());
-            }
-        }
-        for id in configurable {
-            if !has_own(&sent, &id) {
-                continue;
-            }
-            match normalize_workflow_route(&sent[id.as_str()], &empty, true)? {
-                Some(route) => agents.insert(id, route),
-                None => agents.shift_remove(&id),
-            };
-        }
-    }
-    after.insert("agents".into(), Value::Object(agents));
+    after.insert("presets".into(), draft.presets);
+    after.insert("agents".into(), Value::Object(draft.agents));
     after.insert("onboarding".into(), Value::Object(completion_stamp(&previous, previous.clone(), now, false)));
     if let Some(sent) = payload.get("webSearchRoute").filter(|value| truthy(Some(*value)))
         && let Some(route) = web_search_route_to_save(sent)?
     {
         after.insert("webSearchRoute".into(), route);
     }
-    Ok(Completion { after, lead })
+    Ok(Completion { after, lead: draft.lead })
 }
 
 /// `webSearchRouteToSave`: a route without a provider is the follow-Main marker.

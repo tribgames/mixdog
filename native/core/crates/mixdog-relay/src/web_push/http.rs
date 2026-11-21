@@ -200,26 +200,31 @@ impl WebPushEndpoint {
             reply(response, 200, &json!({ "registered": registered, "supported": supported }));
             return;
         }
-        // Every mutation counts, an idempotent one included: each is a credential lookup and possibly a synchronous write of the
-        // whole registry.
         if !web_push.allow_mutation(&format!("{device_id}\n{client_id}")) {
             bare(response, 429, &[("Retry-After", "60")]);
             return;
         }
         if action == Action::Unregister {
-            let result = web_push.registry().unbind(device_id, client_id, &endpoint);
-            if result == Unbind::StoreFailed {
-                // Not removed: reporting success would let it come back on restart.
-                bare(response, 503, &[("Retry-After", "30")]);
-                return;
-            }
-            let removed = result == Unbind::Removed;
-            if removed {
-                publish(&self.hub, web_push, device_id);
-            }
-            reply(response, 200, &json!({ "removed": removed }));
+            self.unregister(web_push, (device_id, client_id), &endpoint, response);
+        } else {
+            self.register(web_push, (device_id, client_id), &endpoint, body, supported, response);
+        }
+    }
+
+    fn unregister(&self, web_push: &WebPush, (device_id, client_id): (&str, &str), endpoint: &str, response: &mut ResponseWriter) {
+        let result = web_push.registry().unbind(device_id, client_id, endpoint);
+        if result == Unbind::StoreFailed {
+            bare(response, 503, &[("Retry-After", "30")]);
             return;
         }
+        let removed = result == Unbind::Removed;
+        if removed {
+            publish(&self.hub, web_push, device_id);
+        }
+        reply(response, 200, &json!({ "removed": removed }));
+    }
+
+    fn register(&self, web_push: &WebPush, (device_id, client_id): (&str, &str), endpoint: &str, body: &Value, supported: bool, response: &mut ResponseWriter) {
         let Some(sealed) = body.get("sealed").and_then(Sealed::from_value) else {
             bare(response, 400, &[]);
             return;

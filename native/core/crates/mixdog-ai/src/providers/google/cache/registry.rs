@@ -1,8 +1,3 @@
-//! The process-wide registry of live explicit caches (`geminiGlobalCaches` in
-//! `gemini-cache.mjs`): sessions with the same credential, model and prefix
-//! share one `cachedContents` entry. Insertion order is eviction order, and
-//! replacing a key keeps its place, as a JS `Map` does.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

@@ -139,6 +139,59 @@ fn resolve_posix(parts: &[&str]) -> String {
     }
 }
 
+/// The device (`C:` or `\\server\share`, empty when none), the length of the root and whether it is absolute.
+fn win32_root(chars: &[char]) -> (String, usize, bool) {
+    let len = chars.len();
+    let is_sep = |c: char| c == '/' || c == '\\';
+    let mut root_end = 0usize;
+    let mut device = String::new();
+    let mut absolute = false;
+    let code = chars.first().copied().unwrap_or('\0');
+    if len == 1 {
+        if is_sep(code) {
+            root_end = 1;
+            absolute = true;
+        }
+    } else if is_sep(code) {
+        absolute = true;
+        if is_sep(chars[1]) {
+            let mut j = 2;
+            let mut last = j;
+            while j < len && !is_sep(chars[j]) {
+                j += 1;
+            }
+            if j < len && j != last {
+                let first_part: String = chars[last..j].iter().collect();
+                last = j;
+                while j < len && is_sep(chars[j]) {
+                    j += 1;
+                }
+                if j < len && j != last {
+                    last = j;
+                    while j < len && !is_sep(chars[j]) {
+                        j += 1;
+                    }
+                    if j == len || j != last {
+                        let second: String = chars[last..j].iter().collect();
+                        device = format!("\\\\{first_part}\\{second}");
+                        root_end = j;
+                    }
+                }
+            }
+        } else {
+            root_end = 1;
+        }
+    } else if is_device_root(code) && len > 1 && chars[1] == ':' {
+        device = chars[..2].iter().collect();
+        root_end = 2;
+        if len > 2 && is_sep(chars[2]) {
+            absolute = true;
+            root_end = 3;
+        }
+    }
+    (device, root_end, absolute)
+}
+
 fn resolve_win32(parts: &[&str]) -> String {
     let mut resolved_device = String::new();
     let mut resolved_tail = String::new();
@@ -162,52 +215,7 @@ fn resolve_win32(parts: &[&str]) -> String {
         };
         let chars: Vec<char> = path.chars().collect();
         let len = chars.len();
-        let mut root_end = 0usize;
-        let mut device = String::new();
-        let mut absolute = false;
-        let code = chars.first().copied().unwrap_or('\0');
-        if len == 1 {
-            if is_sep(code) {
-                root_end = 1;
-                absolute = true;
-            }
-        } else if is_sep(code) {
-            absolute = true;
-            if is_sep(chars[1]) {
-                let mut j = 2;
-                let mut last = j;
-                while j < len && !is_sep(chars[j]) {
-                    j += 1;
-                }
-                if j < len && j != last {
-                    let first_part: String = chars[last..j].iter().collect();
-                    last = j;
-                    while j < len && is_sep(chars[j]) {
-                        j += 1;
-                    }
-                    if j < len && j != last {
-                        last = j;
-                        while j < len && !is_sep(chars[j]) {
-                            j += 1;
-                        }
-                        if j == len || j != last {
-                            let second: String = chars[last..j].iter().collect();
-                            device = format!("\\\\{first_part}\\{second}");
-                            root_end = j;
-                        }
-                    }
-                }
-            } else {
-                root_end = 1;
-            }
-        } else if is_device_root(code) && len > 1 && chars[1] == ':' {
-            device = chars[..2].iter().collect();
-            root_end = 2;
-            if len > 2 && is_sep(chars[2]) {
-                absolute = true;
-                root_end = 3;
-            }
-        }
+        let (device, root_end, absolute) = win32_root(&chars);
         if !device.is_empty() {
             if !resolved_device.is_empty() {
                 if device.to_lowercase() != resolved_device.to_lowercase() {
@@ -257,21 +265,30 @@ pub fn is_absolute(style: Style, path: &str) -> bool {
 
 /// `path.normalize`: separators, `.` and `..` fold; a `..` never removes a UNC share or a drive.
 pub fn normalize(style: Style, path: &str) -> String {
-    let chars: Vec<char> = path.chars().collect();
-    let len = chars.len();
-    if len == 0 {
+    if path.is_empty() {
         return ".".to_owned();
     }
-    let trailing_sep = style.is_sep(chars[len - 1]);
-    if style == Style::Posix {
-        let absolute = chars[0] == '/';
-        let tail = normalize_string(&chars, !absolute, '/', |c| c == '/');
-        return match (tail.is_empty(), absolute) {
-            (true, true) => "/".to_owned(),
-            (true, false) => if trailing_sep { "./" } else { "." }.to_owned(),
-            (false, _) => format!("{}{tail}{}", if absolute { "/" } else { "" }, if trailing_sep { "/" } else { "" }),
-        };
+    match style {
+        Style::Posix => normalize_posix(path),
+        Style::Win32 => normalize_win32(path),
     }
+}
+
+fn normalize_posix(path: &str) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    let trailing_sep = chars[chars.len() - 1] == '/';
+    let absolute = chars[0] == '/';
+    let tail = normalize_string(&chars, !absolute, '/', |c| c == '/');
+    match (tail.is_empty(), absolute) {
+        (true, true) => "/".to_owned(),
+        (true, false) => if trailing_sep { "./" } else { "." }.to_owned(),
+        (false, _) => format!("{}{tail}{}", if absolute { "/" } else { "" }, if trailing_sep { "/" } else { "" }),
+    }
+}
+
+fn normalize_win32(path: &str) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    let len = chars.len();
     let is_sep = |c: char| c == '/' || c == '\\';
     if len == 1 {
         return if is_sep(chars[0]) { "\\".to_owned() } else { path.to_owned() };
@@ -406,6 +423,33 @@ fn relative_posix(from: &str, to: &str) -> String {
     format!("{out}{rest}")
 }
 
+/// Node's `win32.relative` when lower-casing changed a length (path.js): the paths are compared segment by segment.
+fn relative_win32_by_segments(from_orig: &str, to_orig: &str) -> String {
+    let mut from_split: Vec<&str> = from_orig.split('\\').collect();
+    let mut to_split: Vec<&str> = to_orig.split('\\').collect();
+    if from_split.last() == Some(&"") {
+        from_split.pop();
+    }
+    if to_split.last() == Some(&"") {
+        to_split.pop();
+    }
+    let length = from_split.len().min(to_split.len());
+    let i = (0..length).find(|&i| crate::js_to_lowercase(from_split[i]) != crate::js_to_lowercase(to_split[i])).unwrap_or(length);
+    if i == 0 {
+        return to_orig.to_owned();
+    }
+    if i == length {
+        if to_split.len() > length {
+            return to_split[i..].join("\\");
+        }
+        if from_split.len() > length {
+            return format!("{}..", "..\\".repeat(from_split.len() - 1 - i));
+        }
+        return String::new();
+    }
+    format!("{}{}", "..\\".repeat(from_split.len() - i), to_split[i..].join("\\"))
+}
+
 fn relative_win32(from: &str, to: &str) -> String {
     if from == to {
         return String::new();
@@ -423,31 +467,8 @@ fn relative_win32(from: &str, to: &str) -> String {
     if from == to {
         return String::new();
     }
-    // A lower-casing that changed a length: Node compares segment by segment instead (path.js `win32.relative`).
     if crate::utf16_len(&from_orig) != from.len() || crate::utf16_len(&to_orig) != to.len() {
-        let mut from_split: Vec<&str> = from_orig.split('\\').collect();
-        let mut to_split: Vec<&str> = to_orig.split('\\').collect();
-        if from_split.last() == Some(&"") {
-            from_split.pop();
-        }
-        if to_split.last() == Some(&"") {
-            to_split.pop();
-        }
-        let length = from_split.len().min(to_split.len());
-        let i = (0..length).find(|&i| crate::js_to_lowercase(from_split[i]) != crate::js_to_lowercase(to_split[i])).unwrap_or(length);
-        if i == 0 {
-            return to_orig;
-        }
-        if i == length {
-            if to_split.len() > length {
-                return to_split[i..].join("\\");
-            }
-            if from_split.len() > length {
-                return format!("{}..", "..\\".repeat(from_split.len() - 1 - i));
-            }
-            return String::new();
-        }
-        return format!("{}{}", "..\\".repeat(from_split.len() - i), to_split[i..].join("\\"));
+        return relative_win32_by_segments(&from_orig, &to_orig);
     }
     let to_orig_units: Vec<u16> = to_orig.encode_utf16().collect();
     let slice = |start: usize, end: usize| -> String {
@@ -576,6 +597,35 @@ mod tests {
         assert_eq!(win("C:\\Users\\A\\x", "c:\\USERS\\a"), "..");
         assert_eq!(win("C:\\a\\b", "C:\\a\\c"), "..\\c");
         assert_eq!(win("C:\\a", "C:\\a"), "");
+    }
+
+    #[test]
+    fn win32_resolve_folds_dots_and_keeps_the_drive_or_share_of_the_last_absolute_part() {
+        assert_eq!(resolve(Style::Win32, &["C:\\a\\b", "..\\c"]), "C:\\a\\c");
+        assert_eq!(resolve(Style::Win32, &["C:\\a", "\\b"]), "C:\\b");
+        assert_eq!(resolve(Style::Win32, &["C:\\a", "D:\\b"]), "D:\\b");
+        assert_eq!(resolve(Style::Win32, &["\\\\srv\\share\\x", "..", "y"]), "\\\\srv\\share\\y");
+        assert_eq!(resolve(Style::Win32, &["C:/a/./b/../c"]), "C:\\a\\c");
+    }
+
+    #[test]
+    fn win32_normalize_folds_dots_and_keeps_the_root() {
+        assert_eq!(normalize(Style::Win32, "C:\\a\\..\\b\\"), "C:\\b\\");
+        assert_eq!(normalize(Style::Win32, "C:"), "C:.");
+        assert_eq!(normalize(Style::Win32, "a/b/../c"), "a\\c");
+        assert_eq!(normalize(Style::Win32, "\\\\srv\\share"), "\\\\srv\\share\\");
+        assert_eq!(normalize(Style::Win32, "/"), "\\");
+        assert_eq!(normalize(Style::Win32, ""), ".");
+    }
+
+    #[test]
+    fn posix_normalize_folds_dots_and_keeps_a_trailing_separator() {
+        assert_eq!(normalize(Style::Posix, "/a/./b/../c/"), "/a/c/");
+        assert_eq!(normalize(Style::Posix, "a/.."), ".");
+        assert_eq!(normalize(Style::Posix, "./"), "./");
+        assert_eq!(normalize(Style::Posix, "../x"), "../x");
+        assert_eq!(normalize(Style::Posix, "/.."), "/");
+        assert_eq!(normalize(Style::Posix, ""), ".");
     }
 
     #[test]

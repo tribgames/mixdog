@@ -7,8 +7,9 @@ use std::sync::Arc;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
+use tokio::sync::oneshot;
 
-use super::{Answer, HookEntry, HookHub, MAX_HOOK_BODY_BYTES};
+use super::{Answer, HookEntry, HookHub, MAX_HOOK_BODY_BYTES, Slot};
 use crate::http1::util::{client_ip, request_url};
 use crate::http1::{HeaderValue, Request, ResponseWriter};
 use crate::ids::is_routing_id;
@@ -128,52 +129,8 @@ mod tests {
 impl HookHub {
     /// `handleHookRequest`: answers the whole request.
     pub async fn handle_request(&self, mut request: Request, mut response: ResponseWriter) {
-        let (device_id, path) = match route(&request.url) {
-            Route::Malformed => {
-                if response.write_head(400, &[]).is_ok() {
-                    response.end(None);
-                }
-                return;
-            }
-            Route::NotFound => {
-                reply(&mut response, 404, "not found", &[]);
-                return;
-            }
-            Route::Hook { id, path } => (id, path),
-        };
-        // Device-keyed alone lets one source spread a burst across ids; the caller bucket is what bounds the total an
-        // unauthenticated peer can push in.
-        if !self.allow(&format!("device:{device_id}")) || !self.allow(&format!("ip:{}", client_ip(request.remote_address.as_deref()))) {
-            refuse(&request, &mut response, 429, "rate limited", &[("Retry-After", "60")]).await;
-            return;
-        }
-        let Some(entry) = self.live(&device_id) else {
-            reply(&mut response, 503, "agent offline", &[]);
-            return;
-        };
-        // An agent that is not keeping up must not turn into relay memory: refuse before the body is read. Bodies still
-        // streaming in count too, so any number of slow uploads cannot arrive together and pass the cap before the first one
-        // lands.
-        let Some(slot) = entry.admit(self.options.max_pending) else {
-            refuse(&request, &mut response, 503, "agent busy", &[("Retry-After", "1")]).await;
-            return;
-        };
-        // The place is given back on every exit: oversize, a hang-up, a dropped handler, or the completed body.
-        let mut body = Vec::new();
-        loop {
-            match request.body.next().await {
-                None => break,
-                Some(Err(_)) => return,
-                Some(Ok(chunk)) => {
-                    if body.len() + chunk.len() > MAX_HOOK_BODY_BYTES {
-                        drop(slot);
-                        refuse(&request, &mut response, 413, "payload too large", &[]).await;
-                        return;
-                    }
-                    body.extend_from_slice(&chunk);
-                }
-            }
-        }
+        let Some((entry, path, slot)) = self.admit_request(&request, &mut response).await else { return };
+        let Some((body, slot)) = read_body(&mut request, &mut response, slot).await else { return };
         let id = uuid::Uuid::new_v4().to_string();
         let encoded = if body.is_empty() { String::new() } else { STANDARD.encode(&body) };
         let frame = json!({
@@ -184,15 +141,56 @@ impl HookHub {
             "headers": forwarded_headers(&request),
             "body": encoded,
         });
-        let mut receiver = entry.park(slot, &id);
+        let receiver = entry.park(slot, &id);
         let _parked = Parked { entry: Arc::clone(&entry), id: id.clone() };
         entry.socket.send_text(js::wire(&frame), None);
+        self.relay_answer(&entry, &id, receiver, &mut response).await;
+    }
+
+    /// Routes the request, applies the caller limits and finds a live agent with room; on any refusal the answer is already written and
+    /// `None` returned.
+    async fn admit_request(&self, request: &Request, response: &mut ResponseWriter) -> Option<(Arc<HookEntry>, String, Slot)> {
+        let (device_id, path) = match route(&request.url) {
+            Route::Malformed => {
+                if response.write_head(400, &[]).is_ok() {
+                    response.end(None);
+                }
+                return None;
+            }
+            Route::NotFound => {
+                reply(response, 404, "not found", &[]);
+                return None;
+            }
+            Route::Hook { id, path } => (id, path),
+        };
+        // Device-keyed alone lets one source spread a burst across ids; the caller bucket is what bounds the total an
+        // unauthenticated peer can push in.
+        if !self.allow(&format!("device:{device_id}")) || !self.allow(&format!("ip:{}", client_ip(request.remote_address.as_deref()))) {
+            refuse(request, response, 429, "rate limited", &[("Retry-After", "60")]).await;
+            return None;
+        }
+        let Some(entry) = self.live(&device_id) else {
+            reply(response, 503, "agent offline", &[]);
+            return None;
+        };
+        // An agent that is not keeping up must not turn into relay memory: refuse before the body is read. Bodies still
+        // streaming in count too, so any number of slow uploads cannot arrive together and pass the cap before the first one
+        // lands.
+        let Some(slot) = entry.admit(self.options.max_pending) else {
+            refuse(request, response, 503, "agent busy", &[("Retry-After", "1")]).await;
+            return None;
+        };
+        Some((entry, path, slot))
+    }
+
+    /// Waits for the agent's answer up to the hook timeout and writes it to the caller.
+    async fn relay_answer(&self, entry: &HookEntry, id: &str, mut receiver: oneshot::Receiver<Answer>, response: &mut ResponseWriter) {
         let answer = tokio::select! {
             answer = &mut receiver => answer.ok(),
             // `timer.unref()`: the answer timer never keeps the process up.
             () = mixdog_rt::time::sleep_unrefed(self.options.timeout) => {
-                if entry.take(&id).is_some() {
-                    reply(&mut response, 504, "agent timeout", &[]);
+                if entry.take(id).is_some() {
+                    reply(response, 504, "agent timeout", &[]);
                     return;
                 }
                 // The agent answered at the same moment: its answer is already on the way.
@@ -206,8 +204,28 @@ impl HookHub {
                     response.end(Some(&body));
                 }
             }
-            Some(Answer::Failed(code)) => reply(&mut response, 502, code, &[]),
-            None => reply(&mut response, 502, "agent disconnected", &[]),
+            Some(Answer::Failed(code)) => reply(response, 502, code, &[]),
+            None => reply(response, 502, "agent disconnected", &[]),
+        }
+    }
+}
+
+/// Buffers the body up to `MAX_HOOK_BODY_BYTES`. The place is given back on every exit but the completed body: oversize, a hang-up or a
+/// dropped handler.
+async fn read_body(request: &mut Request, response: &mut ResponseWriter, slot: Slot) -> Option<(Vec<u8>, Slot)> {
+    let mut body = Vec::new();
+    loop {
+        match request.body.next().await {
+            None => return Some((body, slot)),
+            Some(Err(_)) => return None,
+            Some(Ok(chunk)) => {
+                if body.len() + chunk.len() > MAX_HOOK_BODY_BYTES {
+                    drop(slot);
+                    refuse(request, response, 413, "payload too large", &[]).await;
+                    return None;
+                }
+                body.extend_from_slice(&chunk);
+            }
         }
     }
 }

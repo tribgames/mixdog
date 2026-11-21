@@ -1,12 +1,6 @@
 //! The PowerPoint reader: `Snapshot-PowerPoint`, the pptx branch of `Snapshot-Selection` and `Issues-PowerPoint` of
 //! `office-com-host.ps1`, registered as the `pptx` [`FormatReader`].
 //!
-//! * [`snapshot`]: `PowerPoint-NotesText` and `Snapshot-PowerPoint`.
-//! * [`selection`]: what the user has selected in the deck's window.
-//! * [`ink`]: `Ole-ColorChannel`, `Color-Luminance`, `Color-ContrastRatio` and `Ink-Luminance`.
-//! * [`issues`]: `Issues-PowerPoint`.
-//! * [`edit`]: the editor's place (`nr-office-comrs-ppt-edit`).
-//!
 //! The reads happen in the order and the number the script makes them (every dotted step of a PowerShell chain is a call
 //! into PowerPoint, and the replayed call logs hold the port to that), each inside the failure the script tolerates and
 //! nowhere else. The casts below are PowerShell's: `$null` is `0` and `''`, a COM boolean of -1 is true.

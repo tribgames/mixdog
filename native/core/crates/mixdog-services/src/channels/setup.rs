@@ -1,9 +1,3 @@
-//! The `setup` tool's automation actions (`save_automation`, `delete_automation`,
-//! `set_automation_enabled`, `run_automation`, `set_webhook_config`): the chat-facing door of
-//! [`ChannelAdmin`], ported from `setup-tool/extended-actions.mjs`, with the access rules of
-//! `services/schedule-access.mjs`. [`AutomationSetup::run`] has the shape of the core's
-//! `SetupActions::run`; the daemon's `domain_seams::automation_setup` registers it.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -257,46 +251,9 @@ impl AutomationSetup {
         let name = text(args.get("name"));
         match action {
             "save_automation" => self.save(thread, scope, &kind, args.get("entry").unwrap_or(&Value::Null)).await,
-            "delete_automation" => {
-                let current = self.row(&kind, &name).await?.ok_or_else(|| error("Automation entry not found"))?;
-                self.authorize(scope, &kind, "delete", Some(&current), "").await?;
-                let result = if kind == "schedule" { self.admin.delete_schedule(&name).await } else { self.admin.delete_webhook(&name).await };
-                let mut out = result.map_err(failed)?.as_object().cloned().unwrap_or_default();
-                out.insert("recovery".into(), "The automation record is deleted; recreating it requires its definition.".into());
-                Ok(Value::Object(out))
-            }
-            "set_automation_enabled" => {
-                let current = self.row(&kind, &name).await?.ok_or_else(|| error("Automation entry not found"))?;
-                let enabled = args.get("enabled");
-                let verb = if enabled == Some(&Value::Bool(false)) { "pause" } else { "resume" };
-                self.authorize(scope, &kind, verb, Some(&current), "").await?;
-                let result = if kind == "schedule" {
-                    self.admin.set_schedule_enabled(&name, enabled).await
-                } else {
-                    self.admin.set_webhook_enabled(&name, enabled).await
-                };
-                result.map_err(failed)
-            }
-            "run_automation" => {
-                let current = self.row(&kind, &name).await?.ok_or_else(|| error("Automation entry not found"))?;
-                self.authorize(scope, &kind, "run", Some(&current), "").await?;
-                if kind == "webhook" && current["hasLastPayload"] != Value::Bool(true) {
-                    return Err(error(format!("webhook \"{name}\" has not received a payload yet")));
-                }
-                // Starts the run and returns at once: the run is its own session.
-                let admin = Arc::clone(&self.admin);
-                let run_name = name.clone();
-                // The outcome is dropped: the result posts into the owner's thread.
-                let is_webhook = kind == "webhook";
-                tokio::spawn(async move {
-                    let _ = if is_webhook { admin.run_webhook_now(&run_name).await } else { admin.run_schedule_now(&run_name).await };
-                });
-                Ok(json!({
-                    "name": args.get("name").cloned().unwrap_or(Value::Null),
-                    "started": true,
-                    "note": "The run is its own session; its result posts into the owning agent's thread when it finishes."
-                }))
-            }
+            "delete_automation" => self.delete(scope, &kind, &name).await,
+            "set_automation_enabled" => self.set_enabled(scope, &kind, &name, args.get("enabled")).await,
+            "run_automation" => self.run_now(scope, &kind, &name, args).await,
             "set_webhook_config" => {
                 self.admin.set_webhook_config(args.get("webhook")).await.map_err(failed)?;
                 let status = self.admin.get_channel_setup().await.map_err(failed)?;
@@ -306,6 +263,46 @@ impl AutomationSetup {
                 Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not served by the automation owner") })
             }
         }
+    }
+
+    async fn authorized_row(&self, scope: &AccessScope, kind: &str, name: &str, action: &str) -> Result<Value, PortError> {
+        let current = self.row(kind, name).await?.ok_or_else(|| error("Automation entry not found"))?;
+        self.authorize(scope, kind, action, Some(&current), "").await?;
+        Ok(current)
+    }
+
+    async fn delete(&self, scope: &AccessScope, kind: &str, name: &str) -> Result<Value, PortError> {
+        self.authorized_row(scope, kind, name, "delete").await?;
+        let result = if kind == "schedule" { self.admin.delete_schedule(name).await } else { self.admin.delete_webhook(name).await };
+        let mut out = result.map_err(failed)?.as_object().cloned().unwrap_or_default();
+        out.insert("recovery".into(), "The automation record is deleted; recreating it requires its definition.".into());
+        Ok(Value::Object(out))
+    }
+
+    async fn set_enabled(&self, scope: &AccessScope, kind: &str, name: &str, enabled: Option<&Value>) -> Result<Value, PortError> {
+        let verb = if enabled == Some(&Value::Bool(false)) { "pause" } else { "resume" };
+        self.authorized_row(scope, kind, name, verb).await?;
+        let result =
+            if kind == "schedule" { self.admin.set_schedule_enabled(name, enabled).await } else { self.admin.set_webhook_enabled(name, enabled).await };
+        result.map_err(failed)
+    }
+
+    async fn run_now(&self, scope: &AccessScope, kind: &str, name: &str, args: &Value) -> Result<Value, PortError> {
+        let current = self.authorized_row(scope, kind, name, "run").await?;
+        if kind == "webhook" && current["hasLastPayload"] != Value::Bool(true) {
+            return Err(error(format!("webhook \"{name}\" has not received a payload yet")));
+        }
+        let admin = Arc::clone(&self.admin);
+        let run_name = name.to_string();
+        let is_webhook = kind == "webhook";
+        tokio::spawn(async move {
+            let _ = if is_webhook { admin.run_webhook_now(&run_name).await } else { admin.run_schedule_now(&run_name).await };
+        });
+        Ok(json!({
+            "name": args.get("name").cloned().unwrap_or(Value::Null),
+            "started": true,
+            "note": "The run is its own session; its result posts into the owning agent's thread when it finishes."
+        }))
     }
 
     async fn save(&self, thread: &ThreadId, scope: &AccessScope, kind: &str, input: &Value) -> Result<Value, PortError> {
@@ -327,38 +324,7 @@ impl AutomationSetup {
         let owner = text(input.get("owner"));
         self.authorize(scope, kind, if overwrite { "edit" } else { "create" }, overwrite.then_some(&previous), &owner).await?;
 
-        let mut next = pick(&previous, &ENTRY_KEYS);
-        if let Some(fields) = input.as_object() {
-            next.extend(fields.clone());
-        }
-        // Omitted keeps the saved executor without checking it again.
-        if !own(input, "executorAgentId") {
-            next.shift_remove("executorAgentId");
-        }
-        if kind == "schedule" {
-            if let Some(when) = previous.get("whenAt").and_then(Value::as_str).filter(|w| !w.is_empty())
-                && !own(input, "time")
-                && !own(input, "at")
-            {
-                let at = iso(when).ok_or_else(|| error("Invalid time value"))?;
-                next.insert("at".into(), at.into());
-                next.shift_remove("time");
-            }
-            if own(input, "time") && !own(input, "at") {
-                next.shift_remove("at");
-            }
-            if own(input, "at") && !own(input, "time") {
-                next.shift_remove("time");
-            }
-        }
-        // An automation created from an agent's home thread belongs to that agent.
-        if !overwrite && !own(input, "owner") {
-            let home = mixdog_store::agent_mode::agent_id_of_home_session(thread.as_str());
-            if !home.is_empty() {
-                next.insert("owner".into(), home.into());
-            }
-        }
-        let next = Value::Object(next);
+        let next = merged_entry(thread, kind, input, &previous, overwrite)?;
         let result = if kind == "schedule" { self.admin.save_schedule(&next).await } else { self.admin.save_webhook(&next).await };
         let mut out = public_automation(&result.map_err(failed)?);
         if kind == "webhook" {
@@ -371,4 +337,37 @@ impl AutomationSetup {
         }
         Ok(Value::Object(out))
     }
+}
+
+fn merged_entry(thread: &ThreadId, kind: &str, input: &Value, previous: &Value, overwrite: bool) -> Result<Value, PortError> {
+    let mut next = pick(previous, &ENTRY_KEYS);
+    if let Some(fields) = input.as_object() {
+        next.extend(fields.clone());
+    }
+    if !own(input, "executorAgentId") {
+        next.shift_remove("executorAgentId");
+    }
+    if kind == "schedule" {
+        if let Some(when) = previous.get("whenAt").and_then(Value::as_str).filter(|w| !w.is_empty())
+            && !own(input, "time")
+            && !own(input, "at")
+        {
+            let at = iso(when).ok_or_else(|| error("Invalid time value"))?;
+            next.insert("at".into(), at.into());
+            next.shift_remove("time");
+        }
+        if own(input, "time") && !own(input, "at") {
+            next.shift_remove("at");
+        }
+        if own(input, "at") && !own(input, "time") {
+            next.shift_remove("time");
+        }
+    }
+    if !overwrite && !own(input, "owner") {
+        let home = mixdog_store::agent_mode::agent_id_of_home_session(thread.as_str());
+        if !home.is_empty() {
+            next.insert("owner".into(), home.into());
+        }
+    }
+    Ok(Value::Object(next))
 }

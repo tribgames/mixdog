@@ -1,5 +1,4 @@
-//! Owner: s4-engine-ledgers
-//! The network ledger of one page (`network.ts`): every request the page made, in order, capped at 250 (the oldest finished one
+//! The network ledger of one page: every request the page made, in order, capped at 250 (the oldest finished one
 //! goes first), with the reasons the host's request policy refused URLs, so a refusal reads as the policy's and not as a fault of
 //! the page. Events are applied by [`super::ingest`]; `now` is the host's event time in epoch milliseconds.
 
@@ -665,14 +664,18 @@ mod tests {
         assert_eq!((status.status, status.mime_type.as_deref()), (404.0, Some("text/html")));
         assert_eq!(ledger.document_status("https://example.test/other"), None);
         assert_eq!(ledger.document_status(""), None);
-        // A child target's document of the same address is not the page's.
+    }
+
+    #[test]
+    fn a_child_targets_document_of_the_same_address_is_not_the_pages() {
+        let mut ledger = NetworkLedger::default();
         ledger.request_will_be_sent(&json!({"requestId": "9", "type": "Document", "request": {"url": "https://example.test/child"}}), Some("viewer"), 1_200);
         ledger.response_received(&json!({"requestId": "9", "response": {"status": 500}}), Some("viewer"));
         assert_eq!(ledger.document_status("https://example.test/child"), None);
     }
 
     #[test]
-    fn the_ledger_bounds_requests_and_untrusted_payload_memory() {
+    fn the_ledger_bounds_requests_and_their_untrusted_payload_memory() {
         let mut ledger = NetworkLedger::new(2);
         let oversized = "x".repeat(100_000);
         for index in 1..=3 {
@@ -689,6 +692,12 @@ mod tests {
         assert!(utf16_len(&newest.url) <= 16_384 && utf16_len(newest.request_body.as_deref().unwrap_or_default()) <= 64_000);
         assert_eq!(newest.request_headers.len(), 128);
         assert!(newest.request_headers.iter().all(|(_, value)| utf16_len(value) <= 8_192));
+    }
+
+    #[test]
+    fn a_web_sockets_frames_are_bounded_in_count_and_total_size() {
+        let mut ledger = NetworkLedger::default();
+        let oversized = "x".repeat(100_000);
         ledger.web_socket_created(&json!({"requestId": "socket", "url": "wss://example.test/socket"}), None, 0);
         for _ in 0..120 {
             ledger.web_socket_frame(&json!({"requestId": "socket", "response": {"opcode": 1, "payloadData": oversized}}), FrameDirection::Received, None, 0);

@@ -36,6 +36,32 @@ fn model_input(card: &Card) -> Value {
     Value::Object(input)
 }
 
+/// A single header row that never wraps: the fixed trailing hint, the dot gutter and a one-column last-column safety
+/// margin are reserved, then label and summary are cut to fit. The hint slot is reserved for the whole lifecycle so its
+/// later appearance does not move the body clip point; the pending elapsed time lives on the detail row.
+fn fit_header(label_text: &str, header_summary: &str, failure: &str, hint_text: String, show_hint: bool, columns: usize) -> Vec<Run> {
+    let cells = |text: &str| string_width(text, StringWidthOptions::default());
+    let failure_text = if failure.is_empty() { String::new() } else { truncate_to_width(failure, HEADER_FAILURE_STATUS_MAX) };
+    let inline_failure = if failure_text.is_empty() { String::new() } else { format!(" {BULLET_OPERATOR} {failure_text}") };
+    let right_reserve = cells(&hint_text) + cells(&inline_failure);
+    let avail = columns.saturating_sub(1 + 2 + right_reserve).max(1);
+    let (label_out, summary_out) = if cells(label_text) >= avail {
+        (truncate_to_width(label_text, avail), String::new())
+    } else {
+        let parens = if header_summary.is_empty() { 0 } else { cells(" ()") as i64 };
+        let budget = avail as i64 - cells(label_text) as i64 - parens;
+        let width = budget.clamp(0, SUMMARY_MAX_CHARS as i64) as usize;
+        let truncated = if !header_summary.is_empty() && width > 0 { truncate_to_width(header_summary, width) } else { String::new() };
+        (label_text.to_owned(), if truncated.is_empty() { String::new() } else { format!(" ({truncated})") })
+    };
+    vec![
+        (label_out, Style { bold: true, ..themed(Key::Text) }),
+        (summary_out, themed(Key::Text)),
+        (inline_failure, themed(Key::Error)),
+        (if show_hint { hint_text } else { String::new() }, themed(Key::Subtle)),
+    ]
+}
+
 pub(crate) fn render_standard_card(card: &Card) -> Vec<Line> {
     let columns = card.columns;
     let cells = |text: &str| string_width(text, StringWidthOptions::default());
@@ -101,32 +127,10 @@ pub(crate) fn render_standard_card(card: &Card) -> Vec<Line> {
     };
     let show_hint = expandable && normalized_name != "load_tool";
 
-    // A single header row that never wraps: the fixed trailing hint, the dot gutter and a one-column last-column safety
-    // margin are reserved, then label and summary are cut to fit. The hint slot is reserved for the whole lifecycle so its
-    // later appearance does not move the body clip point; the pending elapsed time lives on the detail row.
     let hint_text = format!(" {BULLET_OPERATOR} ctrl+o {}", if card.expanded { "collapse" } else { "expand" });
-    let failure = text("headerFailureText");
-    let failure_text = if failure.is_empty() { String::new() } else { truncate_to_width(failure, HEADER_FAILURE_STATUS_MAX) };
-    let inline_failure = if failure_text.is_empty() { String::new() } else { format!(" {BULLET_OPERATOR} {failure_text}") };
-    let right_reserve = cells(&hint_text) + cells(&inline_failure);
-    let avail = columns.saturating_sub(1 + 2 + right_reserve).max(1);
     // A shell header stays label-only ("Ran 1 command"): the command line lives in the expanded body.
     let header_summary = if is_shell { "" } else { summary_text };
-    let (label_out, summary_out) = if cells(label_text) >= avail {
-        (truncate_to_width(label_text, avail), String::new())
-    } else {
-        let parens = if header_summary.is_empty() { 0 } else { cells(" ()") as i64 };
-        let budget = avail as i64 - cells(label_text) as i64 - parens;
-        let width = budget.clamp(0, SUMMARY_MAX_CHARS as i64) as usize;
-        let truncated = if !header_summary.is_empty() && width > 0 { truncate_to_width(header_summary, width) } else { String::new() };
-        (label_text.to_owned(), if truncated.is_empty() { String::new() } else { format!(" ({truncated})") })
-    };
-    let header: Vec<Run> = vec![
-        (label_out, Style { bold: true, ..themed(Key::Text) }),
-        (summary_out, themed(Key::Text)),
-        (inline_failure, themed(Key::Error)),
-        (if show_hint { hint_text } else { String::new() }, themed(Key::Subtle)),
-    ];
+    let header = fit_header(label_text, header_summary, text("headerFailureText"), hint_text, show_hint, columns);
 
     let raw_text = if !show_raw {
         String::new()

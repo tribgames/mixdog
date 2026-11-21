@@ -134,10 +134,8 @@ impl AgentGreetings {
         self.record(agent_id).await
     }
 
-    /// The save of an agent definition and the record of it as greeted, as one turn of the queue. Node's host awaits
-    /// `noteCreated` before the save's reply (`session-host-lifecycle.ts:1181-1186`) and reads the catalog only when
-    /// the user's next `listAgents` arrives; here the save itself rebuilds the pushed catalog, whose reconcile would
-    /// otherwise run between the save and its record and greet the agent the dialog just created.
+    /// The save of an agent definition and the record of it as greeted, as one turn of the queue, so a reconcile
+    /// never runs between them and greets the agent the dialog just created.
     pub async fn saving<T, E>(&self, save: impl std::future::Future<Output = Result<T, E>>, agent_id: impl FnOnce(&T) -> Option<String>) -> Result<T, E> {
         let _turn = self.serial.acquire(QUEUE).await;
         let saved = save.await?;

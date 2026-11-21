@@ -1,4 +1,4 @@
-//! `session-calls/goal-recovery.mjs`: resuming the sessions that carry an active Goal after
+//! Resuming the sessions that carry an active Goal after
 //! daemon replacement: discovering the stored session ids, re-checking that each Goal is still
 //! active, and materializing the survivors under daemon ownership. Reported as a count summary;
 //! a session that fails to resume never stops the others.

@@ -1,5 +1,3 @@
-//! The chart block of `pdf-writer.mjs` (`chartLayout`, `chartUnitHeight`, `drawChartBlock`) and `createChartPdf`.
-//!
 //! A bar chart the page draws itself, in the document's face and accent: categories and one series of values, each
 //! value labelled at its bar and the axis left quiet (no grid; the labels carry the numbers). `chartType: "bar"` lays the
 //! bars across, a ranking whose names read on the left; `"column"` stands them up, periods from left to right.
@@ -137,32 +135,44 @@ fn chart_layout(font: &Face, bold: &Face, block: &Value, text_box: TextBox) -> W
         column_width: 0.0,
     };
     if across {
-        // The names column is as wide as its longest name, a third of the width at most, where a longer name wraps.
-        let mut widest_name = f64::NEG_INFINITY;
-        for name in &categories {
-            widest_name = max(widest_name, font.width(name, size)?);
-        }
-        layout.label_width = min(text_box.width / 3.0, widest_name + 10.0);
-        let mut widest_value = f64::NEG_INFINITY;
-        for label in &layout.labels {
-            widest_value = max(widest_value, bold.width(label, size)?);
-        }
-        layout.value_width = widest_value + 8.0;
-        for name in &categories {
-            layout.names.push(wrap(font, name, size, max(8.0, layout.label_width - 10.0))?);
-        }
-        layout.rows = layout.names.iter().map(|lines| max(size * 2.4, lines.len() as f64 * size * 1.25 + 8.0)).collect();
-        layout.height = title_height + layout.rows.iter().sum::<f64>();
+        measure_bars_across(font, bold, &categories, text_box, &mut layout)?;
     } else {
-        layout.plot_height = num_or(block.get("height"), 150.0);
-        layout.column_width = text_box.width / max(1.0, layout.values.len() as f64);
-        for name in &categories {
-            layout.names.push(wrap(font, name, size, max(8.0, layout.column_width - 6.0))?);
-        }
-        let tallest = layout.names.iter().map(Vec::len).max().unwrap_or(0).max(1) as f64;
-        layout.height = title_height + size * 1.6 + layout.plot_height + 6.0 + tallest * size * 1.3;
+        measure_bars_upright(font, block, &categories, text_box, &mut layout)?;
     }
     Ok(layout)
+}
+
+/// The names column is as wide as its longest name, a third of the width at most, where a longer name wraps.
+fn measure_bars_across(font: &Face, bold: &Face, categories: &[String], text_box: TextBox, layout: &mut ChartLayout) -> WriterResult<()> {
+    let size = layout.size;
+    let mut widest_name = f64::NEG_INFINITY;
+    for name in categories {
+        widest_name = max(widest_name, font.width(name, size)?);
+    }
+    layout.label_width = min(text_box.width / 3.0, widest_name + 10.0);
+    let mut widest_value = f64::NEG_INFINITY;
+    for label in &layout.labels {
+        widest_value = max(widest_value, bold.width(label, size)?);
+    }
+    layout.value_width = widest_value + 8.0;
+    for name in categories {
+        layout.names.push(wrap(font, name, size, max(8.0, layout.label_width - 10.0))?);
+    }
+    layout.rows = layout.names.iter().map(|lines| max(size * 2.4, lines.len() as f64 * size * 1.25 + 8.0)).collect();
+    layout.height = layout.title_height + layout.rows.iter().sum::<f64>();
+    Ok(())
+}
+
+fn measure_bars_upright(font: &Face, block: &Value, categories: &[String], text_box: TextBox, layout: &mut ChartLayout) -> WriterResult<()> {
+    let size = layout.size;
+    layout.plot_height = num_or(block.get("height"), 150.0);
+    layout.column_width = text_box.width / max(1.0, layout.values.len() as f64);
+    for name in categories {
+        layout.names.push(wrap(font, name, size, max(8.0, layout.column_width - 6.0))?);
+    }
+    let tallest = layout.names.iter().map(Vec::len).max().unwrap_or(0).max(1) as f64;
+    layout.height = layout.title_height + size * 1.6 + layout.plot_height + 6.0 + tallest * size * 1.3;
+    Ok(())
 }
 
 /// The chart and the caption under it, measured as one unit: a caption alone atop the next page cites nothing.
@@ -176,90 +186,128 @@ pub fn chart_unit_height(flow: &Flow, block: &Value, following: Option<&Value>) 
     Ok(height + if trailing != 0.0 { num_nn(block.get("after"), 10.0) + trailing } else { 0.0 })
 }
 
+/// How a bar is inked: the highlight takes the accent and the others recede, a projected bar keeps its colour at a third
+/// of its strength inside a dashed outline, and its value reads muted.
+struct BarInk<'a> {
+    accent: [f64; 3],
+    line: [f64; 3],
+    muted: [f64; 3],
+    dark: [f64; 3],
+    highlight: f64,
+    forecast: &'a BTreeSet<i64>,
+}
+
+impl BarInk<'_> {
+    fn lit(&self, index: usize) -> bool {
+        self.highlight < 0.0 || index as f64 == self.highlight
+    }
+
+    fn projected(&self, index: usize) -> bool {
+        self.forecast.contains(&(index as i64))
+    }
+
+    fn bar(&self, index: usize, style: RectStyle) -> RectStyle {
+        let fill = if self.lit(index) { self.accent } else { self.line };
+        if !self.projected(index) {
+            return RectStyle { color: Some(fill), ..style };
+        }
+        let outline = if self.lit(index) && self.highlight >= 0.0 { self.accent } else { self.muted };
+        RectStyle { color: Some(fill), opacity: Some(0.35), border_color: Some(outline), border_width: 0.8, dash: Some([2.4, 1.6]), ..style }
+    }
+
+    fn label_ink(&self, index: usize) -> [f64; 3] {
+        if self.lit(index) && !self.projected(index) { self.dark } else { self.muted }
+    }
+
+    fn strong(&self, index: usize) -> bool {
+        self.lit(index) && self.highlight >= 0.0
+    }
+}
+
 pub fn draw_chart_block(flow: &mut Flow, block: &Value, following: Option<&Value>) -> WriterResult<()> {
     let text_box = flow.text_box(block);
     let layout = chart_layout(&flow.font, &flow.bold, block, text_box)?;
     let unit = chart_unit_height(flow, block, following)?;
     flow.keep_together(unit)?;
-    let (font, bold) = (flow.font.clone(), flow.bold.clone());
-    let accent = parse_color(&text_or(block.get("accent"), &flow.ink.accent))?;
-    let line_ink = parse_color(&flow.ink.line)?;
-    let muted = parse_color(&flow.ink.muted)?;
-    let dark = parse_color("1F2937")?;
-    let size = layout.size;
-    let highlight = layout.highlight;
-    let lit = |index: usize| highlight < 0.0 || index as f64 == highlight;
-    let projected = |index: usize| layout.forecast.contains(&(index as i64));
-    // A projected bar keeps its colour at a third of its strength inside a dashed outline, and its value reads muted.
-    let bar = |index: usize, style: RectStyle| -> RectStyle {
-        let fill = if lit(index) { accent } else { line_ink };
-        if !projected(index) {
-            return RectStyle { color: Some(fill), ..style };
-        }
-        let outline = if lit(index) && highlight >= 0.0 { accent } else { muted };
-        RectStyle { color: Some(fill), opacity: Some(0.35), border_color: Some(outline), border_width: 0.8, dash: Some([2.4, 1.6]), ..style }
+    let ink = BarInk {
+        accent: parse_color(&text_or(block.get("accent"), &flow.ink.accent))?,
+        line: parse_color(&flow.ink.line)?,
+        muted: parse_color(&flow.ink.muted)?,
+        dark: parse_color("1F2937")?,
+        highlight: layout.highlight,
+        forecast: &layout.forecast,
     };
-    let label_ink = |index: usize| if lit(index) && !projected(index) { dark } else { muted };
-    let strong = |index: usize| lit(index) && highlight >= 0.0;
     if is_truthy(block.get("title")) {
         let mut opts = LineOpts::new(layout.title_size * 1.3, "1F2937");
-        opts.face = Some(bold.clone());
+        opts.face = Some(flow.bold.clone());
         draw_lines(flow, text_box, &text_of(block.get("title")), layout.title_size, &opts)?;
         flow.y -= 6.0;
     }
     let peak = layout.values.iter().copied().fold(0.0, max);
     let scale = if peak == 0.0 || peak.is_nan() { 1.0 } else { peak };
     if layout.across {
-        let track = max(40.0, text_box.width - layout.label_width - layout.value_width);
-        let left = text_box.left + layout.label_width;
-        let top = flow.y;
-        for (index, value) in layout.values.iter().enumerate() {
-            let row_height = layout.rows[index];
-            let mid = flow.y - row_height / 2.0;
-            let lines = &layout.names[index];
-            // The name stands against the bars, its lines centred on the bar.
-            for (line_index, line) in lines.iter().enumerate() {
-                let y = mid + ((lines.len() as f64 - 1.0) / 2.0 - line_index as f64) * size * 1.25 - size * 0.35;
-                flow.page().draw_text(line, left - 10.0 - font.width(line, size)?, y, size, &font, dark)?;
-            }
-            let width = (value / scale) * track;
-            let bar_height = min(row_height - 6.0, size * 1.5);
-            if width > 0.0 {
-                flow.page().draw_rectangle(&bar(index, RectStyle { x: left, y: mid - bar_height / 2.0, width, height: bar_height, ..RectStyle::default() }));
-            }
-            let face = if strong(index) { &bold } else { &font };
-            flow.page().draw_text(&layout.labels[index], left + width + 4.0, mid - size * 0.35, size, face, label_ink(index))?;
-            flow.y -= row_height;
-        }
-        let bottom = flow.y;
-        flow.page().draw_line([left, top], [left, bottom], 0.6, line_ink);
+        draw_bars_across(flow, &layout, text_box, &ink, scale)?;
     } else {
-        let baseline = flow.y - size * 1.6 - layout.plot_height;
-        for (index, value) in layout.values.iter().enumerate() {
-            let x = text_box.left + index as f64 * layout.column_width;
-            let bar_width = min(layout.column_width * 0.56, 64.0);
-            let height = (value / scale) * layout.plot_height;
-            if height > 0.0 {
-                flow.page().draw_rectangle(&bar(
-                    index,
-                    RectStyle { x: x + (layout.column_width - bar_width) / 2.0, y: baseline, width: bar_width, height, ..RectStyle::default() },
-                ));
-            }
-            let face = if strong(index) { &bold } else { &font };
-            let label = &layout.labels[index];
-            flow.page().draw_text(label, x + (layout.column_width - face.width(label, size)?) / 2.0, baseline + height + 4.0, size, face, label_ink(index))?;
-            for (line_index, line) in layout.names[index].iter().enumerate() {
-                let line_y = baseline - 6.0 - size - line_index as f64 * size * 1.3;
-                flow.page().draw_text(line, x + (layout.column_width - font.width(line, size)?) / 2.0, line_y, size, &font, dark)?;
-            }
-        }
-        flow.page().draw_line([text_box.left, baseline], [text_box.left + text_box.width, baseline], 0.6, line_ink);
-        flow.y -= layout.height - layout.title_height;
+        draw_bars_upright(flow, &layout, text_box, &ink, scale)?;
     }
     flow.y -= num_nn(block.get("after"), 10.0);
     Ok(())
 }
 
+fn draw_bars_across(flow: &mut Flow, layout: &ChartLayout, text_box: TextBox, ink: &BarInk, scale: f64) -> WriterResult<()> {
+    let (font, bold) = (flow.font.clone(), flow.bold.clone());
+    let size = layout.size;
+    let track = max(40.0, text_box.width - layout.label_width - layout.value_width);
+    let left = text_box.left + layout.label_width;
+    let top = flow.y;
+    for (index, value) in layout.values.iter().enumerate() {
+        let row_height = layout.rows[index];
+        let mid = flow.y - row_height / 2.0;
+        let lines = &layout.names[index];
+        // The name stands against the bars, its lines centred on the bar.
+        for (line_index, line) in lines.iter().enumerate() {
+            let y = mid + ((lines.len() as f64 - 1.0) / 2.0 - line_index as f64) * size * 1.25 - size * 0.35;
+            flow.page().draw_text(line, left - 10.0 - font.width(line, size)?, y, size, &font, ink.dark)?;
+        }
+        let width = (value / scale) * track;
+        let bar_height = min(row_height - 6.0, size * 1.5);
+        if width > 0.0 {
+            flow.page().draw_rectangle(&ink.bar(index, RectStyle { x: left, y: mid - bar_height / 2.0, width, height: bar_height, ..RectStyle::default() }));
+        }
+        let face = if ink.strong(index) { &bold } else { &font };
+        flow.page().draw_text(&layout.labels[index], left + width + 4.0, mid - size * 0.35, size, face, ink.label_ink(index))?;
+        flow.y -= row_height;
+    }
+    let bottom = flow.y;
+    flow.page().draw_line([left, top], [left, bottom], 0.6, ink.line);
+    Ok(())
+}
+
+fn draw_bars_upright(flow: &mut Flow, layout: &ChartLayout, text_box: TextBox, ink: &BarInk, scale: f64) -> WriterResult<()> {
+    let (font, bold) = (flow.font.clone(), flow.bold.clone());
+    let size = layout.size;
+    let baseline = flow.y - size * 1.6 - layout.plot_height;
+    for (index, value) in layout.values.iter().enumerate() {
+        let x = text_box.left + index as f64 * layout.column_width;
+        let bar_width = min(layout.column_width * 0.56, 64.0);
+        let height = (value / scale) * layout.plot_height;
+        if height > 0.0 {
+            flow.page().draw_rectangle(
+                &ink.bar(index, RectStyle { x: x + (layout.column_width - bar_width) / 2.0, y: baseline, width: bar_width, height, ..RectStyle::default() }),
+            );
+        }
+        let face = if ink.strong(index) { &bold } else { &font };
+        let label = &layout.labels[index];
+        flow.page().draw_text(label, x + (layout.column_width - face.width(label, size)?) / 2.0, baseline + height + 4.0, size, face, ink.label_ink(index))?;
+        for (line_index, line) in layout.names[index].iter().enumerate() {
+            let line_y = baseline - 6.0 - size - line_index as f64 * size * 1.3;
+            flow.page().draw_text(line, x + (layout.column_width - font.width(line, size)?) / 2.0, line_y, size, &font, ink.dark)?;
+        }
+    }
+    flow.page().draw_line([text_box.left, baseline], [text_box.left + text_box.width, baseline], 0.6, ink.line);
+    flow.y -= layout.height - layout.title_height;
+    Ok(())
+}
 /// `createChartPdf(path, block, { width, palette })`: one chart block on a page of its own size (`width` points wide
 /// besides its padding, as tall as the chart), for a document that places the chart as a picture (a Word report): the
 /// same drawing the PDF chart block makes, cut to the chart. The result is `{ path, width, height }`.
@@ -330,5 +378,34 @@ mod tests {
         assert_eq!(layout.height, 9.5 * 1.6 + 100.0 + 6.0 + 9.5 * 1.3);
         assert!(layout.forecast.contains(&1));
         assert_eq!(layout.highlight, 0.0);
+    }
+
+    fn drawn(block: &Value) -> Flow {
+        let (font, bold) = (helvetica("F1", StandardFontName::Helvetica, 1), helvetica("F2", StandardFontName::HelveticaBold, 2));
+        let mut flow = Flow::new(PdfDocument::create(), [595.0, 842.0], 54.0, font, bold, None, None).unwrap();
+        draw_chart_block(&mut flow, block, None).unwrap();
+        flow
+    }
+
+    #[test]
+    fn bars_across_advance_the_cursor_by_their_rows_and_draw_a_bar_each() {
+        let flow = drawn(&json!({ "type": "chart", "categories": ["North", "East"], "values": [10, 20], "unit": "k" }));
+        let content = &flow.pages[0].content;
+        assert!((flow.y - (842.0 - 54.0 - 9.5 * 2.4 * 2.0 - 10.0)).abs() < 1e-9);
+        assert_eq!(content.matches(" re\n").count(), 2);
+        assert_eq!(content.matches(" m\n").count(), 1, "the axis rule");
+        assert!(!content.contains(" d\n"), "no bar is projected");
+    }
+
+    #[test]
+    fn upright_bars_project_the_forecast_and_stand_on_one_baseline() {
+        let flow = drawn(&json!({
+            "type": "chart", "chartType": "column", "categories": ["Q1", "Q2"], "values": [1, 2], "height": 100, "forecast": "Q2", "highlight": "Q1"
+        }));
+        let content = &flow.pages[0].content;
+        assert!((flow.y - (842.0 - 54.0 - (9.5 * 1.6 + 100.0 + 6.0 + 9.5 * 1.3) - 10.0)).abs() < 1e-9);
+        assert_eq!(content.matches(" re\n").count(), 2);
+        assert_eq!(content.matches("[2.4 1.6] 0 d").count(), 1, "only Q2 is a projection");
+        assert!(content.contains("/GS1 gs"));
     }
 }

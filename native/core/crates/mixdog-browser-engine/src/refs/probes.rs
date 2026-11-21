@@ -1,5 +1,4 @@
-//! Owner: s4-engine-target-points
-//! Where a ref is on screen (`ref-point-probe.ts`, `ref-rect-probe.ts`): the page-world functions that measure an element,
+//! Where a ref is on screen: the page-world functions that measure an element,
 //! and the reading of what they report. The page confirms the element, or the label a person would click instead, is on
 //! top at the point it hands back; a covered, hidden, disabled or moving element is refused with the reason, because a wrong
 //! point clicks the wrong thing. The functions run through `host/browser/ref/call` (`points`), so an accessibility ref and a

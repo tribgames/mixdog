@@ -214,13 +214,8 @@ impl Compiler {
         }
     }
 
-    /// `compileMode(mode, parent)`.
-    pub(crate) fn compile_mode(&mut self, id: usize, parent: Option<usize>) -> Result<(), String> {
-        if self.nodes[id].flag("isCompiled") {
-            return Ok(());
-        }
-
-        // compileMatch
+    /// core.js `compileMatch`: `match` becomes the mode's `begin`.
+    fn compile_match(&mut self, id: usize) -> Result<(), String> {
         if self.nodes[id].truthy("match").is_some() {
             if self.nodes[id].flag("begin") || self.nodes[id].flag("end") {
                 return Err("begin & end are not supported with match".to_string());
@@ -229,6 +224,102 @@ impl Compiler {
                 self.nodes[id].set("begin", m);
             }
         }
+        Ok(())
+    }
+
+    /// `beginKeywords` becomes a `begin` regex that skips a keyword after a dot.
+    fn compile_begin_keywords(&mut self, id: usize) {
+        let Some(Raw::Str(words)) = self.nodes[id].truthy("beginKeywords").cloned() else { return };
+        let begin = format!("\\b({})(?!\\.)(?=\\b|\\s)", words.split(' ').collect::<Vec<_>>().join("|"));
+        let node = &mut self.nodes[id];
+        node.set("begin", Raw::Str(begin));
+        node.set("__beforeBegin", Raw::Cb("skipIfHasPrecedingDot".to_string()));
+        if !node.flag("keywords") {
+            node.set("keywords", Raw::Str(words));
+        }
+        node.remove("beginKeywords");
+        if node.get("relevance").is_none() {
+            node.set("relevance", Raw::Num(0.0));
+        }
+    }
+
+    /// The typed fields the highlighter reads from a node.
+    fn typed_fields(&self, id: usize) -> TypedFields {
+        let node = &self.nodes[id];
+        let sub_language = match node.get("subLanguage") {
+            Some(Raw::Str(name)) => Some(SubLanguage::Name(name.clone())),
+            Some(Raw::Arr(list)) => Some(SubLanguage::List(
+                list.iter()
+                    .filter_map(|item| match item {
+                        Raw::Str(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        };
+        let relevance = match node.get("relevance") {
+            Some(Raw::Num(n)) => *n,
+            _ => 1.0,
+        };
+        let class_name = match node.truthy("className") {
+            Some(Raw::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
+        let starts = match node.get("starts") {
+            Some(Raw::Obj(s)) => Some(*s),
+            _ => None,
+        };
+        TypedFields {
+            class_name,
+            sub_language,
+            relevance,
+            skip: node.flag("skip"),
+            return_begin: node.flag("returnBegin"),
+            return_end: node.flag("returnEnd"),
+            exclude_begin: node.flag("excludeBegin"),
+            exclude_end: node.flag("excludeEnd"),
+            ends_parent: node.flag("endsParent"),
+            ends_with_parent: node.flag("endsWithParent"),
+            end_same_as_begin: node.flag("endSameAsBegin"),
+            starts,
+        }
+    }
+
+    /// The `end` of a nested mode and the terminator regex source it contributes: its own end, then its parent's when it
+    /// ends with the parent.
+    fn compile_terminator(&mut self, id: usize, parent: Option<usize>) -> (String, Option<Rc<LazyRegex>>) {
+        let Some(parent) = parent else { return (String::new(), None) };
+        if !self.nodes[id].flag("begin") {
+            self.nodes[id].set("begin", Raw::Re("\\B|\\b".to_string()));
+        }
+        if self.nodes[id].flag("endSameAsBegin") {
+            let begin = self.nodes[id].get("begin").cloned().unwrap_or(Raw::Null);
+            self.nodes[id].set("end", begin);
+        }
+        if !self.nodes[id].flag("end") && !self.nodes[id].flag("endsWithParent") {
+            self.nodes[id].set("end", Raw::Re("\\B|\\b".to_string()));
+        }
+        let end_source = self.nodes[id].truthy("end").and_then(Raw::source).map(str::to_string);
+        let end_re = end_source.as_ref().map(|source| Rc::new(LazyRegex::new(source.clone(), self.case_insensitive)));
+        let mut terminator_end = end_source.clone().unwrap_or_default();
+        let parent_terminator = self.modes[parent].terminator_end.clone();
+        if self.nodes[id].flag("endsWithParent") && !parent_terminator.is_empty() {
+            if end_source.is_some() {
+                terminator_end.push('|');
+            }
+            terminator_end.push_str(&parent_terminator);
+        }
+        (terminator_end, end_re)
+    }
+
+    /// `compileMode(mode, parent)`.
+    pub(crate) fn compile_mode(&mut self, id: usize, parent: Option<usize>) -> Result<(), String> {
+        if self.nodes[id].flag("isCompiled") {
+            return Ok(());
+        }
+
+        self.compile_match(id)?;
 
         for extension in self.extensions.clone() {
             extension(self, id, parent)?;
@@ -237,38 +328,22 @@ impl Compiler {
         // `mode.__beforeBegin = null`
         self.nodes[id].set("__beforeBegin", Raw::Null);
 
-        // beginKeywords
-        if parent.is_some()
-            && let Some(Raw::Str(words)) = self.nodes[id].truthy("beginKeywords").cloned()
-        {
-            let begin = format!("\\b({})(?!\\.)(?=\\b|\\s)", words.split(' ').collect::<Vec<_>>().join("|"));
-            let node = &mut self.nodes[id];
-            node.set("begin", Raw::Str(begin));
-            node.set("__beforeBegin", Raw::Cb("skipIfHasPrecedingDot".to_string()));
-            if !node.flag("keywords") {
-                node.set("keywords", Raw::Str(words));
-            }
-            node.remove("beginKeywords");
-            if node.get("relevance").is_none() {
-                node.set("relevance", Raw::Num(0.0));
-            }
+        if parent.is_some() {
+            self.compile_begin_keywords(id);
         }
 
-        // compileIllegal
         if let Some(Raw::Arr(items)) = self.nodes[id].get("illegal").cloned() {
             let sources: Vec<Option<&str>> = items.iter().map(Raw::source).collect();
             let joined = either(&sources);
             self.nodes[id].set("illegal", Raw::Str(joined));
         }
 
-        // compileRelevance
         if self.nodes[id].get("relevance").is_none() {
             self.nodes[id].set("relevance", Raw::Num(1.0));
         }
 
         self.nodes[id].set("isCompiled", Raw::Bool(true));
 
-        // keywords
         let mut keyword_pattern: Option<Raw> = None;
         if let Some(Raw::Obj(table)) = self.nodes[id].get("keywords").cloned() {
             keyword_pattern = self.nodes[table].remove("$pattern");
@@ -289,78 +364,12 @@ impl Compiler {
         let pattern_source = pattern.as_ref().or(lexemes.as_ref()).and_then(Raw::source).unwrap_or("\\w+").to_string();
         let keyword_pattern = Rc::new(LazyRegex::new(pattern_source, self.case_insensitive));
 
-        let mut terminator_end = String::new();
-        let mut end_re = None;
-        if let Some(parent) = parent {
-            if !self.nodes[id].flag("begin") {
-                self.nodes[id].set("begin", Raw::Re("\\B|\\b".to_string()));
-            }
-            if self.nodes[id].flag("endSameAsBegin") {
-                let begin = self.nodes[id].get("begin").cloned().unwrap_or(Raw::Null);
-                self.nodes[id].set("end", begin);
-            }
-            if !self.nodes[id].flag("end") && !self.nodes[id].flag("endsWithParent") {
-                self.nodes[id].set("end", Raw::Re("\\B|\\b".to_string()));
-            }
-            let end_source = self.nodes[id].truthy("end").and_then(Raw::source).map(str::to_string);
-            if let Some(source) = &end_source {
-                end_re = Some(Rc::new(LazyRegex::new(source.clone(), self.case_insensitive)));
-            }
-            terminator_end = end_source.clone().unwrap_or_default();
-            let parent_terminator = self.modes[parent].terminator_end.clone();
-            if self.nodes[id].flag("endsWithParent") && !parent_terminator.is_empty() {
-                if end_source.is_some() {
-                    terminator_end.push('|');
-                }
-                terminator_end.push_str(&parent_terminator);
-            }
-        }
+        let (terminator_end, end_re) = self.compile_terminator(id, parent);
         if !self.nodes[id].flag("contains") {
             self.nodes[id].set("contains", Raw::Arr(Vec::new()));
         }
 
-        // The typed fields the highlighter reads; the children below see this mode's `terminator_end`.
-        let typed = {
-            let node = &self.nodes[id];
-            let sub_language = match node.get("subLanguage") {
-                Some(Raw::Str(name)) => Some(SubLanguage::Name(name.clone())),
-                Some(Raw::Arr(list)) => Some(SubLanguage::List(
-                    list.iter()
-                        .filter_map(|item| match item {
-                            Raw::Str(s) => Some(s.clone()),
-                            _ => None,
-                        })
-                        .collect(),
-                )),
-                _ => None,
-            };
-            let relevance = match node.get("relevance") {
-                Some(Raw::Num(n)) => *n,
-                _ => 1.0,
-            };
-            let class_name = match node.truthy("className") {
-                Some(Raw::Str(s)) => Some(s.clone()),
-                _ => None,
-            };
-            let starts = match node.get("starts") {
-                Some(Raw::Obj(s)) => Some(*s),
-                _ => None,
-            };
-            TypedFields {
-                class_name,
-                sub_language,
-                relevance,
-                skip: node.flag("skip"),
-                return_begin: node.flag("returnBegin"),
-                return_end: node.flag("returnEnd"),
-                exclude_begin: node.flag("excludeBegin"),
-                exclude_end: node.flag("excludeEnd"),
-                ends_parent: node.flag("endsParent"),
-                ends_with_parent: node.flag("endsWithParent"),
-                end_same_as_begin: node.flag("endSameAsBegin"),
-                starts,
-            }
-        };
+        let typed = self.typed_fields(id);
         let before_begin = self.hook_of(id, "__beforeBegin")?;
         let on_begin = self.hook_of(id, "on:begin")?;
         let on_end = self.hook_of(id, "on:end")?;
@@ -387,7 +396,6 @@ impl Compiler {
             mode.terminator_end = terminator_end.clone();
         }
 
-        // contains
         let entries = match self.nodes[id].get("contains") {
             Some(Raw::Arr(items)) => items.clone(),
             _ => Vec::new(),
@@ -410,7 +418,6 @@ impl Compiler {
             self.compile_mode(starts, parent)?;
         }
 
-        // buildModeRegex
         let mut rules: Vec<(String, RuleKind)> = Vec::new();
         for child in &expanded {
             let begin = self.nodes[*child].get("begin").and_then(Raw::source).ok_or_else(|| "a contained mode has no begin".to_string())?;

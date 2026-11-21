@@ -158,6 +158,18 @@ async fn commit_generated(env: &WindowEnv, generated: Generated, cancel: &Cancel
     Ok(done)
 }
 
+/// A window whose rows were all marked terminal without a model call.
+fn terminal_result(rows_considered: usize, terminal: Vec<i64>, marked: usize, mark_failed: usize) -> WindowResult {
+    WindowResult {
+        rows_considered,
+        omitted_row_ids: terminal.clone(),
+        prefiltered_row_ids: terminal,
+        prefilter_marked: marked,
+        prefilter_mark_failed: mark_failed,
+        ..WindowResult::default()
+    }
+}
+
 /// `processCycle1Window`.
 pub async fn process_cycle1_window(env: &WindowEnv, original: &[Row], window_idx: usize, plan: &Plan, cancel: &CancellationToken) -> Result<WindowResult> {
     if cancel.is_cancelled() {
@@ -175,28 +187,13 @@ pub async fn process_cycle1_window(env: &WindowEnv, original: &[Row], window_idx
         (prefilter_marked, prefilter_mark_failed) = (marked, failed);
     }
     if rows.is_empty() {
-        return Ok(WindowResult {
-            rows_considered: original.len(),
-            omitted_row_ids: prefiltered_ids.clone(),
-            prefiltered_row_ids: prefiltered_ids,
-            prefilter_marked,
-            prefilter_mark_failed,
-            ..WindowResult::default()
-        });
+        return Ok(terminal_result(original.len(), prefiltered_ids, prefilter_marked, prefilter_mark_failed));
     }
     if is_below_min_source(&rows) {
-        // Never sent to the model, so it is not a miss: same terminal marking as the prefilter.
         let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
         let (_, marked, failed) = mark_terminal_rows(&env.db, &ids, "min-source", (env.now)()).await;
         let terminal: Vec<i64> = prefiltered_ids.iter().copied().chain(ids).collect();
-        return Ok(WindowResult {
-            rows_considered: original.len(),
-            omitted_row_ids: terminal.clone(),
-            prefiltered_row_ids: terminal,
-            prefilter_marked: prefilter_marked + marked,
-            prefilter_mark_failed: prefilter_mark_failed + failed,
-            ..WindowResult::default()
-        });
+        return Ok(terminal_result(original.len(), terminal, prefilter_marked + marked, prefilter_mark_failed + failed));
     }
     let request = Cycle1Request { preset: plan.preset.clone(), timeout_ms: plan.timeout };
     let now = Arc::clone(&env.now);

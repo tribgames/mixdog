@@ -1,10 +1,3 @@
-//! What one connect attempt carries to every ssh it starts, and the seams the ssh code reaches the machine through.
-//!
-//! The desktop kept the attempt's settings in an `AsyncLocalStorage`; here the [`AttemptContext`] is an explicit
-//! argument of every function that spawns. The machine itself (environment, files, the tool runner, the process
-//! spawner, the askpass session, the diagnostics rings) reaches the code through [`SshEnv`], so the argument-building
-//! code stays pure and a test hands in in-memory stand-ins.
-
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};

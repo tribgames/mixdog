@@ -920,37 +920,8 @@ impl TrueTypeFont {
                 glyph_names = Some(MAC_STANDARD_GLYPH_ORDERING.iter().map(|name| Some((*name).to_owned())).collect());
             }
             0x0002_0000 => {
-                let num_glyphs = reader.u16();
-                if num_glyphs != max_num_glyphs {
-                    valid = false;
-                } else {
-                    let mut indexes: Vec<i32> = Vec::new();
-                    for _ in 0..num_glyphs.max(0) {
-                        let index = reader.u16();
-                        if index >= 32768 {
-                            valid = false;
-                            break;
-                        }
-                        indexes.push(index);
-                    }
-                    if valid {
-                        let mut custom_names: Vec<String> = Vec::new();
-                        while reader.position() < end && custom_names.len() < MAX_POST_NAMES {
-                            let len = reader.byte();
-                            custom_names.push(reader.string(i64::from(len)));
-                        }
-                        glyph_names = Some(
-                            indexes
-                                .iter()
-                                .map(|&j| match usize::try_from(j) {
-                                    Ok(j) if j < 258 => Some(MAC_STANDARD_GLYPH_ORDERING[j].to_owned()),
-                                    Ok(j) => custom_names.get(j - 258).cloned(),
-                                    Err(_) => None,
-                                })
-                                .collect(),
-                        );
-                    }
-                }
+                glyph_names = read_post_format2_names(&mut reader, end, max_num_glyphs);
+                valid = glyph_names.is_some();
             }
             0x0003_0000 => {}
             _ => {
@@ -972,47 +943,7 @@ impl TrueTypeFont {
         };
         let start = u64::from(cmap.offset);
         let mut file = Reader::at(&self.file, start);
-        file.skip(2);
-        let num_tables = file.u16();
-        let mut potential: Option<(i32, i32, u32)> = None;
-        let mut can_break = false;
-        for i in 0..num_tables.max(0) {
-            let platform_id = file.u16();
-            let encoding_id = file.u16();
-            let offset = file.uint32();
-            if potential.is_some_and(|(p, e, _)| p == platform_id && e == encoding_id) {
-                continue;
-            }
-            let mut use_table = false;
-            if (platform_id == 0 && matches!(encoding_id, 0 | 1 | 3)) || (platform_id == 1 && encoding_id == 0) {
-                use_table = true;
-            } else if platform_id == 3 && encoding_id == 1 && (has_encoding || potential.is_none()) {
-                use_table = true;
-                if !is_symbolic_font {
-                    can_break = true;
-                }
-            } else if is_symbolic_font && platform_id == 3 && encoding_id == 0 {
-                use_table = true;
-                let mut correctly_sorted = true;
-                if i < num_tables - 1 {
-                    let next = file.peek_bytes(2);
-                    let next_platform = int16(next.first().copied(), next.get(1).copied());
-                    if next_platform.is_some_and(|p| p < platform_id) {
-                        correctly_sorted = false;
-                    }
-                }
-                if correctly_sorted {
-                    can_break = true;
-                }
-            }
-            if use_table {
-                potential = Some((platform_id, encoding_id, offset));
-            }
-            if can_break {
-                break;
-            }
-        }
-        let Some((platform_id, encoding_id, offset)) = potential else {
+        let Some((platform_id, encoding_id, offset)) = choose_cmap_subtable(&mut file, is_symbolic_font, has_encoding) else {
             tracing::warn!("Could not find a preferred cmap table.");
             return Ok(CmapTable::none());
         };
@@ -1042,6 +973,84 @@ impl TrueTypeFont {
         final_mappings.sort_by_key(|mapping| mapping.char_code);
         Ok(CmapTable { platform_id, encoding_id, mappings: final_mappings, has_short_cmap })
     }
+}
+
+/// pdf.js's choice among the encoding records of a `cmap` table (the reader is at its start): `(platform, encoding,
+/// offset)` of the subtable to read.
+fn choose_cmap_subtable(file: &mut Reader<'_>, is_symbolic_font: bool, has_encoding: bool) -> Option<(i32, i32, u32)> {
+    file.skip(2);
+    let num_tables = file.u16();
+    let mut potential: Option<(i32, i32, u32)> = None;
+    let mut can_break = false;
+    for i in 0..num_tables.max(0) {
+        let platform_id = file.u16();
+        let encoding_id = file.u16();
+        let offset = file.uint32();
+        if potential.is_some_and(|(p, e, _)| p == platform_id && e == encoding_id) {
+            continue;
+        }
+        let mut use_table = false;
+        if (platform_id == 0 && matches!(encoding_id, 0 | 1 | 3)) || (platform_id == 1 && encoding_id == 0) {
+            use_table = true;
+        } else if platform_id == 3 && encoding_id == 1 && (has_encoding || potential.is_none()) {
+            use_table = true;
+            if !is_symbolic_font {
+                can_break = true;
+            }
+        } else if is_symbolic_font && platform_id == 3 && encoding_id == 0 {
+            use_table = true;
+            let mut correctly_sorted = true;
+            if i < num_tables - 1 {
+                let next = file.peek_bytes(2);
+                let next_platform = int16(next.first().copied(), next.get(1).copied());
+                if next_platform.is_some_and(|p| p < platform_id) {
+                    correctly_sorted = false;
+                }
+            }
+            if correctly_sorted {
+                can_break = true;
+            }
+        }
+        if use_table {
+            potential = Some((platform_id, encoding_id, offset));
+        }
+        if can_break {
+            break;
+        }
+    }
+    potential
+}
+
+/// The glyph names of a format 2 `post` table; `None` when its glyph count is not `max_num_glyphs` or an index is
+/// out of range.
+fn read_post_format2_names(reader: &mut Reader<'_>, end: i64, max_num_glyphs: i32) -> Option<Vec<Option<String>>> {
+    let num_glyphs = reader.u16();
+    if num_glyphs != max_num_glyphs {
+        return None;
+    }
+    let mut indexes: Vec<i32> = Vec::new();
+    for _ in 0..num_glyphs.max(0) {
+        let index = reader.u16();
+        if index >= 32768 {
+            return None;
+        }
+        indexes.push(index);
+    }
+    let mut custom_names: Vec<String> = Vec::new();
+    while reader.position() < end && custom_names.len() < MAX_POST_NAMES {
+        let len = reader.byte();
+        custom_names.push(reader.string(i64::from(len)));
+    }
+    Some(
+        indexes
+            .iter()
+            .map(|&j| match usize::try_from(j) {
+                Ok(j) if j < 258 => Some(MAC_STANDARD_GLYPH_ORDERING[j].to_owned()),
+                Ok(j) => custom_names.get(j - 258).cloned(),
+                Err(_) => None,
+            })
+            .collect(),
+    )
 }
 
 fn too_many_mappings() -> PdfError {
@@ -1247,6 +1256,13 @@ fn copy_within_clamped(data: &mut [u8], target: i64, start: i64, end: i64) {
 /// `pruneCompositeGlyphCycles`: removes the components that close a cycle of composite glyphs, in `glyf` itself, and
 /// returns which glyphs are left without a component.
 fn prune_composite_glyph_cycles(glyf: &mut [u8], entries: &[LocaEntry], num_glyphs: usize) -> Result<Vec<bool>> {
+    let components = read_glyph_components(glyf, entries, num_glyphs)?;
+    let back_edges = find_component_back_edges(&components);
+    remove_component_back_edges(glyf, entries, &components, &back_edges)
+}
+
+/// The components of each composite glyph (`None` for a glyph that is not one).
+fn read_glyph_components(glyf: &[u8], entries: &[LocaEntry], num_glyphs: usize) -> Result<Vec<Option<Vec<Component>>>> {
     let byte_length = i64::try_from(glyf.len()).unwrap_or(i64::MAX);
     let mut components: Vec<Option<Vec<Component>>> = (0..num_glyphs).map(|_| None).collect();
     for (i, slot) in components.iter_mut().enumerate() {
@@ -1282,6 +1298,13 @@ fn prune_composite_glyph_cycles(glyf: &mut [u8], entries: &[LocaEntry], num_glyp
             *slot = Some(comps);
         }
     }
+    Ok(components)
+}
+
+/// `backEdges`: a depth-first search of the component graph; the components that point at a glyph still on the
+/// search path, per glyph in the order found.
+fn find_component_back_edges(components: &[Option<Vec<Component>>]) -> Vec<(usize, Vec<usize>)> {
+    let num_glyphs = components.len();
     const WHITE: u8 = 0;
     const GRAY: u8 = 1;
     const BLACK: u8 = 2;
@@ -1326,8 +1349,20 @@ fn prune_composite_glyph_cycles(glyf: &mut [u8], entries: &[LocaEntry], num_glyp
             }
         }
     }
-    let mut dropped = vec![false; num_glyphs];
-    for (g_idx, remove_set) in &back_edges {
+    back_edges
+}
+
+/// Rewrites each glyph of `back_edges` in `glyf` without those components; the result says which glyphs are left
+/// with none.
+fn remove_component_back_edges(
+    glyf: &mut [u8],
+    entries: &[LocaEntry],
+    components: &[Option<Vec<Component>>],
+    back_edges: &[(usize, Vec<usize>)],
+) -> Result<Vec<bool>> {
+    let byte_length = i64::try_from(glyf.len()).unwrap_or(i64::MAX);
+    let mut dropped = vec![false; components.len()];
+    for (g_idx, remove_set) in back_edges {
         let comps = components[*g_idx].as_deref().unwrap_or(&[]);
         let remaining: Vec<&Component> = comps.iter().enumerate().filter(|(ci, _)| !remove_set.contains(ci)).map(|(_, c)| c).collect();
         if remaining.is_empty() {

@@ -1,9 +1,3 @@
-//! Owner: s4-engine-actions-observe-nav
-//! What the page has been doing (`actions/diagnostics.ts`): its health `status`, the `console` ledger, and the `network` ledger with
-//! one request's detail. The ledgers and their reports are `ledger::*` and `reply::dialog_text`; what this module adds is the
-//! command's arguments and, for one request's detail, the bodies Chromium still holds, which it asks the host for through CDP
-//! (`Network.getRequestPostData`, `Network.getResponseBody`).
-
 use mixdog_app_protocol::v2::browser_engine::HostBrowserCdpSendParams;
 use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_js::js_trim;

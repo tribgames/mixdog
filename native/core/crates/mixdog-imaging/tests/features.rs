@@ -229,13 +229,6 @@ fn a_damaged_avif_is_an_invalid_image_not_a_panic() {
     }
 }
 
-// ---- AVIF container properties ----
-//
-// The source is an AVIF this crate encodes; the property boxes of the HEIF container (`irot`, `imir`, `clap`, `colr`)
-// are written into its `ipco` box and associated with the primary item in `ipma`, with the `iloc` offsets moved by
-// the growth of the `meta` box. The decode of the patched file is compared with the decode of the unpatched one
-// (the same coded picture), transformed by the rule of the property.
-
 mod container {
     use std::sync::OnceLock;
 

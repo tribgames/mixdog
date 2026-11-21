@@ -74,6 +74,63 @@ fn facts_of(session: &Value) -> SessionFacts {
     }
 }
 
+fn route_value(key: &str, source: &Value) -> Value {
+    match key {
+        "fast" => Value::Bool(source.get("fast") == Some(&Value::Bool(true))),
+        "autoEffort" => Value::Bool(source.get("autoEffort") != Some(&Value::Bool(false))),
+        _ => match source.get(key) {
+            None | Some(Value::Null) => Value::Null,
+            Some(v) => Value::String(v.to_string()),
+        },
+    }
+}
+
+fn route_to_set(keys: &[&str], preset: &Value) -> Value {
+    let mut route = Map::new();
+    for key in keys {
+        match *key {
+            "fast" => {
+                route.insert("fast".into(), Value::Bool(preset.get("fast") == Some(&Value::Bool(true))));
+            }
+            "autoEffort" => {
+                if preset.get("autoEffort") == Some(&Value::Bool(false)) {
+                    route.insert("autoEffort".into(), Value::Bool(false));
+                }
+            }
+            other => {
+                route.insert(other.into(), preset[other].clone());
+            }
+        }
+    }
+    Value::Object(route)
+}
+
+fn send_job_meta(session: &Value, id: &str, tag: Option<String>, resumed: bool) -> JobMeta {
+    JobMeta {
+        tag: tag.filter(|t| !t.is_empty()),
+        session_id: Some(id.to_owned()),
+        agent: text(session, "agent"),
+        provider: text(session, "provider"),
+        model: text(session, "model"),
+        preset: text(session, "presetName"),
+        effort: text(session, "effort"),
+        fast: Some(session.get("fast") == Some(&Value::Bool(true))),
+        respawned: false,
+        resumed,
+        auto_effort_off: session.get("autoEffort") == Some(&Value::Bool(false)),
+    }
+}
+
+fn send_start_context(notify: &SpawnContext) -> StartContext {
+    StartContext {
+        caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
+        owner_session_id: Some(notify.owner_id()).filter(|c| !c.is_empty()),
+        client_host_pid: notify.client_host_pid,
+        hop: (notify.hop > 0).then(|| serde_json::json!(notify.hop)),
+        tool_call_id: notify.tool_call_id.clone(),
+    }
+}
+
 pub struct SendFlowDeps {
     pub world: Arc<dyn SendWorld>,
     pub registry: Arc<dyn Registry>,
@@ -192,25 +249,11 @@ impl SendFlowImpl {
         if !truthy(preset.get("provider")) || !truthy(preset.get("model")) {
             return Ok(None);
         }
-        // Every route key the agent's route sets (an effort or Fast change alone included); a
-        // key it leaves unset is the route default either way.
-        let value = |key: &str, source: &Value| -> Value {
-            match key {
-                "fast" => Value::Bool(source.get("fast") == Some(&Value::Bool(true))),
-                "autoEffort" => Value::Bool(source.get("autoEffort") != Some(&Value::Bool(false))),
-                _ => match source.get(key) {
-                    None | Some(Value::Null) => Value::Null,
-                    Some(v) => Value::String(v.to_string()),
-                },
-            }
-        };
         let set: Vec<&str> = AGENT_ROUTE_KEYS
             .into_iter()
             .filter(|key| *key == "fast" || *key == "autoEffort" || !matches!(preset.get(*key), None | Some(Value::Null)))
             .collect();
-        let matches = |target: &Value| set.iter().all(|key| value(key, preset) == value(key, target));
-        // Against the route the session's next turn runs on: one held for it (an in-process
-        // worker that was busy), else its own.
+        let matches = |target: &Value| set.iter().all(|key| route_value(key, preset) == route_value(key, target));
         let id = id_of(session);
         if matches(session) {
             // Saved back to the running route: an earlier hold is obsolete.
@@ -226,23 +269,25 @@ impl SendFlowImpl {
                 return Ok(None);
             }
         }
-        let mut route = Map::new();
-        for key in set {
-            match key {
-                "fast" => {
-                    route.insert("fast".into(), Value::Bool(preset.get("fast") == Some(&Value::Bool(true))));
-                }
-                "autoEffort" => {
-                    if preset.get("autoEffort") == Some(&Value::Bool(false)) {
-                        route.insert("autoEffort".into(), Value::Bool(false));
-                    }
-                }
-                other => {
-                    route.insert(other.into(), preset[other].clone());
-                }
+        Ok(Some(route_to_set(&set, preset)))
+    }
+
+    async fn settle_route(&self, prepared: &Prepared, mut session: Value) -> Result<Value, String> {
+        let id = &prepared.session_id;
+        let mut followed = if prepared.route.is_some() { None } else { self.agent_route_to_follow(&session).await? };
+        if let Some(route) = followed.as_ref().filter(|_| !self.world.surface_runs(&session)) {
+            if !self.world.is_busy(id) {
+                let cross = route.get("provider") != session.get("provider") || route.get("model") != session.get("model");
+                self.world.update_session_route(id, route, &session, cross);
+            } else {
+                self.world.hold_session_route(id, Some(route));
             }
+            followed = None;
         }
-        Ok(Some(Value::Object(route)))
+        if let Some(route) = prepared.route.clone().or(followed) {
+            session = self.apply_requested_route(session, &route).await?;
+        }
+        Ok(session)
     }
 
     /// `dispatchToExistingSession`: a busy session queues the prompt; an idle one runs a
@@ -253,24 +298,8 @@ impl SendFlowImpl {
         notify: &SpawnContext,
         options: DispatchOptions,
     ) -> Result<AgentReply, String> {
-        let mut session = self.session_of(prepared);
+        let session = self.settle_route(prepared, self.session_of(prepared)).await?;
         let id = prepared.session_id.clone();
-        let mut followed = if prepared.route.is_some() { None } else { self.agent_route_to_follow(&session).await? };
-        if let Some(route) = followed.as_ref().filter(|_| !self.world.surface_runs(&session)) {
-            // An in-process session takes the followed route in place, between turns; a running
-            // one finishes on the route it started on and holds the new one for its next turn,
-            // which runs the queued work.
-            if !self.world.is_busy(&id) {
-                let cross = route.get("provider") != session.get("provider") || route.get("model") != session.get("model");
-                self.world.update_session_route(&id, route, &session, cross);
-            } else {
-                self.world.hold_session_route(&id, Some(route));
-            }
-            followed = None;
-        }
-        if let Some(route) = prepared.route.clone().or(followed) {
-            session = self.apply_requested_route(session, &route).await?;
-        }
         let prompt = prepared.prompt.clone().unwrap_or_default();
         let tag = self.registry.tag_for_session(&id);
         let busy = self.world.is_busy(&id);
@@ -303,26 +332,8 @@ impl SendFlowImpl {
                 return Ok(queued_view(Some(depth)));
             }
         }
-        let meta = JobMeta {
-            tag: tag.clone().filter(|t| !t.is_empty()),
-            session_id: Some(id.clone()),
-            agent: text(&session, "agent"),
-            provider: text(&session, "provider"),
-            model: text(&session, "model"),
-            preset: text(&session, "presetName"),
-            effort: text(&session, "effort"),
-            fast: Some(session.get("fast") == Some(&Value::Bool(true))),
-            respawned: false,
-            resumed: options.resumed,
-            auto_effort_off: session.get("autoEffort") == Some(&Value::Bool(false)),
-        };
-        let start = StartContext {
-            caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
-            owner_session_id: Some(notify.owner_id()).filter(|c| !c.is_empty()),
-            client_host_pid: notify.client_host_pid,
-            hop: (notify.hop > 0).then(|| serde_json::json!(notify.hop)),
-            tool_call_id: notify.tool_call_id.clone(),
-        };
+        let meta = send_job_meta(&session, &id, tag.clone(), options.resumed);
+        let start = send_start_context(notify);
         let (flow, prepared_run) = (self.clone(), prepared.clone());
         let job = self.starter.start_job("send", meta, start, move |job, owner_context| async move {
             let plan = flow.turn_plan(&prepared_run);

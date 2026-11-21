@@ -115,6 +115,49 @@ fn answer(result: Result<Value, CoreError>) -> Value {
     }
 }
 
+async fn service_over(rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, repo: &str, dir: &std::path::Path) -> ProjectService {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let registry = Arc::new(One(repo.to_owned()));
+    let connector_data = dir.join("connector-data");
+    std::fs::create_dir_all(&connector_data).unwrap();
+    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), &connector_data, io);
+    let ops = testing::scopes(dir, "project").await;
+    let live: LiveSessions = Arc::new(HashSet::new);
+    ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live, connectors, ops)
+}
+
+async fn select_branch(service: &ProjectService, ops: &mut u64, input: Value) -> Value {
+    *ops += 1;
+    let params = testing::with_op(json!({ "input": input }), *ops);
+    let mut request = testing::request("project/selectProjectBranch", params, Some(*ops));
+    request.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
+    switched(service, request).await
+}
+
+/// `project/selectProjectBranch` refuses the input combinations that exclude each other with the guard's own text, creates a
+/// branch in the Project folder, and answers `changed: false` when the branch asked for is already checked out.
+#[tokio::test(flavor = "multi_thread")]
+async fn selecting_a_project_branch_guards_its_input_and_creates_the_branch() {
+    let rig = rig();
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let service = service_over(&rig, &repo, dir.path()).await;
+    let mut n = 0;
+    for (input, message) in [
+        (json!({ "projectPath": repo, "detach": "abc1234", "branch": "topic" }), "detach excludes branch, create, remote and startPoint."),
+        (json!({ "projectPath": repo, "branch": "topic", "create": true, "remote": true }), "create and remote are exclusive."),
+        (json!({ "projectPath": repo, "branch": "topic", "startPoint": "main" }), "startPoint needs create."),
+    ] {
+        let refused = select_branch(&service, &mut n, input).await;
+        assert_eq!(refused["error"]["message"], message, "{refused}");
+    }
+    let created = select_branch(&service, &mut n, json!({ "projectPath": repo, "branch": "topic", "create": true })).await;
+    assert!(created.get("ok").is_some(), "{created}");
+    let again = select_branch(&service, &mut n, json!({ "projectPath": repo, "branch": "topic" })).await;
+    assert_eq!(again, json!({ "ok": { "branch": "topic", "changed": false } }));
+}
+
 /// A connector switch as `origin` (and, for a window, its scope) sends it: the same call `testing::request` builds, with the context of that connection.
 fn switch_as(ops: &mut u64, origin: Origin, window: Option<WindowScope>, repo: &str, connector: &str, enabled: bool) -> CoreRequest {
     *ops += 1;
@@ -139,15 +182,7 @@ async fn a_window_widens_a_project_connector_as_main_does() {
     let rig = rig();
     let repo = rig.repo.to_string_lossy().into_owned();
     let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
-    let registry = Arc::new(One(repo.clone()));
-    let connector_data = dir.path().join("connector-data");
-    std::fs::create_dir_all(&connector_data).unwrap();
-    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), &connector_data, io);
-    let ops = testing::scopes(dir.path(), "project").await;
-    let live: LiveSessions = Arc::new(HashSet::new);
-    let service = ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live, connectors, ops);
+    let service = service_over(&rig, &repo, dir.path()).await;
     let window = || Some(WindowScope { id: Arc::from("w-1"), role: WindowRole::Main });
     let mut n = 0;
 

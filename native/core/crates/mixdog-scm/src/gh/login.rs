@@ -264,12 +264,11 @@ impl LoginFlow for GithubLogin {
             let _ = previous.processes.kill(&previous.handle);
         }
         let handle = ProcessHandle(format!("scm-login-{}-{}", std::process::id(), self.sequence.fetch_add(1, Ordering::Relaxed)));
+        let program = (self.program)();
+        let args: Vec<String> = ["auth", "login", "--hostname", HOSTNAME, "--web"].iter().map(|arg| (*arg).to_owned()).collect();
         let request = SpawnRequest {
             handle: handle.clone(),
-            command: CommandSpec::Argv {
-                program: (self.program)(),
-                args: ["auth", "login", "--hostname", HOSTNAME, "--web"].iter().map(|arg| (*arg).to_owned()).collect(),
-            },
+            command: CommandSpec::Argv { program: program.clone(), args: args.clone() },
             cwd: home,
             env: EnvSpec {
                 inherit: true,
@@ -284,8 +283,7 @@ impl LoginFlow for GithubLogin {
             owner: ProcessOwner::Internal,
             time_limit: None,
         };
-        let CommandSpec::Argv { program: attempted, args: attempted_args } = &request.command else { unreachable!("built above") };
-        let attempt = crate::seam::attempt_begin(attempted, attempted_args, true, request.cwd.as_path(), &request.env.set, &request.env.remove);
+        let attempt = crate::seam::attempt_begin(&program, &args, true, request.cwd.as_path(), &request.env.set, &request.env.remove);
         let spawned = self.processes.spawn(request).await;
         attempt.spawned(spawned.is_ok());
         match spawned {
@@ -299,7 +297,7 @@ impl LoginFlow for GithubLogin {
         }
         let events = self
             .processes
-            .subscribe(&handle, Some(0))
+            .subscribe_holding(&handle, Some(0))
             .map_err(|error| LoginError::Failed(LoginFailure::Failed { code: "subscribe".into(), message: format!("{error:?}") }))?;
         let (sender, receiver) = watch::channel(LoginState::Starting);
         let shared = Arc::new(Shared {
@@ -368,23 +366,29 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
     }
     let succeeded = matches!(exit.status, mixdog_core_api::domain::process::ExitStatus::Code(0));
     if !succeeded {
-        let tail: Vec<&str> = output.trim().lines().filter(|line| !line.is_empty()).collect();
-        let tail = tail[tail.len().saturating_sub(3)..].join(" ");
-        let message = if tail.is_empty() {
-            match exit.status {
-                mixdog_core_api::domain::process::ExitStatus::Code(code) => format!("gh exited with code {code}"),
-                mixdog_core_api::domain::process::ExitStatus::Signal(signal) => format!("gh ended by signal {signal}"),
-            }
-        } else {
-            tail
-        };
-        shared.advance(LoginState::Failed(LoginFailure::Failed { code: "gh-exit".into(), message }));
+        shared.advance(LoginState::Failed(LoginFailure::Failed { code: "gh-exit".into(), message: exit_message(&output, exit.status) }));
         return;
     }
+    shared.advance(verified_state(&client).await);
+}
+
+fn exit_message(output: &str, status: mixdog_core_api::domain::process::ExitStatus) -> String {
+    let tail: Vec<&str> = output.trim().lines().filter(|line| !line.is_empty()).collect();
+    let tail = tail[tail.len().saturating_sub(3)..].join(" ");
+    if !tail.is_empty() {
+        return tail;
+    }
+    match status {
+        mixdog_core_api::domain::process::ExitStatus::Code(code) => format!("gh exited with code {code}"),
+        mixdog_core_api::domain::process::ExitStatus::Signal(signal) => format!("gh ended by signal {signal}"),
+    }
+}
+
+async fn verified_state(client: &GhClient) -> LoginState {
     let home = crate::desktop::process_dir();
     let cancel = CancellationToken::new();
     let verdict = async {
-        let status = crate::gh::account::auth_status(&client, &home, &cancel).await?;
+        let status = crate::gh::account::auth_status(client, &home, &cancel).await?;
         if !status.success() {
             return Ok(Err(LoginFailure::Failed { code: "not-signed-in".into(), message: "gh finished, but no account is signed in.".into() }));
         }
@@ -403,10 +407,10 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
         Ok::<_, crate::error::ScmFailure>(Ok(crate::gh::account::login_from_auth_output(&status.combined())))
     }
     .await;
-    shared.advance(match verdict {
+    match verdict {
         Ok(Ok(login)) => LoginState::Done { account: (!login.is_empty()).then_some(login) },
         Ok(Err(failure)) => LoginState::Failed(failure),
         Err(crate::error::ScmFailure::Unavailable { .. }) => LoginState::Failed(LoginFailure::Unavailable { capability: "gh".into() }),
         Err(other) => LoginState::Failed(LoginFailure::Failed { code: "verify".into(), message: other.to_string() }),
-    });
+    }
 }

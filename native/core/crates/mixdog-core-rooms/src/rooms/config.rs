@@ -14,7 +14,7 @@ pub const ROOM_MAX_MEMBERS: usize = 6;
 /// The longest supervisor note a member's turn carries.
 pub const ROOM_INSTRUCTION_LIMIT: usize = 200;
 pub(crate) const ROOM_PASS_REPLY: &str = "(pass)";
-const NAME_LIMIT: usize = 80;
+pub(crate) const NAME_LIMIT: usize = 80;
 
 struct Limit {
     min: i64,
@@ -51,9 +51,14 @@ pub struct RoomConfigInput {
     pub share_tools: bool,
 }
 
+/// Whitespace runs collapsed to one space, trimmed, at most `NAME_LIMIT` units.
+pub(crate) fn clean_room_name(text: &str) -> String {
+    slice_utf16(&js_words(text).collect::<Vec<_>>().join(" "), NAME_LIMIT)
+}
+
 /// A room's settings in canonical shape. Members keep the order given, each once.
 pub fn normalize_room_config(input: &RoomConfigInput) -> Result<RoomConfig, RoomError> {
-    let name = slice_utf16(&js_words(&input.name).collect::<Vec<_>>().join(" "), NAME_LIMIT);
+    let name = clean_room_name(&input.name);
     if name.is_empty() {
         return Err(RoomError::Invalid("A room needs a name.".into()));
     }

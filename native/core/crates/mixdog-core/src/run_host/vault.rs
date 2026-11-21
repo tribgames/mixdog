@@ -1,11 +1,4 @@
-//! The production [`SecretVault`] (Node `lib/keychain-cjs.cjs`, reached through
-//! `shared/config.mjs` `getSecret` / `setSecret` / `deleteSecret` / `isFallbackSecret`).
-//!
-//! The storage is `mixdog-secrets`' [`SecretStore`], which reads and writes the files and
-//! keychain items a 1.4.5 install already holds: a DPAPI file `<plugin data>/secrets/<account>.dpapi`
-//! on Windows, a `service=mixdog` generic password on macOS, a Secret Service item (or the private
-//! `<account>.secret` file on a host with no provider) on Linux. The accounts are the vault's:
-//! `agent.<provider>.apiKey`, `agent.<provider>.apiKey.<keyId>`.
+//! Storage is `mixdog-secrets`' [`SecretStore`], reading the 1.4.5 install's items: `<plugin data>/secrets/<account>.dpapi` on Windows, `service=mixdog` generic password on macOS, Secret Service (or `<account>.secret`) on Linux.
 
 use std::path::Path;
 use std::sync::Arc;

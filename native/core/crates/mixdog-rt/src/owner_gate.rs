@@ -1,23 +1,18 @@
-//! An owner-fair turn gate: up to `limit` holders at a time, and each free turn goes round the owners that wait instead
-//! of to the oldest waiter (Node's `createOwnerFairGate` over `createFairCallScheduler`, `owner-groups.mjs` `pickGroup`,
-//! which holds one turn; a limit of 1 is that gate exactly).
+//! An owner-fair turn gate: up to `limit` holders at a time, and each free turn goes round the owners that wait instead of to the
+//! oldest waiter.
 //!
-//! Each owner has a queue of its own, first come first served. While a turn is free, the owners with a waiting entry
-//! that may take it take it by smooth weighted round-robin at weight 1: every such owner's credit grows by one, the
-//! owner with most credit (the first of those at a tie, in the order the owners first queued) is served and pays the
-//! number of such owners. Two owners that queue two entries each, `A0 A1 B2 B3`, are served `A0 B2 A1 B3`. An owner's
-//! credit lasts while it holds a turn or waits, and starts again at zero after.
+//! Each owner has a queue of its own, first come first served. While a turn is free, the owners with a waiting entry that may
+//! take it take it by smooth weighted round-robin at weight 1: every such owner's credit grows by one, the owner with most credit
+//! (the first of those at a tie, in the order the owners first queued) is served and pays the number of such owners. Two owners
+//! that queue two entries each, `A0 A1 B2 B3`, are served `A0 B2 A1 B3`. An owner's credit lasts while it holds a turn or waits,
+//! and starts again at zero after.
 //!
-//! With several turns, a waiting owner that holds no turn is served before one that already holds one, and an owner is
-//! not handed a turn that would leave it holding every turn while another owner waits (it may hold `limit - 1` then,
-//! or every turn when nobody else waits), so a waiting owner always gets the next turn that frees within the rotation. An arrival takes a free turn at once only when nobody waits: a free turn and a
-//! waiter never stay side by side, as every change hands out what is free.
+//! With several turns, a waiting owner that holds no turn is served before one that already holds one, and an owner is not handed
+//! a turn that would leave it holding every turn while another owner waits. An arrival takes a free turn at once only when nobody
+//! waits.
 //!
-//! It is [`Gate`](crate::gate::Gate) for callers that must not let one owner's backlog use up another's wait; the plain
-//! gate keeps arrival order for its own users. Cancelling (or dropping) an `enter` that still waits removes its place;
-//! a turn already handed to a cancelled waiter passes on to the next. A guard gives its turn back when dropped, an
-//! unwinding panic included; each entry is handed a turn at most once (its one-shot sender leaves the queue as it
-//! sends).
+//! Cancelling (or dropping) an `enter` that still waits removes its place; a turn already handed to a cancelled waiter passes on
+//! to the next. A guard gives its turn back when dropped, an unwinding panic included.
 
 use std::collections::VecDeque;
 use std::sync::Arc;

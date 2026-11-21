@@ -1,8 +1,3 @@
-//! What a paired phone is told of a failed request: the answer the server writes for a refusal, whole. A relay connection is told
-//! the message, the code and the typed detail of a code that declares public params, with the strings of its own call that are
-//! secrets removed; a local client is told the failure whole. A service that refuses with the thrown error stands where the room,
-//! account and MCP services stand.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 

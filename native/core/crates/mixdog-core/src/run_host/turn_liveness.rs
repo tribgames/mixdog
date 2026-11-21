@@ -1,9 +1,3 @@
-//! The writer of the runtime liveness map (`runtime-state.mjs`: the session runtime sets an entry per
-//! session it runs and wraps a turn's dispatch in `whileTurnDispatched`). The pool's `running`, the
-//! thread list's `working` / `agentWorking` and the report host's `in_flight` read the map; this is
-//! its only writer. One [`TurnLiveness`] lives for one run: the dispatched count from the start of
-//! the drive, and an entry that follows the run's stage and cancel state until the guard drops.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;

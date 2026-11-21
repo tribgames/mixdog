@@ -1,13 +1,3 @@
-//! The quick (offline) main-model picker rows: `quickProviderModelRows` of
-//! `session-runtime/quick-model-rows/provider-rows.mjs`, with `declaredCustomFields` and
-//! `metadataFor` (`quick-model-rows/model-meta.mjs`) and the custom provider's rows of
-//! `custom-provider-config.mjs` (`normalizeCustomProviderConfig`, `effectiveCustomModelRows`).
-//!
-//! Before any catalog was loaded, a quick read answers from the profile: every enabled provider's
-//! models it can name without the network (a custom provider's configured models, a provider's
-//! cached roster) plus the routes the profile already names (the live route, presets, workflow
-//! routes, agent routes), one row per `provider:model`.
-
 use std::collections::HashSet;
 
 use mixdog_ai::catalog::CatalogSnapshot;

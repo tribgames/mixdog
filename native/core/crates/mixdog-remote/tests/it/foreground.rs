@@ -1,9 +1,3 @@
-//! A phone's account of its own screen (`ui/screenSessions/changed`, recorded by the core in the
-//! registry against the phone's relay connection) decides `is_credential_foreground` and
-//! `is_browser_foreground`. The phone is paired over a real E2EE channel through a scripted
-//! relay; the notification itself is forwarded to the core untouched. `paired_devices` lists the
-//! credentials the relay reported.
-
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;

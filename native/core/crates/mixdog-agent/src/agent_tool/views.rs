@@ -1,4 +1,4 @@
-//! The job and worker views (Node `agent-tool/job-views/`): the roster's worker and job rows
+//! The job and worker views: the roster's worker and job rows
 //! and the single-job status card, read from the job board, the tag registry and the
 //! worker sessions. Nothing here writes: a finished job is frozen history, and a live one
 //! reports the worker's progress as [`progress`](super::progress) derives it.
@@ -39,9 +39,8 @@ use super::stamp::iso_from_ms;
 use crate::env::Clock;
 
 /// A session clock as the record holds it. A session's own header carries epoch milliseconds (a
-/// number); a worker-index row carries an ISO string. Node passes either through (`createdAt ||
-/// null`, `String(updatedAt || lastUsedAt)`), so a number is shown as its digits, which
-/// `Date.parse` does not read as a time: no elapsed label.
+/// number); a worker-index row carries an ISO string. A number is shown as its digits, which
+/// is not read as a time: no elapsed label.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stamp {
     Ms(i64),
@@ -240,7 +239,46 @@ impl JobViews {
         })
     }
 
-    /// `renderJob`: the job as a status card.
+    async fn apply_job_progress(&self, view: &mut TaskView, job: &JobData) {
+        let apply = |view: &mut TaskView, p: Progress| {
+            view.worker_stage = Some(p.worker_stage);
+            view.last_progress = Some(p.last_progress);
+            view.diagnostic = Some(p.diagnostic);
+            view.silent_for_secs = p.silent_for_secs;
+            view.watchdog = p.watchdog;
+            view.tool_silent_for = p.tool_silent_for;
+            view.queued_followups = p.queued_followups;
+        };
+        if is_terminal_job(&job.status) {
+            // Frozen history: tags are reused, so the session may now run a different job.
+            let frozen = frozen_progress(&job.status);
+            view.worker_status = Some(frozen.worker_stage.clone());
+            view.stage = Some(frozen.worker_stage.clone());
+            apply(view, frozen);
+        } else if let Some(session_id) = job.meta.session_id.as_deref().filter(|s| !s.is_empty()) {
+            if let Some(facts) = self.workers.session(session_id).await {
+                view.worker_status =
+                    Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
+                view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
+            }
+            let live = self.progress_of(session_id, Some(&job.status)).await;
+            apply(view, live);
+        } else {
+            let spawning = job.status == "running";
+            let status = if job.status.is_empty() { "unknown".to_owned() } else { job.status.clone() };
+            apply(
+                view,
+                Progress {
+                    worker_stage: if spawning { "spawning".to_owned() } else { status.clone() },
+                    last_progress: if spawning { "spawning worker session".to_owned() } else { status.clone() },
+                    diagnostic: if spawning { "worker session not started yet".to_owned() } else { status },
+                    ..Progress::default()
+                },
+            );
+        }
+    }
+
+    /// The job as a status card.
     async fn render(&self, job: JobData, include_result: bool) -> Job {
         let now = self.clock.now_ms();
         let meta = &job.meta;
@@ -267,42 +305,7 @@ impl JobViews {
             view.resumed = true;
             view.note = Some("previous session reaped — resumed from its saved transcript, prior context kept".to_owned());
         }
-        let apply = |view: &mut TaskView, p: Progress| {
-            view.worker_stage = Some(p.worker_stage);
-            view.last_progress = Some(p.last_progress);
-            view.diagnostic = Some(p.diagnostic);
-            view.silent_for_secs = p.silent_for_secs;
-            view.watchdog = p.watchdog;
-            view.tool_silent_for = p.tool_silent_for;
-            view.queued_followups = p.queued_followups;
-        };
-        if is_terminal_job(&job.status) {
-            // Frozen history: tags are reused, so the session may now run a different job.
-            let frozen = frozen_progress(&job.status);
-            view.worker_status = Some(frozen.worker_stage.clone());
-            view.stage = Some(frozen.worker_stage.clone());
-            apply(&mut view, frozen);
-        } else if let Some(session_id) = meta.session_id.as_deref().filter(|s| !s.is_empty()) {
-            if let Some(facts) = self.workers.session(session_id).await {
-                view.worker_status =
-                    Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
-                view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
-            }
-            let live = self.progress_of(session_id, Some(&job.status)).await;
-            apply(&mut view, live);
-        } else {
-            let spawning = job.status == "running";
-            let status = if job.status.is_empty() { "unknown".to_owned() } else { job.status.clone() };
-            apply(
-                &mut view,
-                Progress {
-                    worker_stage: if spawning { "spawning".to_owned() } else { status.clone() },
-                    last_progress: if spawning { "spawning worker session".to_owned() } else { status.clone() },
-                    diagnostic: if spawning { "worker session not started yet".to_owned() } else { status },
-                    ..Progress::default()
-                },
-            );
-        }
+        self.apply_job_progress(&mut view, &job).await;
         view.elapsed = elapsed_from_stamps(job.started_at.as_deref().unwrap_or_default(), job.finished_at.as_deref().unwrap_or_default(), now);
         if include_result {
             view.result = job.result.clone();

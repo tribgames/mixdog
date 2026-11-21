@@ -144,11 +144,6 @@ impl Composed {
     }
 }
 
-/// Applies `desktop.computerControl` where the setting is adopted, inside the write that changes it and before that write is
-/// acknowledged (`Config::on_adoption`): off revokes every session's scope and closes the making of new ones at once, then the revoked
-/// sessions are stopped (their helpers and the desktop acknowledge, or exit) on the runtime; on again lets new scopes be made. Node's
-/// setting stopped the bridge and retired the workers (`index.ts` `applyComputerControlSetting`). The hook lasts until `cancel`. Where
-/// the helper is, and whether a desktop serves, are read when asked, not followed.
 fn follow_computer_control(config: Config, pool: Arc<ComputerSessionPool>, cancel: CancellationToken) {
     let runtime = tokio::runtime::Handle::current();
     let adopted = config.clone();

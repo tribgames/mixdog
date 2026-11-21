@@ -375,12 +375,37 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     io: &mut S,
     request: &tungstenite::handshake::client::Request,
 ) -> Result<(Response<Option<Vec<u8>>>, Vec<u8>, Option<Extension>), ConnectError> {
-    let io_fault = |e: std::io::Error| ConnectError::Transport(fault_from_io(&e, false));
     let key = upgrade_key(request);
     io.write_all(&upgrade_bytes(request, &key)).await.map_err(io_fault)?;
     io.flush().await.map_err(io_fault)?;
     let mut buf = Vec::new();
-    let (status, headers, head_len) = loop {
+    let (status, headers, head_len) = read_head(io, &mut buf).await?;
+    let mut builder = Response::builder().status(status);
+    for (name, value) in &headers {
+        builder = builder.header(name.as_str(), value.as_slice());
+    }
+    let mut rest = buf.split_off(head_len);
+    if status != 101 {
+        read_rejected_body(io, &mut rest, &headers).await;
+        let response = builder.body(Some(rest)).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
+        return Err(ConnectError::Rejected(response));
+    }
+    let extension = accepted_extension(&headers, &key)?;
+    let response = builder.body(None).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
+    rest.shrink_to_fit();
+    Ok((response, rest, extension))
+}
+
+type ResponseHeaders = Vec<(String, Vec<u8>)>;
+
+fn io_fault(e: std::io::Error) -> ConnectError {
+    ConnectError::Transport(fault_from_io(&e, false))
+}
+
+/// Reads into `buf` until the response head is whole: its status, its headers and its length in `buf`.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+async fn read_head<S: AsyncRead + Unpin>(io: &mut S, buf: &mut Vec<u8>) -> Result<(u16, ResponseHeaders, usize), ConnectError> {
+    loop {
         let mut chunk = [0u8; 8192];
         let n = io.read(&mut chunk).await.map_err(io_fault)?;
         if n == 0 {
@@ -389,33 +414,33 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
         buf.extend_from_slice(&chunk[..n]);
         let mut slots = [httparse::EMPTY_HEADER; 64];
         let mut parsed = httparse::Response::new(&mut slots);
-        match parsed.parse(&buf) {
+        match parsed.parse(buf) {
             Ok(httparse::Status::Complete(len)) => {
                 let headers = parsed.headers.iter().map(|h| (h.name.to_owned(), h.value.to_vec())).collect::<Vec<_>>();
-                break (parsed.code.unwrap_or(0), headers, len);
+                return Ok((parsed.code.unwrap_or(0), headers, len));
             }
             Ok(httparse::Status::Partial) if buf.len() < RESPONSE_LIMIT => {}
             _ => return Err(ConnectError::Transport(TransportFault::Closed)),
         }
-    };
-    let mut builder = Response::builder().status(status);
-    for (name, value) in &headers {
-        builder = builder.header(name.as_str(), value.as_slice());
     }
-    let find = |name: &str| headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned());
-    let mut rest = buf.split_off(head_len);
-    if status != 101 {
-        let wanted = find("content-length").and_then(|v| v.parse::<usize>().ok());
-        while wanted.is_none_or(|n| rest.len() < n) && rest.len() < RESPONSE_LIMIT {
-            let mut chunk = [0u8; 8192];
-            match io.read(&mut chunk).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => rest.extend_from_slice(&chunk[..n]),
-            }
+}
+
+/// Reads what follows a refusal's head into `rest`: its `content-length` bytes, or what arrives until the connection ends.
+async fn read_rejected_body<S: AsyncRead + Unpin>(io: &mut S, rest: &mut Vec<u8>, headers: &ResponseHeaders) {
+    let length =
+        headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("content-length")).and_then(|(_, v)| String::from_utf8_lossy(v).trim().parse::<usize>().ok());
+    while length.is_none_or(|n| rest.len() < n) && rest.len() < RESPONSE_LIMIT {
+        let mut chunk = [0u8; 8192];
+        match io.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => rest.extend_from_slice(&chunk[..n]),
         }
-        let response = builder.body(Some(rest)).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
-        return Err(ConnectError::Rejected(response));
     }
+}
+
+/// What the server accepted of the compression offer, once its 101 answers `key` and names no subprotocol.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+fn accepted_extension(headers: &ResponseHeaders, key: &str) -> Result<Option<Extension>, ConnectError> {
     let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes());
     // Node joins repeated header lines with ", " (`_http_incoming.js` `matchKnownFields`), and `ws` reads the joined value.
     let joined = |name: &str| {
@@ -434,9 +459,7 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     let (true, true, false, Ok(extension)) = (accepted, upgraded, unsolicited, extension) else {
         return Err(ConnectError::Transport(TransportFault::Closed));
     };
-    let response = builder.body(None).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
-    rest.shrink_to_fit();
-    Ok((response, rest, extension))
+    Ok(extension)
 }
 
 /// The upgrade of `request` over an already open `stream`, and the connection that follows. `connector` is the TLS
@@ -574,6 +597,41 @@ impl WsConnection {
     }
 }
 
+/// `receiverOnError`: the error is emitted at once; the close frame `ws.close(code)` queued goes out behind it, and the
+/// writer finishes that close within ws's closeTimeout from now.
+async fn report_violation(
+    io: &std::io::Error,
+    refused: &super::wsio::Fault,
+    link: &WsLink,
+    violation: tokio::sync::oneshot::Sender<tokio::time::Instant>,
+    inbound: &mpsc::Sender<Result<Message, TransportFault>>,
+) {
+    let fault = fault_from_io(io, false);
+    *locked(&link.ending) = Some(WsEnding::Violation { message: refused.text.clone(), code: refused.ws_code, close_code: refused.code });
+    link.closing.store(true, std::sync::atomic::Ordering::Release);
+    link.mark_dead(fault.clone());
+    let _ = violation.send(tokio::time::Instant::now());
+    let _ = inbound.send(Err(fault)).await;
+}
+
+/// The consumer hears of the close at once. The writer lives on until tungstenite has written its echo of the close
+/// frame, which it does on the next read (ws echoes the code, `receiverOnConclude`); that read ends when the server closes
+/// the connection, or at ws's closeTimeout.
+async fn report_close<S: AsyncRead + AsyncWrite + Unpin>(
+    frame: Option<tungstenite::protocol::CloseFrame>,
+    link: &WsLink,
+    inbound: &mpsc::Sender<Result<Message, TransportFault>>,
+    stream: &mut SplitStream<Socket<S>>,
+) {
+    // `ws` reports an empty close as 1005 (`receiver.js` `controlMessage`), with an empty reason.
+    let (code, reason) = frame.map_or((1005, String::new()), |frame| (u16::from(frame.code), frame.reason.as_str().to_owned()));
+    *locked(&link.ending) = Some(WsEnding::Close { code, reason });
+    let fault = TransportFault::WsClose { code: Some(code) };
+    link.mark_dead(fault.clone());
+    let _ = inbound.send(Err(fault)).await;
+    let _ = mixdog_rt::time::timeout(CLOSE_FLUSH, stream.next()).await;
+}
+
 async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
     mut stream: SplitStream<Socket<S>>,
     to_writer: mpsc::Sender<Message>,
@@ -600,14 +658,7 @@ async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
                 let fault = match item {
                     None => TransportFault::Closed,
                     Some(Err(tungstenite::Error::Io(ref io))) if let Some(refused) = super::wsio::violation_of(io) => {
-                        // `receiverOnError`: the error is emitted at once; the close frame `ws.close(code)` queued goes
-                        // out behind it, and the writer finishes that close within ws's closeTimeout from now.
-                        let fault = fault_from_io(io, false);
-                        *locked(&link.ending) = Some(WsEnding::Violation { message: refused.text.clone(), code: refused.ws_code, close_code: refused.code });
-                        link.closing.store(true, std::sync::atomic::Ordering::Release);
-                        link.mark_dead(fault.clone());
-                        let _ = violation.send(tokio::time::Instant::now());
-                        let _ = inbound.send(Err(fault)).await;
+                        report_violation(io, refused, &link, violation, &inbound).await;
                         return;
                     }
                     Some(Err(err)) => fault_from_ws_error(&err),
@@ -617,17 +668,7 @@ async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
                     }
                     Some(Ok(Message::Pong(_) | Message::Frame(_))) => continue,
                     Some(Ok(Message::Close(frame))) => {
-                        // `ws` reports an empty close as 1005 (`receiver.js` `controlMessage`), with an empty reason.
-                        let (code, reason) = frame.map_or((1005, String::new()), |frame| (u16::from(frame.code), frame.reason.as_str().to_owned()));
-                        *locked(&link.ending) = Some(WsEnding::Close { code, reason });
-                        let fault = TransportFault::WsClose { code: Some(code) };
-                        // The consumer hears of the close at once. The writer lives on until tungstenite has written its
-                        // echo of the close frame, which it does on the next read (ws echoes the code,
-                        // `receiverOnConclude`); that read ends when the server closes the connection, or at
-                        // ws's closeTimeout.
-                        link.mark_dead(fault.clone());
-                        let _ = inbound.send(Err(fault)).await;
-                        let _ = mixdog_rt::time::timeout(CLOSE_FLUSH, stream.next()).await;
+                        report_close(frame, &link, &inbound, &mut stream).await;
                         writer.abort();
                         return;
                     }

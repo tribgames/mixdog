@@ -57,10 +57,6 @@ struct State {
     retry_after: HashMap<String, Retry>,
 }
 
-/// The load that started a request owns its entry in `pending` and removes it when it is done
-/// with the answer (`.finally(() => pending.delete(key))`, a turn after the request settles).
-/// Calls made together with it all reach `pending` before it is gone, whichever of them the
-/// executor happens to drive the request to its end.
 struct Pending {
     state: Arc<Mutex<State>>,
     key: String,

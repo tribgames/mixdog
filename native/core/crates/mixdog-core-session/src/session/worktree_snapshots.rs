@@ -1,5 +1,4 @@
-//! The running snapshot cleanups of settled turns (Node `side-checkouts.mjs`
-//! `removeTurnSnapshots` and its `snapshotCleanups` map). A turn that made read-only snapshots
+//! The running snapshot cleanups of settled turns. A turn that made read-only snapshots
 //! starts [`SnapshotCleanups::release`] when it settles: the removal retries, with a doubling
 //! delay, the ones a command still runs in. A deleted session stops its cleanups
 //! ([`SnapshotCleanups::cancel`], the `CancelSnapshotCleanups` hook of the worktree

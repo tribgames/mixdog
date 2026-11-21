@@ -700,7 +700,8 @@ mod tests {
         let spelled = PathBuf::from(format!("{}/", proj.to_string_lossy().replace('\\', "/")));
         assert!(cache.load(&spelled).is_some());
         let shouted = PathBuf::from(proj.to_string_lossy().to_uppercase());
-        assert_eq!(cache.load(&shouted).is_some(), cfg!(windows));
+        // Only a filesystem that finds the shouted spelling (Windows, a default macOS volume) names the same root by it.
+        assert_eq!(cache.load(&shouted).is_some(), shouted.exists());
     }
 
     #[test]
@@ -818,7 +819,7 @@ mod tests {
         let (gone, stays) = (root(tmp.path(), "Gone"), root(tmp.path(), "Stays"));
         for proj in [&gone, &stays] {
             cache.stage(proj, vec![file("a.mjs", "export const a = 1;")]);
-            cache.lookups_for(&proj.to_string_lossy(), 1, || (10, 0));
+            cache.lookups_for(&identity_key(proj).unwrap(), 1, || (10, 0));
         }
         cache.flush().unwrap();
         let lane = mixdog_rt::testing::tokens().maintenance_io;
@@ -828,7 +829,7 @@ mod tests {
         assert_eq!(cache.roots(), vec![stays.clone()]);
         assert!(cache.load(&gone).is_none() && cache.load(&stays).is_some());
         let resident: Vec<String> = cache.resident.lock().unwrap().iter().map(|entry| entry.root.clone()).collect();
-        assert_eq!(resident, [stays.to_string_lossy().into_owned()]);
+        assert_eq!(resident, [identity_key(&stays).unwrap()]);
         // Nothing left to forget: nothing removed, nothing kept.
         assert_eq!(cache.forget_root(lane, &tokio_util::sync::CancellationToken::new(), &gone).await.unwrap(), (Vec::new(), Vec::new()));
     }
@@ -1408,9 +1409,17 @@ impl GraphCache {
     /// job; never creates the directory.
     pub fn forget(&self, root: &Path) -> (Vec<String>, Vec<PathBuf>) {
         let mut removed = Vec::new();
-        let mut kept = Vec::new();
         // A root with no resolvable identity names no cache entry: it is reported as kept, not matched by its spelling.
         let Ok(key) = identity_key(root) else { return (removed, vec![root.to_path_buf()]) };
+        self.forget_in_memory(&key, &mut removed);
+        if !self.dir.exists() {
+            return (removed, Vec::new());
+        }
+        let kept = self.forget_on_disk(&key, &mut removed);
+        (removed, kept)
+    }
+
+    fn forget_in_memory(&self, key: &str, removed: &mut Vec<String>) {
         {
             let mut resident = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let before = resident.len();
@@ -1422,25 +1431,26 @@ impl GraphCache {
         // The root's scoped builds go with it.
         let scoped = format!("{key}\u{0}");
         self.graphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|h| h.key != key && !h.key.starts_with(&scoped));
-        if self.heap_note(&key).is_some() {
+        if self.heap_note(key).is_some() {
             let mut notes = self.heap_notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(notes) = notes.as_mut() {
-                notes.remove(&key);
+                notes.remove(key);
                 if self.dir.exists() {
                     let _ = write_atomic(&self.note_path(), &serde_json::to_vec(&*notes).unwrap_or_default());
                 }
             }
         }
-        if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key).is_some() {
+        if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(key).is_some() {
             removed.push(format!("pending:{key}"));
         }
-        if !self.dir.exists() {
-            return (removed, kept);
-        }
+    }
+
+    fn forget_on_disk(&self, key: &str, removed: &mut Vec<String>) -> Vec<PathBuf> {
+        let mut kept = Vec::new();
         let _commit = self.commit.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut manifest = self.read_manifest();
-        let mut hashes: HashSet<String> = HashSet::from([hash_of(&key)]);
-        if let Some(row) = manifest.remove(&key) {
+        let mut hashes: HashSet<String> = HashSet::from([hash_of(key)]);
+        if let Some(row) = manifest.remove(key) {
             if is_cache_hash(&row.hash) {
                 hashes.insert(row.hash);
             }
@@ -1459,7 +1469,7 @@ impl GraphCache {
                 Err(_) => kept.push(file),
             }
         }
-        (removed, kept)
+        kept
     }
 
     /// [`Self::forget`] on `lane`: the cleanup a removed worktree's root runs (`cache-cleanups.mjs`, `code-graph`).

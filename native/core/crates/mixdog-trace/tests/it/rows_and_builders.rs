@@ -79,9 +79,37 @@ fn tool_arguments_are_summarised_by_the_tools_own_keys_and_secrets_never_survive
     assert_eq!(t::summarize_tool_args("read", Some(&json!({}))), None);
     assert_eq!(t::summarize_tool_args("read", Some(&json!("text"))), None);
     assert_eq!(t::summarize_tool_args("read", None), None);
+}
+
+#[test]
+fn the_argument_hash_ignores_key_order() {
     let hash = t::hash_trace_value(&json!({"a": 1, "b": 2}));
     assert_eq!(hash.len(), 16);
     assert_eq!(hash, t::hash_trace_value(&json!({"b": 2, "a": 1})), "key order does not matter");
+}
+
+#[test]
+fn browser_timing_keeps_only_finite_non_negative_phases_of_the_body_that_carries_them() {
+    let ok = t::browser_timing_record(&object(json!({
+        "context": {"sessionId": "s", "turnId": "t1", "action": "click"},
+        "bridgeMs": 4,
+        "status": 200,
+        "body": {"ok": true, "value": {"timing": {
+            "queueMs": 2, "commandMs": -1, "waitMs": "x", "inputMs": 0, "snapshots": 3,
+            "steps": [{"index": 1, "commandMs": 5, "bogus": 1}, {"index": 7, "commandMs": 6}],
+            "mouseEvents": {"mouseMoved": {"count": 2, "totalMs": 9}, "mousePressed": {}}
+        }}}
+    })));
+    assert_eq!(
+        (ok["kind"].clone(), ok["turn_id"].clone(), ok["http_status"].clone(), ok["ok"].clone()),
+        (json!("browser_timing"), json!("t1"), json!(200), json!(true))
+    );
+    assert_eq!(
+        ok["payload"],
+        json!({"queueMs": 2, "inputMs": 0, "snapshots": 3, "steps": [{"index": 1, "commandMs": 5}], "mouseEvents": {"mouseMoved": {"count": 2, "totalMs": 9}}})
+    );
+    let failed = t::browser_timing_record(&object(json!({"status": 500, "body": {"ok": false, "timing": {"waitMs": 7}, "value": {"timing": {"waitMs": 1}}}})));
+    assert_eq!((failed["ok"].clone(), failed["payload"].clone()), (json!(false), json!({"waitMs": 7})));
 }
 
 #[test]

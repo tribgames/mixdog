@@ -1,7 +1,5 @@
 //! What the slash dispatch, the prompt submit and the Tab workflow cycle call back into: [`SlashHost`], the application's side
-//! of them. The Node code received these as an injected `deps` bag, React state setters and refs; here they are the methods
-//! of one trait over [`AppCtx`], so the pickers of wave 6 plug in by [`Opener`] name and a test drives the same functions with
-//! a recording fake.
+//! of them, plugged in by [`Opener`] name; a test drives the same functions with a recording fake.
 //!
 //! Store calls are [`AppCtx::store_call`]: `Ok(value)` is what the awaited call resolved to (`Value::Null` for `undefined`,
 //! and for a method the store does not have when the Node code called it with `?.`), `Err(text)` is a rejection. The calls
@@ -118,8 +116,8 @@ pub enum PromptSurface {
 
 /// A provider or settings text-entry prompt (`providerPrompt` / `settingsPrompt`): its `kind` and the fields its handler
 /// reads (`providerId`, `authMode`, `provider`, `projectPath`, `pendingPath`, `skillName`, `_id`, `_indexRevision`,
-/// `_projectId`, `_singleSentence`, ...). The callbacks the Node object carried (`afterSave`, `successReturn`,
-/// `failureReturn`, `login.completeCode`, `returnTo`) stay with the host, which finds them from the prompt it holds.
+/// `_projectId`, `_singleSentence`, ...). The callbacks of the prompt (`afterSave`, `successReturn`, `failureReturn`,
+/// `login.completeCode`, `returnTo`) stay with the host, which finds them from the prompt it holds.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TextPrompt {
     pub kind: String,

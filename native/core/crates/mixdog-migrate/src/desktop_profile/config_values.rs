@@ -1,8 +1,3 @@
-//! The profile files that become keys of `<D>/mixdog-config.json` (SPEC §4.11): greeted
-//! agents, notification preferences, auto-retention state, the remote activation stamp
-//! and the unclassified workspace root. Each value is the desktop's own read model of
-//! its file. The staged output is the whole next config file (FORMAT.md §10.4).
-
 use std::path::Path;
 
 use mixdog_store::fsio;

@@ -1,8 +1,4 @@
-//! The saved-login check and type steps (Do-SavedLoginCheck and
-//! Do-SavedLoginType, runtime-saved-login.ps1:349-432). The host decides
-//! what a login may go into and in what order it is proven; the platform's
-//! `SavedLoginReads` read the live browser and make the one write. A login
-//! goes only into the focused field of a top-level HTTPS page of a Chrome or
+//! A login goes only into the focused field of a top-level HTTPS page of a Chrome or
 //! Edge window whose live process image is signed by that vendor, with every
 //! address bar confirming the page. The value is written once through the
 //! field's own value pattern, never as keystrokes, and no reply carries it.
@@ -350,10 +346,6 @@ fn refusal_reason(error: &str) -> Option<&str> {
     error.strip_prefix("saved_login_refused: ")?.strip_suffix("; no input was sent")
 }
 
-/// The window's address bars must positively confirm the page before any
-/// input. Fail closed: a window with no readable omnibox cannot prove its
-/// page, and any bar that is blank, being edited, or naming another site
-/// refuses (Assert-SavedLoginAddressBars).
 fn assert_address_bars(reads: &dyn SavedLoginReads, window: Wid, page: &PageUrl) -> Res<()> {
     let bars = reads.address_bars(window)?;
     if bars.is_empty() {
@@ -390,10 +382,6 @@ impl Host {
         }
     }
 
-    /// Everything the login may be written into, read from the live window:
-    /// the browser in the foreground, the focused field and the origin of the
-    /// page document holding it (Get-SavedLoginTarget). `start_time` is left
-    /// for the caller.
     fn saved_login_target(&self, reads: &dyn SavedLoginReads, info: &WindowInfo, field: &str) -> Res<(Target, PageUrl)> {
         if self.desktop.foreground() != info.handle {
             return Err(saved_login_refused("the browser window is not in the foreground"));
@@ -447,12 +435,6 @@ impl Host {
         })
     }
 
-    /// The last reads before the write: the browser still in the foreground
-    /// and still the verified process; the focused element still the checked
-    /// one, still the field kind asked for, inside the same page document,
-    /// whose live address is still the origin. These are separate reads
-    /// followed by a separate write, not an atomic compare-and-write
-    /// (Assert-SavedLoginStill).
     fn saved_login_still(&self, reads: &dyn SavedLoginReads, info: &WindowInfo, start_time: i64, expected: &Target, field: &str) -> Res<()> {
         let pid = info.pid as u32;
         let why = if self.desktop.foreground() != info.handle {
@@ -480,12 +462,6 @@ impl Host {
         }
     }
 
-    /// The write step: the process verified again and bound to the check's,
-    /// the address bar re-proven, every target read again and matched to the
-    /// check; then the last re-read and exactly one value-pattern write. A
-    /// refusal before it writes nothing; once the write was invoked, an
-    /// unconfirmed field is "possibly written", never retried
-    /// (Do-SavedLoginType).
     fn saved_login_type(&self, reads: &dyn SavedLoginReads, handle: Wid, req: &Req) -> Res<Obj> {
         let value = req.text("text");
         if let Some(reason) = value_refusal(&value) {

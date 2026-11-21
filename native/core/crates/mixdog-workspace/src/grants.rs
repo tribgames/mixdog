@@ -432,26 +432,33 @@ mod tests {
         assert!(owning_project(&projects, &root.join("elsewhere").join("a.rs")).is_none());
     }
 
-    /// A selected-file grant: the same file for the same conversation is one token, kept alive an hour from its last mint; it
-    /// redeems for its file under the folder given however the path is spelled, and nothing else; an unknown token, a wrong file,
-    /// an expired grant, a gone conversation and the 101st newest grant are all refused.
-    #[tokio::test]
-    async fn a_grant_is_one_token_per_file_and_conversation_that_redeems_for_its_file_until_it_ends() {
+    fn selected_file_fixture() -> (Arc<Manual>, Arc<Catalog>, GrantStore, std::path::PathBuf, String) {
         let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
         let catalog = Arc::new(Catalog::default());
         let store = GrantStore::new(clock.clone(), catalog.clone());
         let base = std::env::temp_dir().join("outside");
         let dir = base.to_str().unwrap().to_owned();
-        let redeem = |token: String, project: String, rel: &'static str| {
-            let store = &store;
-            async move { store.redeem("dev", 1, &token, &project, rel).await }
-        };
+        (clock, catalog, store, base, dir)
+    }
+
+    #[tokio::test]
+    async fn the_same_file_and_conversation_share_one_token() {
+        let (_clock, _catalog, store, base, _dir) = selected_file_fixture();
         let a = store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap();
         assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a);
         let a_s1 = store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap();
         assert_ne!(a_s1, a);
         assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap(), a_s1);
+    }
 
+    #[tokio::test]
+    async fn a_grant_redeems_only_for_its_file_however_the_path_is_spelled() {
+        let (_clock, _catalog, store, base, dir) = selected_file_fixture();
+        let redeem = |token: String, project: String, rel: &'static str| {
+            let store = &store;
+            async move { store.redeem("dev", 1, &token, &project, rel).await }
+        };
+        let a = store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap();
         let granted = redeem(a.clone(), dir.clone(), "a.txt").await.unwrap();
         assert_eq!((granted.rel.as_str(), granted.absolute.clone(), granted.root.clone()), ("a.txt", base.join("a.txt"), base.clone()));
         let inside = redeem(a.clone(), dir.clone(), "sub/../a.txt").await.unwrap();
@@ -468,8 +475,16 @@ mod tests {
         assert_eq!(redeem("x".repeat(129), dir.clone(), "a.txt").await.unwrap_err().message, "file access token is invalid.");
         assert_eq!(redeem(a.clone(), String::new(), "a.txt").await.unwrap_err().message, "projectPath is invalid.");
         assert_eq!(redeem(a.clone(), dir.clone(), "").await.unwrap_err().message, "relPath is invalid.");
+    }
 
-        // An hour of life, renewed by minting again.
+    #[tokio::test]
+    async fn a_grant_lives_an_hour_renewed_by_minting_again() {
+        let (clock, _catalog, store, base, dir) = selected_file_fixture();
+        let redeem = |token: String, project: String, rel: &'static str| {
+            let store = &store;
+            async move { store.redeem("dev", 1, &token, &project, rel).await }
+        };
+        let a = store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap();
         clock.1.fetch_add(59 * 60_000, Ordering::SeqCst);
         assert!(redeem(a.clone(), dir.clone(), "a.txt").await.is_ok());
         assert_eq!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a);
@@ -480,17 +495,30 @@ mod tests {
             assert_eq!(redeem(a.clone(), dir.clone(), "a.txt").await.unwrap_err().reason.code(), GRANT_UNAVAILABLE_CODE);
         }
         assert_ne!(store.mint("dev", 1, &base.join("a.txt"), "").await.unwrap(), a, "an expired grant is not reused");
+    }
 
-        // A grant of a conversation the host has seen and then lost ends; a new mint for it is a new token.
+    #[tokio::test]
+    async fn a_grant_of_a_conversation_the_host_lost_ends_and_a_new_mint_is_a_new_token() {
+        let (_clock, catalog, store, base, dir) = selected_file_fixture();
+        let redeem = |token: String, project: String, rel: &'static str| {
+            let store = &store;
+            async move { store.redeem("dev", 1, &token, &project, rel).await }
+        };
         let live = store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap();
         assert!(redeem(live.clone(), dir.clone(), "a.txt").await.is_ok());
         mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
         catalog.0.lock().unwrap().insert("s1".to_owned());
         assert_eq!(redeem(live.clone(), dir.clone(), "a.txt").await.unwrap_err().reason.code(), GRANT_UNAVAILABLE_CODE);
         assert_ne!(store.mint("dev", 1, &base.join("a.txt"), "s1").await.unwrap(), live);
-        catalog.0.lock().unwrap().remove("s1");
+    }
 
-        // Only the newest hundred are held: the oldest is evicted by the next one.
+    #[tokio::test]
+    async fn only_the_newest_hundred_grants_are_held() {
+        let (_clock, _catalog, store, base, dir) = selected_file_fixture();
+        let redeem = |token: String, project: String, rel: &'static str| {
+            let store = &store;
+            async move { store.redeem("dev", 1, &token, &project, rel).await }
+        };
         let mut tokens = Vec::new();
         for number in 0..MAX_GRANTS {
             tokens.push(store.mint("dev", 1, &base.join(format!("f{number}.txt")), "").await.unwrap());

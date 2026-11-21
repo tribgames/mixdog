@@ -1,14 +1,3 @@
-//! [`AgentEvidence`] over the session store and the routine records:
-//! - `home_greeted` / `home_chatted`: `homeThreadEvidence(dataDir, agentId)`
-//!   (`runtime/shared/agent-kind.mjs`) of the agent's home thread `sess_home_<id>`: its stored
-//!   messages (the model context, Node's `session.messages`), a user message holding the creation
-//!   greeting at a line start, or a user message the user wrote (not blank, not a runtime turn).
-//!   A missing, deleted or unreadable thread holds nothing.
-//! - `mixy_owns_routines`: `mixyOwnsRoutines()` (`session-runtime/routine-owner.mjs`): a stored
-//!   schedule or webhook whose owner is Mixy (ownerless or invalid owners are); a listing that
-//!   fails is the error. Node answers false without a Postgres cluster; the Rust routine rows live
-//!   in the core state store, which holds none in that case.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

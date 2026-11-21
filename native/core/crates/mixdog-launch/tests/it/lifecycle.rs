@@ -235,7 +235,7 @@ fn a_run_leaves_a_marker_and_a_start_line_and_ends_with_the_strongest_reason_it_
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn an_end_records_the_reason_and_the_exit_code_the_run_earned_and_only_once() {
+async fn an_end_records_the_reason_and_the_exit_code_the_run_earned() {
     let me = u64::from(std::process::id());
     let entry = |reason: &str, code: Option<i64>| (me, reason.to_owned(), code);
     let start = || entry("process-start", None);
@@ -279,7 +279,11 @@ async fn an_end_records_the_reason_and_the_exit_code_the_run_earned_and_only_onc
         assert!(names_in(run.marker_dir().unwrap()).is_empty(), "{name}: the marker is gone");
         assert!(!run.is_active(), "{name}");
     }
-    // Once the run is over nothing more is recorded: a second end and a late fatal error are refused.
+}
+
+#[test]
+fn once_a_run_is_over_a_second_end_and_a_late_fatal_error_are_refused() {
+    let me = u64::from(std::process::id());
     let temp = tempfile::tempdir().unwrap();
     let run = begin(&temp.path().join("diagnostics"), &ScriptedHost::settled(&[]));
     assert!(run.finish("clean-shutdown", 0).recorded);

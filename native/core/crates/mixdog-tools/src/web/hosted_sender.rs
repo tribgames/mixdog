@@ -190,6 +190,19 @@ fn fold(events: &[StreamEvent]) -> (String, Option<Usage>, Option<String>, Vec<V
     (content, usage, pricing, citations, calls)
 }
 
+fn failure_of<T>(sent: &Result<T, SendError>) -> Option<ProviderError> {
+    match sent {
+        Ok(_) | Err(SendError::Cancelled) => None,
+        Err(SendError::Provider(error) | SendError::Exhausted(error)) => Some(error.clone()),
+        Err(SendError::Fallback { last, .. }) => Some(last.clone()),
+        Err(SendError::Admission(error)) => {
+            let mut failure = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+            failure.message = format!("{error:?}");
+            Some(failure)
+        }
+    }
+}
+
 fn refused(error: &ProviderError, cancel: &CancellationToken) -> HostedSearchError {
     // An account-pool quota refusal is stated by its code.
     let pool = error.code.as_deref() == Some("provider_accounts_exhausted");
@@ -237,17 +250,7 @@ impl HostedSearchSender for ProviderSearchSender {
         let last_usage = sink.last_usage().cloned();
         let events = sink.events().to_vec();
         let (content, usage, pricing_model, citations, web_search_calls) = fold(&events);
-        let outcome_error = match &sent {
-            Ok(_) => None,
-            Err(SendError::Provider(error) | SendError::Exhausted(error)) => Some(error.clone()),
-            Err(SendError::Fallback { last, .. }) => Some(last.clone()),
-            Err(SendError::Admission(error)) => {
-                let mut failure = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
-                failure.message = format!("{error:?}");
-                Some(failure)
-            }
-            Err(SendError::Cancelled) => None,
-        };
+        let outcome_error = failure_of(&sent);
         if sink.accounting().is_some() {
             let outcome = match (&sent, &outcome_error) {
                 (Ok(_), _) => Outcome::Completed(Completed {

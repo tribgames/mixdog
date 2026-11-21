@@ -1,13 +1,3 @@
-//! `CallerFacts` over the session layer: the facts about the thread a tool call belongs to,
-//! read where Node reads them.
-//!
-//! - heartbeat: `isHeartbeatSession(sessionId)` (`shared/routine-trigger.mjs:97`), the in-process
-//!   mark on the thread, never a stored field.
-//! - unattended: `scheduleCallerScope(session).unattended === true`
-//!   (`session-runtime/services/schedule-access.mjs:55`), which [`ThreadCallers::scope`] ports.
-//! - user available: whether the call carries an approval hook (`callerCtx.toolApprovalHook`,
-//!   `ask-user-tool.mjs:243`), which a session with no approval surface does not.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

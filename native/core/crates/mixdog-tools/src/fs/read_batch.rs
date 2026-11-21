@@ -1,9 +1,3 @@
-//! The pure half of a batch `read`: how the entries are shaped before any file is touched
-//! (`read-batch.mjs`, `batch-entries.mjs`), how the output budget is split
-//! (`batch-dispatch.mjs`), how a shared union read is cut back into each caller's window
-//! (`sliceReadBodyByLines`), and how the aggregate is rendered (`batch-render.mjs`,
-//! `readRowsForModel`). The IO half is in `read.rs`.
-
 use std::collections::HashMap;
 
 use mixdog_core_api::domain::tool::ToolPart;
@@ -92,6 +86,21 @@ impl BEntry {
     }
 }
 
+fn overlap_runs(mut items: Vec<(usize, u64, u64)>) -> Vec<(u64, u64, Vec<usize>)> {
+    items.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+    let mut runs: Vec<(u64, u64, Vec<usize>)> = Vec::new();
+    for (index, offset, end) in items {
+        match runs.last_mut() {
+            Some(run) if offset < run.1 => {
+                run.1 = run.1.max(end);
+                run.2.push(index);
+            }
+            _ => runs.push((offset, end, vec![index])),
+        }
+    }
+    runs
+}
+
 /// `mergeOverlappingReadEntries`: explicit windows of one file that overlap become one entry in
 /// the first member's slot; the other members are dropped.
 pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String) -> Vec<BEntry> {
@@ -119,22 +128,11 @@ pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> Stri
     }
     let mut merged: HashMap<usize, (u64, u64)> = HashMap::new();
     let mut dropped: Vec<usize> = Vec::new();
-    for (_, mut items) in by_path {
+    for (_, items) in by_path {
         if items.len() < 2 {
             continue;
         }
-        items.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
-        let mut runs: Vec<(u64, u64, Vec<usize>)> = Vec::new();
-        for (index, offset, end) in items {
-            match runs.last_mut() {
-                Some(run) if offset < run.1 => {
-                    run.1 = run.1.max(end);
-                    run.2.push(index);
-                }
-                _ => runs.push((offset, end, vec![index])),
-            }
-        }
-        for (offset, end, members) in runs {
+        for (offset, end, members) in overlap_runs(items) {
             if members.len() < 2 {
                 continue;
             }
@@ -157,21 +155,58 @@ pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> Stri
         .collect()
 }
 
+struct Item {
+    index: usize,
+    offset: u64,
+    end: Option<u64>,
+}
+
+struct Cluster {
+    offset: u64,
+    end: Option<u64>,
+    items: Vec<Item>,
+    has_implicit: bool,
+    has_explicit: bool,
+}
+
+fn window_clusters(mut items: Vec<Item>, entries: &[BEntry]) -> Vec<Cluster> {
+    items.sort_by(|a, b| {
+        a.offset.cmp(&b.offset).then_with(|| match (a.end, b.end) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (None, _) => std::cmp::Ordering::Greater,
+            (_, None) => std::cmp::Ordering::Less,
+            (Some(x), Some(y)) => x.cmp(&y),
+        })
+    });
+    let mut clusters: Vec<Cluster> = Vec::new();
+    for item in items {
+        let implicit = entries[item.index].implicit();
+        let explicit = !implicit;
+        let can_merge = clusters.last().is_some_and(|c| {
+            (c.end.is_none() || item.offset <= c.end.unwrap_or(0))
+                && !(c.has_implicit && explicit)
+                && !(implicit && c.has_explicit)
+                && !(implicit && c.has_implicit)
+        });
+        if !can_merge {
+            clusters.push(Cluster { offset: item.offset, end: item.end, has_implicit: implicit, has_explicit: explicit, items: vec![item] });
+            continue;
+        }
+        if let Some(c) = clusters.last_mut() {
+            c.has_implicit |= implicit;
+            c.has_explicit |= explicit;
+            if let Some(end) = c.end {
+                c.end = item.end.map(|e| e.max(end));
+            }
+            c.items.push(item);
+        }
+    }
+    clusters
+}
+
 /// `coalesceObjectReadEntries`: nearby full-mode windows of one file are served from one union read
 /// and cut back apart afterwards. An entry that names no window never shares a read with one that does.
 pub(super) fn coalesce_object(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String) -> Vec<BEntry> {
-    struct Item {
-        index: usize,
-        offset: u64,
-        end: Option<u64>,
-    }
-    struct Cluster {
-        offset: u64,
-        end: Option<u64>,
-        items: Vec<Item>,
-        has_implicit: bool,
-        has_explicit: bool,
-    }
     let mut out: Vec<Option<BEntry>> = vec![None; entries.len()];
     let mut groups: Vec<(String, Vec<Item>)> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
@@ -187,41 +222,8 @@ pub(super) fn coalesce_object(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String
             None => groups.push((k, vec![item])),
         }
     }
-    for (_, mut items) in groups {
-        items.sort_by(|a, b| {
-            a.offset.cmp(&b.offset).then_with(|| match (a.end, b.end) {
-                (None, None) => std::cmp::Ordering::Equal,
-                (None, _) => std::cmp::Ordering::Greater,
-                (_, None) => std::cmp::Ordering::Less,
-                (Some(x), Some(y)) => x.cmp(&y),
-            })
-        });
-        let mut clusters: Vec<Cluster> = Vec::new();
-        for item in items {
-            let implicit = entries[item.index].implicit();
-            let explicit = !implicit;
-            let can_merge = clusters.last().is_some_and(|c| {
-                // Decided departure from Node (which merged windows up to 256 lines apart and charged the gap): only
-                // windows that overlap or touch share a read, so an unrequested gap is never rendered or charged.
-                (c.end.is_none() || item.offset <= c.end.unwrap_or(0))
-                    && !(c.has_implicit && explicit)
-                    && !(implicit && c.has_explicit)
-                    && !(implicit && c.has_implicit)
-            });
-            if !can_merge {
-                clusters.push(Cluster { offset: item.offset, end: item.end, has_implicit: implicit, has_explicit: explicit, items: vec![item] });
-                continue;
-            }
-            if let Some(c) = clusters.last_mut() {
-                c.has_implicit |= implicit;
-                c.has_explicit |= explicit;
-                if let Some(end) = c.end {
-                    c.end = item.end.map(|e| e.max(end));
-                }
-                c.items.push(item);
-            }
-        }
-        for cluster in clusters {
+    for (_, items) in groups {
+        for cluster in window_clusters(items, &entries) {
             if cluster.items.len() == 1 {
                 let index = cluster.items[0].index;
                 out[index] = Some(entries[index].clone());
@@ -386,6 +388,13 @@ pub(super) fn cap_remaining(body: &str, off: u64, lim: u64, base: u64) -> Option
     (delivered < requested_last).then(|| format!("[window {}", remaining_note(delivered, requested_last, base)))
 }
 
+fn wanted_interval(first_line: u64, last_line: Option<u64>) -> (String, String) {
+    match last_line {
+        Some(last) => (format!("{first_line}-{last}"), format!(" limit:{}", last - first_line + 1)),
+        None => (format!("{first_line}+"), String::new()),
+    }
+}
+
 /// `sliceReadBodyByLines`: cut one caller's window `[off+1, off+lim]` out of a union read's body.
 /// `lim` is `None` for an unbounded window (`limit:0`).
 pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64) -> String {
@@ -422,11 +431,7 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
     if capped && !seen_any {
         // The shared read's budget ended before its first row: nothing of this window was delivered, whatever footer the
         // read printed, so it is never reported as a completed interval.
-        let wanted = match last_line {
-            Some(last) => format!("{first_line}-{last}"),
-            None => format!("{first_line}+"),
-        };
-        let limit_note = last_line.map(|last| format!(" limit:{}", last - first_line + 1)).unwrap_or_default();
+        let (wanted, limit_note) = wanted_interval(first_line, last_line);
         return format!(
             "(lines {wanted} were NOT returned — the shared read's output budget ended before its first row; read this range separately with offset:{}{limit_note})",
             off + base
@@ -436,12 +441,8 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
         if let Some(total) = total.filter(|t| first_line > *t) {
             return format!("(no lines in range; file has {total} lines)");
         }
-        let wanted = match last_line {
-            Some(last) => format!("{first_line}-{last}"),
-            None => format!("{first_line}+"),
-        };
+        let (wanted, limit_note) = wanted_interval(first_line, last_line);
         let total_note = total.map(|t| format!(" of {t}")).unwrap_or_default();
-        let limit_note = last_line.map(|last| format!(" limit:{}", last - first_line + 1)).unwrap_or_default();
         return format!(
             "(lines {wanted} were NOT returned — the coalesced read stopped after covering lines {min_seen}-{max_seen}{total_note}; re-read this file with offset:{}{limit_note})",
             off + base
@@ -457,11 +458,8 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
     let emitted_start = kept_first.unwrap_or(first_line);
     let emitted_last = kept_last.map_or(requested_last, |k| requested_last.min(k));
     let more = total.map_or(last_line.is_some(), |t| emitted_last < t);
-    // The union read stopped at its output budget inside this window: say exactly which interval is missing and the call
-    // that fetches it (a window delivered whole keeps the ordinary footer).
     let footer = match last_line {
         None if capped && total.is_none_or(|t| emitted_last < t) => {
-            // The requested interval is unbounded; retain the producer's continuation.
             let cap = lines.iter().rev().find(|line| output_cap_line(line)).unwrap();
             (*cap).to_owned()
         }

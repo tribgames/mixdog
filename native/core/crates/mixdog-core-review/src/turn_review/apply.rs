@@ -117,29 +117,7 @@ pub async fn apply_turn_change_files(
     reverse: bool,
 ) -> Result<String, ReviewError> {
     let root = assert_recorded_root(disk, git, record).await?;
-    let mut input: Vec<u8> = Vec::new();
-    for file in files {
-        let path = obj_str(file, "path");
-        let old = obj_str(file, "oldPath");
-        if safe_change_path(path).is_none() || (!old.is_empty() && safe_change_path(old).is_none()) {
-            return Err(ReviewError::new(format!("{path} is not a safe recorded path")));
-        }
-        let buffer = match change_patch_buffer(file) {
-            Some(b) if !b.is_empty() => b,
-            _ => return Err(ReviewError::new(format!("{path} has no recorded patch"))),
-        };
-        let sections = assert_patch_matches_file(file, &buffer)?;
-        // `git apply` takes a file's sections in input order, each on the result of the one before:
-        // oldest first forward, newest first for an Undo.
-        let ordered: Vec<&Section> = if reverse { sections.iter().rev().collect() } else { sections.iter().collect() };
-        for section in ordered {
-            let patch = &buffer[section.start..section.end];
-            input.extend_from_slice(patch);
-            if patch.last() != Some(&0x0a) {
-                input.push(b'\n');
-            }
-        }
-    }
+    let input = patch_input(files, reverse)?;
     // An older Git record (worktree diff) replays with the repository's own line-ending
     // conversion, the semantics the shadow snapshot hashed with. A record of the session's own tool
     // bytes (`counts: 'own'`, any kind) holds raw bytes, so nothing may convert them.
@@ -167,6 +145,34 @@ pub async fn apply_turn_change_files(
         return Err(ReviewError::new(format!("{} failed; the worktree was not changed: {detail}", if reverse { "undo" } else { "reapply" })));
     }
     Ok(root)
+}
+
+/// The patch sections of every file, concatenated in the order `git apply` takes them.
+fn patch_input(files: &[Obj], reverse: bool) -> Result<Vec<u8>, ReviewError> {
+    let mut input: Vec<u8> = Vec::new();
+    for file in files {
+        let path = obj_str(file, "path");
+        let old = obj_str(file, "oldPath");
+        if safe_change_path(path).is_none() || (!old.is_empty() && safe_change_path(old).is_none()) {
+            return Err(ReviewError::new(format!("{path} is not a safe recorded path")));
+        }
+        let buffer = match change_patch_buffer(file) {
+            Some(b) if !b.is_empty() => b,
+            _ => return Err(ReviewError::new(format!("{path} has no recorded patch"))),
+        };
+        let sections = assert_patch_matches_file(file, &buffer)?;
+        // `git apply` takes a file's sections in input order, each on the result of the one before:
+        // oldest first forward, newest first for an Undo.
+        let ordered: Vec<&Section> = if reverse { sections.iter().rev().collect() } else { sections.iter().collect() };
+        for section in ordered {
+            let patch = &buffer[section.start..section.end];
+            input.extend_from_slice(patch);
+            if patch.last() != Some(&0x0a) {
+                input.push(b'\n');
+            }
+        }
+    }
+    Ok(input)
 }
 
 /// The `record.files` of a record as owned objects.

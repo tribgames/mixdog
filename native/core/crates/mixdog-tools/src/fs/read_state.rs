@@ -1,21 +1,10 @@
-//! What the file tools remember between calls, as Node's does: a process-wide result cache of
-//! recent `read` answers (`cache-layers.mjs`: 30 s, 200 entries, 32 MiB) and, per session, a
-//! snapshot of what each file looked like when it was last read or edited
-//! (`read-snapshot-runtime.mjs`, `snapshot-store.mjs`: 32 sessions in memory, 1024 files each,
-//! persisted by an injected store). The cache supplies validated bytes and the snapshots back the edit tools'
-//! safety checks; neither is ever the reason a `read` withholds its body (Node answered a repeated read
-//! `[file unchanged: <path>]`; that is a decided departure).
-//!
-//! The session key is the call's thread id (Node's `sessionId`); a call with no session records
-//! and finds nothing. Node's `widenReadWindow` needs an object scope and is never reached with a
-//! string session id, so it has no counterpart here.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use mixdog_protocol::JsonValue;
 use sha2::Digest;
 
+// Limits of Node's `cache-layers.mjs` (cache) and `snapshot-store.mjs` (snapshots).
 const CACHE_TTL_MS: u64 = 30_000;
 const CACHE_MAX_ENTRIES: usize = 200;
 const CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
@@ -224,6 +213,63 @@ fn sep_prefix(path: &str) -> String {
 /// a differently cased spelling is one entry.
 pub(super) fn canonical_key(path: &str) -> String {
     if cfg!(windows) { path.to_lowercase() } else { path.to_owned() }
+}
+
+fn next_snapshot(identity: FileVersion, meta: &SnapshotMeta, prior: Option<&Snapshot>) -> Snapshot {
+    let mutation = is_mutation_source(&meta.source);
+    let incoming = meta.ranges.clone().unwrap_or_else(|| vec![LineRange::WHOLE]);
+    let fresh_large = identity.size > CACHEABLE_BYTES && !mutation;
+    let replace = meta.replace_existing || fresh_large;
+    let existing = if replace { None } else { prior };
+    let same_file = existing.filter(|e| same_version(&identity, &e.version));
+    let undelivered_mutation = same_file.is_some_and(|e| is_mutation_source(&e.source) && e.body_delivered != Some(true));
+    let retained: Vec<LineRange> = match same_file {
+        Some(e) if !undelivered_mutation => e.ranges.clone(),
+        _ => Vec::new(),
+    };
+    let mut next = Snapshot {
+        version: identity,
+        ranges: merge_ranges(&[retained, incoming].concat()),
+        source: meta.source.clone(),
+        body_delivered: None,
+        content_hash: meta.content_hash.clone(),
+        grep_only: false,
+        file_line_count: None,
+        extra: serde_json::Map::new(),
+    };
+    if next.content_hash.is_none() {
+        next.content_hash = same_file.and_then(|e| e.content_hash.clone());
+    }
+    let incoming_is_grep = meta.source == "grep";
+    next.grep_only = incoming_is_grep && same_file.is_none_or(|e| e.grep_only);
+    let prior_for_delivery = if fresh_large { None } else { prior };
+    if let Some(delivered) = resolve_body_delivered(&next, meta, prior_for_delivery, &identity, incoming_is_grep) {
+        next.body_delivered = Some(delivered);
+    }
+    if let Some(count) = meta.file_line_count {
+        next.file_line_count = Some(count);
+    } else if let Some(count) = same_file.and_then(|e| e.file_line_count) {
+        next.file_line_count = Some(count);
+    }
+    next
+}
+
+fn sweep_persisted_path(store: &dyn SnapshotPersist, path: &str) {
+    for scope in store.scopes() {
+        let Some(text) = store.load(&scope) else { continue };
+        let Ok(JsonValue::Object(mut obj)) = serde_json::from_str::<JsonValue>(&text) else { continue };
+        // A file persisted by an earlier build holds the key as it was spelled.
+        let rows = obj.len();
+        obj.retain(|key, _| canonical_key(key) != path);
+        if obj.len() == rows {
+            continue;
+        }
+        if obj.is_empty() {
+            store.save(&scope, None);
+        } else if let Ok(json) = serde_json::to_string(&JsonValue::Object(obj)) {
+            store.save(&scope, Some(&json));
+        }
+    }
 }
 
 /// `cachePathsOverlap` after path normalization (`/` separators): equal, or one holds the other.
@@ -908,25 +954,7 @@ impl Shared {
                     self.report(&marks, ran);
                 }
                 Job::Sweep { path, mark } => {
-                    let ran = persist
-                        .run(move |store| {
-                            for scope in store.scopes() {
-                                let Some(text) = store.load(&scope) else { continue };
-                                let Ok(JsonValue::Object(mut obj)) = serde_json::from_str::<JsonValue>(&text) else { continue };
-                                // A file persisted by an earlier build holds the key as it was spelled.
-                                let rows = obj.len();
-                                obj.retain(|key, _| canonical_key(key) != path);
-                                if obj.len() == rows {
-                                    continue;
-                                }
-                                if obj.is_empty() {
-                                    store.save(&scope, None);
-                                } else if let Ok(json) = serde_json::to_string(&JsonValue::Object(obj)) {
-                                    store.save(&scope, Some(&json));
-                                }
-                            }
-                        })
-                        .await;
+                    let ran = persist.run(move |store| sweep_persisted_path(store, &path)).await;
                     self.report(&[mark], ran);
                 }
             }
@@ -1129,43 +1157,8 @@ impl ReadState {
         {
             let mut inner = self.shared.lock();
             let files = &mut self.shared.touch(&mut inner, scope).files;
-            let mutation = is_mutation_source(&meta.source);
-            let incoming = meta.ranges.clone().unwrap_or_else(|| vec![LineRange::WHOLE]);
-            let fresh_large = identity.size > CACHEABLE_BYTES && !mutation;
-            let replace = meta.replace_existing || fresh_large;
             let prior = files.iter().find(|(p, _)| p == path).map(|(_, s)| s.clone());
-            let existing = if replace { None } else { prior.clone() };
-            let same_file = existing.as_ref().filter(|e| same_version(&identity, &e.version));
-            let undelivered_mutation = same_file.is_some_and(|e| is_mutation_source(&e.source) && e.body_delivered != Some(true));
-            let retained: Vec<LineRange> = match same_file {
-                Some(e) if !undelivered_mutation => e.ranges.clone(),
-                _ => Vec::new(),
-            };
-            let merged = merge_ranges(&[retained, incoming].concat());
-            let mut next = Snapshot {
-                version: identity,
-                ranges: merged,
-                source: meta.source.clone(),
-                body_delivered: None,
-                content_hash: meta.content_hash.clone(),
-                grep_only: false,
-                file_line_count: None,
-                extra: serde_json::Map::new(),
-            };
-            if next.content_hash.is_none() {
-                next.content_hash = same_file.and_then(|e| e.content_hash.clone());
-            }
-            let incoming_is_grep = meta.source == "grep";
-            next.grep_only = incoming_is_grep && same_file.is_none_or(|e| e.grep_only);
-            let prior_for_delivery = if fresh_large { None } else { prior.as_ref() };
-            if let Some(delivered) = resolve_body_delivered(&next, &meta, prior_for_delivery, &identity, incoming_is_grep) {
-                next.body_delivered = Some(delivered);
-            }
-            if let Some(count) = meta.file_line_count {
-                next.file_line_count = Some(count);
-            } else if let Some(count) = same_file.and_then(|e| e.file_line_count) {
-                next.file_line_count = Some(count);
-            }
+            let next = next_snapshot(identity, &meta, prior.as_ref());
             // The session keeps its newest file last; past the cap the oldest goes.
             files.retain(|(p, _)| p != path);
             files.push((path.to_owned(), next));

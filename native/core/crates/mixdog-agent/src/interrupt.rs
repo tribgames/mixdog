@@ -93,6 +93,15 @@ fn provisional_user_turn(messages: &[AgentMessage], current_text: &str) -> Optio
     messages.iter().rposition(|m| m.role() == Role::User && m.text() == current_text)
 }
 
+fn interruption_marker(reason: AbortReason, phase: Phase) -> Option<&'static str> {
+    match reason {
+        AbortReason::Interrupt | AbortReason::ProviderError => None,
+        AbortReason::ProcessCrash => Some(PROCESS_RESTART_INTERRUPT_MESSAGE),
+        _ if reason.user_cancel() => Some(if phase == Phase::Tools { INTERRUPT_MESSAGE_FOR_TOOL_USE } else { INTERRUPT_MESSAGE }),
+        _ => Some(SESSION_INTERRUPT_MESSAGE),
+    }
+}
+
 pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     let Interrupted {
         transcript,
@@ -135,14 +144,7 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     let mut paired = sanitize_tool_pairs(&messages);
     // The marker is omitted when a queued user submission interrupted the
     // request: that message is the boundary.
-    if !matches!(reason, AbortReason::Interrupt | AbortReason::ProviderError) {
-        let content = if reason == AbortReason::ProcessCrash {
-            PROCESS_RESTART_INTERRUPT_MESSAGE
-        } else if user_cancelled {
-            if phase == Phase::Tools { INTERRUPT_MESSAGE_FOR_TOOL_USE } else { INTERRUPT_MESSAGE }
-        } else {
-            SESSION_INTERRUPT_MESSAGE
-        };
+    if let Some(content) = interruption_marker(reason, phase) {
         paired.push(AgentMessage::user(content));
     }
     let sent_request_tail = sent_tail.and_then(|tail| paired.iter().rposition(|m| *m == tail));
@@ -193,15 +195,10 @@ pub enum RecoveredRow {
 /// tool phase when the last row is a call batch.
 pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<RecoveredRow>, String> {
     let known = rows.iter().map(crate::message_row::message_of).collect::<Result<Vec<_>, _>>()?;
-    // The turn as the process left it: a kill that cut an earlier recovery leaves the rows it had saved at the tail, and Node
-    // recovers from the checkpoint it kept until the recovery was saved, so they are derived again (they come back as the same
-    // stored rows) instead of being read as rows the turn itself produced. Node's checkpoint holds the turn as it ran; the core
-    // has no checkpoint, so a row says itself that the recovery wrote it (`meta.restartRecovery`, set on every `New` row below and
-    // by nothing else): no row is classified by its text, timing, kind or place.
-    let origin = rows.iter().rposition(|row| !written_by_recovery(row)).map_or(0, |last| last + 1);
-    let last = known[..origin].last();
+    let recovery_start = rows.iter().rposition(|row| !written_by_recovery(row)).map_or(0, |last| last + 1);
+    let last = known[..recovery_start].last();
     let finalized = finalize_interrupted_turn(Interrupted {
-        transcript: known[..origin].to_vec(),
+        transcript: known[..recovery_start].to_vec(),
         current_user_text: String::new(),
         response_started: last.is_some_and(|message| message.role() != Role::User),
         partial_assistant: String::new(),
@@ -220,10 +217,8 @@ pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<Recovered
             }
             body
         };
-        // A cancelled result (or the restart line) an earlier recovery saved is the one derived again for its call, whatever else of
-        // the row it carries.
         let saved = |was: &AgentMessage| {
-            index >= origin
+            index >= recovery_start
                 && was.role() == message.role()
                 && if was.role() == Role::Tool { was.tool_call_id() == message.tool_call_id() } else { was.text() == message.text() }
         };
@@ -325,6 +320,17 @@ mod tests {
     }
 
     #[test]
+    fn the_marker_follows_the_reason_and_phase() {
+        let marker = |reason, phase| interruption_marker(reason, phase);
+        assert_eq!(marker(AbortReason::Interrupt, Phase::Streaming), None);
+        assert_eq!(marker(AbortReason::ProviderError, Phase::Tools), None);
+        assert_eq!(marker(AbortReason::ProcessCrash, Phase::Tools), Some(PROCESS_RESTART_INTERRUPT_MESSAGE));
+        assert_eq!(marker(AbortReason::UserCancel, Phase::Streaming), Some(INTERRUPT_MESSAGE));
+        assert_eq!(marker(AbortReason::TurnAbort, Phase::Tools), Some(INTERRUPT_MESSAGE_FOR_TOOL_USE));
+        assert_eq!(marker(AbortReason::Other, Phase::Tools), Some(SESSION_INTERRUPT_MESSAGE));
+    }
+
+    #[test]
     fn an_abort_carries_its_typed_reason_from_the_name_node_gives_it() {
         use crate::cancel::{Abort, CLI_ABORT, Cancel};
         assert_eq!(Abort::runtime_abort("s", CLI_ABORT).reason, AbortReason::CliAbort);
@@ -402,11 +408,6 @@ mod tests {
             .collect()
     }
 
-    /// Every shape a finished result can take (text, timing, kind, error flag: a real tool's, a cache hit's, a denied call's, a
-    /// hook-written one, one whose text is the recovery's own) as the last row the request ended with, then every state a kill of
-    /// the recovery leaves (the rows it wrote cut after any number of them, or all saved): the recovery keeps the real row as
-    /// stored (but for the `sentRequestTail` stamp Node gives it), adds only the restart line, and derives the same rows again from
-    /// whatever its own earlier run left.
     #[test]
     fn recovery_never_touches_a_row_it_did_not_write() {
         let timing = serde_json::json!({ "dispatchStartedAt": 1, "executionStartedAt": 2, "executionCompletedAt": 3, "postprocessStartedAt": 4, "resultCompletedAt": 5 });

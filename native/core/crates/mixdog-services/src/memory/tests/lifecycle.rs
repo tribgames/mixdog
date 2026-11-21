@@ -66,6 +66,7 @@ async fn ingest_then_cancel_the_caller(memory: &Arc<LocalMemory>, entered: &mut 
 /// The own-row embedding (awaited by the ingest) and the deferred flush (queued) of an ingest whose caller was cancelled: a graceful shutdown waits
 /// for them, with their backlog chain, and no transaction is left open when it ends.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_graceful_shutdown_waits_for_the_embedding_a_cancelled_ingest_left_behind() {
     for embed_wait in [true, false] {
         let pg = TestPg::start().await;
@@ -89,6 +90,7 @@ async fn a_graceful_shutdown_waits_for_the_embedding_a_cancelled_ingest_left_beh
 /// The same work cut instead: the revocation drops it with its lease, so its claim's backend goes away (its transaction ends with it), the rows
 /// are unlocked, nothing of it runs afterwards, and no open transaction is left in the pool.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_forced_cut_discards_the_connection_of_an_embedding_a_cancelled_ingest_left_behind() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -127,6 +129,7 @@ async fn a_forced_cut_discards_the_connection_of_an_embedding_a_cancelled_ingest
 /// A connection driver whose destruction is fenced: the owner's local revocation is not acknowledged while the driver's destruction is held, and is
 /// once it ended. (The backend's disappearance is the server's eventual outcome, observed by the forced-cut test, never this acknowledgement.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn local_revocation_is_not_acknowledged_while_a_driver_destruction_is_fenced() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -152,6 +155,7 @@ async fn local_revocation_is_not_acknowledged_while_a_driver_destruction_is_fenc
 /// session holds), the owner's cut ends it with nothing more submitted by this process, the caller is answered as stopping, and a later call is refused
 /// before it touches the database. Nothing here stops PostgreSQL (a secondary process's stop dispatches nothing: `StopDispatch::SecondaryNotOwned`).
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_memory_control_call_cut_mid_statement_submits_nothing_more_and_later_calls_are_refused() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -191,6 +195,7 @@ async fn a_memory_control_call_cut_mid_statement_submits_nothing_more_and_later_
 /// A connect in flight at the cut: the connect is the transport slot's own work, so the revocation destroys the attempt, the acknowledgement follows,
 /// and the caller's checkout fails instead of finishing a connection after it.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_connect_in_flight_at_the_cut_is_destroyed_with_its_slot() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -210,6 +215,7 @@ async fn a_connect_in_flight_at_the_cut_is_destroyed_with_its_slot() {
 /// A transaction whose holder is cancelled after `BEGIN` and a write: the connection is discarded, never returned to circulation (the next checkout of
 /// the same pool gets another backend), and another connection sees no part of the write.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_transaction_cancelled_after_begin_never_returns_its_connection_and_commits_nothing() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -252,6 +258,7 @@ async fn a_transaction_cancelled_after_begin_never_returns_its_connection_and_co
 /// statements wait on a table lock another session holds): the owner's cut ends them with nothing more submitted, and every later call is refused
 /// before it touches the database.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn scoped_operations_are_cut_mid_statement_and_refused_after_the_stop() {
     let pg = TestPg::start().await;
     let search_db = crate::memory::session_search::db::SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("schema");
@@ -307,6 +314,7 @@ async fn scoped_operations_are_cut_mid_statement_and_refused_after_the_stop() {
 /// A feed batch held right after it took its rows from the feed and before their delivery: the store's close stays pending, and once the batch goes
 /// on, both its trace rows and its agent analytics are written before the close returns.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_close_waits_for_a_feed_batch_taken_before_its_delivery_and_writes_both_tables() {
     let pg = TestPg::start().await;
     let db = Arc::new(pg.db(Schema::Memory).await);

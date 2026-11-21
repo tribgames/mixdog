@@ -325,7 +325,7 @@ rayon = "1" # not in Codex; WP-GRAPH-GIT parallel graph parse (same major as mix
 pulldown-cmark = { version = "0.13", default-features = false }
 rcgen = "0.14" # dev only: throwaway TLS certificates for fake-server tests
 regex = "1.12.3"
-ring ="0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
+ring = "0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
 trash = "5.2" # not in Codex: OS recycle bin for projectFs/trash (WP-WS), as Node's shell.trashItem
 regress = "0.10" # not in Codex: ECMAScript-syntax regex engine for user-facing text search (WP-WS)
 reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }

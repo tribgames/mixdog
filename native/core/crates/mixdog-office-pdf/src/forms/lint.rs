@@ -119,6 +119,43 @@ fn normalize(index: usize, field: &Value) -> Normalized {
     }
 }
 
+/// The box of a field read against the page it is on: unusable, off the page, or smaller than a person can use.
+fn box_issues(field: &Normalized, size: [f64; 2]) -> Option<Value> {
+    let finite = [field.x, field.y, field.width, field.height].iter().all(|value| value.is_finite());
+    if !finite || field.width <= 0.0 || field.height <= 0.0 {
+        return Some(issue(
+            "error",
+            "invalid_field_box",
+            field.index,
+            format!(
+                "Form field {} has no usable box: give x, y, width and height in points from the page's bottom-left corner (or rect: [x, y, width, height]).",
+                field.label()
+            ),
+        ));
+    }
+    if field.x < 0.0 || field.y < 0.0 || field.x + field.width > size[0] || field.y + field.height > size[1] {
+        return Some(issue("error", "field_outside_page", field.index, format!("Form field is outside page {}.", number_to_string(field.page))));
+    }
+    let [min_width, min_height] = minimum_field_size(&field.field_type);
+    if field.width < min_width || field.height < min_height {
+        return Some(issue(
+            "warning",
+            "field_too_small",
+            field.index,
+            format!(
+                "Form field {} is {} x {} pt; a {} field needs at least {} x {}.",
+                field.label(),
+                number_to_string(field.width),
+                number_to_string(field.height),
+                field.field_type,
+                number_to_string(round(min_width)),
+                number_to_string(round(min_height))
+            ),
+        ));
+    }
+    None
+}
+
 /// `lintPdfFormFields(fields, pages)`: `pages` are the `[width, height]` of the document's pages. The result is
 /// `{ ok, fields, issueCount, issues }`; the fields passed in are adopted into the `x`/`y`/`width`/`height`/`type`
 /// shape first.
@@ -132,7 +169,6 @@ pub fn lint_pdf_form_fields(fields: &mut [Value], pages: &[[f64; 2]]) -> Value {
     for field in &normalized {
         let page_at = field.page - 1.0;
         let listed = if page_at >= 0.0 && page_at.fract() == 0.0 { pages.get(page_at as usize).copied() } else { None };
-        let size = listed.unwrap_or(DEFAULT_PAGE);
         if field.name.is_empty() {
             issues.push(issue("error", "missing_field_name", field.index, "Form field name is required.".to_owned()));
         }
@@ -140,38 +176,7 @@ pub fn lint_pdf_form_fields(fields: &mut [Value], pages: &[[f64; 2]]) -> Value {
             issues.push(issue("error", "duplicate_field_name", field.index, format!("Duplicate form field name: {}", field.name)));
         }
         names.push(&field.name);
-        let finite = [field.x, field.y, field.width, field.height].iter().all(|value| value.is_finite());
-        if !finite || field.width <= 0.0 || field.height <= 0.0 {
-            issues.push(issue(
-                "error",
-                "invalid_field_box",
-                field.index,
-                format!(
-                    "Form field {} has no usable box: give x, y, width and height in points from the page's bottom-left corner (or rect: [x, y, width, height]).",
-                    field.label()
-                ),
-            ));
-        } else if field.x < 0.0 || field.y < 0.0 || field.x + field.width > size[0] || field.y + field.height > size[1] {
-            issues.push(issue("error", "field_outside_page", field.index, format!("Form field is outside page {}.", number_to_string(field.page))));
-        } else {
-            let [min_width, min_height] = minimum_field_size(&field.field_type);
-            if field.width < min_width || field.height < min_height {
-                issues.push(issue(
-                    "warning",
-                    "field_too_small",
-                    field.index,
-                    format!(
-                        "Form field {} is {} x {} pt; a {} field needs at least {} x {}.",
-                        field.label(),
-                        number_to_string(field.width),
-                        number_to_string(field.height),
-                        field.field_type,
-                        number_to_string(round(min_width)),
-                        number_to_string(round(min_height))
-                    ),
-                ));
-            }
-        }
+        issues.extend(box_issues(field, listed.unwrap_or(DEFAULT_PAGE)));
     }
     for left in 0..normalized.len() {
         for right in left + 1..normalized.len() {

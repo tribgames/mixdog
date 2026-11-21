@@ -288,10 +288,13 @@ mod settled_tests {
         }
     }
 
-    /// One test: the counters are the process's.
+    /// The counters are the process's: each test holds this for its whole run.
+    static COUNTERS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A run still computing (awaiting something no replay input ends) is not settled; a wait outside any run does not count.
     #[tokio::test]
-    async fn a_tool_tasks_approval_wait_parks_its_run_and_a_computing_run_or_an_outside_wait_does_not_settle() {
-        // A run still computing (awaiting something no replay input ends) is not settled; a wait outside any run does not count.
+    async fn a_computing_run_or_an_outside_wait_does_not_settle() {
+        let _counters = COUNTERS.lock().await;
         let (go, gate) = oneshot::channel::<()>();
         let computing = tokio::spawn(in_run(async move { gate.await.ok() }));
         let (_never, outside_wait) = oneshot::channel::<()>();
@@ -302,8 +305,14 @@ mod settled_tests {
         go.send(()).expect("the computing run");
         computing.await.expect("the computing run");
         assert_eq!(unparked(), None, "no run alive, the outside wait does not hold settled");
+        outside.abort();
+        let_tasks_run().await;
+    }
 
-        // A run whose task awaits a tool, the tool's task awaiting the user's decision on the run's handle: settled.
+    /// A run whose task awaits a tool, the tool's task awaiting the user's decision on the run's handle: settled.
+    #[tokio::test]
+    async fn a_tool_tasks_approval_wait_parks_its_run() {
+        let _counters = COUNTERS.lock().await;
         let run = Run::default();
         let (decide, decision) = oneshot::channel::<()>();
         let tool_run = run.clone();
@@ -314,9 +323,13 @@ mod settled_tests {
         decide.send(()).expect("the decision");
         assert_eq!(turn.await.expect("the turn"), Some(()));
         assert_eq!(unparked(), None);
+    }
 
-        // A run that hands part of its work to a task of its own: that task's wait parks the run, its wake ends the park, and
-        // once the run stops waiting for the task the task's waits no longer count for it.
+    /// A run that hands part of its work to a task of its own: that task's wait parks the run, its wake ends the park, and
+    /// once the run stops waiting for the task the task's waits no longer count for it.
+    #[tokio::test]
+    async fn a_delegates_wait_parks_its_run_until_the_run_stops_waiting_for_it() {
+        let _counters = COUNTERS.lock().await;
         let (answer, answered) = oneshot::channel::<()>();
         let (_never, unanswered) = oneshot::channel::<()>();
         let (stop, stopped) = oneshot::channel::<()>();
@@ -344,7 +357,6 @@ mod settled_tests {
         go_on.send(()).expect("the run");
         turn.await.expect("the turn");
         assert_eq!(unparked(), None);
-        outside.abort();
     }
 }
 

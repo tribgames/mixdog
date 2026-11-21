@@ -407,6 +407,68 @@ fn flag(cfg: &Value, key: &str) -> Option<bool> {
     cfg.get(key).and_then(Value::as_bool)
 }
 
+/// The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
+fn messages_base(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    match base.len().checked_sub(3).filter(|at| base.is_char_boundary(*at)) {
+        Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
+        _ => base.to_owned(),
+    }
+}
+
+/// OpenRouter's Messages engine: the routing slug stays on the wire; capabilities come from the Claude id it stands for
+/// (its catalog alias target first), and OpenRouter's reasoning control replaces the turn's effort.
+fn openrouter_tune(aliases: Arc<dyn CachedModelInfo>, configured: Option<String>) -> impl Fn(&mut AnthropicConfig) {
+    move |config: &mut AnthropicConfig| {
+        let aliases = aliases.clone();
+        let configured = configured.clone();
+        config.capability_model = Some(Arc::new(move |model: &str| {
+            let alias = aliases.cached_row(model).and_then(|row| row.get("aliasTarget").and_then(Value::as_str).map(str::to_owned));
+            Some(openrouter_capability_model(model, alias.as_deref()))
+        }));
+        config.gateway_effort = Some(Arc::new(move |request: &ModelRequest| {
+            let reasoning = match (&configured, &request.options.effort) {
+                (Some(effort), None) => {
+                    let mut owned = request.clone();
+                    owned.options.effort = Some(effort.clone());
+                    crate::providers::compat::chat::openrouter_reasoning(&owned)?
+                }
+                _ => crate::providers::compat::chat::openrouter_reasoning(request)?,
+            };
+            Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
+        }));
+    }
+}
+
+/// The request-shaping part of a custom provider's config: its headers and body, and the model overrides' own.
+/// `createCustomProvider` takes the overrides from the normalized entry, which makes an unversioned entry's `models`
+/// manual overrides (`migrateLegacy`) and hides the ids discovered beside them.
+fn custom_request_config(cfg: &Value, entry: &Value, base_url: &str) -> Result<CustomRequestConfig, String> {
+    let object = |key: &str| cfg.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
+    let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.into_message())?;
+    let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.into_message())?;
+    let mut model_body = Map::new();
+    let mut model_headers = Vec::new();
+    for (model, over) in entry.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default() {
+        if let Some(body) = over.get("requestBody").and_then(Value::as_object).filter(|b| !b.is_empty()) {
+            let label = format!("modelOverrides[{model}].requestBody");
+            model_body.insert(model.clone(), Value::Object(custom::normalize_request_body(body, &label).map_err(|e| e.into_message())?));
+        }
+        if let Some(h) = over.get("requestHeaders").and_then(Value::as_object).filter(|h| !h.is_empty()) {
+            let label = format!("modelOverrides[{model}].requestHeaders");
+            model_headers.push((model.clone(), custom::normalize_model_headers(h, &label).map_err(|e| e.into_message())?));
+        }
+    }
+    Ok(CustomRequestConfig {
+        base_url: base_url.to_owned(),
+        headers,
+        request_body,
+        model_body,
+        model_headers,
+        responses_prompt_cache_key: flag(entry, "responsesPromptCacheKey"),
+    })
+}
+
 /// A provider build fails, with this text, when the keychain read for its key never ran: an empty
 /// key would instead report the provider as not configured. A read that ran and found nothing is
 /// not an error here.
@@ -536,10 +598,6 @@ impl ApiKeySource for MimoKey {
     }
 }
 
-/// A custom provider's credential header, read per request: `None` for a
-/// keyless endpoint, and for a missing key outside env mode. In env mode an
-/// unset variable fails before any request is sent, and a 401 re-reads it
-/// where the key is the configuration's (`refreshable`).
 struct CustomKey {
     source: Option<Arc<dyn ApiKeySource>>,
     env: Option<String>,
@@ -965,7 +1023,11 @@ impl DefaultProviderBuilder {
         crate::providers::compat::xai_transport::request_wire(raw.as_deref(), Wire::Responses)
     }
 
-    async fn build_compat(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+    async fn compat_credentials(
+        &self,
+        name: &str,
+        cfg: &Value,
+    ) -> Result<(CompatProfile, Arc<dyn ApiKeySource>, Option<String>, Vec<(String, String)>), String> {
         let mut login_headers: Vec<(String, String)> = Vec::new();
         let (profile, key, base_url): (CompatProfile, Arc<dyn ApiKeySource>, Option<String>) = match name {
             "xai" => (CompatProfile::xai(), self.key_source(name, cfg), None),
@@ -986,6 +1048,11 @@ impl DefaultProviderBuilder {
             }
             other => return Err(format!("unknown enabled provider: {other}")),
         };
+        Ok((profile, key, base_url, login_headers))
+    }
+
+    async fn build_compat(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        let (profile, key, base_url, login_headers) = self.compat_credentials(name, cfg).await?;
         let mut config = self.compat_config(&profile, cfg, base_url, login_headers);
         if crate::accounts::ACCOUNT_PROVIDERS.contains(&name) {
             let mut tables = self.account_models.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1035,14 +1102,6 @@ impl DefaultProviderBuilder {
         let keyed = |header: &'static str, bearer: bool| -> Arc<dyn Credential> { Arc::new(KeyHeader { source: key.clone(), header, bearer }) };
         // The Messages engines post through the Anthropic client, the gateway's headers as its `defaultHeaders`.
         let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying).refusing_redirects();
-        // The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
-        let messages_base = |base: &str| -> String {
-            let base = base.trim_end_matches('/');
-            match base.len().checked_sub(3).filter(|at| base.is_char_boundary(*at)) {
-                Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
-                _ => base.to_owned(),
-            }
-        };
         let rows: Arc<dyn CachedModelInfo> = account.clone();
         let untuned = |_: &mut AnthropicConfig| {};
         let (engines, pick, session_header): GatewayEngines = match name {
@@ -1054,29 +1113,7 @@ impl DefaultProviderBuilder {
                 (vec![(Wire::Messages, Arc::new(engine))], WirePick::Routed, false)
             }
             "openrouter" => {
-                // The routing slug stays on the wire; capabilities come from the Claude id it stands for (its catalog
-                // alias target first), and OpenRouter's reasoning control replaces the turn's effort.
-                let aliases = rows.clone();
-                let configured = configured_effort.clone();
-                let tune = move |config: &mut AnthropicConfig| {
-                    let aliases = aliases.clone();
-                    let configured = configured.clone();
-                    config.capability_model = Some(Arc::new(move |model: &str| {
-                        let alias = aliases.cached_row(model).and_then(|row| row.get("aliasTarget").and_then(Value::as_str).map(str::to_owned));
-                        Some(openrouter_capability_model(model, alias.as_deref()))
-                    }));
-                    config.gateway_effort = Some(Arc::new(move |request: &ModelRequest| {
-                        let reasoning = match (&configured, &request.options.effort) {
-                            (Some(effort), None) => {
-                                let mut owned = request.clone();
-                                owned.options.effort = Some(effort.clone());
-                                crate::providers::compat::chat::openrouter_reasoning(&owned)?
-                            }
-                            _ => crate::providers::compat::chat::openrouter_reasoning(request)?,
-                        };
-                        Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
-                    }));
-                };
+                let tune = openrouter_tune(rows.clone(), configured_effort.clone());
                 let engine = self.gateway_messages_engine(
                     name,
                     messages_base(&chat_base),
@@ -1102,42 +1139,49 @@ impl DefaultProviderBuilder {
                     Arc::new(anthropic_http()),
                     &untuned,
                 );
-                // The generateContent routes live under `.../go/v1`, not the organization's chat base
-                // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
-                let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
-                let gemini_http: Arc<dyn crate::transport::HttpSend> = Arc::new(
-                    GatewayHttp::new(self.env.http.clone())
-                        .moving_path("/v1beta/models/", "/v1/models/")
-                        .plain_system_instruction()
-                        .with_headers(identifying.clone())
-                        // `originBoundFetch`: the Gemini engine never follows a redirect either.
-                        .refusing_redirects_as("opencode-go"),
-                );
-                let gemini = google::adapter::GoogleAdapter::new(
-                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()).with_error_label("OpenCode Go Gemini streamGenerateContent"),
-                    google::policy::gemini(),
-                    gemini_http,
-                    Arc::new(GoBearerAuth(key.clone())),
-                    String::new(),
-                );
+                let gemini = self.opencode_go_gemini(&chat_base, identifying.clone(), key.clone());
                 let engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> =
-                    vec![(Wire::Responses, responses()), (Wire::Messages, Arc::new(messages)), (Wire::Gemini, Arc::new(gemini))];
+                    vec![(Wire::Responses, responses()), (Wire::Messages, Arc::new(messages)), (Wire::Gemini, gemini)];
                 (engines, WirePick::Routed, true)
             }
             // MiMo is reached over Chat only.
             _ => return Ok(account),
         };
-        // The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
-        // catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
-        // roster alone).
+        let gateway = GatewayAdapter::new(account, engines, pick).with_messages_ceiling(self.messages_ceiling(name, rows));
+        Ok(Arc::new(if session_header { gateway.with_session_header() } else { gateway }))
+    }
+
+    /// The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
+    /// catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
+    /// roster alone).
+    fn messages_ceiling(&self, name: &str, rows: Arc<dyn CachedModelInfo>) -> Arc<dyn Fn(&str) -> Option<u32> + Send + Sync> {
         let catalog = matches!(name, "deepseek" | "openrouter").then(|| (self.env.listing.clone(), name.to_owned()));
-        let ceiling = move |model: &str| -> Option<u32> {
+        Arc::new(move |model: &str| {
             let listed = rows.cached_row(model).and_then(|row| row.get("outputTokens").and_then(Value::as_u64)).filter(|n| *n > 0);
             let declared = listed.or_else(|| catalog.as_ref().and_then(|(lookup, provider)| lookup.output_tokens(provider, model)));
             declared.map(|n| u32::try_from(n).unwrap_or(u32::MAX))
-        };
-        let gateway = GatewayAdapter::new(account, engines, pick).with_messages_ceiling(Arc::new(ceiling));
-        Ok(Arc::new(if session_header { gateway.with_session_header() } else { gateway }))
+        })
+    }
+
+    /// The generateContent routes live under `.../go/v1`, not the organization's chat base
+    /// (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
+    fn opencode_go_gemini(&self, chat_base: &str, identifying: Vec<(String, String)>, key: Arc<dyn ApiKeySource>) -> Arc<dyn ProviderAdapter> {
+        let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(chat_base).to_owned();
+        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(
+            GatewayHttp::new(self.env.http.clone())
+                .moving_path("/v1beta/models/", "/v1/models/")
+                .plain_system_instruction()
+                .with_headers(identifying)
+                // `originBoundFetch`: the Gemini engine never follows a redirect either.
+                .refusing_redirects_as("opencode-go"),
+        );
+        Arc::new(google::adapter::GoogleAdapter::new(
+            google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()).with_error_label("OpenCode Go Gemini streamGenerateContent"),
+            google::policy::gemini(),
+            http,
+            Arc::new(GoBearerAuth(key)),
+            String::new(),
+        ))
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1169,7 +1213,7 @@ impl DefaultProviderBuilder {
     async fn gcloud_config_project(&self) -> Option<String> {
         let dir = self.gcloud_dir();
         let named = self.env.env.var("CLOUDSDK_ACTIVE_CONFIG_NAME").map(|v| v.trim().to_owned()).unwrap_or_default();
-        self.env.io.read_job(move |_| Ok(read_gcloud_project(&dir, named))).await.ok().flatten().filter(|p| !p.is_empty())
+        self.env.io.read_required(move |_| Ok(read_gcloud_project(&dir, named))).await.ok().flatten().filter(|p| !p.is_empty())
     }
 
     /// `adcLocation` + `readAdcFile`: `GOOGLE_APPLICATION_CREDENTIALS`, when
@@ -1182,7 +1226,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = self.env.io.read_job(move |_| read_credential_text(&path)).await;
+        let read = self.env.io.read_required(move |_| read_credential_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
@@ -1396,25 +1440,8 @@ impl DefaultProviderBuilder {
         };
         let served = custom_wires(cfg, &protocol, protocol_wire)?;
         let model_wires = custom_model_wires(cfg, &protocol, &served)?;
-        let object = |key: &str| cfg.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
-        let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.into_message())?;
-        let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.into_message())?;
-        // `createCustomProvider` takes the model overrides from `normalizeCustomProviderConfig(config)`, which makes an
-        // unversioned entry's `models` manual overrides (`migrateLegacy`) and hides the ids discovered beside them.
         let entry = &normalized;
-        let mut model_body = Map::new();
-        let mut model_headers = Vec::new();
-        for (model, over) in entry.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default() {
-            if let Some(body) = over.get("requestBody").and_then(Value::as_object).filter(|b| !b.is_empty()) {
-                let label = format!("modelOverrides[{model}].requestBody");
-                model_body.insert(model.clone(), Value::Object(custom::normalize_request_body(body, &label).map_err(|e| e.into_message())?));
-            }
-            // `resolveCustomRequestExtras`: the override's `requestHeaders`.
-            if let Some(h) = over.get("requestHeaders").and_then(Value::as_object).filter(|h| !h.is_empty()) {
-                let label = format!("modelOverrides[{model}].requestHeaders");
-                model_headers.push((model.clone(), custom::normalize_model_headers(h, &label).map_err(|e| e.into_message())?));
-            }
-        }
+        let request = custom_request_config(cfg, entry, &base_url)?;
         // `auth: none` is authoritative: no key is read and no credential sent.
         // Otherwise the key is re-read per request (env mode: the named
         // variable alone), and a 401 reloads it.
@@ -1428,14 +1455,6 @@ impl DefaultProviderBuilder {
             Arc::new(CustomKey { source, env: text(cfg, "apiKeyEnv").map(str::to_owned), header, bearer, refreshable })
         };
         let retry = CompatProfile::plain("custom", "http://127.0.0.1/v1", crate::providers::compat::profile::CredentialKind::Keyless).retry_policy();
-        let request = CustomRequestConfig {
-            base_url: base_url.clone(),
-            headers,
-            request_body,
-            model_body,
-            model_headers,
-            responses_prompt_cache_key: flag(entry, "responsesPromptCacheKey"),
-        };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
         if !served.contains(&protocol_wire) {
             return Err("[custom-provider] the protocol wire is not served".into());
@@ -1519,11 +1538,7 @@ impl DefaultProviderBuilder {
         Ok(CustomParts { adapter: Arc::new(adapter), listing })
     }
 
-    /// The Messages engine of a custom provider (the `anthropic` protocol, or
-    /// an OpenAI-compatible endpoint that declares the `messages` wire): the
-    /// Anthropic codec under the custom id, with the provider's headers and
-    /// request fields layered on. The Anthropic SDK appends `/v1/messages`
-    /// itself, so an endpoint's `/v1` base maps to it.
+    /// The Anthropic SDK appends `/v1/messages` itself, so an endpoint's `/v1` base maps to it.
     fn custom_messages_engine(
         &self,
         name: &str,
@@ -1532,11 +1547,7 @@ impl DefaultProviderBuilder {
         reasoning: &custom::ReasoningSource,
     ) -> HttpAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
-        let base = request.base_url.as_str();
-        config.base_url = match base.len().checked_sub(3).filter(|at| base.is_char_boundary(*at)) {
-            Some(at) if base[at..].eq_ignore_ascii_case("/v1") => base[..at].to_owned(),
-            _ => base.to_owned(),
-        };
+        config.base_url = messages_base(&request.base_url);
         config.custom_endpoint = true;
         // The model row's thinking and effort, never the catalog's by-id capabilities (`applyRequestReasoning`).
         let resolver = reasoning.clone();
@@ -1632,18 +1643,12 @@ impl DefaultProviderBuilder {
     }
 }
 
-/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`). Every account, the provider's current
-/// one included, sends on an adapter built on first use over that account's own credential file, so its token, its
-/// refresh and its per-session state never meet another account's, and the roster's selection moving while a request
-/// is out cannot move its credential. Node binds each instance to its account through `withProviderAccount` and sends
-/// the current account's requests on that bound instance too (`active()`); here the binding is the file the engine is
-/// built on, and the state and replay a request carries are that row's (`boundAccountSend`'s
-/// `servedBy(...) === row.id`). The provider's own adapter, which follows the current account at each credential read,
-/// answers everything but the requests.
+/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`): each account sends on an adapter built
+/// on first use over its own credential file, where Node binds an instance through `withProviderAccount` (`active()`,
+/// `boundAccountSend`'s `servedBy(...) === row.id`).
 ///
-/// Divergence from Node: the provider-side session id is not rewritten per account (`accountScopedSessionId`). Node
-/// scopes it because one provider instance's connections are keyed by session; here each account has its own
-/// engine, and the visible session id keeps reaching every engine's `release_session`.
+/// Divergence from Node: the provider-side session id is not rewritten per account (`accountScopedSessionId`); each
+/// account has its own engine, and the visible session id keeps reaching every engine's `release_session`.
 struct OAuthEngines {
     provider: String,
     cfg: Value,

@@ -14,18 +14,9 @@ const PAST_END: usize = 0x7FFF_FFFF;
 /// One message to the control: message, wparam, lparam, and its reply.
 type Send<'a> = &'a dyn Fn(u32, usize, isize) -> Result<usize, String>;
 
-/// The control the messages go to (KeyboardTarget's checks for a named child).
-/// Without one there is no control to prove a selection in.
-/// The control a native selection works on: the one background keys reach
-/// (KeyboardTarget), with its class and Tk checks and the focused-descendant
-/// fallback when the ref names no exact child.
-fn target(top: Wid, preferred: Wid) -> Result<Wid, String> {
-    keyboard_target_of(top, preferred)
-}
-
 /// The selection EM_GETSEL reports; `None` when its packed reply cannot carry
 /// the positions: -1 (an end past 65,535) or anything wider than two 16-bit
-/// words (ReadSelection).
+/// words.
 fn read_selection(send: Send) -> Result<Option<(i32, i32)>, String> {
     let reply = send(EM_GETSEL, 0, 0)? as u64;
     let (start, end) = ((reply & 0xFFFF) as i32, ((reply >> 16) & 0xFFFF) as i32);
@@ -34,7 +25,7 @@ fn read_selection(send: Send) -> Result<Option<(i32, i32)>, String> {
 
 /// Puts the caret past the end, which the control clamps to its last
 /// insertion position, and returns that position; -1 when the reply is not
-/// one collapsed position (CaretAtEnd).
+/// one collapsed position.
 fn caret_at_end(send: Send) -> Result<i32, String> {
     send(EM_SETSEL, PAST_END, PAST_END as isize)?;
     Ok(match read_selection(send)? {
@@ -77,7 +68,7 @@ fn live<'a>(background: &'a WinBackground, top: Wid, control: Wid) -> impl Fn(u3
 /// selection cannot be proved (BackgroundSelectAll).
 pub fn select_all(background: &WinBackground, top: Wid, preferred: Wid, has_text: bool) -> Result<i32, String> {
     background.while_inactive(top, || {
-        let control = target(top, preferred)?;
+        let control = keyboard_target_of(top, preferred)?;
         select_all_proof(&live(background, top, control), has_text)
     })
 }
@@ -85,7 +76,7 @@ pub fn select_all(background: &WinBackground, top: Wid, preferred: Wid, has_text
 /// The control's last insertion position, 0 when it is empty (BackgroundTextEnd).
 pub fn text_end(background: &WinBackground, top: Wid, preferred: Wid) -> Result<i32, String> {
     background.while_inactive(top, || {
-        let control = target(top, preferred)?;
+        let control = keyboard_target_of(top, preferred)?;
         caret_at_end(&live(background, top, control))
     })
 }

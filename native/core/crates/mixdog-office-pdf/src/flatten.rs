@@ -1,10 +1,6 @@
 //! `form.flatten()` of pdf-lib: every widget's appearance is painted into its page as a form XObject at the widget's
 //! rectangle, and the field is removed from the form and from the document; the widgets' pages lose the field's own
 //! reference from their `Annots` (a separate widget kid stays listed, pointing at nothing, as pdf-lib leaves it).
-//!
-//! The appearances are brought up to date first (with the default font), so a field that was never drawn is flattened
-//! as it would be shown. A page's own content is wrapped in `q` ... `Q` the first time it is drawn on, as for every
-//! other mark of the batch ([`PageInk`]).
 
 use std::sync::Arc;
 

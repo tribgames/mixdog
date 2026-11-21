@@ -1,14 +1,6 @@
 //! Microsoft Excel through COM: the workbook reader (`Snapshot-Excel`, `Snapshot-Selection`,
 //! `Issues-Excel`) of `office-com-host.ps1`, registered as the `xlsx` [`FormatReader`].
 //!
-//! * [`cells`]: a COM value as the PowerShell value the host wrote, matrices, column letters, where a drawing sits on the grid.
-//! * [`numfmt`]: number formats in the words of the file (the colour names of the UI language).
-//! * [`styles`]: a cell's style, a block's shared style, the workbook's default style.
-//! * [`validation`]: validation blocks and formula lineage.
-//! * [`snapshot`]: the workbook read, whole or one page of one sheet by populated cell.
-//! * [`selection`] and [`issues`]: the user's selection, and the review's issues and the financial-model audit.
-//! * [`edit`]: the editor.
-//!
 //! Every COM call is made in the order the script makes it, so a replay of a recorded call log matches.
 
 pub(crate) mod cells;

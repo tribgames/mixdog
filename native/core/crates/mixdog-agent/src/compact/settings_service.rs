@@ -1,7 +1,6 @@
 //! `config/getCompactionSettings`, `config/setCompactionSettings`, `config/getAutoClear` and
-//! `config/setAutoClear` (Node `settings-compaction-api.mjs`) as a domain service. The agent
-//! config lives behind `AgentConfigStore` (`Config::agent`, and `saveConfigAndAdopt`'s write of
-//! the section); the live route and the session adoption behind `CompactionHost`.
+//! `config/setAutoClear` as a domain service. The agent config lives behind `AgentConfigStore`; the live
+//! route and the session adoption behind `CompactionHost`.
 
 use std::sync::Arc;
 
@@ -31,32 +30,23 @@ pub type AgentChange = Box<dyn FnOnce(&mut Doc) -> Result<(), CoreError> + Send>
 pub trait AgentConfigStore: Send + Sync {
     /// `Config::agent()`.
     fn agent(&self) -> Doc;
-    /// `saveConfigAndAdopt`'s write of the section, in one transaction of the store (`Config`'s
-    /// runs inside `Config::update_agent` and stores only what differs from the section's
-    /// defaults, Node's `createConfigPatch`): runs `change` on the section as that transaction
-    /// starts, so no other writer's edit can fall between its read and its write. An `Err` from
-    /// `change` writes nothing and comes back unchanged; a failure of the store itself comes back
-    /// as the store's own `CoreError`.
+    /// Runs `change` on the section inside one transaction of the store (it stores only what differs
+    /// from the section's defaults), so no other writer's edit can fall between its read and its write.
+    /// An `Err` from `change` writes nothing and comes back unchanged; a failure of the store itself
+    /// comes back as the store's own `CoreError`.
     async fn update(&self, change: AgentChange) -> Result<(), CoreError>;
 }
 
 /// What the settings change reaches outside the config.
 pub trait CompactionHost: Send + Sync {
-    /// `getRoute()?.provider`. With a thread, that thread's live route; without one, the route
-    /// Node boots with before any session exists: `resolveRoute(config, {…})`
-    /// (`session-runtime/boot/config.mjs:23-27` via `resolveInitialConfigState`,
-    /// `config-lifecycle.mjs`), i.e. the configured default route.
+    /// With a thread, that thread's live route; without one, the configured default route.
     fn route_provider(&self, thread: Option<&ThreadId>) -> Option<String>;
-    /// `adoptSessionCompaction(getSession(), saved)`; use `settings::adopt_session_compaction`
-    /// on the thread's session `compaction` record. Without a thread there is no session and
-    /// Node's call returns at once (`session-compaction-sync.mjs:16`).
+    /// Use `settings::adopt_session_compaction` on the thread's session `compaction` record. Without a
+    /// thread there is no session and it returns at once.
     fn adopt_session_compaction(&self, thread: Option<&ThreadId>, saved: &Doc);
-    /// `invalidateContextStatusCache()` (`settings-compaction-api.mjs:119`).
     fn invalidate_context_status(&self, thread: Option<&ThreadId>);
-    /// `refreshLeadCacheOpts()` (`settings-compaction-api.mjs:72-76`): the thread's session
-    /// (`refreshSessionProviderCacheOpts`, a no-op without one) and then every live Lead
-    /// session (`refreshLiveSessionsProviderCacheOpts`, `session-lifecycle.mjs`), which Node
-    /// does whatever the caller's thread.
+    /// Refreshes the thread's session provider cache options (a no-op without one) and then every live
+    /// Lead session, whatever the caller's thread.
     fn refresh_lead_cache_opts(&self, thread: Option<&ThreadId>, agent: &Doc);
 }
 

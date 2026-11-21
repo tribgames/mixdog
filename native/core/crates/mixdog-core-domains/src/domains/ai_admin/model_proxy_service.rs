@@ -1,12 +1,12 @@
-//! The model proxy as the core serves it (DS §12.4).
+//! The model proxy as the core serves it.
 //!
 //! * `modelProxy/run` (this core is the PC): [`ProxyRunner`] runs the call on this machine's own
 //!   providers; its events go to the asking connection as `modelProxy/run/event`, and a failed call is
-//!   the result `Failed` (the error vocabulary has no place for a `ProxyFailure`).
+//!   the result `Failed`.
 //! * `model/proxy/event` (this core is the server): one event of a `model/proxy/execute` request,
 //!   handed to the host channel, which matches it to the pending request.
 //! * `model/proxy/heartbeat` (this core is the server): the PC vouches for the requests it runs; the
-//!   first claims a request, each renews its lease (Node's claim and heartbeat operations).
+//!   first claims a request, each renews its lease.
 //! * [`HostProxyTransport`]: `model/proxy/execute` to the connection that declared
 //!   `capabilities.modelProxy`, as the broker's [`ModelProxyTransport`].
 
@@ -154,9 +154,7 @@ struct Bounds {
 const MIB: usize = 1024 * 1024;
 
 /// `JSON.stringify(value).length`: the UTF-16 length of the value's compact JSON text as JavaScript writes it, counted without
-/// building the text. It is what Node's host measures of the string a server claimed (`payload.length`, `admitPayload`): the
-/// text of a call the server's JavaScript wrote is exactly this, and a Rust sender's differs from it in no way that matters
-/// (the whitespace it leaves out, and its number forms, which JavaScript spells its own way: `1e+21`, a whole 1e20 in full).
+/// building the text; what the host's payload admission measures.
 pub fn claimed_chars(value: &Value) -> usize {
     match value {
         Value::Null => 4,

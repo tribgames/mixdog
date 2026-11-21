@@ -84,6 +84,40 @@ fn strings(value: Option<&Value>, keep: impl Fn(&Value) -> Option<String>) -> Ve
     value.and_then(Value::as_array).map(|rows| rows.iter().filter_map(keep).collect()).unwrap_or_default()
 }
 
+fn parse_pending(raw: Option<&Value>) -> Vec<Suggestion> {
+    raw.and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|entry| {
+                    let key = entry.get("key")?.as_str()?.to_owned();
+                    Some(Suggestion { key, text: entry.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(), at: millis(entry.get("at")) })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_reviews(raw: Option<&Value>) -> Vec<(String, Review)> {
+    raw.and_then(Value::as_object)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|(id, row)| {
+                    let head = row.get("head")?.as_str().filter(|h| !h.is_empty())?;
+                    let note = row.get("note")?.as_str()?;
+                    Some((id.clone(), Review { at: millis(row.get("at")), head: head.to_owned(), note: note.to_owned() }))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_report(raw: Option<&Value>) -> Option<Report> {
+    raw.and_then(|report| {
+        let text = report.get("text")?.as_str().filter(|t| !t.is_empty())?;
+        Some(Report { at: millis(report.get("at")), text: text.to_owned() })
+    })
+}
+
 impl HeartbeatState {
     /// `normalizeState`: whatever the file held, as a state.
     pub fn from_value(raw: &Value) -> Self {
@@ -92,35 +126,9 @@ impl HeartbeatState {
             Some(n) if n.fract() == 0.0 && n > 0.0 => n as u64,
             _ => 0,
         };
-        let pending = value
-            .get("pending")
-            .and_then(Value::as_array)
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|entry| {
-                        let key = entry.get("key")?.as_str()?.to_owned();
-                        Some(Suggestion { key, text: entry.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(), at: millis(entry.get("at")) })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let reviews = value
-            .get("reviews")
-            .and_then(Value::as_object)
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|(id, row)| {
-                        let head = row.get("head")?.as_str().filter(|h| !h.is_empty())?;
-                        let note = row.get("note")?.as_str()?;
-                        Some((id.clone(), Review { at: millis(row.get("at")), head: head.to_owned(), note: note.to_owned() }))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let last_report = value.get("lastReport").and_then(|report| {
-            let text = report.get("text")?.as_str().filter(|t| !t.is_empty())?;
-            Some(Report { at: millis(report.get("at")), text: text.to_owned() })
-        });
+        let pending = parse_pending(value.get("pending"));
+        let reviews = parse_reviews(value.get("reviews"));
+        let last_report = parse_report(value.get("lastReport"));
         Self {
             last_beat_at: millis(value.get("lastBeatAt")),
             last_attempt_at: millis(value.get("lastAttemptAt")),
@@ -403,10 +411,6 @@ impl HeartbeatStore {
         async move { landed.await.map_err(|_| "the heartbeat state writer stopped".to_owned())? }
     }
 
-    /// The file's single writer. A round applies every change queued so far and publishes the
-    /// state; changes queued meanwhile make the next round, so the last state wins and none is
-    /// lost. A failed round does not end the drain while changes wait. The first round also
-    /// retries a dirty state an earlier failure left.
     async fn drain(self: Arc<Self>) {
         let mut retry = true;
         loop {

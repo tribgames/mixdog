@@ -143,10 +143,6 @@ pub fn handle_add_chart(zip: &mut Package, slides: &[SlideRef], op: &Value) -> H
     Ok(answer(op, vec![("changed", json!(true)), ("shapeId", json_number(id)), ("chart", json!(chart_part))]))
 }
 
-// A data refresh changes the numbers, not the chart: the deck's label face and size, the number format on the labels, the gap
-// between the bars, the accent point, and the axis the author hid all stay as authored. When the new data has the chart's own
-// series and every series one value per category, the caches and ranges are rewritten in place; anything else (another series
-// count or a type change) takes the rebuild. A new title is words, set in the chart's own title block either way.
 const REBUILD_FIELDS: [&str; 7] = ["chartType", "showValues", "showLegend", "zeroBaseline", "valueNumberFormat", "dataLabelPosition", "dataLabelColor"];
 
 /// An accent on the last point marks the latest period; when the refresh changes the number of points it moves to the new
@@ -412,6 +408,33 @@ fn kept_strings(kept: &Value, key: &str) -> Vec<String> {
     kept[key].as_array().map(|list| list.iter().map(|item| item.as_str().unwrap_or("").to_owned()).collect()).unwrap_or_default()
 }
 
+fn chart_embedding_part(zip: &Package, chart_part: &str) -> String {
+    let relationships_path = part_relationship_path(chart_part);
+    let embedded = relationship_target_by_type(&zip.text(&relationships_path), "package");
+    if embedded.is_empty() {
+        let number = group(r"chart(\d+)\.xml$", chart_part).map_or(f64::NAN, |text| string_to_number(&text));
+        format!("ppt/embeddings/chartData{}.xlsx", if number.is_nan() || number == 0.0 { "1".to_owned() } else { number_to_string(number) })
+    } else {
+        relationship_target(&relationships_path, &embedded)
+    }
+}
+
+fn preserved_treatments(kept: &Value, kept_colors: &KeptColors, coloured: &[Value], axis_kept: bool) -> Vec<&'static str> {
+    let accented = |entry: &Value| entry.get("pointColors").and_then(Value::as_array).is_some_and(|points| points.iter().any(truthy));
+    [
+        (kept["showValues"].as_bool() == Some(true), "dataLabels"),
+        (truthy(&kept["valueNumberFormat"]), "numberFormat"),
+        (kept["showLegend"].as_bool() == Some(true), "legend"),
+        (kept["zeroBaseline"].as_bool() == Some(true), "zeroBaseline"),
+        (kept_colors.series.iter().any(|color| !color.is_empty()), "seriesColors"),
+        (coloured.iter().any(accented), "pointColors"),
+        (axis_kept, "axis"),
+    ]
+    .into_iter()
+    .filter_map(|(present, name)| present.then_some(name))
+    .collect()
+}
+
 /// `handleSetChartData`: new categories and series for a chart, keeping the chart's own presentation.
 pub fn handle_set_chart_data(zip: &mut Package, slides: &[SlideRef], op: &Value) -> Handled {
     let chart = resolve_slide_chart(zip, slides, op)?;
@@ -425,14 +448,7 @@ pub fn handle_set_chart_data(zip: &mut Package, slides: &[SlideRef], op: &Value)
         Some(given) => given.clone(),
         None => chart_categories(&existing).into_iter().map(Value::from).collect(),
     };
-    let chart_relationships = zip.text(&part_relationship_path(&chart_part));
-    let embedded = relationship_target_by_type(&chart_relationships, "package");
-    let embedding_part = if embedded.is_empty() {
-        let number = group(r"chart(\d+)\.xml$", &chart_part).map_or(f64::NAN, |text| string_to_number(&text));
-        format!("ppt/embeddings/chartData{}.xlsx", if number.is_nan() || number == 0.0 { "1".to_owned() } else { number_to_string(number) })
-    } else {
-        relationship_target(&part_relationship_path(&chart_part), &embedded)
-    };
+    let embedding_part = chart_embedding_part(zip, &chart_part);
     // The chart is rewritten around the new numbers, so its own presentation is read back first: a monthly refresh keeps the
     // labels, number format, legend, base line, and series colours the deck was approved with.
     let kept = read_chart_presentation(&existing);
@@ -527,29 +543,7 @@ pub fn handle_set_chart_data(zip: &mut Package, slides: &[SlideRef], op: &Value)
         || !kept_axis["max"].is_null()
         || (!minimum.is_null() && to_number(minimum) != 0.0)
         || !flag("gridlines");
-    let mut preserved: Vec<&str> = Vec::new();
-    if kept["showValues"].as_bool() == Some(true) {
-        preserved.push("dataLabels");
-    }
-    if truthy(&kept["valueNumberFormat"]) {
-        preserved.push("numberFormat");
-    }
-    if kept["showLegend"].as_bool() == Some(true) {
-        preserved.push("legend");
-    }
-    if kept["zeroBaseline"].as_bool() == Some(true) {
-        preserved.push("zeroBaseline");
-    }
-    if kept_colors.series.iter().any(|color| !color.is_empty()) {
-        preserved.push("seriesColors");
-    }
-    let accented = |entry: &Value| entry.get("pointColors").and_then(Value::as_array).is_some_and(|points| points.iter().any(truthy));
-    if coloured.iter().any(accented) {
-        preserved.push("pointColors");
-    }
-    if axis_kept {
-        preserved.push("axis");
-    }
+    let preserved = preserved_treatments(&kept, &kept_colors, &coloured, axis_kept);
     let mut entries = vec![("changed", json!(true)), ("slide", slide_number(op)), ("chart", json!(chart_part))];
     if !preserved.is_empty() {
         entries.push(("preserved", json!(preserved)));

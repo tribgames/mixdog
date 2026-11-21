@@ -128,6 +128,18 @@ pub async fn run_attempt(
     run_fitted_attempt(codec, http, credential, request, resend, None).await
 }
 
+async fn encode_fitted(
+    codec: &dyn WireCodec,
+    request: &ModelRequest,
+    images: Option<&crate::providers::anthropic::images::ImageFitter>,
+) -> Result<WireRequest, ProviderError> {
+    let wire = codec.encode(request)?;
+    match images {
+        Some(fitter) => fitter.fit_wire(request, wire).await,
+        None => Ok(wire),
+    }
+}
+
 /// [`run_attempt`] for a Messages engine: each encoding of the request has its images fitted
 /// ([`crate::providers::anthropic::images::ImageFitter::fit_wire`]) before it is sent.
 pub async fn run_fitted_attempt(
@@ -140,10 +152,7 @@ pub async fn run_fitted_attempt(
 ) -> Result<Box<dyn ModelStream>, ProviderError> {
     // The credential first: a rewriter may read identity it loads.
     let mut header = credential.header(false).await?;
-    let mut wire = codec.encode(request)?;
-    if let Some(fitter) = images {
-        wire = fitter.fit_wire(request, wire).await?;
-    }
+    let mut wire = encode_fitted(codec, request, images).await?;
     let mut again = false;
     let mut refreshed = false;
     // `requesting`: Chat Completions raises it for every attempt of its ladder (openai-compat-chat-send.mjs:276), the
@@ -187,10 +196,7 @@ pub async fn run_fitted_attempt(
             again = true;
             // Node's gate calls `send` again: the resend is a request with an id of its own.
             request.options.send_identity.remint();
-            wire = codec.encode(request)?;
-            if let Some(fitter) = images {
-                wire = fitter.fit_wire(request, wire).await?;
-            }
+            wire = encode_fitted(codec, request, images).await?;
             continue;
         }
         return Err(error);

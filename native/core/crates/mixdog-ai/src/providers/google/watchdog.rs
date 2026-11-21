@@ -1,16 +1,3 @@
-//! How an expired phase of a Gemini-wire attempt reads. The deadlines themselves are the model-exchange driver's
-//! ([`crate::transport::model_driver`]); this classifies what it reports (`createRestStreamWatchdogs`,
-//! `gemini-rest-stream/watchdogs.mjs`, `gemini.mjs:795-807`, `antigravity-transport.mjs:220-253`) and does the retry bookkeeping:
-//! - head and first payload: the first-byte window, `${label} first byte timed out after <ms>ms`, phases `headers` and
-//!   `first-chunk`, counted against the send by the attempt's gate when the route has one.
-//! - first output: a payload came and no output followed; the stream's silence is bounded by the first-output window and reads
-//!   as the idle stall of a stream that never produced.
-//! - idle: output began and the next did not come, `${label} SSE idle timed out after <ms>ms`, phase `idle`.
-//! - recovery: the non-streaming fallback outlived its generation total.
-//!
-//! The streams are `GeminiTimeoutError` `EGEMINITIMEOUT` (gemini-stream.mjs:30-35): transient; the retry stage names the first
-//! chunk's `first_response_timeout` and the idle's `stalled` (provider-error-kind.mjs:769-781).
-
 use mixdog_core_api::domain::provider::AttemptPhase;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;

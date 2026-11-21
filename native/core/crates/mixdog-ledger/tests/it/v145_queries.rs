@@ -33,6 +33,12 @@ async fn upgraded() -> (tempfile::TempDir, Arc<UsageWriter>, Arc<UsageReader>) {
 
 const NOW: i64 = 1_793_900_000_000;
 
+/// The calendar day, in the zone the ledger reads days in, of a time.
+fn local_day(ts_ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_millis_opt(ts_ms).unwrap().format("%Y-%m-%d").to_string()
+}
+
 #[tokio::test]
 async fn the_rollup_of_a_145_ledger_totals_each_day() {
     let (_dir, _writer, reader) = upgraded().await;
@@ -149,7 +155,8 @@ async fn the_statistics_of_a_145_ledger_total_its_period() {
     assert_eq!(stats["range"]["activeDays"], json!(2));
     assert_eq!(stats["generatedAt"], json!(NOW));
 
-    let options: UsageRequestsOptions = serde_json::from_value(json!({"view": "custom", "startDay": "2026-11-04", "endDay": "2026-11-05"})).unwrap();
+    let options: UsageRequestsOptions =
+        serde_json::from_value(json!({"view": "custom", "startDay": local_day(1_793_750_000_000), "endDay": local_day(1_793_880_000_000)})).unwrap();
     let page = reader.usage_requests(options, NOW).await.unwrap();
     assert_eq!(page["requests"].as_array().unwrap().len(), 3);
 }

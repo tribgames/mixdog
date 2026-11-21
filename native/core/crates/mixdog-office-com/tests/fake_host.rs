@@ -1,8 +1,4 @@
-//! A stand-in for the Rust host program, started by the transport tests where `<program> office-com-host` would be. It speaks
-//! the line protocol of the host: the one-shot host reads one JSON payload to EOF and answers on its last stdout line; the
-//! session host (`--session`) answers one JSON line per request line, with the request's `requestId`, until EOF.
-//!
-//! What it does besides answering is asked for by the `fake` object of a payload:
+//! The `fake` object of a payload asks for what the host does besides answering:
 //!
 //! - `busy_ms`: works that long before answering, without reading further input (a COM call in flight);
 //! - `hang`: never answers this request;

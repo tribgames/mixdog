@@ -349,32 +349,14 @@ pub(super) fn render_tool_search(
             out.insert("failedMcpServers".to_owned(), names_value(&failed));
         }
     };
-    let header = session.as_object().cloned().unwrap_or_default();
     if requested.is_empty() {
-        // `clean(args.query || args.q || args.text)`.
-        let stray = ["query", "q", "text"]
-            .iter()
-            .find_map(|key| args.get(*key).filter(|value| truthy(Some(*value))))
-            .map(|value| clean(Some(value)))
-            .unwrap_or_default();
-        let error = if stray.is_empty() {
-            "load_tool requires names:[\"exact_tool_name\", ...] (deferred tool names/aliases).".to_owned()
-        } else {
-            format!(
-                "load_tool is a loader, not a search: \"{stray}\" is not an exact tool name. Pass names:[\"exact_tool_name\", ...] (deferred tool names/aliases). No keyword search."
-            )
-        };
         let mut out = Map::new();
-        out.insert("error".to_owned(), json!(error));
+        out.insert("error".to_owned(), json!(names_required_error(args)));
         out.insert("loaded".to_owned(), json!([]));
         out.insert("alreadyActive".to_owned(), json!([]));
         out.insert("missing".to_owned(), json!([]));
         mcp_fields(&mut out);
-        // Node lists the eager names alone (`renderToolSearch`, recorded in `native_request_bytes`): a tool loaded earlier is in
-        // `discoveredTools`, not here.
-        let active = sent_on_route(&header, excluded, session, &catalog, permitted(surface, session, eager_names(session)));
-        out.insert("activeTools".to_owned(), names_value(&sorted_names_by_measured_usage(active)));
-        out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(surface, session, discovered_names(session)))));
+        insert_tool_lists(&mut out, surface, session, excluded, &catalog, permitted(surface, session, eager_names(session)));
         return pretty(&Value::Object(out));
     }
     let selection = select(surface, session, excluded, &requested, mode == "readonly", false);
@@ -448,14 +430,38 @@ pub(super) fn render_tool_search(
     }
     mcp_fields(&mut out);
     let available: Vec<String> = permitted(surface, session, next_active).into_iter().filter(|name| deferred_available(session, name)).collect();
-    let header = session.as_object().cloned().unwrap_or_default();
-    let active = sent_on_route(&header, excluded, session, &catalog, available);
-    out.insert("activeTools".to_owned(), names_value(&sorted_names_by_measured_usage(active)));
-    out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(surface, session, discovered_names(session)))));
+    insert_tool_lists(&mut out, surface, session, excluded, &catalog, available);
     if !notes.is_empty() {
         out.insert("note".to_owned(), json!(notes.join(" ")));
     }
     pretty(&Value::Object(out))
+}
+
+fn names_required_error(args: &Value) -> String {
+    let stray =
+        ["query", "q", "text"].iter().find_map(|key| args.get(*key).filter(|value| truthy(Some(*value)))).map(|value| clean(Some(value))).unwrap_or_default();
+    if stray.is_empty() {
+        "load_tool requires names:[\"exact_tool_name\", ...] (deferred tool names/aliases).".to_owned()
+    } else {
+        format!(
+            "load_tool is a loader, not a search: \"{stray}\" is not an exact tool name. Pass names:[\"exact_tool_name\", ...] (deferred tool names/aliases). No keyword search."
+        )
+    }
+}
+
+/// `activeTools` (the `permitted` names the route sends) and `discoveredTools` of a `load_tool` reply.
+fn insert_tool_lists(
+    out: &mut Map<String, Value>,
+    surface: &ToolSurface<'_>,
+    session: &Value,
+    excluded: &[(String, String)],
+    catalog: &[Value],
+    permitted_active: Vec<String>,
+) {
+    let header = session.as_object().cloned().unwrap_or_default();
+    let active = sent_on_route(&header, excluded, session, catalog, permitted_active);
+    out.insert("activeTools".to_owned(), names_value(&sorted_names_by_measured_usage(active)));
+    out.insert("discoveredTools".to_owned(), names_value(&sorted_names_by_measured_usage(permitted(surface, session, discovered_names(session)))));
 }
 
 /// `session.deferredDiscoveredTools` as `permittedNames` reads it (`names || []`).

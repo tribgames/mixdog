@@ -1,5 +1,3 @@
-//! Owner: s4-engine-actions-pointer
-//! A deterministic same-page batch (`actions/sequence.ts`): two to six chainable gestures run one after the other on one page.
 //! Dispatch is never replayed, and a partial result always hands the caller a fresh observation for recovery.
 //!
 //! Each step is an ordinary command the runner runs ([`StepRunner::run_step`]) with the settle of a step between gestures; the one

@@ -1,9 +1,3 @@
-//! What the command does with a classified line (`src/cli.mjs` `main`, `src/app.mjs` `run`). An exec and a refusal made before the
-//! host matters never touch the data folder: no lifecycle ledger, no live-session mark (`skipHostPrelude`). The staged-update swap is
-//! not this program's: the npm launcher (`bin/mixdog.mjs`) does it before this program starts.
-//! Dev-only Node items (the V8 compile cache, `NODE_ENV`, the uv thread pool, `MIXDOG_TUI_DEV`'s rebuild, the stale-bundle
-//! warning) have no counterpart here. An inherited `MIXDOG_BOOT_PROFILE` stays away from the exec path as it did in Node: the
-//! exec's boundary removes every `MIXDOG_*` variable from the process before its core starts.
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;

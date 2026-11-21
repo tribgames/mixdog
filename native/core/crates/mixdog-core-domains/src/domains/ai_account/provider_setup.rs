@@ -1,13 +1,3 @@
-//! The provider setup snapshot: `providerSetup(config, options)` of
-//! `session-runtime/services/provider-admin.mjs`, the API, OAuth and local rows. The rows are
-//! built here; everything they read of the machine (environment, stored secrets, OAuth
-//! credential files, the keychain, the gcloud login, the local runtime) comes through
-//! [`SetupWorld`], so each reader can be ported and tested on its own.
-//!
-//! The custom-provider rows are [`custom_provider_rows`] (the same builder the custom-provider
-//! admin answers with). Not here: the `catalogError` overlay, the model-proxy client projection
-//! (`modelProxyProviderSetup`) and the caches and keychain overlay of `getProviderSetup`.
-
 use super::custom_admin::{CustomFacts, custom_provider_rows, is_custom_id};
 use serde_json::Map;
 use serde_json::Value;
@@ -80,11 +70,7 @@ pub struct UnsafeStore {
     pub path: String,
 }
 
-/// What the rows read of the machine.
-///
-/// The environment (`process.env[name]`; empty counts as unset where Node tests truthiness), the
-/// keychain (`hasStoredSecret`, `isFallbackSecret`) and the custom providers' key roster are
-/// [`CustomFacts`], which the custom-provider rows read too.
+/// An empty environment variable counts as unset where Node tests truthiness.
 pub trait SetupWorld: CustomFacts + Send + Sync {
     /// `agentApiKeyEnvName(id)`: the variable that supplies the provider's key, in the
     /// resolver's precedence; `None` when none is set.
@@ -269,14 +255,23 @@ fn vertex_adc_setup(world: &dyn SetupWorld, p: &ApiProvider, configured: &Value,
     api_row(p, fields)
 }
 
-fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value, check_secrets: bool, keychain: Option<&Value>) -> Value {
-    let null = Value::Null;
-    let configured = providers.get(p.id).filter(|value| truthy(Some(value))).unwrap_or(&null);
+struct ApiCredential {
+    env: bool,
+    env_name: Option<String>,
+    stored: bool,
+    authenticated: bool,
+    status: &'static str,
+    source: Option<&'static str>,
+    detail: Value,
+}
+
+/// Where a key-based provider's credential comes from (the environment, the stored key, a runtime credential) and what
+/// its row says of it.
+fn api_credential(world: &dyn SetupWorld, p: &ApiProvider, configured_enabled: bool, check_secrets: bool) -> ApiCredential {
     let resolved_env = world.resolved_env_name(p.id);
     let declared = declared_env(p.id).or(p.env);
     let env_name = resolved_env.clone().or_else(|| declared.map(str::to_owned));
     let env = resolved_env.is_some() || declared.is_some_and(|name| world.env(name).is_some_and(|value| !value.is_empty()));
-    let configured_enabled = enabled(configured);
     let account = format!("agent.{}.apiKey", p.id);
     let stored = check_secrets && world.has_stored_secret(&account);
     let authenticated = env || stored || if check_secrets { world.has_agent_api_key(p.id) } else { configured_enabled };
@@ -289,71 +284,32 @@ fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value
     } else {
         "Off"
     };
-    let mut credential_source = None;
+    let mut source = None;
     let mut detail = env_name.clone().map_or(Value::Null, Value::String);
     if env {
-        credential_source = Some("environment");
+        source = Some("environment");
     } else if stored {
         let kept = stored_secret_detail(world, &account);
-        credential_source = Some(if kept == "stored in private file" { "private-file" } else { "keychain" });
+        source = Some(if kept == "stored in private file" { "private-file" } else { "keychain" });
         detail = json!(kept);
     } else if authenticated {
         detail = json!("runtime credential");
     }
-    let row_issue = if authenticated { None } else { keychain };
-    if let Some(issue) = row_issue {
-        detail = issue["message"].clone();
-    }
+    ApiCredential { env, env_name, stored, authenticated, status, source, detail }
+}
 
-    if p.id == "vertex-ai" && configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_ADC_MODE) {
-        return vertex_adc_setup(world, p, configured, configured_enabled, check_secrets);
-    }
-
+fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value, check_secrets: bool, keychain: Option<&Value>) -> Value {
+    let null = Value::Null;
+    let configured = providers.get(p.id).filter(|value| truthy(Some(value))).unwrap_or(&null);
+    let configured_enabled = enabled(configured);
+    let credential = api_credential(world, p, configured_enabled, check_secrets);
+    let row_issue = if credential.authenticated { None } else { keychain };
     if p.id == "vertex-ai" {
-        let (location, location_source) = vertex_row_location(world, configured);
-        // An express-mode API key, or the service-account key.
-        let express = configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_API_KEY_MODE);
-        let project = text(configured.get("projectId"));
-        // The connect form offers the gcloud login too; its status line reads this.
-        let adc = if check_secrets && !authenticated { world.vertex_adc(project.as_deref()) } else { None };
-        let mut project_id = project.unwrap_or_default();
-        if project_id.is_empty() && authenticated && check_secrets && !express {
-            project_id = world.vertex_key_project().unwrap_or_default();
+        if configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_ADC_MODE) {
+            return vertex_adc_setup(world, p, configured, configured_enabled, check_secrets);
         }
-        if row_issue.is_none() {
-            detail = json!(if express {
-                format!("API key (express mode) · {location}")
-            } else if !project_id.is_empty() {
-                format!("{project_id} · {location}")
-            } else {
-                format!("Location: {location}")
-            });
-        }
-        let kind = if express { "api-key" } else { "service-account" };
-        let mut fields = Vec::new();
-        if let Some(issue) = row_issue {
-            fields.push(("keychainIssue", issue.clone()));
-        }
-        fields.extend([("group", json!("api")), ("type", json!("api-key")), ("authKind", json!(kind)), ("authMode", json!(kind))]);
-        if let Some(adc) = adc {
-            fields.push(("adc", adc));
-        }
-        fields.extend([
-            ("enabled", json!(configured_enabled || authenticated)),
-            ("authenticated", json!(authenticated)),
-            ("stored", json!(stored)),
-            ("env", json!(false)),
-            ("envName", Value::Null),
-            ("status", json!(status)),
-            ("detail", detail),
-            ("location", json!(location)),
-            ("locationSource", json!(location_source)),
-            ("projectId", if project_id.is_empty() { Value::Null } else { json!(project_id) }),
-        ]);
-        push_source(&mut fields, credential_source);
-        return api_row(p, fields);
+        return vertex_key_setup(world, p, configured, &credential, row_issue, configured_enabled, check_secrets);
     }
-
     let mut fields = Vec::new();
     if let Some(issue) = row_issue {
         fields.push(("keychainIssue", issue.clone()));
@@ -361,15 +317,65 @@ fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value
     fields.extend([
         ("group", json!("api")),
         ("type", json!("api-key")),
+        ("enabled", json!(configured_enabled || credential.authenticated)),
+        ("authenticated", json!(credential.authenticated)),
+        ("stored", json!(credential.stored)),
+        ("env", json!(credential.env)),
+        ("envName", credential.env_name.map_or(Value::Null, Value::String)),
+        ("status", json!(credential.status)),
+        ("detail", row_issue.map_or(credential.detail, |issue| issue["message"].clone())),
+    ]);
+    push_source(&mut fields, credential.source);
+    api_row(p, fields)
+}
+
+/// Vertex AI with an express-mode API key or a service-account key.
+fn vertex_key_setup(
+    world: &dyn SetupWorld,
+    p: &ApiProvider,
+    configured: &Value,
+    credential: &ApiCredential,
+    row_issue: Option<&Value>,
+    configured_enabled: bool,
+    check_secrets: bool,
+) -> Value {
+    let authenticated = credential.authenticated;
+    let (location, location_source) = vertex_row_location(world, configured);
+    let express = configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_API_KEY_MODE);
+    let project = text(configured.get("projectId"));
+    let adc = if check_secrets && !authenticated { world.vertex_adc(project.as_deref()) } else { None };
+    let mut project_id = project.unwrap_or_default();
+    if project_id.is_empty() && authenticated && check_secrets && !express {
+        project_id = world.vertex_key_project().unwrap_or_default();
+    }
+    let detail = match row_issue {
+        Some(issue) => issue["message"].clone(),
+        None if express => json!(format!("API key (express mode) · {location}")),
+        None if !project_id.is_empty() => json!(format!("{project_id} · {location}")),
+        None => json!(format!("Location: {location}")),
+    };
+    let kind = if express { "api-key" } else { "service-account" };
+    let mut fields = Vec::new();
+    if let Some(issue) = row_issue {
+        fields.push(("keychainIssue", issue.clone()));
+    }
+    fields.extend([("group", json!("api")), ("type", json!("api-key")), ("authKind", json!(kind)), ("authMode", json!(kind))]);
+    if let Some(adc) = adc {
+        fields.push(("adc", adc));
+    }
+    fields.extend([
         ("enabled", json!(configured_enabled || authenticated)),
         ("authenticated", json!(authenticated)),
-        ("stored", json!(stored)),
-        ("env", json!(env)),
-        ("envName", env_name.map_or(Value::Null, Value::String)),
-        ("status", json!(status)),
+        ("stored", json!(credential.stored)),
+        ("env", json!(false)),
+        ("envName", Value::Null),
+        ("status", json!(credential.status)),
         ("detail", detail),
+        ("location", json!(location)),
+        ("locationSource", json!(location_source)),
+        ("projectId", if project_id.is_empty() { Value::Null } else { json!(project_id) }),
     ]);
-    push_source(&mut fields, credential_source);
+    push_source(&mut fields, credential.source);
     api_row(p, fields)
 }
 
@@ -513,6 +519,48 @@ pub(super) fn with_hidden_favorites(mut setup: Value, config: &Value) -> Value {
     setup
 }
 
+/// The rows of the `definitions` the PC advertised in `providers`, as one `group` of `kind` rows.
+fn advertised_rows(providers: &Map<String, Value>, definitions: &[(String, String)], group: &str, kind: &str) -> Vec<Value> {
+    definitions
+        .iter()
+        .filter(|(id, _)| providers.contains_key(id.as_str()))
+        .map(|(id, name)| {
+            let entry = &providers[id.as_str()];
+            let enabled = entry.get("enabled") == Some(&Value::Bool(true));
+            let auth_state = entry.get("authState").filter(|state| !state.is_null());
+            let state = auth_state.and_then(Value::as_str);
+            // Older desktops advertise only `enabled`; new ones tell a missing credential from a
+            // transiently unreadable, preserved adapter.
+            let authenticated = if auth_state.is_none() { enabled } else { state == Some("present") };
+            let usable = enabled && state != Some("absent");
+            let mut status = if usable { "Connected" } else { "Not connected" };
+            if enabled && state == Some("unreadable") {
+                status = "Checking…";
+            } else if !enabled && state == Some("present") {
+                // Signed in but switched off on the desktop.
+                status = "Off";
+            }
+            let mut row = Map::new();
+            row.insert("id".into(), json!(id));
+            row.insert("name".into(), json!(name));
+            row.insert("group".into(), json!(group));
+            row.insert("type".into(), json!(kind));
+            row.insert("enabled".into(), json!(enabled));
+            row.insert("authenticated".into(), json!(authenticated));
+            row.insert("usable".into(), json!(usable));
+            if group == "local" {
+                row.insert("detected".into(), json!(enabled));
+            }
+            if kind == "custom" {
+                row.insert("custom".into(), json!(true));
+                row.insert("modelOverrides".into(), hidden_model_overrides(entry));
+            }
+            row.insert("status".into(), json!(status));
+            Value::Object(row)
+        })
+        .collect()
+}
+
 /// `modelProxyProviderSetup(options)`: an SSH server holds no model credentials, so the setup projects
 /// only the availability the PC advertised (`providers`, from its `providerConfig`); account
 /// identities and credential management stay on the PC. `None` is no PC connected (the read gave up
@@ -520,46 +568,6 @@ pub(super) fn with_hidden_favorites(mut setup: Value, config: &Value) -> Value {
 pub fn model_proxy_provider_setup(providers: Option<&Map<String, Value>>) -> Value {
     let Some(providers) = providers else {
         return json!({ "managedByClient": true, "unavailable": true, "api": [], "oauth": [], "local": [] });
-    };
-    let project = |definitions: &[(String, String)], group: &str, kind: &str| -> Vec<Value> {
-        definitions
-            .iter()
-            .filter(|(id, _)| providers.contains_key(id.as_str()))
-            .map(|(id, name)| {
-                let entry = &providers[id.as_str()];
-                let enabled = entry.get("enabled") == Some(&Value::Bool(true));
-                let auth_state = entry.get("authState").filter(|state| !state.is_null());
-                let state = auth_state.and_then(Value::as_str);
-                // Older desktops advertise only `enabled`; new ones tell a missing credential from a
-                // transiently unreadable, preserved adapter.
-                let authenticated = if auth_state.is_none() { enabled } else { state == Some("present") };
-                let usable = enabled && state != Some("absent");
-                let mut status = if usable { "Connected" } else { "Not connected" };
-                if enabled && state == Some("unreadable") {
-                    status = "Checking…";
-                } else if !enabled && state == Some("present") {
-                    // Signed in but switched off on the desktop.
-                    status = "Off";
-                }
-                let mut row = Map::new();
-                row.insert("id".into(), json!(id));
-                row.insert("name".into(), json!(name));
-                row.insert("group".into(), json!(group));
-                row.insert("type".into(), json!(kind));
-                row.insert("enabled".into(), json!(enabled));
-                row.insert("authenticated".into(), json!(authenticated));
-                row.insert("usable".into(), json!(usable));
-                if group == "local" {
-                    row.insert("detected".into(), json!(enabled));
-                }
-                if kind == "custom" {
-                    row.insert("custom".into(), json!(true));
-                    row.insert("modelOverrides".into(), hidden_model_overrides(entry));
-                }
-                row.insert("status".into(), json!(status));
-                Value::Object(row)
-            })
-            .collect()
     };
     let api: Vec<(String, String)> = API_PROVIDERS.iter().map(|p| (p.id.to_owned(), p.name.to_owned())).collect();
     let oauth: Vec<(String, String)> = OAUTH_PROVIDERS.iter().map(|(id, name, _)| ((*id).to_owned(), (*name).to_owned())).collect();
@@ -572,13 +580,13 @@ pub fn model_proxy_provider_setup(providers: Option<&Map<String, Value>>) -> Val
             (id.clone(), name.to_owned())
         })
         .collect();
-    let mut api_rows = project(&api, "api", "api-key");
-    api_rows.extend(project(&custom, "api", "custom"));
+    let mut api_rows = advertised_rows(providers, &api, "api", "api-key");
+    api_rows.extend(advertised_rows(providers, &custom, "api", "custom"));
     json!({
         "managedByClient": true,
         "api": api_rows,
-        "oauth": project(&oauth, "oauth", "oauth"),
-        "local": project(&[("mixdog-local".to_owned(), "Local Provider".to_owned())], "local", "local"),
+        "oauth": advertised_rows(providers, &oauth, "oauth", "oauth"),
+        "local": advertised_rows(providers, &[("mixdog-local".to_owned(), "Local Provider".to_owned())], "local", "local"),
     })
 }
 

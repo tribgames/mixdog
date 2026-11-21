@@ -15,6 +15,7 @@ use bytes::Bytes;
 use mixdog_app_protocol::rpc::FeedStamp;
 use mixdog_app_protocol::rpc::JsonRpcNotification;
 use mixdog_app_protocol::v2::feed::FeedSnapshotParams;
+use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::process::ExitStatus;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessExit;
@@ -339,10 +340,6 @@ impl ProcessFeeds {
         self.lane.feed.position().seq
     }
 
-    /// The feed of a terminal tab, live and pumping before anyone subscribes: a `feed/subscribe` attaches the publisher's own source,
-    /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
-    /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output. `order` is asked, when
-    /// this starts the pump, for what the pump tells how much output it has taken (`TerminalTabs::relay_order`).
     pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str, order: impl FnOnce() -> Option<PumpTell>) -> Option<FeedHold> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
@@ -455,8 +452,10 @@ impl ProcessFeeds {
         let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
         // The relay feed's framing (Node's relay lane), timed on the runtime's clock.
         let mut relay = RelayBuffer::default();
-        let output = |publisher: &FramePublisher, bytes: &[u8], state: Value| {
-            publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes) }), state);
+        // Each delta names where its bytes start in the process's output, as a relay frame does: a client sees the output a pump
+        // the ring overtook lost as a gap in the offsets.
+        let output = |publisher: &FramePublisher, bytes: &[u8], offset: u64, state: Value| {
+            publisher.publish("process/outputDelta", json!({ "processHandle": handle, "bytesB64": STANDARD.encode(bytes), "outputOffset": offset }), state);
         };
         let mut relay_start = taken;
         let mut relay_end = taken;
@@ -491,6 +490,11 @@ impl ProcessFeeds {
                 },
                 None => Some(events.next().await),
             };
+            // A pump the ring overtook (its clients held it past the process's end) goes on from the oldest event left: its offsets
+            // follow the feed's, so what the clients see skips the output it lost instead of mislabelling what follows.
+            if let Some(Some(ProcessEvent::Output { bytes, .. })) = &next {
+                taken = events.taken() - bytes.len() as u64;
+            }
             let end = match &next {
                 Some(Some(ProcessEvent::Output { bytes, .. })) => Some(taken + bytes.len() as u64),
                 _ => None,
@@ -521,7 +525,7 @@ impl ProcessFeeds {
                     } else {
                         json!({})
                     };
-                    output(&entry.publisher, &bytes, state);
+                    output(&entry.publisher, &bytes, taken, state);
                     // Node's relay lane takes output into its buffer only while a phone reads the terminal lane
                     // (remote-relay-push-lanes.ts:98-101): output from before the first reader never reaches it, and with no reader
                     // nothing is buffered. What already waits goes out when due, to whoever reads then.
@@ -736,12 +740,6 @@ mod tests {
         manager
     }
 
-    /// The relay gate at the first reader's attach. The reader is counted under the feed's lock when it attaches, and the pump reads the
-    /// count before it buffers a chunk and publishes the chunk afterwards: a chunk the pump takes before the attach counted nothing and is
-    /// not buffered (it is from before the subscription, which Node's lane never delivers either); a chunk it takes after is buffered and
-    /// published after the attach, so the reader gets it once, as a live frame (an attach starts at the feed's current position, so a
-    /// frame published later is never also in what the attach replays). Here the reader attaches before the pump starts: every chunk
-    /// reaches it, exactly once.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_chunk_reaches_the_first_relay_reader_exactly_once() {
         use mixdog_core_api::feed::subscribe;

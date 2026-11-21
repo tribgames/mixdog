@@ -1,9 +1,3 @@
-//! The one way into an open index (`SqliteStore`): its read connections and its writer's channel are fields of [`Gate`], private
-//! to this module, and every method that hands either out first waits until the reconcile `SqliteStore::open` started (the
-//! sessions found dirty at open) has ended. Code in `sqlite` and its other modules cannot reach the pool or the channel around
-//! it, so no read sees, and no write changes, a row the reconcile has yet to write, whatever entry a later change adds. Only the
-//! reconcile reaches them before it ends, through the one [`Reconciler`] the gate is made with.
-
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Condvar;

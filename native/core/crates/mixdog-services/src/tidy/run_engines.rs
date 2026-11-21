@@ -19,7 +19,7 @@ use super::languages::files_for_languages;
 use super::process::{Processes, map_limit};
 use super::resolve::Resolved;
 use super::runners::runner_for;
-use super::runners::shared::{DEFAULT_ENGINE_TIMEOUT, RunRequest, RunnerResult, Spawn, SystemSpawn};
+use super::runners::shared::{DEFAULT_ENGINE_TIMEOUT, RunRequest, Runner, RunnerResult, Spawn, SystemSpawn};
 
 const CHECK_CONCURRENCY: usize = 3;
 
@@ -133,55 +133,66 @@ struct Ran {
     stopped: bool,
 }
 
-async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
+fn engine_result(engine: &Resolved, extra: Value) -> Value {
     let mut base = json!({"id": engine.id, "source": engine.source});
     if !engine.version.is_empty() {
         base["version"] = json!(engine.version);
     }
-    let with = |extra: Value| {
-        let mut b = base.clone();
-        b.as_object_mut().expect("object").extend(extra.as_object().cloned().unwrap_or_default());
-        b
-    };
-    let done = |result: Value| Ran { result, stopped: false };
-    let halted = |result: Value| Ran { result, stopped: true };
+    base.as_object_mut().expect("object").extend(extra.as_object().cloned().unwrap_or_default());
+    base
+}
+
+fn put_check_findings(result: &mut Value, engine_id: &str, check: &RunnerResult) {
+    if !check.ignored.is_empty() {
+        put(result, "ignored", json!(check.ignored));
+    }
+    if !check.unprocessed.is_empty() {
+        put(result, "unprocessed", unprocessed_json(&check.unprocessed));
+    }
+    if !check.stderr_tail.is_empty() {
+        put(result, "stderrTail", json!(check.stderr_tail));
+    }
+    if let Some(e) = check.error.clone().or_else(|| unprocessed_error(engine_id, &check.unprocessed)) {
+        put(result, "error", json!(e));
+    }
+    if check.truncated {
+        put(result, "truncated", json!(true));
+    }
+    if let Some(c) = &check.counts {
+        put(result, "counts", c.clone());
+    }
+    if let Some(n) = &check.note {
+        put(result, "note", json!(n));
+    }
+}
+
+async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
     let Some(runner) = runner_for(&engine.id) else {
-        return done(with(json!({"filesChecked": 0, "filesChanged": [], "diagnostics": [], "skipped": "no runner for this engine in this build"})));
+        return Ran {
+            result: engine_result(
+                engine,
+                json!({"filesChecked": 0, "filesChanged": [], "diagnostics": [], "skipped": "no runner for this engine in this build"}),
+            ),
+            stopped: false,
+        };
     };
     let scope = files_for_languages(&o.files, &engine.languages, o.extensions.as_ref());
     if scope.is_empty() {
-        return done(with(json!({"filesChecked": 0, "filesChanged": [], "diagnostics": []})));
+        return Ran { result: engine_result(engine, json!({"filesChecked": 0, "filesChanged": [], "diagnostics": []})), stopped: false };
     }
     let check = runner.check(&request(engine, scope.clone(), o)).await;
     if check.thrown {
-        return halted(thrown(engine, check.error.as_deref().unwrap_or_default()));
+        return Ran { result: thrown(engine, check.error.as_deref().unwrap_or_default()), stopped: true };
     }
     let checked = check.files_checked.unwrap_or(if check.error.is_some() { 0 } else { scope.len() });
-    let mut result = with(json!({
-        "filesChecked": checked, "filesChanged": check.changed_files,
-        "diagnostics": check.diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
-    }));
-    if !check.ignored.is_empty() {
-        put(&mut result, "ignored", json!(check.ignored));
-    }
-    if !check.unprocessed.is_empty() {
-        put(&mut result, "unprocessed", unprocessed_json(&check.unprocessed));
-    }
-    if !check.stderr_tail.is_empty() {
-        put(&mut result, "stderrTail", json!(check.stderr_tail));
-    }
-    if let Some(e) = check.error.clone().or_else(|| unprocessed_error(&engine.id, &check.unprocessed)) {
-        put(&mut result, "error", json!(e));
-    }
-    if check.truncated {
-        put(&mut result, "truncated", json!(true));
-    }
-    if let Some(c) = &check.counts {
-        put(&mut result, "counts", c.clone());
-    }
-    if let Some(n) = &check.note {
-        put(&mut result, "note", json!(n));
-    }
+    let mut result = engine_result(
+        engine,
+        json!({
+            "filesChecked": checked, "filesChanged": check.changed_files,
+            "diagnostics": check.diagnostics.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
+        }),
+    );
+    put_check_findings(&mut result, &engine.id, &check);
     let unusable = check.error.is_some() || check.truncated;
     if o.mode != "fix" || !o.apply || unusable {
         if o.mode == "fix" {
@@ -189,10 +200,16 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
         }
         return Ran { result, stopped: unusable };
     }
+    apply_fix(engine, o, runner.as_ref(), &scope, &check, result).await
+}
+
+async fn apply_fix(engine: &Resolved, o: &SuiteOptions, runner: &dyn Runner, scope: &[String], check: &RunnerResult, mut result: Value) -> Ran {
+    let done = |result: Value| Ran { result, stopped: false };
+    let halted = |result: Value| Ran { result, stopped: true };
     // Only a file this engine was given is a file it may write: a path it names beyond those (a
     // file it followed an include into, a path printed in another form) was not asked for.
     let (candidates, unrequested): (Vec<String>, Vec<String>) =
-        fix_candidates(&check).into_iter().filter(|f| guard_tidy_write_path(&full_path_for(&o.cwd, f)).is_none()).partition(|f| scope.contains(f));
+        fix_candidates(check).into_iter().filter(|f| guard_tidy_write_path(&full_path_for(&o.cwd, f)).is_none()).partition(|f| scope.contains(f));
     if let Some(first) = unrequested.first() {
         let left_out = format!("{} file(s) the engine named were not among those requested and were not written, the first being {first}", unrequested.len());
         put(&mut result, "note", json!(check.note.iter().cloned().chain([left_out]).collect::<Vec<_>>().join("; ")));
@@ -236,25 +253,9 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
         }
     };
     let changed: Vec<String> = candidates.iter().filter(|f| after[*f] != before[*f]).cloned().collect();
-    // The engine wrote in place: run the invalidation a pipeline write would have run.
     let changed_paths: Vec<_> = changed.iter().map(|f| full_path_for(&o.cwd, f)).collect();
     if let Some(host) = &o.host {
-        host.note_written(&changed_paths, o.session_id.as_deref()).await;
-        if let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) {
-            match read_files(o.lane, changed_paths.clone()).await {
-                Ok(mut written) => {
-                    let changes: Vec<FileChange> = changed_paths
-                        .iter()
-                        .filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? }))
-                        .collect();
-                    if !changes.is_empty() {
-                        host.record_changes(&o.cwd, session, changes).await;
-                    }
-                }
-                // The files were rewritten and the turn review cannot be told what they became.
-                Err(why) => put(&mut result, "error", json!(format!("{why}; the changes were written but not recorded for the turn review"))),
-            }
-        }
+        record_written(host.as_ref(), o, &changed_paths, baselines, &mut result).await;
     }
     put(&mut result, "filesChanged", json!(changed));
     let stopped = fixed.error.is_some() || fixed.truncated;
@@ -279,6 +280,25 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
     Ran { result, stopped }
 }
 
+/// The engine wrote in place: run the invalidation a pipeline write would have run, and hand the
+/// turn review each file's before and after.
+async fn record_written(host: &dyn WriteHost, o: &SuiteOptions, changed_paths: &[PathBuf], baselines: Option<HashMap<PathBuf, Vec<u8>>>, result: &mut Value) {
+    host.note_written(changed_paths, o.session_id.as_deref()).await;
+    let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) else { return };
+    match read_files(o.lane, changed_paths.to_vec()).await {
+        Ok(mut written) => {
+            let changes: Vec<FileChange> = changed_paths
+                .iter()
+                .filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? }))
+                .collect();
+            if !changes.is_empty() {
+                host.record_changes(&o.cwd, session, changes).await;
+            }
+        }
+        // The files were rewritten and the turn review cannot be told what they became.
+        Err(why) => put(result, "error", json!(format!("{why}; the changes were written but not recorded for the turn review"))),
+    }
+}
 /// What a suite ran: one result per engine reached, and, per result, whether that engine could
 /// not run or its output was truncated. In apply mode a `true` there is the last result: the pass
 /// ended at it.

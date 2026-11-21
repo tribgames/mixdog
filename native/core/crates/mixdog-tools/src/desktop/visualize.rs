@@ -62,20 +62,7 @@ pub fn validate(args: &Value) -> Result<(String, Map<String, Value>), String> {
     };
     match action {
         "open" => validate_open(&input)?,
-        "inspect" => {
-            if let Some(v) = input.get("viewport").filter(|v| !v.is_null()) {
-                let ok = v.is_object() && sized(v.get("width"), 200, 3000) && v.get("height").is_none_or(|h| h.is_null() || sized(Some(h), 200, 4000));
-                if !ok {
-                    return Err("inspect input.viewport must be { width: 200-3000, height?: 200-4000 } in whole pixels".to_owned());
-                }
-            }
-            if let Some(s) = input.get("selector").filter(|s| !s.is_null()) {
-                let ok = s.as_str().is_some_and(|s| !s.js_trim().is_empty() && s.js_len() <= 500);
-                if !ok {
-                    return Err("inspect input.selector must be a non-empty CSS selector of at most 500 characters".to_owned());
-                }
-            }
-        }
+        "inspect" => validate_inspect(&input)?,
         _ => {}
     }
     if ["annotate", "capture", "export", "check", "inspect", "act"].contains(&action)
@@ -87,37 +74,59 @@ pub fn validate(args: &Value) -> Result<(String, Map<String, Value>), String> {
         "capture" if !ends_with_ext(input.get("output"), "png") => {
             return Err("capture requires input.output ending in .png".to_owned());
         }
-        "act" => {
-            let steps = input.get("steps").and_then(Value::as_array).filter(|s| (1..=MAX_ACT_STEPS).contains(&s.len()));
-            let Some(steps) = steps else {
-                return Err(format!("act requires input.steps: 1-{MAX_ACT_STEPS} steps"));
-            };
-            let bad = steps.iter().position(|s| !s.get("do").and_then(Value::as_str).is_some_and(|d| ACT_STEP_KINDS.contains(&d)));
-            if let Some(bad) = bad {
-                return Err(format!("act input.steps[{bad}].do must be click, type, key, scroll, wait, or evaluate"));
-            }
-            if input.get("output").is_some_and(|o| !o.is_null()) && !ends_with_ext(input.get("output"), "png") {
-                return Err("act input.output must end in .png".to_owned());
-            }
-        }
-        "export" => {
-            let format = input.get("format").and_then(Value::as_str).filter(|f| *f == "png" || *f == "pdf");
-            let Some(format) = format else {
-                return Err("export requires input.format png or pdf".to_owned());
-            };
-            if !ends_with_ext(input.get("output"), format) {
-                return Err(format!("export requires input.output ending in .{format}"));
-            }
-            if !version_ok(&input) {
-                return Err("export input.version must be a positive integer (a kept version number)".to_owned());
-            }
-            if input.get("overwrite").is_some_and(|o| !o.is_null() && !o.is_boolean()) {
-                return Err("export input.overwrite must be a boolean".to_owned());
-            }
-        }
+        "act" => validate_act(&input)?,
+        "export" => validate_export(&input)?,
         _ => {}
     }
     Ok((action.to_owned(), input))
+}
+
+fn validate_inspect(input: &Map<String, Value>) -> Result<(), String> {
+    if let Some(v) = input.get("viewport").filter(|v| !v.is_null()) {
+        let ok = v.is_object() && sized(v.get("width"), 200, 3000) && v.get("height").is_none_or(|h| h.is_null() || sized(Some(h), 200, 4000));
+        if !ok {
+            return Err("inspect input.viewport must be { width: 200-3000, height?: 200-4000 } in whole pixels".to_owned());
+        }
+    }
+    if let Some(s) = input.get("selector").filter(|s| !s.is_null()) {
+        let ok = s.as_str().is_some_and(|s| !s.js_trim().is_empty() && s.js_len() <= 500);
+        if !ok {
+            return Err("inspect input.selector must be a non-empty CSS selector of at most 500 characters".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_act(input: &Map<String, Value>) -> Result<(), String> {
+    let steps = input.get("steps").and_then(Value::as_array).filter(|s| (1..=MAX_ACT_STEPS).contains(&s.len()));
+    let Some(steps) = steps else {
+        return Err(format!("act requires input.steps: 1-{MAX_ACT_STEPS} steps"));
+    };
+    let bad = steps.iter().position(|s| !s.get("do").and_then(Value::as_str).is_some_and(|d| ACT_STEP_KINDS.contains(&d)));
+    if let Some(bad) = bad {
+        return Err(format!("act input.steps[{bad}].do must be click, type, key, scroll, wait, or evaluate"));
+    }
+    if input.get("output").is_some_and(|o| !o.is_null()) && !ends_with_ext(input.get("output"), "png") {
+        return Err("act input.output must end in .png".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_export(input: &Map<String, Value>) -> Result<(), String> {
+    let format = input.get("format").and_then(Value::as_str).filter(|f| *f == "png" || *f == "pdf");
+    let Some(format) = format else {
+        return Err("export requires input.format png or pdf".to_owned());
+    };
+    if !ends_with_ext(input.get("output"), format) {
+        return Err(format!("export requires input.output ending in .{format}"));
+    }
+    if !version_ok(input) {
+        return Err("export input.version must be a positive integer (a kept version number)".to_owned());
+    }
+    if input.get("overwrite").is_some_and(|o| !o.is_null() && !o.is_boolean()) {
+        return Err("export input.overwrite must be a boolean".to_owned());
+    }
+    Ok(())
 }
 
 fn validate_open(input: &Map<String, Value>) -> Result<(), String> {
@@ -280,16 +289,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn open_and_export_wordings() {
+    fn open_without_targets_is_refused() {
         assert_eq!(validate(&json!({"action":"open","input":{}})).unwrap_err(), "open requires input.targets: 1-3 non-empty strings");
+    }
+
+    #[test]
+    fn a_web_url_may_not_be_mixed_with_other_targets() {
         assert_eq!(
             validate(&json!({"action":"open","input":{"targets":["https://a.com","b.md"]}})).unwrap_err(),
             "a web URL must be the only target; do not mix it with files or other URLs"
         );
+    }
+
+    #[test]
+    fn export_output_must_match_the_format() {
         assert_eq!(
             validate(&json!({"action":"export","input":{"tab":"t1","format":"pdf","output":"a.png"}})).unwrap_err(),
             "export requires input.output ending in .pdf"
         );
+    }
+
+    #[test]
+    fn close_needs_no_input() {
         assert_eq!(validate(&json!({"action":"close"})).map(|r| r.0), Ok("close".to_owned()));
     }
 

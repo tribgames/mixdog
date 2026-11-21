@@ -77,6 +77,50 @@ enum Reducer {
     Claude(ClaudeReducer),
 }
 
+struct Parsed {
+    recognized: bool,
+    foreign_session_id: Option<String>,
+    cwd: Option<String>,
+    internal_kind: Option<String>,
+    history_base: Option<Value>,
+    raw_turns: Vec<RawTurn>,
+    warnings: Vec<String>,
+    stored_title: Option<String>,
+}
+
+impl Reducer {
+    fn parsed(&self) -> Parsed {
+        match self {
+            Reducer::Codex(r) => {
+                let o = r.result();
+                Parsed {
+                    recognized: o.recognized,
+                    foreign_session_id: o.foreign_session_id,
+                    cwd: o.cwd,
+                    internal_kind: o.internal_kind,
+                    history_base: o.history_base,
+                    raw_turns: o.raw_turns,
+                    warnings: o.warnings,
+                    stored_title: None,
+                }
+            }
+            Reducer::Claude(r) => {
+                let o = r.result();
+                Parsed {
+                    recognized: o.recognized,
+                    foreign_session_id: o.foreign_session_id,
+                    cwd: o.cwd,
+                    internal_kind: o.internal_kind,
+                    history_base: None,
+                    raw_turns: o.raw_turns,
+                    warnings: o.warnings,
+                    stored_title: o.stored_title,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Conversion {
     pub source: Source,
@@ -176,51 +220,31 @@ impl Converter {
         !self.too_large
     }
 
+    fn error_code(&self, parsed: &Parsed, no_turns: bool) -> Option<&'static str> {
+        if self.too_large {
+            Some(ERROR_TOO_LARGE)
+        } else if parsed.internal_kind.is_some() {
+            Some(ERROR_INTERNAL)
+        } else if self.records == 0 {
+            Some(if self.malformed > 0 { "malformed" } else { "empty" })
+        } else if !parsed.recognized {
+            Some("unsupported")
+        } else if no_turns {
+            Some("empty")
+        } else {
+            None
+        }
+    }
+
     /// May be called repeatedly; also holds the normalized turns to `max_transcript_chars`.
     pub fn result(&mut self) -> Conversion {
-        struct Parsed {
-            recognized: bool,
-            foreign_session_id: Option<String>,
-            cwd: Option<String>,
-            internal_kind: Option<String>,
-            history_base: Option<Value>,
-            raw_turns: Vec<RawTurn>,
-            warnings: Vec<String>,
-            stored_title: Option<String>,
-        }
-        let parsed = match &self.reducer {
-            Reducer::Codex(r) => {
-                let o = r.result();
-                Parsed {
-                    recognized: o.recognized,
-                    foreign_session_id: o.foreign_session_id,
-                    cwd: o.cwd,
-                    internal_kind: o.internal_kind,
-                    history_base: o.history_base,
-                    raw_turns: o.raw_turns,
-                    warnings: o.warnings,
-                    stored_title: None,
-                }
-            }
-            Reducer::Claude(r) => {
-                let o = r.result();
-                Parsed {
-                    recognized: o.recognized,
-                    foreign_session_id: o.foreign_session_id,
-                    cwd: o.cwd,
-                    internal_kind: o.internal_kind,
-                    history_base: None,
-                    raw_turns: o.raw_turns,
-                    warnings: o.warnings,
-                    stored_title: o.stored_title,
-                }
-            }
-        };
+        let parsed = self.reducer.parsed();
         let turns = normalize_turns(&parsed.raw_turns);
         // Joins and the user stub add text the reducer never counted.
         if turns.iter().map(|t| utf16_len(&t.text)).sum::<usize>() > self.limits.max_transcript_chars {
             self.too_large = true;
         }
+        let error_code = self.error_code(&parsed, turns.is_empty());
         let mut warnings = parsed.warnings;
         let mut add = |code: &str| {
             if !warnings.iter().any(|w| w == code) {
@@ -233,19 +257,6 @@ impl Converter {
         if let Some(partial) = &self.history_partial {
             add(partial);
         }
-        let error_code = if self.too_large {
-            Some(ERROR_TOO_LARGE)
-        } else if parsed.internal_kind.is_some() {
-            Some(ERROR_INTERNAL)
-        } else if self.records == 0 {
-            Some(if self.malformed > 0 { "malformed" } else { "empty" })
-        } else if !parsed.recognized {
-            Some("unsupported")
-        } else if turns.is_empty() {
-            Some("empty")
-        } else {
-            None
-        };
         let title = parsed.stored_title.or_else(|| conversation_title(&turns));
         let message_count = if self.too_large { 0 } else { turns.len() };
         Conversion {

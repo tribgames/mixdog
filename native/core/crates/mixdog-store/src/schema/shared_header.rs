@@ -1,13 +1,6 @@
 //! A session header whose values are shared, not copied.
 //!
-//! A header is a map of every session key to its JSON value (FORMAT.md §5), and a few of its values are large: the tool
-//! catalogs are hundreds of kilobytes, against a few kilobytes for everything else together. A session keeps its header
-//! in several places at once (the acked state, the projected state, the copy other threads read) and makes a new copy on
-//! every record that touches it, hundreds of times in a run. As a plain map each of those copies is a deep copy of every
-//! value, the catalogs included, which was a third of what the core held at the peak of a run and most of what it
-//! allocated and freed.
-//!
-//! Here each value is behind its own reference count: a copy of the header is one count per key, a change replaces only
+//! A header is a map of every session key to its JSON value (FORMAT.md §5). Here each value is behind its own reference count: a copy of the header is one count per key, a change replaces only
 //! the values it names, and the copies keep sharing the rest. The encoding is the map's own (the keys in insertion
 //! order), so a log written with either type reads as the other.
 

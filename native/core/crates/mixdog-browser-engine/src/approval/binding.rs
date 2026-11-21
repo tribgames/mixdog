@@ -1,6 +1,4 @@
-//! Owner: s4-engine-approval
-//! What an approval is bound to, and the checks that make it a precondition of the dispatch (the TOCTOU rebind of
-//! `action-approval.ts`). The person approved one document at one URL, one command, and for an upload these files and this
+//! The person approved one document at one URL, one command, and for an upload these files and this
 //! receiving frame. Nothing about the time spent waiting makes the answer stale; what does is the page: after the answer
 //! [`verify`] fails closed in the engine if any of it changed, and [`precondition`] puts the same document and URL on every
 //! host request of the approved step so a navigation in the last moment is refused by the host itself (-32010) and nothing is
@@ -334,25 +332,46 @@ mod tests {
     }
 }
 
-/// An upload's real files: 1 to 10 absolute paths of regular files, each bound by its canonical path, size and modification
-/// time. The command is then dispatched with the canonical paths (`BoundFile::path`).
-pub async fn resolve_upload_files(files: &dyn FilePort, paths: &[String]) -> Result<Vec<BoundFile>, ApprovalError> {
+/// Why a list of upload paths is not 1 to 10 absolute paths of readable regular files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UploadPathFault {
+    Count,
+    NotAbsolute(String),
+    Unreadable(String),
+    NotFile(String),
+}
+
+/// The upload's files, each bound by its canonical path, size and modification time.
+pub(crate) async fn bind_upload_files(files: &dyn FilePort, paths: &[String]) -> Result<Vec<BoundFile>, UploadPathFault> {
     if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
-        return Err(ApprovalError::Invalid("upload requires 1\u{2013}10 approved absolute file paths".to_owned()));
+        return Err(UploadPathFault::Count);
     }
     let mut bound = Vec::with_capacity(paths.len());
     for path in paths {
         if !mixdog_js::nodepath::is_absolute_host(path) {
-            return Err(ApprovalError::Invalid("upload approval requires absolute file paths".to_owned()));
+            return Err(UploadPathFault::NotAbsolute(path.clone()));
         }
         let facts = files.stat(Path::new(path)).await;
         let Some(canonical) = facts.canonical.filter(|_| facts.exists) else {
-            return Err(ApprovalError::Invalid(format!("upload approval cannot read the file: {path}")));
+            return Err(UploadPathFault::Unreadable(path.clone()));
         };
         if !facts.is_file {
-            return Err(ApprovalError::Invalid("upload approval requires regular files".to_owned()));
+            return Err(UploadPathFault::NotFile(path.clone()));
         }
         bound.push(BoundFile { path: canonical.to_string_lossy().into_owned(), size: facts.size, mtime: facts.modified, realpath: canonical });
     }
     Ok(bound)
+}
+
+/// An upload's real files: 1 to 10 absolute paths of regular files, each bound by its canonical path, size and modification
+/// time. The command is then dispatched with the canonical paths (`BoundFile::path`).
+pub async fn resolve_upload_files(files: &dyn FilePort, paths: &[String]) -> Result<Vec<BoundFile>, ApprovalError> {
+    bind_upload_files(files, paths).await.map_err(|fault| {
+        ApprovalError::Invalid(match fault {
+            UploadPathFault::Count => "upload requires 1\u{2013}10 approved absolute file paths".to_owned(),
+            UploadPathFault::NotAbsolute(_) => "upload approval requires absolute file paths".to_owned(),
+            UploadPathFault::Unreadable(path) => format!("upload approval cannot read the file: {path}"),
+            UploadPathFault::NotFile(_) => "upload approval requires regular files".to_owned(),
+        })
+    })
 }

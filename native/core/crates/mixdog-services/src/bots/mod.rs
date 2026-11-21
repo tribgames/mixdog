@@ -1,8 +1,3 @@
-//! Bots: how a schedule or webhook fire becomes a turn in its owner bot's home thread. The
-//! prompt contract (headers, quiet sentinels, trigger markers) is `routine`; the guards a
-//! run passes, the turn, the executor sub-agent, redelivery and the two fire paths are the
-//! `RoutineRuntime`; everything session-side sits behind the one `RoutineHost` seam.
-
 pub mod attachments;
 pub mod beat;
 pub mod delivery;

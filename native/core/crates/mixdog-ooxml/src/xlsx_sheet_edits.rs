@@ -22,7 +22,7 @@ use crate::sheet_page::{column_file_width, workbook_digit_width};
 use crate::sheet_parts::{NoteRequest, excel_password_hash, write_worksheet_note};
 use crate::sheet_styles::{apply_cell_style, style_has_number_format};
 use crate::sheet_xml::{
-    MergeIndex, area_reference, compose_sheet_view, freeze_pane_xml, merged_areas, merged_cell_anchor, merged_ranges, parse_area_range,
+    Area, MergeIndex, area_reference, compose_sheet_view, freeze_pane_xml, merged_areas, merged_cell_anchor, merged_ranges, parse_area_range,
     safe_workbook_table_name, sheet_view_parts, update_sheet_view, upsert_defined_name, upsert_worksheet_section, workbook_defined_name_fault,
     worksheet_section, write_column_visibility, write_column_widths, write_merged_ranges,
 };
@@ -226,42 +226,46 @@ fn write_typed_cells(zip: &mut Package, sheet: &Sheet, xml: &str, entries: &[(St
         })
         .collect();
     let written: Vec<CellEntry<'_>> = entries.iter().zip(&typed).map(|((reference, _), value)| CellEntry { reference, value, formula: "" }).collect();
-    let mut next = set_cells_in_sheet(xml, &written)?;
-    if !formatted.is_empty() {
-        let mut styles = zip.text("xl/styles.xml");
-        if !styles.is_empty() {
-            let references: Vec<&str> = formatted.iter().map(|(reference, _)| *reference).collect();
-            let bases: HashMap<String, u64> = cell_style_indexes(&next, &references)?.into_iter().collect();
-            let mut resolved: HashMap<(u64, &str), usize> = HashMap::new();
-            let mut styled: Vec<(&str, String)> = Vec::new();
-            for &(reference, number_format) in &formatted {
-                let base = bases.get(reference).copied().unwrap_or(0);
-                // The cell's own number format stands, as Excel keeps it under a typed entry.
-                if style_has_number_format(&styles, base as f64) {
-                    continue;
-                }
-                let index = match resolved.get(&(base, number_format)) {
-                    Some(index) => *index,
-                    None => {
-                        let mut properties = Map::new();
-                        properties.insert("numberFormat".to_owned(), json!(number_format));
-                        let applied = apply_cell_style(&styles, base as f64, &properties)?;
-                        styles = applied.xml;
-                        resolved.insert((base, number_format), applied.index);
-                        applied.index
-                    }
-                };
-                styled.push((reference, index.to_string()));
-            }
-            zip.set("xl/styles.xml", styles);
-            if !styled.is_empty() {
-                let cells: Vec<CellStyle<'_>> = styled.iter().map(|(reference, style)| CellStyle { reference, style }).collect();
-                next = set_cell_styles_in_sheet(&next, &cells)?;
-            }
-        }
-    }
+    let next = set_cells_in_sheet(xml, &written)?;
+    let next = apply_typed_formats(zip, next, &formatted)?;
     zip.set(&sheet.path, next);
     Ok(dates)
+}
+
+/// Gives each reference the number format its typed entry takes, unless the cell already carries one of its own; returns the sheet text.
+fn apply_typed_formats(zip: &mut Package, mut next: String, formatted: &[(&str, &'static str)]) -> Result<String, String> {
+    let mut styles = zip.text("xl/styles.xml");
+    if formatted.is_empty() || styles.is_empty() {
+        return Ok(next);
+    }
+    let references: Vec<&str> = formatted.iter().map(|(reference, _)| *reference).collect();
+    let bases: HashMap<String, u64> = cell_style_indexes(&next, &references)?.into_iter().collect();
+    let mut resolved: HashMap<(u64, &str), usize> = HashMap::new();
+    let mut styled: Vec<(&str, String)> = Vec::new();
+    for &(reference, number_format) in formatted {
+        let base = bases.get(reference).copied().unwrap_or(0);
+        if style_has_number_format(&styles, base as f64) {
+            continue;
+        }
+        let index = match resolved.get(&(base, number_format)) {
+            Some(index) => *index,
+            None => {
+                let mut properties = Map::new();
+                properties.insert("numberFormat".to_owned(), json!(number_format));
+                let applied = apply_cell_style(&styles, base as f64, &properties)?;
+                styles = applied.xml;
+                resolved.insert((base, number_format), applied.index);
+                applied.index
+            }
+        };
+        styled.push((reference, index.to_string()));
+    }
+    zip.set("xl/styles.xml", styles);
+    if !styled.is_empty() {
+        let cells: Vec<CellStyle<'_>> = styled.iter().map(|(reference, style)| CellStyle { reference, style }).collect();
+        next = set_cell_styles_in_sheet(&next, &cells)?;
+    }
+    Ok(next)
 }
 
 /// `values[row]?.[column] ?? null`.
@@ -847,12 +851,8 @@ pub fn protect_worksheet(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op) -
     json!({ "op": op.get("op"), "changed": true, "sheet": sheet.name })
 }
 
-/// `addWorksheetTable(zip, sheet, xml, op)`.
-pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op) -> Result<Value, String> {
-    let area = parse_area_range(&text_or_empty(op.get("range")))?;
-    if area.start_row == 0.0 || area.start_col == 0.0 {
-        return Err("add_table requires a bounded range such as A1:C10".to_owned());
-    }
+/// The unique column names of a table's header row, and the sheet text with a generated name written into each empty header cell.
+fn table_header_names(zip: &Package, xml: &str, area: &Area) -> Result<(Vec<String>, String), String> {
     let grid: HashMap<String, CellValue> = cell_records(xml, &shared_strings(zip), None).into_iter().map(|record| (record.reference, record.value)).collect();
     let mut names: Vec<String> = Vec::new();
     let mut next = xml.to_owned();
@@ -875,6 +875,16 @@ pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op)
         names.push(name);
         column += 1.0;
     }
+    Ok((names, next))
+}
+
+/// `addWorksheetTable(zip, sheet, xml, op)`.
+pub fn add_worksheet_table(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Op) -> Result<Value, String> {
+    let area = parse_area_range(&text_or_empty(op.get("range")))?;
+    if area.start_row == 0.0 || area.start_col == 0.0 {
+        return Err("add_table requires a bounded range such as A1:C10".to_owned());
+    }
+    let (names, mut next) = table_header_names(zip, xml, &area)?;
     let mut ordinal = 1_u64;
     while zip.file(&format!("xl/tables/table{ordinal}.xml")).is_some() {
         ordinal += 1;

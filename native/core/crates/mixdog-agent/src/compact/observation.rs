@@ -155,21 +155,7 @@ fn observation_of(message: &AgentMessage, call: Option<(&str, &JsonValue)>) -> O
     let (tool_name, raw_args) = call.unwrap_or(("", &JsonValue::Null));
     let parts = content_parts(&message.message.content);
     if tool_name == "read" {
-        let args = call_arguments(raw_args);
-        let path = match args.get("path") {
-            Some(JsonValue::String(p)) => Some(p.as_str()),
-            _ => string_of(args.get("file_path")),
-        }?;
-        if !IMAGE_FILE.is_match(path) || !parts.iter().any(is_image_part) {
-            return None;
-        }
-        return Some(Found {
-            key: format!("image:{}", path.replace('\\', "/")),
-            request_scoped: true,
-            parts,
-            text_index: 0,
-            kind: Kind::Image { path: path.to_owned() },
-        });
+        return image_read(parts, raw_args);
     }
     let text_index = parts.iter().position(|p| matches!(p, ContentPart::Text(_, _)) && !is_image_part(p))?;
     let ContentPart::Text(text, _) = &parts[text_index] else {
@@ -177,55 +163,69 @@ fn observation_of(message: &AgentMessage, call: Option<(&str, &JsonValue)>) -> O
     };
     let text = text.clone();
     match tool_name {
-        "visualize" => {
-            if VISUALIZE_SUPERSEDED.is_match(&text) {
-                return None;
-            }
-            let (key, action, tab) = visualize_key(&call_arguments(raw_args))?;
-            Some(Found { key, request_scoped: true, parts, text_index, kind: Kind::Visualize { action, tab } })
-        }
-        "browser" | "browser_devtools" => {
-            let snapshot = SNAPSHOT_LINE.captures(&text)?;
-            let whole = snapshot.range();
-            Some(Found {
-                key: format!("browser:{}", snapshot.get(2)?),
-                request_scoped: false,
-                parts,
-                text_index,
-                kind: Kind::Snapshot { page_snapshot: snapshot.get(1)?.to_owned(), start: whole.start, newline: text[whole.clone()].starts_with('\n'), text },
-            })
-        }
-        "terminal" => {
-            let tab = TERMINAL_LINE.captures(&text)?;
-            let tab_name = tab.get(1)?.to_owned();
-            let mut body: Vec<String> = text[tab.range().end..].split('\n').skip(2).map(str::to_owned).collect();
-            while body.first().is_some_and(|row| TERMINAL_NOTICE.is_match(row)) {
-                body.remove(0);
-            }
-            Some(Found { key: format!("terminal:{tab_name}"), request_scoped: false, parts, text_index, kind: Kind::Terminal { tab: tab_name, body } })
-        }
-        "computer" => {
-            let value: JsonValue = serde_json::from_str(&text).ok()?;
-            let observation = value.get("observation").filter(|o| o.is_object());
-            let frame_is_value = observation.is_none();
-            let frame = observation.unwrap_or(&value);
-            let window = window_id_text(frame.get("window_id")).or_else(|| window_id_text(value.get("window_id")));
-            let observed = frame.get("elements").is_some_and(JsonValue::is_array) || frame.get("ocr").is_some() || parts.iter().any(is_image_part);
-            if let Some(window) = window.filter(|_| observed) {
-                return Some(Found {
-                    key: format!("computer:{window}"),
-                    request_scoped: false,
-                    parts,
-                    text_index,
-                    kind: Kind::Frame { value, frame_is_value },
-                });
-            }
-            let reference = string_of(frame.get("superseded"))?.to_owned();
-            let slim = frame.as_object()?.keys().any(|name| name != "superseded" && !FRAME_OUTCOME_KEYS.contains(&name.as_str()));
-            slim.then(|| Found { key: String::new(), request_scoped: false, parts, text_index, kind: Kind::FrameStub { value, frame_is_value, reference } })
-        }
+        "visualize" => visualize_readout(parts, text_index, &text, raw_args),
+        "browser" | "browser_devtools" => browser_snapshot(parts, text_index, text),
+        "terminal" => terminal_read(parts, text_index, &text),
+        "computer" => computer_frame(parts, text_index, &text),
         _ => None,
     }
+}
+
+fn image_read(parts: Vec<ContentPart>, raw_args: &JsonValue) -> Option<Found> {
+    let args = call_arguments(raw_args);
+    let path = match args.get("path") {
+        Some(JsonValue::String(p)) => Some(p.as_str()),
+        _ => string_of(args.get("file_path")),
+    }?;
+    if !IMAGE_FILE.is_match(path) || !parts.iter().any(is_image_part) {
+        return None;
+    }
+    Some(Found { key: format!("image:{}", path.replace('\\', "/")), request_scoped: true, parts, text_index: 0, kind: Kind::Image { path: path.to_owned() } })
+}
+
+fn visualize_readout(parts: Vec<ContentPart>, text_index: usize, text: &str, raw_args: &JsonValue) -> Option<Found> {
+    if VISUALIZE_SUPERSEDED.is_match(text) {
+        return None;
+    }
+    let (key, action, tab) = visualize_key(&call_arguments(raw_args))?;
+    Some(Found { key, request_scoped: true, parts, text_index, kind: Kind::Visualize { action, tab } })
+}
+
+fn browser_snapshot(parts: Vec<ContentPart>, text_index: usize, text: String) -> Option<Found> {
+    let snapshot = SNAPSHOT_LINE.captures(&text)?;
+    let whole = snapshot.range();
+    Some(Found {
+        key: format!("browser:{}", snapshot.get(2)?),
+        request_scoped: false,
+        parts,
+        text_index,
+        kind: Kind::Snapshot { page_snapshot: snapshot.get(1)?.to_owned(), start: whole.start, newline: text[whole.clone()].starts_with('\n'), text },
+    })
+}
+
+fn terminal_read(parts: Vec<ContentPart>, text_index: usize, text: &str) -> Option<Found> {
+    let tab = TERMINAL_LINE.captures(text)?;
+    let tab_name = tab.get(1)?.to_owned();
+    let mut body: Vec<String> = text[tab.range().end..].split('\n').skip(2).map(str::to_owned).collect();
+    while body.first().is_some_and(|row| TERMINAL_NOTICE.is_match(row)) {
+        body.remove(0);
+    }
+    Some(Found { key: format!("terminal:{tab_name}"), request_scoped: false, parts, text_index, kind: Kind::Terminal { tab: tab_name, body } })
+}
+
+fn computer_frame(parts: Vec<ContentPart>, text_index: usize, text: &str) -> Option<Found> {
+    let value: JsonValue = serde_json::from_str(text).ok()?;
+    let observation = value.get("observation").filter(|o| o.is_object());
+    let frame_is_value = observation.is_none();
+    let frame = observation.unwrap_or(&value);
+    let window = window_id_text(frame.get("window_id")).or_else(|| window_id_text(value.get("window_id")));
+    let observed = frame.get("elements").is_some_and(JsonValue::is_array) || frame.get("ocr").is_some() || parts.iter().any(is_image_part);
+    if let Some(window) = window.filter(|_| observed) {
+        return Some(Found { key: format!("computer:{window}"), request_scoped: false, parts, text_index, kind: Kind::Frame { value, frame_is_value } });
+    }
+    let reference = string_of(frame.get("superseded"))?.to_owned();
+    let slim = frame.as_object()?.keys().any(|name| name != "superseded" && !FRAME_OUTCOME_KEYS.contains(&name.as_str()));
+    slim.then(|| Found { key: String::new(), request_scoped: false, parts, text_index, kind: Kind::FrameStub { value, frame_is_value, reference } })
 }
 
 /// Transcript indices whose results are still in use and must stay verbatim:
@@ -258,6 +258,18 @@ fn protected_indices(messages: &[AgentMessage]) -> HashSet<usize> {
     protected
 }
 
+fn calls_by_id(messages: &[AgentMessage]) -> HashMap<&str, (&str, &JsonValue)> {
+    let mut calls = HashMap::new();
+    for message in messages.iter().filter(|m| m.role() == Role::Assistant) {
+        for call in message.tool_calls() {
+            if !call.id.is_empty() {
+                calls.insert(call.id.as_str(), (call.name.as_str(), &call.arguments));
+            }
+        }
+    }
+    calls
+}
+
 /// Tool results that a later observation of the same page, window, tab or
 /// file replaced, keyed by transcript index. Protected results are never
 /// listed, though they still count as the newer observation. An image file
@@ -265,17 +277,7 @@ fn protected_indices(messages: &[AgentMessage]) -> HashSet<usize> {
 pub fn stale_observations(messages: &[AgentMessage]) -> HashMap<usize, Found> {
     let protected = protected_indices(messages);
     let active_request = request_start(messages, messages.len().saturating_sub(1)).unwrap_or(0);
-    let mut calls: HashMap<&str, (&str, &JsonValue)> = HashMap::new();
-    for message in messages {
-        if message.role() != Role::Assistant {
-            continue;
-        }
-        for call in message.tool_calls() {
-            if !call.id.is_empty() {
-                calls.insert(call.id.as_str(), (call.name.as_str(), &call.arguments));
-            }
-        }
-    }
+    let calls = calls_by_id(messages);
     let mut newest: HashSet<String> = HashSet::new();
     let mut terminal_reads: HashMap<String, Vec<Vec<String>>> = HashMap::new();
     let mut stale = HashMap::new();
@@ -327,7 +329,27 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
         out.message.content = with_parts(content, vec![ContentPart::Text(text, None)]);
         return out;
     }
-    let text = match &found.kind {
+    let text = superseded_text(found, origin);
+    let parts = found
+        .parts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| {
+            if index == found.text_index {
+                Some(ContentPart::Text(text.clone(), None))
+            } else if is_image_part(part) {
+                None
+            } else {
+                Some(part.clone())
+            }
+        })
+        .collect();
+    out.message.content = with_parts(content, parts);
+    out
+}
+
+fn superseded_text(found: &Found, origin: &str) -> String {
+    match &found.kind {
         Kind::Visualize { action, tab } => format!(
             "[Visualize {action} of tab {tab} superseded: a newer {action} of this tab follows. Run visualize {action} on the tab again to get it. {origin}]"
         ),
@@ -367,21 +389,5 @@ pub fn supersede_observation(message: &AgentMessage, found: &Found, origin: &str
             }
         }
         Kind::Image { .. } => unreachable!("handled above"),
-    };
-    let parts = found
-        .parts
-        .iter()
-        .enumerate()
-        .filter_map(|(index, part)| {
-            if index == found.text_index {
-                Some(ContentPart::Text(text.clone(), None))
-            } else if is_image_part(part) {
-                None
-            } else {
-                Some(part.clone())
-            }
-        })
-        .collect();
-    out.message.content = with_parts(content, parts);
-    out
+    }
 }

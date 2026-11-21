@@ -286,6 +286,31 @@ pub struct Selected {
     pub missing: Vec<String>,
 }
 
+/// A hunk cut to the wanted runs, header first; `delta` is the line shift the earlier hunks of its file left.
+fn selected_hunk(hunk: &Hunk, is_wanted: &impl Fn(usize) -> bool, delta: &mut i64) -> Option<Vec<String>> {
+    if !hunk.entries.iter().any(|e| e.change.is_some_and(is_wanted)) {
+        return None;
+    }
+    let mut body: Vec<String> = Vec::new();
+    for entry in &hunk.entries {
+        match entry.change {
+            Some(index) if !is_wanted(index) => {
+                if entry.line.starts_with('-') {
+                    body.push(format!(" {}", &entry.line[1..]));
+                }
+            }
+            _ => body.push(entry.line.clone()),
+        }
+    }
+    let old_count = body.iter().filter(|l| l.starts_with([' ', '-'])).count();
+    let new_count = body.iter().filter(|l| l.starts_with([' ', '+'])).count();
+    let new_start = hunk.old_start as i64 + *delta + i64::from(old_count == 0) - i64::from(new_count == 0);
+    let mut lines = vec![format!("@@ -{} +{} @@{}", range(hunk.old_start as i64, old_count), range(new_start, new_count), hunk.tail)];
+    lines.extend(body);
+    *delta += new_count as i64 - old_count as i64;
+    Some(lines)
+}
+
 /// The patch that stages exactly `requested`; unselected runs stay as context (a deletion
 /// becomes a context line) so the hunk still applies.
 pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
@@ -317,26 +342,9 @@ pub fn build_selected_patch(raw: &str, requested: &[String]) -> Selected {
         let mut hunks: Vec<String> = Vec::new();
         let mut delta: i64 = 0;
         for hunk in &file.hunks {
-            if !hunk.entries.iter().any(|e| e.change.is_some_and(is_wanted)) {
-                continue;
+            if let Some(lines) = selected_hunk(hunk, &is_wanted, &mut delta) {
+                hunks.extend(lines);
             }
-            let mut body: Vec<String> = Vec::new();
-            for entry in &hunk.entries {
-                match entry.change {
-                    Some(index) if !is_wanted(index) => {
-                        if entry.line.starts_with('-') {
-                            body.push(format!(" {}", &entry.line[1..]));
-                        }
-                    }
-                    _ => body.push(entry.line.clone()),
-                }
-            }
-            let old_count = body.iter().filter(|l| l.starts_with([' ', '-'])).count();
-            let new_count = body.iter().filter(|l| l.starts_with([' ', '+'])).count();
-            let new_start = hunk.old_start as i64 + delta + i64::from(old_count == 0) - i64::from(new_count == 0);
-            hunks.push(format!("@@ -{} +{} @@{}", range(hunk.old_start as i64, old_count), range(new_start, new_count), hunk.tail));
-            hunks.extend(body);
-            delta += new_count as i64 - old_count as i64;
         }
         if hunks.is_empty() {
             continue;
@@ -549,31 +557,7 @@ impl Repo {
         others.extend(paths);
         let listed = git.read(&self.cancel, &root, &others).await?;
         for path in nul_records(&listed) {
-            let added = git
-                .outcome(
-                    &self.cancel,
-                    &root,
-                    &[
-                        "--no-optional-locks",
-                        "diff",
-                        "--no-index",
-                        "--binary",
-                        "--no-ext-diff",
-                        "--no-textconv",
-                        "--no-color",
-                        "--src-prefix=a/",
-                        "--dst-prefix=b/",
-                        "--",
-                        "/dev/null",
-                        path,
-                    ],
-                    &RunOptions::read(),
-                )
-                .await?;
-            // --no-index uses exit 1 for a successfully produced patch.
-            if !matches!(added.code, Some(0 | 1)) {
-                return Err(ScmFailure::git(added.stderr_text().trim().to_owned()));
-            }
+            let added = self.untracked_file_diff(&root, path).await?;
             not_utf8 |= std::str::from_utf8(&added.stdout).is_err();
             if !raw.is_empty() && !raw.ends_with('\n') {
                 raw.push('\n');
@@ -581,6 +565,37 @@ impl Repo {
             raw.push_str(&added.stdout_text());
         }
         Ok((raw, not_utf8))
+    }
+
+    async fn untracked_file_diff(&self, root: &Path, path: &str) -> Result<crate::exec::ExecOutput, ScmFailure> {
+        let added = self
+            .scm
+            .git
+            .outcome(
+                &self.cancel,
+                root,
+                &[
+                    "--no-optional-locks",
+                    "diff",
+                    "--no-index",
+                    "--binary",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--no-color",
+                    "--src-prefix=a/",
+                    "--dst-prefix=b/",
+                    "--",
+                    "/dev/null",
+                    path,
+                ],
+                &RunOptions::read(),
+            )
+            .await?;
+        // --no-index uses exit 1 for a successfully produced patch.
+        if !matches!(added.code, Some(0 | 1)) {
+            return Err(ScmFailure::git(added.stderr_text().trim().to_owned()));
+        }
+        Ok(added)
     }
 
     /// `git diff` for the tool with `include_stage_ids`: the text plus the ids it can be staged by.
@@ -630,11 +645,17 @@ impl Repo {
                 ),
             ));
         }
-        let directory = std::env::temp_dir().join(format!("mixdog-git-stage-{}", &digest(&diff_id)[..12]));
+        self.apply_to_index(&diff_id, &built.patch).await?;
+        snapshots.forget(&diff_id);
+        Ok(StageOutcome::Staged(staged_summary(&built.changes)))
+    }
+
+    async fn apply_to_index(&self, diff_id: &str, patch: &str) -> Result<(), ScmFailure> {
+        let directory = std::env::temp_dir().join(format!("mixdog-git-stage-{}", &digest(diff_id)[..12]));
         std::fs::create_dir_all(&directory)?;
         let patch_path = directory.join("selected.patch");
         let result = async {
-            std::fs::write(&patch_path, &built.patch)?;
+            std::fs::write(&patch_path, patch)?;
             let patch = patch_path.to_string_lossy().into_owned();
             self.run(&["apply", "--cached", "--check", "--unidiff-zero", &patch]).await?;
             self.run(&["apply", "--cached", "--unidiff-zero", &patch]).await?;
@@ -642,8 +663,6 @@ impl Repo {
         }
         .await;
         let _ = std::fs::remove_dir_all(&directory);
-        result?;
-        snapshots.forget(&diff_id);
-        Ok(StageOutcome::Staged(staged_summary(&built.changes)))
+        result
     }
 }

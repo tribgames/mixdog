@@ -508,11 +508,9 @@ mod tests {
 
     /// The listener serves `mixdog_app_protocol::mgmt` types; this client re-declares them, so
     /// the two must agree on the wire.
-    #[test]
-    fn the_client_types_decode_what_the_listener_serves_and_the_listener_accepts_what_it_sends() {
+    fn served_status() -> mixdog_app_protocol::mgmt::StatusReply {
         use mixdog_app_protocol::mgmt as wire;
-
-        let served = wire::StatusReply {
+        wire::StatusReply {
             status: wire::CoreStatus {
                 state: wire::StateName::Draining,
                 version: "1.4.6".into(),
@@ -531,7 +529,12 @@ mod tests {
                 seq_of_snapshot: 5,
             },
             stalled_ms: 12,
-        };
+        }
+    }
+
+    #[test]
+    fn the_client_status_type_decodes_what_the_listener_serves() {
+        let served = served_status();
         let status: CoreStatus = serde_json::from_value(serde_json::to_value(&served).unwrap()).unwrap();
         assert_eq!(status.state, CoreStateName::Draining);
         assert_eq!(status.running[0].kind, "backgroundShell");
@@ -544,7 +547,12 @@ mod tests {
         assert_eq!(status.drain.unwrap().reason, "sshReplace");
         assert_eq!(status.fenced.as_deref(), Some("lockLost"));
         assert_eq!((status.clients, status.stalled_ms, status.seq_of_snapshot), (2, 12, 5));
+    }
 
+    #[test]
+    fn the_client_status_type_decodes_a_wait_exit_block() {
+        use mixdog_app_protocol::mgmt as wire;
+        let served = served_status();
         let wait = wire::StatusReply {
             status: wire::CoreStatus {
                 blocked: Some(wire::BlockedStatus { blocked: wire::Blocked::WaitExit { pid: 8 }, confirm_token: None }),
@@ -555,7 +563,11 @@ mod tests {
         let status: CoreStatus = serde_json::from_value(serde_json::to_value(&wait).unwrap()).unwrap();
         let blocked = status.blocked.unwrap();
         assert_eq!((blocked.kind.as_str(), blocked.pid, blocked.image), ("waitExit", 8, None));
+    }
 
+    #[test]
+    fn every_body_the_client_sends_parses_on_the_listener() {
+        use mixdog_app_protocol::mgmt as wire;
         // `deny_unknown_fields` on the listener: every body this client sends must parse there.
         fn body<T: Serialize>(value: &T) -> String {
             serde_json::to_string(value).unwrap()
@@ -567,8 +579,11 @@ mod tests {
         serde_json::from_str::<wire::CancelDrainRequest>(&body(&CancelDrainBody { drain_id: "d" })).unwrap();
         serde_json::from_str::<wire::ReleaseRequest>(&body(&ReleaseBody { pid: 3, confirm_token: "t" })).unwrap();
         serde_json::from_str::<wire::TerminateRequest>(&body(&TerminateBody { confirm_token: "t" })).unwrap();
+    }
 
-        // The client's `RefusalBody` reads the listener's `ErrorReply`.
+    #[test]
+    fn the_client_refusal_body_reads_the_listeners_error_reply() {
+        use mixdog_app_protocol::mgmt as wire;
         let refusal = serde_json::to_vec(&wire::ErrorReply::new("notDraining", "no drain")).unwrap();
         let refusal: RefusalBody = serde_json::from_slice(&refusal).unwrap();
         assert_eq!((refusal.code.as_str(), refusal.message.as_str()), ("notDraining", "no drain"));
@@ -681,10 +696,6 @@ mod tests {
         port
     }
 
-    /// Every ctl call against a core that stays silent, answers in time, or trickles its reply, under the paused clock: a
-    /// silent core ends the call at its silence bound (800 ms for `status`, 3000 ms for the lifecycle calls) with
-    /// `session timeout: <method> <path>`; a reply inside the bound is answered; a trickle that keeps moving outlasts the
-    /// silence bound of a lifecycle call, while `status` also has a total bound of 800 ms.
     #[tokio::test(start_paused = true)]
     async fn every_ctl_call_gives_up_at_its_bound_and_is_answered_inside_it() {
         for (_, ctl_path, call) in COUNTERPARTS {

@@ -320,74 +320,109 @@ mod tests {
         assert_eq!(command_cancelled("visualize", false).message_for_model, "Error: visualize command cancelled");
     }
 
-    /// `traceBrowserTiming` of each command `requestBridge` sent (its `finally`): the timing the desktop returned with a
-    /// result or in its error's `data`, and the turn the command carries; a cancelled command, and one whose host closed
-    /// after it went out, have no reply to read; without a host nothing was sent.
-    #[tokio::test]
-    async fn each_browser_command_hands_its_timing_to_the_trace() {
-        use mixdog_core_api::mock::MockHostChannel;
-
-        /// A host that closed before it answered (`capabilityUnavailable{claimantClosed}`).
-        struct Closing;
-        #[async_trait]
-        impl HostChannel for Closing {
-            async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
-                Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "claimantClosed".into() }))
-            }
-            fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
-                Ok(())
-            }
+    /// A host that closed before it answered (`capabilityUnavailable{claimantClosed}`).
+    struct ClaimantClosed;
+    #[async_trait]
+    impl HostChannel for ClaimantClosed {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "claimantClosed".into() }))
         }
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
 
-        let channel = Arc::new(MockHostChannel::default());
-        let rows: Arc<std::sync::Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
+    type TimingRows = Arc<std::sync::Mutex<Vec<serde_json::Map<String, Value>>>>;
+
+    fn timing_log() -> (BrowserTimingLog, TimingRows) {
+        let rows: TimingRows = Arc::default();
         let log: BrowserTimingLog = {
             let rows = rows.clone();
             Arc::new(move |args| rows.lock().unwrap().push(args))
         };
-        let commands = ChannelHostCommands::with_timing(channel.clone(), log.clone());
-        let thread = ThreadId::from("t1");
-        let live = CancellationToken::new();
-        assert_eq!(commands.browser(&thread, "snapshot", json!({}), &live).await, Err(HostCommandError::NoHost));
+        (log, rows)
+    }
+
+    fn only_row(rows: &TimingRows) -> serde_json::Map<String, Value> {
+        let rows = rows.lock().unwrap();
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        rows[0].clone()
+    }
+
+    /// `traceBrowserTiming` of each command `requestBridge` sent (its `finally`): the timing the desktop returned with a
+    /// result or in its error's `data`, and the turn the command carries; a cancelled command, and one whose host closed
+    /// after it went out, have no reply to read; without a host nothing was sent.
+    #[tokio::test]
+    async fn a_browser_commands_result_timing_reaches_the_trace_as_an_answered_http_200() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        let channel = Arc::new(MockHostChannel::default());
+        let (log, rows) = timing_log();
+        let commands = ChannelHostCommands::with_timing(channel.clone(), log);
         channel.claim(HostCapability::Browser);
-        let method = Method("host/browser/command");
-        channel.reply(method, json!({ "text": "Clicked", "timing": { "queueMs": 1, "commandMs": 9 } }));
-        assert!(commands.browser(&thread, "click", json!({ "ref": "e1" }), &live).await.is_ok());
-        channel.fail(method, HOST_COMMAND_FAILED, "Error: gone", Some(json!({ "timing": { "commandMs": 2 } })));
-        assert!(commands.browser(&thread, "saved_login_admit", json!({ "turn_id": 7 }), &live).await.is_err());
+        channel.reply(Method("host/browser/command"), json!({ "text": "Clicked", "timing": { "queueMs": 1, "commandMs": 9 } }));
+        assert!(commands.browser(&ThreadId::from("t1"), "click", json!({ "ref": "e1" }), &CancellationToken::new()).await.is_ok());
+        let row = only_row(&rows);
+        assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
+        assert_eq!(row["status"], json!(200));
+        assert_eq!(row["context"], json!({ "sessionId": "t1", "action": "click" }));
+        assert_eq!(row["body"], json!({ "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9 } } }));
+    }
+
+    #[tokio::test]
+    async fn a_browser_commands_error_timing_and_turn_reach_the_trace() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        let channel = Arc::new(MockHostChannel::default());
+        let (log, rows) = timing_log();
+        let commands = ChannelHostCommands::with_timing(channel.clone(), log);
+        channel.claim(HostCapability::Browser);
+        channel.fail(Method("host/browser/command"), HOST_COMMAND_FAILED, "Error: gone", Some(json!({ "timing": { "commandMs": 2 } })));
+        assert!(commands.browser(&ThreadId::from("t1"), "saved_login_admit", json!({ "turn_id": 7 }), &CancellationToken::new()).await.is_err());
+        let row = only_row(&rows);
+        assert_eq!(row["status"], json!(200), "a refusal is an answer too");
+        assert_eq!(row["context"], json!({ "sessionId": "t1", "turnId": 7, "action": "saved_login_admit" }));
+        assert_eq!(row["body"], json!({ "ok": false, "timing": { "commandMs": 2 } }));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_browser_command_traces_no_body_and_no_status() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        let channel = Arc::new(MockHostChannel::default());
+        let (log, rows) = timing_log();
+        let commands = ChannelHostCommands::with_timing(channel.clone(), log);
+        channel.claim(HostCapability::Browser);
         let cancelled = CancellationToken::new();
         cancelled.cancel();
-        assert_eq!(commands.browser(&thread, "read", json!({}), &cancelled).await, Err(HostCommandError::Cancelled));
-        let closing = ChannelHostCommands::with_timing(Arc::new(Closing), log);
+        assert_eq!(commands.browser(&ThreadId::from("t1"), "read", json!({}), &cancelled).await, Err(HostCommandError::Cancelled));
+        let row = only_row(&rows);
+        assert_eq!(row["context"], json!({ "sessionId": "t1", "action": "read" }));
+        assert!(row.get("body").is_none() && row.get("status").is_none(), "{row:?}");
+    }
+
+    #[tokio::test]
+    async fn a_browser_command_whose_host_closed_after_sending_is_a_lost_connection_with_no_trace_body() {
+        let (log, rows) = timing_log();
+        let closing = ChannelHostCommands::with_timing(Arc::new(ClaimantClosed), log);
         // A typing command whose host closed after it went out may have run: not the missing desktop (`client.mjs:514-527`).
         assert_eq!(
-            closing.browser(&thread, "type", json!({ "ref": "e2" }), &live).await,
+            closing.browser(&ThreadId::from("t1"), "type", json!({ "ref": "e2" }), &CancellationToken::new()).await,
             Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: BROWSER_CONNECTION_LOST.to_owned(), timing: None })
         );
+        let row = only_row(&rows);
+        assert_eq!(row["context"], json!({ "sessionId": "t1", "action": "type" }));
+        assert!(row.get("body").is_none() && row.get("status").is_none(), "{row:?}");
+    }
 
-        let seen: Vec<(Value, Option<Value>)> = rows
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|row| {
-                assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
-                assert_eq!(
-                    row.get("status").cloned(),
-                    row.get("body").map(|_| json!(200)),
-                    "an answered command is HTTP 200, one without an answer has no status"
-                );
-                (row["context"].clone(), row.get("body").cloned())
-            })
-            .collect();
-        assert_eq!(
-            seen,
-            [
-                (json!({ "sessionId": "t1", "action": "click" }), Some(json!({ "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9 } } })),),
-                (json!({ "sessionId": "t1", "turnId": 7, "action": "saved_login_admit" }), Some(json!({ "ok": false, "timing": { "commandMs": 2 } })),),
-                (json!({ "sessionId": "t1", "action": "read" }), None),
-                (json!({ "sessionId": "t1", "action": "type" }), None),
-            ]
-        );
+    #[tokio::test]
+    async fn a_browser_command_with_no_host_sends_nothing_and_traces_nothing() {
+        use mixdog_core_api::mock::MockHostChannel;
+
+        let (log, rows) = timing_log();
+        let commands = ChannelHostCommands::with_timing(Arc::new(MockHostChannel::default()), log);
+        assert_eq!(commands.browser(&ThreadId::from("t1"), "snapshot", json!({}), &CancellationToken::new()).await, Err(HostCommandError::NoHost));
+        assert!(rows.lock().unwrap().is_empty());
     }
 
     /// A host that closes while a visualize command waits is a lost connection, not "the desktop app must be running".

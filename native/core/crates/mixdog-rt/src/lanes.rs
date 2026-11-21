@@ -64,10 +64,9 @@ pub enum ThreadKind {
     EffortJudge,
 }
 
-/// The lane is overloaded: its queue holds its far bound of waiting jobs (overload protection,
-/// not a busy signal: below that bound a job waits for a thread), or it has no healthy worker
-/// left. The caller answers `overloaded` at once (RL §0.2); it is never a closed session, and a
-/// job refused this way never ran, so a reply it carried is still the caller's to send.
+/// The lane is overloaded: its queue holds its far bound of waiting jobs, or it has no healthy worker left. The caller answers
+/// `overloaded` at once; it is never a closed session, and a job refused this way never ran, so a reply it carried is still the
+/// caller's to send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LaneFull {
     pub lane: LaneKind,
@@ -79,59 +78,84 @@ impl std::fmt::Display for LaneFull {
     }
 }
 
-/// How a [`crate::LaneToken::submit_wait`] job entered its lane's queue ([`crate::Backend::enter`]).
+/// How a [`crate::LaneToken::submit_wait`] job entered its lane ([`crate::Backend::enter`]). From then on the lane owns
+/// the job; the caller keeps only its handle and, while it waits, its ticket.
 pub enum Entered {
     /// Queued and admitted: fewer than the lane's room of jobs are ahead of it.
     Admitted,
-    /// Queued in arrival order, not yet admitted: the caller waits on the ticket. Its place is
-    /// kept; it runs only after every job that arrived before it.
+    /// Queued in arrival order, not yet admitted: the caller waits on the ticket. The job keeps
+    /// its place, inside the queue's far bound or in the waiting order beyond it, and runs only
+    /// after every job that arrived before it.
     Waiting(Ticket),
-    /// The queue holds its far bound (waiting jobs counted), or the lane has no healthy worker.
+    /// A plain submission met the queue at its far bound (a `submit_wait` job is never refused
+    /// for room).
     Refused(LaneFull),
+    /// The lane has no healthy worker to run the job; the job was dropped unrun.
+    Wedged,
     /// The lane shut down; the job was answered [`JobDropped::ShutDown`].
     ShutDown,
 }
 
-/// What ended a ticket's wait.
+/// What ended a ticket's wait. Decided once, under the lane's lock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TicketEnd {
     /// The job came within the lane's room of the head (or a thread took it).
     Admitted,
-    /// The job was taken out of the queue unrun: its caller withdrew it, or it was cancelled
-    /// while the queue held its far bound.
+    /// The job was taken out unrun before admission: its caller withdrew it, or its token was
+    /// cancelled.
     Withdrawn,
-    /// The lane lost its last healthy worker; the queued job was dropped unrun.
+    /// The lane lost its last healthy worker (or could start no thread); the job was answered
+    /// unrun.
     Wedged,
-    /// The lane shut down; the queued job was dropped unrun.
+    /// The lane shut down; the job was answered unrun.
     ShutDown,
+}
+
+/// A job's node in its lane's queue: its slot and that slot's generation, so a key outliving the
+/// node never names the slot's next occupant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NodeKey {
+    pub(crate) index: u32,
+    pub(crate) generation: u32,
 }
 
 const TICKET_WAITING: u8 = 0;
 
-/// A waiting job's place in its lane's queue ([`Entered::Waiting`]). The lane settles it under
-/// its queue's lock, at the moment the job stops waiting.
+/// A waiting job's place in its lane's queue ([`Entered::Waiting`]). The lane decides its end
+/// under its queue's lock, at the moment the job stops waiting, and wakes the waiter after.
 #[derive(Clone)]
-pub struct Ticket(std::sync::Arc<TicketState>);
+pub struct Ticket {
+    state: std::sync::Arc<TicketState>,
+    key: NodeKey,
+}
 
 struct TicketState {
     end: std::sync::atomic::AtomicU8,
-    /// `notify_one`: a settle before the waiter awaits is kept as a permit, never lost.
+    /// `notify_one`: a wake before the waiter awaits is kept as a permit, never lost.
     changed: tokio::sync::Notify,
 }
 
 impl Ticket {
-    pub(crate) fn new() -> Self {
-        Self(std::sync::Arc::new(TicketState { end: std::sync::atomic::AtomicU8::new(TICKET_WAITING), changed: tokio::sync::Notify::new() }))
+    pub(crate) fn new(key: NodeKey) -> Self {
+        Self { state: std::sync::Arc::new(TicketState { end: std::sync::atomic::AtomicU8::new(TICKET_WAITING), changed: tokio::sync::Notify::new() }), key }
     }
 
-    pub(crate) fn settle(&self, end: TicketEnd) {
-        self.0.end.store(end as u8 + 1, std::sync::atomic::Ordering::Release);
-        self.0.changed.notify_one();
+    pub(crate) fn key(&self) -> NodeKey {
+        self.key
+    }
+
+    /// Decides the ticket's end; the waiter is woken by [`Self::wake`].
+    pub(crate) fn decide(&self, end: TicketEnd) {
+        self.state.end.store(end as u8 + 1, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn wake(&self) {
+        self.state.changed.notify_one();
     }
 
     /// `None` while the job waits.
     pub(crate) fn end(&self) -> Option<TicketEnd> {
-        match self.0.end.load(std::sync::atomic::Ordering::Acquire) {
+        match self.state.end.load(std::sync::atomic::Ordering::Acquire) {
             TICKET_WAITING => None,
             1 => Some(TicketEnd::Admitted),
             2 => Some(TicketEnd::Withdrawn),
@@ -141,11 +165,7 @@ impl Ticket {
     }
 
     pub(crate) async fn changed(&self) {
-        self.0.changed.notified().await;
-    }
-
-    pub(crate) fn same(&self, other: &Ticket) -> bool {
-        std::sync::Arc::ptr_eq(&self.0, &other.0)
+        self.state.changed.notified().await;
     }
 }
 
@@ -233,11 +253,18 @@ pub struct QueuedJob {
     run: Box<dyn FnOnce(Answer) + Send>,
 }
 
-/// What a job's body is called for: to run, or to answer that its lane shut down.
+/// What a job's body is called for: to run, or to answer why it never will. Only `Run` calls the
+/// submitter's closure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Answer {
     Run,
     ShutDown,
+    /// The lane has no healthy worker to run the job.
+    Wedged,
+    /// The job's token was cancelled while it was queued.
+    Cancelled,
+    /// The thread started for the job could not be created; other threads serve the lane.
+    NotStarted,
 }
 
 /// What [`QueuedJob::run`] did.
@@ -283,42 +310,60 @@ impl QueuedJob {
         self.cancel.is_cancelled()
     }
 
+    pub(crate) fn token(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
+
     /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
     #[cfg(feature = "virtual-clock")]
     pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce(Answer) + Send>) -> Box<dyn FnOnce(Answer) + Send>) -> Self {
         Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, cancel: self.cancel, run: wrap(self.run) }
     }
 
-    /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.
+    /// Runs the job on the calling lane thread, or drops it unrun if it was cancelled while queued
+    /// (its handle resolves [`JobDropped::Cancelled`]).
     pub fn run(self) -> JobRun {
         if self.cancel.is_cancelled() {
+            self.answer(Answer::Cancelled);
             return JobRun::DroppedCancelled;
         }
         (self.run)(Answer::Run);
         JobRun::Completed
     }
 
-    /// The lane shut down with the job queued: its handle resolves [`JobDropped::ShutDown`].
-    pub(crate) fn shut_down(self) {
-        (self.run)(Answer::ShutDown);
+    /// Calls the job's body with `answer`; a lane answers a job it will never run this way, after
+    /// deciding why under its lock.
+    pub(crate) fn answer(self, answer: Answer) {
+        (self.run)(answer);
     }
 }
 
 /// The job was dropped before producing a result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobDropped {
-    /// Cancelled at dequeue, discarded unrun by a wedged lane, its thread could not take the
-    /// lane's priority, or it panicked. Except for a panic, the job never ran.
+    /// Its thread could not take the lane's priority, or it panicked. Except for a panic, the
+    /// job never ran.
     Dropped,
+    /// The job's token was cancelled while it was queued; it never ran.
+    Cancelled,
     /// The lane shut down while the job was queued; it never ran.
     ShutDown,
+    /// The lane lost its last healthy worker (or could start no thread) while the job was
+    /// queued; it never ran.
+    Wedged,
+    /// The OS refused the thread the lane started for the job, while other threads still serve
+    /// the lane; it never ran.
+    NotStarted,
 }
 
 impl std::fmt::Display for JobDropped {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JobDropped::Dropped => f.write_str("lane job dropped before completion"),
+            JobDropped::Cancelled => f.write_str("lane job cancelled before it ran"),
             JobDropped::ShutDown => f.write_str("lane shut down before the job ran"),
+            JobDropped::Wedged => f.write_str("lane has no healthy worker to run the job"),
+            JobDropped::NotStarted => f.write_str("lane could not start a thread for the job"),
         }
     }
 }
@@ -334,6 +379,18 @@ pub struct JobHandle<R> {
 impl<R> JobHandle<R> {
     pub(crate) fn new(rx: oneshot::Receiver<Result<R, JobDropped>>) -> Self {
         Self { rx }
+    }
+
+    /// The outcome if it was already sent, read without waiting and without spending the task's
+    /// cooperative budget; `None` while nothing was sent and the job may still send it. A lane
+    /// sends a job's known unrun cause before it drops the job's closure, so a reader that holds
+    /// what that closure released last reads the cause here, never `None`.
+    pub fn try_outcome(&mut self) -> Option<Result<R, JobDropped>> {
+        match self.rx.try_recv() {
+            Ok(outcome) => Some(outcome),
+            Err(oneshot::error::TryRecvError::Closed) => Some(Err(JobDropped::Dropped)),
+            Err(oneshot::error::TryRecvError::Empty) => None,
+        }
     }
 }
 

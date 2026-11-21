@@ -17,7 +17,7 @@ fn fixture() -> std::path::PathBuf {
 }
 
 #[test]
-fn outline_mode_dumps_items_members_and_extra_rules() {
+fn outline_mode_dumps_items_and_members() {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-outline-{nonce}"));
     fs::create_dir_all(&root).unwrap();
@@ -43,8 +43,6 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     assert_eq!(member["symbolType"], "method");
     assert_eq!(member["name"], "read");
     assert_eq!(member["isPublic"], true);
-    // A member carries the same range an item does, so a method is locatable
-    // and measurable from outline output alone.
     assert_eq!(member["range"]["start"]["line"], 2);
     assert_eq!(member["range"]["start"]["column"], 2);
     assert_eq!(member["range"]["end"]["line"], 2);
@@ -54,7 +52,16 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     assert_eq!(lines[1]["summary"]["files"], 1);
     assert_eq!(lines[1]["summary"]["errors"].as_array().unwrap().len(), 0);
 
-    // An extra rule file is layered on top of the bundle and wins per node.
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn outline_extra_rules_win_over_the_bundle_per_node() {
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-outline-rules-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("a.ts"), "export class Store {\n  read() {}\n}\n").unwrap();
+
     let rules = root.join("extra.yml");
     fs::write(
         &rules,
@@ -68,11 +75,6 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// Every member range is the span of the declaration its rule matched, in the
-/// item-level shape: a member WITH a body (class/impl method) spans the body,
-/// and a genuinely bodiless one (an interface or trait method signature) spans
-/// the declaration node the grammar gives it — which is the whole declaration
-/// that member has.
 #[test]
 fn outline_member_ranges_span_each_member_declaration() {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -128,10 +130,6 @@ fn outline_member_ranges_span_each_member_declaration() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// The two declaration shapes a `references <name>` query used to miss reach
-/// the RECORD, not only the extraction: a function-valued property of an
-/// object literal, and a method signature of an interface. Both are `method`,
-/// both name their enclosing declaration as `parent`.
 #[test]
 fn object_literal_and_signature_methods_reach_the_record() {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -163,10 +161,6 @@ fn object_literal_and_signature_methods_reach_the_record() {
     assert_eq!(property["parent"], "createPowerShellComputerHost");
     assert_eq!(named("recordProgress", 10)["kind"], "method");
 
-    // Data properties and interface fields are no symbols — a function TYPE
-    // (`onClick: () => void`) is a field like any other, an OPTIONS BAG
-    // (`authHeaders(key, { … })`) is a computed value, not a factory, and an
-    // object literal value is data.
     assert!(
         !symbols.iter().any(|symbol| { matches!(symbol["name"].as_str(), Some("label" | "flag" | "onClick" | "headers" | "style" | "Accept" | "color")) }),
         "{symbols:?}"
@@ -208,20 +202,35 @@ fn files_mode_rejects_malformed_reused_jsonl() {
 }
 
 #[test]
-fn manifest_files_walk_and_search_remain_jsonl() {
+fn manifest_lists_fingerprinted_files_as_jsonl() {
     let root = fixture();
 
     let manifest = run(&root, &["--manifest"], None);
     assert_eq!(manifest.len(), 4);
     assert!(manifest.iter().all(|v| { v["fp"].as_str().unwrap().len() == 16 && v["size"].as_u64().unwrap() > 0 && v["tokens"] == serde_json::json!([]) }));
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn walk_links_resolved_imports_and_importers() {
+    let root = fixture();
+
     let walk = run(&root, &[], None);
     let main = walk.iter().find(|v| v["rel"] == "src/main.ts").unwrap();
     let dep = walk.iter().find(|v| v["rel"] == "src/dep.ts").unwrap();
     assert_eq!(main["resolvedImports"], serde_json::json!(["src/dep.ts"]));
     assert_eq!(dep["importedBy"], serde_json::json!(["src/main.ts"]));
-    // Symbol record v2: five always-present fields plus the three optional
-    // ones, which are omitted rather than emitted empty/false.
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn walk_symbol_records_keep_the_v2_shape() {
+    let root = fixture();
+
+    let walk = run(&root, &[], None);
+    let main = walk.iter().find(|v| v["rel"] == "src/main.ts").unwrap();
     let symbols = main["symbols"].as_array().unwrap();
     assert!(symbols.iter().any(|s| s["name"] == "main"));
     for symbol in symbols {
@@ -246,6 +255,13 @@ fn manifest_files_walk_and_search_remain_jsonl() {
         }
     }
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reused_jsonl_dependency_is_linked_to_its_importer() {
+    let root = fixture();
+
     let reused = serde_json::json!({
         "rel": "src/dep.ts",
         "lang": "typescript",
@@ -256,6 +272,13 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     assert_eq!(files.iter().find(|v| v["rel"] == "src/main.ts").unwrap()["resolvedImports"], serde_json::json!(["src/dep.ts"]));
     assert_eq!(files.iter().find(|v| v["rel"] == "src/dep.ts").unwrap()["importedBy"], serde_json::json!(["src/main.ts"]));
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reused_jsonl_importer_is_linked_to_its_dependency() {
+    let root = fixture();
+
     let reused_importer = serde_json::json!({
         "rel": "src/main.ts",
         "lang": "typescript",
@@ -264,6 +287,13 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     let reused_links = run(&root, &["--files", "src/dep.ts"], Some(&format!("{reused_importer}\n")));
     assert_eq!(reused_links.iter().find(|v| v["rel"] == "src/main.ts").unwrap()["resolvedImports"], serde_json::json!(["src/dep.ts"]));
     assert_eq!(reused_links.iter().find(|v| v["rel"] == "src/dep.ts").unwrap()["importedBy"], serde_json::json!(["src/main.ts"]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reused_java_record_resolves_package_imports() {
+    let root = fixture();
 
     let reused_java = serde_json::json!({
         "rel": "java/com/acme/User.java",
@@ -277,6 +307,13 @@ fn manifest_files_walk_and_search_remain_jsonl() {
     let user_java = indexed.iter().find(|v| v["rel"] == "java/com/acme/User.java").unwrap();
     assert_eq!(use_java["resolvedImports"], serde_json::json!(["java/com/acme/User.java"]));
     assert_eq!(user_java["importedBy"], serde_json::json!(["java/com/acme/Use.java"]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn content_search_hits_stay_jsonl() {
+    let root = fixture();
 
     let hits = run(&root, &["answer"], None);
     assert_eq!(hits.len(), 3);
@@ -329,21 +366,33 @@ fn rust_python_tsconfig_and_hash_imports_resolve() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_json::Value {
+fn spawn_serve_search(
+    root: &std::path::Path,
+    envs: &[(&str, &str)],
+) -> (std::process::Child, std::io::BufReader<std::process::ChildStdout>, std::process::ChildStdin) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
         .arg(root)
         .arg("--serve-search")
+        .envs(envs.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
+    let stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let stdin = child.stdin.take().unwrap();
+    (child, stdout, stdin)
+}
+
+fn read_ready<R: BufRead>(stdout: &mut R) {
     let mut ready = String::new();
     stdout.read_line(&mut ready).unwrap();
-    let ready_json: serde_json::Value = serde_json::from_str(ready.trim()).unwrap();
-    assert_eq!(ready_json["ready"], true);
+    assert_eq!(serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"], true);
+}
+
+fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_json::Value {
+    let (mut child, mut stdout, mut stdin) = spawn_serve_search(root, &[]);
+    read_ready(&mut stdout);
     writeln!(stdin, "{request}").unwrap();
     let response = read_search_response(&mut stdout, request["id"].as_u64().unwrap());
     drop(stdin);
@@ -351,31 +400,11 @@ fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_jso
     response
 }
 
-/// A panicking handler must cost exactly one request, never the server.
-///
-/// This is the PROFILE check, not a unit test of `contain_search_panic`:
-/// `catch_unwind` isolates only when the binary was built to unwind, so the
-/// contract is asserted against a real build of the binary this suite runs.
-/// Run it under `cargo test --release` as well to prove it in the shipped
-/// configuration — with `panic = "abort"` the server aborts here instead and
-/// the first read returns nothing.
 #[test]
 fn a_panicking_handler_is_isolated_and_the_server_keeps_serving() {
     let root = fixture();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
-        .arg(&root)
-        .arg("--serve-search")
-        .env("MIXDOG_SEARCH_PANIC_PROBE_ID", "41")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
-    let mut ready = String::new();
-    stdout.read_line(&mut ready).unwrap();
-    assert_eq!(serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"], true);
+    let (mut child, mut stdout, mut stdin) = spawn_serve_search(&root, &[("MIXDOG_SEARCH_PANIC_PROBE_ID", "41")]);
+    read_ready(&mut stdout);
 
     let search = |id: u64| {
         serde_json::json!({
@@ -704,18 +733,8 @@ fn serve_search_accepts_hundreds_of_parallel_requests() {
     for index in 0..32 {
         fs::write(root.join("src").join(format!("parallel-{index}.ts")), format!("export const needle_{index} = true;\n")).unwrap();
     }
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
-        .arg(&root)
-        .arg("--serve-search")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
-    let mut ready = String::new();
-    stdout.read_line(&mut ready).unwrap();
+    let (mut child, mut stdout, mut stdin) = spawn_serve_search(&root, &[]);
+    read_ready(&mut stdout);
 
     const REQUESTS: u64 = 256;
     for id in 1..=REQUESTS {
@@ -860,57 +879,92 @@ fn serve_search_fuzzy_multi_token_and_matches_every_fragment() {
     fs::remove_dir_all(root).unwrap();
 }
 
+struct ServerWatchdog {
+    child: std::sync::Arc<std::sync::Mutex<std::process::Child>>,
+    timed_out: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    done: Option<std::sync::mpsc::Sender<()>>,
+    watchdog: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ServerWatchdog {
+    fn arm(child: std::process::Child) -> Self {
+        let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+        let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (done, deadline) = std::sync::mpsc::channel::<()>();
+        let watchdog = {
+            let child = std::sync::Arc::clone(&child);
+            let timed_out = std::sync::Arc::clone(&timed_out);
+            std::thread::spawn(move || {
+                if deadline.recv_timeout(std::time::Duration::from_secs(10)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                    timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+                }
+            })
+        };
+        Self { child, timed_out, done: Some(done), watchdog: Some(watchdog) }
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn await_exit(&self) -> std::process::ExitStatus {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let exited = self.child.lock().unwrap().try_wait().unwrap();
+            if let Some(status) = exited {
+                return status;
+            }
+            assert!(std::time::Instant::now() < deadline, "server did not exit within 10s of stdin closing");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+}
+
+impl Drop for ServerWatchdog {
+    fn drop(&mut self) {
+        drop(self.done.take());
+        if let Some(watchdog) = self.watchdog.take() {
+            let _ = watchdog.join();
+        }
+        let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+fn wait_for_invalidation<R: BufRead>(stdout: &mut R, created: &std::path::Path, server: &ServerWatchdog) {
+    let normal = |path: &str| {
+        let slashed = path.replace('\\', "/").trim_end_matches('/').to_string();
+        if cfg!(windows) { slashed.to_lowercase() } else { slashed }
+    };
+    let created = normal(&created.to_string_lossy());
+    loop {
+        let mut line = String::new();
+        assert!(
+            stdout.read_line(&mut line).unwrap() > 0,
+            "{}",
+            if server.timed_out() { "no invalidate event announced the created file within 10s" } else { "server closed before announcing the change" }
+        );
+        let message: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(message["event"], "invalidate", "{message}");
+        if message["paths"].as_array().unwrap().iter().any(|path| {
+            path.as_str().is_some_and(|path| {
+                let announced = normal(path);
+                created == announced || created.starts_with(&format!("{announced}/"))
+            })
+        }) {
+            return;
+        }
+    }
+}
+
 #[test]
 fn serve_search_watcher_invalidates_the_shared_inventory() {
     let root = fixture();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
-        .arg(&root)
-        .arg("--serve-search")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
-    // A failure bound, not a delay: the watchdog covers the whole test,
-    // including shutdown. If the server stalls, it kills the server so the
-    // blocked read ends and the test fails with a message.
-    struct ServerGuard {
-        child: std::sync::Arc<std::sync::Mutex<std::process::Child>>,
-        done: Option<std::sync::mpsc::Sender<()>>,
-        watchdog: Option<std::thread::JoinHandle<()>>,
-    }
-    impl Drop for ServerGuard {
-        // Runs on success and on panic: disarm, kill, reap, join.
-        fn drop(&mut self) {
-            // Disarm and join first so nothing else contends for the lock;
-            // the wait below is then only for a process that was just killed.
-            drop(self.done.take());
-            if let Some(watchdog) = self.watchdog.take() {
-                let _ = watchdog.join();
-            }
-            let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
-    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (done, deadline) = std::sync::mpsc::channel::<()>();
-    let watchdog = {
-        let child = std::sync::Arc::clone(&child);
-        let timed_out = std::sync::Arc::clone(&timed_out);
-        std::thread::spawn(move || {
-            if deadline.recv_timeout(std::time::Duration::from_secs(10)) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
-                let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
-            }
-        })
-    };
-    let _guard = ServerGuard { child: std::sync::Arc::clone(&child), done: Some(done), watchdog: Some(watchdog) };
-    let mut ready = String::new();
-    stdout.read_line(&mut ready).unwrap();
+    let (child, mut stdout, mut stdin) = spawn_serve_search(&root, &[]);
+    let server = ServerWatchdog::arm(child);
+    read_ready(&mut stdout);
     let request = |id: u64| {
         serde_json::json!({
             "id": id,
@@ -925,142 +979,71 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
     let first = read_search_response(&mut stdout, 1);
     assert!(first["matches"].as_array().unwrap().is_empty());
 
-    fs::write(root.join("src/watcher-created.rs"), "fn watched() {}\n").unwrap();
-    // The server announces an invalidation once it has applied the change, so
-    // wait for that event instead of polling on a timer.
-    loop {
-        let mut line = String::new();
-        assert!(
-            stdout.read_line(&mut line).unwrap() > 0,
-            "{}",
-            if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
-                "no invalidate event announced the created file within 10s"
-            } else {
-                "server closed before announcing the change"
-            }
-        );
-        let message: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-        assert_eq!(message["event"], "invalidate", "{message}");
-        // A path is announced itself or under an announced root; Windows
-        // paths are native and compare case-insensitively.
-        let normal = |path: &str| {
-            let slashed = path.replace('\\', "/").trim_end_matches('/').to_string();
-            if cfg!(windows) { slashed.to_lowercase() } else { slashed }
-        };
-        let created = normal(&root.join("src/watcher-created.rs").to_string_lossy());
-        if message["paths"].as_array().unwrap().iter().any(|path| {
-            path.as_str().is_some_and(|path| {
-                let announced = normal(path);
-                created == announced || created.starts_with(&format!("{announced}/"))
-            })
-        }) {
-            break;
-        }
-    }
+    let created = root.join("src/watcher-created.rs");
+    fs::write(&created, "fn watched() {}\n").unwrap();
+    wait_for_invalidation(&mut stdout, &created, &server);
     writeln!(stdin, "{}", request(2)).unwrap();
     let second = read_search_response(&mut stdout, 2);
     let found = second["matches"].as_array().unwrap().iter().any(|path| path.as_str().is_some_and(|path| path.ends_with("watcher-created.rs")));
-    // Shutdown stays bounded: closing stdin must end the server, which closes
-    // its stdout (the watchdog ends this read if it does not). The exit is
-    // then polled with the lock released between polls, so the watchdog and
-    // the guard can always kill the server; on the bound the test fails and
-    // the guard reaps it.
     drop(stdin);
     std::io::Read::read_to_end(&mut stdout, &mut Vec::new()).unwrap();
-    let shutdown_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    let status = loop {
-        let exited = child.lock().unwrap().try_wait().unwrap();
-        if let Some(status) = exited {
-            break status;
-        }
-        assert!(std::time::Instant::now() < shutdown_deadline, "server did not exit within 10s of stdin closing");
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    };
-    assert!(!timed_out.load(std::sync::atomic::Ordering::SeqCst), "server did not shut down within 10s of stdin closing");
+    let status = server.await_exit();
+    assert!(!server.timed_out(), "server did not shut down within 10s of stdin closing");
     assert!(status.success());
     assert!(found, "watcher did not invalidate the native inventory");
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn serve_search_parallel_load_keeps_one_server_responsive() {
-    let root = fixture();
-    for index in 0..512 {
-        fs::write(root.join("src").join(format!("load-{index:04}.rs")), format!("pub const NEEDLE_{index}: &str = \"needle\";\n")).unwrap();
-    }
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
-        .arg(&root)
-        .arg("--serve-search")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut stdin = child.stdin.take().unwrap();
-    let mut ready = String::new();
-    stdout.read_line(&mut ready).unwrap();
-    assert_eq!(serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"], true);
+fn fuzzy_load_request(root: &std::path::Path, id: u64) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "cwd": root,
+        "fuzzy": "load",
+        "hidden": true,
+        "includeNoise": false,
+        "limit": 8,
+        "deadlineMs": 30_000
+    })
+}
 
-    const REQUESTS: u64 = 96;
-    for id in 1..=REQUESTS {
-        let request = match id % 3 {
-            0 => serde_json::json!({
-                "id": id,
-                "cwd": root,
-                "args": [
-                    "--hidden", "--no-heading", "-H", "--line-number",
-                    "-e", "needle", "--", "."
-                ],
-                "offset": 0,
-                "limit": 8,
-                "deadlineMs": 30_000
-            }),
-            1 => serde_json::json!({
-                "id": id,
-                "cwd": root,
-                "args": ["--files", "--hidden", "--glob", "*.rs", "."],
-                "offset": 0,
-                "limit": 8,
-                "deadlineMs": 30_000
-            }),
-            _ => serde_json::json!({
-                "id": id,
-                "cwd": root,
-                "fuzzy": "load",
-                "hidden": true,
-                "includeNoise": false,
-                "limit": 8,
-                "deadlineMs": 30_000
-            }),
-        };
-        writeln!(stdin, "{request}").unwrap();
-    }
-    let cancel_id = REQUESTS + 1;
-    writeln!(
-        stdin,
-        "{}",
-        serde_json::json!({
-            "id": cancel_id,
+fn load_request(root: &std::path::Path, id: u64) -> serde_json::Value {
+    match id % 3 {
+        0 => serde_json::json!({
+            "id": id,
             "cwd": root,
-            "fuzzy": "load",
-            "hidden": true,
-            "includeNoise": false,
+            "args": [
+                "--hidden", "--no-heading", "-H", "--line-number",
+                "-e", "needle", "--", "."
+            ],
+            "offset": 0,
             "limit": 8,
             "deadlineMs": 30_000
-        })
-    )
-    .unwrap();
-    writeln!(stdin, "{}", serde_json::json!({ "cancel": cancel_id })).unwrap();
-    let cancel_started = std::time::Instant::now();
-    stdin.flush().unwrap();
+        }),
+        1 => serde_json::json!({
+            "id": id,
+            "cwd": root,
+            "args": ["--files", "--hidden", "--glob", "*.rs", "."],
+            "offset": 0,
+            "limit": 8,
+            "deadlineMs": 30_000
+        }),
+        _ => fuzzy_load_request(root, id),
+    }
+}
 
+struct LoadOutcome {
+    classes: std::collections::HashSet<String>,
+    queue_ms: Vec<u64>,
+    cancel_elapsed: std::time::Duration,
+}
+
+fn read_load_responses<R: BufRead>(stdout: &mut R, requests: u64, cancel_id: u64, cancel_started: std::time::Instant) -> LoadOutcome {
     let mut ids = std::collections::HashSet::new();
     let mut classes = std::collections::HashSet::new();
     let mut queue_ms = Vec::new();
     let mut cancel_elapsed = None;
-    while ids.len() < REQUESTS as usize || cancel_elapsed.is_none() {
-        let response = read_search_message(&mut stdout);
+    while ids.len() < requests as usize || cancel_elapsed.is_none() {
+        let response = read_search_message(stdout);
         if response["id"] == cancel_id && response["event"] == "cancelled" {
             cancel_elapsed = Some(cancel_started.elapsed());
             continue;
@@ -1070,17 +1053,40 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
         assert_ne!(response["timeout"], true, "{response}");
         assert_ne!(response["partial"], true, "{response}");
         let id = response["id"].as_u64().unwrap();
-        assert!((1..=REQUESTS).contains(&id), "{response}");
+        assert!((1..=requests).contains(&id), "{response}");
         assert!(ids.insert(id), "duplicate response id {id}");
         classes.insert(response["class"].as_str().unwrap().to_string());
         queue_ms.push(response["queueMs"].as_u64().unwrap());
     }
-    assert_eq!(classes, ["interactive", "fuzzy", "bulk"].into_iter().map(str::to_string).collect());
-    queue_ms.sort_unstable();
-    let p95 = queue_ms[(queue_ms.len() * 95 / 100).min(queue_ms.len() - 1)];
+    LoadOutcome { classes, queue_ms, cancel_elapsed: cancel_elapsed.unwrap() }
+}
+
+#[test]
+fn serve_search_parallel_load_keeps_one_server_responsive() {
+    let root = fixture();
+    for index in 0..512 {
+        fs::write(root.join("src").join(format!("load-{index:04}.rs")), format!("pub const NEEDLE_{index}: &str = \"needle\";\n")).unwrap();
+    }
+    let (mut child, mut stdout, mut stdin) = spawn_serve_search(&root, &[]);
+    read_ready(&mut stdout);
+
+    const REQUESTS: u64 = 96;
+    for id in 1..=REQUESTS {
+        writeln!(stdin, "{}", load_request(&root, id)).unwrap();
+    }
+    let cancel_id = REQUESTS + 1;
+    writeln!(stdin, "{}", fuzzy_load_request(&root, cancel_id)).unwrap();
+    writeln!(stdin, "{}", serde_json::json!({ "cancel": cancel_id })).unwrap();
+    let cancel_started = std::time::Instant::now();
+    stdin.flush().unwrap();
+
+    let mut outcome = read_load_responses(&mut stdout, REQUESTS, cancel_id, cancel_started);
+    assert_eq!(outcome.classes, ["interactive", "fuzzy", "bulk"].into_iter().map(str::to_string).collect());
+    outcome.queue_ms.sort_unstable();
+    let p95 = outcome.queue_ms[(outcome.queue_ms.len() * 95 / 100).min(outcome.queue_ms.len() - 1)];
     assert!(p95 < 10_000, "queue p95 too high: {p95}ms");
     assert!(child.try_wait().unwrap().is_none(), "search server exited under load");
-    assert!(cancel_elapsed.unwrap() < std::time::Duration::from_secs(1), "cancel acknowledgement exceeded 1s");
+    assert!(outcome.cancel_elapsed < std::time::Duration::from_secs(1), "cancel acknowledgement exceeded 1s");
 
     drop(stdin);
     let status = child.wait().unwrap();
@@ -1220,11 +1226,6 @@ fn go_relative_elixir_braces_and_deep_tsconfig_resolve() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `calls` is tri-state on the wire: `[]` = an extraction language parsed the
-/// file and it has NO call sites (a known answer), key absent = no call
-/// extraction ran for that record at all. The JS side falls back to its text
-/// heuristic only on the absent case, so a parsed-but-callless file must not
-/// silently drop the key.
 #[test]
 fn calls_are_known_empty_when_parsed_and_absent_when_not_extracted() {
     let root = fixture();
@@ -1290,20 +1291,6 @@ fn call_tuple_to_object(call: &serde_json::Value) -> serde_json::Value {
     serde_json::Value::Object(object)
 }
 
-/// Call-site fixtures: `tests/fixtures/calls/<lang>/sample.<ext>` plus the
-/// `expected.json` that language's fixture author wrote (`{"calls":[...]}`).
-///
-/// The comparison is EXACT — every field of every call, in order — because
-/// `calls` is a protocol contract, not a heuristic. Fixtures are authored
-/// separately from the extractor, so a language directory that does not exist
-/// yet, or that has no `expected.json`, is SKIPPED with a message instead of
-/// failing the run; the emitted list is never used as the expectation.
-///
-/// The fixtures stay in the READABLE object form (the v1 shape, with `endCol`
-/// and a `kind` token) because a human writes and reviews them; the wire is
-/// the v2 positional tuple. This test converts the emitted tuples back to that
-/// object shape, which is lossless: `endCol` is `col` + the character length
-/// of the name, and the kind code maps 0/1/2 → call/method/new.
 #[test]
 fn call_fixtures_match_expected_calls_exactly() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/calls");
@@ -1355,14 +1342,8 @@ fn call_fixtures_match_expected_calls_exactly() {
     eprintln!("call fixtures checked: {}", checked.join(", "));
 }
 
-/// Copy `tests/fixtures/resolve/<name>` into a fresh temp root and return it.
-///
-/// The fixtures are COPIED rather than walked in place for two reasons: the
-/// resolvers are relative to the graph root, which must be the fixture root
-/// and not this repository, and `_node_modules` has to arrive under its real
-/// name — the repository ignores `node_modules/` everywhere, and the walk
-/// honours git ignore rules, so a directory committed under that name would be
-/// invisible to the very resolver leg it exists to prove.
+// Copied so the resolvers see the fixture as the graph root; `_node_modules`
+// is renamed because the walk honours the git ignore of `node_modules/`.
 fn resolve_fixture(name: &str) -> std::path::PathBuf {
     fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
         fs::create_dir_all(to).unwrap();
@@ -1538,12 +1519,6 @@ fn package_and_namespace_come_from_the_declaration_node() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The two remaining rows of the `calls` tri-state table answer by emitting NO
-/// RECORD at all rather than a record without the key: a file over the 2 MB
-/// cap is never read, and an extension that is not an extraction language is
-/// never collected. Both are "the JS side hears nothing about this file",
-/// which is a stronger statement than "calls unknown" and must stay that way
-/// on both the walk and `--files`.
 #[test]
 fn oversized_and_non_extraction_files_produce_no_record() {
     let root = fixture();

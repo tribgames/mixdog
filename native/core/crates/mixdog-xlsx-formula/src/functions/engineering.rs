@@ -168,7 +168,7 @@ fn conversion(name: &str, number: &V, places: &V) -> Result<V, Failure> {
 
 // This polynomial is jStat 1.9.6 erf, in its original evaluation order.
 // Copyright jStat contributors; MIT license retained in LICENSE.jstat in the fixture set.
-// It is shared by ERF/ERFC; a later distribution module can reuse this implementation.
+// It is shared by ERF/ERFC.
 pub(crate) fn erf(value: &V) -> f64 {
     #[allow(clippy::excessive_precision, reason = "coefficients are preserved verbatim from the pinned jStat implementation")]
     const COF: [f64; 28] = [
@@ -233,6 +233,28 @@ mod exports {
     );
 }
 pub use exports::FUNCTIONS;
+fn bit_operation(name: &str, x: &V, y: &V) -> Result<V, Failure> {
+    let (Ok(x), Ok(y)) = (num(x), num(y)) else {
+        return Ok(V::Error(E::Value));
+    };
+    let shift = name.ends_with("SHIFT");
+    if x < 0.0 || m::floor(x) != x || x > 281474976710655.0 || if shift { m::abs(y) > 53.0 } else { y < 0.0 || m::floor(y) != y || y > 281474976710655.0 } {
+        return Ok(V::Error(E::Num));
+    }
+    let a = int32(x);
+    let b = int32(y);
+    let out = match name {
+        "BITAND" => a & b,
+        "BITOR" => a | b,
+        "BITXOR" => a ^ b,
+        _ => {
+            let left = (name == "BITLSHIFT") == (y >= 0.0);
+            let count = (int32(if y >= 0.0 { y } else { -y }) as u32) & 31;
+            if left { a.wrapping_shl(count) } else { a >> count }
+        }
+    };
+    Ok(V::Number(f64::from(out)))
+}
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let (x, y, z) = (arg(a, 0), arg(a, 1), arg(a, 2));
     if name.contains('2') {
@@ -255,26 +277,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         }));
     }
     if name.starts_with("BIT") {
-        let (Ok(x), Ok(y)) = (num(&x), num(&y)) else {
-            return Ok(V::Error(E::Value));
-        };
-        let shift = name.ends_with("SHIFT");
-        if x < 0.0 || m::floor(x) != x || x > 281474976710655.0 || if shift { m::abs(y) > 53.0 } else { y < 0.0 || m::floor(y) != y || y > 281474976710655.0 } {
-            return Ok(V::Error(E::Num));
-        }
-        let a = int32(x);
-        let b = int32(y);
-        let out = match name {
-            "BITAND" => a & b,
-            "BITOR" => a | b,
-            "BITXOR" => a ^ b,
-            _ => {
-                let left = (name == "BITLSHIFT") == (y >= 0.0);
-                let count = (int32(if y >= 0.0 { y } else { -y }) as u32) & 31;
-                if left { a.wrapping_shl(count) } else { a >> count }
-            }
-        };
-        return Ok(V::Number(f64::from(out)));
+        return bit_operation(name, &x, &y);
     }
     match name {
         "DELTA" => {
@@ -325,6 +328,39 @@ struct Unit {
     quantity: &'static str,
     ratio: f64,
 }
+const BINARY_PREFIXES: &[(&str, f64)] = &[
+    ("Yi", 1208925819614629174706176.0),
+    ("Zi", 1180591620717411303424.0),
+    ("Ei", 1152921504606846976.0),
+    ("Pi", 1125899906842624.0),
+    ("Ti", 1099511627776.0),
+    ("Gi", 1073741824.0),
+    ("Mi", 1048576.0),
+    ("ki", 1024.0),
+];
+const DECIMAL_PREFIXES: &[(&str, f64)] = &[
+    ("da", 1e1),
+    ("Y", 1e24),
+    ("Z", 1e21),
+    ("E", 1e18),
+    ("P", 1e15),
+    ("T", 1e12),
+    ("G", 1e9),
+    ("M", 1e6),
+    ("k", 1e3),
+    ("h", 1e2),
+    ("e", 1e1),
+    ("d", 1e-1),
+    ("c", 1e-2),
+    ("m", 1e-3),
+    ("u", 1e-6),
+    ("n", 1e-9),
+    ("p", 1e-12),
+    ("f", 1e-15),
+    ("a", 1e-18),
+    ("z", 1e-21),
+    ("y", 1e-24),
+];
 fn unit(value: &V, label: &str) -> Result<Option<(&'static Unit, f64)>, Failure> {
     let lookup = |s: &str| UNITS.iter().rev().find(|u| u.symbol == s || u.aliases.contains(&s));
     if let V::Text(s) = value
@@ -342,45 +378,7 @@ fn unit(value: &V, label: &str) -> Result<Option<(&'static Unit, f64)>, Failure>
             _ => format!("{label}.substring is not a function"),
         }));
     };
-    let binary = [
-        ("Yi", 1208925819614629174706176.0),
-        ("Zi", 1180591620717411303424.0),
-        ("Ei", 1152921504606846976.0),
-        ("Pi", 1125899906842624.0),
-        ("Ti", 1099511627776.0),
-        ("Gi", 1073741824.0),
-        ("Mi", 1048576.0),
-        ("ki", 1024.0),
-    ];
-    for (prefix, ratio) in binary {
-        if let Some(base) = s.strip_prefix(prefix) {
-            return Ok(lookup(base).map(|u| (u, ratio)));
-        }
-    }
-    let decimal = [
-        ("da", 1e1),
-        ("Y", 1e24),
-        ("Z", 1e21),
-        ("E", 1e18),
-        ("P", 1e15),
-        ("T", 1e12),
-        ("G", 1e9),
-        ("M", 1e6),
-        ("k", 1e3),
-        ("h", 1e2),
-        ("e", 1e1),
-        ("d", 1e-1),
-        ("c", 1e-2),
-        ("m", 1e-3),
-        ("u", 1e-6),
-        ("n", 1e-9),
-        ("p", 1e-12),
-        ("f", 1e-15),
-        ("a", 1e-18),
-        ("z", 1e-21),
-        ("y", 1e-24),
-    ];
-    for (prefix, ratio) in decimal {
+    for &(prefix, ratio) in BINARY_PREFIXES.iter().chain(DECIMAL_PREFIXES) {
         if let Some(base) = s.strip_prefix(prefix) {
             return Ok(lookup(base).map(|u| (u, ratio)));
         }

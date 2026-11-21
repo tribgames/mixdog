@@ -1,8 +1,3 @@
-//! The desktop host's foreground-lock lease, as a background delivery asks
-//! for it when this process may not take the lock itself (IMixLeaseChannel
-//! and MixForegroundLock.Acquire, MixForegroundLock.cs:155-194, :317-326).
-//! lease-channel-stdin implements it over stdio; activation-guard asks it.
-
 /// The host's answer to one acquire, in the words the reply's facts use.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LeaseAnswer {

@@ -89,8 +89,7 @@ fn server_for(entry: &Value, authorizer: Option<Arc<dyn Authorizer>>, dir: &std:
     McpServer::new(config, io, Spiller::new(dir.to_path_buf(), io.durability), OutputPolicy::default(), authorizer)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn sse_posts_to_the_announced_endpoint_and_renews_a_refused_token() {
+async fn sse_server_accepting_only_a_fresh_token() -> (u16, Arc<Mutex<Vec<Option<String>>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let stream_tx: Arc<Mutex<Option<mpsc::UnboundedSender<String>>>> = Arc::default();
@@ -130,7 +129,12 @@ async fn sse_posts_to_the_announced_endpoint_and_renews_a_refused_token() {
             });
         }
     });
+    (port, bearers)
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn sse_posts_to_the_announced_endpoint_and_renews_a_refused_token() {
+    let (port, bearers) = sse_server_accepting_only_a_fresh_token().await;
     let dir = tempfile::tempdir().unwrap();
     let auth = Arc::new(Renewing { renewed: AtomicUsize::new(0) });
     let entry = json!({"type": "sse", "url": format!("http://127.0.0.1:{port}/sse")});

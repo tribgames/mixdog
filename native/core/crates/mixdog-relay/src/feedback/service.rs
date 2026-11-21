@@ -341,27 +341,34 @@ impl Inner {
         Ok(true)
     }
 
+    /// `Ok(true)` when the submission is already on disk (a retry of the same payload); a different payload under its id is a conflict,
+    /// and the pending limits refuse a new one.
+    fn screen(&self, input: &Input, hash: &str) -> Result<bool, FeedbackError> {
+        let state = locked(&self.state);
+        if let Some(existing) = state.records.get(&input.id) {
+            if existing.record.hash != hash {
+                return Err(FeedbackError::CONFLICT);
+            }
+            return Ok(true);
+        }
+        if state.pending_count() >= self.options.max_pending {
+            return Err(FeedbackError::BUSY);
+        }
+        if !input.attachments.is_empty()
+            && state.pending_attachment_bytes() + attachments::bytes_of(&input.attachments) > self.options.max_pending_attachment_bytes
+        {
+            return Err(FeedbackError::BUSY);
+        }
+        Ok(false)
+    }
+
     async fn admit(&self, input: Input) -> Result<Accepted, FeedbackError> {
         if self.sender.is_none() || !locked(&self.state).storage_ok || self.closed.load(Ordering::SeqCst) {
             return Err(FeedbackError::UNAVAILABLE);
         }
         let hash = records::payload_hash(&input.kind, &input.message, &input.reply_to, &input.attachments);
-        {
-            let state = locked(&self.state);
-            if let Some(existing) = state.records.get(&input.id) {
-                if existing.record.hash != hash {
-                    return Err(FeedbackError::CONFLICT);
-                }
-                return Ok(Accepted { id: input.id, status: "accepted" });
-            }
-            if state.pending_count() >= self.options.max_pending {
-                return Err(FeedbackError::BUSY);
-            }
-            if !input.attachments.is_empty()
-                && state.pending_attachment_bytes() + attachments::bytes_of(&input.attachments) > self.options.max_pending_attachment_bytes
-            {
-                return Err(FeedbackError::BUSY);
-            }
+        if self.screen(&input, &hash)? {
+            return Ok(Accepted { id: input.id, status: "accepted" });
         }
         while locked(&self.state).records.len() >= self.options.max_records {
             if !self.prune_sent().await? {

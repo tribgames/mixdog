@@ -519,6 +519,46 @@ pub fn set_docx_paragraph_style(zip: &mut Package, op: &Value) -> Result<Value, 
     Ok(Value::Object(result))
 }
 
+/// The first paragraph of the cell takes the new text as a tracked rewrite; any further paragraph in it is marked deleted.
+fn tracked_cell_rewrite(cell_xml: &str, text: &str, first_id: u64, author: &str) -> Result<String, String> {
+    let id = Cell::new(first_id);
+    let first = Cell::new(true);
+    let failure: RefCell<Option<String>> = RefCell::new(None);
+    let run_open = compiled(r"<w:r(?:\s[^>]*)?>", "g");
+    let rewritten = compiled(r"<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>", "g").replace_all_with(cell_xml, |found| {
+        let paragraph = found.get(0).unwrap_or("");
+        let run_count = run_open.find_iter(paragraph).count() as u64;
+        if first.get() {
+            first.set(false);
+            return match tracked_paragraph_rewrite(paragraph, text, id.get(), author) {
+                Ok(rewritten) => {
+                    id.set(id.get() + run_count + 1);
+                    rewritten
+                }
+                Err(message) => {
+                    *failure.borrow_mut() = Some(message);
+                    paragraph.to_owned()
+                }
+            };
+        }
+        let deleted = mark_runs_deleted(paragraph, id.get(), author);
+        id.set(id.get() + run_count);
+        deleted
+    });
+    if let Some(message) = failure.into_inner() {
+        return Err(message);
+    }
+    if first.get() {
+        Ok(replace_text(
+            cell_xml,
+            "</w:tc>",
+            &format!("<w:p><w:ins {}><w:r>{}</w:r></w:ins></w:p></w:tc>", revision_attributes(id.get(), author), word_text_content(text, true)),
+        ))
+    } else {
+        Ok(rewritten)
+    }
+}
+
 /// `setDocxTableCell(zip, op, { tracking })`.
 pub fn set_docx_table_cell(zip: &mut Package, op: &Value, context: &DocxContext<'_>) -> Result<Value, String> {
     let current = zip.text(DOCUMENT_PART);
@@ -530,43 +570,7 @@ pub fn set_docx_table_cell(zip: &mut Package, op: &Value, context: &DocxContext<
     let text = text_or_blank(op.get("text"));
     let author = text_or_empty(op.get("author"));
     let next_cell = if context.tracking {
-        // The first paragraph takes the new text as a tracked rewrite; any further paragraph in the cell is marked deleted.
-        let id = Cell::new(next_revision_id(&current));
-        let first = Cell::new(true);
-        let failure: RefCell<Option<String>> = RefCell::new(None);
-        let run_open = compiled(r"<w:r(?:\s[^>]*)?>", "g");
-        let rewritten = compiled(r"<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>", "g").replace_all_with(&cell.xml, |found| {
-            let paragraph = found.get(0).unwrap_or("");
-            let run_count = run_open.find_iter(paragraph).count() as u64;
-            if first.get() {
-                first.set(false);
-                return match tracked_paragraph_rewrite(paragraph, &text, id.get(), &author) {
-                    Ok(rewritten) => {
-                        id.set(id.get() + run_count + 1);
-                        rewritten
-                    }
-                    Err(message) => {
-                        *failure.borrow_mut() = Some(message);
-                        paragraph.to_owned()
-                    }
-                };
-            }
-            let deleted = mark_runs_deleted(paragraph, id.get(), &author);
-            id.set(id.get() + run_count);
-            deleted
-        });
-        if let Some(message) = failure.into_inner() {
-            return Err(message);
-        }
-        if first.get() {
-            replace_text(
-                &cell.xml,
-                "</w:tc>",
-                &format!("<w:p><w:ins {}><w:r>{}</w:r></w:ins></w:p></w:tc>", revision_attributes(id.get(), &author), word_text_content(&text, true)),
-            )
-        } else {
-            rewritten
-        }
+        tracked_cell_rewrite(&cell.xml, &text, next_revision_id(&current), &author)?
     } else if !text_nodes(&cell.xml, "w:t").is_empty() {
         with_first_run_text(&cell.xml, &text)
     } else {
@@ -791,6 +795,31 @@ pub fn set_docx_list(zip: &mut Package, op: &Value) -> Result<Value, String> {
     Ok(Value::Object(result))
 }
 
+/// The document with `link` put where the operation names: over the found phrase (as Word does), at the end of the named
+/// paragraph, or appended; and which of the three it was.
+fn place_hyperlink(current: &str, op: &Value, link: String) -> Result<(String, &'static str), String> {
+    let find = text_or_empty(op.get("find"));
+    if !find.is_empty() {
+        let model = docx_body_model(current);
+        let Some(paragraph) = paragraph_containing(&model, &find) else { return Err(format!("DOCX text not found for hyperlink: {find}")) };
+        let markers = PhraseMarkers { start: Some(link), end: Some(String::new()), replace: true };
+        let Some(linked) = anchor_phrase_in_paragraph(&paragraph.xml, &find, 0, Some(&markers)) else {
+            return Err(format!("DOCX hyperlink phrase crosses a tab, break, field, or drawing: {find}"));
+        };
+        return Ok((replace_body_paragraph(current, body_of(&model), &paragraph, &linked), "phrase"));
+    }
+    if truthy(op.get("paragraph")) {
+        let model = docx_body_model(current);
+        let paragraph = body_paragraph_at(&model, op.get("paragraph"))?;
+        let next_paragraph = match paragraph.xml.strip_suffix("</w:p>") {
+            Some(head) => format!("{head}{link}</w:p>"),
+            None => paragraph.xml.clone(),
+        };
+        return Ok((replace_body_paragraph(current, body_of(&model), &paragraph, &next_paragraph), "paragraph"));
+    }
+    Ok((append_docx_block(current, &format!("<w:p>{link}</w:p>"))?, "appended"))
+}
+
 /// `addDocxHyperlink(zip, op)`.
 pub fn add_docx_hyperlink(zip: &mut Package, op: &Value) -> Result<Value, String> {
     let address = js_trim(&text_or_empty(op.get("address"))).to_owned();
@@ -812,7 +841,7 @@ pub fn add_docx_hyperlink(zip: &mut Package, op: &Value) -> Result<Value, String
     if display.is_empty() {
         return Err("add_hyperlink requires display text".to_owned());
     }
-    let mut current = zip.text(DOCUMENT_PART);
+    let current = zip.text(DOCUMENT_PART);
     let relationship_id = if address.is_empty() {
         String::new()
     } else {
@@ -824,33 +853,8 @@ pub fn add_docx_hyperlink(zip: &mut Package, op: &Value) -> Result<Value, String
         if relationship_id.is_empty() { String::new() } else { format!(" r:id=\"{relationship_id}\"") },
         sub_address.map_or_else(String::new, |anchor| format!(" w:anchor=\"{}\"", xml_encode(&value_to_string(anchor))))
     );
-    // A link asked for by phrase replaces that phrase, the way Word does it. Appending it to the end of the document instead
-    // put the link somewhere the caller never named and still reported success.
-    let find = text_or_empty(op.get("find"));
-    let anchor;
-    if !find.is_empty() {
-        let model = docx_body_model(&current);
-        let Some(paragraph) = paragraph_containing(&model, &find) else { return Err(format!("DOCX text not found for hyperlink: {find}")) };
-        let markers = PhraseMarkers { start: Some(link), end: Some(String::new()), replace: true };
-        let Some(linked) = anchor_phrase_in_paragraph(&paragraph.xml, &find, 0, Some(&markers)) else {
-            return Err(format!("DOCX hyperlink phrase crosses a tab, break, field, or drawing: {find}"));
-        };
-        current = replace_body_paragraph(&current, body_of(&model), &paragraph, &linked);
-        anchor = "phrase";
-    } else if truthy(op.get("paragraph")) {
-        let model = docx_body_model(&current);
-        let paragraph = body_paragraph_at(&model, op.get("paragraph"))?;
-        let next_paragraph = match paragraph.xml.strip_suffix("</w:p>") {
-            Some(head) => format!("{head}{link}</w:p>"),
-            None => paragraph.xml.clone(),
-        };
-        current = replace_body_paragraph(&current, body_of(&model), &paragraph, &next_paragraph);
-        anchor = "paragraph";
-    } else {
-        current = append_docx_block(&current, &format!("<w:p>{link}</w:p>"))?;
-        anchor = "appended";
-    }
-    zip.set(DOCUMENT_PART, current);
+    let (placed, anchor) = place_hyperlink(&current, op, link)?;
+    zip.set(DOCUMENT_PART, placed);
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(true));
     result.insert("address".to_owned(), json!(address));
@@ -940,12 +944,18 @@ pub fn reply_or_resolve_docx_comment(zip: &mut Package, op: &Value) -> Result<Va
         return Err("add_comment_reply requires text".to_owned());
     }
     let id = append_comment(zip, &comments, op, &text, parent);
+    anchor_reply_beside_parent(zip, parent, id);
+    result.insert("changed".to_owned(), json!(true));
+    result.insert("comment".to_owned(), json!(id));
+    result.insert("parent".to_owned(), json!(parent));
+    Ok(Value::Object(result))
+}
+
+fn anchor_reply_beside_parent(zip: &mut Package, parent: u64, id: u64) {
     let marks = format!("<w:commentRangeStart w:id=\"{id}\"/><w:commentRangeEnd w:id=\"{id}\"/><w:r><w:commentReference w:id=\"{id}\"/></w:r>");
     // The reply spans its parent's words, as Word writes a reply: its start beside the parent's start, its end and reference after
     // the parent's reference. Marked as an empty range before the parent's end, Word read it as a second comment of its own on no
     // text rather than as an answer in the thread.
-    // The parent may be anchored in any story: the body, a header, a footer, a note. A reply marked only where the body happens
-    // to hold the id reached no story at all, and the next accept-all pruned it as orphaned.
     let start_pattern = compiled(&format!(r#"<w:commentRangeStart\b[^>]*\bw:id="{parent}"[^>]*\/>"#), "");
     let reference_pattern =
         compiled(&format!(r#"<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:commentReference\b[^>]*\bw:id="{parent}"[^>]*\/>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>"#), "");
@@ -973,10 +983,6 @@ pub fn reply_or_resolve_docx_comment(zip: &mut Package, op: &Value) -> Result<Va
         zip.set(&part, format!("{}{marks}{}", &story[..anchor.start], &story[anchor.start..]));
         break;
     }
-    result.insert("changed".to_owned(), json!(true));
-    result.insert("comment".to_owned(), json!(id));
-    result.insert("parent".to_owned(), json!(parent));
-    Ok(Value::Object(result))
 }
 
 /// `deleteDocxComment(zip, op)`.
@@ -1107,12 +1113,8 @@ fn page_numbers_include_total(op: &Value) -> bool {
     include == Some(&Value::Bool(true)) || (include != Some(&Value::Bool(false)) && !js_trim(&text_or_blank(op.get("separator"))).is_empty())
 }
 
-/// `addDocxPageNumbers(zip, op)`: the same vocabulary as set_header_footer: kind names the story (the footer unless the caller
-/// asks for the header), variant names the page.
-pub fn add_docx_page_numbers(zip: &mut Package, op: &Value) -> Result<Value, String> {
-    let current = zip.text(DOCUMENT_PART);
-    let (named, kind) = story_target(op)?;
-    let header = named == "header";
+/// The paragraph that carries the page field, with the prefix and the "of total" the operation asks for.
+fn page_number_paragraph(op: &Value, include_total: bool) -> String {
     let requested = js_to_lowercase(&text_or_empty(op.get("alignment")));
     let alignment = if ["left", "center", "right"].contains(&requested.as_str()) { requested } else { "center".to_owned() };
     // The number is set at 9 pt, as the Word backend sets it: left on the body size it printed a size and a half larger in the
@@ -1122,7 +1124,6 @@ pub fn add_docx_page_numbers(zip: &mut Package, op: &Value) -> Result<Value, Str
         Some(prefix) if truthy(Some(prefix)) => format!("<w:r>{size}<w:t xml:space=\"preserve\">{} </w:t></w:r>", xml_encode(&value_to_string(prefix))),
         _ => String::new(),
     };
-    let include_total = page_numbers_include_total(op);
     let separator = if include_total {
         let separator_text = text_or_empty(op.get("separator"));
         let mark = js_trim(&separator_text);
@@ -1133,13 +1134,20 @@ pub fn add_docx_page_numbers(zip: &mut Package, op: &Value) -> Result<Value, Str
     } else {
         String::new()
     };
-    let numbering = format!(
+    format!(
         "<w:p><w:pPr><w:jc w:val=\"{alignment}\"/><w:rPr><w:sz w:val=\"18\"/><w:szCs w:val=\"18\"/></w:rPr></w:pPr>{prefix}\
 <w:fldSimple w:instr=\" PAGE \"><w:r>{size}<w:t>1</w:t></w:r></w:fldSimple>{separator}</w:p>"
-    );
-    // A footer line and its page number are two operations, and this one used to write the story from scratch: the author's footer
-    // text was gone from the file while the result reported success. Only the paragraph carrying the page field is rewritten, so
-    // asking twice never stacks a second number and never erases the words around it.
+    )
+}
+
+/// `addDocxPageNumbers(zip, op)`: the same vocabulary as set_header_footer: kind names the story (the footer unless the caller
+/// asks for the header), variant names the page.
+pub fn add_docx_page_numbers(zip: &mut Package, op: &Value) -> Result<Value, String> {
+    let current = zip.text(DOCUMENT_PART);
+    let (named, kind) = story_target(op)?;
+    let header = named == "header";
+    let include_total = page_numbers_include_total(op);
+    let numbering = page_number_paragraph(op, include_total);
     let kept_story = Cell::new(false);
     let page_field = compiled(r#"w:instr="[^"]*\bPAGE\b"#, "");
     let paragraphs = compiled(r"<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>", "g");

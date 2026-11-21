@@ -1,9 +1,7 @@
 //! The session's pending workspace re-root, as pure reads over a header and the two system
-//! messages that carry the prompt: Node's `stageWorkspaceReroot` state (`session.workspaceReroot`),
-//! `applyPendingWorkspaceReroot` and the `# Session` block rebuild `refreshSessionBp3Environment`
-//! (`prompt-utils.mjs`), as `updateSessionRoute` runs them on a route change
-//! (`session-lifecycle.mjs:517-518`), and the in-place re-root of a session without a
-//! conversation (`refreshSessionWorkspaceContext`). The reads are pure; [`PromptReroot`] is the one
+//! messages that carry the prompt: the staged re-root state (`session.workspaceReroot`), its
+//! application and the `# Session` block rebuild on a route change, and the in-place re-root of a
+//! session without a conversation. The reads are pure; [`PromptReroot`] is the one
 //! writer, landing the in-place re-root with its undo.
 
 use std::sync::Arc;
@@ -284,7 +282,7 @@ impl Working {
     }
 }
 
-/// What `updateSessionRoute` does to the prompt: when the route changed (`route_changed`) a staged
+/// The prompt rewrite for a route update: when the route changed (`route_changed`) a staged
 /// workspace change is applied first (a new route starts a cold cache), then the `# Session` block
 /// is rebuilt for the session's cwd. A staged change that stays keeps the prompt rooted at its
 /// `rootCwd`.
@@ -304,7 +302,7 @@ pub fn route_prompt_refresh(view: &PromptView, route_changed: bool) -> PromptRew
     working.finish(view, applied)
 }
 
-/// `presentedWorkspace(session)`: the workspace the prompt presents now, read back from the
+/// The workspace the prompt presents now, read back from the
 /// blocks: `{cwd, environmentContext, coreMemoryContext, instructionFilesContext}`. The core is
 /// the `tier3` message in the split layout and `bp3CoreContext` in the combined one; the Cwd is
 /// the `# Session` block's, else the environment facts'. Pure.
@@ -331,9 +329,9 @@ pub fn presented_workspace(view: &PromptView) -> Value {
     Value::Object(presented)
 }
 
-/// `refreshSessionWorkspaceContext(session, context)` for a session without a user conversation:
-/// a staged change is applied first (`applyPendingWorkspaceReroot`, which drops it), then the
-/// prompt is re-rooted at `cwd` in place (`rerootSessionWorkspace`): environment facts, project
+/// The workspace refresh of a session without a user conversation:
+/// a staged change is applied first (which drops it), then the
+/// prompt is re-rooted at `cwd` in place: environment facts, project
 /// memory and instruction files are replaced (`None` keeps a slice, an empty one drops it) and the
 /// `# Session` block is rebuilt for `cwd`. The intermediate `# Session` refresh of the staged
 /// change is not kept: the final one rebuilds the same blocks from the same fields.

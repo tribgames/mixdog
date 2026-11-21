@@ -311,23 +311,9 @@ fn walk<'b, 'a: 'b>(
             let mut inside = exclusion.clone();
             let mut fresh = false;
             if let Some(rule) = &exclusion {
-                if is_dir {
-                    match rule.directory(&child_excl, &name) {
-                        Verdict::Out => {
-                            if matches!(**rule, Exclusion::Generated) {
-                                let counted = child.clone();
-                                w.ignored += run(w.lanes.maintenance, w.cancel, move || count_files(&counted)).await?;
-                            }
-                            continue;
-                        }
-                        Verdict::Whole => fresh = true,
-                        Verdict::Walk => {}
-                    }
-                } else {
-                    if !rule.file(&child_excl) {
-                        continue;
-                    }
-                    fresh = true;
+                match judge_entry(w, rule, &child, &child_excl, &name, is_dir).await? {
+                    Some(whole) => fresh = whole,
+                    None => continue,
                 }
             }
             let (root, probe) = (w.root.clone(), child.clone());
@@ -353,23 +339,46 @@ fn walk<'b, 'a: 'b>(
                 // The recursion borrows `self` for its whole run: a fresh reborrow per entry.
                 walk(w, at, child_rel, deeper, inside, inside_rel).await?;
             } else if location.is_file {
-                let id = match location.id {
-                    Some(id) => id,
-                    None => {
-                        let at = location.at.clone();
-                        run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??
-                    }
-                };
-                w.count += 1;
-                w.bytes += location.size;
-                // Past a cap the walk only counts, so the refusal can say how far over.
-                if w.count <= w.max_files as u64 && w.bytes <= w.max_bytes {
-                    w.files.push(FolderFile { rel: child_rel, absolute: location.at, size: location.size, id });
-                }
+                record_file(w, location, child_rel).await?;
             }
         }
         Ok(())
     })
+}
+
+/// `None` leaves the entry out; `Some(true)` makes it the root of a fresh rule set.
+async fn judge_entry(w: &mut Walk<'_>, rule: &Exclusion, child: &Path, child_excl: &str, name: &str, is_dir: bool) -> WsResult<Option<bool>> {
+    if !is_dir {
+        return Ok(rule.file(child_excl).then_some(true));
+    }
+    match rule.directory(child_excl, name) {
+        Verdict::Out => {
+            if matches!(rule, Exclusion::Generated) {
+                let counted = child.to_path_buf();
+                w.ignored += run(w.lanes.maintenance, w.cancel, move || count_files(&counted)).await?;
+            }
+            Ok(None)
+        }
+        Verdict::Whole => Ok(Some(true)),
+        Verdict::Walk => Ok(Some(false)),
+    }
+}
+
+async fn record_file(w: &mut Walk<'_>, location: Location, rel: String) -> WsResult<()> {
+    let id = match location.id {
+        Some(id) => id,
+        None => {
+            let at = location.at.clone();
+            run(w.lanes.maintenance, w.cancel, move || open_listed(&at).and_then(|f| file_id(&f)).at("open", &at)).await??
+        }
+    };
+    w.count += 1;
+    w.bytes += location.size;
+    // Past a cap the walk only counts, so the refusal can say how far over.
+    if w.count <= w.max_files as u64 && w.bytes <= w.max_bytes {
+        w.files.push(FolderFile { rel, absolute: location.at, size: location.size, id });
+    }
+    Ok(())
 }
 
 struct Central {
@@ -429,64 +438,75 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
     let mut central = Vec::with_capacity(files.len());
     let mut read_total = 0u64;
     for file in files {
-        // Node's `readListedFile`: a failed open fails the archive, but for a final component swapped to a link (`ELOOP`), which is left
-        // out; a handle that is not the regular file the walk saw, or not at its path, is left out too.
         between("zip.open");
-        let handle = match open_listed(&file.absolute) {
-            Ok(handle) => handle,
-            Err(error) if is_loop(&error) => continue,
-            Err(error) => return Err(crate::nodeerr::io_error(&error, "open", &file.absolute)),
-        };
-        let meta = handle.metadata().at("fstat", &file.absolute)?;
-        if !meta.is_file() || file_id(&handle).at("fstat", &file.absolute)? != file.id || !is_canonical(&file.absolute) {
-            continue;
-        }
-        let name = file.rel.as_bytes().to_vec();
-        let start = offset;
-        // The file whole, as Node's `readListedFile` reads it (the caps bound what is held).
-        let mut raw = Vec::new();
-        let mut reader = BufReader::new(handle);
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            let n = reader.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            read_total += n as u64;
-            if read_total > max_bytes {
-                return Err(too_large(files.len() as u64, read_total));
-            }
-            raw.extend_from_slice(&buf[..n]);
-        }
-        let mut crc = Crc::new();
-        crc.update(&raw);
-        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&raw)?;
-        let deflated = encoder.finish()?;
-        // Node's `zipListedFiles`: deflated only when that is smaller, else stored; the sizes are in the local header (no descriptor).
-        let (method, data) = if deflated.len() < raw.len() { (8u16, deflated) } else { (0u16, raw.clone()) };
-        let mut header = Vec::with_capacity(30 + name.len());
-        header.extend(0x0403_4b50u32.to_le_bytes());
-        header.extend(20u16.to_le_bytes());
-        header.extend(0x0800u16.to_le_bytes());
-        header.extend(method.to_le_bytes());
-        header.extend(DOS_TIME.to_le_bytes());
-        header.extend(DOS_DATE.to_le_bytes());
-        header.extend(crc.sum().to_le_bytes());
-        let (compressed, size) = (u32_field(data.len() as u64)?, u32_field(raw.len() as u64)?);
-        let (name_len, at) = (u16_field(name.len() as u64)?, u32_field(start)?);
-        header.extend(compressed.to_le_bytes());
-        header.extend(size.to_le_bytes());
-        header.extend(name_len.to_le_bytes());
-        header.extend(0u16.to_le_bytes());
-        header.extend(&name);
-        out.write_all(&header)?;
-        out.write_all(&data)?;
-        offset += header.len() as u64 + data.len() as u64;
-        central.push(Central { name, name_len, crc: crc.sum(), compressed, size, method, offset: at });
+        let Some(raw) = read_listed_file(file, max_bytes, &mut read_total, files.len())? else { continue };
+        let (entry, written) = write_local_entry(out, file.rel.as_bytes().to_vec(), &raw, offset)?;
+        offset += written;
+        central.push(entry);
     }
-    let directory_start = offset;
-    for entry in &central {
+    write_central_directory(out, &central, offset)
+}
+
+/// Node's `readListedFile`: a failed open fails the archive, but for a final component swapped to a link (`ELOOP`), which is left
+/// out; a handle that is not the regular file the walk saw, or not at its path, is left out too. The file is read whole (the caps bound what is held).
+fn read_listed_file(file: &FolderFile, max_bytes: u64, read_total: &mut u64, listed: usize) -> WsResult<Option<Vec<u8>>> {
+    let handle = match open_listed(&file.absolute) {
+        Ok(handle) => handle,
+        Err(error) if is_loop(&error) => return Ok(None),
+        Err(error) => return Err(crate::nodeerr::io_error(&error, "open", &file.absolute)),
+    };
+    let meta = handle.metadata().at("fstat", &file.absolute)?;
+    if !meta.is_file() || file_id(&handle).at("fstat", &file.absolute)? != file.id || !is_canonical(&file.absolute) {
+        return Ok(None);
+    }
+    let mut raw = Vec::new();
+    let mut reader = BufReader::new(handle);
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            return Ok(Some(raw));
+        }
+        *read_total += n as u64;
+        if *read_total > max_bytes {
+            return Err(too_large(listed as u64, *read_total));
+        }
+        raw.extend_from_slice(&buf[..n]);
+    }
+}
+
+/// Node's `zipListedFiles`: deflated only when that is smaller, else stored; the sizes are in the local header (no descriptor).
+fn write_local_entry<W: Write>(out: &mut W, name: Vec<u8>, raw: &[u8], start: u64) -> WsResult<(Central, u64)> {
+    let mut crc = Crc::new();
+    crc.update(raw);
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(raw)?;
+    let deflated = encoder.finish()?;
+    let (method, data) = if deflated.len() < raw.len() { (8u16, deflated) } else { (0u16, raw.to_vec()) };
+    let mut header = Vec::with_capacity(30 + name.len());
+    header.extend(0x0403_4b50u32.to_le_bytes());
+    header.extend(20u16.to_le_bytes());
+    header.extend(0x0800u16.to_le_bytes());
+    header.extend(method.to_le_bytes());
+    header.extend(DOS_TIME.to_le_bytes());
+    header.extend(DOS_DATE.to_le_bytes());
+    header.extend(crc.sum().to_le_bytes());
+    let (compressed, size) = (u32_field(data.len() as u64)?, u32_field(raw.len() as u64)?);
+    let (name_len, at) = (u16_field(name.len() as u64)?, u32_field(start)?);
+    header.extend(compressed.to_le_bytes());
+    header.extend(size.to_le_bytes());
+    header.extend(name_len.to_le_bytes());
+    header.extend(0u16.to_le_bytes());
+    header.extend(&name);
+    out.write_all(&header)?;
+    out.write_all(&data)?;
+    let written = header.len() as u64 + data.len() as u64;
+    Ok((Central { name, name_len, crc: crc.sum(), compressed, size, method, offset: at }, written))
+}
+
+fn write_central_directory<W: Write>(out: &mut W, central: &[Central], directory_start: u64) -> WsResult<()> {
+    let mut offset = directory_start;
+    for entry in central {
         let mut h = Vec::with_capacity(46 + entry.name.len());
         h.extend(0x0201_4b50u32.to_le_bytes());
         h.extend(20u16.to_le_bytes());
@@ -517,7 +537,6 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
     out.write_all(&end)?;
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

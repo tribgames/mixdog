@@ -154,10 +154,6 @@ const STEPS: [Step; 10] = [
     Step::DropFolder,
 ];
 
-/// A kill before each step of the table, then the next start (`recover`, then `finish` for what it returns): after
-/// the kill the session folder is the old log whole, the new log whole, or (between steps 4 and 5) not there, never a
-/// mix; after the start it is the new log once the intent was published (the old one before), the plain out-of-line
-/// body is gone, and no rewrite part is left.
 #[test]
 fn a_kill_at_any_step_leaves_one_whole_log_and_the_next_start_finishes_the_rewrite() {
     let old = tempfile::tempdir().unwrap();

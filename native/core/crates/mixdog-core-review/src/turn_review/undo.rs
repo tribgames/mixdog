@@ -1,13 +1,8 @@
-//! Undo and Reapply (Node `turn-snapshot.mjs`): the composer's undo of the latest turn's review, and
-//! the per-turn Undo/Reapply of a recorded turn's changes. Every mutation runs on the session's
-//! change lock and is all-or-nothing: `git apply` checks every hunk before it writes, so a foreign
-//! edit overlapping the turn's hunks fails the call instead of being overwritten, and one outside
-//! them survives.
-
 use std::sync::Arc;
 
 use indexmap::IndexSet;
 use mixdog_core_api::turn_review::Reply;
+use mixdog_core_api::turn_review::ReviewContent;
 use mixdog_core_api::turn_review::ReviewError;
 use serde_json::Value;
 
@@ -29,6 +24,7 @@ use super::service::Inner;
 use super::service::Tracker;
 use super::service::pending_key;
 use super::store::Record;
+use super::tracker::PatchRoot;
 use super::tracker::chain_matches_path;
 use super::tracker::redo_tracked_chains;
 use super::tracker::undo_tracked_chains;
@@ -77,6 +73,62 @@ fn mark_unknown(files: &[Value], keys: &IndexSet<String>) -> Vec<Obj> {
         .filter_map(Value::as_object)
         .map(|entry| if keys.contains(&change_path_key(obj_str(entry, "path"))) { super::patch::unknown_state_change_file(entry) } else { entry.clone() })
         .collect()
+}
+
+/// The running turn's edits an undo of `file` (or of every file) restores, each with its chain key.
+fn tracked_targets(tracker: &Tracker, root: &PatchRoot, file: Option<&str>) -> Result<Vec<(String, super::tracker::Edit)>, ReviewError> {
+    let (mut targets, matching) = {
+        let state = tracker.lock();
+        if !state.valid {
+            return Err(ReviewError::new("turn review tracked file snapshot is unavailable"));
+        }
+        let targets: Vec<(String, super::tracker::Edit)> = state
+            .chains
+            .iter()
+            .filter_map(|(key, chain)| super::tracker::chain_edit(chain, &root.root).map(|edit| (key.clone(), edit)))
+            // Beside a Git root, an edit outside it is view-only, never undone.
+            .filter(|(_, edit)| !root.git || edit.inside)
+            .collect();
+        let matching =
+            file.map(|file| targets.iter().position(|(key, _)| state.chains.get(key).is_some_and(|chain| chain_matches_path(chain, &root.root, file))));
+        (targets, matching)
+    };
+    if let Some(matching) = matching {
+        let Some(index) = matching else { return Err(ReviewError::new(UNATTRIBUTED_FILE)) };
+        targets = vec![targets.swap_remove(index)];
+    }
+    for (_, edit) in &targets {
+        if let Some(ReviewContent::Omitted { size, .. }) = edit.omitted_marker() {
+            return Err(ReviewError::new(format!(
+                "turn review revert is unavailable for {}: binary/large file content was not captured ({size} bytes)",
+                edit.start.display_path
+            )));
+        }
+    }
+    Ok(targets)
+}
+
+/// The record files an Undo (`reverse`) or Reapply takes: the one named, which must be in the state the verb leaves from,
+/// or every file in it.
+fn change_targets(record: &Record, file: Option<&str>, reverse: bool) -> Result<Vec<Obj>, ReviewError> {
+    let verb = if reverse { "undone" } else { "reapplied" };
+    let from = if reverse { "applied" } else { "reverted" };
+    match file {
+        Some(file) => {
+            let matched = find_change_file(record, file).ok_or_else(|| ReviewError::new(format!("{file} is not part of this turn's changes")))?;
+            if file_state(matched) != from {
+                return Err(ReviewError::new(format!("{} is already {verb}", obj_str(matched, "path"))));
+            }
+            Ok(vec![matched.clone()])
+        }
+        None => {
+            let all: Vec<Obj> = record_files(record).into_iter().filter(|entry| file_state(entry) == from).collect();
+            if all.is_empty() {
+                return Err(ReviewError::new(format!("this turn has no changes to be {verb}")));
+            }
+            Ok(all)
+        }
+    }
 }
 
 impl Inner {
@@ -242,38 +294,9 @@ impl Inner {
     async fn revert_tracked_turn(&self, tracker: &Arc<Tracker>, worktree: &str, file: Option<&str>) -> Result<Vec<String>, ReviewError> {
         let fallback = nodepath::resolve_host(&[if clean(worktree).is_empty() { "." } else { clean(worktree) }]);
         let root = tracker.patch_root(&fallback);
-        let (mut targets, valid) = {
-            let state = tracker.lock();
-            let keyed: Vec<(String, super::tracker::Edit)> = state
-                .chains
-                .iter()
-                .filter_map(|(key, chain)| super::tracker::chain_edit(chain, &root.root).map(|edit| (key.clone(), edit)))
-                // Beside a Git root, an edit outside it is view-only, never undone.
-                .filter(|(_, edit)| !root.git || edit.inside)
-                .collect();
-            (keyed, state.valid)
-        };
-        if !valid {
-            return Err(ReviewError::new("turn review tracked file snapshot is unavailable"));
-        }
-        if let Some(file) = file {
-            let matching = {
-                let state = tracker.lock();
-                targets.iter().position(|(key, _)| state.chains.get(key).is_some_and(|chain| chain_matches_path(chain, &root.root, file)))
-            };
-            let Some(index) = matching else { return Err(ReviewError::new(UNATTRIBUTED_FILE)) };
-            targets = vec![targets.swap_remove(index)];
-        }
+        let targets = tracked_targets(tracker, &root, file)?;
         if targets.is_empty() {
             return Ok(Vec::new());
-        }
-        for (_, edit) in &targets {
-            if let Some(mixdog_core_api::turn_review::ReviewContent::Omitted { size, .. }) = edit.omitted_marker() {
-                return Err(ReviewError::new(format!(
-                    "turn review revert is unavailable for {}: binary/large file content was not captured ({size} bytes)",
-                    edit.start.display_path
-                )));
-            }
         }
         let edits: Vec<super::tracker::Edit> = targets.iter().map(|(_, edit)| edit.clone()).collect();
         let object_format = self.edits_object_format(&edits, &root).await;
@@ -404,7 +427,6 @@ impl Inner {
             return Err(ReviewError::type_error("revision must be an integer"));
         }
         let file = file.map(|f| clean(f).to_owned());
-        let verb = if reverse { "undone" } else { "reapplied" };
         let inner = self.clone();
         let owner2 = owner.clone();
         self.serialize_mutation(&owner, async move {
@@ -419,23 +441,7 @@ impl Inner {
             if current != revision && !(current.is_nan() && revision.is_nan()) {
                 return Err(ReviewError::new("turn changes changed; refresh"));
             }
-            let from = if reverse { "applied" } else { "reverted" };
-            let targets: Vec<Obj> = match file.as_deref().filter(|f| !f.is_empty()) {
-                Some(file) => {
-                    let matched = find_change_file(&record, file).ok_or_else(|| ReviewError::new(format!("{file} is not part of this turn's changes")))?;
-                    if file_state(matched) != from {
-                        return Err(ReviewError::new(format!("{} is already {verb}", obj_str(matched, "path"))));
-                    }
-                    vec![matched.clone()]
-                }
-                None => {
-                    let all: Vec<Obj> = record_files(&record).into_iter().filter(|entry| file_state(entry) == from).collect();
-                    if all.is_empty() {
-                        return Err(ReviewError::new(format!("this turn has no changes to be {verb}")));
-                    }
-                    all
-                }
-            };
+            let targets = change_targets(&record, file.as_deref().filter(|f| !f.is_empty()), reverse)?;
             let updated = inner.mutate_record_files(&owner2, &record, &targets, reverse).await?;
             let updated = inner.with_unknown_change_states(&owner2, updated);
             let status = if updated.is_some() { "ready" } else { "missing" };

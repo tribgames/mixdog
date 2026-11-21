@@ -696,7 +696,11 @@ mod tests {
         ] {
             assert_eq!(JsRegex::new_static(pattern, "i").is_match(text), node, "/{pattern}/i on {text:?}");
         }
-        // The same rule in a class (`add_icase_code_points_canonicalized`), each row run on node.
+    }
+
+    /// The same rule in a class (`add_icase_code_points_canonicalized`), each row run on node.
+    #[test]
+    fn a_case_insensitive_class_without_u_does_not_fold_non_ascii_to_ascii() {
         for (pattern, text, node) in [
             ("[a-z]", "\u{17f}", false),
             ("[a-z]", "\u{212a}", false),
@@ -714,7 +718,11 @@ mod tests {
         ] {
             assert_eq!(JsRegex::new_static(pattern, "i").is_match(text), node, "/{pattern}/i on {text:?}");
         }
-        // `v` is a Unicode mode as `u` is: simple case folding, each row run on node with `iv`.
+    }
+
+    /// `v` is a Unicode mode as `u` is: simple case folding, each row run on node with `iv`.
+    #[test]
+    fn a_case_insensitive_match_with_v_folds_non_ascii_to_ascii() {
         for (pattern, text, node) in [
             ("[a-z]", "\u{17f}", true),
             ("[a-z]", "\u{212a}", true),

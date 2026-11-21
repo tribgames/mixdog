@@ -1,5 +1,5 @@
-//! The real prompt sources: each world is written into a temp folder and every query is asked of [`RealSources`] inside an
-//! io-interactive lane job.
+//! The real prompt sources: each world is written into a temp folder, read inside an io-interactive lane job, and every
+//! query is asked of [`RealSources`] over what was read.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and real files")]
 #![cfg(windows)]
 
@@ -18,8 +18,27 @@ use tokio_util::sync::CancellationToken;
 use super::probes::StartupObservations;
 use super::real_sources::HostFacts;
 use super::real_sources::RealSources;
+use super::real_sources::SourceFacts;
+use super::real_sources::SourceWants;
+use super::source_files::FileReads;
 use super::sources::PromptSources;
 use mixdog_core_base::support::on_lane;
+use mixdog_rt::InLane;
+use mixdog_rt::InteractiveIo;
+
+/// Reads what a composition for `wants` can ask for, then answers `ask` from the snapshot alone.
+fn read_then<R>(
+    lane: &InLane<InteractiveIo>,
+    host: HostFacts<'_>,
+    observed: &StartupObservations,
+    wants: SourceWants,
+    ask: impl FnOnce(&RealSources<'_>) -> R,
+) -> R {
+    let reads = FileReads::new(lane);
+    let facts = SourceFacts::read(lane, &reads, host, observed, &wants);
+    let snapshot = reads.snapshot();
+    ask(&RealSources::new(&snapshot, &facts, host, observed))
+}
 
 struct Frozen;
 
@@ -69,8 +88,9 @@ async fn the_startup_observations_land_in_the_git_and_listing_lines() {
             instruction_files_forced_off: false,
             stored_instruction_files: None,
         };
-        let sources = RealSources::new(lane, host, &observed);
-        (sources.git_line(Some(&repo)), sources.cwd_entries(&repo), repo)
+        let wants = SourceWants { git: Some(Some(repo.clone())), cwd_entries: Some(repo.clone()), ..SourceWants::default() };
+        let lines = read_then(lane, host, &observed, wants, |sources| (sources.git_line(Some(&repo)), sources.cwd_entries(&repo)));
+        (lines.0, lines.1, repo)
     })
     .await
     .unwrap();
@@ -107,8 +127,8 @@ async fn a_second_session_reuses_the_first_ones_observations() {
             stored_instruction_files: None,
         };
         let ask = || {
-            let sources = RealSources::new(lane, host, &observed);
-            (sources.shell_tools_line(), sources.git_line(Some(&repo)))
+            let wants = SourceWants { shell_tools: true, git: Some(Some(repo.clone())), ..SourceWants::default() };
+            read_then(lane, host, &observed, wants, |sources| (sources.shell_tools_line(), sources.git_line(Some(&repo))))
         };
         let first = ask();
         fs::remove_file(root.join("bin").join("git.exe")).unwrap();
@@ -145,7 +165,10 @@ async fn an_agents_profile_stamp_follows_its_files() {
             instruction_files_forced_off: false,
             stored_instruction_files: None,
         };
-        let stamp = |agent: &str, mixy: bool| RealSources::new(lane, host, &observed).agent_profile_revision(agent, mixy);
+        let stamp = |agent: &str, mixy: bool| {
+            let wants = SourceWants { profile_revision: Some((agent.to_owned(), mixy)), ..SourceWants::default() };
+            read_then(lane, host, &observed, wants, |sources| sources.agent_profile_revision(agent, mixy))
+        };
         let before = stamp("helper", false);
         assert_eq!(before, stamp("helper", false));
         fs::write(data.join("agents/helper/PERSONA.md"), "gentle").unwrap();

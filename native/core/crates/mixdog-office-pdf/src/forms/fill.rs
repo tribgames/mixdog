@@ -77,47 +77,52 @@ pub fn fill_form_values(form: &mut PdfForm, doc: &mut PdfDocument, values: &Valu
         let Some(field) = field else {
             continue;
         };
-        match field.kind {
-            FieldKind::Checkbox => {
-                if checkbox_on(Some(value)) {
-                    form.check(doc, &field)?;
-                } else {
-                    form.uncheck(doc, &field)?;
-                }
-            }
-            FieldKind::Radio | FieldKind::Dropdown | FieldKind::OptionList => {
-                let options: Vec<String> = if field.kind == FieldKind::Radio {
-                    radio_options(doc.store(), field.reference)?
-                } else {
-                    choice_options(doc.store(), field.reference)?.into_iter().map(|(_, display)| display).collect()
-                };
-                let chosen = choice_values_of(value);
-                let unknown: Vec<String> = chosen.iter().filter(|entry| !options.contains(entry)).cloned().collect();
-                let editable = super::has_flag(doc.store(), field.reference, FLAG_EDIT);
-                if !unknown.is_empty() && !(field.kind == FieldKind::Dropdown && editable) {
-                    return Err(FormError::new(format!("Field {name} has no option {}; options: {}", unknown.join(", "), list_or_none(&options))));
-                }
-                if field.kind == FieldKind::Radio {
-                    let first = chosen.first().ok_or_else(|| FormError::new("`option` must be of type `string`, but was actually of type `undefined`"))?;
-                    form.select_radio(doc, &field, first)?;
-                } else {
-                    if chosen.is_empty() && field.kind == FieldKind::Dropdown {
-                        return Err(FormError::new("`options` must be of type `string` or `Array`, but was actually of type `undefined`"));
-                    }
-                    form.select_choice(doc, &field, &chosen)?;
-                }
-            }
-            FieldKind::Text => {
-                let text = if value.is_null() { String::new() } else { value_to_string(value) };
-                form.set_text(doc, &field, Some(&text))?;
-            }
-            FieldKind::Signature | FieldKind::Button => {
-                return Err(FormError::new(format!("Field {name} is a {} field and cannot be filled", field.kind.name())));
-            }
-        }
+        fill_one(form, doc, &field, name, value)?;
         filled.push(name.clone());
     }
     Ok(filled)
+}
+
+fn fill_one(form: &mut PdfForm, doc: &mut PdfDocument, field: &Field, name: &str, value: &Value) -> FormResult<()> {
+    match field.kind {
+        FieldKind::Checkbox => {
+            if checkbox_on(Some(value)) {
+                form.check(doc, field)?;
+            } else {
+                form.uncheck(doc, field)?;
+            }
+        }
+        FieldKind::Radio | FieldKind::Dropdown | FieldKind::OptionList => {
+            let options: Vec<String> = if field.kind == FieldKind::Radio {
+                radio_options(doc.store(), field.reference)?
+            } else {
+                choice_options(doc.store(), field.reference)?.into_iter().map(|(_, display)| display).collect()
+            };
+            let chosen = choice_values_of(value);
+            let unknown: Vec<String> = chosen.iter().filter(|entry| !options.contains(entry)).cloned().collect();
+            let editable = super::has_flag(doc.store(), field.reference, FLAG_EDIT);
+            if !unknown.is_empty() && !(field.kind == FieldKind::Dropdown && editable) {
+                return Err(FormError::new(format!("Field {name} has no option {}; options: {}", unknown.join(", "), list_or_none(&options))));
+            }
+            if field.kind == FieldKind::Radio {
+                let first = chosen.first().ok_or_else(|| FormError::new("`option` must be of type `string`, but was actually of type `undefined`"))?;
+                form.select_radio(doc, field, first)?;
+            } else {
+                if chosen.is_empty() && field.kind == FieldKind::Dropdown {
+                    return Err(FormError::new("`options` must be of type `string` or `Array`, but was actually of type `undefined`"));
+                }
+                form.select_choice(doc, field, &chosen)?;
+            }
+        }
+        FieldKind::Text => {
+            let text = if value.is_null() { String::new() } else { value_to_string(value) };
+            form.set_text(doc, field, Some(&text))?;
+        }
+        FieldKind::Signature | FieldKind::Button => {
+            return Err(FormError::new(format!("Field {name} is a {} field and cannot be filled", field.kind.name())));
+        }
+    }
+    Ok(())
 }
 
 fn clipped_entry(name: &str, reason: &str, needs: f64, available: f64, message: String) -> Value {
@@ -150,56 +155,59 @@ pub fn clipped_form_values(form: &PdfForm, doc: &mut PdfDocument, values: &Value
         if js_trim(&text).is_empty() {
             continue;
         }
-        let widgets = widgets_of(doc.store(), field.reference)?;
-        let Some(widget) = widgets.first() else {
-            continue;
-        };
-        let rectangle = widget_rectangle(doc.store(), widget)?;
-        let size = PdfForm::appearance_font_size(doc, &field, widget);
-        if size == 0.0 || size.is_nan() {
-            continue;
-        }
-        let inset = 2.0 + border_style_width(doc.store(), widget).unwrap_or(1.0);
-        let usable_width = (rectangle.width - inset * 2.0).max(1.0);
-        let usable_height = (rectangle.height - inset * 2.0).max(1.0);
-        let multiline = super::has_flag(doc.store(), field.reference, FLAG_MULTILINE);
-        if !multiline {
-            let needed = font.width_of_text_at_size(&text, size)?;
-            if needed <= usable_width + 0.5 {
-                continue;
-            }
-            let shown = if utf16_len(&text) > 24 { format!("{}…", slice_utf16(&text, 24)) } else { text.clone() };
-            clipped.push(clipped_entry(
-                name,
-                "width",
-                needed,
-                usable_width,
-                format!(
-                    "\"{shown}\" needs about {}pt at {}pt but the {name} box offers {}pt, so the end of the value is cut.",
-                    number_to_string(round(needed)),
-                    number_to_string(size),
-                    number_to_string(round(usable_width))
-                ),
-            ));
-            continue;
-        }
-        let lines = greedy_line_count(&text, font, size, usable_width)?;
-        let needed = lines as f64 * size * 1.2;
-        if needed <= usable_height + 0.5 {
-            continue;
-        }
-        clipped.push(clipped_entry(
-            name,
-            "height",
-            needed,
-            usable_height,
-            format!(
-                "The {name} value wraps to {lines} line(s) needing about {}pt at {}pt but the box offers {}pt, so the last lines are cut.",
-                number_to_string(round(needed)),
-                number_to_string(size),
-                number_to_string(round(usable_height))
-            ),
-        ));
+        clipped.extend(clipped_text(doc, &field, name, &text, font)?);
     }
     Ok(clipped)
+}
+
+/// The report of one text value that does not fit the first widget of its field, if it does not.
+fn clipped_text(doc: &PdfDocument, field: &Field, name: &str, text: &str, font: &Font) -> FormResult<Option<Value>> {
+    let widgets = widgets_of(doc.store(), field.reference)?;
+    let Some(widget) = widgets.first() else {
+        return Ok(None);
+    };
+    let rectangle = widget_rectangle(doc.store(), widget)?;
+    let size = PdfForm::appearance_font_size(doc, field, widget);
+    if size == 0.0 || size.is_nan() {
+        return Ok(None);
+    }
+    let inset = 2.0 + border_style_width(doc.store(), widget).unwrap_or(1.0);
+    let usable_width = (rectangle.width - inset * 2.0).max(1.0);
+    let usable_height = (rectangle.height - inset * 2.0).max(1.0);
+    if !super::has_flag(doc.store(), field.reference, FLAG_MULTILINE) {
+        let needed = font.width_of_text_at_size(text, size)?;
+        if needed <= usable_width + 0.5 {
+            return Ok(None);
+        }
+        let shown = if utf16_len(text) > 24 { format!("{}…", slice_utf16(text, 24)) } else { text.to_owned() };
+        return Ok(Some(clipped_entry(
+            name,
+            "width",
+            needed,
+            usable_width,
+            format!(
+                "\"{shown}\" needs about {}pt at {}pt but the {name} box offers {}pt, so the end of the value is cut.",
+                number_to_string(round(needed)),
+                number_to_string(size),
+                number_to_string(round(usable_width))
+            ),
+        )));
+    }
+    let lines = greedy_line_count(text, font, size, usable_width)?;
+    let needed = lines as f64 * size * 1.2;
+    if needed <= usable_height + 0.5 {
+        return Ok(None);
+    }
+    Ok(Some(clipped_entry(
+        name,
+        "height",
+        needed,
+        usable_height,
+        format!(
+            "The {name} value wraps to {lines} line(s) needing about {}pt at {}pt but the box offers {}pt, so the last lines are cut.",
+            number_to_string(round(needed)),
+            number_to_string(size),
+            number_to_string(round(usable_height))
+        ),
+    )))
 }

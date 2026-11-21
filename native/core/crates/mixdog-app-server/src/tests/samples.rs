@@ -5,10 +5,6 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-/// What the protocol boundary's validators (mixdog-app-protocol boundary/validate) require beyond the schema: a word of a closed
-/// vocabulary, a well-formed id, the members a field is checked together with. `(method, pattern prefix, value)`: the value is
-/// merged into the schema's minimal sample of `method` (objects member by member, anything else replaced), for every sample
-/// when the prefix is empty, else only for a field placed under it. The sample is then what a real client sends.
 const VALID: &[(&str, &str, &str)] = &[
     ("instructions/setInstructionFiles", "", r#"{"mode":"all"}"#),
     ("config/setHeartbeatInterval", "", r#"{"minutes":30}"#),

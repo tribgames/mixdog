@@ -1,9 +1,6 @@
-//! Sources V8 compiles that the tree-sitter grammar cannot read: the grammar has no rule for a call as the target of
-//! an assignment (`f() = 1`, `for (f() of x)`; V8 compiles them and throws when they run), for a parenthesized name
-//! inside a destructuring pattern (`[(a)] = b`) or for the escapes a tagged template may hold (`` f`\u` ``). Each is
-//! rewritten into a source the grammar reads, and the early-error pass then judges the rewritten one: a call target
-//! is wrapped in parentheses, a bad escape of a tagged template gets a letter that makes it a good one, the
-//! parentheses around a name in a pattern are blanked (and remembered, a binding pattern may not hold them).
+//! V8 compiles what the tree-sitter grammar has no rule for: a call as the target of an assignment (`f() = 1`,
+//! `for (f() of x)`), a parenthesized name inside a destructuring pattern (`[(a)] = b`), the escapes a tagged
+//! template may hold (`` f`\u` ``).
 
 use tree_sitter::{Node, Parser, Tree};
 
@@ -14,16 +11,14 @@ pub(crate) struct Repaired {
     pub blanked: Vec<usize>,
 }
 
-/// The repaired source and its tree, when a repair applies (the tree may still hold errors).
-pub(crate) fn repair(parser: &mut Parser, source: &str, tree: &Tree) -> Option<Repaired> {
-    let mut wraps: Vec<(usize, usize)> = Vec::new();
-    let mut letters: Vec<usize> = Vec::new();
-    collect(tree.root_node(), source, &mut wraps, &mut letters);
+/// `source` with each bad tagged-template escape made good and each call target wrapped in parentheses, and whether
+/// any was.
+fn apply_edits(source: &str, wraps: &[(usize, usize)], letters: &[usize]) -> Option<(String, bool)> {
     let mut text = source.to_owned();
     let mut changed = false;
     if !letters.is_empty() {
         let mut bytes = text.into_bytes();
-        for at in &letters {
+        for at in letters {
             bytes[*at] = b'n';
         }
         text = String::from_utf8(bytes).ok()?;
@@ -31,17 +26,24 @@ pub(crate) fn repair(parser: &mut Parser, source: &str, tree: &Tree) -> Option<R
     }
     if !wraps.is_empty() {
         let mut points: Vec<(usize, u8)> = Vec::new();
-        for (start, end) in &wraps {
+        for (start, end) in wraps {
             points.push((*start, b'('));
             points.push((*end, b')'));
         }
-        // Later positions first, so earlier ones stay valid; at one position a `)` goes in before a `(`.
         points.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
         for (at, byte) in points {
             text.insert(at, char::from(byte));
         }
         changed = true;
     }
+    Some((text, changed))
+}
+/// The repaired source and its tree, when a repair applies (the tree may still hold errors).
+pub(crate) fn repair(parser: &mut Parser, source: &str, tree: &Tree) -> Option<Repaired> {
+    let mut wraps: Vec<(usize, usize)> = Vec::new();
+    let mut letters: Vec<usize> = Vec::new();
+    collect(tree.root_node(), source, &mut wraps, &mut letters);
+    let (mut text, mut changed) = apply_edits(source, &wraps, &letters)?;
     let mut blanked = Vec::new();
     if changed {
         let again = parser.parse(&text, None)?;

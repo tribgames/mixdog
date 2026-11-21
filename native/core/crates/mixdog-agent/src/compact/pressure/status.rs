@@ -1,13 +1,10 @@
-//! The `/context` gauge (`runtime-core/context-status*.mjs`, with the pieces of
-//! `loop/compact-policy.mjs`, `context-compaction-policy.mjs` and `shared/context-measurement.mjs`
-//! it reads): the session's token counters, its compaction policy and the resolved usage, as the
-//! JSON record `thread/contextStatus` answers.
+//! The `/context` gauge: the session's token counters, its compaction policy and the resolved usage,
+//! as the JSON record `thread/contextStatus` answers.
 //!
-//! It is a pure function of the session header (its fields under Node's names, as the pressure
-//! state above keeps them), the transcript and the tools of the request. The facts that live in
-//! modules this crate does not own arrive as inputs ([`StatusInput`]): the tool-schema breakdown by
-//! catalog bucket, whether the transcript holds real history, and whether the session runs in agent
-//! mode. The meter and the transcript signatures are the ones the compaction run uses.
+//! It is a pure function of the session header, the transcript and the tools of the request. The facts
+//! that live in modules this crate does not own arrive as inputs ([`StatusInput`]): the tool-schema
+//! breakdown by catalog bucket, whether the transcript holds real history, and whether the session runs
+//! in agent mode. The meter and the transcript signatures are the ones the compaction run uses.
 
 use mixdog_core_api::domain::provider::Role;
 use mixdog_js::JsRegex;
@@ -736,6 +733,44 @@ pub(super) fn section_bucket(section: &str) -> &'static str {
     }
 }
 
+fn tally_reminder(semantic: &mut Semantic, text: &str, tokens: f64) {
+    let mut buckets = [("workflow", 0.0), ("memory", 0.0), ("workspace", 0.0), ("environment", 0.0), ("other", 0.0)];
+    let mut section_tokens = 0.0;
+    for section in split_sections(&strip_system_reminder(text)) {
+        let count = estimate_tokens(&section) as f64;
+        let name = section_bucket(&section);
+        if let Some(bucket) = buckets.iter_mut().find(|(n, _)| *n == name) {
+            bucket.1 += count;
+        }
+        section_tokens += count;
+    }
+    semantic.reminders.0 += 1.0;
+    semantic.reminders.1 += tokens;
+    semantic.reminders.2 += (tokens - section_tokens).max(0.0);
+    semantic.workflow += buckets[0].1;
+    semantic.memory += buckets[1].1;
+    semantic.workspace += buckets[2].1;
+    semantic.environment += buckets[3].1;
+    semantic.other += buckets[4].1;
+}
+
+fn semantic_json(semantic: &Semantic) -> Value {
+    let row = |count: f64, tokens: f64| json!({ "count": num(count), "tokens": num(tokens) });
+    json!({
+        "system": row(semantic.system.0, semantic.system.1),
+        "chat": row(semantic.chat.0, semantic.chat.1),
+        "assistant": row(semantic.assistant.0, semantic.assistant.1),
+        "reasoning": row(semantic.reasoning.0, semantic.reasoning.1),
+        "toolResults": row(semantic.tool_results.0, semantic.tool_results.1),
+        "reminders": { "count": num(semantic.reminders.0), "tokens": num(semantic.reminders.1), "otherTokens": num(semantic.reminders.2) },
+        "workflow": { "tokens": num(semantic.workflow) },
+        "memory": { "tokens": num(semantic.memory) },
+        "workspace": { "tokens": num(semantic.workspace) },
+        "environment": { "tokens": num(semantic.environment) },
+        "other": { "tokens": num(semantic.other) },
+    })
+}
+
 /// `summarizeContextMessages(messages)`.
 pub fn summarize_messages(messages: &[AgentMessage], meter: &MessageMeter<'_>) -> Value {
     let mut roles = [("system", 0.0, 0.0), ("user", 0.0, 0.0), ("assistant", 0.0, 0.0), ("tool", 0.0, 0.0), ("other", 0.0, 0.0)]
@@ -763,24 +798,7 @@ pub fn summarize_messages(messages: &[AgentMessage], meter: &MessageMeter<'_>) -
                 semantic.workflow += workflow;
             }
             1 if js_trim(&text).starts_with(SYSTEM_REMINDER_OPEN) => {
-                let mut buckets = [("workflow", 0.0), ("memory", 0.0), ("workspace", 0.0), ("environment", 0.0), ("other", 0.0)];
-                let mut section_tokens = 0.0;
-                for section in split_sections(&strip_system_reminder(&text)) {
-                    let count = estimate_tokens(&section) as f64;
-                    let name = section_bucket(&section);
-                    if let Some(bucket) = buckets.iter_mut().find(|(n, _)| *n == name) {
-                        bucket.1 += count;
-                    }
-                    section_tokens += count;
-                }
-                semantic.reminders.0 += 1.0;
-                semantic.reminders.1 += tokens;
-                semantic.reminders.2 += (tokens - section_tokens).max(0.0);
-                semantic.workflow += buckets[0].1;
-                semantic.memory += buckets[1].1;
-                semantic.workspace += buckets[2].1;
-                semantic.environment += buckets[3].1;
-                semantic.other += buckets[4].1;
+                tally_reminder(&mut semantic, &text, tokens);
             }
             1 => {
                 semantic.chat.0 += 1.0;
@@ -812,24 +830,11 @@ pub fn summarize_messages(messages: &[AgentMessage], meter: &MessageMeter<'_>) -
     for (name, r) in &roles {
         role_rows.insert((*name).to_owned(), row(r.count, r.tokens));
     }
-    let semantic_rows = json!({
-        "system": row(semantic.system.0, semantic.system.1),
-        "chat": row(semantic.chat.0, semantic.chat.1),
-        "assistant": row(semantic.assistant.0, semantic.assistant.1),
-        "reasoning": row(semantic.reasoning.0, semantic.reasoning.1),
-        "toolResults": row(semantic.tool_results.0, semantic.tool_results.1),
-        "reminders": { "count": num(semantic.reminders.0), "tokens": num(semantic.reminders.1), "otherTokens": num(semantic.reminders.2) },
-        "workflow": { "tokens": num(semantic.workflow) },
-        "memory": { "tokens": num(semantic.memory) },
-        "workspace": { "tokens": num(semantic.workspace) },
-        "environment": { "tokens": num(semantic.environment) },
-        "other": { "tokens": num(semantic.other) },
-    });
     json!({
         "count": messages.len(),
         "estimatedTokens": num(estimated),
         "roles": role_rows,
-        "semantic": semantic_rows,
+        "semantic": semantic_json(&semantic),
         "toolCallCount": num(call_count),
         "toolCallTokens": num(call_tokens),
         "toolResultCount": num(result_count),
@@ -994,6 +999,33 @@ fn last_usage_stale(session: &Header, last_context_tokens: f64) -> bool {
         || (compact_at > 0.0 && usage_at <= 0.0)
 }
 
+fn live_compaction_status(
+    compaction: Option<&Map<String, Value>>,
+    policy: &Policy,
+    compact_boundary: f64,
+    used: f64,
+    last_context_tokens: f64,
+    stale: bool,
+) -> Value {
+    let mut status = compaction.cloned().unwrap_or_default();
+    let buffer_tokens = policy.buffer_tokens.filter(|b| finite(*b)).unwrap_or(0.0).max(0.0);
+    let configured = policy.configured_reserve_tokens.filter(|c| finite(*c)).unwrap_or(0.0).max(0.0);
+    for (key, value) in [
+        ("boundaryTokens", or_none(compact_boundary)),
+        ("triggerTokens", or_none(policy.trigger_tokens.unwrap_or(0.0))),
+        ("bufferTokens", num(buffer_tokens)),
+        ("bufferRatio", finite_or_null(policy.buffer_ratio)),
+        ("currentEstimatedTokens", num(used)),
+        ("pressureTokens", num(used)),
+        ("reserveTokens", num(configured)),
+        ("lastApiRequestTokens", num(last_context_tokens)),
+        ("lastApiRequestStale", json!(stale)),
+    ] {
+        status.insert(key.to_owned(), value);
+    }
+    Value::Object(status)
+}
+
 /// `thread/contextStatus`: the live status of the session (`createContextStatus().contextStatus()`).
 pub fn context_status(input: &StatusInput<'_>) -> Value {
     let session = input.session;
@@ -1035,23 +1067,8 @@ pub fn context_status(input: &StatusInput<'_>) -> Value {
     out.insert("lastApiRequestTokens".into(), num(last_context_tokens));
     out.insert("lastApiRequestStale".into(), json!(stale));
     out.insert("freeTokens".into(), num(free));
-    let mut compaction_status = compaction.cloned().unwrap_or_default();
-    let buffer_tokens = policy.buffer_tokens.filter(|b| finite(*b)).unwrap_or(0.0).max(0.0);
-    let configured = policy.configured_reserve_tokens.filter(|c| finite(*c)).unwrap_or(0.0).max(0.0);
-    for (key, value) in [
-        ("boundaryTokens", or_none(compact_boundary)),
-        ("triggerTokens", or_none(policy.trigger_tokens.unwrap_or(0.0))),
-        ("bufferTokens", num(buffer_tokens)),
-        ("bufferRatio", finite_or_null(policy.buffer_ratio)),
-        ("currentEstimatedTokens", num(used)),
-        ("pressureTokens", num(used)),
-        ("reserveTokens", num(configured)),
-        ("lastApiRequestTokens", num(last_context_tokens)),
-        ("lastApiRequestStale", json!(stale)),
-    ] {
-        compaction_status.insert(key.to_owned(), value);
-    }
-    out.insert("compaction".into(), Value::Object(compaction_status));
+    let compaction_status = live_compaction_status(compaction, &policy, compact_boundary, used, last_context_tokens, stale);
+    out.insert("compaction".into(), compaction_status);
     out.insert("messages".into(), summary);
     out.insert(
         "request".into(),
@@ -1123,10 +1140,31 @@ pub struct CompactionPlan {
     pub reserve_tokens: f64,
 }
 
+fn plan_pressure_tokens(input: &StatusInput<'_>) -> f64 {
+    if input.messages.is_empty() {
+        return 0.0;
+    }
+    let estimated = number_or_zero(summarize_messages(input.messages, input.meter).get("estimatedTokens"));
+    round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(input.env, get(input.session, "provider")))
+        .max(0.0)
+}
+
+fn plan_reserve_tokens(input: &StatusInput<'_>, aligned: Option<&Policy>, compaction: Option<&Map<String, Value>>) -> f64 {
+    if let Some(reserve) = aligned.and_then(|p| p.reserve_tokens) {
+        return reserve;
+    }
+    let request = estimate_request_reserve_tokens(&input.session_tools) as f64;
+    let configured = compaction
+        .and_then(|c| positive_int(get(c, "reservedTokens")))
+        .or_else(|| env_positive_int(input.env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
+        .unwrap_or(0.0);
+    request + configured
+}
+
 /// `sessionCompactionPlan(session, opts)` over the session header and its transcript snapshot: `Ok(None)`
-/// is Node's `null` (an automatic pass on a session that turned it off, a short transcript, or no
-/// window); the refusal is a forced compaction that has no window. `input.request_tools` are the
-/// tools of `resolveSessionCompactionPolicy`'s request, `input.session_tools` the session's own.
+/// is an automatic pass on a session that turned it off, a short transcript, or no window; the
+/// refusal is a forced compaction that has no window. `input.request_tools` are the tools of the
+/// policy's request, `input.session_tools` the session's own.
 pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) -> Result<Option<CompactionPlan>, &'static str> {
     let session = input.session;
     let force = force || !auto_mode;
@@ -1153,13 +1191,7 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
     let buffer_tokens = aligned.as_ref().and_then(|p| p.buffer_tokens).unwrap_or_else(|| (boundary - trigger_tokens).max(0.0));
     let buffer_ratio = aligned.as_ref().and_then(|p| p.buffer_ratio).unwrap_or(buffer_tokens / boundary);
     let budget = aligned.as_ref().and_then(|p| compact_target_budget(p, force)).filter(|b| *b != 0.0).unwrap_or(boundary);
-    let pressure_tokens = if messages.is_empty() {
-        0.0
-    } else {
-        let estimated = number_or_zero(summarize_messages(messages, input.meter).get("estimatedTokens"));
-        round((estimated + estimate_request_reserve_tokens(&input.session_tools) as f64) * provider_token_calibration(input.env, get(session, "provider")))
-            .max(0.0)
-    };
+    let pressure_tokens = plan_pressure_tokens(input);
     let gauge = aligned.as_ref().map_or(0.0, |policy| resolve_tokens(session, before_message_tokens, policy, messages, input).0);
     // `compactDisplayBeforeTokens`: the context the provider last measured, while that reading is live.
     let before_tokens = match positive_int(get(session, "lastContextTokens")) {
@@ -1167,17 +1199,7 @@ pub fn compaction_plan(input: &StatusInput<'_>, auto_mode: bool, force: bool) ->
         _ if gauge != 0.0 => gauge,
         _ => pressure_tokens,
     };
-    let reserve_tokens = match aligned.as_ref().and_then(|p| p.reserve_tokens) {
-        Some(reserve) => reserve,
-        None => {
-            let request = estimate_request_reserve_tokens(&input.session_tools) as f64;
-            let configured = compaction
-                .and_then(|c| positive_int(get(c, "reservedTokens")))
-                .or_else(|| env_positive_int(input.env, "MIXDOG_AGENT_COMPACT_RESERVED_TOKENS"))
-                .unwrap_or(0.0);
-            request + configured
-        }
-    };
+    let reserve_tokens = plan_reserve_tokens(input, aligned.as_ref(), compaction);
     Ok(Some(CompactionPlan {
         force,
         messages: messages.len(),

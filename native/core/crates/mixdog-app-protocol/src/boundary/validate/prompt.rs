@@ -238,11 +238,6 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
                 if file_count > MAX_PROMPT_FILES {
                     return Err(invalid(&part_path, "too many prompt files."));
                 }
-                // DECISION (owner direction: open rather than restrictive): the old host refused every type but PDF
-                // and Office documents. That refusal is dropped on purpose. The runtime reads any inline file by its
-                // content, and a phone or a relay caller sends other types (`text/plain`), so only the type's shape
-                // is checked here. The desktop composer still offers only the supported types
-                // (`canonicalPromptFileMimeType`).
                 required_string(part.get("mimeType").unwrap_or(&Value::Null), &format!("{part_path}/mimeType"), "file mime type", MAX_PROMPT_FILE_MIME_LENGTH)?;
                 let data = part_data(part, &part_path, MAX_PROMPT_FILE_BASE64_LENGTH, "file data is invalid.")?;
                 file_length += data.map_or(0, utf16_len);

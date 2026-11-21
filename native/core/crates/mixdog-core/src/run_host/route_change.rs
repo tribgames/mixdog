@@ -1,13 +1,3 @@
-//! What a route change does to the session besides its route fields (Node `updateSessionRoute`,
-//! `session-lifecycle.mjs`): `applyRouteContextWindow`, `resetSessionForRouteChange` and, when the
-//! caller crosses providers, the context-usage and baseline invalidation. One function, shared by
-//! the session's route adapter and the run's fallback hop, so a hop changes the header exactly as a
-//! picked model does.
-//!
-//! The pending workspace re-root and the `# Session` block rebuild are
-//! `session::worktree::route_prompt_refresh` (they read the prompt messages, which a header does
-//! not hold); the replay strip of the transcript is `route_fallback::strip_provider_replay_messages`.
-
 use std::sync::Arc;
 
 use mixdog_agent::compact::pressure::{invalidate_context_usage_snapshot, invalidate_provider_context_baseline};
@@ -33,8 +23,6 @@ pub trait RouteFacts: Send + Sync {
     /// others, `None` when the provider has none.
     fn cache_opts(&self, provider: &str, session_id: &str, agent: Option<&str>, header: &Header) -> Option<Value>;
 
-    /// The tool surface, rules variant and deferred-tool fields a new route rebuilds
-    /// (`_prepareResumeTools`, `applyAgentToolExposure`, `_refreshSessionRuleVariantsForModel`).
     /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected for the header on the session's actor, before the
     /// change ran. Nothing by default (facts that rebuild no surface).
     fn surface_change(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> HeaderChange {

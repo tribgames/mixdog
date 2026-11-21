@@ -1,12 +1,6 @@
-//! `ChatRouteSetter` in production: how a bot's saved route reaches one of its chats
-//! (`standalone/session-service/agent-route-follow.mjs` `apply`: `entry.runtime.setRoute(pick)`).
-//!
-//! `runtime.setRoute(pick)` is the session route API (`tui/session/session-api/routes-write.mjs`
-//! `createRouteWrite`) that `route/set` also reaches, so the pick goes through the same
-//! [`plan`] (a session-only pick completed against the chat's live route, the options split off
-//! the selection) and the same [`RouteService::set_route`]. A pick the chat already runs is a
-//! no-op, as in the route API. The follow options of the write are the ones the plan derives
-//! (`switchEstablished`, `deferUntilNextTurn`): the chat takes the route from its next turn.
+//! `ChatRouteSetter` in production: a bot's saved route reaches one of its chats through the same
+//! [`plan`] and [`RouteService::set_route`] as `route/set`. A pick the chat already runs is a no-op; the
+//! chat takes the route from its next turn (`switchEstablished`, `deferUntilNextTurn`).
 
 use std::sync::Arc;
 

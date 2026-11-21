@@ -1,7 +1,6 @@
-//! The text a user row shows for a stored prompt (today's `createUserTextRestore().text`,
-//! `transcript-restore/user-text.mjs`, with `toolResultText` of `tool-result-text.mjs`): the
-//! row's `displayText`, computed once when the record is written (the session at commit,
-//! the migration for 1.4.5 history) and never re-derived from text afterwards.
+//! The text a user row shows for a stored prompt: the row's `displayText`, computed once when the
+//! record is written (the session at commit, the migration for 1.4.5 history) and never
+//! re-derived from text afterwards.
 //!
 //! - A stored pasted or attached text shows as its chip token (`[Pasted text #n +N lines]`,
 //!   `[File #n: name]`).
@@ -246,7 +245,7 @@ fn with_visualize_feedback_display(text: &str) -> String {
     if !text.contains(FEEDBACK_OPEN) {
         return text.to_owned();
     }
-    FEEDBACK_BLOCK.replace_all_with(text, |caps| feedback_display(caps.get(1).unwrap_or_default()))
+    FEEDBACK_BLOCK.replace_all_with(text, |caps| render_feedback(&parse_feedback(caps.get(1).unwrap_or_default())))
 }
 
 /// `String(JSON.parse(value))`, `''` for an absent or unparsable value.
@@ -254,13 +253,19 @@ fn unquote(value: Option<&str>) -> String {
     value.and_then(|v| serde_json::from_str::<Value>(v).ok()).map(|v| value_to_string(&v)).unwrap_or_default()
 }
 
-/// `feedbackDisplay`: the live bubble's lines for one feedback block body.
-fn feedback_display(body: &str) -> String {
-    struct Pin {
-        n: String,
-        label: String,
-        note: String,
-    }
+struct Pin {
+    n: String,
+    label: String,
+    note: String,
+}
+
+struct Feedback {
+    pins: Vec<Pin>,
+    choices: Vec<(String, String, String)>,
+    tweak_sets: Vec<Vec<String>>,
+}
+
+fn parse_feedback(body: &str) -> Feedback {
     let mut pins: Vec<Pin> = Vec::new();
     let mut choices: Vec<(String, String, String)> = Vec::new();
     let mut pin: Option<usize> = None;
@@ -322,6 +327,11 @@ fn feedback_display(body: &str) -> String {
             choices.push((unquote(choice.get(1)), unquote(choice.get(2)), unquote(choice.get(3))));
         }
     }
+    Feedback { pins, choices, tweak_sets }
+}
+
+/// The live bubble's lines for one feedback block.
+fn render_feedback(Feedback { pins, choices, tweak_sets }: &Feedback) -> String {
     let mut lines: Vec<String> =
         pins.iter().map(|p| format!("📌 {} · {} — {}", p.n, p.label, WHITESPACE_RUN.replace_all_with(&p.note, |_| " ".to_owned()))).collect();
     if !choices.is_empty() {
@@ -349,26 +359,9 @@ pub fn tool_result_text(content: &Value) -> String {
         Value::String(text) => text.clone(),
         Value::Array(parts) => join_part_texts(parts, 0),
         Value::Object(map) => {
-            match map.get("content") {
-                Some(Value::Array(inner)) => {
-                    let nested = join_part_texts(inner, 0);
-                    if !nested.is_empty() {
-                        return nested;
-                    }
-                }
-                Some(inner @ Value::Object(_)) => {
-                    let nested = tool_result_part_text(inner, 0);
-                    if !nested.is_empty() {
-                        return nested;
-                    }
-                }
-                _ => {}
-            }
-            if let Some(Value::Array(parts)) = map.get("parts") {
-                let nested = join_part_texts(parts, 0);
-                if !nested.is_empty() {
-                    return nested;
-                }
+            let nested = nested_text(map, 0);
+            if !nested.is_empty() {
+                return nested;
             }
             let from_part = tool_result_part_text(content, 0);
             if !from_part.is_empty() {
@@ -386,6 +379,21 @@ pub fn tool_result_text(content: &Value) -> String {
             json_stringify(content)
         }
         other => json_stringify(other),
+    }
+}
+
+fn nested_text(map: &serde_json::Map<String, Value>, depth: usize) -> String {
+    let from_content = match map.get("content") {
+        Some(Value::Array(inner)) => join_part_texts(inner, depth),
+        Some(inner @ Value::Object(_)) => tool_result_part_text(inner, depth),
+        _ => String::new(),
+    };
+    if !from_content.is_empty() {
+        return from_content;
+    }
+    match map.get("parts") {
+        Some(Value::Array(parts)) => join_part_texts(parts, depth),
+        _ => String::new(),
     }
 }
 
@@ -426,26 +434,9 @@ fn tool_result_part_text(part: &Value, depth: usize) -> String {
                     Some(other) => value_to_string(other),
                 };
             }
-            match map.get("content") {
-                Some(Value::Array(inner)) => {
-                    let nested = join_part_texts(inner, depth + 1);
-                    if !nested.is_empty() {
-                        return nested;
-                    }
-                }
-                Some(inner @ Value::Object(_)) => {
-                    let nested = tool_result_part_text(inner, depth + 1);
-                    if !nested.is_empty() {
-                        return nested;
-                    }
-                }
-                _ => {}
-            }
-            if let Some(Value::Array(parts)) = map.get("parts") {
-                let nested = join_part_texts(parts, depth + 1);
-                if !nested.is_empty() {
-                    return nested;
-                }
+            let nested = nested_text(map, depth + 1);
+            if !nested.is_empty() {
+                return nested;
             }
             for key in ["text", "output", "message"] {
                 if let Some(Value::String(text)) = map.get(key)
@@ -532,6 +523,16 @@ mod tests {
         assert_eq!(show(alone, vec![(A, "the long prompt")]), "the long prompt");
         let beside = json!([{ "type": "text", "text": "hi" }, { "type": "text", "attachmentRef": A }]);
         assert_eq!(show(beside, vec![(A, "the long prompt")]), "hi");
+    }
+
+    #[test]
+    fn tool_result_text_reads_nested_content_then_parts_then_own_text() {
+        assert_eq!(tool_result_text(&json!({ "content": [{ "type": "text", "text": "a" }, { "type": "text", "text": "b" }] })), "a\nb");
+        assert_eq!(tool_result_text(&json!({ "content": { "type": "text", "text": "inner" }, "parts": ["p"] })), "inner");
+        assert_eq!(tool_result_text(&json!({ "content": [], "parts": ["p", { "type": "text", "text": "q" }] })), "p\nq");
+        assert_eq!(tool_result_text(&json!({ "text": "own" })), "own");
+        assert_eq!(tool_result_text(&json!({ "type": "tool_result", "content": [] })), "");
+        assert_eq!(tool_result_text(&json!({ "type": "tool_result", "content": { "content": ["deep"] } })), "deep");
     }
 
     #[test]

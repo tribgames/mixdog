@@ -204,10 +204,6 @@ mod tests {
         }
     }
 
-    /// The protocol params' `params` member is the arguments: a start, the jobs filter and a cancel reach the job they name (a
-    /// null filter lists every job, one that is not text none); `cancelConversationImport` of an unknown job answers the
-    /// `jobNotFound` code (`conversation-import/service.mjs` `importError('jobNotFound')`), a start with no `requestId` is refused
-    /// for that field, and arguments left at the top level are refused as a missing params object (`requireParams`).
     #[tokio::test]
     async fn the_params_member_reaches_the_method() {
         let home = tempfile::tempdir().unwrap();

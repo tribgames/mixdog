@@ -221,6 +221,25 @@ fn bare_color(color: &Value) -> String {
     stripped.unwrap_or(text)
 }
 
+/// One colour set apart from the rest of a single series: the palette is that colour, with its index and the muted colour
+/// of the others.
+fn split_highlight(colors: Vec<String>) -> (Vec<String>, Option<usize>, Option<String>) {
+    if colors.len() > 1 {
+        let mut distinct: Vec<&String> = Vec::new();
+        for color in &colors {
+            if !distinct.contains(&color) {
+                distinct.push(color);
+            }
+        }
+        let odd = colors.iter().position(|color| colors.iter().filter(|other| *other == color).count() == 1);
+        if let (2, Some(odd)) = (distinct.len(), odd) {
+            let muted = colors.iter().find(|color| **color != colors[odd]).cloned();
+            return (vec![colors[odd].clone()], Some(odd), muted);
+        }
+    }
+    (colors, None, None)
+}
+
 /// A chart's `data-chart` spec as `add_chart` reads it. One series with one colour set apart is a highlight.
 fn chart_operation(chart: &Value, sheet: &str, cell: &str, to_column: &str, range: &str) -> Value {
     let empty = Value::Object(Map::new());
@@ -236,23 +255,7 @@ fn chart_operation(chart: &Value, sheet: &str, cell: &str, to_column: &str, rang
     };
     let colors: Vec<String> = spec.get("colors").and_then(Value::as_array).map(|list| list.iter().map(bare_color).collect()).unwrap_or_default();
     let single = !spec.get("series").is_some_and(Value::is_array);
-    let mut palette = colors.clone();
-    let mut highlight = None;
-    let mut muted = None;
-    if single && colors.len() > 1 && !matches!(kind, "pie" | "doughnut") {
-        let mut distinct: Vec<&String> = Vec::new();
-        for color in &colors {
-            if !distinct.contains(&color) {
-                distinct.push(color);
-            }
-        }
-        let odd = colors.iter().position(|color| colors.iter().filter(|other| *other == color).count() == 1);
-        if let (2, Some(odd)) = (distinct.len(), odd) {
-            highlight = Some(odd);
-            palette = vec![colors[odd].clone()];
-            muted = colors.iter().find(|color| **color != colors[odd]).cloned();
-        }
-    }
+    let (palette, highlight, muted) = if single && !matches!(kind, "pie" | "doughnut") { split_highlight(colors) } else { (colors, None, None) };
     let rect = rect_of(chart);
     let mut op = Map::new();
     op.insert("op".into(), json!("add_chart"));
@@ -479,8 +482,6 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
         let cells: Vec<&Value> = tables.iter().flat_map(|table| items(table, "rows")).flat_map(|row| row.as_array().into_iter().flatten()).collect();
         let (texts, boxes, charts, pictures) = (items(sheet, "texts"), items(sheet, "boxes"), items(sheet, "charts"), items(sheet, "pictures"));
         let rects: Vec<Rect> = texts.iter().chain(boxes).chain(cells.iter().copied()).chain(charts).chain(pictures).map(rect_of).collect();
-        // The sheet ends where its content does, plus the section's own right and bottom padding: a section left at the page's
-        // width (a data sheet) gave its last column the rest of the browser window.
         let right = rects.iter().map(|rect| rect.right).fold(1.0, f64::max);
         let bottom = rects.iter().map(|rect| rect.bottom).fold(1.0, f64::max);
         let padding = |key: &str| {
@@ -510,36 +511,10 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
         for item in by_area {
             decorate(&mut out.first, name, &grid, item);
         }
-        // Texts and table cells.
         for text in texts {
             write_item(&mut out, name, &grid, text, false, true);
         }
-        for table in tables {
-            let named = table.get("name").is_some_and(truthy);
-            let rows = items(table, "rows");
-            for row in rows {
-                for cell in row.as_array().into_iter().flatten() {
-                    write_item(&mut out, name, &grid, cell, !cell.get("header").is_some_and(truthy), !named);
-                }
-            }
-            if rows.is_empty() {
-                continue;
-            }
-            let corners = grid.span(rect_of(table));
-            let table_range = format!("{}{}:{}{}", column_label(corners.c0 + 1), corners.r0 + 1, column_label(corners.c1), corners.r1);
-            if named {
-                let style = table.get("style").filter(|style| truthy(style)).cloned().unwrap_or_else(|| json!("TableStyleLight1"));
-                out.first.push(json!({ "op": "add_table", "sheet": name, "range": table_range, "name": table["name"], "style": style }));
-            }
-            if table.get("freezeHeader").is_some_and(truthy) {
-                out.later.push(json!({ "op": "freeze_panes", "sheet": name, "row": corners.r0 + 2 }));
-            }
-            let headed = rows[0].as_array().is_some_and(|row| row.iter().any(|cell| cell.get("header").is_some_and(truthy)));
-            if headed && charts.is_empty() && boxes.is_empty() {
-                out.later.push(json!({ "op": "set_page_setup", "sheet": name, "printTitleRows": format!("{}", corners.r0 + 1) }));
-            }
-        }
-        // Charts over their data: the data-range given, else the spec's labels and values in the hidden data sheet.
+        write_tables(&mut out, name, &grid, tables, charts.is_empty() && boxes.is_empty());
         for chart in charts {
             let span = grid.span(rect_of(chart));
             let range = match chart.get("range").filter(|range| truthy(range)) {
@@ -555,36 +530,11 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
         }
         for picture in pictures {
             let Some(path) = picture.get("capture").and_then(Value::as_u64).and_then(|number| captures.get(&(number as usize))) else { continue };
-            let span = grid.span(rect_of(picture));
-            let rect = rect_of(picture);
-            let alt = picture.get("alt").filter(|alt| truthy(alt)).cloned().unwrap_or_else(|| json!("picture"));
-            out.later.push(json!({
-                "op": "add_image",
-                "sheet": name,
-                "path": path.display().to_string(),
-                "cell": span.cell,
-                "width": json_number((rect.right - rect.left) * PX_TO_PT),
-                "height": json_number((rect.bottom - rect.top) * PX_TO_PT),
-                "altText": alt,
-            }));
+            out.later.push(picture_operation(picture, name, &grid, path));
         }
-        // The sheet as the HTML showed it: no gridlines unless asked, printed one page wide (one page for a report).
         out.later.push(json!({ "op": "set_sheet_view", "sheet": name, "showGridlines": sheet.get("gridlines").is_some_and(truthy) }));
         let report = !charts.is_empty() || !boxes.is_empty() || !texts.is_empty();
-        let orientation = match sheet.get("orientation").filter(|orientation| truthy(orientation)) {
-            Some(orientation) => orientation.clone(),
-            None => json!(if grid.xs.last().copied().unwrap_or(0.0) > grid.ys.last().copied().unwrap_or(0.0) { "landscape" } else { "portrait" }),
-        };
-        let mut setup = Map::new();
-        setup.insert("op".into(), json!("set_page_setup"));
-        setup.insert("sheet".into(), json!(name));
-        setup.insert("printArea".into(), json!(grid.whole()));
-        setup.insert("orientation".into(), orientation);
-        setup.insert("fitToPagesWide".into(), json!(1));
-        if report || sheet.get("fit") == Some(&json!("page")) {
-            setup.insert("fitToPagesTall".into(), json!(1));
-        }
-        out.later.push(Value::Object(setup));
+        out.later.push(page_setup_operation(sheet, name, &grid, report));
         if let Some(freeze) = sheet.get("freeze").filter(|freeze| truthy(freeze)) {
             out.later.push(json!({ "op": "freeze_panes", "sheet": name, "row": json_number(to_number_of(Some(freeze))) }));
         }
@@ -592,20 +542,7 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
             out.later.push(json!({ "op": "set_sheet_visibility", "sheet": name, "visible": false }));
         }
     }
-    if !chart_data.is_empty() {
-        out.first.push(json!({ "op": "add_sheet", "name": CHART_DATA_SHEET }));
-        let mut row = 1;
-        for block in &chart_data {
-            out.first.push(json!({
-                "op": "set_range",
-                "sheet": CHART_DATA_SHEET,
-                "range": format!("A{row}:{}{}", column_label(block[0].len()), row + block.len() - 1),
-                "values": block,
-            }));
-            row += block.len() + 1;
-        }
-        out.later.push(json!({ "op": "set_sheet_visibility", "sheet": CHART_DATA_SHEET, "visible": false }));
-    }
+    write_chart_data_sheet(&mut out, &chart_data);
     let Operations { first, mut later, placed } = out;
     for operation in &mut later {
         match operation["op"].as_str() {
@@ -621,6 +558,88 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
         }
     }
     first.into_iter().chain(later).collect()
+}
+
+/// The table cells, and for a named table its `add_table`, header freeze and print title rows. `plain_page` is a sheet
+/// with no chart or box, where a header row is the print title.
+fn write_tables(out: &mut Operations, name: &str, grid: &Grid, tables: &[Value], plain_page: bool) {
+    for table in tables {
+        let named = table.get("name").is_some_and(truthy);
+        let rows = items(table, "rows");
+        for row in rows {
+            for cell in row.as_array().into_iter().flatten() {
+                write_item(out, name, grid, cell, !cell.get("header").is_some_and(truthy), !named);
+            }
+        }
+        if rows.is_empty() {
+            continue;
+        }
+        let corners = grid.span(rect_of(table));
+        let table_range = format!("{}{}:{}{}", column_label(corners.c0 + 1), corners.r0 + 1, column_label(corners.c1), corners.r1);
+        if named {
+            let style = table.get("style").filter(|style| truthy(style)).cloned().unwrap_or_else(|| json!("TableStyleLight1"));
+            out.first.push(json!({ "op": "add_table", "sheet": name, "range": table_range, "name": table["name"], "style": style }));
+        }
+        if table.get("freezeHeader").is_some_and(truthy) {
+            out.later.push(json!({ "op": "freeze_panes", "sheet": name, "row": corners.r0 + 2 }));
+        }
+        let headed = rows[0].as_array().is_some_and(|row| row.iter().any(|cell| cell.get("header").is_some_and(truthy)));
+        if headed && plain_page {
+            out.later.push(json!({ "op": "set_page_setup", "sheet": name, "printTitleRows": format!("{}", corners.r0 + 1) }));
+        }
+    }
+}
+
+fn picture_operation(picture: &Value, name: &str, grid: &Grid, path: &std::path::Path) -> Value {
+    let span = grid.span(rect_of(picture));
+    let rect = rect_of(picture);
+    let alt = picture.get("alt").filter(|alt| truthy(alt)).cloned().unwrap_or_else(|| json!("picture"));
+    json!({
+        "op": "add_image",
+        "sheet": name,
+        "path": path.display().to_string(),
+        "cell": span.cell,
+        "width": json_number((rect.right - rect.left) * PX_TO_PT),
+        "height": json_number((rect.bottom - rect.top) * PX_TO_PT),
+        "altText": alt,
+    })
+}
+
+/// Printed one page wide (one page for a report).
+fn page_setup_operation(sheet: &Value, name: &str, grid: &Grid, report: bool) -> Value {
+    let orientation = match sheet.get("orientation").filter(|orientation| truthy(orientation)) {
+        Some(orientation) => orientation.clone(),
+        None => json!(if grid.xs.last().copied().unwrap_or(0.0) > grid.ys.last().copied().unwrap_or(0.0) { "landscape" } else { "portrait" }),
+    };
+    let mut setup = Map::new();
+    setup.insert("op".into(), json!("set_page_setup"));
+    setup.insert("sheet".into(), json!(name));
+    setup.insert("printArea".into(), json!(grid.whole()));
+    setup.insert("orientation".into(), orientation);
+    setup.insert("fitToPagesWide".into(), json!(1));
+    if report || sheet.get("fit") == Some(&json!("page")) {
+        setup.insert("fitToPagesTall".into(), json!(1));
+    }
+    Value::Object(setup)
+}
+
+/// The hidden sheet that holds the labels and values of charts that name no range.
+fn write_chart_data_sheet(out: &mut Operations, chart_data: &[Vec<Vec<Value>>]) {
+    if chart_data.is_empty() {
+        return;
+    }
+    out.first.push(json!({ "op": "add_sheet", "name": CHART_DATA_SHEET }));
+    let mut row = 1;
+    for block in chart_data {
+        out.first.push(json!({
+            "op": "set_range",
+            "sheet": CHART_DATA_SHEET,
+            "range": format!("A{row}:{}{}", column_label(block[0].len()), row + block.len() - 1),
+            "values": block,
+        }));
+        row += block.len() + 1;
+    }
+    out.later.push(json!({ "op": "set_sheet_visibility", "sheet": CHART_DATA_SHEET, "visible": false }));
 }
 
 /// Writes the measured sheets (`measure["sheets"]`) as an .xlsx. `captures` are the picture files of the photographed

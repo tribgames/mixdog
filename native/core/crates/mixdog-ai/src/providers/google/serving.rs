@@ -1,10 +1,3 @@
-//! Where Vertex AI serves a model (port of `vertex-ai-models.mjs`
-//! `vertexServingProblem`, its sets and lists) and which location one request
-//! goes to (`vertex-ai.mjs` `send`): a location the user configured is never
-//! moved; one taken from the environment gives way to `global` before sending
-//! when it cannot serve the request but `global` can. The combination is
-//! checked before any request leaves.
-
 use mixdog_core_api::domain::provider::ProviderError;
 use serde_json::Value;
 

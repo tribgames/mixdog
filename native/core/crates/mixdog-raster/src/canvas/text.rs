@@ -157,49 +157,18 @@ pub(crate) fn device_path(registry: &Registry, laid: &Laid, matrix: Transform, m
     let mut exact = PathBuilder::new();
     let mut sampled = PathBuilder::new();
     for glyph in &laid.glyphs {
-        let face = registry.face(glyph.face);
-        let Some(parsed) = face.parsed() else { continue };
+        let Some((contours, upem)) = device_contours(registry.face(glyph.face), glyph, matrix, axis_aligned) else { continue };
         let (mut ox, mut oy) = (glyph.x * matrix.sx + (-glyph.y) * matrix.kx + matrix.tx, glyph.x * matrix.ky + (-glyph.y) * matrix.sy + matrix.ty);
         if mode == Mode::Filled {
             (ox, oy) = glyph::snap_origin(ox, oy, axis_aligned);
         }
-        let scale = glyph.scale;
-        let upem = f32::from(parsed.units_per_em().max(1));
-        let hinted = if axis_aligned && !glyph.skew && matrix.sy > 0.0 && matrix.sx > 0.0 {
-            let ppem = |pixels: f32| (f64::from(pixels) * 64.0) as i64;
-            let (px, py) = (ppem(scale * upem * matrix.sx), ppem(scale * upem * matrix.sy));
-            autohint::metrics_of(face).and_then(|metrics| metrics.hint_script(&parsed, glyph.glyph, px, py, glyph.hint))
-        } else {
-            None
-        };
-        // Contours in device pixels relative to the pen, y up.
-        let contours: Vec<glyph::Contour> = match hinted {
-            Some(hinted) => hinted.contours,
-            None => {
-                let skew = if glyph.skew { 0.25 } else { 0.0 };
-                let Some(outline) = autohint::scaled_outline(&parsed, glyph.glyph, 1.0, 1.0) else { continue };
-                outline
-                    .contours
-                    .into_iter()
-                    .map(|contour| {
-                        contour
-                            .into_iter()
-                            .map(|(x, y, tag)| {
-                                let (tx, ty) = ((x + skew * y) * scale, -y * scale);
-                                (tx * matrix.sx + ty * matrix.kx, -(tx * matrix.ky + ty * matrix.sy), tag)
-                            })
-                            .collect()
-                    })
-                    .collect()
-            }
-        };
         if glyph.embolden && mode == Mode::Filled {
             // Stroked and filled: the glyph grows by half the stroke's width on every side.
             let mut single = PathBuilder::new();
             glyph::into_path(&contours, &mut single, |(x, y)| (ox + x, oy - y));
             if let Some(outline) = single.finish() {
                 let stroke = Stroke {
-                    width: mixdog_fonts::measure::fake_bold_width(scale * upem) * matrix.sy.abs(),
+                    width: mixdog_fonts::measure::fake_bold_width(glyph.scale * upem) * matrix.sy.abs(),
                     miter_limit: 4.0,
                     line_join: LineJoin::Miter,
                     line_cap: LineCap::Butt,
@@ -216,6 +185,47 @@ pub(crate) fn device_path(registry: &Registry, laid: &Laid, matrix: Transform, m
         glyph::into_path(&contours, target, |(x, y)| (ox + x, oy - y));
     }
     DevicePaths { exact: exact.finish(), sampled: sampled.finish() }
+}
+
+/// The contours of a glyph in device pixels relative to the pen, y up (grid-fitted when the matrix allows), and the face's
+/// units per em; `None` when the face or the glyph has no outline.
+fn device_contours(
+    face: &std::sync::Arc<mixdog_fonts::face::Face>,
+    glyph: &LaidGlyph,
+    matrix: Transform,
+    axis_aligned: bool,
+) -> Option<(Vec<glyph::Contour>, f32)> {
+    let parsed = face.parsed()?;
+    let scale = glyph.scale;
+    let upem = f32::from(parsed.units_per_em().max(1));
+    let hinted = if axis_aligned && !glyph.skew && matrix.sy > 0.0 && matrix.sx > 0.0 {
+        let ppem = |pixels: f32| (f64::from(pixels) * 64.0) as i64;
+        let (px, py) = (ppem(scale * upem * matrix.sx), ppem(scale * upem * matrix.sy));
+        autohint::metrics_of(face).and_then(|metrics| metrics.hint_script(&parsed, glyph.glyph, px, py, glyph.hint))
+    } else {
+        None
+    };
+    let contours = match hinted {
+        Some(hinted) => hinted.contours,
+        None => {
+            let skew = if glyph.skew { 0.25 } else { 0.0 };
+            let outline = autohint::scaled_outline(&parsed, glyph.glyph, 1.0, 1.0)?;
+            outline
+                .contours
+                .into_iter()
+                .map(|contour| {
+                    contour
+                        .into_iter()
+                        .map(|(x, y, tag)| {
+                            let (tx, ty) = ((x + skew * y) * scale, -y * scale);
+                            (tx * matrix.sx + ty * matrix.kx, -(tx * matrix.ky + ty * matrix.sy), tag)
+                        })
+                        .collect()
+                })
+                .collect()
+        }
+    };
+    Some((contours, upem))
 }
 
 /// Lays `text` out in `font`: the glyphs with the pen position of each, and the advance. An error when no face is

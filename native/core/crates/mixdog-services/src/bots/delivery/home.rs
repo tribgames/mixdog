@@ -506,14 +506,8 @@ impl AgentHomeDelivery {
             if !lock(&self.held_shown).insert(message_id.clone()) {
                 continue;
             }
-            let mut notice = delivered_row(item, &message_id, now).notice;
-            if let Some(map) = notice.as_object_mut() {
-                map.insert("messageId".into(), json!(message_id));
-                if let Some(at) = item.get("at") {
-                    map.insert("at".into(), at.clone());
-                }
-            }
-            self.notice_live(home, notice).await;
+            let notice = delivered_row(item, &message_id, now).notice;
+            self.notice_live(home, stamped_notice(notice, json!(message_id), item.get("at").cloned())).await;
         }
     }
 
@@ -522,34 +516,7 @@ impl AgentHomeDelivery {
     /// now or before).
     async fn post_rows(&self, home: &str, thread: &ThreadSnapshot, items: &[Value], omitted: Option<&Value>) -> Result<Vec<String>, String> {
         let now = self.now_ms();
-        let posted: HashSet<&str> = thread
-            .messages
-            .iter()
-            .filter_map(|message| message.pointer("/meta/transcript/messageId").and_then(Value::as_str))
-            .filter(|id| !id.is_empty())
-            .collect();
-        let mut fresh: Vec<(Value, Value)> = Vec::new();
-        if let Some(omitted) = omitted {
-            let omitted_id = message_id_of(&mixdog_js::value_to_string(omitted.get("id").unwrap_or(&Value::Null)));
-            if !posted.contains(omitted_id.as_str()) {
-                let message = posted_message(&routine_omitted_message(omitted.get("count").unwrap_or(&Value::Null), &omitted_id, now));
-                let notice = routine_result_notice(&message);
-                fresh.push((message, notice));
-            }
-        }
-        let mut to_wake = Vec::new();
-        for item in items {
-            let run_id = run_id_of(item);
-            let message_id = message_id_of(&run_id);
-            let QueuedRow { message, notice, wake } = delivered_row(item, &message_id, now);
-            if wake {
-                to_wake.push(run_id);
-            }
-            if posted.contains(message_id.as_str()) {
-                continue;
-            }
-            fresh.push((message, notice));
-        }
+        let (fresh, to_wake) = fresh_rows(thread, items, omitted, now);
         {
             let mut shown = lock(&self.held_shown);
             for item in items {
@@ -564,15 +531,9 @@ impl AgentHomeDelivery {
             self.threads.append(home, rows, touched).await?;
         }
         for (message, notice) in fresh {
-            let mut notice = notice;
-            if let Some(map) = notice.as_object_mut() {
-                let transcript = message.pointer("/meta/transcript");
-                map.insert("messageId".into(), transcript.and_then(|t| t.get("messageId")).cloned().unwrap_or(Value::Null));
-                if let Some(at) = transcript.and_then(|t| t.get("at")) {
-                    map.insert("at".into(), at.clone());
-                }
-            }
-            self.notice_live(home, notice).await;
+            let transcript = message.pointer("/meta/transcript");
+            let message_id = transcript.and_then(|t| t.get("messageId")).cloned().unwrap_or(Value::Null);
+            self.notice_live(home, stamped_notice(notice, message_id, transcript.and_then(|t| t.get("at")).cloned())).await;
         }
         Ok(to_wake)
     }
@@ -677,6 +638,26 @@ impl AgentHomeDelivery {
         Ok((kept, if retired.is_some() { None } else { omitted }))
     }
 
+    /// A home with no open thread: a room thread proven gone, or an agent that can never have a home
+    /// (no bot), has its queued rows dropped, never retried; any other waits, logged once per process.
+    async fn settle_missing_thread(self: &Arc<Self>, home: &str, agent_id: Option<&str>, items: &[Value], omitted: Option<Value>) -> Result<(), String> {
+        if is_room_thread_session_id(home) && (self.home_deleted(home).await || self.threads.session_deleted(home).await) {
+            self.log(&format!("{} task report(s) for the deleted {home} are dropped", items.len()));
+            return self.drop_queued(home, items, omitted).await;
+        }
+        if let Some(agent_id) = agent_id.filter(|id| *id != MIXY_AGENT_ID)
+            && self.directory.home_agent(agent_id).await == HomeAgent::None
+        {
+            self.log(&format!("{} result(s) for {home} are dropped: {agent_id} is not a bot, so it has no chat", items.len()));
+            return self.drop_queued(home, items, omitted).await;
+        }
+        if lock(&self.wait_logged).insert(home.to_string()) {
+            self.log(&format!("{} result(s) wait for the home thread {home}", items.len()));
+        }
+        self.later(home, self.config.missing_retry);
+        Ok(())
+    }
+
     /// `drainOnce`'s posting: whether it posted to the thread; false when nothing is owed or the
     /// pass ends here (moved, busy, missing, dropped).
     async fn post_idle(self: &Arc<Self>, home: &str) -> Result<bool, String> {
@@ -719,26 +700,7 @@ impl AgentHomeDelivery {
             return Ok(false);
         }
         let Some(thread) = self.threads.load(home).await?.filter(|thread| !thread.closed) else {
-            // A room thread proven gone: its queued rows are dropped, never retried.
-            if is_room_thread_session_id(home) && (self.home_deleted(home).await || self.threads.session_deleted(home).await) {
-                self.log(&format!("{} task report(s) for the deleted {home} are dropped", items.len()));
-                self.drop_queued(home, &items, omitted).await?;
-                return Ok(false);
-            }
-            // A missing home of an agent that can never have one (no bot): its queued rows are
-            // dropped with a log line, never retried.
-            if let Some(agent_id) = agent_id.as_deref().filter(|id| *id != MIXY_AGENT_ID)
-                && self.directory.home_agent(agent_id).await == HomeAgent::None
-            {
-                self.log(&format!("{} result(s) for {home} are dropped: {agent_id} is not a bot, so it has no chat", items.len()));
-                self.drop_queued(home, &items, omitted).await?;
-                return Ok(false);
-            }
-            // Kept (a bot, or an agent whose kind cannot be read): logged once per process.
-            if lock(&self.wait_logged).insert(home.to_string()) {
-                self.log(&format!("{} result(s) wait for the home thread {home}", items.len()));
-            }
-            self.later(home, self.config.missing_retry);
+            self.settle_missing_thread(home, agent_id.as_deref(), &items, omitted).await?;
             return Ok(false);
         };
         let to_wake = self.post_rows(home, &thread, &items, omitted.as_ref()).await?;
@@ -750,6 +712,49 @@ impl AgentHomeDelivery {
         }
         Ok(true)
     }
+}
+
+fn stamped_notice(mut notice: Value, message_id: Value, at: Option<Value>) -> Value {
+    if let Some(map) = notice.as_object_mut() {
+        map.insert("messageId".into(), message_id);
+        if let Some(at) = at {
+            map.insert("at".into(), at);
+        }
+    }
+    notice
+}
+
+/// The messages and live notices of the omission notice and the `items` the thread does not hold yet, and
+/// the run ids owed a wake (every dequeued task result, posted now or before).
+fn fresh_rows(thread: &ThreadSnapshot, items: &[Value], omitted: Option<&Value>, now: i64) -> (Vec<(Value, Value)>, Vec<String>) {
+    let posted: HashSet<&str> = thread
+        .messages
+        .iter()
+        .filter_map(|message| message.pointer("/meta/transcript/messageId").and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .collect();
+    let mut fresh: Vec<(Value, Value)> = Vec::new();
+    if let Some(omitted) = omitted {
+        let omitted_id = message_id_of(&mixdog_js::value_to_string(omitted.get("id").unwrap_or(&Value::Null)));
+        if !posted.contains(omitted_id.as_str()) {
+            let message = posted_message(&routine_omitted_message(omitted.get("count").unwrap_or(&Value::Null), &omitted_id, now));
+            let notice = routine_result_notice(&message);
+            fresh.push((message, notice));
+        }
+    }
+    let mut to_wake = Vec::new();
+    for item in items {
+        let run_id = run_id_of(item);
+        let message_id = message_id_of(&run_id);
+        let QueuedRow { message, notice, wake } = delivered_row(item, &message_id, now);
+        if wake {
+            to_wake.push(run_id);
+        }
+        if !posted.contains(message_id.as_str()) {
+            fresh.push((message, notice));
+        }
+    }
+    (fresh, to_wake)
 }
 
 /// A heartbeat report: Mixy's own reply from a check turn (`agent-message` is its only sender).

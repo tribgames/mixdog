@@ -332,25 +332,40 @@ async fn the_browser_endpoint_the_pool_answers_reaches_the_handler() {
     h.need_browser().await;
     h.send(pool_frame::browser(1, &Ok("ws://x/y".to_owned()))).await;
     assert_eq!(h.result(1).await, json!({"ok": "ws://x/y", "pin": false}));
-
-    let mut refused = Harness::start(page_registry());
-    refused.call(2, "page", json!(null)).await;
-    refused.need_browser().await;
-    refused.send(pool_frame::browser(2, &Err("no chrome".to_owned()))).await;
-    assert_eq!(refused.result(2).await, json!({"err": {"code": "browser_unavailable", "message": "no chrome"}, "pin": false}));
 }
 
 #[tokio::test]
-async fn the_browser_is_asked_for_once_per_call_and_a_stray_answer_is_ignored() {
+async fn a_browser_the_pool_cannot_give_reaches_the_handler_as_browser_unavailable() {
+    let mut h = Harness::start(page_registry());
+    h.call(2, "page", json!(null)).await;
+    h.need_browser().await;
+    h.send(pool_frame::browser(2, &Err("no chrome".to_owned()))).await;
+    assert_eq!(h.result(2).await, json!({"err": {"code": "browser_unavailable", "message": "no chrome"}, "pin": false}));
+}
+
+fn twice_registry() -> Registry {
     let mut registry = Registry::new();
     registry.register("twice", |ctx| async move {
         let first = ctx.request_browser().await?;
         let second = ctx.request_browser().await?;
         Ok(Outcome::value(json!([first, second])))
     });
-    let mut h = Harness::start(registry);
-    // No call is waiting: the answer is dropped, not an error.
+    registry
+}
+
+#[tokio::test]
+async fn an_answer_no_call_waits_for_is_ignored() {
+    let mut h = Harness::start(twice_registry());
     h.send(pool_frame::browser(4, &Ok("ws://stray".to_owned()))).await;
+    h.call(1, "twice", json!(null)).await;
+    h.need_browser().await;
+    h.send(pool_frame::browser(1, &Ok("ws://a".to_owned()))).await;
+    assert_eq!(h.result(1).await, json!({"ok": ["ws://a", "ws://a"], "pin": false}));
+}
+
+#[tokio::test]
+async fn the_browser_is_asked_for_once_per_call() {
+    let mut h = Harness::start(twice_registry());
     h.call(1, "twice", json!(null)).await;
     h.need_browser().await;
     h.send(pool_frame::browser(1, &Ok("ws://a".to_owned()))).await;

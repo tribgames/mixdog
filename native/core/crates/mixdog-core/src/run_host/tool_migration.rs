@@ -1,13 +1,3 @@
-//! What a tool-surface migration invalidates (Node `session/loop/tool-exposure-migration.mjs`:
-//! `invalidateForToolSurfaceMigration`, `markToolSurfaceMigrated`, `hasUnansweredToolCalls`).
-//!
-//! The surface itself is rebuilt by `route_surface` / `tool_surface`; this is what a
-//! changed request prefix invalidates besides: provider state, the context baseline and the
-//! cache-break tag. Historical tool calls are never rewritten. Node also deletes its in-memory
-//! `_providerPrefixGuardState` here; 1.4.5 never writes that key to a stored header (it strips it
-//! on every save and load, `serialize.mjs`), and here the guard lives in the session actor and no
-//! header read looks for it.
-
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
 use mixdog_agent::env::Clock;
 use mixdog_store::schema::record::HeaderChange;
@@ -52,12 +42,6 @@ pub struct Migrated {
     pub messages: Option<Vec<Value>>,
 }
 
-/// `markToolSurfaceMigrated(session, intent)`: after a surface re-apply outside a request (resume,
-/// provider switch, a workflow switch) changed the request prefix, the first send of the next turn
-/// carries the tag. The stored thinking was bound to the previous prefix and can never be replayed
-/// again; an open tool round a stopped turn left behind is ended first. Outside a turn only
-/// (`transcript` is `None` during one): a running turn sends from its own working transcript,
-/// whose latest tool round must keep its thinking.
 pub fn mark_tool_surface_migrated(clock: &dyn Clock, intent: Option<&str>, transcript: Option<&[Value]>) -> Migrated {
     let mut change = invalidate_for_tool_surface_migration(clock);
     set(&mut change, "pendingCacheBreakIntent", json!(intent.unwrap_or(TOOL_SURFACE_MIGRATION_INTENT)));

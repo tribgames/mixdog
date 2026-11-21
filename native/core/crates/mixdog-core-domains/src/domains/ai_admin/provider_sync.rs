@@ -1,10 +1,7 @@
-//! The loaded config (`loadConfig()`) and what follows it: the canonical agent section with the
-//! providers of the loaded config and the effective presets merged onto it, the provider config the
-//! readiness initializes (`ProviderReadiness::set_providers`, Node's `config.providers` of the runtime)
-//! and the live Main route that resolves over it. All of it is rebuilt on every tick of
-//! [`Config::changes`], which a write, an external edit of the file or a stored secret all make, on a change of
-//! an OAuth credential file or the account roster, and when a credential expires
-//! (Node: `getConfigSnapshot` is rebuilt when one of its inputs changed).
+//! The loaded config and what follows it: the canonical agent section with the providers of the loaded
+//! config and the effective presets merged onto it, and the provider config the readiness initializes
+//! (`ProviderReadiness::set_providers`). All of it is rebuilt on every tick of [`Config::changes`], on a
+//! change of an OAuth credential file or the account roster, and when a credential expires.
 
 use futures::FutureExt;
 use std::sync::Arc;
@@ -209,10 +206,9 @@ pub fn spawn_provider_sync_on(
     }
 }
 
-/// Node watches its inputs before it loads (`config-snapshot.mjs`, "Watch before loading, so a write after the load is
-/// never missed"); the caller loaded before this watch began, so what changed in between is taken in now, and only that:
-/// a load that finds the same config hands nothing on. Every change signalled so far is marked seen before the load reads, so
-/// the load that took it in is the only one it causes. Whether a rebuild was handed on.
+/// The caller loaded before this watch began, so what changed in between is taken in now, and only that: a load that
+/// finds the same config hands nothing on. Every change signalled so far is marked seen before the load reads, so the
+/// load that took it in is the only one it causes. Whether a rebuild was handed on.
 pub(super) async fn first_pass(
     config: &Config,
     effective: &EffectiveProviders,

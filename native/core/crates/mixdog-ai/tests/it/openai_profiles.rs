@@ -634,10 +634,6 @@ fn a_rejecting_model_is_remembered_per_route() {
     assert!(!support.is_rejected("openai-oauth", "gpt-6"));
 }
 
-/// The live compat route: the codec's decoder reads the request, reports the
-/// updated `compatResponses` slot as `StreamEvent::ProviderState`, and the next
-/// request's `encode` resumes the encrypted reasoning from it. The first-party
-/// routes report no slot (Node keeps none; the ordered replay carries history).
 #[test]
 fn live_routes_flow_provider_state_through_the_request_aware_decoder() {
     use mixdog_ai::providers::compat::CompatConfig;
@@ -671,11 +667,6 @@ fn live_routes_flow_provider_state_through_the_request_aware_decoder() {
     assert!(!events.iter().any(|e| matches!(e, StreamEvent::ProviderState(_))));
 }
 
-/// Migration's legacy-`reasoningItems` envelopes: the `items` of a migrated
-/// message's ProviderReplay must pass through the first-party request builder
-/// unchanged, in order and with their JSON field order (the outputs it
-/// synthesizes for the unanswered calls aside), for the public and Codex routes.
-/// The five cases are tracked inline, with keys deliberately not alphabetical.
 #[test]
 fn migrated_legacy_reasoning_envelopes_are_sent_unchanged_and_in_order() {
     let reasoning = r#"{"type":"reasoning","id":"rs_before","encrypted_content":"ENC_BEFORE","summary":[{"type":"summary_text","text":"plan"}]},{"type":"reasoning","encrypted_content":"ENC_NO_ID","summary":[]}"#;

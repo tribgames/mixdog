@@ -1059,47 +1059,55 @@ pub fn hard_wrap_ansi_lines_carrying(text: &str, columns: usize, wide: bool) -> 
     let mut out = Vec::new();
     for soft_line in wrap_lines(text, max, true) {
         if soft_line.chars().any(|c| c.len_utf16() == 2) {
-            // The Node code cuts at UTF-16 units (the longest prefix that fits, at least one unit), so a cut can
-            // fall inside a surrogate pair and leave a half on each side.
-            let mut units: Vec<u16> = lone::to_units(&soft_line);
-            while !units.is_empty() && width_of_units(&units, wide) > max {
-                let mut take = 1;
-                for at in 1..=units.len() {
-                    if width_of_units(&units[..at], wide) <= max {
-                        take = at;
-                    } else {
-                        break;
-                    }
-                }
-                out.push(lone::from_units(&units[..take]));
-                units.drain(..take);
-            }
-            if !units.is_empty() {
-                out.push(lone::from_units(&units));
-            }
-            continue;
-        }
-        let mut rest: &str = &soft_line;
-        while !rest.is_empty() && display_width_with(rest, wide) > max {
-            // The longest prefix, at a character boundary, whose width fits (the first prefix that does not fit ends
-            // the search); at least one character.
-            let mut take = rest.chars().next().map_or(0, char::len_utf8);
-            for (at, ch) in rest.char_indices() {
-                let end = at + ch.len_utf8();
-                if display_width_with(&rest[..end], wide) <= max {
-                    take = end;
-                } else {
-                    break;
-                }
-            }
-            out.push(rest[..take].to_owned());
-            rest = &rest[take..];
-        }
-        if !rest.is_empty() {
-            out.push(rest.to_owned());
+            cut_by_units(&soft_line, max, wide, &mut out);
+        } else {
+            cut_by_chars(&soft_line, max, wide, &mut out);
         }
     }
     if out.is_empty() { vec![String::new()] } else { out }
+}
+
+/// The Node code cuts at UTF-16 units (the longest prefix that fits, at least one unit), so a cut can fall inside a
+/// surrogate pair and leave a half on each side.
+fn cut_by_units(line: &str, max: usize, wide: bool, out: &mut Vec<String>) {
+    let mut units: Vec<u16> = lone::to_units(line);
+    while !units.is_empty() && width_of_units(&units, wide) > max {
+        let mut take = 1;
+        for at in 1..=units.len() {
+            if width_of_units(&units[..at], wide) <= max {
+                take = at;
+            } else {
+                break;
+            }
+        }
+        out.push(lone::from_units(&units[..take]));
+        units.drain(..take);
+    }
+    if !units.is_empty() {
+        out.push(lone::from_units(&units));
+    }
+}
+
+/// The longest prefix at a character boundary whose width fits (the first prefix that does not fit ends the search),
+/// at least one character.
+fn cut_by_chars(line: &str, max: usize, wide: bool, out: &mut Vec<String>) {
+    let mut rest = line;
+    while !rest.is_empty() && display_width_with(rest, wide) > max {
+        let mut take = rest.chars().next().map_or(0, char::len_utf8);
+        for (at, ch) in rest.char_indices() {
+            let end = at + ch.len_utf8();
+            if display_width_with(&rest[..end], wide) <= max {
+                take = end;
+            } else {
+                break;
+            }
+        }
+        out.push(rest[..take].to_owned());
+        rest = &rest[take..];
+    }
+    if !rest.is_empty() {
+        out.push(rest.to_owned());
+    }
 }
 
 /// `hardWrapAnsiLines(text, width)` with the halves of a cut pair carried (see [`hard_wrap_ansi_lines_carrying`]), for a

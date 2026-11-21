@@ -2,6 +2,7 @@
 //! attach to a user's own Excel, the one snapshot contract, and the re-authoring of a deck over an open PowerPoint session.
 
 use mixdog_office::snapshot::contract::{describe_office_snapshot_violations, office_snapshot_contract_violations};
+use mixdog_ooxml::zipio::Package;
 use serde_json::{Value, json};
 
 use super::{ExternalExcel, Live, all_matches, capture, items, matches, mentions, stringify, strip};
@@ -47,60 +48,9 @@ fn compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_tab
     let read = |format: &str, name: &str| -> Value {
         let package = live.package(name);
         match format {
-            "xlsx" => {
-                let sheet = package.text("xl/worksheets/sheet1.xml");
-                let styles = package.text("xl/styles.xml");
-                let fills_block = capture(r"<fills[^>]*>([\s\S]*?)</fills>", "", &styles, 1).unwrap_or_default();
-                let fills: Vec<String> = all_matches(r"<fill>[\s\S]*?</fill>", &fills_block)
-                    .iter()
-                    .map(|fill| capture(r#"rgb="(?:FF)?([0-9A-F]{6})""#, "i", fill, 1).unwrap_or_else(|| "none".to_owned()))
-                    .collect();
-                let xfs_block = capture(r"<cellXfs[^>]*>([\s\S]*?)</cellXfs>", "", &styles, 1).unwrap_or_default();
-                let xfs: Vec<usize> = all_matches(r"<xf\b[^>]*>", &xfs_block)
-                    .iter()
-                    .map(|xf| capture(r#"fillId="(\d+)""#, "", xf, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0))
-                    .collect();
-                Value::Array(
-                    ["A1", "B1"]
-                        .iter()
-                        .map(|reference| {
-                            let style: usize =
-                                capture(&format!(r#"<c r="{reference}"[^>]*?\bs="(\d+)""#), "", &sheet, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0);
-                            json!(xfs.get(style).and_then(|fill| fills.get(*fill)).cloned().unwrap_or_else(|| "none".to_owned()))
-                        })
-                        .collect(),
-                )
-            }
-            "docx" => {
-                let document = package.text("word/document.xml");
-                let rows = all_matches(r"<w:tr\b[\s\S]*?</w:tr>", &document);
-                Value::Array(
-                    all_matches(r"<w:tc>[\s\S]*?</w:tc>", &rows[1])
-                        .iter()
-                        .map(|cell| json!(capture(r#"<w:shd\b[^>]*w:fill="([^"]+)""#, "", cell, 1).unwrap_or_else(|| "none".to_owned()).to_uppercase()))
-                        .collect(),
-                )
-            }
-            _ => {
-                let slide = package.text("ppt/slides/slide1.xml");
-                let rows = all_matches(r"<a:tr\b[\s\S]*?</a:tr>", &slide);
-                Value::Array(
-                    all_matches(r"<a:tc\b[\s\S]*?</a:tc>", &rows[1])
-                        .iter()
-                        .map(|cell| {
-                            let own = strip(
-                                r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)",
-                                &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default(),
-                            );
-                            json!(if matches(r"<a:noFill/>", "", &own) {
-                                "noFill".to_owned()
-                            } else {
-                                capture(r#"<a:srgbClr val="([0-9A-F]{6})""#, "i", &own, 1).unwrap_or_else(|| "none".to_owned())
-                            })
-                        })
-                        .collect(),
-                )
-            }
+            "xlsx" => xlsx_fills(&package),
+            "docx" => docx_fills(&package),
+            _ => pptx_fills(&package),
         }
     };
     for (format, operations, expected) in cases {
@@ -112,6 +62,63 @@ fn compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_tab
             assert_eq!(read(format, &name), expected, "{format} {mode}");
         }
     }
+}
+
+fn xlsx_fills(package: &Package) -> Value {
+    let sheet = package.text("xl/worksheets/sheet1.xml");
+    let styles = package.text("xl/styles.xml");
+    let fills_block = capture(r"<fills[^>]*>([\s\S]*?)</fills>", "", &styles, 1).unwrap_or_default();
+    let fills: Vec<String> = all_matches(r"<fill>[\s\S]*?</fill>", &fills_block)
+        .iter()
+        .map(|fill| capture(r#"rgb="(?:FF)?([0-9A-F]{6})""#, "i", fill, 1).unwrap_or_else(|| "none".to_owned()))
+        .collect();
+    let xfs_block = capture(r"<cellXfs[^>]*>([\s\S]*?)</cellXfs>", "", &styles, 1).unwrap_or_default();
+    let xfs: Vec<usize> = all_matches(r"<xf\b[^>]*>", &xfs_block)
+        .iter()
+        .map(|xf| capture(r#"fillId="(\d+)""#, "", xf, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0))
+        .collect();
+    Value::Array(
+        ["A1", "B1"]
+            .iter()
+            .map(|reference| {
+                let style: usize =
+                    capture(&format!(r#"<c r="{reference}"[^>]*?\bs="(\d+)""#), "", &sheet, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0);
+                json!(xfs.get(style).and_then(|fill| fills.get(*fill)).cloned().unwrap_or_else(|| "none".to_owned()))
+            })
+            .collect(),
+    )
+}
+
+fn docx_fills(package: &Package) -> Value {
+    let document = package.text("word/document.xml");
+    let rows = all_matches(r"<w:tr\b[\s\S]*?</w:tr>", &document);
+    Value::Array(
+        all_matches(r"<w:tc>[\s\S]*?</w:tc>", &rows[1])
+            .iter()
+            .map(|cell| json!(capture(r#"<w:shd\b[^>]*w:fill="([^"]+)""#, "", cell, 1).unwrap_or_else(|| "none".to_owned()).to_uppercase()))
+            .collect(),
+    )
+}
+
+fn pptx_fills(package: &Package) -> Value {
+    let slide = package.text("ppt/slides/slide1.xml");
+    let rows = all_matches(r"<a:tr\b[\s\S]*?</a:tr>", &slide);
+    Value::Array(
+        all_matches(r"<a:tc\b[\s\S]*?</a:tc>", &rows[1])
+            .iter()
+            .map(|cell| {
+                let own = strip(
+                    r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)",
+                    &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default(),
+                );
+                json!(if matches(r"<a:noFill/>", "", &own) {
+                    "noFill".to_owned()
+                } else {
+                    capture(r#"<a:srgbClr val="([0-9A-F]{6})""#, "i", &own, 1).unwrap_or_else(|| "none".to_owned())
+                })
+            })
+            .collect(),
+    )
 }
 
 #[test]
@@ -202,123 +209,121 @@ fn attach_attach_selects_the_exact_workbook_across_multiple_excel_instances() {
     second_external.stop();
 }
 
-#[test]
-#[ignore = "starts Microsoft Excel, Word and PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_document() {
-    let Some(live) = Live::start() else { return };
-    let cases = [
-        (
-            "docx",
-            "contract.docx",
-            json!([
-                { "op": "append_text", "text": "Document title", "style": "Title" },
-                { "op": "append_text", "text": "Heading one", "style": "Heading1" },
-                { "op": "append_text", "text": "Body paragraph." },
-                { "op": "add_table", "values": [["A", "B"], ["1", "2"]] }
-            ]),
-        ),
-        ("xlsx", "contract.xlsx", json!([{ "op": "set_range", "range": "A1:B3", "values": [["Region", "Revenue"], ["Korea", 120], ["Japan", 95]] }])),
-        (
-            "pptx",
-            "contract.pptx",
-            json!([
-                { "op": "add_slide" },
-                { "op": "set_slide_background", "slide": 1, "color": "16191D" },
-                { "op": "add_textbox", "slide": 1, "text": "Title", "properties": { "left": 40, "top": 40, "width": 400, "height": 60, "fontSize": 40 } },
-                { "op": "set_notes", "slide": 1, "text": "Speaker note." },
-                { "op": "add_slide" },
-                { "op": "set_slide_background", "slide": 2, "color": "F5F2EC" },
-                { "op": "add_table", "slide": 2, "values": [["A", "B"], ["1", "2"]], "left": 40, "top": 40, "width": 300, "height": 90 }
-            ]),
-        ),
-    ];
-    let text = |value: &Value| -> String { value.as_str().unwrap_or_default().to_owned() };
-    let shown =
-        |value: &Value| -> String { if value.is_null() { "undefined".to_owned() } else { value.as_str().map_or_else(|| value.to_string(), str::to_owned) } };
-    for (format, file, operations) in cases {
-        let target = live.path(file);
-        let authored = live.call(json!({ "action": "create", "path": target, "mode": "portable", "operations": operations }));
-        live.close(&authored["session"]);
-
-        let mut readings = serde_json::Map::new();
-        for mode in ["portable", "background"] {
-            let opened = live.call(json!({ "action": "open", "path": target, "mode": mode }));
-            let snapshot = live.call(json!({ "action": "snapshot", "session": opened["session"] }));
-            let violations = office_snapshot_contract_violations(&snapshot["document"], format, true);
-            assert!(
-                violations.is_empty(),
-                "{} {format} breaks the backend contract:\n{}",
-                text(&opened["backend"]),
-                describe_office_snapshot_violations(&violations)
-            );
-            readings.insert(mode.to_owned(), snapshot["document"].clone());
-            live.close(&opened["session"]);
-        }
-
-        // One file, two readers. Representation may differ, but the facts a caller acts on must not: silent disagreement here is
-        // what blinded design review.
-        let (portable, com) = (&readings["portable"], &readings["background"]);
-        match format {
-            "docx" => {
-                assert_eq!(com["tableCount"], portable["tableCount"], "table counts must agree");
-                // Word numbers table-cell paragraphs alongside body paragraphs while the portable model reports cell text under
-                // tables, so /body/p[N] addresses different content per backend. Body text itself must still agree.
-                let body_text = |document: &Value| -> Vec<Value> {
-                    items(&document["paragraphs"])
-                        .iter()
-                        .filter(|entry| entry["inTable"] != true)
-                        .map(|entry| entry["text"].clone())
-                        .filter(super::truthy)
-                        .collect()
-                };
-                assert_eq!(body_text(com), body_text(portable), "body paragraph text must agree");
-                // Word answers under the UI language; a localized style name handed to the portable writer produces an unknown
-                // styleId and silently drops styling.
-                let body_styles = |document: &Value| -> Vec<Value> {
-                    items(&document["paragraphs"])
-                        .iter()
-                        .filter(|entry| entry["inTable"] != true && !shown(&entry["text"]).trim().is_empty() && !entry["text"].is_null())
-                        .map(|entry| entry["style"].clone())
-                        .collect()
-                };
-                assert_eq!(body_styles(com), body_styles(portable), "paragraph styles must agree");
-                let table_styles = |document: &Value| -> Vec<Value> { items(&document["tables"]).iter().map(|entry| entry["style"].clone()).collect() };
-                assert_eq!(table_styles(com), table_styles(portable), "table styles must agree");
-            }
-            "xlsx" => {
-                let cell_values = |document: &Value| -> Vec<String> {
-                    items(&document["sheets"])
-                        .iter()
-                        .flat_map(|sheet| items(&sheet["cells"]).iter().map(|cell| format!("{}={}", shown(&cell["path"]), shown(&cell["value"]))))
-                        .collect()
-                };
-                assert_eq!(cell_values(com), cell_values(portable), "cell values must agree");
-            }
-            _ => {
-                assert_eq!(com["slideCount"], portable["slideCount"], "slide counts must agree");
-                let per_slide = |document: &Value, read: &dyn Fn(&Value) -> Value| -> Vec<Value> { items(&document["slides"]).iter().map(read).collect() };
-                let indexes = |slide: &Value| slide["index"].clone();
-                assert_eq!(per_slide(com, &indexes), per_slide(portable, &indexes), "slide order must agree");
-                let notes = |slide: &Value| json!(if slide["notes"].is_null() { String::new() } else { shown(&slide["notes"]).trim().to_owned() });
-                assert_eq!(per_slide(com, &notes), per_slide(portable, &notes), "speaker notes must agree");
-                let backgrounds = |slide: &Value| json!(text(&slide["background"]["color"]).to_uppercase());
-                assert_eq!(per_slide(com, &backgrounds), per_slide(portable, &backgrounds), "slide backgrounds must agree");
-                let shape_counts = |slide: &Value| json!(items(&slide["shapes"]).len());
-                assert_eq!(per_slide(com, &shape_counts), per_slide(portable, &shape_counts), "shape counts must agree");
-            }
-        }
-    }
+fn text(value: &Value) -> String {
+    value.as_str().unwrap_or_default().to_owned()
 }
 
-// The authoring loop re-authors the same target over and over, and starting PowerPoint again costs seconds every pass. Re-authoring
-// keeps the hidden process and swaps only the document: the session survives, what it reads is the new deck, and a failed source
-// leaves the live deck untouched. The decks are authored from HTML slides (the pptxgenjs script runtime is not part of the build),
-// through an installed Chrome or Edge.
+fn shown(value: &Value) -> String {
+    if value.is_null() { "undefined".to_owned() } else { value.as_str().map_or_else(|| value.to_string(), str::to_owned) }
+}
+
+/// The document written once as a portable package, then read back by the portable backend and by Office, each checked against the
+/// snapshot contract: `(portable, office)`.
+fn both_readings(live: &Live, format: &str, file: &str, operations: Value) -> (Value, Value) {
+    let target = live.path(file);
+    let authored = live.call(json!({ "action": "create", "path": target, "mode": "portable", "operations": operations }));
+    live.close(&authored["session"]);
+    let mut readings = Vec::new();
+    for mode in ["portable", "background"] {
+        let opened = live.call(json!({ "action": "open", "path": target, "mode": mode }));
+        let snapshot = live.call(json!({ "action": "snapshot", "session": opened["session"] }));
+        let violations = office_snapshot_contract_violations(&snapshot["document"], format, true);
+        assert!(
+            violations.is_empty(),
+            "{} {format} breaks the backend contract:\n{}",
+            text(&opened["backend"]),
+            describe_office_snapshot_violations(&violations)
+        );
+        readings.push(snapshot["document"].clone());
+        live.close(&opened["session"]);
+    }
+    let office = readings.pop().expect("the office reading");
+    let portable = readings.pop().expect("the portable reading");
+    (portable, office)
+}
+
 #[test]
-#[ignore = "starts Microsoft PowerPoint and a headless browser; MIXDOG_TEST_LIVE_OFFICE=1"]
-fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck() {
+#[ignore = "starts Microsoft Word; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_word_document() {
     let Some(live) = Live::start() else { return };
-    // A pptxgenjs script, as the Node test authors the deck: it runs on the script interpreter of the install.
+    let (portable, com) = both_readings(
+        &live,
+        "docx",
+        "contract.docx",
+        json!([
+            { "op": "append_text", "text": "Document title", "style": "Title" },
+            { "op": "append_text", "text": "Heading one", "style": "Heading1" },
+            { "op": "append_text", "text": "Body paragraph." },
+            { "op": "add_table", "values": [["A", "B"], ["1", "2"]] }
+        ]),
+    );
+    assert_eq!(com["tableCount"], portable["tableCount"], "table counts must agree");
+    let body_text = |document: &Value| -> Vec<Value> {
+        items(&document["paragraphs"]).iter().filter(|entry| entry["inTable"] != true).map(|entry| entry["text"].clone()).filter(super::truthy).collect()
+    };
+    assert_eq!(body_text(&com), body_text(&portable), "body paragraph text must agree");
+    let body_styles = |document: &Value| -> Vec<Value> {
+        items(&document["paragraphs"])
+            .iter()
+            .filter(|entry| entry["inTable"] != true && !shown(&entry["text"]).trim().is_empty() && !entry["text"].is_null())
+            .map(|entry| entry["style"].clone())
+            .collect()
+    };
+    assert_eq!(body_styles(&com), body_styles(&portable), "paragraph styles must agree");
+    let table_styles = |document: &Value| -> Vec<Value> { items(&document["tables"]).iter().map(|entry| entry["style"].clone()).collect() };
+    assert_eq!(table_styles(&com), table_styles(&portable), "table styles must agree");
+}
+
+#[test]
+#[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_workbook() {
+    let Some(live) = Live::start() else { return };
+    let (portable, com) = both_readings(
+        &live,
+        "xlsx",
+        "contract.xlsx",
+        json!([{ "op": "set_range", "range": "A1:B3", "values": [["Region", "Revenue"], ["Korea", 120], ["Japan", 95]] }]),
+    );
+    let cell_values = |document: &Value| -> Vec<String> {
+        items(&document["sheets"])
+            .iter()
+            .flat_map(|sheet| items(&sheet["cells"]).iter().map(|cell| format!("{}={}", shown(&cell["path"]), shown(&cell["value"]))))
+            .collect()
+    };
+    assert_eq!(cell_values(&com), cell_values(&portable), "cell values must agree");
+}
+
+#[test]
+#[ignore = "starts Microsoft PowerPoint; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_deck() {
+    let Some(live) = Live::start() else { return };
+    let (portable, com) = both_readings(
+        &live,
+        "pptx",
+        "contract.pptx",
+        json!([
+            { "op": "add_slide" },
+            { "op": "set_slide_background", "slide": 1, "color": "16191D" },
+            { "op": "add_textbox", "slide": 1, "text": "Title", "properties": { "left": 40, "top": 40, "width": 400, "height": 60, "fontSize": 40 } },
+            { "op": "set_notes", "slide": 1, "text": "Speaker note." },
+            { "op": "add_slide" },
+            { "op": "set_slide_background", "slide": 2, "color": "F5F2EC" },
+            { "op": "add_table", "slide": 2, "values": [["A", "B"], ["1", "2"]], "left": 40, "top": 40, "width": 300, "height": 90 }
+        ]),
+    );
+    assert_eq!(com["slideCount"], portable["slideCount"], "slide counts must agree");
+    let per_slide = |document: &Value, read: &dyn Fn(&Value) -> Value| -> Vec<Value> { items(&document["slides"]).iter().map(read).collect() };
+    let indexes = |slide: &Value| slide["index"].clone();
+    assert_eq!(per_slide(&com, &indexes), per_slide(&portable, &indexes), "slide order must agree");
+    let notes = |slide: &Value| json!(if slide["notes"].is_null() { String::new() } else { shown(&slide["notes"]).trim().to_owned() });
+    assert_eq!(per_slide(&com, &notes), per_slide(&portable, &notes), "speaker notes must agree");
+    let backgrounds = |slide: &Value| json!(text(&slide["background"]["color"]).to_uppercase());
+    assert_eq!(per_slide(&com, &backgrounds), per_slide(&portable, &backgrounds), "slide backgrounds must agree");
+    let shape_counts = |slide: &Value| json!(items(&slide["shapes"]).len());
+    assert_eq!(per_slide(&com, &shape_counts), per_slide(&portable, &shape_counts), "shape counts must agree");
+}
+
+fn install_script_runtime() {
     let node = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
         .map(|dir| dir.join("node.exe"))
         .find(|path| path.is_file())
@@ -328,10 +333,11 @@ fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_n
         package_root: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.."),
         electron: false,
     });
-    let path = live.path("reused.pptx");
-    let deck = |titles: &[&str]| -> String {
-        format!(
-            "
+}
+
+fn deck_script(titles: &[&str]) -> String {
+    format!(
+        "
 const pptxgen = require('pptxgenjs');
 const pres = new pptxgen();
 pres.layout = 'LAYOUT_WIDE';
@@ -340,17 +346,25 @@ for (const title of {}) {{
 }}
 await pres.writeFile({{ fileName: OUTPUT }});
 ",
-            serde_json::to_string(titles).expect("titles")
-        )
-    };
-    let first = live.call(json!({ "action": "author", "path": path, "script": deck(&["First deck"]), "render": false }));
+        serde_json::to_string(titles).expect("titles")
+    )
+}
+
+#[test]
+#[ignore = "starts Microsoft PowerPoint and a headless browser; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck() {
+    let Some(live) = Live::start() else { return };
+    install_script_runtime();
+    let path = live.path("reused.pptx");
+    let first = live.call(json!({ "action": "author", "path": path, "script": deck_script(&["First deck"]), "render": false }));
     assert_eq!(first["ok"], true, "{}", stringify(&first["error"]));
     assert_eq!(first["backend"], "microsoft-office-com");
     assert_ne!(first["reusedSession"], true);
     let opened = live.call(json!({ "action": "snapshot", "session": first["session"] }));
     assert_eq!(items(&opened["document"]["slides"]).len(), 1);
 
-    let again = live.call(json!({ "action": "author", "path": path, "script": deck(&["Second deck", "Added slide"]), "overwrite": true, "render": false }));
+    let again =
+        live.call(json!({ "action": "author", "path": path, "script": deck_script(&["Second deck", "Added slide"]), "overwrite": true, "render": false }));
     assert_eq!(again["ok"], true, "{}", stringify(&again["error"]));
     assert_eq!(again["reusedSession"], true);
     assert_eq!(again["session"], first["session"], "the session survives the rewrite");
@@ -359,11 +373,22 @@ await pres.writeFile({{ fileName: OUTPUT }});
     assert_eq!(items(&reread["document"]["slides"]).len(), 2, "the reused session reads the new deck, not the cached old one");
     assert!(mentions(&reread["document"]["slides"][0], "Second deck"));
     assert_eq!(reread["appPid"], opened["appPid"], "the same PowerPoint process carries both decks");
+    live.close(&again["session"]);
+}
+
+#[test]
+#[ignore = "starts Microsoft PowerPoint and a headless browser; MIXDOG_TEST_LIVE_OFFICE=1"]
+fn author_a_failed_script_leaves_the_open_deck_alone_and_no_staging_file_behind() {
+    let Some(live) = Live::start() else { return };
+    install_script_runtime();
+    let path = live.path("kept.pptx");
+    let deck = live.call(json!({ "action": "author", "path": path, "script": deck_script(&["Second deck", "Added slide"]), "render": false }));
+    assert_eq!(deck["ok"], true, "{}", stringify(&deck["error"]));
 
     let failed = live.call(json!({ "action": "author", "path": path, "script": "undefinedCall();", "overwrite": true, "render": false }));
     assert_eq!(failed["ok"], false);
     assert_eq!(failed["reason"], "script_failed");
-    let survived = live.call(json!({ "action": "snapshot", "session": again["session"] }));
+    let survived = live.call(json!({ "action": "snapshot", "session": deck["session"] }));
     assert_eq!(items(&survived["document"]["slides"]).len(), 2, "a failed script leaves the open deck alone");
     let staged: Vec<String> = std::fs::read_dir(live.dir())
         .expect("the scratch folder")
@@ -372,5 +397,5 @@ await pres.writeFile({{ fileName: OUTPUT }});
         .filter(|name| name.contains(".authoring."))
         .collect();
     assert!(staged.is_empty(), "no staging file is left beside the target: {staged:?}");
-    live.close(&again["session"]);
+    live.close(&deck["session"]);
 }

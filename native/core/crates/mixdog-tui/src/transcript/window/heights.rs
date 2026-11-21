@@ -1,8 +1,6 @@
-//! The height of one transcript item (`estimateTranscriptItemRowsCached`, `streamingEstimateRows`, `measuredTranscriptRows`
-//! of `transcript-window.mjs` and the rules of `transcript-row-estimate.mjs`), exact: the item renders through the
-//! transcript widgets and its number of lines is its height.
+//! The height of one transcript item, exact: the item renders through the transcript widgets and its number of lines is its height.
 //!
-//! Three rules of Node's estimate are kept because the row table depends on them, not on how the height is obtained:
+//! Three rules the row table depends on:
 //!
 //! * a failed tool batch that has nothing to read takes no row, every other item at least one;
 //! * while an assistant message streams its height never falls below the highest it reached in this run (the settled/live

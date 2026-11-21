@@ -1,9 +1,3 @@
-//! `Reactions` for the `react` tool over the session runtime. A bot reacts in its own chat with
-//! the user: its home thread (the message is in that thread) or its seat in a group room (the
-//! message is the user's row in the room's log, where members do not repeat each other's emoji).
-//! The reaction is stored on the message by the thread that holds it (`thread/reactions/set`,
-//! which the session serves, `session/message_reactions.rs`).
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -116,10 +110,6 @@ mod tests {
         assert_eq!((hit.message_id.as_str(), hit.room), ("m7", true));
     }
 
-    /// The react tool's target reaches the turn that is running: the tool holds the session's
-    /// table from construction, each turn builds its own `LoopReactions` over the same table
-    /// afterwards, and the one that took the call finds the record; a turn of another session
-    /// does not.
     #[test]
     fn the_react_tools_target_reaches_the_running_turn() {
         let table = Arc::new(ReactionTargets::new());

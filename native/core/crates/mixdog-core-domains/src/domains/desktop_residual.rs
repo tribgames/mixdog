@@ -1,22 +1,14 @@
-//! The logic of four desktop main-process files, in the core (owner direction 14: a file that handles no Electron object
-//! moves to Rust): `session-attachments.ts` and `transcript-file-links.ts` (the attachments a conversation names and the
-//! host paths its links name), `workflow-config.ts` (a JSONC settings file) and `system-fonts.ts` (the installed font
-//! families of Settings, Appearance).
-//!
-//! - `desktop/link/resolve`: the absolute host path a link's href names (decoded as the renderer's MarkdownLink decodes it,
-//!   `:line` / `#L` dropped, resolved against the session's folder), or `null` for a web link, a UNC target and a relative
-//!   link with no known folder.
+//! - `desktop/link/resolve`: the absolute host path a link's href names (`:line` / `#L` dropped, resolved against the
+//!   session's folder), or `null` for a web link, a UNC target and a relative link with no known folder.
 //! - `desktop/link/resolvePath`: the same resolution for an already decoded path.
 //! - `desktop/attachment/resolve`: an attachment of a session by content hash, served only when THIS session's transcript
-//!   (the window it holds, else its whole stored conversation) names the id, and only when the stored bytes hash to the
-//!   id. The refusals carry the download reasons (`file-download:not-linked`, `:not-found`, `:changed`) that the paired
-//!   devices' download path reports. Answers the attachment's record, its verified byte count, its previewable
-//!   name and the bytes as a data URL (what the desktop's `readSessionAttachment` IPC answered).
+//!   names the id and the stored bytes hash to it. The refusals carry the download reasons (`file-download:not-linked`,
+//!   `:not-found`, `:changed`). Answers the record, its verified byte count, its previewable name and a data URL.
 //! - `desktop/attachment/stage`: the same check, then the bytes written to `<temp>/mixdog-attachments/<id16>-<name>`.
 //! - `desktop/workflowConfig/read`: the object a JSONC file holds (`null` when it is missing, empty or NUL-filled).
 //! - `desktop/fonts/list`: the installed font families, listed once per process.
 //!
-//! Path rules are Node's: `PathFlavor` carries the platform's, so both are replayed in tests on any host.
+//! `PathFlavor` carries the platform's path rules, so both flavors are tested on any host.
 
 #![allow(
     clippy::disallowed_methods,

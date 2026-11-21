@@ -1,14 +1,3 @@
-//! [`ConfigSeams`] over [`Config`] and [`AgentDefinitions`]: what a turn reads of the settings and
-//! the agent store.
-//!
-//! `run_settings` fills the fields whose Node origin is the saved config or the session header
-//! (`compose-seams.md` "RunSettings: origins"): `hidden_agent`, `agent_mode`, `compact` (minus the
-//! request's tool-schema reserve, which the host measures from the sent tools) and
-//! `read_body_required`. The route/catalog/provider rows (`effort`, `step_auto_effort`,
-//! `text_only`, `escalated_max_output_tokens`, `model_max_output_tokens`, `vision`), the heartbeat
-//! `limits` mark and `attachments` have no config or header origin, so they are left empty for the
-//! host to fill from the route.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -109,12 +98,6 @@ impl ConfigRunSeams {
         self.compact_settings_with(header, agent_mode, self.session_compaction(header))
     }
 
-    /// The same inputs over a `compaction` section the caller states: a route that has no session
-    /// yet (an inheritance heir, `inheritanceRouteTarget`) carries `{ auto: true }` and is never
-    /// synced with the saved configuration.
-    /// The window and sizing are stated whatever `auto` is: with it off the loop's policy is off
-    /// (`CompactPolicy::resolve`), while a manual or scheduled pass resolves them with `auto` forced
-    /// on (`resolveSessionCompactionPolicy`, `compaction-runner.mjs`).
     pub(crate) fn compact_settings_with(&self, header: &Header, agent_mode: bool, cfg: Doc) -> CompactSettings {
         let agent_owner = header.get("owner").is_some_and(|owner| mixdog_js::js_trim(&mixdog_js::value_to_string(owner)).to_lowercase() == "agent");
         let flag_off = cfg.get("auto") == Some(&Value::Bool(false));
@@ -357,7 +340,12 @@ impl ConfigSeams for ConfigRunSeams {
 
     fn response_language(&self) -> Option<(String, String)> {
         let whole = Value::Object((*self.config.full()).clone());
-        let paths = LeadPaths { plugin_root: &self.plugin_root, data_dir: &self.data_dir, config: Some(&whole) };
+        let paths = LeadPaths {
+            plugin_root: &self.plugin_root,
+            data_dir: &self.data_dir,
+            config: Some(&whole),
+            files: &mixdog_core_prompt::prompt::source_files::LiveFiles,
+        };
         build_lead_language(&paths, &mixdog_js::default_locale_tag())
     }
 }

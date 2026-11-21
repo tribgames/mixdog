@@ -1,22 +1,6 @@
-//! The statusline usage warm-up: Node's `createStatuslineUsageWarmup` (`warmup/statusline-usage-warmup.mjs`).
-//!
-//! When the live Main route names an OAuth provider, the daemon prepares that provider (the route's provider switched
-//! on in the config the readiness initializes: `ensureProviderEnabled`) and then refreshes the route's usage reading.
-//! Preparing it registers the provider, which is what makes its catalog (for an account that is not signed in, the
-//! provider's own fallback family rows) part of every provider-model read: Node's `listProviderModels` lists the default
-//! route's provider only because this warm-up ran.
-//!
-//! Triggers, each Node's:
-//! * boot: `scheduleStatuslineUsageWarmup()` ([`StatuslineWarmup::start`]), after `MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS`
-//!   (default 800, 0 to 60 000); it does nothing when the route is not an OAuth one, parks while the runtime is busy and
-//!   re-checks the route when it runs;
-//! * a wake (a turn ended, a session create settled, a catalog refresh settled): a parked run re-checks on its own tick
-//!   ([`StatuslineWarmup::wake`]);
-//! * a turn settling: `refreshStatuslineUsageAfterTurn` prepares and refreshes at once, with no delay and no deferral
-//!   ([`StatuslineWarmup::turn_settled`]).
-//!
-//! A preparation first awaits the keychain prewarm and loads the full config (`ensureConfigForRouteProvider`), then
-//! readies the route's provider ([`UsagePrep`]).
+//! When the live Main route names an OAuth provider, the provider is prepared and the route's usage
+//! reading refreshed: at boot after `MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS` (default 800, 0 to
+//! 60 000), on a wake, and at once when a turn settles.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -68,14 +52,8 @@ impl UsagePrep for ReadinessPrep {
         self.keychain.await_prewarm().await;
     }
 
-    /// The loaded config is the one built with the secrets (the provider sync rebuilds it on every change): there is
-    /// nothing further to load.
     fn ensure_config_for_route_provider(&self) {}
 
-    /// The loaded providers with the route's provider switched on, unless the stored config switches it off now. The
-    /// loaded config's `enabled: false` is also the credential probe's for an account that is not signed in, which is
-    /// prepared all the same, and the loaded config may predate a switch-off: only the stored `enabled` decides, as it
-    /// outranks the probe in the loaded config.
     async fn ensure_provider_ready(&self, provider: &str) -> Result<bool, String> {
         let stored = self.config.agent();
         if stored.get("providers").and_then(|providers| providers.get(provider)).and_then(|entry| entry.get("enabled")) == Some(&Value::Bool(false)) {

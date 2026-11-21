@@ -1,8 +1,3 @@
-//! The Rust leg, clients, claims, caps, control requests and pair code against the Rust relay (`mixdog_relay::server::spawn`)
-//! started in this process on an ephemeral port with a scratch data dir.
-//! No real relay or account credentials are involved; a Rust phone peer completes the E2EE
-//! handshake and exchanges an application frame through the relay.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

@@ -2137,6 +2137,24 @@
       ],
       "type": "object"
     },
+    "HostComputerProcessFateParams": {
+      "description": "Params of `host/computer/processFate` (core -> host): the OS's answer about one process on the desktop's machine, read by the desktop's own computer host, so the core can bind a saved-login owner to its process when the desktop runs the commands. `created` is the process's creation time (a FILETIME as decimal text; empty: whichever process has `pid` now).",
+      "properties": {
+        "created": {
+          "type": "string"
+        },
+        "pid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "created",
+        "pid"
+      ],
+      "type": "object"
+    },
     "HostComputerRevokeScopesParams": {
       "description": "Params of `host/computer/revokeScopes` (core -> host): automation scopes Computer Use switched off has revoked. Every other `host/computer/*` request of a session names its scope as `automationScope` (a whole number); the desktop keeps a revocable context per scope and connection, commits its effects under it, and answers this once its contexts of `scopes` refuse every effect. A revoked scope never holds again; one first named here is born revoked.",
       "properties": {
@@ -4972,6 +4990,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostComputerPermissionsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The OS's answer about one process, read by the desktop's own computer host (a saved-login owner's pid proof).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/processFate"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerProcessFateParams"
         }
       },
       "required": [

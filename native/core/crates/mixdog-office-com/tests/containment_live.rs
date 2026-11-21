@@ -128,13 +128,9 @@ fn eventually(what: &str, mut ready: impl FnMut() -> bool) {
     panic!("never happened: {what}");
 }
 
-#[test]
-#[ignore = "starts processes and a job object; run on request on Windows"]
-fn a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup() {
-    let dir = scratch("worker");
-    let mark = dir.join("eof.mark");
+fn kill_on_close_job_allowing_breakaway() -> HANDLE {
     // SAFETY: plain Win32 calls on the job created here.
-    let job: HANDLE = unsafe {
+    unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
         assert!(!job.is_null(), "{}", std::io::Error::last_os_error());
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
@@ -147,7 +143,26 @@ fn a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup() {
         );
         assert!(set != 0, "{}", std::io::Error::last_os_error());
         job
-    };
+    }
+}
+
+/// Reads the worker's output until it names the host it started.
+fn host_pid_said_by(worker: &mut std::process::Child) -> u32 {
+    let mut lines = BufReader::new(worker.stdout.take().expect("stdout")).lines();
+    loop {
+        let line = lines.next().expect("the worker said no host pid").expect("a line");
+        if let Some(pid) = line.trim().strip_prefix("host-pid ") {
+            return pid.parse::<u32>().expect("a pid");
+        }
+    }
+}
+
+#[test]
+#[ignore = "starts processes and a job object; run on request on Windows"]
+fn a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup() {
+    let dir = scratch("worker");
+    let mark = dir.join("eof.mark");
+    let job = kill_on_close_job_allowing_breakaway();
     let mut worker = Command::new(std::env::current_exe().expect("exe"))
         .args(["--ignored", "--exact", "stand_in", "--nocapture"])
         .env(ROLE, "worker")
@@ -163,13 +178,7 @@ fn a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup() {
     assert!(assigned != 0, "{}", std::io::Error::last_os_error());
     worker.stdin.as_mut().expect("stdin").write_all(b"go\n").expect("go");
 
-    let mut lines = BufReader::new(worker.stdout.take().expect("stdout")).lines();
-    let host_pid = loop {
-        let line = lines.next().expect("the worker said no host pid").expect("a line");
-        if let Some(pid) = line.trim().strip_prefix("host-pid ") {
-            break pid.parse::<u32>().expect("a pid");
-        }
-    };
+    let host_pid = host_pid_said_by(&mut worker);
     assert!(process_alive(host_pid));
 
     // The worker crashes: its job ends it and everything that did not break away.

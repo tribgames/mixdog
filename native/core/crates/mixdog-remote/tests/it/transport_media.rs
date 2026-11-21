@@ -1,8 +1,3 @@
-//! The transport media adapter's behaviour (the recorded scenarios of the local-only comparison run live in
-//! `fixtures/remote-transport-media/scenarios.json`): every message the adapter seals,
-//! in order, per step. A media frame carries a random nonce, so it is compared as what it decrypts
-//! to: the meta, or a segment's offset, length and digest.
-
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -541,10 +536,6 @@ impl Direct {
         self.ended.cancel();
     }
 }
-/// A stall inside the direct session's send, after the adapter's own checks: the capacity returns only after the credential was
-/// unpaired, or the lease ended, and the gate the coordinator runs at the write refuses it. Nothing more is committed (the
-/// head, committed while permitted, stays) and the stream ends, its source dropped. The same stall left with no capacity returned at
-/// all: the authority's end releases the send waiting inside the link, which withdraws the delivery unsealed.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stall_inside_the_direct_send_commits_nothing_after_the_unpair_or_the_end_of_the_lease() {
     for (unpair, capacity_returns) in [(true, true), (false, true), (true, false), (false, false)] {
@@ -568,10 +559,6 @@ async fn a_stall_inside_the_direct_send_commits_nothing_after_the_unpair_or_the_
         assert_eq!((direct.adapter.active(), direct.dropped.load(std::sync::atomic::Ordering::SeqCst)), (0, 1), "{at}: the stream and its source are released");
     }
 }
-/// An `end` or an `error` queued for room carries the authority's end for cancellation as a delivery of bytes does, though its
-/// content needs no commit check: the lease ends, no capacity returns, and the stream and its source are released. Nothing waits in
-/// order to send a terminal message, so with no capacity none is sent here (a control message queued earlier may go out when
-/// capacity does return; that is allowed, and not what this test pins).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_queued_end_or_error_send_is_released_by_the_end_of_the_lease_with_no_capacity_returned() {
     for op in ["end", "error"] {

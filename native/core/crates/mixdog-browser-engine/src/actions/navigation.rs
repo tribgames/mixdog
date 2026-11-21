@@ -1,9 +1,3 @@
-//! Owner: s4-engine-actions-observe-nav
-//! Moving between documents (`actions/navigation.ts`): `open`, `navigate` (a URL, or a reload) and `back`. The URL a command names
-//! is admitted here by the rules of `mixdog-browser-policy` before the host is asked to load it, and the host admits it once more
-//! against the address it resolves to; the load itself, its bound, a download that ends it and a dialog that opens during it are the
-//! host's (`host/browser/page/navigate`). What the page then looks like is the runner's reply after the navigation.
-
 use mixdog_app_protocol::v2::browser_engine::BrowserMailLink;
 use mixdog_app_protocol::v2::browser_engine::BrowserNavigateKind;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserPageNavigateParams;

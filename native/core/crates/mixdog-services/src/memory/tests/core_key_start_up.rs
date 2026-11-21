@@ -44,6 +44,7 @@ fn core_lines(lines: &std::sync::Mutex<Vec<(Origin, Channel, String)>>) -> Vec<S
 }
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_fresh_profile_opens_with_the_pool_key_and_refuses_a_second_row_of_the_same_pool_and_element() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -59,6 +60,7 @@ async fn a_fresh_profile_opens_with_the_pool_key_and_refuses_a_second_row_of_the
 }
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn opening_again_changes_nothing() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -71,6 +73,7 @@ async fn opening_again_changes_nothing() {
 }
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_store_with_duplicate_keys_opens_keeps_both_rows_and_says_so_once() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -91,6 +94,7 @@ async fn a_store_with_duplicate_keys_opens_keeps_both_rows_and_says_so_once() {
 }
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn once_the_duplicates_are_resolved_the_next_open_installs_the_pool_key_and_drops_the_legacy_one() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
@@ -113,6 +117,7 @@ async fn once_the_duplicates_are_resolved_the_next_open_installs_the_pool_key_an
 }
 
 #[tokio::test]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn two_starters_building_the_missing_key_at_once_both_open_and_the_key_exists_after() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;

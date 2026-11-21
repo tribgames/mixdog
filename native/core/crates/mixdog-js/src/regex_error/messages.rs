@@ -1,0 +1,30 @@
+pub(super) const UNTERMINATED_GROUP: &str = "Unterminated group";
+pub(super) const UNMATCHED_PAREN: &str = "Unmatched ')'";
+pub(super) const ESCAPE_AT_END: &str = "\\ at end of pattern";
+pub(super) const INVALID_PROPERTY_NAME: &str = "Invalid property name";
+pub(super) const INVALID_CLASS_PROPERTY_NAME: &str = "Invalid property name in character class";
+pub(super) const INVALID_ESCAPE: &str = "Invalid escape";
+pub(super) const INVALID_DECIMAL_ESCAPE: &str = "Invalid decimal escape";
+pub(super) const INVALID_UNICODE_ESCAPE: &str = "Invalid Unicode escape";
+pub(super) const INVALID_CLASS_ESCAPE: &str = "Invalid class escape";
+pub(super) const NOTHING_TO_REPEAT: &str = "Nothing to repeat";
+pub(super) const LONE_QUANTIFIER_BRACKETS: &str = "Lone quantifier brackets";
+pub(super) const RANGE_OUT_OF_ORDER: &str = "numbers out of order in {} quantifier";
+pub(super) const INCOMPLETE_QUANTIFIER: &str = "Incomplete quantifier";
+pub(super) const INVALID_QUANTIFIER: &str = "Invalid quantifier";
+pub(super) const INVALID_GROUP: &str = "Invalid group";
+pub(super) const INVALID_CAPTURE_GROUP_NAME: &str = "Invalid capture group name";
+pub(super) const DUPLICATE_CAPTURE_GROUP_NAME: &str = "Duplicate capture group name";
+pub(super) const INVALID_NAMED_REFERENCE: &str = "Invalid named reference";
+pub(super) const INVALID_NAMED_CAPTURE_REFERENCE: &str = "Invalid named capture referenced";
+pub(super) const INVALID_CHARACTER_CLASS: &str = "Invalid character class";
+pub(super) const UNTERMINATED_CHARACTER_CLASS: &str = "Unterminated character class";
+pub(super) const OUT_OF_ORDER_CHARACTER_CLASS: &str = "Range out of order in character class";
+pub(super) const STACK_OVERFLOW: &str = "Maximum call stack size exceeded";
+pub(super) const MAX_CLASS_DEPTH: usize = 1000;
+pub(super) const INVALID_CHARACTER_IN_CLASS: &str = "Invalid character in character class";
+pub(super) const INVALID_CLASS_SET_OPERATION: &str = "Invalid set operation in character class";
+pub(super) const NEGATED_CLASS_WITH_STRINGS: &str = "Negated character class may contain strings";
+
+/// `RegExpTree::kInfinity`.
+pub(super) const INFINITY: i64 = i32::MAX as i64;

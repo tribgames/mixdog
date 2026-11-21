@@ -1,11 +1,11 @@
-//! The receipt gate of a new task (`apps/desktop/src/main/new-task-requests.ts`): one receipt per client submission id in
-//! `<data>/userdata/new-task-receipts/<sha256(id)>.json`, the same bytes Node keeps, so a request that arrives twice (a retry after
-//! a lost reply, a crash between phases, changed content, a refusal) starts one task. The phases are Node's: `reserved` (the id is
+//! The receipt gate of a new task: one receipt per client submission id in
+//! `<data>/userdata/new-task-receipts/<sha256(id)>.json`, the same bytes the desktop reads, so a request that arrives twice (a retry after
+//! a lost reply, a crash between phases, changed content, a refusal) starts one task. The phases are `reserved` (the id is
 //! bound to its content and to the session address), `configured` (the draft was applied), `accepted` (the first prompt was).
 //!
-//! The gate runs each request on its own task, as Node's promise runs without the caller: an identical request that arrives
+//! The gate runs each request on its own task: an identical request that arrives
 //! while it runs joins it and gets its answer, another content under the id is refused, and at most [`MAX_ACTIVE`] run at once.
-//! A receipt has at most one writer (the one request that holds its id), which is what Node's per-path serial queue guarantees.
+//! A receipt has at most one writer (the one request that holds its id).
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -24,6 +24,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::on_lane;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::TaskClass;
@@ -219,12 +220,14 @@ fn uncut(outcome: Outcome) -> Option<Outcome> {
     }
 }
 
-/// Whether Node's daemon stored the session of an attempt that ended at `step`. A reservation lives in the daemon's memory only
-/// (session-views.mjs:31-45, `reservedOnly`) and is destroyed by the host's unsubscribe or ends with the daemon (daemon.mjs:412):
-/// Node stores none for an attempt that failed or was cut in its creation or its draft's workflow, mode or route (recorded:
-/// new-task-quit `quit-in-set-route`). Its `requestWorktree` stores the session it binds (recorded: `quit-in-request-worktree`,
-/// the cut attempt's and the refused retry's), and so does an accepted prompt. Where Node stores none, the record the core made
-/// earlier than Node would is not left behind.
+fn refused_by_shutdown(step: Step, enters: bool) -> bool {
+    match step {
+        Step::Creating | Step::Sending => false,
+        Step::Committing => enters,
+        Step::Configuring | Step::Entering => true,
+    }
+}
+
 fn stored_by_node(step: Step, enters: bool) -> bool {
     match step {
         Step::Sending => true,
@@ -360,10 +363,6 @@ pub(super) fn crash_gate(point: &str) {
         std::process::abort();
     }
 }
-/// A test-only hold at a named call of a new task's draft step (`MIXDOG_NEW_TASK_QUIT_AT`: `setWorkflow`, `setOrchestrationMode`,
-/// `setRoute`, `requestWorktree`): the attempt says on stderr that it is held there and goes on once the stop request cut the attempts
-/// (`closing`), as Node's recording lets the held call go once the daemon answered the stop request (record-new-task-quit.mjs).
-/// Compiled only into a build that asks for `crash-gates`.
 #[cfg(feature = "crash-gates")]
 #[allow(clippy::disallowed_methods, reason = "a test build's hold point reads its variable")]
 pub(super) async fn quit_gate(point: &str, closing: &CancellationToken) {
@@ -430,10 +429,10 @@ impl NewTaskReceipts {
     }
 
     /// `secureReceiptFolder`: made owner-only once, before any receipt in it is read, and again when it is gone or replaced.
-    async fn secure(&self) -> Result<(), CoreError> {
+    async fn secure(&self, cancel: &CancellationToken) -> Result<(), CoreError> {
         let mut state = self.secured.lock().await;
         let (folder, known) = (self.folder.clone(), state.clone());
-        let identity = on_lane(self.io, &CancellationToken::new(), move |lane| -> io::Result<String> {
+        let identity = on_lane_wait(self.io, cancel, move |lane| -> io::Result<String> {
             match mixdog_statefile::metadata(lane, &folder) {
                 Ok(meta) if known.as_deref() == Some(identity_of(&meta).as_str()) => return Ok(identity_of(&meta)),
                 Ok(_) => {}
@@ -455,7 +454,7 @@ impl NewTaskReceipts {
         use mixdog_core_base::support::FsFailure;
         use mixdog_core_base::support::FsStep;
         let path = path.to_owned();
-        let bytes = on_lane(self.io, &CancellationToken::new(), move |lane| {
+        let bytes = on_lane_wait(self.io, &self.closing, move |lane| {
             mixdog_statefile::read_content(&path).map_err(|error| {
                 // Node's `open` takes a folder and its read fails (`EISDIR: illegal operation on a directory, read`, libuv on
                 // every system); Windows refuses the open itself. Any other failure is the open's, as Node words it.
@@ -473,7 +472,8 @@ impl NewTaskReceipts {
 
     /// `writeReceipt`: an atomic rename; `durable` also flushes the file and its folder entry before it is reported.
     async fn write(&self, hold: &Hold, path: &Path, receipt: &Receipt, durable: bool) -> Result<(), CoreError> {
-        self.secure().await?;
+        // A write is owed whatever ends its attempt: the refusal a shutdown cuts an attempt with is written under it.
+        self.secure(&CancellationToken::new()).await?;
         #[cfg(test)]
         lock(&self.writes).push((format!("{}{}", receipt.phase().name(), if receipt.refused() { "+refused" } else { "" }), durable));
         let (path, bytes) = (path.to_owned(), receipt.to_bytes());
@@ -575,7 +575,7 @@ impl NewTaskReceipts {
         F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
         Fut: Future<Output = Outcome> + Send + 'static,
     {
-        self.secure().await?;
+        self.secure(&self.closing).await?;
         let path = self.folder.join(format!("{key}.json"));
         let stored = self.read(&path).await?;
         // Only a recorded refusal frees the id for other content; any other receipt, a `reserved` one left by an interrupted
@@ -671,9 +671,6 @@ impl SessionDirectory {
             tokio::pin!(phases);
             tokio::select! {
                 biased;
-                // The call the attempt awaits in its draft step settles while Node's daemon shuts down (the session service closes
-                // first, session-service.mjs:257, and its shutdown awaits the session's work, :271-275): it runs to its end here
-                // too, and the attempt stops before its next call ([`Self::new_task_phases`] answers `None` there).
                 () = closing.cancelled() => match step.get() {
                     Step::Configuring | Step::Entering => uncut(phases.await),
                     _ => None,
@@ -683,41 +680,26 @@ impl SessionDirectory {
         };
         let step = step.get();
         let Some(started) = started else {
-            // A stop request, as Node's quit (the app's `/stop {force:true}`, session-client.mjs:667-707, runs the daemon's
-            // `shutdown`, daemon.mjs:272): the session service is closed first (session-service.mjs:257) and the host is disposed
-            // (session-host.ts:1210), so the call the attempt awaits settles while the daemon shuts down and the next one fails
-            // (`assertAvailable`, session-action.mjs:111, entries/lifecycle.mjs:36-39; session-host-transport.ts:87), and
-            // `createNewTask` goes on from the call that failed. The creation (`client.create`, session-host-lifecycle.ts:824) fails
-            // before the `try` that refuses (:835): the receipt stays as it is. The draft's workflow, mode and route (:766-779) are
-            // awaited inside the `try` while unsent: refused, wherever in the core's creation call they are applied. The commit of
-            // `configured` is the host's own file write, which completes: the next call fails, the worktree's inside the `try` while
-            // unsent (:955 `if (unsent) await request.reset()`), else the submit after `unsent = false`. Nobody is answered (the gate
-            // sends no outcome once it is closing).
-            let refused = first
-                && match step {
-                    Step::Creating | Step::Sending => false,
-                    Step::Committing => enters,
-                    Step::Configuring | Step::Entering => true,
-                };
-            if refused {
+            if first && refused_by_shutdown(step, enters) {
                 let _ = request.reset().await;
             }
-            if !stored_by_node(step, enters) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
-                self.discard(&id).await;
-            }
+            self.discard_unstored(&id, step, enters).await;
             return Err(failed("session", "The new task request ended with the shutdown."));
         };
         if let Err(error) = &started {
-            // The daemon destroys an unclaimed reservation, so the receipt must stop pointing at it.
             if first && !matches!(step, Step::Sending) {
                 let _ = request.reset().await;
             }
-            if !stored_by_node(step, enters) && !self.holds_user_conversation(&id).await.unwrap_or(true) {
-                self.discard(&id).await;
-            }
+            self.discard_unstored(&id, step, enters).await;
             return Err(error.clone());
         }
         started
+    }
+
+    async fn discard_unstored(&self, id: &ThreadId, step: Step, enters: bool) {
+        if !stored_by_node(step, enters) && !self.holds_user_conversation(id).await.unwrap_or(true) {
+            self.discard(id).await;
+        }
     }
 
     /// Whether the thread's stored history holds a user prompt sent under `submission` (`transcript.clientSubmissionId`), whatever
@@ -725,15 +707,13 @@ impl SessionDirectory {
     async fn holds_submission(&self, id: &ThreadId, submission: &str) -> Result<bool, CoreError> {
         self.deps().store.unheld().await;
         let (store, thread) = (self.deps().store.clone(), id.clone());
-        let (_, rows) = on_lane(self.deps().lanes.io, &CancellationToken::new(), move |lane| store.history_rows(lane, &thread)).await??;
+        let (_, rows) = on_lane_wait(self.deps().lanes.io, &CancellationToken::new(), move |lane| store.history_rows(lane, &thread)).await??;
         Ok(rows.iter().any(|row| {
             row.role.as_ref().is_some_and(|role| role.as_str() == "user")
                 && matches!(&row.body, mixdog_store::schema::blob::Slot::Inline(body)
                     if body.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str) == Some(submission))
         }))
     }
-    /// `step` outlives the future: it is read when the attempt fails or is cut ([`Self::new_task`]). Once the stop request cut the
-    /// attempt (`closing`), the call in flight ends and the attempt stops before its next call ([`cut`]), as Node's next call fails.
     async fn new_task_phases(
         &self,
         request: &Request,

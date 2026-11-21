@@ -1,8 +1,3 @@
-//! The cache owner's admission through the real adapter with transport captures: every POST is admitted on the
-//! credential it carries at the moment it goes out (a credential replay after a 401, a `max_tokens` replay after a
-//! context overflow), rotation away and back reads each account's own proof, and a relayed session transcript with no
-//! owner here is not sent.
-
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, TailGateHandle, TailRefusal};

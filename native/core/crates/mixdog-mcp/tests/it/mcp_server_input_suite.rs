@@ -31,7 +31,10 @@ fn a_url_is_an_http_server_unless_it_says_websocket_or_names_its_type() {
     assert_eq!(kind(json!({"name": "s", "url": "https://x.example/mcp", "type": "sse"})), "sse");
     assert_eq!(kind(json!({"name": "s", "url": "https://x.example/mcp", "type": "streamable-http"})), "http");
     assert_eq!(kind(json!({"name": "s", "url": "https://x.example/mcp", "type": "WS"})), "ws");
-    // An address with no path is kept as the user typed it, not given a trailing slash.
+}
+
+#[test]
+fn a_url_server_keeps_its_address_as_typed_and_its_headers_and_credentials_as_text() {
     assert_eq!(normalize(json!({"name": "s", "url": "https://x.example"})).unwrap().1["url"], "https://x.example");
     let (_, config) = normalize(json!({
         "name": "s", "url": "https://x.example/mcp", "headers": {"A": 1, "B": null}, "bearerTokenEnvVar": " TOKEN ", "oauthClientId": "cid"

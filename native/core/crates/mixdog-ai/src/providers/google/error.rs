@@ -1,8 +1,3 @@
-//! Google RPC errors → [`ProviderError`], as Node's `geminiRestError` / `antigravityError` / `geminiInBandError` build
-//! them: the message names the route, the typed contract (`geminiErrorContract`: code, retry advice, reset instant,
-//! quota scope) comes from the `ErrorInfo` / `QuotaFailure` / `RetryInfo` details, and the kind is read from the typed
-//! codes (ranked as `providerErrorKind` ranks them), then the status.
-
 use std::sync::LazyLock;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -167,12 +162,16 @@ impl Contract {
     }
 }
 
-/// `geminiErrorContract({ details, googleStatus, message })` at `now_ms` (`Date.now()`): `quotaScope` is
-/// minute / day from the typed quota ids only, plan for a spent quota with no window (ErrorInfo QUOTA_EXHAUSTED, or a
-/// QuotaFailure violation with a zero limit); capacity (MODEL_CAPACITY_EXHAUSTED, or capacity wording when nothing
-/// typed said otherwise) is an overload of the shared pool, code `model_capacity_exhausted`, never a quota scope.
-pub fn contract(details: Option<&Value>, google_status: Option<&Value>, message: Option<&Value>, now_ms: f64) -> Contract {
-    let list = details.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+struct Details {
+    reason: String,
+    retry_after_ms: Option<f64>,
+    reset_at_ms: Option<f64>,
+    day: bool,
+    minute: bool,
+    zero_limit: bool,
+}
+
+fn scan_details(list: &[Value]) -> Details {
     let mut reason = String::new();
     let mut retry_after_ms: Option<f64> = None;
     let mut reset_at_ms: Option<f64> = None;
@@ -224,8 +223,13 @@ pub fn contract(details: Option<&Value>, google_status: Option<&Value>, message:
             add_scope(scope_of(&named.join(" ")));
         }
     }
+    Details { reason, retry_after_ms, reset_at_ms, day, minute, zero_limit }
+}
+
+pub fn contract(details: Option<&Value>, google_status: Option<&Value>, message: Option<&Value>, now_ms: f64) -> Contract {
+    let list = details.and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let Details { reason, mut retry_after_ms, mut reset_at_ms, day, minute, zero_limit } = scan_details(list);
     let text = message.and_then(Value::as_str).unwrap_or("");
-    // The message names capacity only when nothing typed said otherwise.
     let capacity = CAPACITY_REASONS.contains(&reason.as_str())
         || (reason.is_empty() && !day && !minute && retry_after_ms.is_none() && CONTRACT_CAPACITY_MESSAGE.is_match(text));
     let mut quota_scope = if day {
@@ -377,8 +381,6 @@ fn antigravity_error(response: &ErrorResponse, text: &str, endpoint: &str, now: 
         Contract::default()
     };
     let mut err = typed_error(format!("Antigravity {status} ({endpoint}): {scrubbed}"), response.status, contract.code.clone(), detail, &contract);
-    // Rate-limit reason: 503/529 are capacity by status unless a typed refusal names this request; a typed ErrorInfo
-    // reason decides next; wording is the last resort for a 429.
     let capacity = || Some("model_capacity_exhausted".to_owned());
     match response.status {
         Some(503 | 529) if !err.kind.is_deterministic() => err.code = capacity(),
@@ -392,45 +394,47 @@ fn antigravity_error(response: &ErrorResponse, text: &str, endpoint: &str, now: 
         _ => {}
     }
     err.kind = kind_of(&typed_codes(err.code.as_deref(), detail), response.status, contract.quota_scope);
-    // Account verification is terminal and actionable: the URL Google puts in the details (Help links, then the
-    // VALIDATION_REQUIRED metadata), else one the message names.
     if response.status == Some(403) && VALIDATION_REQUIRED.is_match(text) {
-        let entries = detail.and_then(|d| d.get("details")).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let help = entries
-            .iter()
-            .filter_map(|e| e.get("links").and_then(Value::as_array))
-            .flatten()
-            .filter_map(|l| l.get("url").and_then(Value::as_str))
-            .find(|u| !u.is_empty());
-        let metadata = |key: &str| {
-            entries
-                .iter()
-                .find(|e| {
-                    e.get("reason").and_then(Value::as_str) == Some("VALIDATION_REQUIRED")
-                        && e.pointer(&format!("/metadata/{key}")).and_then(Value::as_str).is_some_and(|u| !u.is_empty())
-                })
-                .and_then(|e| e.pointer(&format!("/metadata/{key}")).and_then(Value::as_str))
-        };
-        let url = help
-            .or_else(|| metadata("validation_url"))
-            .or_else(|| metadata("validation_link"))
-            .map(str::to_owned)
-            .or_else(|| GOOGLE_ACCOUNT_URL.find(&message).map(|r| message[r].to_owned()))
-            .unwrap_or_default();
-        err.message = if url.is_empty() {
-            "Antigravity requires account verification".to_owned()
-        } else {
-            format!("Antigravity requires account verification: open {url} , complete the check, then retry")
-        };
-        err.verification_url = (!url.is_empty()).then(|| url.as_str().into());
-        err.unsafe_to_retry = true;
-        err.account_blocked = true;
-        if err.code.as_deref().is_none_or(str::is_empty) {
-            err.code = Some("validation_required".to_owned());
-        }
+        require_verification(&mut err, detail, &message);
         err.kind = kind_of(&typed_codes(err.code.as_deref(), detail), response.status, contract.quota_scope);
     }
     err
+}
+
+fn require_verification(err: &mut ProviderError, detail: Option<&Value>, message: &str) {
+    let entries = detail.and_then(|d| d.get("details")).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+    let help = entries
+        .iter()
+        .filter_map(|e| e.get("links").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|l| l.get("url").and_then(Value::as_str))
+        .find(|u| !u.is_empty());
+    let metadata = |key: &str| {
+        entries
+            .iter()
+            .find(|e| {
+                e.get("reason").and_then(Value::as_str) == Some("VALIDATION_REQUIRED")
+                    && e.pointer(&format!("/metadata/{key}")).and_then(Value::as_str).is_some_and(|u| !u.is_empty())
+            })
+            .and_then(|e| e.pointer(&format!("/metadata/{key}")).and_then(Value::as_str))
+    };
+    let url = help
+        .or_else(|| metadata("validation_url"))
+        .or_else(|| metadata("validation_link"))
+        .map(str::to_owned)
+        .or_else(|| GOOGLE_ACCOUNT_URL.find(message).map(|r| message[r].to_owned()))
+        .unwrap_or_default();
+    err.message = if url.is_empty() {
+        "Antigravity requires account verification".to_owned()
+    } else {
+        format!("Antigravity requires account verification: open {url} , complete the check, then retry")
+    };
+    err.verification_url = (!url.is_empty()).then(|| url.as_str().into());
+    err.unsafe_to_retry = true;
+    err.account_blocked = true;
+    if err.code.as_deref().is_none_or(str::is_empty) {
+        err.code = Some("validation_required".to_owned());
+    }
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -479,11 +483,8 @@ const LOCATIONS_DOC: &str = "https://docs.cloud.google.com/gemini-enterprise-age
 /// The error code of a model the project cannot use.
 pub const VERTEX_MODEL_NOT_ENABLED: &str = "VERTEX_MODEL_NOT_ENABLED";
 
-/// A Vertex 404 means the model is not enabled for the project (or the id is
-/// wrong). The message says so and where to enable it; status and the retry
-/// classification stay as they were. An IAM denial (`IAM_PERMISSION_DENIED` in
-/// the ErrorInfo details) is left alone. Only structured fields decide: the
-/// HTTP status and `details[].reason`.
+/// A Vertex 404 means the model is not enabled for the project (or the id is wrong); an IAM denial
+/// (`IAM_PERMISSION_DENIED` in the ErrorInfo details) is left alone.
 pub fn vertex_model_access(error: &mut ProviderError, response: &ErrorResponse, publisher: &str, model: &str, project: &str, location: &str) {
     let parsed: Option<Value> = serde_json::from_slice(&response.body).ok();
     let body = parsed.as_ref().and_then(error_object);

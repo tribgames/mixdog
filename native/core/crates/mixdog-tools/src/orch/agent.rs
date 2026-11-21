@@ -590,9 +590,8 @@ mod tests {
         assert_eq!(compact_iso("2026-11-06T01:38:16.222Z"), "2026-11-06 01:38:16Z");
     }
 
-    /// The agent tool's text for a roster, a task start and finish, a queued message, a close and a result.
     #[test]
-    fn each_reply_of_the_agent_tool_renders_as_its_text() {
+    fn a_roster_renders_its_workers_and_jobs_or_says_there_are_none() {
         let mut busy = worker("alpha", "running", true, "");
         busy.stage = Some("tool_running".into());
         busy.last_progress = Some("reading   files".into());
@@ -613,6 +612,10 @@ mod tests {
             "agents: 3 · tasks: 2\n- alpha  running/tool_running  reading files\n- t1  spawn  running  alpha\n- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)\n- gamma  closed\n- beta  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- t2  spawn  failed  - error=bad thing"
         );
         assert_eq!(render(&AgentReply::Roster { workers: vec![], jobs: vec![] }, ""), "agents: 0 · tasks: 0\n(no agents or tasks)");
+    }
+
+    #[test]
+    fn a_started_task_renders_its_target_and_shows_the_agent_only_with_diagnostics() {
         let ack = TaskView {
             task_id: "t9".into(),
             status: Some("running".into()),
@@ -630,6 +633,10 @@ mod tests {
             render(&AgentReply::Task { view: ack, diagnostics: true }, ""),
             "agent task: t9\nstatus: running\ntype: spawn\ntarget: w s1\nagent: coder\nnotification: completion will be delivered; end the turn."
         );
+    }
+
+    #[test]
+    fn a_finished_task_renders_its_final_answer() {
         let done = TaskView {
             task_id: "t9".into(),
             status: Some("completed".into()),
@@ -637,10 +644,22 @@ mod tests {
             ..TaskView::default()
         };
         assert_eq!(render(&AgentReply::Task { view: done, diagnostics: false }, ""), "agent task: t9\nstatus: completed\n\ndone");
+    }
+
+    #[test]
+    fn a_queued_message_renders_its_target_and_depth() {
         let queued = QueuedView { tag: Some("w".into()), session_id: Some("s".into()), ..QueuedView::default() };
         assert_eq!(render(&AgentReply::Queued(queued), ""), "agent message queued\ntarget: w s\nqueueDepth: 1");
+    }
+
+    #[test]
+    fn a_close_renders_its_tag_task_and_forgotten_flag() {
         let closed = ClosedView { closed: true, tag: Some("w".into()), task_id: Some("t1".into()), forgotten: true, ..ClosedView::default() };
         assert_eq!(render(&AgentReply::Closed(closed), ""), "agent close: ok\ntag: w\ntask_id: t1\nforgotten: true");
+    }
+
+    #[test]
+    fn a_content_reply_renders_its_provider_model_and_text() {
         let content =
             ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
         assert_eq!(render(&AgentReply::Content(content), ""), "agent result tag=w p/m\nhi");

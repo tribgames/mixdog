@@ -1,8 +1,3 @@
-//! What the import commits, on the writer thread: the records in the append path's own
-//! transactions, then the legacy days, `importedThrough` and the receipt in one more. A failure
-//! leaves `importedThrough` unset and the next statistics read imports again; a record that is
-//! already stored is skipped by its id.
-
 use serde_json::Map;
 use serde_json::Value;
 

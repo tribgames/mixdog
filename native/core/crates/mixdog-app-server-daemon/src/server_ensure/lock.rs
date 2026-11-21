@@ -172,11 +172,30 @@ fn describe(owner: Option<&Owner>) -> String {
     parts.join(", ")
 }
 
+/// Enters the `lockDir` this run just created: its token directory and `owner.json`. False when the lock is not held after
+/// all: `lockDir` went away (judged abandoned while this creator stalled), or another holder entered and the later one backs off.
+fn enter(lock_dir: &Path, token: &str, options: &LockOptions, host: &dyn EnsureHost, pause: &dyn Fn(Duration)) -> std::io::Result<bool> {
+    match fs::create_dir(lock_dir.join(token)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound || contended(&error) => return Ok(false),
+        Err(error) => return Err(error),
+    }
+    let owner = Owner { token: token.to_owned(), pid: std::process::id(), host: host.hostname(), purpose: options.purpose.clone(), started_at: host.now_ms() };
+    let body = serde_json::to_vec(&owner).map_err(std::io::Error::other)?;
+    fs::write(lock_dir.join(token).join("owner.json"), body)?;
+    if token_dir_names(lock_dir).as_deref() == Some(&[token.to_owned()][..]) {
+        return Ok(true);
+    }
+    if matches!(remove_token(lock_dir, token, 5, pause), Removal::Removed) {
+        drop_empty(lock_dir, 5, pause);
+    }
+    Ok(false)
+}
+
 impl InstallLock {
     pub fn acquire(lock_dir: &Path, options: &LockOptions, host: &dyn EnsureHost) -> Result<Self, EnsureError> {
         let failed = |error: std::io::Error| EnsureError::InstallFailed(format!("Cannot create the install lock {}: {error}", lock_dir.display()));
         let token = crate::lifecycle::hex(&rand::random::<[u8; TOKEN_LEN / 2]>());
-        let mine = lock_dir.join(&token);
         let pause = |duration| host.pause(duration);
         let began = host.now_ms();
         if let Some(parent) = lock_dir.parent() {
@@ -185,29 +204,8 @@ impl InstallLock {
         loop {
             match fs::create_dir(lock_dir) {
                 Ok(()) => {
-                    match fs::create_dir(&mine) {
-                        Ok(()) => {
-                            let owner = Owner {
-                                token: token.clone(),
-                                pid: std::process::id(),
-                                host: host.hostname(),
-                                purpose: options.purpose.clone(),
-                                started_at: host.now_ms(),
-                            };
-                            let body = serde_json::to_vec(&owner).map_err(std::io::Error::other).map_err(failed)?;
-                            fs::write(mine.join("owner.json"), body).map_err(failed)?;
-                            if token_dir_names(lock_dir).as_deref() == Some(std::slice::from_ref(&token)) {
-                                return Ok(Self { lock_dir: lock_dir.to_owned(), token });
-                            }
-                            // Another holder entered while this creator stalled: the later one
-                            // backs off.
-                            if matches!(remove_token(lock_dir, &token, 5, &pause), Removal::Removed) {
-                                drop_empty(lock_dir, 5, &pause);
-                            }
-                        }
-                        // `lockDir` went away (judged abandoned while this creator stalled).
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound || contended(&error) => {}
-                        Err(error) => return Err(failed(error)),
+                    if enter(lock_dir, &token, options, host, &pause).map_err(failed)? {
+                        return Ok(Self { lock_dir: lock_dir.to_owned(), token });
                     }
                     host.pause(Duration::from_millis(20 + u64::from(rand::random::<u8>() % 30)));
                     continue;

@@ -1,9 +1,8 @@
 //! The registry's reads of the worker index as shared views that follow each write
 //! (`row-reads.mjs` keeps its projections on the store's arrays the same way).
 //!
-//! A status signal makes every loaded thread re-read its agents. Each re-read used to copy every
-//! row and tombstone of the index, and to look every bound tag's session up again; here a read
-//! hands out the views kept, and a write changes only what depends on the row it wrote:
+//! A status signal makes every loaded thread re-read its agents. A read hands out the views kept,
+//! and a write changes only what depends on the row it wrote:
 //!
 //! - each session's row and stored tombstone, as readers see them, are kept per session
 //!   ([`Derived`]); a write recomputes the written session's alone;
@@ -656,25 +655,7 @@ impl State {
         let dirty = std::mem::take(&mut views.dirty);
         views.dirty_set.clear();
         let Some((epoch, mut window)) = views.window else { return };
-        let mut tombstones_changed = false;
-        let mut moved: Vec<(String, Option<Derived>, Option<Derived>)> = Vec::new();
-        for id in dirty {
-            let next = self.maps.get(&id).map(|map| {
-                constrain(&mut window, map, now);
-                self.derive(&id, map, now)
-            });
-            let prev = views.derived.remove(&id);
-            if let Some(next) = &next {
-                views.derived.insert(id.clone(), next.clone());
-            }
-            // A tombstone that moved in the index order moves in the tombstone reads too.
-            let tombstone = |d: &Option<Derived>| d.as_ref().and_then(|d| d.tombstone.clone().map(|t| (d.key.clone(), t)));
-            tombstones_changed |= tombstone(&prev) != tombstone(&next);
-            let row = |d: &Option<Derived>| d.as_ref().and_then(|d| d.row.clone().map(|row| (d.key.clone(), row)));
-            if row(&prev) != row(&next) {
-                moved.push((id, prev, next));
-            }
-        }
+        let (tombstones_changed, moved) = self.rederive(views, &mut window, dirty, now);
         views.window = Some((epoch, window));
         if tombstones_changed {
             views.tombs = None;
@@ -690,9 +671,37 @@ impl State {
         }
         // With no tombstone reads made there is no scope view either.
         let Some(index) = views.tombs.as_ref().map(|t| t.index.clone()) else { return };
+        Self::rescope(views, &index, moved);
+    }
+
+    /// Reads the written sessions again into `views.derived`: whether a tombstone changed, and the sessions whose row did.
+    fn rederive(&self, views: &mut Views, window: &mut Window, dirty: Vec<String>, now: f64) -> (bool, Vec<(String, Option<Derived>, Option<Derived>)>) {
+        let mut tombstones_changed = false;
+        let mut moved = Vec::new();
+        for id in dirty {
+            let next = self.maps.get(&id).map(|map| {
+                constrain(window, map, now);
+                self.derive(&id, map, now)
+            });
+            let prev = views.derived.remove(&id);
+            if let Some(next) = &next {
+                views.derived.insert(id.clone(), next.clone());
+            }
+            let tombstone = |d: &Option<Derived>| d.as_ref().and_then(|d| d.tombstone.clone().map(|t| (d.key.clone(), t)));
+            tombstones_changed |= tombstone(&prev) != tombstone(&next);
+            let row = |d: &Option<Derived>| d.as_ref().and_then(|d| d.row.clone().map(|row| (d.key.clone(), row)));
+            if row(&prev) != row(&next) {
+                moved.push((id, prev, next));
+            }
+        }
+        (tombstones_changed, moved)
+    }
+
+    /// Takes each moved row out of every scope view and puts it in where it matches the scope.
+    fn rescope(views: &mut Views, index: &HashMap<String, Row>, moved: Vec<(String, Option<Derived>, Option<Derived>)>) {
         for (_, prev, next) in moved {
             let row = next.as_ref().and_then(|d| d.row.clone().map(|row| (d.key.clone(), row)));
-            let listed = row.as_ref().filter(|(_, row)| !blocked(row, &index)).map(|(key, row)| (key.clone(), Listed::of(row)));
+            let listed = row.as_ref().filter(|(_, row)| !blocked(row, index)).map(|(key, row)| (key.clone(), Listed::of(row)));
             for view in views.scoped.values_mut() {
                 if let Some(prev) = &prev {
                     view.remove(&prev.key);

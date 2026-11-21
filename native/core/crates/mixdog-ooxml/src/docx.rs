@@ -26,9 +26,6 @@ use crate::zipio::Package;
 
 const DOCUMENT_PART: &str = "word/document.xml";
 
-/// Every operation the portable backend applies to a document, by name. An edit receives the package, the operation and the
-/// context (the story part list and the current track-changes state) and answers the result row; `None` for a name that is no
-/// operation.
 fn run<P: ReadProof>(
     proof: &P,
     measurer: &TextMeasurer<'_, P>,
@@ -190,5 +187,164 @@ mod tests {
         assert_eq!(results[1]["tracked"], json!(true));
         assert!(zip.text(DOCUMENT_PART).contains("<w:del "));
         assert!(zip.text("word/settings.xml").contains("<w:trackRevisions/>"));
+    }
+
+    fn section(width: u32, height: u32, left: u32, right: u32) -> String {
+        format!(
+            "<w:sectPr><w:pgSz w:w=\"{width}\" w:h=\"{height}\"/><w:pgMar w:top=\"1000\" w:right=\"{right}\" w:bottom=\"1000\" w:left=\"{left}\" w:header=\"500\" w:footer=\"500\" w:gutter=\"0\"/></w:sectPr>"
+        )
+    }
+
+    #[test]
+    fn a_note_mark_follows_the_cited_phrase_and_the_note_is_written_to_its_part() {
+        let mut zip = document("<w:p><w:r><w:t>Revenue grew 10% last year.</w:t></w:r></w:p>");
+        let results = batch(&mut zip, &[json!({ "op": "add_note", "text": "Source: annual report", "find": "10%" })]).expect("the note is added");
+        assert_eq!(results, vec![json!({ "op": "add_note", "changed": true, "kind": "footnote", "note": 1, "anchor": "phrase" })]);
+        let text = zip.text(DOCUMENT_PART);
+        let phrase = text.find("10%").expect("the phrase stays");
+        let mark = text.find("<w:footnoteReference w:id=\"1\"/>").expect("the mark is written");
+        let rest = text.find(" last year.").expect("the rest of the sentence stays");
+        assert!(phrase < mark && mark < rest, "{text}");
+        let notes = zip.text("word/footnotes.xml");
+        assert!(notes.contains("<w:footnote w:id=\"1\">") && notes.contains("> Source: annual report</w:t>"), "{notes}");
+    }
+
+    #[test]
+    fn a_note_on_a_missing_paragraph_names_what_was_asked() {
+        let mut zip = document("<w:p><w:r><w:t>one</w:t></w:r></w:p>");
+        let error = batch(&mut zip, &[json!({ "op": "add_note", "text": "n", "paragraph": 4 })]).expect_err("no fourth paragraph");
+        assert_eq!(error, "DOCX paragraph 4 not found");
+        let error = batch(&mut zip, &[json!({ "op": "add_note", "text": "n", "find": "absent" })]).expect_err("no such text");
+        assert_eq!(error, "DOCX text not found for note anchor: absent");
+    }
+
+    #[test]
+    fn the_document_font_reaches_the_defaults_and_a_normal_style_that_names_its_own() {
+        let mut zip = document("<w:p/>");
+        zip.set(
+            "word/styles.xml",
+            format!(
+                "<w:styles xmlns:w=\"{WORD}\"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii=\"Calibri\"/><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault></w:docDefaults>\
+<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"a\"><w:name w:val=\"Normal\"/><w:rPr><w:rFonts w:ascii=\"Calibri\"/></w:rPr></w:style>\
+<w:style w:type=\"paragraph\" w:styleId=\"Other\"><w:name w:val=\"Other\"/><w:rPr><w:rFonts w:ascii=\"Calibri\"/></w:rPr></w:style></w:styles>"
+            ),
+        );
+        let results = batch(&mut zip, &[json!({ "op": "set_document_font", "properties": { "name": "Malgun Gothic", "size": 10 } })]).expect("the font is set");
+        assert_eq!(results, vec![json!({ "op": "set_document_font", "changed": true, "name": "Malgun Gothic", "nameEastAsia": "", "size": 10, "color": "" })]);
+        let styles = zip.text("word/styles.xml");
+        let (defaults, rest) = styles.split_once("</w:docDefaults>").expect("the defaults stay");
+        assert!(defaults.contains("w:ascii=\"Malgun Gothic\"") && defaults.contains("<w:sz w:val=\"20\"/>"), "{defaults}");
+        let (normal, other) = rest.split_once("w:styleId=\"Other\"").expect("the other style stays");
+        assert!(normal.contains("w:ascii=\"Malgun Gothic\""), "{normal}");
+        assert!(other.contains("w:ascii=\"Calibri\""), "{other}");
+    }
+
+    #[test]
+    fn a_page_is_turned_and_sized_and_keeps_the_margins_it_was_not_told_to_change() {
+        let mut zip = document(&format!("<w:p/>{}", section(11_906, 16_838, 1_000, 1_000)));
+        let results = batch(
+            &mut zip,
+            &[json!({ "op": "set_page", "properties": { "orientation": "landscape", "pageWidth": 612, "pageHeight": 792, "leftMargin": 72, "columns": 2, "columnSpacing": 36 } })],
+        )
+        .expect("the page is set");
+        assert_eq!(results, vec![json!({ "op": "set_page", "changed": true, "orientation": "landscape", "columns": 2 })]);
+        let text = zip.text(DOCUMENT_PART);
+        assert!(text.contains("<w:pgSz w:w=\"15840\" w:h=\"12240\" w:orient=\"landscape\"/>"), "{text}");
+        assert!(text.contains("w:left=\"1440\"") && text.contains("w:right=\"1000\""), "{text}");
+        assert!(text.contains("<w:cols w:num=\"2\" w:equalWidth=\"1\" w:space=\"720\"/>"), "{text}");
+    }
+
+    #[test]
+    fn a_table_is_fitted_to_the_text_column_in_the_shares_its_columns_had() {
+        let cell = |width: u32| format!("<w:tc><w:tcPr><w:tcW w:w=\"{width}\" w:type=\"dxa\"/></w:tcPr><w:p/></w:tc>");
+        let table = format!(
+            "<w:tbl><w:tblPr><w:tblStyle w:val=\"Grid\"/></w:tblPr><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"3000\"/></w:tblGrid><w:tr>{}{}</w:tr></w:tbl>",
+            cell(1_000),
+            cell(3_000)
+        );
+        let mut zip = document(&format!("{table}<w:p/>{}", section(12_000, 16_000, 1_000, 1_000)));
+        let results = batch(&mut zip, &[json!({ "op": "fit_table", "table": 1 })]).expect("the table is fitted");
+        assert_eq!(results, vec![json!({ "op": "fit_table", "changed": true, "table": 1, "width": 10000, "columns": 2 })]);
+        let text = zip.text(DOCUMENT_PART);
+        assert!(text.contains("<w:tblGrid><w:gridCol w:w=\"2500\"/><w:gridCol w:w=\"7500\"/></w:tblGrid>"), "{text}");
+        assert!(text.contains("<w:tblStyle w:val=\"Grid\"/><w:tblW w:w=\"10000\" w:type=\"dxa\"/>"), "{text}");
+        assert!(text.contains("<w:tcW w:w=\"2500\" w:type=\"dxa\"/>") && text.contains("<w:tcW w:w=\"7500\" w:type=\"dxa\"/>"), "{text}");
+    }
+
+    #[test]
+    fn a_cell_takes_its_weight_size_and_alignment_and_a_bad_alignment_is_refused() {
+        let table = "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w=\"1000\" w:type=\"dxa\"/></w:tcPr><w:p><w:r><w:t>total</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+        let mut zip = document(table);
+        let cell = |properties: Value| json!({ "op": "set_table_cell_style", "table": 1, "row": 1, "col": 1, "properties": properties });
+        let results = batch(&mut zip, &[cell(json!({ "bold": true, "fontSize": 10, "horizontalAlignment": "center" }))]).expect("the cell is styled");
+        assert_eq!(results, vec![json!({ "op": "set_table_cell_style", "changed": true, "table": 1, "row": 1, "col": 1 })]);
+        let text = zip.text(DOCUMENT_PART);
+        assert!(text.contains("<w:b/><w:bCs/>") && text.contains("<w:sz w:val=\"20\"/><w:szCs w:val=\"20\"/>"), "{text}");
+        assert!(text.contains("<w:jc w:val=\"center\"/>"), "{text}");
+        let error = batch(&mut zip, &[cell(json!({ "horizontalAlignment": "middle" }))]).expect_err("an alignment Word has no word for");
+        assert_eq!(error, "set_table_cell_style horizontalAlignment must be left, center, right, or justify, not middle");
+    }
+
+    fn tracked_document() -> Package {
+        document(
+            "<w:p><w:ins w:id=\"1\" w:author=\"Ann\" w:date=\"2024-01-01T00:00:00Z\"><w:r><w:t>new</w:t></w:r></w:ins>\
+<w:del w:id=\"2\" w:author=\"Bob\" w:date=\"2024-01-01T00:00:00Z\"><w:r><w:delText>old</w:delText></w:r></w:del></w:p>",
+        )
+    }
+
+    #[test]
+    fn accepting_every_revision_keeps_the_insertion_and_drops_the_deletion() {
+        let mut zip = tracked_document();
+        let results = batch(&mut zip, &[json!({ "op": "resolve_revisions", "resolution": "accept" })]).expect("the revisions are resolved");
+        assert_eq!(results, vec![json!({ "op": "resolve_revisions", "changed": true, "resolution": "accept", "resolved": 2 })]);
+        let text = zip.text(DOCUMENT_PART);
+        assert!(text.contains("<w:t>new</w:t>") && !text.contains("old") && !text.contains("<w:ins") && !text.contains("<w:del"), "{text}");
+    }
+
+    #[test]
+    fn rejecting_one_reviewers_revisions_leaves_the_other_reviewers_tracked() {
+        let mut zip = tracked_document();
+        let results = batch(&mut zip, &[json!({ "op": "resolve_revisions", "resolution": "reject", "author": "Ann" })]).expect("Ann's revision is resolved");
+        assert_eq!(results[0]["resolved"], json!(1));
+        let text = zip.text(DOCUMENT_PART);
+        assert!(!text.contains("new") && text.contains("<w:del w:id=\"2\""), "{text}");
+    }
+
+    #[test]
+    fn an_author_nobody_wrote_as_is_answered_with_the_authors_present() {
+        let mut zip = tracked_document();
+        let results = batch(&mut zip, &[json!({ "op": "resolve_revisions", "author": "Zed" })]).expect("nothing to resolve is not a failure");
+        assert_eq!(
+            results,
+            vec![json!({
+                "op": "resolve_revisions", "changed": false, "resolution": "accept", "resolved": 0, "author": "Zed",
+                "note": "No revision by \"Zed\"; the tracked changes are by \"Ann\", \"Bob\"."
+            })]
+        );
+    }
+
+    #[test]
+    fn a_missing_revision_id_stops_the_batch() {
+        let mut zip = tracked_document();
+        let error = batch(&mut zip, &[json!({ "op": "resolve_revision", "id": "99" })]).expect_err("no such revision");
+        assert_eq!(error, "DOCX revision id 99 not found");
+    }
+
+    #[test]
+    fn rendered_pages_become_the_page_numbers_of_the_contents_entries() {
+        use crate::docx_operations::write_docx_toc_pages;
+        let heading = |text: &str| format!("<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t>{text}</w:t></w:r></w:p>");
+        let field = "<w:p><w:fldSimple w:instr=\" TOC \\o &quot;1-3&quot; \"><w:r><w:t>stale</w:t></w:r></w:fldSimple></w:p>";
+        let mut zip = document(&format!("{field}{}{}{}", heading("Intro"), heading("Method"), section(11_906, 16_838, 1_440, 1_440)));
+        let changed =
+            write_docx_toc_pages(&mut zip, &["ContentsIntroMethod".to_owned(), "IntroBody".to_owned(), "Method".to_owned()]).expect("the pages are written");
+        assert!(changed);
+        let text = zip.text(DOCUMENT_PART);
+        assert!(
+            text.contains("<w:t xml:space=\"preserve\">Intro</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>2</w:t></w:r><w:r><w:br/></w:r><w:r><w:t xml:space=\"preserve\">Method</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>3</w:t></w:r>"),
+            "{text}"
+        );
+        assert!(text.contains("w:leader=\"dot\"") && text.contains("w:pos=\"9026\""), "{text}");
+        assert!(!write_docx_toc_pages(&mut zip, &["ContentsIntroMethod".to_owned(), "IntroBody".to_owned(), "Method".to_owned()]).expect("a second write"));
     }
 }

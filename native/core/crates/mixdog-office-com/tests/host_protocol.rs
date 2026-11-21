@@ -1,11 +1,3 @@
-//! The host process's protocol, byte for byte, through the test host binary (`tests/bin/office_com_host_test.rs`: the same
-//! `host::run_with` as `mixdogd office-com-host`, with scripted operations and a handle log in place of Office's): what is
-//! written on stdout and stderr, the exit code, and that every handle was released and the apartment left last.
-//!
-//! The expected lines are those of the PowerShell hosts' `Emit-Json`, error line and `finally` blocks
-//! (`assets/office-com-host.ps1`, `assets/office-com-session-host.ps1`). Transcripts recorded from the PowerShell hosts
-//! against Office need a PC with Office (`recorder/`); the lines here were read from the scripts, not recorded.
-
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -13,7 +5,9 @@ use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-const HOST: &str = env!("CARGO_BIN_EXE_office-com-host-test");
+fn host_bin() -> String {
+    mixdog_testkit::bin_exe!("office-com-host-test")
+}
 
 struct Run {
     stdout: String,
@@ -62,7 +56,8 @@ impl Run {
 }
 
 async fn host(args: &[&str], stdin: &str) -> Run {
-    let mut child = Command::new(HOST).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("the test host starts");
+    let mut child =
+        Command::new(host_bin()).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("the test host starts");
     let mut input = child.stdin.take().expect("stdin");
     // The host may end before it reads everything (after `close_session`): a broken pipe is not a failure.
     let _ = input.write_all(stdin.as_bytes()).await;

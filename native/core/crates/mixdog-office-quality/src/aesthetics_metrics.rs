@@ -1,4 +1,4 @@
-//! `design-aesthetics-metrics.mjs`: rendered-page sampling for the aesthetic review, one metric record per page image
+//! Rendered-page sampling for the aesthetic review, one metric record per page image
 //! (luminance, colourfulness, foreground occupancy, a 16x9 structure grid, ink contrast). No judgement lives here;
 //! [`crate::aesthetics`] reads these. The page is flattened on white and resampled to 160x90 (640x360 for the ink read)
 //! with the Lanczos3 `fill` resize sharp used, so the numbers are the ones the Node review read.

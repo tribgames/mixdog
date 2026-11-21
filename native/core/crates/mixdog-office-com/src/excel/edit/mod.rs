@@ -1,16 +1,5 @@
 //! The Excel editor: `Apply-ExcelOperation` of `office-com-host.ps1`, registered as the `xlsx` [`FormatEditor`].
 //!
-//! * [`values`]: number formats, how a value is typed into a cell, `replace_text`, `set_cell`, `set_formula`, `set_range`,
-//!   `append_row`, `clear_cell`.
-//! * [`sheets`]: finding a worksheet, worksheet names, the sheet operations, protection and defined names.
-//! * [`styles`]: `set_style` (fonts, fills, alignment, borders), merging.
-//! * [`structure`]: rows, columns, notes, hyperlinks.
-//! * [`drawings`]: pictures and charts already on a sheet, `add_image`.
-//! * [`charts`]: `add_chart`.
-//! * [`data`]: tables, sorting, conditional formats, validation, pivots, the auto filter.
-//! * [`view`]: the sheet's window: frozen panes, gridlines, zoom.
-//! * [`print`]: the print area, `autofit_range`, page setup, headers and footers.
-//!
 //! Every COM call is made in the order the script makes it, with the VARIANT type the recordings show (`Single` for a
 //! width or a height, `Double` for a zoom, `VT_BOOL` False for "no page limit"), so a replay of a recorded call log matches.
 //! A refusal is the host's own text; an operation answers the same record in the same key order as the script.

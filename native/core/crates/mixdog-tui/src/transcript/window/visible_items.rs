@@ -1,9 +1,3 @@
-//! The on-screen slice of the transcript and where the overlay hint attaches (`use-transcript-window/visible-items.mjs`).
-//!
-//! Node re-sliced the live items over the memo's stable bounds because its window memo could hold a stale reference to the
-//! streaming item between height changes. The slice here is always cut from the items of the frame, whose tail is the live
-//! one.
-
 use mixdog_tui_widgets::transcript::tool_failures::should_suppress_fully_failed_tool_item;
 use serde_json::Value;
 

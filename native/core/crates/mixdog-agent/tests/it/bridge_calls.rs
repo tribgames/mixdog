@@ -1050,12 +1050,16 @@ fn subtract(value: &mut Value, steps: &[Step<'_>]) -> usize {
 }
 
 #[test]
-fn an_emptied_parent_goes_and_an_empty_object_stays() {
+fn an_emptied_parent_goes() {
     let path = steps("rows[].meta.stamp.id");
     let mut stamped = json!({ "rows": [{ "meta": { "stamp": { "id": 1 } } }, { "meta": { "stamp": { "id": 2 }, "kept": true } }] });
     assert_eq!(subtract(&mut stamped, &path), 2);
     assert_eq!(stamped, json!({ "rows": [{}, { "meta": { "kept": true } }] }));
-    // Nothing removed, nothing pruned: an object that is empty on its own is compared as it is.
+}
+
+#[test]
+fn an_empty_object_stays() {
+    let path = steps("rows[].meta.stamp.id");
     let mut empty = json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] });
     assert_eq!(subtract(&mut empty, &path), 0);
     assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
@@ -1093,6 +1097,32 @@ fn observed<'a>(scenario: &'a Value, defined: &'a [Value]) -> std::pin::Pin<Box<
     Box::pin(replay_scenario(scenario, defined))
 }
 async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
+    let (run, harness) = build_harness(scenario, defined);
+    let driven = drive(scenario, run, &harness).await;
+    project(scenario, &harness, driven)
+}
+
+struct Harness {
+    timeline: Timeline,
+    observer: Arc<Events>,
+    approvals: Arc<Cards>,
+    grant_store: Arc<MemoryGrantStore>,
+    hook: Arc<ScriptHook>,
+    post: Arc<PostHooks>,
+    executed: Arc<Mutex<Vec<Value>>>,
+    provider: Arc<Replies>,
+    signal: Cancel,
+    thread: ThreadId,
+}
+
+struct Driven {
+    answer: Value,
+    turn_error: Value,
+    transcript: Vec<Value>,
+    requests: Vec<Value>,
+}
+
+fn build_harness(scenario: &Value, defined: &[Value]) -> (Run, Harness) {
     let non_bridge = scenario["nonBridge"].as_bool() == Some(true);
     let surface = &scenario["surface"];
     let eager = strings(&surface["tools"]);
@@ -1285,7 +1315,11 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
         scenario["requests"][0].as_array().expect("first request").iter().map(input_message).collect(),
         RunCarry::default(),
     );
-    // The client's interrupt (`abortSessionTurn(<session>, <reason>)`) the moment every entry of `abortWhen` has happened.
+    (run, Harness { timeline, observer, approvals, grant_store, hook, post, executed, provider, signal, thread })
+}
+
+async fn drive(scenario: &Value, run: Run, harness: &Harness) -> Driven {
+    let Harness { timeline, observer, provider, signal, thread, .. } = harness;
     let abort_reason = scenario["abortReason"].as_str().map(str::to_owned);
     let canceller = scenario["abortWhen"].as_array().map(|wanted| {
         let (wanted, timeline, signal, thread, reason) =
@@ -1325,10 +1359,6 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
             for id in scenario["settled"].as_array().expect("settled") {
                 timeline.until(&json!({ "ev": "toolResult", "id": id, "early": true }), &format!("the settlement of {id} after the cancellation")).await;
             }
-            // What the stored transcript of a cancelled turn is: the host's interruption (`finalizeTurnInterruptionSnapshot`, replayed
-            // against `fixtures/interrupt/golden.json` by `interrupt::tests`) over the loop's transcript at the stop, with what the host
-            // had seen of the run by then, as `run_host/factory.rs` `close_cancelled` builds it: the calls the loop announced and the
-            // results the calls told as they settled (`EarlyResult`), the tool phase if calls were announced.
             let calls: Vec<ToolCall> = seen_at_end
                 .iter()
                 .filter_map(|event| match event {
@@ -1359,6 +1389,12 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     if let Some(canceller) = canceller {
         canceller.await.expect("the canceller");
     }
+    Driven { answer, turn_error, transcript, requests }
+}
+
+fn project(scenario: &Value, harness: &Harness, driven: Driven) -> Value {
+    let Harness { timeline, observer, approvals, grant_store, hook, post, executed, thread, .. } = harness;
+    let Driven { answer, turn_error, transcript, requests } = driven;
     let events = observer.0.lock().expect("events").clone();
     // Every event is compared or is one `uncompared` names: the tool events (`events`, in raise order), the batch and recovery
     // reports (`trace`), the reports with a recorded callback (`callbacks`).
@@ -1480,23 +1516,30 @@ fn answer_to(seen: &Value, id: &str) -> String {
         .to_owned()
 }
 
+async fn assert_runs_probe_write_unasked(script: Value) {
+    let seen = observed(&bridge(json!({}), script, &[], &[], json!([])), &[]).await;
+    assert_eq!(seen["answer"], "all done");
+    assert_eq!(seen["executed"], json!([{ "name": "probe_write", "args": { "n": 1, "q": "x" } }]));
+    assert!(seen["cards"].as_array().expect("cards").is_empty());
+}
+
 #[tokio::test]
-async fn a_deferred_tool_is_run_through_call_tool_with_or_without_load_tool_first() {
-    let described = json!([
+async fn a_deferred_tool_is_run_through_call_tool_after_load_tool() {
+    assert_runs_probe_write_unasked(json!([
         { "calls": [{ "id": "c1", "name": "load_tool", "arguments": { "names": ["probe_write"] } }] },
         { "calls": [{ "id": "c2", "name": "call_tool", "arguments": { "name": "probe_write", "arguments": { "q": "x", "n": 1 } } }] },
         { "text": "all done" },
-    ]);
-    let direct = json!([
+    ]))
+    .await;
+}
+
+#[tokio::test]
+async fn a_deferred_tool_is_run_through_call_tool_without_load_tool() {
+    assert_runs_probe_write_unasked(json!([
         { "calls": [{ "id": "c1", "name": "call_tool", "arguments": { "name": "probe_write", "arguments": { "q": "x", "n": 1 } } }] },
         { "text": "all done" },
-    ]);
-    for script in [described, direct] {
-        let seen = observed(&bridge(json!({}), script, &[], &[], json!([])), &[]).await;
-        assert_eq!(seen["answer"], "all done");
-        assert_eq!(seen["executed"], json!([{ "name": "probe_write", "args": { "n": 1, "q": "x" } }]));
-        assert!(seen["cards"].as_array().expect("cards").is_empty());
-    }
+    ]))
+    .await;
 }
 
 #[tokio::test]
@@ -1508,23 +1551,36 @@ async fn a_tool_the_session_denies_is_refused_through_call_tool_and_never_runs()
     assert!(answer_to(&seen, "c1").contains("probe_write"), "{}", answer_to(&seen, "c1"));
 }
 
-#[tokio::test]
-async fn a_read_only_session_runs_a_read_only_deferred_tool_and_refuses_the_other() {
+async fn read_only_session_calls() -> Value {
     let script = through_call_tool(&[("c1", "probe_read"), ("c2", "probe_write")]);
-    let seen = observed(&bridge(json!({ "toolSpec": "readonly" }), script, &[], &[], json!([])), &[read_only_probe()]).await;
-    assert_eq!(ran(&seen), ["probe_read"]);
-    assert!(answer_to(&seen, "c2").contains("readonly"), "{}", answer_to(&seen, "c2"));
+    observed(&bridge(json!({ "toolSpec": "readonly" }), script, &[], &[], json!([])), &[read_only_probe()]).await
 }
 
 #[tokio::test]
-async fn a_target_that_needs_approval_runs_when_approved_and_is_answered_without_running_when_denied() {
-    let ask = ["probe_write"];
-    let approved = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": true }])), &[]).await;
+async fn a_read_only_session_runs_a_read_only_deferred_tool() {
+    assert_eq!(ran(&read_only_session_calls().await), ["probe_read"]);
+}
+
+#[tokio::test]
+async fn a_read_only_session_refuses_a_deferred_tool_that_writes() {
+    let seen = read_only_session_calls().await;
+    assert!(answer_to(&seen, "c2").contains("readonly"), "{}", answer_to(&seen, "c2"));
+}
+
+async fn approval_asked_for_probe_write(answers: Value) -> Value {
+    observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &["probe_write"], &[], answers), &[]).await
+}
+
+#[tokio::test]
+async fn a_target_that_needs_approval_runs_when_approved() {
+    let approved = approval_asked_for_probe_write(json!([{ "approved": true }])).await;
     assert_eq!(ran(&approved), ["probe_write"]);
     assert_eq!(approved["cards"].as_array().expect("cards").len(), 1, "one card, for the target");
+}
 
-    let denied =
-        observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": false, "reason": "Not now." }])), &[]).await;
+#[tokio::test]
+async fn a_target_that_needs_approval_is_answered_without_running_when_denied() {
+    let denied = approval_asked_for_probe_write(json!([{ "approved": false, "reason": "Not now." }])).await;
     assert!(ran(&denied).is_empty());
     assert_eq!(denied["cards"].as_array().expect("cards").len(), 1);
     let said = answer_to(&denied, "c1");
@@ -1532,11 +1588,14 @@ async fn a_target_that_needs_approval_runs_when_approved_and_is_answered_without
 }
 
 #[tokio::test]
-async fn call_tool_itself_is_never_asked_about_and_a_hook_denial_of_the_target_stops_it() {
+async fn call_tool_itself_is_never_asked_about() {
     let seen = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &["call_tool"], &[], json!([])), &[]).await;
     assert_eq!(ran(&seen), ["probe_write"]);
     assert!(seen["cards"].as_array().expect("cards").is_empty(), "the bridge is not the thing that needs approval");
+}
 
+#[tokio::test]
+async fn a_hook_denial_of_the_target_stops_it() {
     let seen = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &[], &["probe_write"], json!([])), &[]).await;
     assert!(ran(&seen).is_empty());
     assert!(answer_to(&seen, "c1").contains("hook says no"), "{}", answer_to(&seen, "c1"));

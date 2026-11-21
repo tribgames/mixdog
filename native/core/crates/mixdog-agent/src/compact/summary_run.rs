@@ -319,8 +319,6 @@ pub async fn generate_fresh_handoff_summary(ctx: &FreshContext<'_>, messages: &[
     let base = if input.input_budget_tokens > 0 { input.input_budget_tokens } else { budget };
     let call_budget = ((base as f64 * COMPACTION_PROMPT_HEADROOM).floor() as u64).max(1);
     let fit = |items: &[AgentMessage], prev: Option<&str>| fit_complete_compaction_prompt(meter, items, prev, call_budget);
-    // An enormous earlier summary is fed through the same bounded pass; it is
-    // never silently cut.
     if let Some(prev) = previous.as_deref()
         && fit(&[], Some(prev)).is_none()
     {
@@ -450,10 +448,6 @@ async fn before_deadline<T>(limit: std::time::Duration, future: impl std::future
     mixdog_rt::time::timeout(limit, future).await.map_err(|_| SummaryFailure::Failed(SUMMARY_TIMED_OUT.to_owned()))
 }
 
-/// The summary on one route: a fork while the cache is warm and the route is
-/// the session's own, else (or when the fork cannot run) an isolated request
-/// whose input budget belongs to its own model. Each has its own deadline (`forkSignal`, and `summarySendOpts`'
-/// `combinedSignal` for every batch of the isolated request); a fork past it fails the summary instead of falling back.
 async fn summarize_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, warm: bool) -> Result<Generated, SummaryFailure> {
     let limit = std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS));
     let (fallback, fork_usage) = if warm {

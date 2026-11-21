@@ -163,10 +163,7 @@ impl Painter<'_> {
         let needs_stroke = mode == MODE_STROKE || mode == MODE_FILL_STROKE;
 
         self.canvas.save();
-        if let Some(matrix) = self.current.text_matrix {
-            self.canvas.transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
-        }
-        self.canvas.translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
+        self.enter_text_space();
         if direction > 0.0 {
             self.canvas.scale(hscale as f32, -1.0);
         } else {
@@ -184,25 +181,13 @@ impl Painter<'_> {
         self.canvas.set_line_width(line_width as f32);
 
         // A pattern is made for the text matrix and the glyphs are drawn in the matrix it was made for.
-        let mut pattern_fill_transform = None;
-        let mut pattern_stroke_transform = None;
-        let mut outcome = Ok(());
-        if needs_fill && self.current.pattern_fill {
-            match self.text_pattern(true) {
-                Ok(transform) => pattern_fill_transform = transform,
-                Err(error) => outcome = Err(error),
+        let (pattern_fill_transform, pattern_stroke_transform) = match self.text_patterns(needs_fill, needs_stroke) {
+            Ok(transforms) => transforms,
+            Err(error) => {
+                self.canvas.restore();
+                return Err(error);
             }
-        }
-        if outcome.is_ok() && needs_stroke && self.current.pattern_stroke {
-            match self.text_pattern(false) {
-                Ok(transform) => pattern_stroke_transform = transform,
-                Err(error) => outcome = Err(error),
-            }
-        }
-        if let Err(error) = outcome {
-            self.canvas.restore();
-            return Err(error);
-        }
+        };
 
         let mut x = 0.0;
         for item in items {
@@ -267,10 +252,7 @@ impl Painter<'_> {
         let font_matrix = self.current.font_matrix;
         let font_name = self.current.font_name.clone();
         self.canvas.save();
-        if let Some(matrix) = self.current.text_matrix {
-            self.canvas.transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
-        }
-        self.canvas.translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
+        self.enter_text_space();
         self.canvas.scale(hscale as f32, self.current.font_direction as f32);
         let mut outcome = Ok(());
         for item in items {
@@ -328,6 +310,63 @@ impl Painter<'_> {
         procedures.iter().find(|(name, _)| name == glyph_name).map(|(_, list)| list.clone())
     }
 
+    /// The pattern matrices of the fill and of the stroke the rendering mode uses when its colour is a pattern.
+    fn text_patterns(&mut self, needs_fill: bool, needs_stroke: bool) -> Result<(Option<Matrix>, Option<Matrix>)> {
+        let fill = if needs_fill && self.current.pattern_fill { self.text_pattern(true)? } else { None };
+        let stroke = if needs_stroke && self.current.pattern_stroke { self.text_pattern(false)? } else { None };
+        Ok((fill, stroke))
+    }
+
+    /// The text matrix and then the text position (with the rise) applied to the canvas.
+    fn enter_text_space(&mut self) {
+        if let Some(matrix) = self.current.text_matrix {
+            self.canvas.transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
+        }
+        self.canvas.translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
+    }
+
+    fn set_canvas_matrix(&mut self, matrix: &Matrix) {
+        self.canvas.set_transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
+    }
+
+    /// Fills `outline`, in the matrix of the pattern when the fill colour is one.
+    fn fill_outline(&mut self, outline: &Path2D, current: &Matrix, pattern_transform: Option<&Matrix>) {
+        match pattern_transform {
+            Some(transform) => {
+                self.set_canvas_matrix(transform);
+                if let Some(scaled) = scaled_path(outline, current, transform) {
+                    self.canvas.fill_path2d(&scaled, FillRule::Winding);
+                }
+            }
+            None => self.canvas.fill_path2d(outline, FillRule::Winding),
+        }
+    }
+
+    /// Strokes `outline` with the line width of the text space, in the matrix of the pattern when the stroke colour
+    /// is one.
+    fn stroke_outline(&mut self, outline: &Path2D, current: &Matrix, pattern_transform: Option<&Matrix>) {
+        let font_size = self.current.font_size;
+        match pattern_transform {
+            Some(transform) => {
+                self.set_canvas_matrix(transform);
+                if let Some(inverse) = invert(transform) {
+                    let no_translation = [current[0], current[1], current[2], current[3], 0.0, 0.0];
+                    let (scale_x, scale_y) = singular_scales(&gstate::transform(&no_translation, &inverse));
+                    let width = f64::from(self.canvas.line_width()) * f64::from(scale_x.max(scale_y)) / font_size;
+                    self.canvas.set_line_width(width as f32);
+                    if let Some(scaled) = scaled_path(outline, current, transform) {
+                        self.canvas.stroke_path2d(&scaled);
+                    }
+                }
+            }
+            None => {
+                let width = self.canvas.line_width();
+                self.canvas.set_line_width(width / font_size as f32);
+                self.canvas.stroke_path2d(outline);
+            }
+        }
+    }
+
     /// `paintChar`: the outline at `(x, y)` of the text space, filled and/or stroked by the rendering mode (in the
     /// matrix of a pattern when the colour is one), and remembered for the clip of a clipping mode.
     fn paint_char(&mut self, path: Option<&Arc<Vec<f32>>>, x: f64, y: f64, pattern_fill_transform: Option<&Matrix>, pattern_stroke_transform: Option<&Matrix>) {
@@ -342,50 +381,10 @@ impl Painter<'_> {
             self.canvas.scale(font_size as f32, -(font_size as f32));
             let current = self.ctm();
             if fill_stroke == MODE_FILL || fill_stroke == MODE_FILL_STROKE {
-                match pattern_fill_transform {
-                    Some(transform) => {
-                        self.canvas.set_transform(
-                            transform[0] as f32,
-                            transform[1] as f32,
-                            transform[2] as f32,
-                            transform[3] as f32,
-                            transform[4] as f32,
-                            transform[5] as f32,
-                        );
-                        if let Some(scaled) = scaled_path(&outline, &current, transform) {
-                            self.canvas.fill_path2d(&scaled, FillRule::Winding);
-                        }
-                    }
-                    None => self.canvas.fill_path2d(&outline, FillRule::Winding),
-                }
+                self.fill_outline(&outline, &current, pattern_fill_transform);
             }
             if fill_stroke == MODE_STROKE || fill_stroke == MODE_FILL_STROKE {
-                match pattern_stroke_transform {
-                    Some(transform) => {
-                        self.canvas.set_transform(
-                            transform[0] as f32,
-                            transform[1] as f32,
-                            transform[2] as f32,
-                            transform[3] as f32,
-                            transform[4] as f32,
-                            transform[5] as f32,
-                        );
-                        if let Some(inverse) = invert(transform) {
-                            let no_translation = [current[0], current[1], current[2], current[3], 0.0, 0.0];
-                            let (scale_x, scale_y) = singular_scales(&gstate::transform(&no_translation, &inverse));
-                            let width = f64::from(self.canvas.line_width()) * f64::from(scale_x.max(scale_y)) / font_size;
-                            self.canvas.set_line_width(width as f32);
-                            if let Some(scaled) = scaled_path(&outline, &current, transform) {
-                                self.canvas.stroke_path2d(&scaled);
-                            }
-                        }
-                    }
-                    None => {
-                        let width = self.canvas.line_width();
-                        self.canvas.set_line_width(width / font_size as f32);
-                        self.canvas.stroke_path2d(&outline);
-                    }
-                }
+                self.stroke_outline(&outline, &current, pattern_stroke_transform);
             }
             self.canvas.restore();
         }

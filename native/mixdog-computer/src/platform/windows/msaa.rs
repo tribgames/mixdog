@@ -392,8 +392,8 @@ pub fn menu_snapshot(window: Wid, window_id: &str, maximum: usize) -> Result<Vec
 }
 
 /// Whether the window's client object is a protected (password) field
-/// (MixMsaa.IsProtectedInput): UIA's IsPassword answers only for providers
-/// that implement it, and this is the second opinion. A window that cannot be
+/// UIA's IsPassword answers only for providers that implement it, and this is
+/// the second opinion. A window that cannot be
 /// read counts as protected; no window is not one.
 pub fn is_protected_input(hwnd: Wid) -> Option<bool> {
     if hwnd == 0 {

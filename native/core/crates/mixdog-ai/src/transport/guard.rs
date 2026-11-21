@@ -137,10 +137,6 @@ fn framed_binary(headers: &[(String, String)]) -> bool {
 
 fn clean_response(mut response: HttpResponse, matcher: &Arc<Matcher>, grant: bool, lease: carried::Lease) -> HttpResponse {
     matcher.redact_headers(&mut response.headers);
-    // A token grant carries the credentials it issues, often the refresh token the request carried: it is the one
-    // successful body that arrives whole. Every other body, a successful document or stream and a refusal alike, reaches
-    // the model, the transcript or a log, and is redacted as it streams (a framed binary body by its decoder), against the
-    // registry as it is at each chunk: even one that holds nothing yet.
     if (grant && response.is_success()) || framed_binary(&response.headers) {
         response.body = Box::new(LeasedBody { inner: response.body, _lease: lease });
         return response;
@@ -750,11 +746,6 @@ mod tests {
         assert!(link.contains("\nstruct Bare<"));
     }
 
-    /// Two accounts, one origin and one header (review 1124m/n P1): account A's key is configured (read through the key
-    /// variable every send reads it from) and sent once; account B rotates its token 32,769 times, each read out of its
-    /// credential file and sent in the same origin's `authorization`. A is still configured: a later answer quoting it is
-    /// redacted. (The registry named a carried value by origin and position: each of B's sends retired A, and the 32,769th
-    /// retirement after it forgot A.)
     #[tokio::test]
     async fn a_configured_key_outlives_the_rotations_of_another_account_on_its_origin_and_header() {
         use crate::providers::key_source::ApiKeySource as _;

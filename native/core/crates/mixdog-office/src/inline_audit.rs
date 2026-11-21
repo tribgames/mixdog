@@ -121,10 +121,25 @@ struct Group {
 /// `summarizeOfficeAudit(issueList, { touched })`: the findings counted, grouped by location and the twelve a fix must answer.
 pub fn summarize_office_audit(issue_list: &[Value], touched: &[String]) -> Value {
     let normalized = normalize_office_review_issues(issue_list);
+    let (counts, groups, location_keys) = tally_by_location(&normalized);
+    let (top, actionable) = top_actionable(&normalized, &location_keys, touched);
+    let locations = location_rows(&groups, touched);
+    let truncated = actionable.saturating_sub(top.len());
+    json!({
+        "status": if actionable == 0 { "pass" } else { "fail" },
+        "counts": { "error": counts[0], "warning": counts[1], "info": counts[2] },
+        "locations": locations,
+        "top": top,
+        "truncated": truncated,
+    })
+}
+
+/// The severity counts, the per-location counts in the order each location's first finding was met, and every finding's location key.
+fn tally_by_location(normalized: &[Value]) -> ([u64; 3], Vec<Group>, Vec<String>) {
     let mut counts = [0_u64; 3];
     let mut groups: Vec<Group> = Vec::new();
     let mut location_keys: Vec<String> = Vec::with_capacity(normalized.len());
-    for issue in &normalized {
+    for issue in normalized {
         // Only the three counted severities are severities: a name an object inherits ("toString") is not one.
         let slot = match issue.get("severity").and_then(Value::as_str) {
             Some("error") => 0,
@@ -148,11 +163,16 @@ pub fn summarize_office_audit(issue_list: &[Value], touched: &[String]) -> Value
             _ => group.info += 1,
         }
     }
+    (counts, groups, location_keys)
+}
+
+/// The twelve findings a fix must answer, touched locations first, then the number of findings that are not advisory.
+fn top_actionable(normalized: &[Value], location_keys: &[String], touched: &[String]) -> (Vec<Value>, usize) {
     let is_touched = |key: &str| touched.iter().any(|entry| entry == key);
     // Advisory findings stay readable in qa; the audit lists only what a fix must answer.
     let mut actionable: Vec<(&Value, bool)> = normalized
         .iter()
-        .zip(&location_keys)
+        .zip(location_keys)
         .filter(|(issue, _)| issue.get("severity").and_then(Value::as_str) != Some("info"))
         .map(|(issue, key)| (issue, is_touched(key)))
         .collect();
@@ -175,6 +195,12 @@ pub fn summarize_office_audit(issue_list: &[Value], touched: &[String]) -> Value
             Value::Object(entry)
         })
         .collect();
+    (top, actionable.len())
+}
+
+/// The locations that hold an error or a warning, touched ones first, then by error and warning count.
+fn location_rows(groups: &[Group], touched: &[String]) -> Vec<Value> {
+    let is_touched = |key: &str| touched.iter().any(|entry| entry == key);
     let mut shown: Vec<&Group> = groups.iter().filter(|group| group.error > 0 || group.warning > 0).collect();
     shown.sort_by(|left, right| {
         is_touched(&right.location.key)
@@ -183,7 +209,7 @@ pub fn summarize_office_audit(issue_list: &[Value], touched: &[String]) -> Value
             .then_with(|| right.warning.cmp(&left.warning))
             .then_with(|| locale_compare(&left.location.key, &right.location.key))
     });
-    let locations: Vec<Value> = shown
+    shown
         .into_iter()
         .map(|group| {
             let mut entry = Map::new();
@@ -196,15 +222,7 @@ pub fn summarize_office_audit(issue_list: &[Value], touched: &[String]) -> Value
             entry.insert("info".to_owned(), json!(group.info));
             Value::Object(entry)
         })
-        .collect();
-    let truncated = actionable.len().saturating_sub(top.len());
-    json!({
-        "status": if actionable.is_empty() { "pass" } else { "fail" },
-        "counts": { "error": counts[0], "warning": counts[1], "info": counts[2] },
-        "locations": locations,
-        "top": top,
-        "truncated": truncated,
-    })
+        .collect()
 }
 
 fn plural(count: u64) -> &'static str {
@@ -261,6 +279,36 @@ pub fn record_inline_audit_round(session: &mut Session, mut audit: Value) -> Val
     audit
 }
 
+/// The measured findings minus the excluded codes. A formula this batch wrote has no cached value until the next recalculation, which
+/// render, qa and finalize run first, so its finding is read as advisory here and stays a finding in qa and issues.
+fn reportable_findings(measured: &Value, exclude: &[String]) -> Vec<Value> {
+    let Some(Value::Array(found)) = measured.get("issues") else { return Vec::new() };
+    found
+        .iter()
+        .map(|issue| match issue {
+            Value::Object(fields) if issue.get("code").and_then(Value::as_str) == Some("formula_cache_missing") => {
+                let mut fields = fields.clone();
+                fields.insert("severity".to_owned(), json!("info"));
+                Value::Object(fields)
+            }
+            _ => issue.clone(),
+        })
+        .filter(|issue| !issue.get("code").and_then(Value::as_str).is_some_and(|code| exclude.iter().any(|excluded| excluded == code)))
+        .collect()
+}
+
+/// Keeps the findings on the touched locations and on the package itself and answers how many non-advisory findings it dropped from the
+/// pages the batch left alone.
+fn drop_findings_outside_edit(list: &mut Vec<Value>, touched: &[String]) -> u64 {
+    let in_scope = |issue: &Value| {
+        let key = location_of(issue.get("path")).key;
+        key == "/" || touched.contains(&key)
+    };
+    let outside = list.iter().filter(|issue| issue.get("severity").and_then(Value::as_str) != Some("info") && !in_scope(*issue)).count() as u64;
+    list.retain(in_scope);
+    outside
+}
+
 /// `inlineOfficeAudit(session, { operations, exclude })`: the measured read of the document after a mutation. A mutation that
 /// landed is never failed by its audit: an inspection error is reported as unavailable so the author falls back to `qa`. `None`
 /// for a format with no package to measure. `exclude` lists the finding codes that do not apply to what the reader receives (a
@@ -288,41 +336,10 @@ pub async fn inline_office_audit<P: WriteProof, H: ComHost>(
             }));
         }
     };
-    // A formula this batch wrote has no cached value until the next recalculation, and render, qa, and finalize recalculate
-    // first: the audit reads it as pending, not as a defect to fix. qa and issues still report it as found.
-    let pending = |issue: &Value| {
-        if issue.get("code").and_then(Value::as_str) == Some("formula_cache_missing")
-            && let Value::Object(fields) = issue
-        {
-            let mut fields = fields.clone();
-            fields.insert("severity".to_owned(), json!("info"));
-            return Value::Object(fields);
-        }
-        issue.clone()
-    };
     let touched = touched_locations(&format, operations);
-    let mut list: Vec<Value> = match measured.get("issues") {
-        Some(Value::Array(found)) => found
-            .iter()
-            .map(pending)
-            .filter(|issue| !issue.get("code").and_then(Value::as_str).is_some_and(|code| exclude.iter().any(|excluded| excluded == code)))
-            .collect(),
-        _ => Vec::new(),
-    };
-    // A deck opened for editing (a template, a colleague's deck) is judged on the slides this batch edited: its other pages
-    // are kept as they are, and a defect they already carried is not this edit's to fix. A structural change renumbers the
-    // pages, so it reads the whole deck; so does an authored deck, every page of which is the author's own. Findings on the
-    // package itself always count.
-    let mut outside_edit = 0_u64;
+    let mut list = reportable_findings(&measured, exclude);
     let structural = operations.iter().any(|operation| operation.get("op").and_then(Value::as_str).is_some_and(|op| STRUCTURAL_SLIDE_OPERATIONS.contains(&op)));
-    if format == "pptx" && !authored && !touched.is_empty() && !structural {
-        let in_scope = |issue: &Value| {
-            let key = location_of(issue.get("path")).key;
-            key == "/" || touched.contains(&key)
-        };
-        outside_edit = list.iter().filter(|issue| issue.get("severity").and_then(Value::as_str) != Some("info") && !in_scope(*issue)).count() as u64;
-        list.retain(in_scope);
-    }
+    let outside_edit = if format == "pptx" && !authored && !touched.is_empty() && !structural { drop_findings_outside_edit(&mut list, &touched) } else { 0 };
     let mut audit = summarize_office_audit(&list, &touched);
     if outside_edit > 0
         && let Value::Object(fields) = &mut audit
@@ -434,6 +451,34 @@ mod tests {
         let audit = summarize_office_audit(&[finding("warning", "empty_document", "/body", "empty")], &["/body".to_owned()]);
         let recorded = record_inline_audit_round(&mut held, audit);
         assert!(recorded["nextAction"].as_str().expect("text").starts_with("Inspect the 1 reported finding at their document locations."));
+    }
+
+    #[test]
+    fn a_formula_without_a_cached_value_is_advisory_and_an_excluded_code_is_dropped() {
+        let measured = json!({ "issues": [
+            finding("warning", "formula_cache_missing", "/sheet[A]/cell[B2]", "pending"),
+            finding("warning", "text_overflow", "/slide[1]/shape[1]", "over"),
+            finding("warning", "low_contrast", "/slide[1]/shape[2]", "dim"),
+        ] });
+        let kept = reportable_findings(&measured, &["low_contrast".to_owned()]);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0]["severity"], "info");
+        assert_eq!(kept[1]["severity"], "warning");
+        assert!(reportable_findings(&json!({}), &[]).is_empty());
+    }
+
+    #[test]
+    fn a_deck_edit_keeps_its_touched_slides_and_the_package_and_counts_the_rest() {
+        let mut list = vec![
+            finding("warning", "text_overflow", "/slide[2]/shape[1]", "touched"),
+            finding("warning", "text_overflow", "/slide[5]/shape[1]", "untouched"),
+            finding("info", "shapes_too_close", "/slide[6]/shape[1]", "advisory"),
+            finding("error", "missing_relationship", "/ppt/slides/_rels/slide1.xml.rels", "package"),
+        ];
+        let outside = drop_findings_outside_edit(&mut list, &["/slide[2]".to_owned()]);
+        assert_eq!(outside, 1);
+        let messages: Vec<&str> = list.iter().map(|issue| issue["message"].as_str().expect("text")).collect();
+        assert_eq!(messages, ["touched", "package"]);
     }
 
     #[test]

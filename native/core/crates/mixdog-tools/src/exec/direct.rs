@@ -1,4 +1,4 @@
-//! Direct native spawns (`builtin/shell-direct-exe.mjs`). Windows + PowerShell only: a simple
+//! Direct native spawns. Windows + PowerShell only: a simple
 //! native `.exe` (`git status`, `node -e …`) skips the ~330 ms PowerShell/.NET/AMSI startup.
 //! Anything that needs a shell stays on PowerShell: operators, expansion, cmdlets, aliases, and
 //! `.cmd`/`.bat`/`.ps1` wrappers. The file probes run as lane jobs.
@@ -215,6 +215,10 @@ pub fn resolve_direct_exe_blocking(token: &str, cwd: &Path, path_value: &str, ma
         let resolved = if rooted { PathBuf::from(name) } else { resolve_against(cwd, name) };
         return is_usable_exe(&resolved).then_some(resolved);
     }
+    search_path(name, path_value, max_directories)
+}
+
+fn search_path(name: &str, path_value: &str, max_directories: usize) -> Option<PathBuf> {
     let explicit_exe = name.to_lowercase().ends_with(".exe");
     let mut seen: HashSet<String> = HashSet::new();
     for dir in path_value.split(';') {
@@ -321,10 +325,6 @@ mod tests {
         assert!(direct_exe_tokens("tool --% raw", true, true, false).is_none());
     }
 
-    /// Node's `execShellCommand directArgv runs the exe without a shell wrapper` (suite-shell-direct-exe-test.mjs): a plain
-    /// native `.exe` command on a Windows PowerShell host runs through the shell tool's direct spawn, and its exit status
-    /// and stdout come back. The shell named here does not exist, so only the direct spawn can run the command. Windows
-    /// only: direct spawns exist only there (`direct_exe_tokens`).
     #[cfg(windows)]
     #[tokio::test]
     async fn a_native_exe_runs_without_the_shell_and_returns_its_exit_status_and_stdout() {
@@ -422,8 +422,7 @@ mod tests {
         assert_eq!(argv("tool x\"y z\"w", true), Some(vec!["tool", "xy zw"]));
     }
 
-    #[test]
-    fn a_bare_token_resolves_to_the_first_exe_on_the_path_and_never_to_a_script() {
+    fn resolver() -> (tempfile::TempDir, impl Fn(&str, &[&str]) -> Option<String>) {
         let root = tempfile::tempdir().unwrap();
         for file in [
             "d1/a.exe",
@@ -445,28 +444,44 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, b"").unwrap();
         }
-        let resolve = |token: &str, path: &[&str]| {
-            let dirs = path.iter().map(|n| root.path().join(n).to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
-            resolve_direct_exe_blocking(token, root.path(), &dirs, 64).map(|p| p.strip_prefix(root.path()).unwrap().to_string_lossy().replace('\\', "/"))
+        let base = root.path().to_owned();
+        let resolve = move |token: &str, path: &[&str]| {
+            let dirs = path.iter().map(|n| base.join(n).to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
+            resolve_direct_exe_blocking(token, &base, &dirs, 64).map(|p| p.strip_prefix(&base).unwrap().to_string_lossy().replace('\\', "/"))
         };
+        (root, resolve)
+    }
+
+    #[test]
+    fn a_bare_token_resolves_to_the_exe_on_the_path() {
+        let (_root, resolve) = resolver();
         assert_eq!(resolve("a", &["d1"]).as_deref(), Some("d1/a.exe"));
         assert_eq!(resolve("a.exe", &["d1"]).as_deref(), Some("d1/a.exe"));
         assert_eq!(resolve("  a  ", &["d1"]).as_deref(), Some("d1/a.exe"));
         assert_eq!(resolve("a", &["d1", "d1", "D1"]).as_deref(), Some("d1/a.exe"));
-        // Only an `.exe` counts: a `.cmd`, `.ps1`, `.com` or `.bat` of the name is a script for the shell.
+        assert_eq!(resolve("x", &["d1"]), None);
+        assert_eq!(resolve("", &["d1"]), None);
+    }
+
+    #[test]
+    fn a_script_of_the_name_is_never_resolved_and_an_earlier_one_shadows_a_later_exe() {
+        let (_root, resolve) = resolver();
         for (token, dir) in [("c", "d3"), ("f", "d6"), ("b.cmd", "d2"), ("c.ps1", "d3"), ("j", "d10"), ("a.cmd", "d1")] {
             assert_eq!(resolve(token, &[dir]), None, "{token}");
         }
-        // The first directory that holds an executable decides; a script of the name in an earlier one hides nothing.
         assert_eq!(resolve("e", &["d5", "d4"]).as_deref(), Some("d5/e.exe"));
         assert_eq!(resolve("e", &["d4", "d5"]), None, "an earlier script of the name shadows a later exe");
         assert_eq!(resolve("g", &["d8", "d7"]).as_deref(), Some("d8/g.exe"));
         assert_eq!(resolve("g", &["d7", "d8"]), None);
-        assert_eq!(resolve("x", &["d1"]), None);
-        assert_eq!(resolve("", &["d1"]), None);
-        // A token with a separator is a path from the working folder, whatever the search path holds.
+    }
+
+    #[test]
+    fn a_token_with_a_separator_is_a_path_from_the_working_folder() {
+        let (_root, resolve) = resolver();
         assert_eq!(resolve("d9/h.exe", &["d1"]).as_deref(), Some("d9/h.exe"));
-        assert_eq!(resolve("d9\\h.exe", &[]).as_deref(), Some("d9/h.exe"));
+        if cfg!(windows) {
+            assert_eq!(resolve("d9\\h.exe", &[]).as_deref(), Some("d9/h.exe"));
+        }
         assert_eq!(resolve("./d1/a.exe", &[]).as_deref(), Some("d1/a.exe"));
         assert_eq!(resolve("d9/../d1/a.exe", &[]).as_deref(), Some("d1/a.exe"));
         assert_eq!(resolve("d9/h", &[]), None, "a path names the file exactly");

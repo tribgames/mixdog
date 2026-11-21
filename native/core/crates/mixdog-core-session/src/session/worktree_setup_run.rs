@@ -1,6 +1,5 @@
 //! Worktree setup: the commands that prepare a freshly created managed worktree (its
-//! dependency installs) run one after another, each in its own folder of the worktree
-//! (Node `setup-commands.mjs`).
+//! dependency installs) run one after another, each in its own folder of the worktree.
 //!
 //! The run never fails for what a command does: the report says how it ended (`completed`,
 //! `failed`, `timed-out`, `cancelled`) and the first command that does not complete ends it.
@@ -400,7 +399,7 @@ impl SetupRunner {
             time_limit: Some(options.timeout),
         };
         let subscribed = match self.processes.spawn(request).await {
-            Ok(_) => self.processes.subscribe(&handle, Some(0)),
+            Ok(_) => self.processes.subscribe_holding(&handle, Some(0)),
             Err(error) => Err(error),
         };
         let mut events = match subscribed {

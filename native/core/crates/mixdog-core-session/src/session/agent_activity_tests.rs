@@ -1,10 +1,3 @@
-//! The job board's activity signal on the owner's thread (`agent_activity.rs`):
-//! - a loaded thread publishes its status once, one settle beat after it starts;
-//! - Node's agent status listener publishes the lists only when they changed;
-//! - only a loaded thread hears the signal;
-//! - the idle clock counts the thread's background work as work, and restarts on the signal that names the thread, never on
-//!   one that names no session.
-
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 

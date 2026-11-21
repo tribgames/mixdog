@@ -708,22 +708,7 @@ impl Hub {
             ceilings: UplinkCeilings { binary: 0, text: 0 },
         };
         let leg_id = self.register_leg(SweepLeg { socket, liveness, ingress });
-        let attached = {
-            let mut guard = self.lock();
-            match guard.desktops.get_mut(device_id) {
-                None => false,
-                Some(entry) => {
-                    let Entry { conn, clients, handshake, .. } = entry;
-                    clients.push(phone);
-                    if let Some(phone) = clients.last_mut() {
-                        phone.attached = true;
-                        announce_phone(self, device_id, conn, *handshake, phone);
-                    }
-                    true
-                }
-            }
-        };
-        if !attached {
+        if !self.join_desktop(device_id, phone) {
             if let Some(ingress) = &shared.ingress {
                 ingress.release();
             }
@@ -731,6 +716,19 @@ impl Hub {
             return Err(NoDesktop);
         }
         Ok(PhoneHandle { hub: Arc::clone(self), device_id: device_id.to_owned(), client_id, shared, leg_id, finished: AtomicBool::new(false) })
+    }
+
+    /// Adds `phone` to the entry of `device_id` and announces it to the desktop leg; `false` when that desktop is not connected.
+    fn join_desktop(self: &Arc<Self>, device_id: &str, phone: Phone) -> bool {
+        let mut guard = self.lock();
+        let Some(entry) = guard.desktops.get_mut(device_id) else { return false };
+        let Entry { conn, clients, handshake, .. } = entry;
+        clients.push(phone);
+        if let Some(phone) = clients.last_mut() {
+            phone.attached = true;
+            announce_phone(self, device_id, conn, *handshake, phone);
+        }
+        true
     }
 
     /// `oversizeLimitFor`: the stable ceiling of one phone's path in one wire form, the number every refusal quotes.

@@ -1,5 +1,4 @@
-//! The environment of a model shell (`spawn-env.mjs`, `env-scrub.mjs`, `session-scratch.mjs`,
-//! `skill-script-runtime.mjs` `withSkillLauncherPath`): the daemon's environment minus loader,
+//! The environment of a model shell: the daemon's environment minus loader,
 //! agent-socket, credential and host-identity variables, a UTF-8 locale, the session scratch
 //! directory as TEMP, and the skill launcher directory first on PATH.
 

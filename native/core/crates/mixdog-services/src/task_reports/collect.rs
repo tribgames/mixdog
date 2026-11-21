@@ -751,7 +751,24 @@ pub fn collect_turn_artifacts<L: IoLane>(lane: &InLane<L>, messages: &Value, opt
     }
     Artifacts { files, omitted }
 }
-/// `resolveHandoffAttachments(refs, { messages, roots, cwd, surface })`: the prompt parts for the `attachments` of a
+/// The distinct, non-empty references of an `attachments` list, at most `MAX_FILES`.
+fn handoff_references(refs: &Value) -> Result<Vec<&str>, String> {
+    let Some(given) = refs.as_array().filter(|list| list.iter().all(Value::is_string)) else {
+        return Err("attachments must be a list of attachment ids or file paths".to_owned());
+    };
+    let mut list: Vec<&str> = Vec::new();
+    for reference in given.iter().filter_map(Value::as_str).map(js_trim).filter(|r| !r.is_empty()) {
+        if !list.contains(&reference) {
+            list.push(reference);
+        }
+    }
+    if list.len() > MAX_FILES {
+        return Err(format!("at most {MAX_FILES} attachments can be passed at once"));
+    }
+    Ok(list)
+}
+
+/// `resolveHandoffAttachments(refs,{ messages, roots, cwd, surface })`: the prompt parts for the `attachments` of a
 /// `session` or `agent` call. Each reference is an attachment the caller's conversation shows (`messages`), by its id or
 /// by its file name (the newest of that name), or a file path inside the roots, which is read once and stored through
 /// `store`. `stored_len` answers the size of a stored attachment (`readAttachmentBuffer(id).length`), `None` when the
@@ -770,18 +787,7 @@ pub fn resolve_handoff_attachments<L: IoLane>(
     if refs.is_null() {
         return Ok(Handoff::default());
     }
-    let Some(given) = refs.as_array().filter(|list| list.iter().all(Value::is_string)) else {
-        return Err(refused("attachments must be a list of attachment ids or file paths".to_owned()));
-    };
-    let mut list: Vec<&str> = Vec::new();
-    for reference in given.iter().filter_map(Value::as_str).map(js_trim).filter(|r| !r.is_empty()) {
-        if !list.contains(&reference) {
-            list.push(reference);
-        }
-    }
-    if list.len() > MAX_FILES {
-        return Err(refused(format!("at most {MAX_FILES} attachments can be passed at once")));
-    }
+    let list = handoff_references(refs).map_err(refused)?;
     let known = conversation_attachments(messages);
     let mut budget = Budget::default();
     let mut out = Handoff::default();

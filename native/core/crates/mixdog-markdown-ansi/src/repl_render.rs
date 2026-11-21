@@ -246,31 +246,14 @@ impl Renderer {
                 continue;
             }
 
-            // GFM table: a pipe row immediately followed by an alignment row.
-            if line.contains('|') && TABLE_DELIM.test(lines.get(i + 1).map_or("", String::as_str)) {
-                let mut rows = vec![line];
-                let mut cursor = i + 2;
-                while cursor < lines.len() && lines[cursor].contains('|') && !js_trim(&lines[cursor]).is_empty() {
-                    rows.push(lines[cursor].as_str());
-                    cursor += 1;
-                }
+            if let Some((rows, end)) = table_block(&lines, i) {
                 out.push(self.render_table(&rows, &lines[i + 1], width, &defs));
-                i = cursor;
+                i = end;
                 continue;
             }
 
-            // Setext heading: the underline belongs to the line above it, so the pair is rewritten into the ATX form the
-            // line renderer already handles.
-            let next = lines.get(i + 1).map_or("", String::as_str);
-            let setext = if SETEXT_H1.test(next) {
-                "#"
-            } else if SETEXT_H2.test(next) {
-                "##"
-            } else {
-                ""
-            };
-            if !setext.is_empty() && !js_trim(line).is_empty() && !SETEXT_EXCLUDED.test(line) {
-                out.push(self.render_line(&format!("{setext} {}", js_trim(line)), width, &defs));
+            if let Some(marks) = setext_marks(line, lines.get(i + 1).map_or("", String::as_str)) {
+                out.push(self.render_line(&format!("{marks} {}", js_trim(line)), width, &defs));
                 i += 2;
                 continue;
             }
@@ -295,7 +278,7 @@ impl Renderer {
         if !defs.footnotes.is_empty() {
             out.push(String::new());
             for (tag, text) in &defs.footnotes {
-                out.push(format!("{} {}", self.dim(&format!("[{tag}]")), self.render_inline(text, &RefCell::default(), Some(&defs))));
+                out.push(format!("{} {}", self.dim(&format!("[{tag}]")), self.render_text(text, &defs)));
             }
         }
 
@@ -313,7 +296,7 @@ impl Renderer {
                 table_cells(row)
                     .iter()
                     .map(|cell| {
-                        let rendered = self.render_inline(cell, &RefCell::default(), Some(defs));
+                        let rendered = self.render_text(cell, defs);
                         if row_index == 0 { self.bold(&rendered) } else { rendered }
                     })
                     .collect()
@@ -325,24 +308,7 @@ impl Renderer {
         let total: usize = widths.iter().map(|value| value + 3).sum();
         let empty: Vec<String> = Vec::new();
         if total > width {
-            // Too wide to align: one "header: value" block per row.
-            let headers = body.first().unwrap_or(&empty);
-            return body[1..]
-                .iter()
-                .map(|cells| {
-                    cells
-                        .iter()
-                        .enumerate()
-                        .map(|(column, cell)| {
-                            let label = headers.get(column).map(|header| js_trim(&strip_ansi(header)).to_owned()).unwrap_or_default();
-                            let label = if label.is_empty() { "-".to_owned() } else { label };
-                            format!("{} {cell}", self.dim(&format!("{label}:")))
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n");
+            return self.stacked_table(&body);
         }
         let separator = self.dim(" \u{2502} ");
         let line = |cells: &[String]| -> String {
@@ -359,6 +325,31 @@ impl Renderer {
         rendered.join("\n")
     }
 
+    /// One "header: value" block per body row.
+    fn stacked_table(&self, body: &[Vec<String>]) -> String {
+        let headers = &body[0];
+        body[1..]
+            .iter()
+            .map(|cells| {
+                cells
+                    .iter()
+                    .enumerate()
+                    .map(|(column, cell)| {
+                        let label = headers.get(column).map(|header| js_trim(&strip_ansi(header)).to_owned()).unwrap_or_default();
+                        let label = if label.is_empty() { "-".to_owned() } else { label };
+                        format!("{} {cell}", self.dim(&format!("{label}:")))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    fn render_text(&self, text: &str, defs: &Definitions) -> String {
+        self.render_inline(text, &RefCell::default(), Some(defs))
+    }
+
     // --- Block level ---------------------------------------------------------------------------------------------
 
     fn render_line(&self, line: &str, width: usize, defs: &Definitions) -> String {
@@ -370,7 +361,7 @@ impl Renderer {
         // ATX heading.
         if let Some(heading) = ATX_HEADING.exec(line) {
             let level = heading.get(1).unwrap_or("").len();
-            let text = self.render_inline(heading.get(2).unwrap_or(""), &RefCell::default(), Some(defs));
+            let text = self.render_text(heading.get(2).unwrap_or(""), defs);
             return match level {
                 1 => format!("\n{}", self.compose(&[Style::Bold, HEADING1], &format!("\u{258c} {text}"))),
                 2 => format!("\n{}", self.compose(&[Style::Bold, HEADING], &text)),
@@ -381,7 +372,7 @@ impl Renderer {
 
         // Block quote (possibly nested).
         if let Some(quote) = BLOCKQUOTE.exec(line) {
-            return format!("{}{}", self.dim("\u{2502} "), self.italic(&self.render_inline(quote.get(2).unwrap_or(""), &RefCell::default(), Some(defs))));
+            return format!("{}{}", self.dim("\u{2502} "), self.italic(&self.render_text(quote.get(2).unwrap_or(""), defs)));
         }
 
         // Bullet list.
@@ -392,24 +383,20 @@ impl Renderer {
             // literal "[ ]" prose.
             if let Some(task) = TASK_ITEM.exec(rest) {
                 let mark = if task.get(1) == Some(" ") { "[ ]" } else { "[x]" };
-                return format!("{indent}{} {}", self.paint(LIST_BULLET, mark), self.render_inline(task.get(2).unwrap_or(""), &RefCell::default(), Some(defs)));
+                return format!("{indent}{} {}", self.paint(LIST_BULLET, mark), self.render_text(task.get(2).unwrap_or(""), defs));
             }
-            return format!("{indent}{} {}", self.paint(LIST_BULLET, "\u{2022}"), self.render_inline(rest, &RefCell::default(), Some(defs)));
+            return format!("{indent}{} {}", self.paint(LIST_BULLET, "\u{2022}"), self.render_text(rest, defs));
         }
 
         // Numbered list.
         if let Some(numbered) = NUMBERED.exec(line) {
             let indent = numbered.get(1).unwrap_or("").replace('\t', "  ");
             let marker = format!("{}.", numbered.get(2).unwrap_or(""));
-            return format!(
-                "{indent}{} {}",
-                self.paint(LIST_BULLET, &marker),
-                self.render_inline(numbered.get(4).unwrap_or(""), &RefCell::default(), Some(defs))
-            );
+            return format!("{indent}{} {}", self.paint(LIST_BULLET, &marker), self.render_text(numbered.get(4).unwrap_or(""), defs));
         }
 
         // Plain paragraph line.
-        self.render_inline(line, &RefCell::default(), Some(defs))
+        self.render_text(line, defs)
     }
 
     fn render_code_block(&self, buffered: &[&str], lang: &str, width: usize) -> String {
@@ -533,6 +520,34 @@ impl Renderer {
     }
 }
 
+/// A GFM table starting at `lines[at]`: a pipe row followed by an alignment row, then the pipe rows after them, and the
+/// index of the line after the table.
+fn table_block(lines: &[String], at: usize) -> Option<(Vec<&str>, usize)> {
+    let line = lines[at].as_str();
+    if !line.contains('|') || !TABLE_DELIM.test(lines.get(at + 1).map_or("", String::as_str)) {
+        return None;
+    }
+    let mut rows = vec![line];
+    let mut cursor = at + 2;
+    while cursor < lines.len() && lines[cursor].contains('|') && !js_trim(&lines[cursor]).is_empty() {
+        rows.push(lines[cursor].as_str());
+        cursor += 1;
+    }
+    Some((rows, cursor))
+}
+
+/// The ATX marks of a setext heading whose text is `line` and underline `next`: the underline belongs to the line above
+/// it, so the pair is rewritten into the ATX form the line renderer handles.
+fn setext_marks(line: &str, next: &str) -> Option<&'static str> {
+    let marks = if SETEXT_H1.test(next) {
+        "#"
+    } else if SETEXT_H2.test(next) {
+        "##"
+    } else {
+        return None;
+    };
+    (!js_trim(line).is_empty() && !SETEXT_EXCLUDED.test(line)).then_some(marks)
+}
 /// `renderMarkdown(src, { width })`: a markdown string as terminal-styled text, under the colour decision of this
 /// process (`NO_COLOR`, `FORCE_COLOR`, whether stdout is a terminal). A width of 20 to 120 columns is kept, anything
 /// else is 80.

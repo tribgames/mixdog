@@ -1,19 +1,3 @@
-//! The production [`SurfaceHost`] behind `tools/*` and the MCP surface's `tool_names`: which tools
-//! the Lead lists, its mode, and the empty-surface reconcile (Node `session-runtime/tool-surface.mjs`
-//! `buildPreSessionSurface` / `activeToolSurface`, `tool-policy-refresh.mjs` `reconcileEmptySession`
-//! with `tool-policy/policy-stage.mjs` `applyToolDenials`).
-//!
-//! * `mode` is `rt.mode`: the daemon's tool mode, fixed when the host is built (Node sets it from
-//!   `params.toolMode` and `setToolMode`; a thread's own mode is its header's `toolSpec`, which
-//!   `thread/setToolMode` writes and which this process-wide value does not follow).
-//! * `preview` is the surface before any session exists: the tools the mode's spec resolves to
-//!   (`session_tools::resolve`, no skills, no agent owner), less the Lead's denials, then the
-//!   deferred surface over the standalone tools (`ToolSurface::apply`), as a header.
-//! * `reconcile_empty` brings an empty, idle Lead thread's tool surface to the current gates:
-//!   the denials the workflow and the settings give (`WorkflowSurface`), then the deferred
-//!   surface rebuilt (`applyToolDenials`). The prompt half of Node's reconcile (BP1/BP2/BP3) is
-//!   not part of what the status reads and is not done here.
-
 // Transparent callback/state names; existing ownership and call signatures are unchanged.
 type HiddenAgentLookup = dyn Fn(Option<&str>) -> bool + Send + Sync;
 
@@ -274,6 +258,34 @@ pub struct LeadSurfaceHost {
     creating: std::sync::Mutex<HashMap<String, u64>>,
     /// Thread id to the inputs its last MCP reconcile left (`RECONCILE_STATE`); in this process only, as Node's is.
     mcp_state: std::sync::Mutex<HashMap<String, Value>>,
+    /// Thread id to the reconciles under way for it ([`Work`]), while any is. Locked before `applied` and `mcp_state`.
+    working: std::sync::Mutex<HashMap<String, Working>>,
+}
+
+#[derive(Default)]
+struct Working {
+    count: usize,
+    /// The thread's slot left the directory since the first of these reconciles began: what they find is of a load
+    /// that is gone, and is not remembered for the thread.
+    unloaded: bool,
+}
+
+/// One reconcile under way for a thread.
+struct Work<'a> {
+    host: &'a LeadSurfaceHost,
+    thread: &'a ThreadId,
+}
+
+impl Drop for Work<'_> {
+    fn drop(&mut self) {
+        let mut working = self.host.working.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(work) = working.get_mut(self.thread.as_str()) {
+            work.count -= 1;
+            if work.count == 0 {
+                working.remove(self.thread.as_str());
+            }
+        }
+    }
 }
 
 /// `deferredSurfaceModeForLead`.
@@ -325,6 +337,55 @@ fn strings(value: Option<&Value>) -> Vec<String> {
     value.and_then(Value::as_array).map(|items| items.iter().map(|v| clean(Some(v))).collect()).unwrap_or_default()
 }
 
+const POLICY_OVERLAY_KEYS: [&str; 5] = ["workflowOverlay", "orchestrationModeOverlay", "workflowOpenedTools", "promptFoldPending", "compactionFoldPending"];
+
+fn push_unique(into: &mut Vec<String>, names: impl IntoIterator<Item = String>) {
+    for name in names {
+        if !into.contains(&name) {
+            into.push(name);
+        }
+    }
+}
+
+fn deny_tools(session: &mut Value, denied: &[String]) {
+    session["disallowedTools"] = json!(denied);
+    for key in ["tools", "deferredToolCatalog"] {
+        if let Some(items) = session.get(key).and_then(Value::as_array) {
+            session[key] = Value::Array(filter_disallowed_tools(items, denied));
+        }
+    }
+}
+
+fn lead_denials(header: &Header, identified: &Header, summary: &Value, agent_mode: bool, feature_denied: &[String]) -> Vec<String> {
+    let mut denied = strings(header.get("disallowedTools"));
+    push_unique(&mut denied, feature_denied.iter().cloned());
+    if workflow_disallows_agent_tool(summary, agent_mode) {
+        denied.push("agent".to_owned());
+    }
+    if reaction_disabled(identified, false) {
+        denied.push(REACTION_TOOL_NAME.to_owned());
+    }
+    denied
+}
+
+fn omitted_names(denied: &[String], restricted: bool, routing: &[Arc<dyn Tool>], resolved: &[Arc<dyn Tool>]) -> Vec<String> {
+    let mut omit = denied.to_vec();
+    if restricted {
+        let visible: Vec<String> = resolved.iter().map(|tool| tool.spec().name.to_lowercase()).collect();
+        omit.extend(routing.iter().map(|tool| tool.spec().name.clone()).filter(|name| !name.is_empty() && !visible.contains(&name.to_lowercase())));
+    }
+    omit
+}
+
+fn stamp_profile_revisions(seeded: &mut Header, profile_revision: &str, roster: String) {
+    if profile_revision.is_empty() {
+        seeded.shift_remove("agentProfileRevision");
+    } else {
+        seeded.insert("agentProfileRevision".to_owned(), json!(profile_revision));
+    }
+    seeded.insert("agentRosterRevision".to_owned(), json!(roster));
+}
+
 impl LeadSurfaceHost {
     /// The pool must give a delegated agent its `git` and `task` definitions (`check_pool`): a pool
     /// without them is refused here with a typed error.
@@ -338,6 +399,7 @@ impl LeadSurfaceHost {
             applied: std::sync::Mutex::default(),
             mcp_state: std::sync::Mutex::default(),
             creating: std::sync::Mutex::default(),
+            working: std::sync::Mutex::default(),
         })
     }
 
@@ -355,15 +417,32 @@ impl LeadSurfaceHost {
         self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(thread.as_str()).cloned()
     }
 
+    /// A reconcile of `thread` begins.
+    fn work<'a>(&'a self, thread: &'a ThreadId) -> Work<'a> {
+        self.working.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(thread.as_str().to_owned()).or_default().count += 1;
+        Work { host: self, thread }
+    }
+
+    /// Runs `remember` unless the thread of `work` unloaded since the work began. Under the lock [`Self::unloaded`]
+    /// takes, so the two are one after the other.
+    fn remember(&self, work: &Work<'_>, remember: impl FnOnce()) {
+        let working = self.working.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !working.get(work.thread.as_str()).is_some_and(|work| work.unloaded) {
+            remember();
+        }
+    }
+
     /// `appliedKeys.set(session, key)`.
-    fn note_applied(&self, thread: &ThreadId, key: Applied) {
-        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), key);
+    fn note_applied(&self, work: &Work<'_>, key: Applied) {
+        self.remember(work, || {
+            self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(work.thread.as_str().to_owned(), key);
+        });
     }
 
     /// `note_applied` of the key a reconcile brought the surface to, if it brought it to one.
-    fn note_applied_key(&self, thread: &ThreadId, key: Option<Applied>) {
+    fn note_applied_key(&self, work: &Work<'_>, key: Option<Applied>) {
         if let Some(key) = key {
-            self.note_applied(thread, key);
+            self.note_applied(work, key);
         }
     }
 
@@ -416,13 +495,15 @@ impl LeadSurfaceHost {
         Ok(surface.as_object().cloned().expect("surface object"))
     }
 
-    /// `reconcileSession` over an empty thread's header: the workflow it takes (`applyPolicy`),
-    /// its tool surface under the gates as they stand (`applyToolDenials`) and, when it has a
-    /// prompt identity, its prompt composed again (`stagePolicy`). A delegated worker takes the
-    /// same path with its owner's finalization: the Lead-only control tools leave its list,
-    /// which is put in route order, and only a hidden agent honors a schema allowlist. A surface already
-    /// brought to the gates and the prompt settings as they stand is left as it is, but for the connectors
-    /// (`appliedKeys`); the key a rebuilt surface is brought to comes back with its change.
+    async fn live_denied(&self, header: &Header, summary: &Value) -> Result<Vec<String>, String> {
+        let mut denied = Vec::new();
+        push_unique(
+            &mut denied,
+            self.sources.workflow.live_denied_tools(header, summary).await.map_err(String::from)?.into_iter().filter(|name| !name.is_empty()),
+        );
+        Ok(denied)
+    }
+
     async fn empty_surface_change(&self, thread: &ThreadId, header: &Header) -> Result<(HeaderChange, Option<Applied>), String> {
         let s = &self.sources;
         let mut session = Value::Object(header.clone());
@@ -436,28 +517,16 @@ impl LeadSurfaceHost {
         let (provider, model) = self.seated_route(thread, header);
         // ctiveWorkflowContext(config): the workflow the config makes active, not the session's.
         let target = s.workflow.target(header, "", None).await.map_err(String::from)?;
-        let mut denied: Vec<String> = Vec::new();
-        for name in s.workflow.live_denied_tools(header, &target.summary).await.map_err(String::from)? {
-            if !name.is_empty() && !denied.contains(&name) {
-                denied.push(name);
-            }
-        }
+        let denied = self.live_denied(header, &target.summary).await?;
         let allowed = self.honored_allowlist(header);
-        // `applyPolicy`: the workflow as the config gives it, the overlays dropped.
         let map = session.as_object_mut().expect("session object");
-        for key in ["workflowOverlay", "orchestrationModeOverlay", "workflowOpenedTools", "promptFoldPending", "compactionFoldPending"] {
+        for key in POLICY_OVERLAY_KEYS {
             map.shift_remove(key);
         }
         map.insert("workflow".to_owned(), workflow_meta(&target.summary));
         map.insert("orchestrationMode".to_owned(), json!(target.orchestration_mode));
         map.insert("sessionMode".to_owned(), json!(session_mode_of(header)));
-        session["disallowedTools"] = json!(denied);
-        for key in ["tools", "deferredToolCatalog"] {
-            if let Some(items) = session.get(key).and_then(Value::as_array) {
-                let kept = filter_disallowed_tools(items, &denied);
-                session[key] = Value::Array(kept);
-            }
-        }
+        deny_tools(&mut session, &denied);
         let standalone = finalize_docs(
             s.workflow.internal_tools(header).await.map_err(String::from)?,
             allowed.as_deref(),
@@ -547,18 +616,19 @@ impl LeadSurfaceHost {
     /// has decided the thread is empty and idle.
     async fn settle_empty(&self, thread: &ThreadId) -> Result<(), CoreError> {
         let s = &self.sources;
+        let work = self.work(thread);
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let (change, applied) = self.empty_surface_change(thread, &header).await.map_err(|message| failed("tools", message))?;
             if change.set.is_empty() && change.unset.is_empty() {
-                self.note_applied_key(thread, applied);
+                self.note_applied_key(&work, applied);
                 return Ok(());
             }
             let expect: Map<String, Value> =
                 change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             // A header that moved meanwhile is read and decided again.
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
-                self.note_applied_key(thread, applied);
+                self.note_applied_key(&work, applied);
                 return Ok(());
             }
         }
@@ -593,12 +663,7 @@ impl LeadSurfaceHost {
         let s = &self.sources;
         let (provider, model) = self.seated_route(thread, header);
         let target = s.workflow.target(header, workflow_id, mode).await.map_err(String::from)?;
-        let mut denied: Vec<String> = Vec::new();
-        for name in s.workflow.live_denied_tools(header, &target.summary).await.map_err(String::from)? {
-            if !name.is_empty() && !denied.contains(&name) {
-                denied.push(name);
-            }
-        }
+        let denied = self.live_denied(header, &target.summary).await?;
         let allowed = self.honored_allowlist(header);
         let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
         let prompt =
@@ -606,13 +671,6 @@ impl LeadSurfaceHost {
         Ok((prompt, denied))
     }
 
-    /// `foldPromptIfCold` (`agent-profile-fold.mjs`), for every kind of session (a delegated worker too), run after the
-    /// turn's gates are staged: at a point where the provider cache is cold anyway the conversation's system text is rebuilt
-    /// from the sources as they stand, so changed rule text, skills, manifests and late tools reach it. A cold point is the
-    /// first turn start after a compaction (`compactionFoldPending`, or the intent a compaction parked), a message tail the
-    /// provider's cache let expire, and a switch reminder that is neither pending nor still in the conversation. A prompt
-    /// that comes out the same writes nothing but the cleared marks. Removing core memory takes
-    /// precedence over keeping a warm prefix that would send that memory again.
     async fn fold_prompt_if_cold(&self, thread: &ThreadId, core_memory_empty: bool) -> Result<(), CoreError> {
         let s = &self.sources;
         loop {
@@ -665,27 +723,12 @@ impl LeadSurfaceHost {
         Ok(dropped.iter().any(|content| !holds(content)))
     }
 
-    /// `foldPrompt`: `header` with its system text taken from `composed` (the late tools folded into the deferred manifest,
-    /// the environment block refreshed, the switch overlays folded in) and the fold marks cleared. Only a moved request prefix
-    /// (the system messages, the tools) is a change: the prompt settings it presents are recorded either way, but a prompt
-    /// that sends the same bytes keeps the cache and parks no intent. One that moved is tagged once, with the intent
-    /// already pending (a compaction) or `prompt_fold`; the stored thinking bound to the old prefix is rebound by the turn
-    /// that starts on it (`factory.rs`, which holds the rows).
     fn folded_prompt(&self, thread: &ThreadId, header: &Header, composed: &SessionPrompt, denied: &[String]) -> Result<Header, String> {
         let s = &self.sources;
         let (_, model) = self.seated_route(thread, header);
         let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
         let mut session = Value::Object(header.clone());
-        // `applyPolicy` / `applyToolDenials`: the session denies what the live policy of its workflow denies, so an overlay's
-        // call-time refusals become the denials the folded prompt tells (and the opened-tool record of the switch is spent).
-        session["disallowedTools"] = json!(denied);
-        for key in ["tools", "deferredToolCatalog"] {
-            if let Some(items) = session.get(key).and_then(Value::as_array) {
-                session[key] = Value::Array(filter_disallowed_tools(items, denied));
-            }
-        }
-        // A cold point is where a withdrawn or retired tool leaves the stored lists and the manifest that listed it; a refresh
-        // while warm only stops the tool being callable.
+        deny_tools(&mut session, denied);
         surface.repair(&mut session);
         session["messages"] = Value::Array(composed.blocks.node_messages());
         let pool = surface.pool_tool_names(&session);
@@ -694,7 +737,7 @@ impl LeadSurfaceHost {
         land_prompt(&mut session, composed.clone(), &model)?;
         let mut next = session.as_object().cloned().ok_or_else(|| "the folded session is not an object".to_owned())?;
         next.shift_remove("messages");
-        for key in ["workflowOverlay", "orchestrationModeOverlay", "workflowOpenedTools", "promptFoldPending", "compactionFoldPending"] {
+        for key in POLICY_OVERLAY_KEYS {
             next.shift_remove(key);
         }
         note_presented(&mut next, &composed.sections);
@@ -721,10 +764,6 @@ impl LeadSurfaceHost {
         Ok(next)
     }
 
-    /// [`Self::stage_gates`], or with `tools` false only the connector switches, which Node reads every turn. With
-    /// `notice` (the sections as they stand now) the thread's prompt settings are compared with them first and the
-    /// notice for what changed is staged (`stagePromptSettingsNotice`); a change folds in at the next cold point
-    /// (`promptFoldPending`, [`Self::fold_prompt_if_cold`]).
     async fn stage(&self, thread: &ThreadId, tools: bool, notice: Option<&OwnedSections>) -> Result<Staged, CoreError> {
         let s = &self.sources;
         loop {
@@ -797,14 +836,10 @@ pub struct Staged {
 /// before the turn is assembled from its header.
 #[async_trait]
 impl TurnSettings for LeadSurfaceHost {
-    /// ``reconcileTurnSettings``: a thread with no conversation yet and a prompt identity is rebuilt whole
-    /// (the prompt composed at creation follows the settings as they stand now), the way Node rebuilds an
-    /// empty session at its first turn; one without an identity is a session Node never rebuilds
-    /// (``missing-prompt-identity``) and, like one with a conversation, only takes the moved gates and
-    /// connectors without touching its prefix.
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
         let described = |error: CoreError| format!("{error:?}");
         let s = &self.sources;
+        let work = self.work(thread);
         // `applied?.gates === gates`: a thread already brought to the live gate list is not staged again.
         let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
         // The connector switches the turn's surface and its calls are judged by, as saved.
@@ -832,7 +867,7 @@ impl TurnSettings for LeadSurfaceHost {
         if identity {
             self.fold_prompt_if_cold(thread, sections.as_ref().is_some_and(|value| value.core_memory.is_empty())).await.map_err(described)?;
         }
-        self.note_applied(thread, key);
+        self.note_applied(&work, key);
         self.fold_mcp_surface(thread).await.map_err(described)
     }
 
@@ -892,24 +927,13 @@ impl TurnSettings for LeadSurfaceHost {
 }
 
 impl LeadSurfaceHost {
-    /// The header after Node's `foldMcpSurface` (`turn-prepare.mjs`), which follows `reconcileTurnSettings` at a turn
-    /// start, and the request boundary's `refreshDeferredMcpToolCatalog` that runs at the turn's first model request.
-    ///
-    /// * First turn of a fresh thread (`deferredInitialRefreshPending`): the flag is cleared and the live MCP tools are
-    ///   folded into the initial surface (`refreshInitialDeferredMcpSurface`), and the turn start ends there
-    ///   (`turn-prepare.mjs:53-57`); the one reconcile of the first turn is the request boundary's (`refresh_mcp`).
-    /// * Any later turn: the late pool, connected names and pending delta follow the live registry
-    ///   (`reconcileDeferredMcpToolCatalog`).
-    ///
-    /// A fresh agent gets a bounded chance to see its initial tools before the first request;
-    /// tools that start later still enter through `refresh_mcp`.
     async fn fold_mcp_surface(&self, thread: &ThreadId) -> Result<Header, CoreError> {
         self.fold(thread, true).await
     }
 
-    /// `refreshDeferredMcpToolCatalog(session)`: the reconcile alone, for a session that has a deferred provider mode.
     async fn fold(&self, thread: &ThreadId, first_turn: bool) -> Result<Header, CoreError> {
         let s = &self.sources;
+        let work = self.work(thread);
         let mut waited_scope = None;
         let mut grace_deadline = None;
         loop {
@@ -942,14 +966,14 @@ impl LeadSurfaceHost {
             let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
-                self.note_mcp_state(thread, state);
+                self.note_mcp_state(&work, state);
                 return Ok(header);
             }
             let expect: Map<String, Value> =
                 change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             // A header that moved meanwhile is read and decided again; the state is kept only for a fold that landed.
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
-                self.note_mcp_state(thread, state);
+                self.note_mcp_state(&work, state);
                 return Ok(next);
             }
         }
@@ -992,19 +1016,14 @@ impl LeadSurfaceHost {
     }
 
     /// Remembers the state a landed reconcile left (`RECONCILE_STATE.set`).
-    fn note_mcp_state(&self, thread: &ThreadId, state: Option<Value>) {
+    fn note_mcp_state(&self, work: &Work<'_>, state: Option<Value>) {
         if let Some(state) = state {
-            self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), state);
+            self.remember(work, || {
+                self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(work.thread.as_str().to_owned(), state);
+            });
         }
     }
 
-    /// `migrateToolExposureAtBoundary` (`session/loop/tool-exposure-migration.mjs`) and the request boundary's
-    /// `delete sessionRef.pendingCacheBreakIntent` after it: a surface persisted for another exposure than its provider's
-    /// (or a bridge surface an earlier revision built) is rebuilt by `applyDeferredToolSurface`, and what was measured
-    /// against the old one is dropped: the provider state, the prefix guard, the context baseline. `None`: nothing to
-    /// migrate, or `unanswered` (a tool call still waits for its result, which is not a safe boundary).
-    ///
-    /// The live run clears its guard and takes the cache-break tag, so the header carries no intent.
     fn migrate_exposure_of(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
         let s = &self.sources;
         if unanswered {
@@ -1077,10 +1096,6 @@ impl LeadSurfaceHost {
     }
 }
 
-/// `restoreResumedToolSurface(target, targetRoute)` (`session-switch/resume.mjs:66-75`): the deferred surface of the
-/// thread's mode (`deferredSurfaceModeForLead(getMode())`) applied again over the tools the manager step resolved, with
-/// the model's standalone tools (`getStandaloneTools()`), on the thread's own route; a surface persisted for another
-/// exposure is migrated, and marked so (`markToolSurfaceMigrated`).
 #[async_trait]
 impl ResumedSurface for LeadSurfaceHost {
     async fn restored(&self, session: &Header) -> Result<Header, String> {
@@ -1115,10 +1130,6 @@ impl ResumedSurface for LeadSurfaceHost {
     }
 }
 
-/// A new Lead thread starts as Node's `createSession` + `seedToolSurface` make it: the workflow
-/// the config gives, the tools its spec resolves to (`resolveSessionToolSurface`), the deferred
-/// surface over them, and the session system composed (`composeSessionSystem`) by the same
-/// `refreshEmptySessionToolPolicy`: the same rebuild a turn start gives an empty thread, asked for by `thread/clear`.
 #[async_trait]
 impl EmptyToolSurface for LeadSurfaceHost {
     async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
@@ -1144,13 +1155,8 @@ impl EmptyToolSurface for LeadSurfaceHost {
     }
 }
 
-/// [`PromptRebuild`] a reconcile uses, so the prompt has one composition path.
 #[async_trait]
 impl NewThreadTools for LeadSurfaceHost {
-    /// The thread's own MCP scope comes first (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`): the
-    /// configured servers connect under it (`mcp-glue/connect.mjs`) before the tools are read, and it
-    /// is written into the header as `createSession` records it. A seed that does not end in a
-    /// created thread is abandoned by `thread/start`, which releases the scope.
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
         let s = &self.sources;
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
@@ -1165,10 +1171,6 @@ impl NewThreadTools for LeadSurfaceHost {
         self.seed_scoped(thread, &scoped, Some(scope.as_str())).await
     }
 
-    /// The desktop's control thread is the runtime that Node boots separately (`ensureControlSession`): it
-    /// opens no scope of its own and runs in the daemon's runtime scope, the one connected at boot, so
-    /// there is one connection set for it and for every read with no session. The scope is the daemon's,
-    /// not the thread's: closing the thread releases nothing.
     async fn seed_control(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
         let s = &self.sources;
         let scope = s.scopes.open_runtime(&s.cwd).await.map_err(|error| format!("mcp scope of the runtime: {error}"))?;
@@ -1183,12 +1185,6 @@ impl NewThreadTools for LeadSurfaceHost {
         self.seed_scoped(thread, header, None).await
     }
 
-    /// `createSession` for an agent-owned session (`prepareAgentSession`, session-builder.mjs): the tools its spec
-    /// resolves to for an agent owner (`resolveSessionToolSurface`: the settings gates and `react` denied, the
-    /// Lead-only control tools gone, `git` and `task` in their agent text, route order) and its prompt identity
-    /// (`composeSessionSystem`: no caller prompt, the agent's own role). The prompt itself, the deferred surface and
-    /// the workflow fields are the first turn's: an empty thread with an identity is rebuilt whole there
-    /// (`empty_surface_change`, which a delegated worker takes with its owner's finalization).
     async fn seed_agent(&self, _thread: &ThreadId, header: &Header) -> Result<Header, String> {
         let s = &self.sources;
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
@@ -1203,11 +1199,7 @@ impl NewThreadTools for LeadSurfaceHost {
         let spec = header.get("toolSpec").or_else(|| header.get("preset")).filter(|spec| !spec.is_null()).cloned().unwrap_or_else(|| json!("full"));
         // `disallowedTools: featureDenied` (session-builder.mjs).
         let mut denied = strings(header.get("disallowedTools"));
-        for name in s.feature_denied.denied(Some(header)).await? {
-            if !denied.contains(&name) {
-                denied.push(name);
-            }
-        }
+        push_unique(&mut denied, s.feature_denied.denied(Some(header)).await?);
         // `reactionDisabled(opts, ownerIsAgent)`: an agent owner is denied `react` whatever its id.
         if reaction_disabled(header, true) && !denied.iter().any(|name| name == REACTION_TOOL_NAME) {
             denied.push(REACTION_TOOL_NAME.to_owned());
@@ -1237,7 +1229,18 @@ impl NewThreadTools for LeadSurfaceHost {
     /// The thread was seeded and not created: the scope the seed opened for it is released.
     fn abandon(&self, thread: &ThreadId) {
         self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
+        // The seed noted the key it brought the surface to before the thread existed.
+        self.unloaded(thread);
         self.sources.scopes.release(thread.as_str());
+    }
+
+    fn unloaded(&self, thread: &ThreadId) {
+        let mut working = self.working.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(work) = working.get_mut(thread.as_str()) {
+            work.unloaded = true;
+        }
+        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
+        self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
     }
 }
 
@@ -1261,24 +1264,8 @@ impl LeadSurfaceHost {
         // `activeWorkflowContext(config)`: the workflow the config makes active, and `leadPromptParts({ agentMode, agentId })`.
         let target = s.workflow.target(&identified, "", None).await.map_err(String::from)?;
         let allowed = header.get("schemaAllowedTools").is_some_and(Value::is_array).then(|| strings(header.get("schemaAllowedTools")));
-        // `sessionDeny`: the caller's denials, `agent` where the workflow delegates to no one, and
-        // `react` outside a bot's own chat.
-        let mut denied = strings(header.get("disallowedTools"));
-        // `createSession`'s `disallowedTools: [...callerDisallowedTools, ...featureDisallowedTools()]`: the gates as they
-        // stand now, so a tool a setting switches off is in neither the schema, the deferred pool nor the announced set.
         let feature_denied = s.feature_denied.denied(Some(header)).await?;
-        for name in &feature_denied {
-            if !denied.contains(name) {
-                denied.push(name.clone());
-            }
-        }
-        if workflow_disallows_agent_tool(&target.summary, mode == "agent") {
-            denied.push("agent".to_owned());
-        }
-        // `reactionDisabled(opts, false)` (`session-tool-surface.mjs:33-36`): a bot's home chat or its room seat keeps `react`.
-        if reaction_disabled(&identified, false) {
-            denied.push(REACTION_TOOL_NAME.to_owned());
-        }
+        let denied = lead_denials(header, &identified, &target.summary, mode == "agent", &feature_denied);
         let routing = resolve(
             &s.pool,
             s.mcp.tools(scope, &cwd),
@@ -1296,12 +1283,7 @@ impl LeadSurfaceHost {
                 disallowed: &denied,
             },
         );
-        // `schemaOmittedToolNames`: with a caller allowlist, every routed tool it hides is omitted from BP1 too.
-        let mut omit = denied.clone();
-        if allowed.is_some() {
-            let visible: Vec<String> = resolved.iter().map(|tool| tool.spec().name.to_lowercase()).collect();
-            omit.extend(routing.iter().map(|tool| tool.spec().name.clone()).filter(|name| !name.is_empty() && !visible.contains(&name.to_lowercase())));
-        }
+        let omit = omitted_names(&denied, allowed.is_some(), &routing, &resolved);
         let mut session = Value::Object(identified.clone());
         session["tools"] = Value::Array(resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect());
         session["disallowedTools"] = json!(denied);
@@ -1353,7 +1335,8 @@ impl LeadSurfaceHost {
         // The key of the config the thread is created against: a route the draft saved meanwhile is a change the first turn finds.
         let created_against = self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
         let gates = created_against.map_or_else(|| self.gates(&feature_denied), |revision| self.gates_at(revision, &feature_denied));
-        self.note_applied(thread, Applied { gates, settings });
+        // The seed's key, before the thread exists: no reconcile of it is under way.
+        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), Applied { gates, settings });
         land_prompt(&mut session, composed, &model)?;
         let mut seeded = session.as_object().cloned().ok_or_else(|| "the seeded session is not an object".to_owned())?;
         seeded.shift_remove("messages");
@@ -1361,12 +1344,7 @@ impl LeadSurfaceHost {
         write_lead_record(&mut seeded, s.clock.now_ms(), std::process::id());
         // The stamp of the profile files the prompt was composed from (`agentProfileRevision`): Mixy's own thread and a
         // bot's home thread change with their `agent.json`, `AGENT.md` and `PERSONA.md`; a coding Lead's is a constant.
-        if profile_revision.is_empty() {
-            seeded.shift_remove("agentProfileRevision");
-        } else {
-            seeded.insert("agentProfileRevision".to_owned(), json!(profile_revision));
-        }
-        seeded.insert("agentRosterRevision".to_owned(), json!(roster));
+        stamp_profile_revisions(&mut seeded, &profile_revision, roster);
         Ok(seeded)
     }
 }
@@ -1404,12 +1382,6 @@ fn roster_revision(target: &WorkflowTarget) -> String {
     hash.finalize().iter().take(12).map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The session's system messages after the deferred surface's manifest step, back into the
-/// header's blocks, written with the rest of the prompt's fields; then
-/// `refreshSessionBp3Environment(session, session.cwd)`, which `createSession` and the empty-session
-/// rebuild end with: the `env` block becomes the `# Session` block (the folder and the model) followed
-/// by the environment tail. `model` is the route's: a created thread's header names it only once its
-/// route is seated.
 fn land_prompt(session: &mut Value, mut composed: SessionPrompt, model: &str) -> Result<(), String> {
     let messages = session.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
     composed.blocks = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;

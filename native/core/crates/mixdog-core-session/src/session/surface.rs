@@ -1,10 +1,3 @@
-//! The real [`ToolSurfaceSource`]: today's `preDispatchDenyForSession` inputs, read from the
-//! session header (`mixdog_tools::policy::SessionSurface::from_header`) plus the one piece the
-//! header does not hold, the provider route's exclusions, which the run owns in memory.
-//!
-//! `connector_disabled` and `project_disabled` stay false here: they depend on the called tool
-//! and `ToolPolicy::authorize` sets them per call.
-
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;

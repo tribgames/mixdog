@@ -1,5 +1,4 @@
-//! The serialized moves of a Lead (Node `transition-runner.mjs` and `transition-steps.mjs`):
-//! enter a worktree, run in a branch's checkout, remove the retained worktree. Every step
+//! The serialized moves of a Lead: enter a worktree, run in a branch's checkout, remove the retained worktree. Every step
 //! pushes the exact undo of what it changed onto the transaction's journal.
 
 use mixdog_protocol::RemovalRemnant;
@@ -44,7 +43,13 @@ impl Inner {
             gate.set_workspace_cwd_lock(&id, prior_lock.as_deref());
             Ok(())
         }));
-        // `retargetWorkers`: the Lead's workers move with it, so one that is sent a message later works in the new folder.
+        self.retarget_workers(session, &next.cwd, &moved, journal).await?;
+        self.gate.set_workspace_cwd_lock(session, next.is_bound().then_some(next.cwd.as_str()));
+        Ok(json!({ "revision": next.revision, "workspace": next.to_value() }))
+    }
+
+    /// The Lead's workers move with it, so one that is sent a message later works in the new folder.
+    async fn retarget_workers(self: &Arc<Self>, session: &str, cwd: &str, moved: &Option<Move>, journal: &mut Journal) -> Result<(), ScmFailure> {
         let workers: Vec<String> = self
             .host
             .live_sessions()
@@ -55,15 +60,14 @@ impl Inner {
                     && !c.closed
                     && c.owner.as_deref() == Some("agent")
                     && (c.owner_session_id.as_deref() == Some(session) || c.parent_session_id.as_deref() == Some(session))
-                    && !c.cwd.as_deref().is_some_and(|cwd| same_path(cwd, &next.cwd))
+                    && !c.cwd.as_deref().is_some_and(|worker_cwd| same_path(worker_cwd, cwd))
             })
             .map(|c| c.id)
             .collect();
         for worker in workers {
-            journal.push(self.host.retarget_worker(&worker, &next.cwd, moved.clone()).await?);
+            journal.push(self.host.retarget_worker(&worker, cwd, moved.clone()).await?);
         }
-        self.gate.set_workspace_cwd_lock(session, next.is_bound().then_some(next.cwd.as_str()));
-        Ok(json!({ "revision": next.revision, "workspace": next.to_value() }))
+        Ok(())
     }
 
     fn release_undo(self: &Arc<Self>, entry_id: &str, session: &str, forget_reference: bool) -> Undo {
@@ -105,19 +109,7 @@ impl Inner {
                 (entry, None)
             }
             None => {
-                let hint = name.or_else(|| options.name_hint.clone()).unwrap_or_default();
-                // A carry clears the project folder: it is held, and every session sharing it
-                // must be quiet (no turn, agents or background shells).
-                let _held = if options.changes.as_deref() == Some("carry") {
-                    let folder = text(&project.top_level);
-                    let held = self.hold_project_folder(Some(session), &folder, true)?;
-                    self.assert_checkout_quiet(session, &folder).await?;
-                    Some(held)
-                } else {
-                    None
-                };
-                let created =
-                    self.ops.create_for_session(&project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel).await?;
+                let created = self.create_entry(session, &project, tx_id, name, options, cancel).await?;
                 (created.record, created.changes)
             }
         };
@@ -158,6 +150,29 @@ impl Inner {
             extra.push(("changes", json!({ "mode": mode, "count": count })));
         }
         Ok(with_fields(entered, extra))
+    }
+
+    /// A carry clears the project folder: it is held, and every session sharing it must be quiet (no
+    /// turn, agents or background shells).
+    async fn create_entry(
+        self: &Arc<Self>,
+        session: &str,
+        project: &mixdog_scm::worktree::manager::RepoFacts,
+        tx_id: &str,
+        name: Option<String>,
+        options: &Options,
+        cancel: &CancellationToken,
+    ) -> Result<super::worktree_ops::Created, ScmFailure> {
+        let hint = name.or_else(|| options.name_hint.clone()).unwrap_or_default();
+        let _held = if options.changes.as_deref() == Some("carry") {
+            let folder = text(&project.top_level);
+            let held = self.hold_project_folder(Some(session), &folder, true)?;
+            self.assert_checkout_quiet(session, &folder).await?;
+            Some(held)
+        } else {
+            None
+        };
+        self.ops.create_for_session(project, TxScope { session, tx_id }, &hint, options.changes.as_deref(), options.confirm_large, cancel).await
     }
 
     async fn enter_project_branch(
@@ -289,6 +304,21 @@ impl Inner {
         }
         let Some(entry) = entry else { return Ok(with_fields(result, vec![("removed", JsonValue::Null)])) };
         let revision = result["revision"].as_u64().unwrap_or(previous.revision);
+        self.delete_worktree(session, (&entry, force), revision, result, journal, cancel).await
+    }
+
+    /// The deletion itself, and what its outcome means for the journal: a refusal before anything was
+    /// deleted puts the session back; a deletion that may have started leaves it in the project folder.
+    async fn delete_worktree(
+        self: &Arc<Self>,
+        session: &str,
+        removal: (&WorktreeRecord, bool),
+        revision: u64,
+        result: JsonValue,
+        journal: &mut Journal,
+        cancel: &CancellationToken,
+    ) -> Result<JsonValue, ScmFailure> {
+        let (entry, force) = removal;
         #[cfg(any(test, feature = "test-support"))]
         if let Some(hook) = self.before_remove.lock().unwrap().take() {
             hook();
@@ -298,31 +328,29 @@ impl Inner {
             Ok(partly) => {
                 // What the deletion left (`remaining`, `retryable`) is the caller's to retry or report.
                 let remaining = serde_json::from_value(partly["remaining"].clone()).unwrap_or_default();
-                Err(Self::incomplete(journal, &entry, revision, partly["retryable"] != false, remaining, None))
+                Err(Self::incomplete(journal, entry, revision, partly["retryable"] != false, remaining, None))
             }
             Err(ScmFailure::Coded { code: errors::WORKTREE_REMOVAL_INCOMPLETE, detail: Some(detail), .. }) => {
                 let (retryable, remaining, reason) = match *detail {
                     DomainErrorDetail::WorktreeRemovalIncomplete { retryable, remaining, reason, .. } => (retryable, remaining, reason),
                     _ => (true, Vec::new(), None),
                 };
-                Err(Self::incomplete(journal, &entry, revision, retryable, remaining, reason))
+                Err(Self::incomplete(journal, entry, revision, retryable, remaining, reason))
             }
             Err(error) => {
                 // Refused before anything was deleted: the journal puts the session back. Once
                 // the checkout may be (partly) gone, the session stays in the project folder
                 // and the removal is reported incomplete.
-                if self.removal_left_it_intact(session, &entry).await? {
+                if self.removal_left_it_intact(session, entry).await? {
                     return Err(error);
                 }
-                Err(Self::incomplete(journal, &entry, revision, true, Vec::new(), Some(failure_message(&error))))
+                Err(Self::incomplete(journal, entry, revision, true, Vec::new(), Some(failure_message(&error))))
             }
         }
     }
 
     /// Whether a removal that failed left the worktree untouched. It runs under a token of its
-    /// own: the operation's token may be the very cancellation that arrived after Git deleted
-    /// the folder, and a finished deletion must always be recorded as finished, never rolled
-    /// back to a cwd that no longer exists.
+    /// own: the operation's token may be the cancellation that arrived after Git deleted the folder.
     pub(super) async fn removal_left_it_intact(&self, session: &str, entry: &WorktreeRecord) -> Result<bool, ScmFailure> {
         let recovery = CancellationToken::new();
         let now = self.ops.session_worktree(session, &recovery).await.ok().flatten().or_else(|| Some(entry.clone()));

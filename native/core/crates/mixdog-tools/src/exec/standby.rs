@@ -1,11 +1,3 @@
-//! The warm PowerShell standby (Node's `shell-warm-standby.mjs`): one PowerShell started ahead of its use, parked in
-//! [`POWERSHELL_BOOTSTRAP`] reading its script from stdin, so the next PowerShell command skips the process start. It is
-//! taken by a command whose shell and environment (less the session scratch variables, set by the hand-off prelude) are
-//! the ones it was started with, at most two minutes after it started; each take starts the next one. A standby runs
-//! exactly one script, the one it is fed, and then exits, so no command ever runs in a process another command used. A
-//! drifted standby is ended when found, an idle one after its time, and the parked one at shutdown.
-//! `MIXDOG_SHELL_WARM_STANDBY=0` turns it off; `MIXDOG_SHELL_WARM_STANDBY_IDLE_MS` (100 ms at least) sets the time.
-
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -43,10 +35,6 @@ fn idle_limit() -> Duration {
     }
 }
 
-/// `envSignature`: the whole environment a process spawned with `env` now would get (what it inherits from this
-/// process as it is now, then the request's removals and values), less the scratch variables. Node hashes the full
-/// spawn environment it builds from `process.env` per call, so a variable changed after a standby was parked makes
-/// it drift.
 fn signature(env: &EnvSpec) -> String {
     use sha2::Digest;
     let mut effective: std::collections::BTreeMap<String, String> = if env.inherit {

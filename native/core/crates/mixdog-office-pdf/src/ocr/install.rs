@@ -1,14 +1,9 @@
 //! What OCR needs on the machine, fetched on first use: the recognition program and each language's data.
 //!
-//! The program is a managed Tesseract 5 (the LSTM engine the old OCR ran as WebAssembly), downloaded from the pinned
-//! release asset of the platform into `<dataDir>/office/ocr/engine/<version>`, its sha256 verified, unpacked beside the
-//! final folder and published by one rename (the pattern of the voice runtime download). The language data is the files
-//! the old engine downloaded: the gzipped `<lang>.traineddata` of `@tesseract.js-data/<lang>/4.0.0_best_int` on the same
-//! CDN (or of a `langPath` the caller names), decompressed into `<dataDir>/office/ocr/languages/<lang>.traineddata`, where
-//! the native engine reads them and where an earlier run's files already are.
-//!
-//! Nothing here retries or asks: a language already in the cache is not fetched, and a failure is the message the call
-//! reports.
+//! The program is a managed Tesseract 5 downloaded from the pinned release asset of the platform into
+//! `<dataDir>/office/ocr/engine/<version>`, its sha256 verified. The language data is the gzipped `<lang>.traineddata` of
+//! `@tesseract.js-data/<lang>/4.0.0_best_int` on the same CDN (or of a `langPath` the caller names), decompressed into
+//! `<dataDir>/office/ocr/languages/<lang>.traineddata`, where the native engine reads them.
 
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -176,27 +171,29 @@ pub async fn ensure_engine(
     .await??;
     let staging = engine_root.join(format!("{ENGINE_VERSION}.staging-{}", uuid::Uuid::new_v4()));
     let (stage, publish, final_program) = (staging.clone(), folder.clone(), program.clone());
-    lane_job(lanes.durability_io, cancel, move |lane| -> Result<(), String> {
-        let written = mixdog_fsio::create_dir_all(lane, &stage).and_then(|()| write_unpacked(lane, &stage, &unpacked));
-        let published = written.and_then(|()| {
-            if mixdog_fsio::is_file(lane, &final_program) {
-                return Ok(());
-            }
-            mixdog_fsio::rename(lane, &stage, &publish)
-        });
-        // Another call may have published first: what it published is the program.
-        let result = match published {
-            Ok(()) => Ok(()),
-            Err(_) if mixdog_fsio::is_file(lane, &final_program) => Ok(()),
-            Err(error) => Err(format!("The OCR engine could not be installed: {error}")),
-        };
-        if mixdog_fsio::exists(lane, &stage).unwrap_or(false) {
-            let _ = mixdog_fsio::remove_dir_all(lane, &stage);
-        }
-        result
-    })
-    .await??;
+    lane_job(lanes.durability_io, cancel, move |lane| publish_unpacked(lane, &stage, &publish, &final_program, &unpacked)).await??;
     Ok(program)
+}
+
+/// Writes the unpacked program into `stage` and renames it to `publish`; another call that published first has done the
+/// same work, so its program stands. `stage` is gone afterwards.
+fn publish_unpacked<P: WriteProof>(proof: &P, stage: &Path, publish: &Path, program: &Path, unpacked: &[Unpacked]) -> Result<(), String> {
+    let written = mixdog_fsio::create_dir_all(proof, stage).and_then(|()| write_unpacked(proof, stage, unpacked));
+    let published = written.and_then(|()| {
+        if mixdog_fsio::is_file(proof, program) {
+            return Ok(());
+        }
+        mixdog_fsio::rename(proof, stage, publish)
+    });
+    let result = match published {
+        Ok(()) => Ok(()),
+        Err(_) if mixdog_fsio::is_file(proof, program) => Ok(()),
+        Err(error) => Err(format!("The OCR engine could not be installed: {error}")),
+    };
+    if mixdog_fsio::exists(proof, stage).unwrap_or(false) {
+        let _ = mixdog_fsio::remove_dir_all(proof, stage);
+    }
+    result
 }
 
 /// The languages of `languages` (`eng+kor`), each once.

@@ -88,8 +88,7 @@ impl Pipes {
         Self::start_at(launch, tag, runtime, true)
     }
 
-    fn start_at(launch: &HostLaunch, tag: &'static str, runtime: &tokio::runtime::Handle, below_normal: bool) -> Result<Self, String> {
-        let _context = runtime.enter();
+    fn host_command(launch: &HostLaunch, below_normal: bool) -> tokio::process::Command {
         let mut command = tokio::process::Command::new(&launch.program);
         command
             .args(&launch.args)
@@ -131,7 +130,12 @@ impl Pipes {
                 });
             }
         }
-        let mut child = command.spawn().map_err(|e| e.to_string())?;
+        command
+    }
+
+    fn start_at(launch: &HostLaunch, tag: &'static str, runtime: &tokio::runtime::Handle, below_normal: bool) -> Result<Self, String> {
+        let _context = runtime.enter();
+        let mut child = Self::host_command(launch, below_normal).spawn().map_err(|e| e.to_string())?;
         let contained = match Containment::attach(&child) {
             Ok(contained) => contained,
             Err(error) => {

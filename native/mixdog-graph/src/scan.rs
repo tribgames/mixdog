@@ -129,10 +129,6 @@ struct LangJson {
     extensions: &'static [&'static str],
     scan: bool,
     extract: bool,
-    /// `Stage-2 kind → unified kind` for this language (`outline::KIND_MAP`).
-    /// The symbol `kind` vocabulary changed in Stage 3-C, and this is the
-    /// declared mapping a parity run checks every changed kind against.
-    /// Omitted for a language that reports no symbols.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     kinds: BTreeMap<&'static str, &'static str>,
     /// Outline rules of this language that parsed but cannot run. Omitted when
@@ -286,10 +282,6 @@ pub fn scan_source(rel: &str, lang: ScanLang, source: &str, rules: &Rules, inclu
     Ok(records)
 }
 
-/// Walk `root` with the same ignore semantics as the extraction walk
-/// (`collect_source_files`): standard ignore filters on, hidden files kept,
-/// files over 2MB skipped, results sorted by path. The language classifier is
-/// the scan registry (31 languages) instead of the extraction one.
 pub fn collect_scan_files(root: &Path) -> Result<Vec<ScanFile>, String> {
     let candidates = crate::walk_classified_files(root, scan_lang_for_path)?;
     let results: Vec<Result<Option<ScanFile>, String>> = candidates
@@ -359,12 +351,6 @@ fn normalize_absolute_selection(candidate: &Path) -> Option<PathBuf> {
     Some(out)
 }
 
-/// Explicit `--files` selection: repo-relative (or absolute) paths, keeping
-/// only those with a scan language. Unsupported extensions are skipped, and
-/// so are files over the same 2MB cap the walk and `parse_file` apply, so a
-/// caller-supplied path can never pull an unbounded file into memory.
-/// A path that resolves outside the scan root is rejected outright — the scan
-/// is confined to `cwd` exactly like every other mode.
 pub(crate) fn selected_scan_files(root: &Path, files: &[String]) -> Result<Vec<ScanFile>, String> {
     let mut selected = Vec::new();
     for raw in files {
@@ -770,6 +756,48 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(record_text("foo(1);\nfoo(2);\n", &records[0]), "foo(1)");
         assert_eq!(records[0].message, "one");
+    }
+
+    const TS_BOOLEAN_COMPARE: &str = include_str!("../../core/crates/mixdog-services/data/tidy-rules/typescript/no-boolean-literal-compare.yml");
+    const PY_BOOLEAN_COMPARE: &str = include_str!("../../core/crates/mixdog-services/data/tidy-rules/python/no-boolean-literal-compare.yml");
+    const TS_TODO_MARKER: &str = include_str!("../../core/crates/mixdog-services/data/tidy-rules/typescript/todo-marker.yml");
+    const RUST_TODO_MARKER: &str = include_str!("../../core/crates/mixdog-services/data/tidy-rules/rust/todo-marker.yml");
+
+    fn matched_texts(rel: &str, source: &str, yaml: &str) -> Vec<String> {
+        scan_fixture(rel, source, yaml, false).iter().map(|record| record_text(source, record).to_owned()).collect()
+    }
+
+    #[test]
+    fn boolean_literal_compare_skips_tri_state_operands_in_typescript() {
+        let source = "if (opt === false) {}\nif (x !== true) {}\nif (a.b == false) {}\nif (f() === true) {}\n";
+        assert!(matched_texts("a.ts", source, TS_BOOLEAN_COMPARE).is_empty());
+    }
+
+    #[test]
+    fn boolean_literal_compare_reports_boolean_operands_in_typescript() {
+        let source = "if (!x === false) {}\nif (a < b === true) {}\nif (Boolean(x) !== true) {}\nif (a instanceof B == false) {}\n";
+        assert_eq!(matched_texts("a.ts", source, TS_BOOLEAN_COMPARE).len(), 4);
+    }
+
+    #[test]
+    fn boolean_literal_compare_python_reports_only_bool_operands() {
+        assert!(matched_texts("a.py", "x == False\nopt != True\n", PY_BOOLEAN_COMPARE).is_empty());
+        assert!(matched_texts("a.py", "not x == False\n", PY_BOOLEAN_COMPARE).is_empty());
+        assert_eq!(matched_texts("a.py", "(not x) == False\nbool(x) != True\n", PY_BOOLEAN_COMPARE).len(), 2);
+    }
+
+    #[test]
+    fn todo_marker_ignores_the_word_todo_in_prose_and_code() {
+        let source = "const todoList = 1; // render the todo list\n/* the todo feature */\nconst s = 'TODO: x';\n// see TODO list docs\n";
+        assert!(matched_texts("a.ts", source, TS_TODO_MARKER).is_empty());
+        assert!(matched_texts("a.rs", "// add a todo item\n/// the todo list view\nfn todo() {}\n", RUST_TODO_MARKER).is_empty());
+    }
+
+    #[test]
+    fn todo_marker_reports_marker_comments() {
+        let ts = "// TODO: fix\n/* FIXME later */\n/**\n * XXX(bob) here\n */\nconst a = 1; // TODO trailing\n";
+        assert_eq!(matched_texts("a.ts", ts, TS_TODO_MARKER).len(), 3);
+        assert_eq!(matched_texts("a.rs", "// TODO: fix\n/// FIXME doc\nfn f() {}\n", RUST_TODO_MARKER).len(), 2);
     }
 
     #[test]

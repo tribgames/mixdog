@@ -954,11 +954,15 @@ impl Inner {
         } else {
             Some(BackendId::Desktop)
         };
+        self.spawn(self.router.switch_to(backend, self.switch_hooks(next.helper_active)));
+    }
+
+    fn switch_hooks(&self, helper_active: bool) -> SwitchHooks {
         let before = self.me.clone();
         let after = self.me.clone();
-        let hooks = SwitchHooks {
+        SwitchHooks {
             before: Some(Box::new(move || {
-                let activate = before.upgrade().filter(|inner| inner.state().running && next.helper_active);
+                let activate = before.upgrade().filter(|inner| inner.state().running && helper_active);
                 let activated = activate.map(|inner| inner.set_helper_active(true));
                 Box::pin(async move {
                     if let Some(activated) = activated {
@@ -968,7 +972,7 @@ impl Inner {
                 })
             })),
             after: Some(Box::new(move || {
-                let deactivate = after.upgrade().filter(|inner| inner.state().running && !next.helper_active);
+                let deactivate = after.upgrade().filter(|inner| inner.state().running && !helper_active);
                 let deactivated = deactivate.map(|inner| inner.set_helper_active(false));
                 Box::pin(async move {
                     if let Some(deactivated) = deactivated {
@@ -977,8 +981,7 @@ impl Inner {
                     Ok(())
                 })
             })),
-        };
-        self.spawn(self.router.switch_to(backend, hooks));
+        }
     }
 
     /// The connection is no longer paired and connected: the session stops, for the reason access ended.
@@ -1101,37 +1104,8 @@ impl Inner {
             }
         }
         self.subscribe_all();
-        let turn = {
-            let mut state = self.state();
-            state.install_turn += 1;
-            state.install_turn
-        };
-        let checked = self.deps.secure_desktop.install_state();
-        let me = self.me.clone();
-        self.then(Box::pin(async move {
-            let install = checked.await;
-            let Some(inner) = me.upgrade() else {
-                return;
-            };
-            inner.install_answer(turn, |facts| facts.offer = helper_offer(install_offer_for(install)), false);
-            // A current install whose service is stopped (after a reboot).
-            if inner.state().running && install == InstallState::Installed && !inner.deps.secure_desktop.connected() {
-                inner.ensure_service();
-            }
-        }));
-        // Whether the PC's account is an administrator (the password sheet asks for an account name if not).
-        if let Some(pc_access) = &self.deps.pc_access {
-            let asked = pc_access.account_is_admin();
-            let me = self.me.clone();
-            self.then(Box::pin(async move {
-                if let Ok(Some(admin)) = asked.await
-                    && let Some(inner) = me.upgrade()
-                    && inner.state().running
-                {
-                    inner.set_helper_facts(|facts| facts.account_is_admin = Some(admin), false);
-                }
-            }));
-        }
+        self.check_helper_install();
+        self.check_account_admin();
         // The input host is the injector and also the local UAC / lock detector: no session without it.
         let (host, started) = self.ensure_host();
         let inner = self.arc();
@@ -1154,17 +1128,7 @@ impl Inner {
                 state.status = status_value(&screen_status_for(&decision, true, state.helper_video, &state.facts));
                 state.status.clone()
             };
-            let me = inner.me.clone();
-            inner.deps.indicator.show(IndicatorView {
-                client_label: inner.deps.client_label.clone(),
-                controlling: status["control"].as_bool().unwrap_or(false),
-                screen_id: inner.deps.screen_id.clone(),
-                on_stop: Arc::new(move || {
-                    if let Some(inner) = me.upgrade() {
-                        drop(inner.stop("user".to_string(), None));
-                    }
-                }),
-            });
+            inner.show_indicator(status["control"].as_bool().unwrap_or(false));
             if inner.deps.sample_cursor {
                 inner.start_cursor_sampling();
             }
@@ -1175,6 +1139,54 @@ impl Inner {
             let state = inner.state();
             Ok(json!({"plan": state.plan, "geometry": state.geometry, "status": state.status}))
         })
+    }
+
+    fn check_helper_install(&self) {
+        let turn = self.next_install_turn();
+        let checked = self.deps.secure_desktop.install_state();
+        let me = self.me.clone();
+        self.then(Box::pin(async move {
+            let install = checked.await;
+            let Some(inner) = me.upgrade() else {
+                return;
+            };
+            inner.install_answer(turn, |facts| facts.offer = helper_offer(install_offer_for(install)), false);
+            // A current install whose service is stopped (after a reboot).
+            if inner.state().running && install == InstallState::Installed && !inner.deps.secure_desktop.connected() {
+                inner.ensure_service();
+            }
+        }));
+    }
+
+    /// Whether the PC's account is an administrator (the password sheet asks for an account name if not).
+    fn check_account_admin(&self) {
+        let Some(pc_access) = &self.deps.pc_access else {
+            return;
+        };
+        let asked = pc_access.account_is_admin();
+        let me = self.me.clone();
+        self.then(Box::pin(async move {
+            if let Ok(Some(admin)) = asked.await
+                && let Some(inner) = me.upgrade()
+                && inner.state().running
+            {
+                inner.set_helper_facts(|facts| facts.account_is_admin = Some(admin), false);
+            }
+        }));
+    }
+
+    fn show_indicator(&self, controlling: bool) {
+        let me = self.me.clone();
+        self.deps.indicator.show(IndicatorView {
+            client_label: self.deps.client_label.clone(),
+            controlling,
+            screen_id: self.deps.screen_id.clone(),
+            on_stop: Arc::new(move || {
+                if let Some(inner) = me.upgrade() {
+                    drop(inner.stop("user".to_string(), None));
+                }
+            }),
+        });
     }
 
     fn started_or_denied(&self) -> Result<(), String> {
@@ -1460,13 +1472,7 @@ impl Inner {
             state.stop_reason = Some(reason.clone());
             state.stopping = Some((false, Vec::new()));
         }
-        // A password outstanding for this session ends with it: still queued, it is cancelled before the
-        // installer is reached; already dispatched, its result is dropped. Either way no copy stays here.
-        let request = self.state().credential_request.as_ref().map(|request| (request.signal.clone(), request.credential.clone()));
-        if let Some((signal, credential)) = request {
-            signal.abort();
-            wipe_credential(&credential);
-        }
+        self.cancel_credential_request();
         self.router.cancel();
         let subscriptions = std::mem::take(&mut self.state().subscriptions);
         for off in subscriptions {
@@ -1490,20 +1496,32 @@ impl Inner {
             released.await;
             inner.router.abandon();
             inner.close_backends().await;
-            let waiters = {
-                let mut state = inner.state();
-                if let Some(timer) = state.stop_deadline.as_mut().and_then(|deadline| deadline.timer.take()) {
-                    timer.clear();
-                }
-                let stopping = state.stopping.as_mut().expect("a stop began");
-                stopping.0 = true;
-                std::mem::take(&mut stopping.1)
-            };
-            for waiter in waiters {
-                let _ = waiter.send(());
-            }
+            inner.finish_stop();
         }));
         waiter
+    }
+
+    fn cancel_credential_request(&self) {
+        let request = self.state().credential_request.as_ref().map(|request| (request.signal.clone(), request.credential.clone()));
+        if let Some((signal, credential)) = request {
+            signal.abort();
+            wipe_credential(&credential);
+        }
+    }
+
+    fn finish_stop(&self) {
+        let waiters = {
+            let mut state = self.state();
+            if let Some(timer) = state.stop_deadline.as_mut().and_then(|deadline| deadline.timer.take()) {
+                timer.clear();
+            }
+            let stopping = state.stopping.as_mut().expect("a stop began");
+            stopping.0 = true;
+            std::mem::take(&mut stopping.1)
+        };
+        for waiter in waiters {
+            let _ = waiter.send(());
+        }
     }
 
     /// Closes the backends by the stop deadline: the host's graceful stop gets the time left and is killed when
@@ -1643,6 +1661,45 @@ impl Inner {
     }
 }
 
+impl State {
+    fn new() -> Self {
+        Self {
+            started: false,
+            running: false,
+            stopping: None,
+            stop_reason: None,
+            generation: 0,
+            geometry: None,
+            plan: None,
+            capture_source_id: None,
+            mapping: None,
+            host: None,
+            local: None,
+            decision: None,
+            helper_active: false,
+            helper_video: false,
+            video_path: VideoPath::Capture,
+            facts: ScreenHelperFacts { offer: HelperOffer::Nothing, outcome: None, detail: None, issue: None, account_is_admin: None },
+            install_turn: 0,
+            credential_request: None,
+            credential_requests: 0,
+            service_down: false,
+            service_turn: 0,
+            status: json!({
+                "state": "live",
+                "helper": "not-needed",
+                "control": false,
+                "helperInfo": {"offer": "none", "outcome": null, "detail": null, "issue": null, "secure": null},
+            }),
+            cursor: None,
+            cursor_sample: 0,
+            cursor_reading: false,
+            subscriptions: Vec::new(),
+            stop_deadline: None,
+        }
+    }
+}
+
 /// The screen session of one viewer: see the module docs.
 pub(super) struct ScreenSession {
     inner: Arc<Inner>,
@@ -1674,40 +1731,7 @@ impl ScreenSession {
                 deps,
                 router,
                 max_frame_rate,
-                state: Mutex::new(State {
-                    started: false,
-                    running: false,
-                    stopping: None,
-                    stop_reason: None,
-                    generation: 0,
-                    geometry: None,
-                    plan: None,
-                    capture_source_id: None,
-                    mapping: None,
-                    host: None,
-                    local: None,
-                    decision: None,
-                    helper_active: false,
-                    helper_video: false,
-                    video_path: VideoPath::Capture,
-                    facts: ScreenHelperFacts { offer: HelperOffer::Nothing, outcome: None, detail: None, issue: None, account_is_admin: None },
-                    install_turn: 0,
-                    credential_request: None,
-                    credential_requests: 0,
-                    service_down: false,
-                    service_turn: 0,
-                    status: json!({
-                        "state": "live",
-                        "helper": "not-needed",
-                        "control": false,
-                        "helperInfo": {"offer": "none", "outcome": null, "detail": null, "issue": null, "secure": null},
-                    }),
-                    cursor: None,
-                    cursor_sample: 0,
-                    cursor_reading: false,
-                    subscriptions: Vec::new(),
-                    stop_deadline: None,
-                }),
+                state: Mutex::new(State::new()),
                 frames: ListenerSet::new(),
                 statuses: ListenerSet::new(),
                 geometries: ListenerSet::new(),

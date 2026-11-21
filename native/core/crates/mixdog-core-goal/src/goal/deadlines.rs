@@ -1,4 +1,4 @@
-//! `goal-deadlines.mjs`: the time cap and its warnings, the heartbeat that shows a live runtime
+//! The time cap and its warnings, the heartbeat that shows a live runtime
 //! ran an open segment, and suspend accounting.
 //!
 //! The cap is a budget the user set, enforced by the process ticker: one deadline per active
@@ -201,10 +201,6 @@ impl Inner {
         });
     }
 
-    /// `deliverDeadlineWarning` from the warning timer. Node reads the record synchronously and
-    /// queues the mutation in the same turn; the read here needs the lane, so the place in the
-    /// session's queue is taken first, at the moment the timer fires, and the mutation's own
-    /// re-check decides whether anything is written.
     fn spawn_warning(self: &Arc<Self>, id: &str) {
         let slot = self.slot(id);
         if self.is_closed() || slot.mem().warning_pending {
@@ -249,27 +245,14 @@ impl Inner {
         Ok(())
     }
 
-    /// `armDeadline`: the heartbeat of a running Goal, a warning timer, and the cap's deadline.
+    /// The heartbeat of a running Goal, a warning timer, and the cap's deadline.
     pub fn arm_deadline(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: Option<Goal>) {
         if self.is_closed() {
             return;
         }
         self.clear_deadline(slot);
         let mut goal = goal;
-        let running = goal.as_ref().is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
-        if running {
-            let needs_anchor = slot.mem().anchor.is_none();
-            if needs_anchor && let Some(goal) = &goal {
-                self.observe(slot, id, self.now(), goal);
-            }
-            if slot.mem().heartbeat.is_none() {
-                self.start_heartbeat(slot, id);
-            }
-        } else {
-            let mut mem = slot.mem();
-            Self::stop_heartbeat(&mut mem);
-            mem.anchor = None;
-        }
+        let running = self.sync_heartbeat(slot, id, goal.as_ref());
         let Some(goal) = goal.as_mut() else { return };
         if !running || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return;
@@ -281,26 +264,51 @@ impl Inner {
             self.spawn_limit_check(id);
             return;
         }
-        let warnings = self.warning_state(slot, id, Some(goal), at);
-        if let Some(warnings) = warnings {
-            if warnings.crossed != 0.0 {
-                let seen = goal.clone();
-                self.spawn_crossed_warning(slot, id, warnings.crossed, &seen);
-            } else if warnings.next_delay > 0.0 {
-                let delay = f64::min(remaining, warnings.next_delay + WARNING_MARGIN_MS);
-                let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
-                let timer = self.env.timers.after(
-                    TimerKind::Warning,
-                    delay,
-                    Box::new(move || {
-                        let Some(inner) = weak.upgrade() else { return };
-                        inner.slot(&task_id).mem().warning_timer = None;
-                        inner.spawn_warning(&task_id);
-                    }),
-                );
-                slot.mem().warning_timer = Some(timer);
+        self.arm_warning(slot, id, goal, remaining, at);
+        self.arm_cap(slot, id, remaining);
+    }
+
+    /// Whether the Goal is running; keeps the heartbeat and the clock anchor in step with that.
+    fn sync_heartbeat(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: Option<&Goal>) -> bool {
+        let running = goal.is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
+        if running {
+            let needs_anchor = slot.mem().anchor.is_none();
+            if needs_anchor && let Some(goal) = goal {
+                self.observe(slot, id, self.now(), goal);
             }
+            if slot.mem().heartbeat.is_none() {
+                self.start_heartbeat(slot, id);
+            }
+        } else {
+            let mut mem = slot.mem();
+            Self::stop_heartbeat(&mut mem);
+            mem.anchor = None;
         }
+        running
+    }
+
+    fn arm_warning(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, goal: &mut Goal, remaining: f64, at: f64) {
+        let Some(warnings) = self.warning_state(slot, id, Some(goal), at) else { return };
+        if warnings.crossed != 0.0 {
+            let seen = goal.clone();
+            self.spawn_crossed_warning(slot, id, warnings.crossed, &seen);
+        } else if warnings.next_delay > 0.0 {
+            let delay = f64::min(remaining, warnings.next_delay + WARNING_MARGIN_MS);
+            let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
+            let timer = self.env.timers.after(
+                TimerKind::Warning,
+                delay,
+                Box::new(move || {
+                    let Some(inner) = weak.upgrade() else { return };
+                    inner.slot(&task_id).mem().warning_timer = None;
+                    inner.spawn_warning(&task_id);
+                }),
+            );
+            slot.mem().warning_timer = Some(timer);
+        }
+    }
+
+    fn arm_cap(self: &Arc<Self>, slot: &Arc<Slot>, id: &str, remaining: f64) {
         let (weak, task_id) = (Arc::downgrade(self), id.to_owned());
         let timer = self.env.timers.after(
             TimerKind::Deadline,

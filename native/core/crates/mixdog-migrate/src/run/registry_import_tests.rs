@@ -141,7 +141,7 @@ async fn listed(catalog: &Catalog) -> Value {
 fn a_migrated_145_profile_lists_the_projects_the_desktop_lists() {
     let mut failures = Vec::new();
     for case in cases() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir();
         let roots = prepare(dir.path(), &case.profile);
         migrate(&roots);
         let answer = block_on(async {
@@ -163,7 +163,7 @@ fn a_migrated_145_profile_lists_the_projects_the_desktop_lists() {
 fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
     let golden = cases();
     let case = &golden[1];
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let roots = prepare(dir.path(), &case.profile);
     migrate(&roots);
     let file = roots.home.join("projects.json");
@@ -193,11 +193,16 @@ fn a_damaged_registry_is_left_byte_for_byte_and_imported_once_it_reads() {
     });
 }
 
+/// A temporary folder at its real path: the registry keeps the real path of a project it adds.
+fn tempdir() -> tempfile::TempDir {
+    tempfile::Builder::new().tempdir_in(mixdog_workspace::pathguard::canonical(&std::env::temp_dir()).unwrap()).unwrap()
+}
+
 #[test]
 fn a_profile_migrated_by_an_earlier_build_joins_the_registry_once_and_keeps_its_alias_and_touch() {
     let golden = cases();
     let case = &golden[1];
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempdir();
     let roots = prepare(dir.path(), &case.profile);
     // The earlier build: rows from `desktop-projects.json` only (the alias of `alpha`, and of `ghost`, which no registry has), then a touch.
     migrate(&roots);

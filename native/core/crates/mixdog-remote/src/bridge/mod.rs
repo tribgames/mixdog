@@ -268,10 +268,7 @@ async fn pump(
     };
     let mut upstream = match dialed {
         Ok(upstream) => upstream,
-        Err(DialError) => {
-            sink.deliver(ToPhone::Close { peer_id, generation, code: CLOSE_TRY_AGAIN_LATER, reason: "core unavailable".into() }).await;
-            return;
-        }
+        Err(DialError) => return core_unavailable(&*sink, peer_id, generation).await,
     };
     loop {
         tokio::select! {
@@ -296,8 +293,7 @@ async fn pump(
                 // The core has taken it (or the socket is gone): its place in the budgets is free.
                 drop(charge);
                 if sent.is_err() {
-                    sink.deliver(ToPhone::Close { peer_id, generation, code: CLOSE_TRY_AGAIN_LATER, reason: "core unavailable".into() }).await;
-                    return;
+                    return core_unavailable(&*sink, peer_id, generation).await;
                 }
             }
             event = upstream.recv() => match event {
@@ -315,11 +311,12 @@ async fn pump(
                     sink.deliver(ToPhone::Close { peer_id, generation, code, reason }).await;
                     return;
                 }
-                None => {
-                    sink.deliver(ToPhone::Close { peer_id, generation, code: CLOSE_TRY_AGAIN_LATER, reason: "core unavailable".into() }).await;
-                    return;
-                }
+                None => return core_unavailable(&*sink, peer_id, generation).await,
             },
         }
     }
+}
+
+async fn core_unavailable(sink: &dyn PhoneSink, peer_id: String, generation: u64) {
+    sink.deliver(ToPhone::Close { peer_id, generation, code: CLOSE_TRY_AGAIN_LATER, reason: "core unavailable".into() }).await;
 }

@@ -59,7 +59,7 @@ fn output_is_complete(output: &ToolOutput) -> bool {
     output.meta.as_ref().and_then(|meta| meta.get("complete")).and_then(|complete| complete.as_bool()).unwrap_or(true)
 }
 
-/// The `meta` object a tool left for the call's trace row under `key` (Node's `resultTelemetry` / `localSearchTelemetry`).
+/// The `meta` object a tool left for the call's trace row under `key`.
 fn output_meta(output: Option<&ToolOutput>, key: &str) -> Option<serde_json::Value> {
     output?.meta.as_ref()?.get(key).cloned()
 }
@@ -68,9 +68,9 @@ pub(crate) type EditGroup = Arc<Mutex<(u32, u32)>>;
 /// The result-reuse writes, the outputs and the reuse kinds of a batch's calls, each by call index.
 type CacheRefs<'a> = (&'a mut [Option<Box<dyn ReuseWrite>>], &'a [Option<ToolOutput>], &'a [Option<ReuseKind>]);
 
-/// A streamed edit's group retry (`retryAmbiguousEdit`) and its place at the file lock. Node's retry reaches the lock once the
+/// A streamed edit's group retry and its place at the file lock. The retry reaches the lock once the
 /// batch is at the call (every call before it collected) and the streamed run has settled as ambiguous, whichever comes later:
-/// the same-file edit that settlement lets go (`barriers.mjs:96`) reaches the lock first, unless the batch was already waiting
+/// the same-file edit that settlement lets go reaches the lock first, unless the batch was already waiting
 /// for the call, whose resumption is queued ahead of that edit's barrier.
 pub(crate) struct Settle {
     /// The call's file (`None`: not an edit, or one that names no file).
@@ -98,12 +98,6 @@ impl Settle {
     }
 }
 
-/// `settle_gate`: Node acts on a streamed edit's ambiguous settlement in a later turn of its event loop than every response
-/// byte already received, so the settlement finds the batch at the call when the response ended in those bytes, and lets
-/// the edits behind it go first when the response is still waiting for more. The core's run settles on another thread at
-/// any instant; it waits until the stream is waiting for bytes it has not received (open) or, once the response is
-/// complete, until the batch has taken its place at its first call (open again).
-///
 /// Settles a streamed call when its task ends, by finishing or by being dropped (a cancel, a panic), before its barrier
 /// lets the calls behind it go.
 struct Settler {
@@ -182,8 +176,8 @@ async fn run_one(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, group: Option<
     retry_in_group(call, env, group, executed).await
 }
 
-/// `retryAmbiguousEdit` (`tool-batch/execute-call.mjs:229`): run after a call's result is in, whether it ran in the batch or
-/// streamed ahead of it (`executeToolCall` calls it after `executeLive` either way).
+/// The group retry of an ambiguous edit, run after a call's result is in, whether it ran in the batch or
+/// streamed ahead of it.
 pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>, mut executed: Executed) -> Executed {
     let Some(group) = group else {
         return executed;
@@ -195,10 +189,8 @@ pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Opt
     if remaining >= 1 && executed.conflict {
         let occurrence = (remaining >= 2).then_some(mixdog_core_api::domain::tool::EditOccurrence { expected: remaining });
         let rerun = crate::tools::execute_call_occupying(call, env, occurrence).await;
-        // Node traces every run, the retry whether it succeeded or not (`rerunAmbiguousEdit`'s `finally`).
         let intervals: Vec<(i64, i64)> = executed.intervals().into_iter().chain(rerun.intervals()).collect();
         if !rerun.failed {
-            // Node keeps the first run's start and takes the retry's end.
             let span = executed.tool_ms + rerun.tool_ms;
             executed = rerun;
             executed.tool_ms = span;
@@ -211,9 +203,9 @@ pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Opt
     executed
 }
 
-/// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
-/// (builtin), the `mcp__` prefix, a tool the session runs that is not a builtin (an internal tool: Node's scope
-/// provider registers the deferred tools too, so one reached through the registry, as `browser`, is internal), else builtin.
+/// The trace kind of a tool: the skill tools, then `apply_patch` / `code_graph` (builtin), the `mcp__`
+/// prefix, a tool the session runs that is not a builtin (an internal tool, as `browser` reached through
+/// the registry), else builtin.
 fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     if matches!(name, "Skill" | "skills_list" | "skill_view") {
         "skill"
@@ -234,13 +226,12 @@ enum Decision {
     Run,
 }
 
-/// `isSingleCallPerTurnTool` (`session/loop/tool-helpers.mjs:55`): of these only the first call of an
-/// assistant turn runs. A constant of the loop, not a setting.
+/// Of these tools only the first call of an assistant turn runs. A constant of the loop, not a setting.
 pub(crate) fn is_single_call_per_turn_tool(name: &str) -> bool {
     name == "computer"
 }
 impl Run {
-    /// The batch is at `call` (`executeBatchCall`): its group retry is due if its group has occurrences left.
+    /// The batch is at `call`: its group retry is due if its group has occurrences left.
     pub(crate) fn reach_call(&self, call: &ToolCall, groups: &HashMap<String, EditGroup>) {
         if let Some(slot) = self.eager_settles.get(&call.id) {
             let due = edit_key(call).and_then(|k| groups.get(&k)).is_some_and(|g| {
@@ -274,7 +265,7 @@ impl Run {
         })
     }
 
-    /// The session's folder now (`resolveLiveToolCwd`), else the turn's.
+    /// The session's folder now, else the turn's.
     pub(crate) fn live_cwd(&self) -> AbsPath {
         self.config.live_cwd.as_ref().and_then(|live| live()).unwrap_or_else(|| self.tool_env.cwd.clone())
     }
@@ -283,65 +274,54 @@ impl Run {
         self.live_cwd().as_path().to_path_buf()
     }
 
-    /// Starts a read-only call the moment the provider streams it, when
-    /// nothing in the batch could answer it differently: no limit, no guard
-    /// near firing, no duplicate, receipt or cached body. A call that did not
-    /// start here is decided by the serial batch. `cwd` is the session's folder the caller read for this start: the calls one start
-    /// takes together (`startEagerRun`) are prepared in order from one read, so a sibling's Project switch landing meanwhile moves
-    /// none of them.
-    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath) {
+    /// The call as it will run (a `call_tool` as its target) when nothing in the batch could answer it
+    /// differently: no limit, no guard near firing, no duplicate, receipt or cached body; `None` leaves
+    /// it to the serial batch. The single-call slot is taken before anything can refuse the call.
+    async fn admit_eager(&mut self, call: &ToolCall, cwd: &AbsPath) -> Option<ToolCall> {
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
             || self.eager_started.iter().any(|e| e.id == call.id)
         {
-            return;
+            return None;
         }
         let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
-        // A call whose arguments did not parse is not projected (it names no target).
         let invalid_args = crate::tools::is_invalid_args_marker(&call.arguments);
-        // A streamed `call_tool` is admitted, ordered and run as its target; one that names no tool is
-        // answered by the serial batch.
         let (exec, bridged) = if invalid_args {
             (canonical, false)
         } else {
             match self.tools.project(&self.tool_env.thread_id, &canonical) {
                 Projection::Plain => (canonical, false),
                 Projection::Target(target) => (target, true),
-                Projection::Refused(_) => return,
+                Projection::Refused(_) => return None,
             }
         };
         let name = exec.name.clone();
-        // The single-call slot is taken before anything can refuse the call (`admit`, `admission.mjs:55`): an invalid
-        // first `computer` call still leaves no slot for a later one.
         if is_single_call_per_turn_tool(&name) {
             match self.eager_single.get(&name) {
-                Some(first) if *first != call.id => return,
+                Some(first) if *first != call.id => return None,
                 Some(_) => {}
                 None => {
                     self.eager_single.insert(name.clone(), call.id.clone());
                 }
             }
         }
-        // Never admitted for an eager run (`admit`): the batch answers it with the retry notice.
         if invalid_args {
-            return;
+            return None;
         }
         if uses_result_cache(&name) && self.barriers.has_reuse_invalidator() {
-            return;
+            return None;
         }
         let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         self.env.gate.refresh_policy(&gate_call).await;
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
-            return;
+            return None;
         }
-        // Admission classifies a call by the session's tool list plus the definitions of bridged targets
-        // (`bridgeClassificationTools`, `tool-call-resolution.mjs:90`): a deferred tool called by its name is not on it.
         let dedup = self.tools.dedup_eligible(&name) && (bridged || self.tools.get(&name).is_some());
         if dedup {
             let sig = call_signature(&name, &exec.arguments);
             if !self.eager_sigs.insert(sig.clone()) {
-                return;
+                return None;
             }
         }
         if (dedup || uses_result_cache(&name))
@@ -349,29 +329,31 @@ impl Run {
             && let Some(invocation) = self.tools.reuse_invocation(&exec)
             && reuse.has_candidate(&invocation, cwd.as_path()).await
         {
-            return;
+            return None;
         }
+        Some(exec)
+    }
+
+    /// Starts a read-only call the moment the provider streams it, when [`Self::admit_eager`] admits it.
+    /// A call that did not start here is decided by the serial batch. `cwd` is the session's folder the
+    /// caller read for this start: the calls one start takes together are prepared in order from one
+    /// read, so a sibling's Project switch landing meanwhile moves none of them.
+    pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath) {
+        let Some(exec) = self.admit_eager(call, cwd).await else { return };
+        let name = exec.name.clone();
         let mut env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
         let generation = observer.send_generation();
-        // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
-        // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that one of Node's barriers holds back
-        // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
         let start_cwd = cwd.clone();
         let cwd = cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
-        // A call with nothing to wait for reaches `prepareToolCall`'s refresh before the stream goes on (Node runs it in
-        // the eager start's own microtasks, `call-prep.mjs:70`), so the tool phase projects the batch against the
-        // snapshot that refresh left.
         if preceding.none()
             && let Some(mcp) = &self.env.mcp
             && crate::env::or_cancelled(&self.cancel, mcp.refresh()).await.is_some()
         {
             Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
         }
-        // A call held behind a barrier is prepared once the barrier lets it go (`runEagerEntry`: `waitForPreceding`, then
-        // `execute`), so a switch that lands during the wait moves it; one that waits for nothing keeps the folder of its start.
         let waits = !preceding.ids().is_empty();
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
@@ -380,8 +362,6 @@ impl Run {
         self.eager_settles.insert(id.clone(), Arc::clone(&slot));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
-        // An edit reaches its file's lock the moment its barriers let it go (`withEditTargetLock`): its place is taken by the
-        // settlement that lets it go, not when its task is next polled.
         let place = key.as_deref().map(|key| locks.enqueue(key, preceding.ids()));
         let mut settler = Settler { id: id.clone(), slot, ambiguous: false, finished };
         let mut gate = self.settle_gate.subscribe();
@@ -428,7 +408,7 @@ impl Run {
     }
 
     /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
-    /// is not stopped, as Node leaves it (its cancel token ends it with the run).
+    /// is not stopped (its cancel token ends it with the run).
     pub(crate) fn drop_eager(&mut self) {
         self.settle_gate.send_replace(true);
         for (id, handle) in self.eager.drain() {
@@ -446,8 +426,7 @@ impl Run {
 
     /// The batch is over, or its turn was cancelled. A started call no listed call consumed (the provider ran a
     /// text-recovered call and then returned the native call that repeats it, or the cancel ended the batch first) is
-    /// left to finish and tell the host it settled: Node stops none of them (a call waiting for its hook, its approval or
-    /// a barrier ends itself with the abort's text, `execute_gated`), and its result is never stored.
+    /// left to finish and tell the host it settled; its result is never stored.
     fn release_eager(&mut self) {
         self.settle_gate.send_replace(true);
         self.eager.clear();
@@ -459,13 +438,12 @@ impl Run {
         self.streamed_ids.clear();
     }
 
-    /// Whether the stream of the request in flight handed this complete call over (Node's `relayWitness.dispatchedToolCallIds`,
-    /// `send-instrumentation.mjs:146`: every call given to `onToolCall`, admitted for an eager run or not).
+    /// Whether the stream of the request in flight handed this complete call over, admitted for an eager run or not.
     pub(crate) fn stream_dispatched(&self, id: &str) -> bool {
         self.streamed_ids.contains(id)
     }
 
-    /// What one call is, in Node's order: surface denial, one-per-turn tools,
+    /// What one call is: surface denial, one-per-turn tools,
     /// intra-turn twin and repeat-failure guards.
     #[allow(clippy::too_many_arguments, reason = "the call's per-turn lookups, each an independent guard input")]
     async fn decide(
@@ -519,7 +497,7 @@ impl Run {
         }
     }
 
-    /// A failed executed call keeps its FULL command text in the stored assistant turn (`restoreToolCallBodyForId`), so the model
+    /// A failed executed call keeps its FULL command text in the stored assistant turn, so the model
     /// retries against its own draft and not the compaction marker.
     fn restore_failed_call_body(&mut self, wire_calls: &[ToolCall], call_id: &str) {
         if let Some(assistant) = self.messages.iter_mut().rev().find(|m| m.tool_calls().iter().any(|call| call.id == call_id)) {
@@ -542,7 +520,7 @@ impl Run {
             && matches!(&executed.message.message.content, Content::Text(_))
     }
 
-    /// The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
+    /// The execution view: typo aliases and case variants canonicalized,
     /// and a `call_tool` of a bridge session replaced by its target, so that every layer below sees the
     /// target itself. The wire calls stay what the transcript holds. Also, per call, whether it was
     /// bridged and the refusal of a `call_tool` that names no usable target.
@@ -595,8 +573,6 @@ impl Run {
         let mut evaluated = vec![false; n];
         let mut finished = vec![false; n];
         let mut started = vec![false; n];
-        // Calls answered without a run (a denial, a stub, a guard, a refused call_tool): Node records no mutation for them,
-        // so a read streamed ahead of one stays usable.
         let mut skipped = vec![false; n];
         let mut ready: Vec<bool> = vec![false; n];
         let mut recorded = 0usize;
@@ -609,10 +585,8 @@ impl Run {
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
         let env = self.call_env();
         let mut running: FuturesUnordered<CallFuture> = FuturesUnordered::new();
-        // The calls whose streamed run already told the host (`EarlyResult`); the rest tell it as they settle.
         let mut streamed: HashSet<usize> = HashSet::new();
         let mut aborted = false;
-        // The call Node's serial loop is at: every call before it is collected.
         let (reach_tx, reach_rx) = tokio::sync::watch::channel(0usize);
         let mut reached: Option<usize> = None;
 
@@ -683,11 +657,7 @@ impl Run {
                 self.reach_call(&calls[recorded], &groups);
                 reach_tx.send_replace(recorded);
             }
-            // 3. Start what is ready. The first live call starts the rest of the batch, as a provider that streamed
-            // nothing leaves it to the batch (`startEagerRun`, `tool-batch/execute-call.mjs:112`): the calls after it do not
-            // wait for the guards to learn what the calls before it came to, and run together but for Node's barriers.
-            // A call no eager run took (a guard, a cached body, a streamed read thrown away) is run in its turn, once every
-            // call before it is done (`executeSerially`).
+            // 3. Start what is ready.
             for j in 0..n {
                 if !ready[j] || started[j] {
                     continue;
@@ -699,9 +669,6 @@ impl Run {
                     }
                 }
                 let call = calls[j].clone();
-                // A streamed read is only usable when no earlier call of the batch could have changed what it read.
-                // Classified by the session's tools and the definitions of the batch's bridged targets (`bridgeClassificationTools`):
-                // a deferred tool called by its name is not on the list, so it is never thrown away.
                 let read_only = self.tools.get(&call.name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
                     || (bridged[j] && self.tools.read_only(&call.name));
                 let reuse_candidate = uses_result_cache(&call.name);
@@ -720,12 +687,10 @@ impl Run {
                 started[j] = true;
                 let execution_cwd = self.live_cwd();
                 let eager = self.eager.remove(&call.id);
-                // A streamed result thrown away is not announced again by its re-run: Node's serial path never notifies.
                 let rerun = eager.is_some();
                 if rerun {
                     streamed.insert(j);
                 }
-                // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
                 let eager = eager.filter(|_| kept);
                 let group = edit_key(&call).and_then(|k| groups.get(&k).cloned());
                 if let Some(handle) = eager {
@@ -736,8 +701,6 @@ impl Run {
                     let mut reach = reach_rx.clone();
                     running.push(Box::pin(async move {
                         let result = handle.await.unwrap_or_else(|_| Executed::error(&id, "Error: tool task failed".to_owned()));
-                        // A group member is collected, and retried at its place at the file lock, once the batch is at it
-                        // (`plan.mjs:61-64`, `executeBatchCall`).
                         let mut turn = None;
                         if group.is_some() {
                             let _ = reach.wait_for(|at| *at >= j).await;
@@ -757,8 +720,6 @@ impl Run {
                     }));
                 } else {
                     let env = Arc::clone(&env);
-                    // The call runs on its own task and tells the host the instant it settles, as a streamed call does: its result
-                    // is shown as finished at once, whatever the batch is waiting on, while its row is still recorded in call order.
                     let announce = !rerun && !crate::tools::is_invalid_args_marker(&call.arguments);
                     if announce {
                         streamed.insert(j);
@@ -792,11 +753,6 @@ impl Run {
                 }
                 Some(None) => break,
                 Some(Some((idx, result))) => {
-                    // Node starts every executable call through the eager dispatcher, which tells the host the instant
-                    // it settles (`notifyEarlyResult`), a failed run included; one early-result path feeds the UI's
-                    // live row and the interrupted-turn finalizer. A call decided without a run (stub, cache hit,
-                    // refusal) never reaches this arm.
-                    // (Node answers an unparsed call in its turn, instantly: `markInstant`, no early notice.)
                     if !streamed.contains(&idx) && !crate::tools::is_invalid_args_marker(&calls[idx].arguments) {
                         self.trace(
                             "tool-finished",
@@ -810,11 +766,6 @@ impl Run {
             }
         }
         self.release_eager();
-        // A cancelled batch commits nothing: Node checks the abort after each call (`processToolBatch`, `tool-batch.mjs:36`) and throws
-        // before `flushBatch`, so the results staged so far never reach the transcript; the host's interruption closes the turn from
-        // what the calls told it as they settled (`EarlyResult`). Node awaits the call it was taking before that check, and that call's
-        // tool goes on; here the turn ends at once (as Node's turn does, the recording's `turnEnded`) and the calls in flight are left
-        // to settle on their own, as the eager runs are (`release_eager`).
         if aborted {
             if !running.is_empty() {
                 mixdog_rt::spawn("agent.batch.cancelled", TaskClass::Work, async move { while running.next().await.is_some() {} });
@@ -824,23 +775,18 @@ impl Run {
         drop(running);
 
         self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&mut writes, &outputs, &hits)).await;
-        // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
                 self.emit(RunEvent::ToolResult { call_id: id.to_owned(), kind });
             }
             self.push(message).await?;
         }
-        // `flushNewMessages` (`tool-batch/flush.mjs`): an injected Skill body the batch's live messages already hold (two
-        // equivalent Skill calls finishing in one batch) is dropped, not added twice.
         for message in follow_ups {
             if message.source == Some(Source::Skill) && self.messages.iter().any(|m| m.source == Some(Source::Skill) && m.text() == message.text()) {
                 continue;
             }
             self.push(message).await?;
         }
-        // PostToolBatch: the whole batch resolved; a blocking decision injects
-        // its reason as a system note for the next send.
         if let Some(hooks) = self.env.hooks.clone()
             && n > 0
             && let Some(reason) = hooks.after_batch(n).await
@@ -853,10 +799,9 @@ impl Run {
         Ok(())
     }
 
-    /// Budgets of the batch's executed results, then the cache writes: the
-    /// per-tool and per-message offload, inline-image compaction, and the
-    /// reusable text bodies handed to the cache only if still complete after
-    /// offloading.
+    /// Budgets of the batch's executed results, then the cache writes: the error kind, native
+    /// tool-search payloads, offload, inline-image compaction, and the reusable text bodies
+    /// handed to the cache only if still complete after offloading.
     async fn finalize_results(
         &mut self,
         calls: &[ToolCall],
@@ -868,32 +813,16 @@ impl Run {
     ) {
         let (writes, outputs, hits) = cache;
         let indices: Vec<usize> = (0..calls.len()).filter(|i| executed[*i] && staged[*i].is_some()).collect();
-        // `classifyExecuted` (`execute-call.mjs:17-20,187-194`): a call that returned text reading as an error (the
-        // delegated-agent, skill and MCP tools answer `Error: …` instead of failing) is an error call, decided on the tool's
-        // own return before anything below rewrites it; that kind stays the result's through the offload, the failure log,
-        // the cache write and the transcript (`finalize.mjs:174-177,238,292`). Only a text return is read: a structured one
-        // (parts, an image among them) is normal (`classifyResultKind` of a non-string, result-classification.mjs:75).
-        for i in &indices {
-            // `classifyToolReturn` (`execute-call.mjs`): the tool's own `explicitSuccess` decides before the wording does (a
-            // failure a tool declares is its `Err`, already an error call).
-            let explicit_success = outputs[*i].as_ref().is_some_and(|o| o.explicit_success);
-            if let Some(m) = staged[*i].as_mut()
-                && m.tool_kind == Some(ToolKind::Normal)
-                && let Content::Text(text) = &m.message.content
-                && !explicit_success
-                && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
-            {
-                m.tool_kind = Some(ToolKind::Error);
-                // The kind is the failure a provider is told (`m.toolKind === 'error'`, anthropic-request-utils.mjs:411), and
-                // what the stored row reads back as (`typed_of`): the message says it now, so the request this turn sends and
-                // the one the next turn rebuilds from the transcript are the same message.
-                m.message.is_error = true;
-            }
-        }
-        // A loading tool's native tool-search payload becomes the message's, and its summary the
-        // result (`finalizeBatchResults` parses before anything is offloaded or cached).
+        classify_error_results(calls, staged, outputs, &indices);
+        self.adopt_native_tool_search(calls, staged, &indices);
+        self.offload_results(calls, staged, hits, &indices).await;
+        self.trace_and_cache(calls, staged, tool_ms, intervals, (writes, outputs, hits), indices).await;
+    }
+
+    /// A loading tool's native tool-search payload becomes the message's, and its summary the result.
+    fn adopt_native_tool_search(&self, calls: &[ToolCall], staged: &mut [Option<AgentMessage>], indices: &[usize]) {
         let mut definitions = None;
-        for i in &indices {
+        for i in indices {
             if let Some(m) = staged[*i].as_mut()
                 && let Content::Text(text) = &m.message.content
                 && let Some(native) = parse_native_tool_search(&calls[*i].name, text)
@@ -910,10 +839,14 @@ impl Run {
                 m.message.content = Content::Text(summary);
             }
         }
+    }
+
+    /// The per-tool and per-message offload of the executed bodies, then inline-image compaction.
+    async fn offload_results(&self, calls: &[ToolCall], staged: &mut [Option<AgentMessage>], hits: &[Option<ReuseKind>], indices: &[usize]) {
         if let Some(store) = self.env.artifacts.clone() {
             let mut slots = Vec::new();
             let mut entries = Vec::new();
-            for &i in &indices {
+            for &i in indices {
                 if hits[i].is_none()
                     && let Some(m) = staged[i].as_mut()
                 {
@@ -932,16 +865,27 @@ impl Run {
             }
         }
         if let Some(images) = self.env.images.clone() {
-            for i in &indices {
+            for i in indices {
                 if let Some(m) = staged[*i].as_mut() {
                     let body = std::mem::replace(&mut m.message.content, Content::Text(String::new()));
                     m.message.content = crate::offload::compact_owned_images(images.as_ref(), body).await;
                 }
             }
         }
-        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (the call's trace rows and,
-        // for an error call, its failure row, on the result the transcript holds) and then `writeCaches` (a normal call's
-        // reusable body).
+    }
+
+    /// Per call in call order: the call's trace rows (and, for an error call, its failure row) on the
+    /// result the transcript holds, then a normal call's reusable body to the cache.
+    async fn trace_and_cache(
+        &mut self,
+        calls: &[ToolCall],
+        staged: &[Option<AgentMessage>],
+        tool_ms: &[i64],
+        intervals: &mut [Vec<(i64, i64)>],
+        cache: CacheRefs<'_>,
+        indices: Vec<usize>,
+    ) {
+        let (writes, outputs, hits) = cache;
         for i in indices {
             let Some(m) = &staged[i] else {
                 continue;
@@ -983,8 +927,28 @@ impl Run {
     }
 }
 
-/// `toolTraceText(result)` (agent-trace-format.mjs:360-370), the text a failure row is cut from: a text as it is, a structured
-/// result's text parts joined by newlines, its images and other parts left out.
+/// A call that returned text reading as an error (the delegated-agent, skill and MCP tools answer
+/// `Error: …` instead of failing) is an error call, unless the tool's own `explicit_success` says
+/// otherwise; only a text return is read, a structured one is normal. The kind is set on the message
+/// before anything rewrites it, so the request this turn sends and the one the next turn rebuilds from
+/// the transcript are the same message.
+fn classify_error_results(calls: &[ToolCall], staged: &mut [Option<AgentMessage>], outputs: &[Option<ToolOutput>], indices: &[usize]) {
+    for i in indices {
+        let explicit_success = outputs[*i].as_ref().is_some_and(|o| o.explicit_success);
+        if let Some(m) = staged[*i].as_mut()
+            && m.tool_kind == Some(ToolKind::Normal)
+            && let Content::Text(text) = &m.message.content
+            && !explicit_success
+            && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
+        {
+            m.tool_kind = Some(ToolKind::Error);
+            m.message.is_error = true;
+        }
+    }
+}
+
+/// The text a failure row is cut from: a text as it is, a structured result's text parts joined by
+/// newlines, its images and other parts left out.
 fn trace_text(content: &Content) -> String {
     match content {
         Content::Text(text) => text.clone(),
@@ -999,8 +963,7 @@ fn trace_text(content: &Content) -> String {
     }
 }
 
-/// The result `traceAgentTool` is given: a text as a string, a structured result as its text parts (`{type, text}`; the trace
-/// reads nothing else of it).
+/// The result the trace is given: a text as a string, a structured result as its text parts (`{type, text}`).
 fn trace_result(content: &Content) -> serde_json::Value {
     match content {
         Content::Text(text) => serde_json::Value::String(text.clone()),
@@ -1014,10 +977,9 @@ fn trace_result(content: &Content) -> serde_json::Value {
     }
 }
 
-/// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
-/// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor's `Err`). A thrown
-/// call's text is its `message_for_model`, which already reads `Error: <message>` (Node's `execute-call.mjs` and
-/// its early notice both write that form), so nothing is prefixed here. A tool that returned an error outcome, or a
+/// What a call that settled before the stop tells the host: the model-visible text; `error` only when
+/// the call threw (the executor's `Err`). A thrown call's text is its `message_for_model`, which already
+/// reads `Error: <message>`, so nothing is prefixed here. A tool that returned an error outcome, or a
 /// gate denial the executor returns as text (`Executed.returned`), is not a thrown call.
 pub(crate) fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
     if result.failed && !result.returned {

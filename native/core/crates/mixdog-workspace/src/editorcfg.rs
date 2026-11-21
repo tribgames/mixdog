@@ -271,12 +271,19 @@ pub fn write_workspace_file(workspace_file: &Path, folders: &Value) -> WsResult<
         .collect();
     let normalized = unique_folders(listed);
     let base = file.parent().unwrap_or(Path::new("")).to_path_buf();
-    let serialized: Vec<Value> = normalized
+    let mut config = existing;
+    config.insert("folders".into(), Value::Array(serialize_folders(&base, &normalized)));
+    let mut text = serde_json::to_string_pretty(&Value::Object(config)).expect("workspace json");
+    text.push('\n');
+    replace_file_atomically(&file, text)?;
+    Ok(workspace_json(&file, &normalized))
+}
+
+fn serialize_folders(base: &Path, folders: &[(PathBuf, Option<String>)]) -> Vec<Value> {
+    folders
         .iter()
         .map(|(path, name)| {
-            let rel = relative(&base, path);
-            // Node keeps the absolute path when the relative one is empty or absolute (the workspace
-            // folder itself, another drive); `.` only if even that is empty.
+            let rel = relative(base, path);
             let text = if rel.is_empty() || Path::new(&rel).is_absolute() { path.to_string_lossy().into_owned() } else { rel };
             let text = if text.is_empty() { ".".to_owned() } else { text };
             let mut folder = Map::new();
@@ -286,20 +293,19 @@ pub fn write_workspace_file(workspace_file: &Path, folders: &Value) -> WsResult<
             }
             Value::Object(folder)
         })
-        .collect();
-    let mut config = existing;
-    config.insert("folders".into(), Value::Array(serialized));
-    let mut text = serde_json::to_string_pretty(&Value::Object(config)).expect("workspace json");
-    text.push('\n');
+        .collect()
+}
+
+fn replace_file_atomically(file: &Path, text: String) -> WsResult<()> {
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let temp = file.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
     std::fs::write(&temp, text)?;
-    std::fs::rename(&temp, &file).inspect_err(|_| {
+    std::fs::rename(&temp, file).inspect_err(|_| {
         let _ = std::fs::remove_file(&temp);
     })?;
-    Ok(workspace_json(&file, &normalized))
+    Ok(())
 }
 
 // ---- scoped editor settings -------------------------------------------------------------------

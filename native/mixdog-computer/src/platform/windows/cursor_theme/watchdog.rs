@@ -1,8 +1,5 @@
-//! The watchdog child (`mixdog-computer --cursor-watchdog <parent_pid>`,
-//! MixCursorTheme.Watch, CursorTheme.cs:286-355). It keeps the cursor lease
-//! and the ownership receipt of the helper that started it, and ends them on
-//! its own when the person touches the input, its parent exits, or its 60 s
-//! run out. The protocol runs over its stdin and stdout.
+//! The watchdog child: `mixdog-computer --cursor-watchdog <parent_pid>`. The
+//! protocol runs over its stdin and stdout.
 
 use super::Line;
 use super::lease::{CursorApi, Lease, ROLES, WinCursorApi};

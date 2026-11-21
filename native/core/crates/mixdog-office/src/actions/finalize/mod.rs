@@ -1,10 +1,3 @@
-//! The stages of finalize, in the order the pipeline runs them (`core/office-finalize/*.mjs`).
-//!
-//! - [`review_stage`]: the QA pass, the visual-review acceptance for decks and documents, and which remaining issues hold the file.
-//! - [`holds`]: the reasons finalize holds a file back and the shape every hold shares.
-//! - [`commit_stage`]: save, validate, close and the composition history.
-//! - [`session_save`]: save and close for one session.
-
 pub mod commit_stage;
 pub mod holds;
 pub mod review_stage;

@@ -392,10 +392,16 @@ fn assert_available(command: &Value, logins: &dyn SavedLogins, windows: bool) ->
 }
 
 /// A worker answer that wrote nothing, as this action's reply.
-fn as_saved_login_reply(mut response: Value) -> Value {
+fn as_saved_login_reply(response: Value) -> Value {
+    with_result(response, |result| {
+        result.shift_remove("saved_login_target");
+    })
+}
+
+fn with_result(mut response: Value, edit: impl FnOnce(&mut Map<String, Value>)) -> Value {
     let mut result: Map<String, Value> = response.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
     result.insert("action".to_owned(), json!("fill_saved_login"));
-    result.shift_remove("saved_login_target");
+    edit(&mut result);
     if let Some(object) = response.as_object_mut() {
         object.insert("result".to_owned(), Value::Object(result));
     }
@@ -428,7 +434,7 @@ fn text_of(response: &Value, key: &str) -> Option<String> {
 /// failure is "possibly written" and never retried. The fill must have been admitted when it was
 /// accepted ([`SavedLoginRegistry::admit`]), so its turn's settlement waits for it.
 pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker: &dyn SavedLoginWorker, context: &FillContext<'_>) -> Result<Value, String> {
-    let FillContext { registry, windows, assert_runnable, redact } = context;
+    let FillContext { registry, windows, assert_runnable, .. } = context;
     let Available { field, account, turn } = assert_available(command, logins, *windows)?;
     if !registry.admitted(&turn) {
         return Err("saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent".to_owned());
@@ -456,28 +462,46 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
     assert_runnable()?;
     assert_available(command, logins, *windows)?;
     if field == SavedLoginField::Password {
-        // The exact password, without line breaks, and as a JSON reply would spell either: all must
-        // be registered, or nothing is written.
-        let plain = saved.value.clone();
-        let flat: String = saved.value.chars().filter(|c| !matches!(c, '\r' | '\n')).collect();
-        let mut spellings: Vec<String> = [plain, flat]
-            .into_iter()
-            .flat_map(|value| {
-                let escaped = serde_json::to_string(&value).map(|json| json[1..json.len() - 1].to_owned()).unwrap_or_default();
-                [value, escaped]
-            })
-            .collect();
-        let remembered = registry.remember(&turn, &spellings);
-        // The registry holds its own copies; these are the core's to give up.
-        spellings.iter_mut().for_each(wipe);
-        if !remembered {
-            return Err("saved_login_refused: the password could not be registered for redaction; no input was sent".to_owned());
-        }
-        let guard = PixelGuard { turn: turn.clone(), window_id: js_string(target.get("window_id")), pid: js_string(target.get("pid")) };
-        if !registry.arm_pixels(guard) {
-            return Err("saved_login_refused: the browser window and process could not be identified to hold its captures back; no input was sent".to_owned());
-        }
+        protect_password(registry, &turn, &saved.value, &target)?;
     }
+    let written = send_value(command, logins, worker, context, field, &saved, &target).await?;
+    if written.get("result").and_then(|result| result.get("code")).and_then(Value::as_str).is_some_and(|code| !code.is_empty()) {
+        return Ok(as_saved_login_reply(written));
+    }
+    Ok(filled_reply(written, &saved, field))
+}
+
+fn protect_password(registry: &SavedLoginRegistry, turn: &SavedLoginTurn, password: &str, target: &Value) -> Result<(), String> {
+    let flat: String = password.chars().filter(|c| !matches!(c, '\r' | '\n')).collect();
+    let mut spellings: Vec<String> = [password.to_owned(), flat]
+        .into_iter()
+        .flat_map(|value| {
+            let escaped = serde_json::to_string(&value).map(|json| json[1..json.len() - 1].to_owned()).unwrap_or_default();
+            [value, escaped]
+        })
+        .collect();
+    let remembered = registry.remember(turn, &spellings);
+    spellings.iter_mut().for_each(wipe);
+    if !remembered {
+        return Err("saved_login_refused: the password could not be registered for redaction; no input was sent".to_owned());
+    }
+    let guard = PixelGuard { turn: turn.clone(), window_id: js_string(target.get("window_id")), pid: js_string(target.get("pid")) };
+    if !registry.arm_pixels(guard) {
+        return Err("saved_login_refused: the browser window and process could not be identified to hold its captures back; no input was sent".to_owned());
+    }
+    Ok(())
+}
+
+async fn send_value(
+    command: &Value,
+    logins: &dyn SavedLogins,
+    worker: &dyn SavedLoginWorker,
+    context: &FillContext<'_>,
+    field: SavedLoginField,
+    saved: &SavedLoginValue,
+    target: &Value,
+) -> Result<Value, String> {
+    let FillContext { windows, assert_runnable, redact, .. } = context;
     let sent = AtomicBool::new(false);
     let mut before_send = || -> Result<(), String> {
         assert_runnable()?;
@@ -506,9 +530,10 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
                 .unwrap_or_else(|| "saved_login_unconfirmed: the worker gave no answer; the value may have been written and is not retried".to_owned()),
         ));
     }
-    if written.get("result").and_then(|result| result.get("code")).and_then(Value::as_str).is_some_and(|code| !code.is_empty()) {
-        return Ok(as_saved_login_reply(written));
-    }
+    Ok(written)
+}
+
+fn filled_reply(written: Value, saved: &SavedLoginValue, field: SavedLoginField) -> Value {
     let text = match field {
         SavedLoginField::Password => format!(
             "filled the saved password of {} into the focused field on {}; the site receives it and it stays out of your results, though a page that redisplays it can expose it; pixels of this browser are withheld until this turn ends",
@@ -519,15 +544,10 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
             saved.label, saved.origin
         ),
     };
-    let mut result: Map<String, Value> = written.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
-    result.insert("action".to_owned(), json!("fill_saved_login"));
-    result.insert("text".to_owned(), json!(text));
-    result.insert("saved_login".to_owned(), json!({ "account": saved.label, "origin": saved.origin, "field": field.as_str() }));
-    let mut reply = written;
-    if let Some(object) = reply.as_object_mut() {
-        object.insert("result".to_owned(), Value::Object(result));
-    }
-    Ok(reply)
+    with_result(written, |result| {
+        result.insert("text".to_owned(), json!(text));
+        result.insert("saved_login".to_owned(), json!({ "account": saved.label, "origin": saved.origin, "field": field.as_str() }));
+    })
 }
 
 /// The process id of a window as the host reads it; `Err` or `None` when it cannot be read.
@@ -560,9 +580,6 @@ pub async fn pixels_allowed(registry: &SavedLoginRegistry, mode: &str, window_id
     }
     Err("capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn".to_owned())
 }
-
-#[cfg(test)]
-mod tests {}
 
 /// The saved-login rules from the code's contract: what a fill sends and refuses, what stays out of the model's sight, and
 /// when each protection ends.

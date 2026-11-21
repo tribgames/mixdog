@@ -1,12 +1,3 @@
-//! Claude Code project transcript (`projects/<dir>/<session>.jsonl`) → raw import turns. The
-//! active branch is followed from the last main-chain entry back through `parentUuid` (and
-//! `logicalParentUuid` across a compaction), so replayed or abandoned branches never duplicate.
-//! Kept: text blocks and `tool_use` as tool notes; images become an omission marker; a
-//! compaction summary (as an assistant recap) only when the history it replaced is gone; a slash
-//! command as `/name args` unless the app answered it locally; pasted text without the app's
-//! paste envelope. Dropped: sidechains, meta entries, tool results, thinking, signatures and
-//! Claude Code's own command-output/notification envelopes.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
@@ -154,10 +145,6 @@ fn preceding_main(entries: &[Entry], seq: usize) -> Option<usize> {
     (0..seq).rev().find(|i| entries[*i].main && entries[*i].uuid.is_some())
 }
 
-/// The active branch, root first: walked back from the last main-chain entry. A compaction
-/// boundary links back to the history it replaced through its logical parent, or, when Claude
-/// Code never wrote that message, to the last message before the boundary. `replaced` holds the
-/// compaction summaries whose history the walk crossed into.
 fn active_chain(entries: &[Entry]) -> (Vec<usize>, HashSet<usize>) {
     let main: Vec<usize> = (0..entries.len()).filter(|i| entries[*i].main).collect();
     let Some(&leaf) = main.last() else { return (main, HashSet::new()) };
@@ -335,26 +322,7 @@ impl ClaudeReducer {
 
     pub fn push(&mut self, record: &Value) {
         self.title_scan.push(record);
-        let message = matches!(record.get("type").and_then(Value::as_str), Some("user" | "assistant"));
-        if message {
-            self.recognized = true;
-        }
-        let main = message && record.get("isSidechain") != Some(&Value::Bool(true));
-        if message {
-            if main {
-                self.main_seen = true;
-            } else {
-                self.sidechain_seen = true;
-            }
-        }
-        if main {
-            if self.foreign_session_id.is_none() {
-                self.foreign_session_id = string_or_null(record.get("sessionId"));
-            }
-            if self.cwd.is_none() {
-                self.cwd = string_or_null(record.get("cwd"));
-            }
-        }
+        let main = self.note_record(record);
         let text = |key: &str| record.get(key).and_then(Value::as_str).map(str::to_owned);
         let uuid = text("uuid");
         if !main && uuid.is_none() {
@@ -377,25 +345,55 @@ impl ClaudeReducer {
         self.metadata_bytes +=
             ENTRY_OVERHEAD_BYTES + len(&entry.uuid) + len(&entry.parent_uuid) + len(&entry.logical_parent_uuid) + entry.at.as_ref().map_or(0, Stamp::text_len);
         if main && !skipped_entry(record) {
-            let body = record.get("message").filter(|m| m.is_object());
-            let role = match body.and_then(|b| b.get("role")).and_then(Value::as_str) {
-                Some("user") => Role::User,
-                Some("assistant") => Role::Assistant,
-                _ if record.get("type").and_then(Value::as_str) == Some("assistant") => Role::Assistant,
-                _ => Role::User,
-            };
-            entry.role = Some(role);
-            let mut parts = entry_parts(role, body.and_then(|b| b.get("content")), &mut entry.warnings, &mut entry.local_output);
-            if record.get("isCompactSummary") == Some(&Value::Bool(true)) {
-                entry.summary = true;
-                for part in &mut parts {
-                    part.summary = true;
-                }
-            }
-            self.chars += parts.iter().map(|p| utf16_len(&p.text)).sum::<usize>();
-            entry.parts = Some(parts);
+            self.read_message(record, &mut entry);
         }
         self.entries.push(entry);
+    }
+
+    /// Records what the record says about the transcript as a whole and returns whether it is a
+    /// main-chain message.
+    fn note_record(&mut self, record: &Value) -> bool {
+        let message = matches!(record.get("type").and_then(Value::as_str), Some("user" | "assistant"));
+        if message {
+            self.recognized = true;
+        }
+        let main = message && record.get("isSidechain") != Some(&Value::Bool(true));
+        if message {
+            if main {
+                self.main_seen = true;
+            } else {
+                self.sidechain_seen = true;
+            }
+        }
+        if main {
+            if self.foreign_session_id.is_none() {
+                self.foreign_session_id = string_or_null(record.get("sessionId"));
+            }
+            if self.cwd.is_none() {
+                self.cwd = string_or_null(record.get("cwd"));
+            }
+        }
+        main
+    }
+
+    fn read_message(&mut self, record: &Value, entry: &mut Entry) {
+        let body = record.get("message").filter(|m| m.is_object());
+        let role = match body.and_then(|b| b.get("role")).and_then(Value::as_str) {
+            Some("user") => Role::User,
+            Some("assistant") => Role::Assistant,
+            _ if record.get("type").and_then(Value::as_str) == Some("assistant") => Role::Assistant,
+            _ => Role::User,
+        };
+        entry.role = Some(role);
+        let mut parts = entry_parts(role, body.and_then(|b| b.get("content")), &mut entry.warnings, &mut entry.local_output);
+        if record.get("isCompactSummary") == Some(&Value::Bool(true)) {
+            entry.summary = true;
+            for part in &mut parts {
+                part.summary = true;
+            }
+        }
+        self.chars += parts.iter().map(|p| utf16_len(&p.text)).sum::<usize>();
+        entry.parts = Some(parts);
     }
 
     pub fn result(&self) -> ClaudeResult {

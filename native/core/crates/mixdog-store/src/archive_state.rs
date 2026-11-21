@@ -189,6 +189,42 @@ struct Claims {
     pending: HashMap<String, usize>,
 }
 
+impl Claims {
+    fn begin_change(&mut self, ids: &[String]) -> Result<(), DbError> {
+        if let Some(id) = ids.iter().find(|id| self.deleting.contains(*id)) {
+            return Err(DbError::Write(format!("the session {id} is being deleted")));
+        }
+        for id in ids {
+            *self.pending.entry(id.clone()).or_default() += 1;
+        }
+        Ok(())
+    }
+
+    fn end_change(&mut self, ids: &[String]) {
+        for id in ids {
+            if let Some(count) = self.pending.get_mut(id) {
+                *count -= 1;
+                if *count == 0 {
+                    self.pending.remove(id);
+                }
+            }
+        }
+    }
+}
+
+/// The sessions one commit registered as changing ([`Claims::begin_change`]): their change ends when this drops.
+struct PendingChange {
+    claims: Arc<Mutex<Claims>>,
+    ids: Mutex<Vec<String>>,
+}
+
+impl Drop for PendingChange {
+    fn drop(&mut self) {
+        let ids = std::mem::take(&mut *self.ids.lock().unwrap_or_else(PoisonError::into_inner));
+        self.claims.lock().unwrap_or_else(PoisonError::into_inner).end_change(&ids);
+    }
+}
+
 /// An automatic delete's hold on a session's entry: no commit changes it while held. Dropped when the delete ends.
 pub struct DeleteClaim {
     claims: Arc<Mutex<Claims>>,
@@ -548,55 +584,38 @@ impl ArchiveStates {
         D: FnOnce(&ArchiveSnapshot, &StateTx<'_>) -> Result<(T, Vec<(String, ArchiveEntry)>), DbError> + Send + 'static,
     {
         let (read, publish) = (self.view.clone(), self.view.clone());
-        let (claims, registered) = (self.claims.clone(), Arc::new(Mutex::new(Vec::<String>::new())));
-        let marked = registered.clone();
+        // Held by the writer's job: the sessions it registers are released once the writer is done with it (the snapshot
+        // published, or the commit failed or never ran), whether or not this caller still waits for the answer.
+        let pending = Arc::new(PendingChange { claims: self.claims.clone(), ids: Mutex::default() });
+        let marked = pending.clone();
         let written = self
             .state
             .write_then(
                 move |tx| {
                     let snapshot = current(&read);
                     let (answer, changes) = decide(&snapshot, tx)?;
-                    {
-                        let mut claims = claims.lock().unwrap_or_else(PoisonError::into_inner);
-                        if let Some((id, _)) = changes.iter().find(|(id, _)| claims.deleting.contains(id)) {
-                            return Err(DbError::Write(format!("the session {id} is being deleted")));
-                        }
-                        for (id, _) in &changes {
-                            *claims.pending.entry(id.clone()).or_default() += 1;
-                        }
-                        marked.lock().unwrap_or_else(PoisonError::into_inner).extend(changes.iter().map(|(id, _)| id.clone()));
-                    }
+                    let ids: Vec<String> = changes.iter().map(|(id, _)| id.clone()).collect();
+                    marked.claims.lock().unwrap_or_else(PoisonError::into_inner).begin_change(&ids)?;
+                    marked.ids.lock().unwrap_or_else(PoisonError::into_inner).extend(ids);
                     for (id, entry) in &changes {
                         tx.put_meta(&format!("{ENTRY_PREFIX}{id}"), &entry.encode())?;
                     }
                     Ok((answer, changes))
                 },
                 move |(_, changes): &(T, Vec<(String, ArchiveEntry)>)| {
-                    if changes.is_empty() {
-                        return;
+                    if !changes.is_empty() {
+                        let mut slot = publish.write().unwrap_or_else(PoisonError::into_inner);
+                        let mut next = (**slot).clone();
+                        for (id, entry) in changes {
+                            next.entries.insert(id.clone(), *entry);
+                        }
+                        next.version += 1;
+                        *slot = Arc::new(next);
                     }
-                    let mut slot = publish.write().unwrap_or_else(PoisonError::into_inner);
-                    let mut next = (**slot).clone();
-                    for (id, entry) in changes {
-                        next.entries.insert(id.clone(), *entry);
-                    }
-                    next.version += 1;
-                    *slot = Arc::new(next);
+                    drop(pending);
                 },
             )
             .await;
-        // Published (or failed): the sessions are no longer being changed.
-        {
-            let mut claims = self.claims.lock().unwrap_or_else(PoisonError::into_inner);
-            for id in std::mem::take(&mut *registered.lock().unwrap_or_else(PoisonError::into_inner)) {
-                if let Some(count) = claims.pending.get_mut(&id) {
-                    *count -= 1;
-                    if *count == 0 {
-                        claims.pending.remove(&id);
-                    }
-                }
-            }
-        }
         let (answer, changes) = written?;
         let changed: Vec<String> = changes.into_iter().map(|(id, _)| id).collect();
         let indexed = match self.index.get() {

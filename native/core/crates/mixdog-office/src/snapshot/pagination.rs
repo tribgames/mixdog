@@ -118,6 +118,29 @@ fn spread(value: &Value) -> Map<String, Value> {
     }
 }
 
+/// The selector a cursor carries, once the cursor is known to belong to this session at this revision and not to contradict the
+/// selector the call names.
+fn carried_selector(position: &Position<'_>, args: &Value, cursor: &Value) -> Result<Value, String> {
+    let same_session =
+        cursor.get("session").and_then(Value::as_str) == Some(position.id) && cursor.get("format").and_then(Value::as_str) == Some(position.format);
+    if !same_session {
+        return Err("Office snapshot cursor belongs to a different document session".to_owned());
+    }
+    // `Number(undefined)` is NaN, which equals no revision.
+    if to_number_of(cursor.get("revision")) != position.snapshot_version as f64 {
+        return Err("Office snapshot cursor is stale because the document changed".to_owned());
+    }
+    let supplied_selector = selector_from_args(args);
+    let carried = match cursor.get("selector").filter(|carried| truthy(carried)) {
+        Some(carried) => carried.clone(),
+        None => Value::Object(selector_from_args(&Value::Null)),
+    };
+    if has_supplied_selector(&supplied_selector) && !same_selector(&supplied_selector, &carried) {
+        return Err("Office snapshot cursor selector does not match this request".to_owned());
+    }
+    Ok(carried)
+}
+
 /// `createOfficeSnapshotRequest(session, args, { full })`: the request of a call. A `full` read asks for the whole
 /// document. A cursor continues the walk it came from and is refused for another session, after any edit, or when the
 /// call names a different selector.
@@ -136,22 +159,7 @@ pub fn create_office_snapshot_request(position: Position<'_>, args: &Value, full
     let mut limit = or_number(to_number_of(args.get("limit")), default).max(1.0);
     if let Some(supplied) = args.get("cursor").filter(|cursor| truthy(cursor)) {
         let cursor = decode_cursor(&value_to_string(supplied))?;
-        let same_session = cursor.get("session").and_then(Value::as_str) == Some(position.id) && cursor.get("format").and_then(Value::as_str) == Some(format);
-        if !same_session {
-            return Err("Office snapshot cursor belongs to a different document session".to_owned());
-        }
-        // `Number(undefined)` is NaN, which equals no revision.
-        if to_number_of(cursor.get("revision")) != position.snapshot_version as f64 {
-            return Err("Office snapshot cursor is stale because the document changed".to_owned());
-        }
-        let supplied_selector = selector_from_args(args);
-        let carried = match cursor.get("selector").filter(|carried| truthy(carried)) {
-            Some(carried) => carried.clone(),
-            None => Value::Object(selector_from_args(&Value::Null)),
-        };
-        if has_supplied_selector(&supplied_selector) && !same_selector(&supplied_selector, &carried) {
-            return Err("Office snapshot cursor selector does not match this request".to_owned());
-        }
+        let carried = carried_selector(&position, args, &cursor)?;
         selector = carried;
         offset = or_number(to_number_of(cursor.get("offset")), 0.0);
         sheet_offset = or_number(to_number_of(cursor.get("sheetOffset")), 0.0).max(0.0);

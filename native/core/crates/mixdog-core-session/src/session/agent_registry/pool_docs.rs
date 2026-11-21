@@ -3,6 +3,7 @@
 //! tombstones their reap left, and the Leads' pool rows, each row as stored. Node's listing reads both index files on every call (`listStoredAgentWorkersAsync`), so the
 //! index is reloaded first; this process's writes not stored yet stay applied.
 
+use mixdog_core_agents::agents::SettleFix;
 use serde_json::Value;
 use serde_json::json;
 
@@ -42,4 +43,58 @@ impl AgentRegistry {
         let tombstones: Vec<Value> = state.stored_tombstones(now).iter().map(|row| Value::Object(row.clone())).collect();
         (json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads }))
     }
+
+    /// `PoolStore::settle_identities`: each worker row keeps the settle identity of its outcome as `settledAt`, with the count
+    /// of turns started on it ([`STARTED_TURNS`]) it belongs to as `settledTurn`. A whole-row write merges onto the stored row
+    /// and a restart settlement clones it, so neither a later scan of the same turn nor the restart moves them; only a new
+    /// turn id does, and the identity fixed for that next outcome is always later than the one before.
+    pub fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {
+        let now = self.now();
+        let mut guard = self.lock();
+        let st = &mut *guard;
+        fixes
+            .iter()
+            .map(|fix| {
+                let Some(mut map) = st.map(&fix.session_id).filter(|map| normalize_row(map).is_some()).cloned() else { return Value::Null };
+                if started_turns(&map) != fix.turns {
+                    return Value::Null;
+                }
+                let held = map.get(SETTLED_AT).filter(|at| stamp_ms(Some(at)) > 0.0).cloned();
+                if map.get(SETTLED_TURN).and_then(Value::as_u64) == Some(fix.turns)
+                    && let Some(held) = held
+                {
+                    return held;
+                }
+                let floor = stamp_ms(held.as_ref());
+                let identity = if stamp_ms(Some(&fix.candidate)) > floor { fix.candidate.clone() } else { Value::String(iso(now.max(floor + 1.0))) };
+                map.insert(SETTLED_AT.into(), identity.clone());
+                map.insert(SETTLED_TURN.into(), Value::from(fix.turns));
+                self.persist(st, &fix.session_id, Some(map));
+                identity
+            })
+            .collect()
+    }
+}
+
+/// How many turns were started on a worker row; a row that never counted one holds none.
+const STARTED_TURNS: &str = "startedTurns";
+/// The id of the last turn [`STARTED_TURNS`] counted.
+const COUNTED_TURN: &str = "countedTurn";
+const SETTLED_AT: &str = "settledAt";
+const SETTLED_TURN: &str = "settledTurn";
+
+fn started_turns(map: &Row) -> u64 {
+    map.get(STARTED_TURNS).and_then(Value::as_u64).unwrap_or(0)
+}
+
+/// Counts the turn `turn_id` on the worker row `map`, once per turn id: two turns started in the same millisecond are two
+/// turns, and the same start told again is one. Whether it counted.
+pub(super) fn count_turn_start(map: &mut Row, turn_id: &str) -> bool {
+    if map.get(COUNTED_TURN).and_then(Value::as_str) == Some(turn_id) {
+        return false;
+    }
+    let turns = started_turns(map) + 1;
+    map.insert(STARTED_TURNS.into(), Value::from(turns));
+    map.insert(COUNTED_TURN.into(), Value::String(turn_id.to_owned()));
+    true
 }
