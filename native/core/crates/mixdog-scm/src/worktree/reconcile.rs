@@ -418,16 +418,12 @@ impl Worktrees {
     /// blindly), or a decided deletion, finished.
     async fn resume_deletion(&self, record: &mut WorktreeRecord, report: &mut ReconcileReport, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         if is_snapshot(record) {
-            let grant = match self.hold_folder(record).await {
-                Ok(grant) => grant,
-                Err(error) if snapshot_in_use(&error) => {
-                    keep(report, record, "snapshot-in-use");
-                    return Ok(());
-                }
-                Err(error) => return Err(error),
+            let Some(grant) = self.take_snapshot(record).await? else {
+                keep(report, record, "snapshot-in-use");
+                return Ok(());
             };
             let deletion = self.finish_deletion(record, cancel).await;
-            self.release_folder(grant).await;
+            self.leave_snapshot(record, grant, deletion.as_ref().is_ok_and(|d| d.removed)).await;
             Self::report_deletion(report, record, &deletion?);
             return Ok(());
         }
@@ -456,22 +452,11 @@ impl Worktrees {
         report: &mut ReconcileReport,
         cancel: &CancellationToken,
     ) -> Result<(), ScmFailure> {
-        let mut grant = None;
-        let mut held = false;
-        if !self.snapshot_holder_live(record, &options.live, cancel).await? {
-            match self.hold_folder(record).await {
-                Ok(taken) => {
-                    grant = taken;
-                    held = true;
-                }
-                Err(error) if snapshot_in_use(&error) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        if !held {
+        let taken = if self.snapshot_holder_live(record, &options.live, cancel).await? { None } else { self.take_snapshot(record).await? };
+        let Some(grant) = taken else {
             keep(report, record, "snapshot-in-use");
             return Ok(());
-        }
+        };
         let deleted: Result<crate::worktree::removal::Deletion, ScmFailure> = async {
             self.assert_recovery_stores_clear(record, cancel).await?;
             record.state = "deleting".into();
@@ -480,9 +465,35 @@ impl Worktrees {
             self.finish_deletion(record, cancel).await
         }
         .await;
-        self.release_folder(grant).await;
+        self.leave_snapshot(record, grant, deleted.as_ref().is_ok_and(|d| d.removed)).await;
         Self::report_deletion(report, record, &deleted?);
         Ok(())
+    }
+
+    /// Takes a snapshot for its removal: no command is admitted into it from here, and its folder is held against its
+    /// consumers. `None`: a command or a consumer is still in it.
+    async fn take_snapshot(&self, record: &WorktreeRecord) -> Result<Option<Option<crate::worktree::activity::Grant>>, ScmFailure> {
+        let ledger = self.ledger();
+        if !ledger.begin_removal(&record.id) {
+            return Ok(None);
+        }
+        match self.hold_folder(record).await {
+            Ok(grant) => Ok(Some(grant)),
+            Err(error) => {
+                ledger.end_removal(&record.id);
+                if snapshot_in_use(&error) { Ok(None) } else { Err(error) }
+            }
+        }
+    }
+
+    /// Gives a taken snapshot back; one that was removed is forgotten.
+    async fn leave_snapshot(&self, record: &WorktreeRecord, grant: Option<crate::worktree::activity::Grant>, removed: bool) {
+        self.release_folder(grant).await;
+        let ledger = self.ledger();
+        ledger.end_removal(&record.id);
+        if removed {
+            ledger.forget(&record.id);
+        }
     }
 }
 

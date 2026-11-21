@@ -144,7 +144,7 @@ fn report(label: &str, samples: &[Option<Duration>]) {
     );
 }
 
-fn exec_runtime(root: &std::path::Path, tokens: LaneTokens) -> ExecRuntime {
+fn exec_runtime(root: &std::path::Path, tokens: LaneTokens) -> Arc<ExecRuntime> {
     let windows = cfg!(windows);
     ExecRuntime::new(ExecConfig {
         tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(NoPublisher), || 0)),
