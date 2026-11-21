@@ -88,7 +88,7 @@
   --workspace-tab-surface: var(--mx-window-band);
   position: relative;
   height: 43px;
-  /* Browser-style tab-strip layout: tabs shrink TOGETHER from the 160px
+  /* Browser-style tab-strip layout: tabs shrink TOGETHER from the 200px
      preferred width; below the
      crossover the ACTIVE tab pins at its close-button floor while inactive
      tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
@@ -98,12 +98,12 @@
   /* The computed cell is BOTH floor and ceiling. Relaxing this floor was
      tried and measured: `.workspace-tabs` is an auto-width flex item, so a
      shrinkable floor collapses the whole run to its min-content width (four
-     160px tabs rendered as 20px slivers). The run therefore fits by
+     standard tabs rendered as 20px slivers). The run therefore fits by
      CALCULATION — calculateChromeTabWidths clamps to the strip — never by
      flex shrink. */
   min-width: var(--workspace-tab-current-width, 30px);
-  max-width: var(--workspace-tab-current-width, 160px);
-  flex: 1 1 var(--workspace-tab-current-width, 160px);
+  max-width: var(--workspace-tab-current-width, 200px);
+  flex: 1 1 var(--workspace-tab-current-width, 200px);
   transition:
     min-width var(--mx-motion-chrome),
     max-width var(--mx-motion-chrome),

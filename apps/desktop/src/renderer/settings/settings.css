@@ -1750,6 +1750,11 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
+/* Korean wraps between words, not inside one. */
+.mixdog-settings__row-desc:lang(ko) {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
 /* Settings › General › Sessions: the irreversible-delete line and the
    exemptions note under the group card. */
 .mixdog-settings__row-desc.session-retention-warning {

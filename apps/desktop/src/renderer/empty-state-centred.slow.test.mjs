@@ -174,6 +174,81 @@ test('an empty usage table centres its line in the visible table body, the heade
   }
 });
 
+// The Bots page without a bot and the Skills page without a skill kept their
+// line under the page header while Projects and Schedules centred theirs.
+test('a rail page with nothing in it centres its empty state in the page', async (t) => {
+  const page = await openPage(
+    t,
+    `
+      import { createRoot } from 'react-dom/client';
+      import { ArrangedSections } from './agent-section-order';
+      import { MixyEmptyState } from './mixy-first';
+      import { SkillsPanel } from './settings/extension-panels';
+      import './settings/settings.css';
+      import './desktop/31-extensions.css';
+      createRoot(document.getElementById('bots')).render(
+        <ArrangedSections
+          order={['bots', 'rooms', 'agents']}
+          present={{ bots: true, rooms: false, agents: false }}
+          blocks={{ bots: () => <MixyEmptyState onCreate={() => {}} />, rooms: () => null, agents: () => null }}
+        />
+      );
+      createRoot(document.getElementById('skills')).render(
+        <SkillsPanel
+          api={{}}
+          data={{ __loadedSections: ['skills'], skills: { skills: [] } }}
+          snapshot={{}}
+          pending=""
+          run={async () => undefined}
+          confirm={() => {}}
+          refreshExtensions={async () => {}}
+        />
+      );
+    `,
+    // Each page inside the rail column the shell gives it.
+    `<div id="frame" style="display:flex;width:520px;height:700px">
+      <aside class="utility-dock" style="display:flex;flex-direction:column;width:260px">
+        <div class="utility-dock-body" style="flex:1 1 0;min-height:0">
+          <div class="utility-dock-pane" style="height:100%">
+            <div id="bots" class="schedules-page agent-activity-page" data-page></div></div></div></aside>
+      <div class="session-sidebar-scroll session-sidebar-panels" style="display:flex;flex-direction:column;width:260px">
+        <div class="extensions-pane skills-pane schedules-pane"><div class="schedules-page" data-page>
+          <div class="pane-surface-gate"><div class="pane-surface-gate-content">
+            <div id="skills" class="capability-settings-content"></div></div></div></div></div></div></div>`
+  );
+  await page.waitForSelector('#bots .mixy-empty');
+  await page.waitForSelector('#skills .utility-dock-empty');
+  const measure = (selector) =>
+    page.$eval(selector, (empty) => {
+      const area = empty.closest('[data-page]');
+      const box = area.getBoundingClientRect();
+      const style = getComputedStyle(area);
+      const top = box.top + Number.parseFloat(style.paddingTop);
+      const bottom = box.bottom - Number.parseFloat(style.paddingBottom);
+      const content = empty.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(empty);
+      const text = range.getBoundingClientRect();
+      return {
+        pageHeight: box.height,
+        fills: content.height / (bottom - top),
+        dy: (text.top + text.bottom) / 2 - (top + bottom) / 2,
+      };
+    });
+  for (const height of [700, 420]) {
+    await resize(page, 520, height);
+    for (const [name, selector] of [
+      ['Bots', '#bots .mixy-empty'],
+      ['Skills', '#skills .utility-dock-empty'],
+    ]) {
+      const { pageHeight, fills, dy } = await measure(selector);
+      assert.ok(pageHeight > height - 40, `the ${name} page takes the ${height}px rail (${pageHeight})`);
+      assert.ok(fills > 0.99, `the ${name} empty state takes the page (${fills})`);
+      assert.ok(Math.abs(dy) < 1, `${name} centred at ${height}px (off by ${dy})`);
+    }
+  }
+});
+
 // A loading line under a stacked spinner sat about 12px below the middle.
 test('a loading state keeps its spinner beside the line, the line on the centre', async (t) => {
   const page = await openPage(

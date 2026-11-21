@@ -1714,9 +1714,20 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   font-weight: var(--mx-weight-regular);
 }
 .project-context-select .mx-select-trigger {
+  /* The chevron sits against the label in the text ink, as on the workflow
+     pill and the model trigger beside it. */
+  gap: 0;
+  padding: 0 8px 0 4px;
   outline: 0;
   box-shadow: none;
   line-height: var(--mx-line-ui);
+}
+.project-context-select .mx-select-trigger > svg {
+  width: var(--mx-icon-sm);
+  height: var(--mx-icon-sm);
+  flex: 0 0 var(--mx-icon-sm);
+  color: currentColor;
+  stroke: currentColor;
 }
 .project-context-select .mx-select-value {
   line-height: var(--mx-line-ui);
