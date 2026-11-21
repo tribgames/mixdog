@@ -1,4 +1,4 @@
-"""Validated Terminal-Bench routing profiles and config overlay helpers."""
+"""Validated Terminal-Bench routing profiles and the exec route-profile document."""
 
 from __future__ import annotations
 
@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import Any
 
 PROFILE_PATH = Path(__file__).with_name("route_profiles.json")
-PRISTINE_CONTRACT = json.loads(
-    (
-        Path(__file__).resolve().parents[3]
-        / "src/runtime/shared/pristine-execution-contract.json"
-    ).read_text(encoding="utf-8")
+PRISTINE_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "native/core/crates/mixdog-cli/src/exec/pristine-contract.json"
 )
+PRISTINE_CONTRACT = json.loads(PRISTINE_CONTRACT_PATH.read_text(encoding="utf-8"))
 PROFILE_ROLES = (
     "lead",
     "worker",
@@ -24,12 +23,6 @@ EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 ROUTE_FIELDS = {"provider", "model", "effort", "fast"}
 PROFILE_REQUIRED_FIELDS = {"routes"}
 PROFILE_OPTIONAL_FIELDS = {"leadFallback"}
-AGENT_CONFIG_KEYS = {
-    "worker": "worker",
-    "heavy-worker": "heavy-worker",
-    "reviewer": "reviewer",
-}
-PROFILE_LEAD_PRESET_ID = "terminal-bench-route-profile-lead"
 
 
 class RouteProfileError(ValueError):
@@ -136,58 +129,12 @@ def load_route_profile(
     return copy.deepcopy(profiles[profile_name])
 
 
-def build_benchmark_config(
-    profile: dict[str, Any], workflow: str = "headless"
-) -> dict[str, Any]:
-    """Build a deterministic config containing benchmark-owned routing only."""
-    validate_profile_document(
-        {"schemaVersion": 1, "profiles": {"selected": copy.deepcopy(profile)}}
-    )
-    selected_workflow = str(workflow or "").strip() or "headless"
-    routes = profile["routes"]
-    lead_route = copy.deepcopy(routes["lead"])
-    providers = {route["provider"] for route in routes.values()}
+def exec_route_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """The profile as `mixdog exec --route-profile` takes it: every role's route and the Lead fallback."""
+    document: dict[str, Any] = {"routes": copy.deepcopy(profile["routes"])}
     if "leadFallback" in profile:
-        providers.add(profile["leadFallback"]["provider"])
-    provider_config = {
-        provider: {
-            "enabled": True,
-            **({"websocket": True} if provider == "openai-oauth" else {}),
-        }
-        for provider in sorted(providers)
-    }
-    return {
-        "outputStyle": "simple",
-        "agent": {
-            **copy.deepcopy(PRISTINE_CONTRACT["agentDefaults"]),
-            "profile": {"language": "en"},
-            "providers": provider_config,
-            "presets": [
-                {
-                    "id": PROFILE_LEAD_PRESET_ID,
-                    "name": "TERMINAL BENCH ROUTE PROFILE LEAD",
-                    "type": "agent",
-                    "tools": "full",
-                    **copy.deepcopy(lead_route),
-                }
-            ],
-            "default": PROFILE_LEAD_PRESET_ID,
-            "workflow": {"active": selected_workflow},
-            "workflowRoutes": {"lead": copy.deepcopy(lead_route)},
-            "agents": {
-                config_key: copy.deepcopy(routes[role])
-                for role, config_key in AGENT_CONFIG_KEYS.items()
-                if role in routes
-            },
-            "modelSettings": {
-                f"{lead_route['provider']}/{lead_route['model']}": {
-                    "effort": lead_route["effort"],
-                    "fast": lead_route["fast"],
-                }
-            },
-            "mcpServers": {},
-        },
-    }
+        document["leadFallback"] = copy.deepcopy(profile["leadFallback"])
+    return document
 
 
 def reject_profile_conflicts(

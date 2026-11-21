@@ -39,6 +39,28 @@ impl Resident for Faulting {
     }
 }
 
+/// The request lines the Terminal-Bench harness sends the host to prove the judge answers
+/// (`benchmarks/terminal-bench-2.1/harness/effort-judge-requests.json`) are the host's own requests:
+/// each is read and answered with probabilities, none ends the host.
+#[test]
+fn the_benchmark_harness_requests_are_the_hosts_own() {
+    let fixture: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(include_str!("../../../../../../benchmarks/terminal-bench-2.1/harness/effort-judge-requests.json")).expect("the fixture");
+    assert_eq!(fixture.len(), 2, "a turn and a step");
+    let input: String = ["step", "turn"].iter().map(|name| format!("{}\n", fixture[*name])).collect();
+    let mut output = Vec::new();
+    let code = serve_resident(|| Ok(Arc::new(Faulting) as Arc<dyn Resident>), input.as_bytes(), &mut output);
+    let replies: Vec<serde_json::Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line.strip_prefix("MIXDOG-EFFORT-JUDGE ").expect("a tagged reply")).unwrap())
+        .collect();
+    assert_eq!(code, 0, "{replies:?}");
+    assert_eq!(replies.iter().map(|reply| reply["op"].as_str().unwrap()).collect::<Vec<_>>(), ["ready", "probs", "probs"]);
+    assert_eq!(replies[1]["probs"], serde_json::json!([1.0, 1.0, 0.25, 0.5]), "the step's number and its one call");
+    assert_eq!(replies[2]["probs"], serde_json::json!([0.1, 0.2, 0.3, 0.4]));
+}
+
 /// While this file is absent the host's load never ends (a native load that hangs).
 const STALL_ENV: &str = "MIXDOG_TEST_EFFORT_JUDGE_STALL";
 /// Where the host reports: it connects, says its pid, and keeps the connection while it lives.

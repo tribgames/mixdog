@@ -1737,7 +1737,7 @@ jobs:
         env:
           MIXDOG_SLOT: benchmark-harness
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/benchmark-harness.json
-        run: node scripts/ci/run-receipt.mjs unittest benchmarks/terminal-bench-2.1/harness/tests "test_[psu]*.py"
+        run: node scripts/ci/run-receipt.mjs unittest benchmarks/terminal-bench-2.1/harness/tests "test_[pstu]*.py"
       - name: Check that no skipped test of the mobile scripts and the harness is unreviewed
         run: node scripts/ci/check-skips.mjs receipts "$RUNNER_TEMP/receipts/mobile-scripts.json" "$RUNNER_TEMP/receipts/benchmark-harness.json"
       - name: Upload the evidence of this leg

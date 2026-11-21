@@ -3,10 +3,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { anthropicRow, leaseOf, preflight, scrubTokens, snapshotOf } from './anthropic_oauth_preflight_rust.mjs';
+import { anthropicRow, fileLeaseOf, leaseOf, preflight, scrubTokens, snapshotOf } from './anthropic_oauth_preflight_rust.mjs';
 
 const NOW = 1_800_000_000_000;
-const row = (overrides = {}) => ({ id: 'anthropic-oauth', authenticated: true, usable: true, reauthRequired: false, status: 'Valid', expiresAt: NOW + 3_600_000, ...overrides });
+let renewedPath = '';
+const row = (overrides = {}) => ({ id: 'anthropic-oauth', authenticated: true, usable: true, reauthRequired: false, status: 'Valid', expiresAt: NOW + 3_600_000, detail: renewedPath, ...overrides });
 
 test('the lease is read from the account status row', () => {
   assert.deepEqual(leaseOf(row(), 600_000, NOW), { expiresAt: NOW + 3_600_000, remainingMs: 3_600_000 });
@@ -17,6 +18,18 @@ test('the lease is read from the account status row', () => {
   assert.throws(() => leaseOf(row({ usable: false, status: 'Missing Scope' }), 0, NOW), /not usable \(Missing Scope\)/);
   assert.throws(() => leaseOf(undefined, 0, NOW), /no anthropic-oauth provider/);
   assert.equal(anthropicRow({ oauth: [{ id: 'openai-oauth' }, row()] }).id, 'anthropic-oauth');
+});
+
+test('the uploaded credential is identified by its token, not by its expiry', () => {
+  const at = NOW + 3_600_000;
+  const doc = (accessToken) => ({ claudeAiOauth: { accessToken, expiresAt: at } });
+  assert.deepEqual(fileLeaseOf(doc('tok-a-1234567890'), doc('tok-a-1234567890'), 600_000, NOW), { expiresAt: at, remainingMs: 3_600_000 });
+  assert.throws(() => fileLeaseOf(doc('tok-b-1234567890'), doc('tok-a-1234567890'), 600_000, NOW), (error) => {
+    assert.match(error.message, /not the credential the core renewed/);
+    assert.equal(/tok-|[a-f0-9]{64}/.test(error.message), false, 'neither the token nor its digest is printed');
+    return true;
+  });
+  assert.throws(() => fileLeaseOf(doc(''), doc(''), 0, NOW), /not the credential the core renewed/);
 });
 
 test('the snapshot never carries a refresh token, and the source document is left whole', () => {
@@ -35,7 +48,9 @@ test('a preflight writes the owner-only snapshot only after the lease is establi
   try {
     const credentialsPath = join(dir, 'creds.json');
     const snapshotPath = join(dir, 'snapshot.json');
+    renewedPath = join(dir, 'core-account.json');
     writeFileSync(credentialsPath, JSON.stringify({ claudeAiOauth: { accessToken: 'tok-1234567890', refreshToken: 'ref-1234567890', expiresAt: NOW + 3_600_000 } }));
+    writeFileSync(renewedPath, JSON.stringify({ claudeAiOauth: { accessToken: 'tok-1234567890', refreshToken: 'ref-1234567890', expiresAt: NOW + 3_600_000 } }));
     const calls = [];
     const setup = { oauth: [row()] };
     const attach = async () => ({
@@ -57,6 +72,12 @@ test('a preflight writes the owner-only snapshot only after the lease is establi
     rmSync(snapshotPath);
     await assert.rejects(preflight({ credentialsPath, minimumValidityMs: 600_000, snapshotPath, attach, now: () => NOW }), /cannot satisfy/);
     assert.throws(() => readFileSync(snapshotPath), /ENOENT/, 'no snapshot when the lease is short');
+
+    // A healthy core account never authorises another file's token, even one with the renewed token's expiry.
+    setup.oauth = [row()];
+    writeFileSync(credentialsPath, JSON.stringify({ claudeAiOauth: { accessToken: 'old-1234567890', expiresAt: NOW + 3_600_000 } }));
+    await assert.rejects(preflight({ credentialsPath, minimumValidityMs: 600_000, snapshotPath, attach, now: () => NOW }), /not the credential the core renewed/);
+    assert.throws(() => readFileSync(snapshotPath), /ENOENT/, 'no snapshot of a token the core did not renew');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -880,7 +880,7 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
-        ModelConfig::in_data_dir(data_dir, ort_library),
+        ModelConfig::for_core(data_dir, ort_library),
         mixdog_services::effort_judge::JudgeLanes::of(tokens),
         // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
         JudgeOptions { tick: tick.clone(), timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()), ..JudgeOptions::default() },

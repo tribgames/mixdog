@@ -1041,6 +1041,8 @@
         "benchmarks/terminal-bench-2.1/harness/tests/test_prebake_cache.py",
         "benchmarks/terminal-bench-2.1/harness/tests/test_provenance.py",
         "benchmarks/terminal-bench-2.1/harness/tests/test_src_overlay_manifest.py",
+        "benchmarks/terminal-bench-2.1/harness/tests/test_tmp_runtime_root.py",
+        "benchmarks/terminal-bench-2.1/harness/tests/test_trial_core.py",
         "benchmarks/terminal-bench-2.1/harness/tests/test_usage_summary.py"
       ],
       "requires": [
@@ -1211,7 +1213,7 @@
     {
       "glob": "benchmarks/terminal-bench-2.1/harness/tests/test_routing_profiles.py",
       "class": "not-run-by-decision",
-      "reason": "not run by decision: it reads src/runtime/shared/pristine-execution-contract.json, which is not tracked, so it fails on every checkout until that file is tracked",
+      "reason": "not run by decision: the gate's Python leg selects test_[pstu]*.py and this file is outside that selection; it no longer reads deleted runtime files and passes from a clean checkout (it stubs harbor itself)",
       "owner": "release-engineering"
     },
     {

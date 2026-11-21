@@ -58,6 +58,28 @@ impl ModelConfig {
     pub fn in_data_dir(data_dir: &Path, ort_library: OrtRuntime) -> Self {
         Self { dir: data_dir.join("models").join("effort-judge"), explicit: false, ort_library }
     }
+
+    /// The folder `named`, used as it is; else [`Self::in_data_dir`].
+    pub fn named_or_in_data_dir(named: Option<&Path>, data_dir: &Path, ort_library: OrtRuntime) -> Self {
+        match named.filter(|dir| !dir.as_os_str().is_empty()) {
+            Some(dir) => Self { dir: dir.to_path_buf(), explicit: true, ort_library },
+            None => Self::in_data_dir(data_dir, ort_library),
+        }
+    }
+
+    /// A composed core's folder: the one `mixdog exec` bound for its own core ([`bind_exec_judge_dir`]); else
+    /// [`Self::in_data_dir`]. A daemon binds none, so no environment of its own moves the desktop's judge.
+    pub fn for_core(data_dir: &Path, ort_library: OrtRuntime) -> Self {
+        Self::named_or_in_data_dir(EXEC_JUDGE_DIR.get().map(PathBuf::as_path), data_dir, ort_library)
+    }
+}
+
+static EXEC_JUDGE_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// `mixdog exec`'s `MIXDOG_EFFORT_JUDGE_DIR`, bound before it composes the core of its own process; `false` when a
+/// folder was already bound.
+pub fn bind_exec_judge_dir(dir: PathBuf) -> bool {
+    EXEC_JUDGE_DIR.set(dir).is_ok()
 }
 
 #[allow(clippy::disallowed_methods, reason = "a lane-job body, reached through `available`")]

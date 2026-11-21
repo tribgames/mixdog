@@ -127,6 +127,7 @@ fn execute(invocation: &Invocation) -> i32 {
                 effort: options.effort.clone(),
                 fast: options.fast,
                 provider_config: None,
+                route_profile: None,
                 web_search: options.web_search,
                 json: options.json,
                 cwd,

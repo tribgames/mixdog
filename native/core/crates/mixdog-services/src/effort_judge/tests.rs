@@ -34,6 +34,22 @@ fn a_custom_route_snaps_onto_its_own_levels() {
     assert_eq!(ladder(None).resolve(&hard), None);
 }
 
+/// A core's judge folder is the data directory's until `mixdog exec` binds its own, which is then used as it is; a daemon
+/// binds none, so the desktop's judge stays where it is installed.
+#[test]
+fn a_core_uses_the_data_directorys_judge_unless_the_exec_bound_its_folder() {
+    let ort = OrtRuntime::Library(PathBuf::from("ort"));
+    let data = std::path::Path::new("/data");
+    let installed = (data.join("models").join("effort-judge"), false);
+    let unbound = ModelConfig::for_core(data, ort.clone());
+    assert_eq!((unbound.dir, unbound.explicit), installed);
+    let empty = ModelConfig::named_or_in_data_dir(Some(std::path::Path::new("")), data, ort.clone());
+    assert_eq!((empty.dir, empty.explicit), installed);
+    assert!(crate::effort_judge::model::bind_exec_judge_dir(PathBuf::from("/opt/judge")));
+    let bound = ModelConfig::for_core(data, ort);
+    assert_eq!((bound.dir, bound.explicit), (PathBuf::from("/opt/judge"), true));
+}
+
 fn lane() -> crate::effort_judge::JudgeLanes {
     crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())
 }

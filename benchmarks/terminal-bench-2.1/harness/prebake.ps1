@@ -1,36 +1,25 @@
-# Build the host-side mixdog prebake cache (CC-prebaked parity), gzip-packed.
+# Build the host-side mixdog prebake cache (CC-prebaked parity) from the Rust core.
 #
-# The stock MixdogAgent.install() spends ~110s/trial installing NodeSource
-# node + `npm install -g mixdog` inside EVERY container (registry + apt on
-# the uplink, n-way concurrent). This script does that install ONCE in a
-# throwaway debian container and tars the resulting artifacts
-# (node binary + global node_modules + bin links) into
-#   mixdog-prebake/mixdog-node-prebake.tar.gz
-# which install() then `docker cp`s and extracts in seconds. Task images stay
-# untouched — this caches OUR agent's own dependency shell only, exactly like
-# the claude-code prebaked binary (cc-bin/).
+# Without it MixdogAgent.install() installs ripgrep and curl, provisions uv and
+# unpacks the staged core bundle inside EVERY container. This script does that
+# ONCE in a throwaway debian container and tars the result into
+#   mixdog-prebake/mixdog-core-prebake.tar.gz (+ .tar.zst and zstd-amd64)
+# which install() then `docker cp`s and extracts in seconds. The core is the
+# staged server bundle (apps/desktop/scripts/stage-core.mjs:
+# <runtime>/server-cores/linux-x64/bundle.tgz: mixdogd and its JS runtime),
+# which prebake-rust.ps1 checks against the server manifest's digest and the
+# pinned version and leaves as mixdog-prebake/mixdogd-linux-x64.tgz, the
+# bundle install() unpacks itself when there is no prebake. Task images stay
+# untouched — this caches OUR agent's own core and dependencies only, exactly
+# like the claude-code prebaked binary (cc-bin/).
 #
-# Re-run whenever the pinned package.json version changes. The src snapshot
-# overlay still replaces the whole source tree per run, so the cache only pins
-# the dependency shell, not mixdog code.
+# Re-run whenever the staged core or the pinned package.json version changes.
 param(
+    [Parameter(Mandatory = $true)][string]$ServerCores,
     [string]$Image = "debian:bookworm-slim",
-    [string]$MixdogVersion = "",
-    # Optional local `npm pack` artifact for versions not published yet.
-    # Registry installation remains the default release-reproduction path.
-    [string]$PackageTar = ""
+    [string]$MixdogVersion = ""
 )
 $ErrorActionPreference = "Stop"
-$packageMount = ""
-$packageSpec = ""
-if (-not [string]::IsNullOrWhiteSpace($PackageTar)) {
-    $resolvedPackageTar = (Resolve-Path -LiteralPath $PackageTar -ErrorAction Stop).Path
-    if (-not (Test-Path -LiteralPath $resolvedPackageTar -PathType Leaf)) {
-        throw "PackageTar must be a package archive file: $resolvedPackageTar"
-    }
-    $packageMount = ($resolvedPackageTar -replace '\\', '/')
-    $packageSpec = "/input/mixdog-package.tgz"
-}
 if ([string]::IsNullOrWhiteSpace($MixdogVersion)) {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
     $MixdogVersion = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
@@ -38,61 +27,29 @@ if ([string]::IsNullOrWhiteSpace($MixdogVersion)) {
 if ([string]::IsNullOrWhiteSpace($MixdogVersion) -or $MixdogVersion -eq "latest") {
     throw "MixdogVersion must be a pinned package version, not latest"
 }
-if (-not $packageMount) {
-    $packageSpec = "mixdog@$MixdogVersion"
-}
 $outDir = Join-Path (Split-Path $PSScriptRoot -Parent) "mixdog-prebake"
-New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+& (Join-Path $PSScriptRoot "prebake-rust.ps1") -ServerCores $ServerCores -MixdogVersion $MixdogVersion -OutDir $outDir
+$bundle = Join-Path $outDir "mixdogd-linux-x64.tgz"
+$bundleSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $bundle).Hash.ToLowerInvariant()
 $hostOut = $outDir -replace '\\', '/'
 $script = @'
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl ca-certificates ripgrep zstd
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y nodejs
-# Lifecycle scripts are skipped here for one reason only: the embedding prune
-# aborts the whole install on linux-x64 when the published tarball ships no
-# ONNX payload, and this cache deletes the entire embedding stack a few lines
-# below anyway. The OTHER half of that postinstall is not optional — it stages
-# the release native assets, including the search server behind the runtime's
-# grep/glob tools — so it runs explicitly right after.
-npm install -g __PACKAGE_SPEC__ --ignore-scripts
-MIXDOG_PKG="$(npm root -g)/mixdog"
-INSTALLED_VERSION="$(node -p "require('$MIXDOG_PKG/package.json').version")"
-test "$INSTALLED_VERSION" = "__VERSION__"
-(cd "$MIXDOG_PKG" && node scripts/prepare-native-assets.mjs)
-test -d "$MIXDOG_PKG/native-tools"
-# Native spawn is supplied by the local runtime bundle, never by this
-# dependency cache. Removing it makes a missing bundle fail closed.
-rm -f "$MIXDOG_PKG/native-tools/mixdog-spawn"
+apt-get install -y curl ca-certificates ripgrep zstd findutils
+# The bundle laid out as the server install lays it out (the payload's
+# entries beside mixdogd) and as install()'s stock path does
+# (mixdog_agent._core_install_shell).
+CORE=/opt/mixdog-core
+rm -rf "$CORE"; mkdir -p "$CORE"
+tar -xzf /out/mixdogd-linux-x64.tgz -C "$CORE"
+find "$CORE/payload" -mindepth 1 -maxdepth 1 -exec mv -t "$CORE" {} +
+rmdir "$CORE/payload"
+chmod 0755 "$CORE/mixdogd" "$CORE/js/node"
+ln -sf "$CORE/mixdogd" /usr/local/bin/mixdog
+ln -sf "$CORE/js/node" /usr/local/bin/node
+test "$(mixdog --version)" = "mixdogd __VERSION__"
 node --version
-mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
-# Bench containers never run local embeddings (memory features are disabled
-# by the pristine contract), and the ONNX/transformers stack is ~344MB of the
-# ~502MB dependency tree. Prune it from the bench-only shell, then prove the
-# session runtime still imports without it (all references are lazy).
-rm -rf "$MIXDOG_PKG/node_modules/onnxruntime-node" \
-  "$MIXDOG_PKG/node_modules/onnxruntime-web" \
-  "$MIXDOG_PKG/node_modules/@huggingface" \
-  "$MIXDOG_PKG/node_modules/@img/sharp-wasm32"
-# The benchmark runtime executes JavaScript only and never enables Node source
-# maps. Type declarations and source-map payloads are 53MB raw and cannot
-# affect runtime module resolution; keep licenses and executable JS intact.
-find "$MIXDOG_PKG/node_modules" -type f \
-  \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) \
-  -delete
-# Warm the V8 compile cache for the whole import graph while proving the
-# runtime still imports. Published deps are immutable across runs, so their
-# cache entries stay valid per trial; only overlaid src files recompile.
-mkdir -p /opt/mixdog-v8-cache
-NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
-(cd "$MIXDOG_PKG" && node --input-type=module -e "await import('sharp'); console.log('native imports ok after prune')")
-chmod -R a+rwX /opt/mixdog-v8-cache
-# Package managers are needed only while building this archive. Runtime source
-# overlay locates the installed package through the mixdog executable itself.
-rm -rf /usr/lib/node_modules/npm /usr/lib/node_modules/corepack
-rm -f /usr/bin/npm /usr/bin/npx /usr/bin/corepack
 # Static curl + CA bundle ride the tar so trials never pay the apt leg (the
 # apt-get update on curl-less task images was the 18-20s setup critical
 # path). Verified executable here before packing; install() only uses it
@@ -111,45 +68,39 @@ UV_INSTALL_DIR=/root/.local/bin sh /tmp/uv-install.sh
 rm -f /tmp/uv-install.sh
 /root/.local/bin/uv --version | grep -q '0.9.5'
 /root/.local/bin/uvx --version | grep -q '0.9.5'
-# Bin links are absolute symlinks into /usr/lib/node_modules — tar keeps them.
-# gzip: the raw tree is ~670MB; under 8-way concurrent trial setup the
-# docker-cp of that tar dominated (75s avg). ~3x smaller upload wins even
-# with the in-container gunzip cost.
-tar -C / -czf /out/mixdog-node-prebake.tar.gz \
-  usr/bin/node usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
-  root/.local/bin opt/mixdog-v8-cache opt/static-curl
+# gzip: ~3x smaller upload than the raw tree, which under 8-way concurrent
+# trial setup dominated the docker cp.
+tar -C / -czf /out/mixdog-core-prebake.tar.gz \
+  opt/mixdog-core usr/local/bin/mixdog usr/local/bin/node usr/bin/rg \
+  root/.local/bin opt/static-curl
 echo "prebake tar written"
 # zstd variant: ~same upload size at -19 but decompresses multi-threaded in
 # ~1s where gunzip takes 5-10s under 8-way concurrent trial setup. The zstd
 # BINARY ships alongside (apt/glibc task images all carry libzstd via dpkg,
 # but not necessarily the CLI); install() prefers this pair and falls back
 # to the .tar.gz when either file is missing or the binary refuses to run.
-tar -C / -I 'zstd -T0 -19' -cf /out/mixdog-node-prebake.tar.zst \
-  usr/bin/node usr/bin/mixdog usr/bin/rg usr/lib/node_modules \
-  root/.local/bin opt/mixdog-v8-cache opt/static-curl
+tar -C / -I 'zstd -T0 -19' -cf /out/mixdog-core-prebake.tar.zst \
+  opt/mixdog-core usr/local/bin/mixdog usr/local/bin/node usr/bin/rg \
+  root/.local/bin opt/static-curl
 cp /usr/bin/zstd /out/zstd-amd64
 echo "prebake zst written"
-'@ -replace '__VERSION__', $MixdogVersion -replace '__PACKAGE_SPEC__', $packageSpec
+'@ -replace '__VERSION__', $MixdogVersion
 # The here-string inherits this file's CRLF endings; bash -lc treats a
 # trailing \r as part of the command (exit 127), so normalize to LF.
 $script = $script -replace "`r", ""
-$dockerArgs = @("run", "--rm", "-v", "${hostOut}:/out")
-if ($packageMount) {
-    $dockerArgs += @("-v", "${packageMount}:/input/mixdog-package.tgz:ro")
-}
-$dockerArgs += @($Image, "bash", "-lc", $script)
-docker @dockerArgs
+docker run --rm -v "${hostOut}:/out" $Image bash -lc $script
 if ($LASTEXITCODE -ne 0) { throw "prebake build failed (exit $LASTEXITCODE)" }
-$tar = Join-Path $outDir "mixdog-node-prebake.tar.gz"
+$tar = Join-Path $outDir "mixdog-core-prebake.tar.gz"
 # Version stamp for the pre-run guard in run.ps1. install() verifies the same
 # version INSIDE the container, but that costs a full trial wave to discover;
 # the stamp lets a run fail in seconds when the cache is stale.
 $stamp = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     mixdogVersion = $MixdogVersion
     image         = $Image
+    bundleSha256  = $bundleSha
     builtAt       = (Get-Date).ToUniversalTime().ToString("o")
 }
 $stampPath = Join-Path $outDir "prebake.json"
 $stamp | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $stampPath -Encoding utf8
-"prebake ready: $tar ($([math]::Round((Get-Item $tar).Length/1MB)) MB) version=$MixdogVersion"
+"prebake ready: $tar ($([math]::Round((Get-Item $tar).Length/1MB)) MB) version=$MixdogVersion core=$($bundleSha.Substring(0, 12))"

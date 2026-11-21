@@ -56,7 +56,7 @@ mixdog-agent = { workspace = true, features = ["test-support"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-app-server-daemon = { workspace = true, features = ["replay-controls", "test-hooks"] }
 mixdog-browser-engine = { workspace = true, features = ["test-support"] }
-mixdog-cli = { workspace = true, features = ["crash-gates", "mixdog-core-session"] }
+mixdog-cli = { workspace = true, features = ["crash-gates"] }
 mixdog-core = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }

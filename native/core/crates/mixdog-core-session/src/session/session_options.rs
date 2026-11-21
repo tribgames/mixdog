@@ -12,6 +12,8 @@ use mixdog_core_prompt::prompt::real_sources::CODING_LEAD_PROFILE_REVISION;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use serde_json::json;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 /// `HEADLESS_MODEL_TOOL_NAMES` (`tool-profile.mjs:10`).
 const HEADLESS_MODEL_TOOL_NAMES: [&str; 17] = [
@@ -33,6 +35,41 @@ const HEADLESS_MODEL_TOOL_NAMES: [&str; 17] = [
     "office",
     "tidy",
 ];
+
+/// A headless session that may delegate (`disallowDelegation: false`, an exec run with a route profile): the headless
+/// tools and `agent`.
+const HEADLESS_DELEGATING_MODEL_TOOL_NAMES: [&str; 18] = [
+    "find",
+    "glob",
+    "list",
+    "grep",
+    "code_graph",
+    "read",
+    "edit",
+    "apply_patch",
+    "git",
+    "github",
+    "shell",
+    "task",
+    "load_tool",
+    "web_search",
+    "web_fetch",
+    "office",
+    "tidy",
+    "agent",
+];
+
+/// The header key that marks a headless session allowed to delegate.
+pub const HEADLESS_DELEGATION: &str = "headlessDelegation";
+
+/// Set by `mixdog exec` alone, on the core it composes in its own process, when its route profile gives agent roles
+/// routes. A daemon never sets it, so no `thread/start` caller opens delegation for a headless session by its fields.
+static EXEC_HEADLESS_DELEGATION: AtomicBool = AtomicBool::new(false);
+
+/// Lets this process's headless sessions that ask for delegation (`disallowDelegation: false`) hold `agent`.
+pub fn grant_exec_headless_delegation() {
+    EXEC_HEADLESS_DELEGATION.store(true, Ordering::SeqCst);
+}
 
 /// `HEARTBEAT_MODEL_TOOL_NAMES` (`tool-profile.mjs:31`).
 const HEARTBEAT_MODEL_TOOL_NAMES: [&str; 3] = ["session", "setup", "load_tool"];
@@ -62,7 +99,10 @@ pub fn model_tool_allowlist(profile: ToolProfile) -> Option<&'static [&'static s
 /// The allowlist of the profile a thread was started under (`toolProfile` on its header), which fences the
 /// standalone tools (`filterModelToolsForProfile`); a caller's own `schemaAllowedTools` does not.
 pub fn header_profile_allowlist(header: &Header) -> Option<&'static [&'static str]> {
-    header_tool_profile(header).and_then(model_tool_allowlist)
+    match header_tool_profile(header) {
+        Some(ToolProfile::Headless) if header.get(HEADLESS_DELEGATION) == Some(&Value::Bool(true)) => Some(&HEADLESS_DELEGATING_MODEL_TOOL_NAMES),
+        profile => profile.and_then(model_tool_allowlist),
+    }
 }
 
 /// The narrowed profile a thread was started under (`toolProfile` on its header); `None` for the interactive one.
@@ -79,9 +119,20 @@ pub fn header_tool_profile(header: &Header) -> Option<ToolProfile> {
 /// profile persists its schema allowlist; `toolSpecForMode` gives the tool spec; a switched-off
 /// feature denies its tools as a settings gate does.
 pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
+    write_header_granted(options, header, EXEC_HEADLESS_DELEGATION.load(Ordering::SeqCst));
+}
+
+/// [`write_header`] with the exec's grant ([`grant_exec_headless_delegation`]) as `exec_delegation`.
+fn write_header_granted(options: &ThreadSessionOptions, header: &mut Header, exec_delegation: bool) {
     let profile = options.tool_profile.unwrap_or(ToolProfile::Interactive);
-    // `modelToolSchemaAllowlist(rt.toolProfile)` (`boot/apis.mjs:429`).
-    if let Some(allowed) = model_tool_allowlist(profile) {
+    // `modelToolSchemaAllowlist(rt.toolProfile)` (`boot/apis.mjs:429`); a headless session gets `agent` only on the exec's
+    // grant and when it asks to delegate, so one that says nothing keeps the headless tools alone.
+    let delegating = exec_delegation && profile == ToolProfile::Headless && options.disallow_delegation == Some(false);
+    let allowed = if delegating { Some(&HEADLESS_DELEGATING_MODEL_TOOL_NAMES[..]) } else { model_tool_allowlist(profile) };
+    if delegating {
+        header.insert(HEADLESS_DELEGATION.into(), json!(true));
+    }
+    if let Some(allowed) = allowed {
         header.insert("schemaAllowedTools".into(), names(allowed));
         header.insert("toolProfile".into(), json!(if profile == ToolProfile::Headless { "headless" } else { "heartbeat" }));
     }
@@ -234,6 +285,42 @@ mod tests {
         assert_eq!(refusal(&surface, "read"), None);
         assert_eq!(refusal(&surface, "browser").as_deref(), Some("Error: tool \"browser\" is not available on this session's schema allowlist."));
         assert_eq!(refusal(&surface, "web_search").as_deref(), Some("Error: tool \"web_search\" is not available in this session."));
+    }
+
+    /// A headless session has `agent` exactly when the exec granted delegation and the session asks for it:
+    /// `disallowDelegation: false` opens it on the grant; `true`, nothing, or no grant keeps the headless tools alone.
+    #[test]
+    fn a_headless_session_has_the_agent_tool_exactly_when_it_may_delegate() {
+        for (granted, disallow, delegates) in
+            [(true, Some(false), true), (true, Some(true), false), (true, None, false), (false, Some(false), false), (false, None, false)]
+        {
+            let mut options = headless();
+            options.disallow_delegation = disallow;
+            let mut header = Header::new();
+            write_header_granted(&options, &mut header, granted);
+            let disallow = (granted, disallow);
+            let surface = SessionSurface::from_header(&header, Vec::new());
+            assert_eq!(refusal(&surface, "agent").is_none(), delegates, "{disallow:?}");
+            assert_eq!(header_profile_allowlist(&header).is_some_and(|tools| tools.contains(&"agent")), delegates, "{disallow:?}");
+            let listed = header["schemaAllowedTools"].as_array().unwrap().iter().any(|tool| tool == "agent");
+            assert_eq!(listed, delegates, "{disallow:?}");
+            assert_eq!(refusal(&surface, "read"), None, "{disallow:?}: the headless tools stay");
+            assert!(refusal(&surface, "browser").is_some(), "{disallow:?}: the fence stays");
+            assert_eq!(header.contains_key(HEADLESS_DELEGATION), delegates, "{disallow:?}");
+        }
+    }
+
+    /// A daemon's `thread/start` (no exec grant in its process) asking for a headless session with `disallowDelegation:
+    /// false` gets no `agent` tool.
+    #[test]
+    fn a_daemon_thread_start_cannot_open_headless_delegation_by_its_fields() {
+        let mut options = headless();
+        options.disallow_delegation = Some(false);
+        let mut header = Header::new();
+        write_header(&options, &mut header);
+        let surface = SessionSurface::from_header(&header, Vec::new());
+        assert!(refusal(&surface, "agent").is_some());
+        assert!(!header.contains_key(HEADLESS_DELEGATION));
     }
 
     #[test]

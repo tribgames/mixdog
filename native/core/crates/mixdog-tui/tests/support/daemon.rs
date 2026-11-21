@@ -91,6 +91,8 @@ impl Workspace {
             effort: None,
             fast: false,
             provider_config: None,
+            route_profile: None,
+            agents_dir: &host_data,
             host_env: &host_env,
             host_data_dir: &host_data,
             temp_dir: tmp,

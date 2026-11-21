@@ -33,6 +33,8 @@ pub struct ThreadInfo {
     pub effort: Option<String>,
     pub fast: bool,
     pub cwd: String,
+    /// The Lead may spawn agent roles (`--route-profile`).
+    pub delegation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +108,7 @@ pub struct Lifecycle {
     fast: bool,
     cwd: String,
     web_search: bool,
+    delegation: bool,
     started: bool,
     turn_started_at: i64,
     item_sequence: u64,
@@ -188,6 +191,7 @@ impl Lifecycle {
             fast: *fast,
             cwd: clean(Some(cwd)).to_owned(),
             web_search,
+            delegation: false,
             started: false,
             turn_started_at: 0,
             item_sequence: 0,
@@ -243,6 +247,7 @@ impl Lifecycle {
         self.effort = Some(clean(info.effort.as_deref())).filter(|v| !v.is_empty()).map(str::to_owned).or(self.effort.clone());
         self.fast = info.fast || self.fast;
         self.cwd = Some(clean(Some(&info.cwd))).filter(|v| !v.is_empty()).map_or(self.cwd.clone(), str::to_owned);
+        self.delegation = info.delegation;
         self.turn_started_at = (self.now)();
         self.started = true;
         self.emit(
@@ -261,7 +266,7 @@ impl Lifecycle {
                         // (`headless-json-lifecycle.mjs:153`): a read-only run says `full` too.
                         "tool_mode": "full",
                         "approval_mode": "implicit",
-                        "delegation": false,
+                        "delegation": self.delegation,
                         "web_search": self.web_search,
                     }),
                 ),
@@ -281,6 +286,7 @@ impl Lifecycle {
                 effort: self.effort.clone(),
                 fast: self.fast,
                 cwd: self.cwd.clone(),
+                delegation: self.delegation,
             };
             self.start(&info);
         }

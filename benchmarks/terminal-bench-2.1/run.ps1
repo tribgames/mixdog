@@ -23,7 +23,43 @@ $presetPath = Join-Path $benchRoot "presets.json"
 $routePath = Join-Path $benchRoot "harness/route_profiles.json"
 $runnerPath = Join-Path $benchRoot "harness/run-tb21.ps1"
 $reportPath = Join-Path $benchRoot "analysis/run-report.mjs"
-$contractPath = Join-Path $benchRoot "analysis/contract-hash.mjs"
+
+function Resolve-TrialCore {
+    # The core every trial installs (harness/trial_core.py): the staged Linux
+    # bundle, and the prebake only when its stamp names that bundle.
+    Push-Location $benchRoot
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& python -m harness.trial_core 2>&1 | ForEach-Object { "$_" })
+        $exit = $LASTEXITCODE
+        $ErrorActionPreference = "Stop"
+    }
+    finally {
+        Pop-Location
+    }
+    if ($exit -ne 0) { throw "no core for the trials: $($output -join [Environment]::NewLine)" }
+    return ($output[-1] | ConvertFrom-Json)
+}
+
+function Get-ContractDigestArgs($Core, [string[]]$DigestArgs) {
+    # The digest runs on the trials' own core: the bundle unpacked in a Linux
+    # container the way install() unpacks it, its own node running the digest.
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    $authDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else {
+        Join-Path $(if ($env:MIXDOG_HOME) { $env:MIXDOG_HOME } else { Join-Path $HOME ".mixdog" }) "data"
+    }
+    $script = 'set -eu; mkdir -p /opt/mixdog-core; tar -xzf /core/bundle.tgz -C /opt/mixdog-core; ' +
+        'find /opt/mixdog-core/payload -mindepth 1 -maxdepth 1 -exec mv -t /opt/mixdog-core {} +; rmdir /opt/mixdog-core/payload; ' +
+        'exec /opt/mixdog-core/js/node /repo/benchmarks/terminal-bench-2.1/analysis/contract-hash-rust.mjs ' +
+        '--mixdogd /opt/mixdog-core/mixdogd --auth-dir /auth --repo-root /repo "$@"'
+    return @(
+        "run", "--rm", "--platform", "linux/amd64",
+        "-v", "$([IO.Path]::GetFullPath([string]$Core.bundle)):/core/bundle.tgz:ro",
+        "-v", "${repoRoot}:/repo:ro",
+        "-v", "${authDir}:/auth:ro",
+        "debian:bookworm-slim", "sh", "-c", $script, "sh"
+    ) + $DigestArgs
+}
 
 function Resolve-JobsPath([string]$Path) {
     if ([IO.Path]::IsPathRooted($Path)) {
@@ -33,24 +69,31 @@ function Resolve-JobsPath([string]$Path) {
 }
 
 function Assert-PrebakeCurrent {
-    # The container install verifies that the prebaked dependency shell matches
-    # the pinned package version and exits 1 otherwise — which only surfaces
+    # The container install verifies that the prebaked core matches the
+    # pinned package version and exits 1 otherwise — which only surfaces
     # after a full trial wave has been set up and torn down. Check the same
     # thing here, in seconds, before any container starts.
     $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
     $pinned = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
     $tarPath = [string]$env:MIXDOG_TB_PREBAKE_TAR
     if ([string]::IsNullOrWhiteSpace($tarPath)) {
-        $tarPath = Join-Path $benchRoot "mixdog-prebake/mixdog-node-prebake.tar.gz"
+        $tarPath = Join-Path $benchRoot "mixdog-prebake/mixdog-core-prebake.tar.gz"
     }
     if (-not (Test-Path -LiteralPath $tarPath -PathType Leaf)) {
-        # No cache: install() runs the stock installer path. Slower, valid.
-        "prebake none (stock installer), pinned=$pinned"
+        # No cache: install() installs the staged core bundle itself. Slower, valid.
+        $bundlePath = [string]$env:MIXDOG_TB_CORE_BUNDLE
+        if ([string]::IsNullOrWhiteSpace($bundlePath)) {
+            $bundlePath = Join-Path $benchRoot "mixdog-prebake/mixdogd-linux-x64.tgz"
+        }
+        if (-not (Test-Path -LiteralPath $bundlePath -PathType Leaf)) {
+            throw "no core to install: neither the prebake ($tarPath) nor the core bundle ($bundlePath) exists; build them with harness/prebake.ps1 -ServerCores <server-cores> (or harness/prebake-rust.ps1 for the bundle alone)"
+        }
+        "prebake none (core bundle $bundlePath), pinned=$pinned"
         return
     }
     $prebakeDir = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($tarPath))
     $stampPath = Join-Path $prebakeDir "prebake.json"
-    $rebuildHint = "rebuild with: pwsh -NoLogo -NoProfile -File harness/prebake.ps1"
+    $rebuildHint = "rebuild with: pwsh -NoLogo -NoProfile -File harness/prebake.ps1 -ServerCores <server-cores>"
     if (-not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {
         throw "prebake stamp missing ($stampPath); $rebuildHint"
     }
@@ -69,7 +112,7 @@ function Assert-PrebakeCurrent {
     }
     $stampTime = (Get-Item -LiteralPath $stampPath).LastWriteTimeUtc
     $newer = Get-ChildItem -LiteralPath $prebakeDir -File |
-        Where-Object { $_.Name -like 'mixdog-node-prebake.*' -and $_.LastWriteTimeUtc -gt $stampTime } |
+        Where-Object { $_.Name -like 'mixdog-core-prebake.*' -and $_.LastWriteTimeUtc -gt $stampTime } |
         Select-Object -ExpandProperty Name
     if ($newer) {
         throw "prebake artifacts newer than stamp ($($newer -join ', ')); $rebuildHint"
@@ -92,11 +135,6 @@ function Get-EffortJudgeBundleProblem([string]$Mode, [string]$TarPath, [string]$
     }
     if ([string]$stamp.release -ne $Release) {
         return "effort-judge bundle holds $($stamp.release) but the manifest names $Release"
-    }
-    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
-    $runtime = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).dependencies.'onnxruntime-node')
-    if ([string]::IsNullOrWhiteSpace($runtime) -or [string]$stamp.onnxruntime -ne $runtime) {
-        return "effort-judge bundle ONNX Runtime $($stamp.onnxruntime) != pinned $runtime"
     }
     if ($Mode -eq "steps" -and $stamp.steps -ne $true) {
         return "effort judge $Release is not step-trained; -EffortJudge steps needs one"
@@ -329,29 +367,14 @@ if ($agentEnvEntries.Count -gt 0) {
     $runnerArgs.AgentEnv = [string[]]$agentEnvEntries
 }
 
-if ($DryRun) {
-    & $runnerPath @runnerArgs
-    exit $LASTEXITCODE
-}
-
-if ((Test-Path -LiteralPath $resolvedJobsDir) -and
-    @(Get-ChildItem -LiteralPath $resolvedJobsDir -Force).Count -gt 0) {
-    throw "JobsDir must be empty for a new preset run: $resolvedJobsDir"
-}
-New-Item -ItemType Directory -Path $resolvedJobsDir -Force | Out-Null
-$manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
-# What actually ran: the runner records the source commit, whether the tree
-# matched it, and the digests of the uploaded runtime bundle. A published score
-# without this names no source, so it is merged into the manifest below and
-# archived with the run.
-$provenancePath = Join-Path $resolvedJobsDir "runtime-provenance.json"
-$runnerArgs.ProvenanceOut = $provenancePath
 # The fingerprint pins the run definition (dataset, suite, routes, concurrency,
 # attempts, retries, effort judge), not the prompt surface. Capture the prompt surface —
 # rules and tool schemas as the container will see them — before the snapshot
-# is taken, so the report identifies the exact contract under measurement.
+# is taken, so the report identifies the exact contract under measurement. A
+# dry run takes it too, so it proves the digest step a real run depends on.
+$trialCore = Resolve-TrialCore
+"core bundle $($trialCore.bundleSha256.Substring(0, 12)) ($($trialCore.bundle))"
 $contractArgs = @(
-    $contractPath,
     "--provider", [string]$lead.provider,
     "--model", [string]$lead.model,
     "--workflow", "headless"
@@ -371,7 +394,8 @@ if ($null -ne $leadFallback) {
         "--fallback-model", [string]$leadFallback.model
     )
 }
-$contractJson = & node @contractArgs
+$docker = if ($env:MIXDOG_TB_DOCKER) { $env:MIXDOG_TB_DOCKER } else { "docker" }
+$contractJson = & $docker @(Get-ContractDigestArgs $trialCore $contractArgs)
 if ($LASTEXITCODE -ne 0) {
     throw "contract digest failed (exit $LASTEXITCODE)"
 }
@@ -383,11 +407,31 @@ if ($null -eq $contract.rulesHash -or $null -eq $contract.toolContractHash -or $
     throw "contract digest missing rulesHash, toolContractHash, or promptSurfaceHash"
 }
 "contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolContractHash.Substring(7, 12)) catalog=$($contract.toolCount) active=$($contract.activeToolCount) provider-tools=$($contract.providerToolCount)"
+
+if ($DryRun) {
+    & $runnerPath @runnerArgs
+    exit $LASTEXITCODE
+}
+
+if ((Test-Path -LiteralPath $resolvedJobsDir) -and
+    @(Get-ChildItem -LiteralPath $resolvedJobsDir -Force).Count -gt 0) {
+    throw "JobsDir must be empty for a new preset run: $resolvedJobsDir"
+}
+New-Item -ItemType Directory -Path $resolvedJobsDir -Force | Out-Null
+$manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
+# What actually ran: the runner records the source commit, whether the tree
+# matched it, and the digests of the uploaded runtime bundle. A published score
+# without this names no source, so it is merged into the manifest below and
+# archived with the run.
+$provenancePath = Join-Path $resolvedJobsDir "runtime-provenance.json"
+$runnerArgs.ProvenanceOut = $provenancePath
 $manifest = [ordered]@{
     schemaVersion = 1
     preset        = $Preset
     fingerprint   = $fingerprint
     contract      = $contract
+    # The core the trials install, which the contract above was taken on.
+    core          = [ordered]@{ bundleSha256 = [string]$trialCore.bundleSha256; prebake = [bool]$trialCore.prebake }
     startedAt     = (Get-Date).ToUniversalTime().ToString("o")
     definition    = $definition
     # Provenance for env-switch A/B runs. Only MIXDOG_* switches are recorded

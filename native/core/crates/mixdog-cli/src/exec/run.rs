@@ -49,6 +49,8 @@ pub struct Host<'a> {
     pub credentials: &'a dyn HostCredentials,
     pub host_env: BTreeMap<String, String>,
     pub host_data_dir: PathBuf,
+    /// The shipped agent definitions a route profile's roles must name.
+    pub agents_dir: PathBuf,
     pub temp_dir: PathBuf,
     pub sink: Arc<dyn Sink>,
     pub now: Clock,
@@ -212,7 +214,13 @@ async fn ask(
     }
 }
 
-fn thread_start_params(opts: &ExecOptions, route: &Route) -> Value {
+/// The run's config gives agent roles routes (`--route-profile`), so its Lead may spawn them.
+pub(super) fn delegates(boundary: &Boundary) -> bool {
+    boundary.runtime_config["agents"].as_object().is_some_and(|agents| !agents.is_empty())
+}
+
+/// `delegation`: [`delegates`] of the run's boundary.
+pub(super) fn thread_start_params(opts: &ExecOptions, route: &Route, delegation: bool) -> Value {
     let mut selection = json!({ "provider": route.provider, "model": route.model });
     if let Some(effort) = &route.effort {
         selection["effort"] = json!(effort);
@@ -229,7 +237,7 @@ fn thread_start_params(opts: &ExecOptions, route: &Route) -> Value {
             "toolProfile": "headless",
             "toolMode": opts.tool_mode.as_str(),
             "approvalMode": "implicit",
-            "disallowDelegation": true,
+            "disallowDelegation": !delegation,
             "autoWakeCompletions": false,
             "webSearch": opts.web_search,
             "memory": false,
@@ -252,6 +260,8 @@ async fn execute(
         effort: route.effort.as_deref(),
         fast: route.fast,
         provider_config: opts.provider_config.as_deref(),
+        route_profile: opts.route_profile.as_deref(),
+        agents_dir: &host.agents_dir,
         host_env: &host.host_env,
         host_data_dir: &host.host_data_dir,
         temp_dir: &host.temp_dir,
@@ -261,7 +271,8 @@ async fn execute(
     let (tap, mut feed) = FeedTap::new();
     let session = host.launcher.launch(&boundary, tap).await?;
     set(&handles.session, session.clone());
-    let started = session.call("thread/start", thread_start_params(opts, route)).await?;
+    let delegation = delegates(&boundary);
+    let started = session.call("thread/start", thread_start_params(opts, route, delegation)).await?;
     let thread_id = started.pointer("/thread/id").and_then(Value::as_str).ok_or("thread/start answered without a thread id")?.to_owned();
     // A JSON run's session carries the id its stream reserved (`reserveSessionId`), the usage document's included.
     state.session_id = state.lifecycle.as_ref().map_or_else(|| thread_id.clone(), |lifecycle| lifecycle.thread_id().to_owned());
@@ -276,6 +287,7 @@ async fn execute(
             effort: route.effort.clone(),
             fast: route.fast,
             cwd: opts.cwd.to_string_lossy().into_owned(),
+            delegation,
         });
     }
     // Exit never waits on running background work: a job the model left running on purpose has no
