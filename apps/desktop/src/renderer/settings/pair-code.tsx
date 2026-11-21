@@ -127,6 +127,7 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
   return (
     <div className="conn-code">
       {code ? (
+        // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the tile; only the group role is wanted
         <div className="conn-code-tile" role="group" aria-label={t('6-digit code')}>
           <b>{formatPairCode(code.code)}</b>
         </div>
@@ -164,7 +165,7 @@ export function PairCodeBlock({ pair }: { pair: PairCodeState }) {
 export function AddressRow({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="conn-address" aria-label={address}>
+    <div className="conn-address">
       <code title={address}>{address}</code>
       <button
         type="button"

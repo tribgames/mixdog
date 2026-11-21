@@ -177,7 +177,8 @@ async function servePage(request: IncomingMessage, response: ServerResponse): Pr
 const pageOf = (root: string) => {
   const token = `t${folders.size}`;
   folders.set(token, root);
-  return `http://127.0.0.1:${(pageServer?.address() as AddressInfo).port}/${token}/page.html`;
+  if (!pageServer) throw new Error('the page server is not listening');
+  return `http://127.0.0.1:${(pageServer.address() as AddressInfo).port}/${token}/page.html`;
 };
 const READ = 'storageState()';
 

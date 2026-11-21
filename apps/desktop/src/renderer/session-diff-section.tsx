@@ -137,6 +137,7 @@ const SessionDiffSection = memo(function SessionDiffSection({
     ? t('Expand {{label}}', { label: fileBaseName(row.path) })
     : t('Collapse {{label}}', { label: fileBaseName(row.path) });
   return (
+    // biome-ignore lint/a11y/useSemanticElements: each file's diff is a section of a virtualized list, not a list-item box
     <section
       className="session-diff-section"
       role="listitem"

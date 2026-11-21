@@ -101,6 +101,7 @@ export function ConnDialog({
         if (scrimCloses) scrimRef.current();
       })}
     >
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is dialog or alertdialog, both of which take aria-modal */}
       <section ref={ref} className="conn-dialog" role={role} aria-modal="true" aria-labelledby={`${id}-title`}>
         <header>
           <h3 id={`${id}-title`}>{title}</h3>

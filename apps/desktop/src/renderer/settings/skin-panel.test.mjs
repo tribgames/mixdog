@@ -297,6 +297,56 @@ test('the custom-picture dialog scrim closes on a tap (pointerdown + click), not
   await act(async () => dom.root.render(null));
 });
 
+test('the custom-picture subject position has one labelled slider per axis; the picture is pointer-only', async (t) => {
+  const dom = installTestDom(t, { rootId: 'root', expose: ['Event', 'HTMLElement', 'HTMLInputElement'] });
+  const { SkinCustomDialog } = await import('./skin-custom-dialog');
+  const prepared = {
+    dataUrl: 'data:image/jpeg;base64,/9j/',
+    accent: '#336699',
+    cast: { hue: 210, sat: 50 },
+    picture: '#808080',
+    swatches: ['#336699'],
+  };
+  await act(async () =>
+    dom.root.render(React.createElement(SkinCustomDialog, { prepared, onClose() {}, onApplied() {} }))
+  );
+  const { document, window } = dom;
+  const focal = document.querySelector('.skin-focal');
+  assert.equal(focal.getAttribute('aria-hidden'), 'true', 'the picture is not announced');
+  assert.equal(focal.getAttribute('role'), null);
+  assert.equal(focal.hasAttribute('tabindex'), false, 'and is not a tab stop');
+  assert.equal(document.querySelector('fieldset.skin-focal-axes').getAttribute('aria-label'), 'Subject position');
+  const sliders = [...document.querySelectorAll('.skin-focal-axes input[type="range"]')];
+  const nameOf = (input) => document.getElementById(input.getAttribute('aria-labelledby')).textContent;
+  assert.deepEqual(sliders.map(nameOf), ['Horizontal position', 'Vertical position']);
+  const [across, down] = sliders;
+  const read = () => [
+    across.value,
+    across.getAttribute('aria-valuetext'),
+    down.value,
+    down.getAttribute('aria-valuetext'),
+  ];
+  assert.deepEqual(read(), ['50', '50%', '50', '50%']);
+  // What the browser does on an arrow key: steps the focused range and fires input.
+  const step = (input, by) =>
+    act(async () => {
+      input.focus();
+      const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setValue.call(input, String(Number(input.value) + by * Number(input.step)));
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  const before = focal.dataset.focal;
+  await step(across, 1);
+  assert.deepEqual(read(), ['51', '51%', '50', '50%'], 'horizontal moves alone');
+  await step(down, 1);
+  await step(down, 1);
+  assert.deepEqual(read(), ['51', '51%', '52', '52%'], 'vertical moves alone');
+  assert.notEqual(focal.dataset.focal, before, 'the pin follows');
+  await step(across, -1);
+  assert.deepEqual(read(), ['50', '50%', '52', '52%']);
+  await act(async () => dom.root.render(null));
+});
+
 test('the None preview shows the theme, not a retained accent override', async (t) => {
   const { card, preview, skin, root, html } = await mountPanel(t);
   await act(async () => card('glass-flow').click());

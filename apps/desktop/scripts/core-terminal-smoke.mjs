@@ -77,6 +77,7 @@ async function waitFor(what, ms, probe) {
 
 // ───────────────────────────── output of one tab on one connection ─────────────────────────────
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches terminal escape sequences, which ESC introduces and BEL can terminate
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>]/g;
 
 /** What one connection read of a tab's feed `process:<tab>`: the frames' stamps in order, the output as lines, and the exit. */

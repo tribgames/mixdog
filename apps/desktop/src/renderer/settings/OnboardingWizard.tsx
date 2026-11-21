@@ -507,7 +507,7 @@ function GitStep({ api }: { api: DesktopApi }) {
     } finally {
       setIdentityBusy(false);
     }
-  }, [api]);
+  }, [api, setAccount]);
 
   useEffect(() => {
     if (flowState !== 'success' || !flowId) return;

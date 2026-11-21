@@ -122,6 +122,7 @@ function LoginList({
     <>
       {loaded && !noLogins && (
         <>
+          {/* biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the segmented control; only the group role is wanted */}
           <div className="auth-seg" role="group" aria-label={t('Logins')}>
             {filters.map(([value, label, count]) => (
               <button

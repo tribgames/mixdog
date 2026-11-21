@@ -271,7 +271,7 @@ function WebPushToggle({ api }: { api: PushApi }) {
         })
         .finally(() => setBusy(false));
     },
-    [api, busy]
+    [api, busy, setEnabled, setNote, setPcs]
   );
 
   if (unavailable) return <p className="settings-connection-note">{unavailableNote(unavailable)}</p>;

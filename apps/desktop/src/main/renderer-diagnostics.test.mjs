@@ -102,6 +102,7 @@ test('notice text is collapsed and bounded', () => {
     fingerprint: '00ff00ff',
     message: `line one\n\tline\u0000two ${'x'.repeat(400)}`,
   });
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: asserts the NUL in the input was stripped
   assert.ok(!/[\n\t\u0000]/.test(String(details.message)));
   assert.ok(String(details.message).startsWith('line one line two '));
   assert.equal(String(details.message).length, 300);

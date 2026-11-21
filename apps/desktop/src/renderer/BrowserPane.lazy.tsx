@@ -269,7 +269,7 @@ function useBorrowedPageGone(
     const received = () => setTabsReceived(true);
     view.addEventListener('tabs-changed', received);
     return () => view.removeEventListener('tabs-changed', received);
-  }, []);
+  }, [webviewRef]);
   const borrowedGone = borrowed && tabsReceived && !stripTabCount;
   useEffect(() => {
     if (!borrowedGone) return;

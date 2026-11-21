@@ -30,10 +30,11 @@ test('all three connecting-side surfaces carry the identical layout CSS', () => 
   assert.ok(connectHtml().includes(css), '/connect');
   assert.ok(read('./remote-pairing-screen.ts').includes(css), 'web pairing layer');
   assert.doesNotMatch(css, /border-radius:22px/, 'no floating card');
-  // The layer is exactly the viewport and never grows with its content.
+  // The layer is exactly the viewport and never grows with its content; 100vh
+  // stands where dvh units are unsupported.
   assert.match(
     css,
-    /\.mxp-screen\{[^}]*position:fixed;inset:0;height:100vh;height:100dvh;max-height:100dvh;[^}]*overflow:hidden/
+    /\.mxp-screen\{[^}]*position:fixed;inset:0;height:100vh;max-height:100dvh;[^}]*overflow:hidden[^}]*\}\.mxp-screen\{height:100dvh\}/
   );
   assert.match(
     css,

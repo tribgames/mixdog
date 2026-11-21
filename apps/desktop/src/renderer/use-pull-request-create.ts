@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { DesktopPullRequestEntry } from '../shared/contract';
 import { errorMessage } from './editor-pane-session-errors';
+import { t } from './i18n';
 import { titleFromBranch } from './pull-requests-model';
 
 type PullRequestCreateHost = NonNullable<Window['mixdogDesktop']>;
@@ -64,7 +65,7 @@ export function usePullRequestCreate({
     )
       return;
     if (!api?.ghPrCreate) {
-      setError('Pull request creation is unavailable in this host.');
+      setError(t('Pull request creation is unavailable in this host.'));
       return;
     }
     setBusy('create');

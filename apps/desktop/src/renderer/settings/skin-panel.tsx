@@ -121,6 +121,7 @@ export function Segmented<T extends string>({
   onPreview?(value: T | null): void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the segmented control; only the group role is wanted
     <div className="skin-seg" role="group" aria-label={label}>
       {options.map((option) => (
         <button
@@ -227,6 +228,7 @@ export function SkinPanel(_props: Partial<PanelContext>) {
             title={t('Accent color')}
             description={t('Colors the New task and send buttons and the message box outline.')}
           >
+            {/* biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the swatch row; only the group role is wanted */}
             <div className="skin-swatches" role="group" aria-label={t('Accent color')}>
               <button
                 type="button"

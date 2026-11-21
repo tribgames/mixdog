@@ -73,6 +73,7 @@ function Card({
   onChoose(id: string): void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a preview card holds rich content an input cannot; the radio group runs its own roving focus
     <button
       type="button"
       role="radio"

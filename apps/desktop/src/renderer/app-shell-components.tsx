@@ -146,6 +146,7 @@ export const loadSidebarPanelModule = {
  *  the neutral first-read surface until then. A failed import throws to the
  *  panel boundary; its retry builds a fresh pane, whose load starts again. */
 function deferredSidebarPane<M, P extends object>(module: DeferredModule<M>, pick: (loaded: M) => ComponentType<P>) {
+  // biome-ignore lint/correctness/noComponentHookFactories: callers keep each pane in state and build a fresh one only to retry a failed import
   return function DeferredSidebarPane(props: P) {
     const loaded = useDeferredModule(module);
     if (!loaded) return <InitialSurface />;

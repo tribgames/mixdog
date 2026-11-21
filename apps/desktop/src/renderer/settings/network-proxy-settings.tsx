@@ -39,7 +39,10 @@ const invoke = async <T,>(capability: 'getNetworkProxy' | 'setNetworkProxy' | 't
 
 /** `text` with `code` spans where it has backticks. */
 function withCode(text: string): ReactNode {
-  return text.split(/`([^`]+)`/).map((part, index) => (index % 2 ? <code key={index}>{part}</code> : part));
+  return text.split(/`([^`]+)`/).map((part, index) =>
+    // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one fixed string, in order
+    index % 2 ? <code key={index}>{part}</code> : part
+  );
 }
 
 function systemName(route: NetworkProxyRoute): string {

@@ -20,15 +20,15 @@ function movePaletteIndex(
 ): boolean {
   if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !paletteOwnsPromptVerticalArrow(count)) return false;
   const last = count - 1;
-  const moves: Record<string, (index: number) => number> = {
-    ArrowDown: (index) => (index + 1) % count,
-    ArrowUp: (index) => (index - 1 + count) % count,
-    Home: () => 0,
-    End: () => last,
-    PageUp: (index) => Math.max(0, index - 8),
-    PageDown: (index) => Math.min(last, index + 8),
-  };
-  const move = moves[event.key];
+  const moves = new Map<string, (index: number) => number>([
+    ['ArrowDown', (index) => (index + 1) % count],
+    ['ArrowUp', (index) => (index - 1 + count) % count],
+    ['Home', () => 0],
+    ['End', () => last],
+    ['PageUp', (index) => Math.max(0, index - 8)],
+    ['PageDown', (index) => Math.min(last, index + 8)],
+  ]);
+  const move = moves.get(event.key);
   if (!move) return false;
   event.preventDefault();
   setIndex(move);
@@ -307,15 +307,15 @@ export function useComposerKeyboard({
         return true;
       }
       const last = selector.messages.length - 1;
-      const moves: Record<string, (index: number) => number> = {
-        ArrowDown: (index) => Math.min(last, index + 1),
-        ArrowUp: (index) => Math.max(0, index - 1),
-        Home: () => 0,
-        End: () => last,
-        PageUp: (index) => Math.max(0, index - 8),
-        PageDown: (index) => Math.min(last, index + 8),
-      };
-      const move = moves[event.key];
+      const moves = new Map<string, (index: number) => number>([
+        ['ArrowDown', (index) => Math.min(last, index + 1)],
+        ['ArrowUp', (index) => Math.max(0, index - 1)],
+        ['Home', () => 0],
+        ['End', () => last],
+        ['PageUp', (index) => Math.max(0, index - 8)],
+        ['PageDown', (index) => Math.min(last, index + 8)],
+      ]);
+      const move = moves.get(event.key);
       if (!move) return false;
       event.preventDefault();
       selector.setIndex(move);

@@ -202,6 +202,7 @@ function TodoRows({
   return (
     <>
       {items.map(({ task, phase }, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: steps carry no id and stay in plan order; the rows hold no state
         <Fragment key={`${index}:${task.content}`}>
           {headings && (index === 0 || items[index - 1].phase !== phase) && (
             <li className="session-goal-phase" role="presentation">

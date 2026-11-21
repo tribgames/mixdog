@@ -166,6 +166,7 @@ export function InlineDiff({
         // name and tooltip.
         if (item.type === 'gap') {
           return (
+            // biome-ignore lint/a11y/useSemanticElements: an hr's default border and margin would change the drawn rule; only the separator role is wanted
             <div
               key={item.key}
               className="inline-diff-fold"

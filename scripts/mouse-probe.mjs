@@ -12,6 +12,7 @@
  */
 const ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
+// biome-ignore lint/suspicious/noControlCharactersInRegex: parses SGR mouse escape sequences, which start with ESC
 const MOUSE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 process.stdout.write(ON);

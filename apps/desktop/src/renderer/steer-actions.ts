@@ -272,7 +272,7 @@ export function useSteerActions({
       cancel: (id) => exclusive(() => cancel(id)),
       retry: (id) => exclusive(() => retry(id)),
     };
-  }, [answerQuestion]);
+  }, [answerQuestion, setHidden, setSending]);
   const context = useMemo<SteerContextValue>(() => ({ actions, draft }), [actions]);
   return { visibleSteerItems, context };
 }

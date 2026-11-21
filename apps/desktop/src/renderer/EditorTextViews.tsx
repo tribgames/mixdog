@@ -91,7 +91,7 @@ export function EditorMarkdownPreview({
     <MarkdownProjectContext.Provider value={projectPath}>
       <MarkdownDocumentDirContext.Provider value={directory}>
         <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents: delegated handler for the rendered anchors, which are real focusable links with their own keyboard activation. */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: delegated handler for the rendered anchors, which are real focusable links with their own keyboard activation. */}
           <div className="editor-text-view editor-markdown-preview markdown" onClick={followAnchor}>
             <MarkdownBody text={text} copyControl={CopyControl} />
           </div>

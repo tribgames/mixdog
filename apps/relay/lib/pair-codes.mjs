@@ -28,6 +28,7 @@ const CORS_ORIGINS = new Set(['https://localhost', 'capacitor://localhost']);
 export function cleanName(value) {
   return typeof value === 'string'
     ? value
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this strips from a device name
         .replace(/[\u0000-\u001f\u007f]/g, '')
         .trim()
         .slice(0, MAX_NAME_LENGTH)

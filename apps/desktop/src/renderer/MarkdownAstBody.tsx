@@ -59,6 +59,7 @@ function StreamFadeWord({ 'data-fade-at': at, 'data-fade-ms': ms, children }: Fa
 const fadeBoxes = Object.fromEntries(
   STREAM_FADE_BOX_TAGS.map((tag) => [
     tag,
+    // biome-ignore lint/correctness/noComponentHookFactories: built once per tag at module load, so each stays the same component
     function StreamFadeBox({ 'data-fade-at': at, 'data-fade-ms': ms, children, ...rest }: FadeProps) {
       const place = useFadePlacement(at, ms);
       return createElement(tag, { ...rest, ref: place }, children);

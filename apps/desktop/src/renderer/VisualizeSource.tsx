@@ -10,6 +10,7 @@ import { highlightSourceLines, type SourceToken, visualizeSourceLanguage } from 
 
 function Token({ token }: { token: SourceToken }) {
   return token.classes.reduceRight<ReactNode>(
+    // biome-ignore lint/correctness/useJsxKeyInIterable: each span wraps the previous one; no list is rendered
     (child, className) => <span className={className}>{child}</span>,
     token.text
   );
@@ -75,7 +76,8 @@ export function VisualizeSource({
           {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
         </button>
       </div>
-      <div className="visualize-source-code" tabIndex={0} role="region" aria-label={t('Source')}>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region needs a tab stop so the keyboard can scroll it */}
+      <section className="visualize-source-code" tabIndex={0} aria-label={t('Source')}>
         {lines.map((line, number) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional and never reordered.
           <div className="visualize-source-line" key={number}>
@@ -84,12 +86,13 @@ export function VisualizeSource({
             </span>
             <code>
               {line.length
-                ? line.map((token, at) => <Token key={`${at}:${token.text.length}`} token={token} />)
+                ? // biome-ignore lint/suspicious/noArrayIndexKey: tokens are positional and rebuilt with their line
+                  line.map((token, at) => <Token key={`${at}:${token.text.length}`} token={token} />)
                 : '\u200b'}
             </code>
           </div>
         ))}
-      </div>
+      </section>
     </div>
   );
 }

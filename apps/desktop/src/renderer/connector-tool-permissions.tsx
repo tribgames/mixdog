@@ -89,6 +89,7 @@ export function ConnectorToolPermissions({
           <span className="connector-tool-name" title={row.tool}>
             {row.tool}
           </span>
+          {/* biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the segmented control; only the group role is wanted */}
           <span className="mx-segmented connector-tool-seg" role="group" aria-label={row.tool}>
             {PERMISSIONS.map((choice) => (
               <button
