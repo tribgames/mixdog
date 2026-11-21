@@ -12,8 +12,18 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const REQUIRES = ['dependencies', 'optionalDependencies', 'peerDependencies'];
-// Flags npm recomputes from the new root; a copied one would describe the old tree.
+// The edge type npm gives each name an entry depends on. A name in several fields gets one edge, and Arborist loads peers,
+// then dependencies, then optionalDependencies, each replacing the last.
+function edgesOut(entry) {
+  const edges = new Map();
+  for (const name of Object.keys(entry.peerDependencies ?? {}))
+    edges.set(name, entry.peerDependenciesMeta?.[name]?.optional ? 'peerOptional' : 'peer');
+  for (const name of Object.keys(entry.dependencies ?? {})) edges.set(name, 'prod');
+  for (const name of Object.keys(entry.optionalDependencies ?? {})) edges.set(name, 'optional');
+  return edges;
+}
+
+// Flags that describe the old root's tree; `optional` is computed again for the new root below.
 const TREE_FLAGS = ['dev', 'optional', 'devOptional', 'peer'];
 
 // The lockfile entry `from` (a key of `packages`, '' for the root) resolves `name` to: the nearest node_modules folder above it
@@ -45,22 +55,34 @@ export function lockSubset({ lock, manifest, names }) {
     // `npm ci` installs what the hash says: an entry without one would install whatever the registry serves.
     if (!entry.link && !entry.integrity) throw new Error(`${key} has no integrity hash in the lockfile`);
     packages[key] = Object.fromEntries(Object.entries(entry).filter(([flag]) => !TREE_FLAGS.includes(flag)));
-    for (const field of REQUIRES) {
-      for (const name of Object.keys(entry[field] ?? {})) {
-        const next = resolveDependency(lock.packages, key, name);
-        if (next) walk(next);
-        // An optional dependency (a platform binary) may be absent; a required one, a peer included, may not.
-        else if (field === 'dependencies') throw new Error(`${key} needs ${name}, which the lockfile does not hold`);
-        else if (field === 'peerDependencies' && !entry.peerDependenciesMeta?.[name]?.optional)
-          throw new Error(`${key} has the required peer ${name}, which the lockfile does not hold`);
-      }
+    for (const [name, type] of edgesOut(entry)) {
+      const next = resolveDependency(lock.packages, key, name);
+      if (next) walk(next);
+      // An optional dependency (a platform binary) may be absent; a required one, a peer included, may not.
+      else if (type === 'prod') throw new Error(`${key} needs ${name}, which the lockfile does not hold`);
+      else if (type === 'peer')
+        throw new Error(`${key} has the required peer ${name}, which the lockfile does not hold`);
     }
   };
-  for (const name of names) {
+  const roots = names.map((name) => {
     const key = resolveDependency(lock.packages, '', name);
     if (!key) throw new Error(`${name} is not in the lockfile`);
     walk(key);
-  }
+    return key;
+  });
+  // `npm ci` takes `optional` from the lockfile rather than computing it, and checks os/cpu only on entries without it: a
+  // package the new root reaches through required edges alone is required, every other one is optional.
+  const required = new Set();
+  const markRequired = (key) => {
+    if (required.has(key)) return;
+    required.add(key);
+    for (const [name, type] of edgesOut(lock.packages[key])) {
+      const next = type === 'prod' || type === 'peer' ? resolveDependency(lock.packages, key, name) : undefined;
+      if (next) markRequired(next);
+    }
+  };
+  for (const key of roots) markRequired(key);
+  for (const key of Object.keys(packages)) if (key && !required.has(key)) packages[key].optional = true;
   return {
     manifest: {
       name: 'ci-subset',
