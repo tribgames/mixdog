@@ -1,14 +1,36 @@
 //! Provider readiness, as Node's `createProviderReadiness`
 //! (`session-runtime/provider-readiness.mjs`) runs it: provider initialization
-//! is a single flight per normalized provider config, and its settled result
-//! is kept, so a repeat call with the same config starts nothing. A change
-//! that invalidates the caches clears the flights and supersedes any
-//! initialization still running: that one never writes the registry, and its
-//! callers are answered by a replay on the latest config (with the providers
-//! the superseded request turned on). Keychain prewarming belongs to the
-//! registry's key store, which the builder reads.
+//! is a single flight per set of providers a request asks for, and its
+//! settled result is kept, so a repeat call asking the same starts nothing. A
+//! change of the runtime's providers, or one that invalidates the caches,
+//! clears the flights and supersedes any initialization still running: that
+//! one registers nothing built before the change, and the latest config
+//! instead (with the providers its request asked for).
+//!
+//! For a provider the runtime's providers hold (the record, `set_providers`),
+//! the record is the only config: the map a ready call is given never
+//! replaces or rolls back a registered provider. The map says which
+//! providers the request needs on, and for one the record does not hold (a
+//! provider just saved, not yet loaded) it supplies the entry to build from;
+//! such an entry only adds, and the record's replaces it once it holds one.
+//!
+//! What is newest is decided in one place, the gate. An initialization and a
+//! reinit hand the registry no config, only the gate as its source (`Newest`):
+//! the registry reads the config, the stored decisions and the gate's
+//! generation under its apply permit, and registers and removes under the
+//! gate's lock, in the one step that checks the generation has not moved and
+//! the stored decisions are still the ones read.
+//! The generation moves at every change of the runtime's providers and every
+//! invalidation, a credential's included, so nothing built on an older read
+//! is registered. An initialization also rebuilds a registered provider whose
+//! config differs, so its caller returns with the registry on the newest
+//! config in full. A flight runs as its own task: its progress, and the
+//! registry's permit it holds, never wait for a caller to poll it.
+//! Keychain prewarming belongs to the registry's key store, which the builder
+//! reads.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -25,19 +47,78 @@ use mixdog_protocol::ProviderId;
 
 use super::service::CatalogService;
 use crate::registry::providers::ProviderRegistry;
+use crate::registry::providers::Read;
 use crate::registry::providers::RegistryError;
-use crate::registry::providers::config_signature;
+use crate::registry::providers::Source;
 
 type Flight = Shared<BoxFuture<'static, Result<(), RegistryError>>>;
 
 #[derive(Default)]
 struct Gate {
-    flights: HashMap<String, Flight>,
-    /// Advances whenever the flights are cleared.
+    /// The initializations of this generation, by the providers each request's map enabled (sorted); `None` is the
+    /// request with no map.
+    flights: HashMap<Option<Vec<String>>, Flight>,
+    /// Advances whenever the flights are cleared: at a change of `providers` and at an invalidation.
     generation: u64,
     closed: bool,
-    /// The runtime's own `config.providers`.
+    /// The runtime's own `config.providers`: the one record the registry is built from.
     providers: Map<String, Value>,
+}
+
+impl Gate {
+    /// A new generation: the flights of the old one answer for a config that is no longer the latest.
+    fn supersede(&mut self) {
+        self.flights.clear();
+        self.generation += 1;
+    }
+
+    /// What an initialization applies now: the runtime's providers as they are, stamped with the generation. A
+    /// request that came with a map (`asked`: the providers the map enables, each with the map's entry) adds only
+    /// those when they are missing. One the runtime's providers hold is built from its entry there, turned on; one
+    /// they do not hold is built from the map's entry (`Read::supplied`), which never replaces a registered provider.
+    fn read_for(&self, asked: Option<&[(String, Value)]>) -> Read {
+        let mut config = self.providers.clone();
+        let mut supplied = HashSet::new();
+        for (name, entry) in asked.unwrap_or_default() {
+            match config.get_mut(name).and_then(Value::as_object_mut) {
+                Some(held) => {
+                    held.insert("enabled".into(), Value::Bool(true));
+                }
+                None => {
+                    config.insert(name.clone(), entry.clone());
+                    supplied.insert(name.clone());
+                }
+            }
+        }
+        let asked = asked.map(|asked| asked.iter().map(|(name, _)| name.clone()).collect());
+        Read { stamp: self.generation, config, supplied, asked, decisions: None }
+    }
+}
+
+/// The gate as the registry's source: `read` is what to apply of the gate as it is read; `decisions` reads the stored
+/// decisions, always under the gate's lock.
+struct Newest<'a, C, D> {
+    gate: &'a Mutex<Gate>,
+    read: C,
+    decisions: D,
+}
+
+impl<C, D> Source for Newest<'_, C, D>
+where
+    C: Fn(&Gate) -> Read + Sync,
+    D: Fn() -> Option<Map<String, Value>> + Sync,
+{
+    fn newest(&self) -> Read {
+        let gate = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        Read { decisions: (self.decisions)(), ..(self.read)(&gate) }
+    }
+
+    /// One step under the gate's lock, which every move of the generation takes; the stored decisions are read
+    /// again in it, so nothing is removed on decisions that are no longer the stored ones.
+    fn settle_if_newest<R>(&self, read: &Read, settle: impl FnOnce() -> R) -> Option<R> {
+        let gate = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        (gate.generation == read.stamp && (self.decisions)() == read.decisions).then(settle)
+    }
 }
 
 type Done = Shared<BoxFuture<'static, ()>>;
@@ -85,10 +166,12 @@ fn closing() -> RegistryError {
     RegistryError { message: "runtime is closing".into(), code: None }
 }
 
-/// The providers a request turned on that the runtime's config has off.
-fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -> Vec<String> {
-    let enabled = |entry: Option<&Value>| entry.and_then(|e| e.get("enabled")) == Some(&Value::Bool(true));
-    requested.iter().filter(|(name, entry)| enabled(Some(entry)) && !enabled(base.get(*name))).map(|(n, _)| n.clone()).collect()
+/// The providers a request's map enables, each with the map's entry, by name.
+fn asked_providers(requested: &Map<String, Value>) -> Vec<(String, Value)> {
+    let mut asked: Vec<(String, Value)> =
+        requested.iter().filter(|(_, entry)| entry.get("enabled") == Some(&Value::Bool(true))).map(|(name, entry)| (name.clone(), entry.clone())).collect();
+    asked.sort_by(|a, b| a.0.cmp(&b.0));
+    asked
 }
 
 const API_PROVIDER_IDS: [&str; 8] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai", "mixdog-local"];
@@ -144,6 +227,7 @@ mod tests {
     use crate::catalog::CatalogSnapshot;
     use crate::catalog::ModelsDevSource;
     use crate::registry::providers::ProviderBuilder;
+    use crate::registry::providers::config_signature;
     use crate::transport::http::HttpResponse;
     use crate::transport::http::HttpSend;
     use mixdog_core_api::domain::provider::DeliveryState;
@@ -241,10 +325,9 @@ mod tests {
     }
 
     #[test]
-    fn forced_providers_are_those_the_request_turned_on() {
-        let requested = config(json!({"a": {"enabled": true}, "b": {"enabled": true}, "c": {"enabled": false}}));
-        let base = config(json!({"a": {"enabled": true}}));
-        assert_eq!(forced_providers(&requested, &base), vec!["b".to_owned()]);
+    fn the_asked_providers_are_those_the_map_enables_by_name() {
+        let requested = config(json!({"b": {"enabled": true, "k": 1}, "a": {"enabled": true}, "c": {"enabled": false}}));
+        assert_eq!(asked_providers(&requested), vec![("a".to_owned(), json!({"enabled": true})), ("b".to_owned(), json!({"enabled": true, "k": 1}))]);
     }
 
     #[test]
@@ -369,10 +452,394 @@ mod tests {
         // The custom provider was deleted (gone from the record and from the stored section), the other one was edited,
         // and a third is turned on in the record only.
         ready.set_providers(config(json!({"anthropic": {"enabled": true, "k": 2}, "xai": {"enabled": true}})));
-        ready.reinit_providers(Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
+        ready.reinit_providers(|| Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
         assert_eq!(builder.builds.load(Ordering::SeqCst), 3, "only the edited provider is built again");
         assert_ne!(ready.registry.generation("anthropic"), before, "the edited provider is a new registration");
         assert_eq!(ready.registry.names().into_iter().collect::<Vec<_>>(), ["anthropic"]);
+    }
+    /// Builds every provider, recording the config of each build; a build that begins while `fail` is set (its
+    /// credential read) fails. The next key-id read once `held` is set waits for `release`, and so does the next build
+    /// once `held_build` is set, after its credential read. Both run under the registry's apply permit, so the apply
+    /// they belong to keeps the permit while it is held.
+    #[derive(Default)]
+    struct HeldKeyIds {
+        held: std::sync::atomic::AtomicBool,
+        held_build: std::sync::atomic::AtomicBool,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+        built: Mutex<Vec<Value>>,
+        fail: std::sync::atomic::AtomicBool,
+    }
+    #[async_trait]
+    impl ProviderBuilder for HeldKeyIds {
+        async fn build(&self, _: &str, config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            let fail = self.fail.load(Ordering::SeqCst);
+            if self.held_build.swap(false, Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            if fail {
+                return Err("boom".into());
+            }
+            self.built.lock().unwrap().push(config.clone());
+            Ok(Arc::new(MockProvider::new([])))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            if self.held.swap(false, Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+    const CUSTOM: &str = "custom-0123abcd-0123-4567-89ab-0123456789ab";
+    /// The runtime's providers at their `k`th edit: one custom provider and one built-in.
+    fn record(k: u64) -> Map<String, Value> {
+        config(json!({ CUSTOM: {"type": "custom", "enabled": true, "k": k}, "anthropic": {"enabled": true, "k": k} }))
+    }
+    /// What the registry holds: whether it is initialized, and the config signature each provider is registered under.
+    #[derive(PartialEq, Debug)]
+    struct Held {
+        initialized: bool,
+        custom: Option<String>,
+        anthropic: Option<String>,
+    }
+    fn held(ready: &ProviderReadiness) -> Held {
+        Held { initialized: ready.registry.initialized(), custom: ready.registry.signature(CUSTOM), anthropic: ready.registry.signature("anthropic") }
+    }
+    /// The registry initialized on the `k`th edit, both providers registered.
+    fn on(k: u64) -> Held {
+        let signature = |name: &str| Some(config_signature(&record(k)[name]));
+        Held { initialized: true, custom: signature(CUSTOM), anthropic: signature("anthropic") }
+    }
+    type Returned = tokio::task::JoinHandle<(Result<(), RegistryError>, Held)>;
+    /// A ready call in its own task, with what the registry holds in the step the call returns in.
+    fn ensure(ready: &Arc<ProviderReadiness>) -> Returned {
+        let ready = ready.clone();
+        tokio::spawn(async move {
+            let result = ready.ensure_providers_ready(None).await;
+            (result, held(&ready))
+        })
+    }
+    /// A reinit in its own task, likewise.
+    fn reinit(ready: &Arc<ProviderReadiness>, decisions: impl Fn() -> Option<Map<String, Value>> + Send + Sync + 'static) -> Returned {
+        let ready = ready.clone();
+        tokio::spawn(async move {
+            let result = ready.reinit_providers(decisions).await;
+            (result, held(&ready))
+        })
+    }
+    /// Lets the spawned calls run as far as they can.
+    async fn run_others() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+    /// The original overlap: an initialization a reinit overtakes while it runs registers nothing of the record it
+    /// began with, and its caller returns with the registry ready on the newer one.
+    #[tokio::test]
+    async fn an_initialization_overtaken_by_a_reinit_returns_ready_on_the_newer_record() {
+        let builder = Arc::new(HeldKeyIds { held: true.into(), ..HeldKeyIds::default() });
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let older = ensure(&ready);
+        builder.entered.notified().await;
+        ready.set_providers(record(2));
+        let newer = reinit(&ready, || Some(record(2)));
+        run_others().await;
+        assert!(!newer.is_finished(), "the reinit waits for the permit the initialization holds");
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(2));
+        newer.await.unwrap().0.unwrap();
+        assert_eq!(held(&ready), on(2));
+    }
+    /// Interleaving 1: the initialization, already going on with the second record, is overtaken again by a third.
+    /// What it registers is chosen as it settles, so the second record is never registered as the current one.
+    #[tokio::test]
+    async fn an_initialization_overtaken_twice_returns_ready_on_the_last_record() {
+        let builder = Arc::new(HeldKeyIds { held: true.into(), ..HeldKeyIds::default() });
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let older = ensure(&ready);
+        builder.entered.notified().await;
+        ready.set_providers(record(2));
+        let second = reinit(&ready, || Some(record(2)));
+        // It goes on with the second record and is held at that record's key-id read.
+        builder.held.store(true, Ordering::SeqCst);
+        builder.release.notify_one();
+        builder.entered.notified().await;
+        ready.set_providers(record(3));
+        let third = reinit(&ready, || Some(record(3)));
+        run_others().await;
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(3));
+        second.await.unwrap().0.unwrap();
+        third.await.unwrap().0.unwrap();
+        assert_eq!(held(&ready), on(3));
+    }
+    /// Interleaving 2, and the removal step: a reinit called while the stored decisions delete the custom provider
+    /// builds while they are replaced by ones that hold it again, the reinit of that change not yet arrived. It reads
+    /// the decisions in the step that removes, under the gate's lock, so the provider stays; the reinit that follows
+    /// has nothing to restore.
+    #[tokio::test]
+    async fn a_reinit_removes_on_the_decisions_stored_in_the_step_that_removes() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        ready.ensure_providers_ready(None).await.unwrap();
+        let without_custom = config(json!({"anthropic": {"enabled": true}}));
+        let stored = Arc::new(Mutex::new(Some(without_custom)));
+        let read_outside_the_step = Arc::new(AtomicUsize::new(0));
+        let decisions = {
+            let (stored, ready, outside) = (stored.clone(), ready.clone(), read_outside_the_step.clone());
+            move || {
+                if ready.gate.try_lock().is_ok() {
+                    outside.fetch_add(1, Ordering::SeqCst);
+                }
+                stored.lock().unwrap().clone()
+            }
+        };
+        builder.held.store(true, Ordering::SeqCst);
+        let older = reinit(&ready, decisions.clone());
+        builder.entered.notified().await;
+        *stored.lock().unwrap() = Some(record(1));
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(1));
+        ready.reinit_providers(decisions).await.unwrap();
+        assert_eq!(held(&ready), on(1));
+        assert_eq!(read_outside_the_step.load(Ordering::SeqCst), 0, "the decisions are read only under the gate's lock");
+        // The decisions as they were when the first reinit was called do remove, once they are the stored ones.
+        ready.reinit_providers(|| Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
+        assert_eq!(held(&ready), Held { custom: None, ..on(1) });
+    }
+    /// Review point 1: an initialization whose build read a credential that fails is overtaken by a reinit that
+    /// replaces the credential and leaves the runtime's providers as they are. The failed build is dropped and the
+    /// provider is built again, so the caller returns with it registered; the reinit, which reads no stored decisions
+    /// here, could not have added it.
+    #[tokio::test]
+    async fn an_initialization_overtaken_by_a_credential_change_alone_builds_again() {
+        let builder = Arc::new(HeldKeyIds { fail: true.into(), held_build: true.into(), ..HeldKeyIds::default() });
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let older = ensure(&ready);
+        builder.entered.notified().await;
+        builder.fail.store(false, Ordering::SeqCst);
+        let newer = reinit(&ready, || None);
+        run_others().await;
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(1));
+        newer.await.unwrap().0.unwrap();
+        assert_eq!(held(&ready), on(1));
+        assert!(ready.registry.init_errors().is_empty(), "nothing of the build on the old credential is kept");
+    }
+    /// A ready call given a map captured before the runtime's providers changed: the default call settles the newer
+    /// record, the delayed call arrives with the older map, and the next default call follows. The older map is not
+    /// built from, so the registered providers stay on the newer record throughout, and nothing is built again.
+    #[tokio::test]
+    async fn a_ready_call_with_an_older_map_does_not_put_a_registered_provider_back() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let captured = record(1);
+        ready.set_providers(record(2));
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(held(&ready), on(2));
+        ready.ensure_providers_ready(Some(captured)).await.unwrap();
+        assert_eq!(held(&ready), on(2), "the delayed call returns with the newer record registered");
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(held(&ready), on(2));
+        assert_eq!(builder.built.lock().unwrap().len(), 2, "each provider was built once, on the newer record");
+    }
+    /// A ready call's map only turns providers on: one it enables that the runtime's providers have off is built from
+    /// the runtime's entry, and nothing else of the map is used.
+    #[tokio::test]
+    async fn a_ready_call_turns_a_provider_on_from_the_runtimes_entry() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        let mut stored = record(1);
+        stored.insert("xai".into(), json!({"enabled": false, "k": 1}));
+        ready.set_providers(stored);
+        let mut asked = record(0);
+        asked.insert("xai".into(), json!({"enabled": true, "k": 0}));
+        ready.ensure_providers_ready(Some(asked)).await.unwrap();
+        assert_eq!(held(&ready), on(1));
+        assert_eq!(ready.registry.signature("xai"), Some(config_signature(&json!({"enabled": true, "k": 1}))));
+    }
+    /// A provider just saved, which the runtime's providers do not hold yet, is built at once from the entry the
+    /// ready call's map gives it. Registered, it is not replaced by another call's entry; once the runtime's
+    /// providers hold it, theirs is its config.
+    #[tokio::test]
+    async fn a_ready_call_supplies_the_entry_of_a_provider_the_runtimes_providers_do_not_hold() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        ready.ensure_providers_ready(None).await.unwrap();
+        let with_xai = |k: u64| {
+            let mut map = record(1);
+            map.insert("xai".into(), json!({"enabled": true, "k": k}));
+            map
+        };
+        let xai = |k: u64| Some(config_signature(&json!({"enabled": true, "k": k})));
+        ready.ensure_providers_ready(Some(with_xai(1))).await.unwrap();
+        assert_eq!(ready.registry.signature("xai"), xai(1), "built from the map's entry");
+        assert_eq!(held(&ready), on(1));
+        // Another flight (it asks for fewer providers), with another entry for the registered one.
+        let mut other = with_xai(2);
+        other.shift_remove(CUSTOM);
+        ready.ensure_providers_ready(Some(other)).await.unwrap();
+        assert_eq!(ready.registry.signature("xai"), xai(1), "a map's entry does not replace a registered provider");
+        ready.set_providers(with_xai(3));
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(ready.registry.signature("xai"), xai(3), "the runtime's entry is its config once they hold it");
+    }
+    /// A ready call's map bounds what is added: a provider just removed, which the runtime's providers still enable,
+    /// is not registered again by a call whose map no longer has it.
+    #[tokio::test]
+    async fn a_ready_call_does_not_register_a_missing_provider_its_map_leaves_out() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        ready.ensure_providers_ready(None).await.unwrap();
+        ready.disable_provider(CUSTOM);
+        let mut without_custom = record(1);
+        without_custom.shift_remove(CUSTOM);
+        ready.ensure_providers_ready(Some(without_custom)).await.unwrap();
+        assert_eq!(held(&ready), Held { custom: None, ..on(1) });
+    }
+    /// Review point: a provider is turned off and the removal settles; it is turned on again, and when the reinit of
+    /// that decision returns it is registered for a route, with no ready call in between.
+    #[tokio::test]
+    async fn a_provider_turned_off_and_on_again_is_registered_when_the_second_reinit_returns() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        ready.ensure_providers_ready(None).await.unwrap();
+        let stored = |custom_on: bool| {
+            let mut stored = record(1);
+            stored[CUSTOM]["enabled"] = json!(custom_on);
+            Some(stored)
+        };
+        ready.reinit_providers(|| stored(false)).await.unwrap();
+        assert!(ready.registry.registered_for_route(CUSTOM).is_none(), "turned off");
+        ready.reinit_providers(|| stored(true)).await.unwrap();
+        assert!(ready.registry.registered_for_route(CUSTOM).is_some(), "turned on again");
+        assert_eq!(held(&ready), on(1));
+    }
+    /// Review point 2: with a provider registered, an initialization that adds another is overtaken by an edit of
+    /// the registered one. Its caller returns with both on the newest config, the registered one rebuilt; so does a
+    /// ready call that begins after an edit no reinit has followed yet.
+    #[tokio::test]
+    async fn an_initialization_returns_with_a_registered_provider_on_the_newest_config() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        let mut anthropic_only = record(1);
+        anthropic_only.shift_remove(CUSTOM);
+        ready.set_providers(anthropic_only);
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(held(&ready), Held { custom: None, ..on(1) });
+        builder.held.store(true, Ordering::SeqCst);
+        ready.set_providers(record(1));
+        let older = ensure(&ready);
+        builder.entered.notified().await;
+        ready.set_providers(record(2));
+        let newer = reinit(&ready, || Some(record(2)));
+        run_others().await;
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(2));
+        newer.await.unwrap().0.unwrap();
+        ready.set_providers(record(3));
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(held(&ready), on(3));
+    }
+    /// Review point 4: the only caller of a flight is cancelled while the flight reads key ids under the registry's
+    /// permit. The flight goes on with no caller polling it and releases the permit, so a ready call that needs
+    /// another flight is not held up.
+    #[tokio::test]
+    async fn a_flight_whose_caller_is_cancelled_runs_to_its_end() {
+        let builder = Arc::new(HeldKeyIds { held: true.into(), ..HeldKeyIds::default() });
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let only = ensure(&ready);
+        builder.entered.notified().await;
+        only.abort();
+        assert!(only.await.unwrap_err().is_cancelled());
+        builder.release.notify_one();
+        run_others().await;
+        assert_eq!(held(&ready), on(1), "the flight finished with no caller waiting for it");
+        let mut another = record(1);
+        another.insert("xai".into(), json!({"enabled": true}));
+        ready.ensure_providers_ready(Some(another)).await.unwrap();
+        assert!(ready.registry.registered("xai").is_some());
+    }
+    /// Interleaving 3: however many reinits arrive while an initialization runs, its caller waits on that one flight,
+    /// which builds the record it began with and then the newest; no flight is started for the ones in between.
+    #[tokio::test]
+    async fn reinits_arriving_during_an_initialization_start_no_further_flights() {
+        let builder = Arc::new(HeldKeyIds { held: true.into(), ..HeldKeyIds::default() });
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(1));
+        let older = ensure(&ready);
+        builder.entered.notified().await;
+        let reinits: Vec<Returned> = (2..=9)
+            .map(|k| {
+                ready.set_providers(record(k));
+                reinit(&ready, || None)
+            })
+            .collect();
+        run_others().await;
+        assert!(ready.gate().flights.is_empty(), "the superseded flight is dropped and none replaces it");
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        result.unwrap();
+        assert_eq!(at_return, on(9));
+        for reinit in reinits {
+            reinit.await.unwrap().0.unwrap();
+        }
+        assert_eq!(held(&ready), on(9));
+        let built = |k: u64| [record(k)[CUSTOM].clone(), record(k)["anthropic"].clone()];
+        assert_eq!(*builder.built.lock().unwrap(), [built(1), built(9)].concat(), "the record it began with, then the newest");
+    }
+    /// Interleaving 4: a reinit overtaken by a record whose application fails returns that failure, having changed
+    /// nothing, and a later one that succeeds applies the newest record.
+    #[tokio::test]
+    async fn a_reinit_overtaken_by_a_record_that_fails_to_apply_returns_the_failure() {
+        let builder = Arc::new(HeldKeyIds::default());
+        let ready = readiness_over(builder.clone()).await;
+        ready.set_providers(record(0));
+        ready.ensure_providers_ready(None).await.unwrap();
+        builder.held.store(true, Ordering::SeqCst);
+        ready.set_providers(record(1));
+        let older = reinit(&ready, || None);
+        builder.entered.notified().await;
+        ready.set_providers(record(2));
+        builder.fail.store(true, Ordering::SeqCst);
+        let newer = reinit(&ready, || None);
+        run_others().await;
+        builder.release.notify_one();
+        let (result, at_return) = older.await.unwrap();
+        assert!(result.unwrap_err().message.contains("boom"));
+        assert_eq!(at_return, on(0), "a failed application changes nothing");
+        assert!(newer.await.unwrap().0.is_err());
+        assert_eq!(held(&ready), on(0));
+        builder.fail.store(false, Ordering::SeqCst);
+        ready.reinit_providers(|| None).await.unwrap();
+        assert_eq!(held(&ready), on(2));
     }
     #[tokio::test]
     async fn every_invalidation_drops_the_caches_above_the_catalog() {
@@ -662,10 +1129,14 @@ impl ProviderReadiness {
         self.gate.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The runtime's `config.providers`, the default of a ready call and the
-    /// base a replay is built on.
+    /// The runtime's `config.providers`: the record every initialization and reinit builds the registry from. A change
+    /// of them is a new generation.
     pub fn set_providers(&self, providers: Map<String, Value>) {
-        self.gate().providers = providers;
+        let mut gate = self.gate();
+        if gate.providers != providers {
+            gate.providers = providers;
+            gate.supersede();
+        }
     }
 
     /// The runtime is closing: every later call fails.
@@ -673,64 +1144,65 @@ impl ProviderReadiness {
         self.gate().closed = true;
     }
 
-    /// `ensureProvidersReady(providerConfig)`; `None` is the runtime's config. After the initialization, unless the
-    /// runtime is closing, the startup catalog refresh of the current epoch is started or joined, and observed.
+    /// `ensureProvidersReady(providerConfig)`: the registry initialized on the runtime's providers; `None` registers
+    /// every provider they enable. A map says which providers the request needs: the ones it enables are the only
+    /// missing ones registered. For a provider the runtime's providers hold, their entry is the config, whatever the
+    /// map's says, so a map captured before they changed cannot put an older config back; for one they do not hold
+    /// (a provider just saved, not yet loaded), the map's entry is, and it never replaces a registered provider.
+    /// After the initialization, unless the runtime is closing, the startup catalog refresh of the current epoch is
+    /// started or joined, and observed.
     pub async fn ensure_providers_ready(self: &Arc<Self>, providers: Option<Map<String, Value>>) -> Result<(), RegistryError> {
-        let providers = providers.unwrap_or_else(|| self.gate().providers.clone());
-        self.clone().init(providers).await?;
+        self.init(providers).await?;
         if !self.gate().closed {
             self.observe_startup_refresh();
         }
         Ok(())
     }
 
-    /// One keyed initialization: the settled flight of an equal config, or a new one.
-    fn init(self: Arc<Self>, providers: Map<String, Value>) -> BoxFuture<'static, Result<(), RegistryError>> {
-        Box::pin(async move {
-            let key = config_signature(&Value::Object(providers.clone()));
-            let flight = {
-                let mut gate = self.gate();
-                if gate.closed {
-                    return Err(closing());
-                }
-                let generation = gate.generation;
-                let forced = forced_providers(&providers, &gate.providers);
-                gate.flights.entry(key.clone()).or_insert_with(|| self.clone().initialize(providers, generation, forced).shared()).clone()
-            };
-            let result = flight.clone().await;
-            if result.is_err() {
-                let mut gate = self.gate();
-                if gate.flights.get(&key).is_some_and(|held| held.ptr_eq(&flight)) {
-                    gate.flights.remove(&key);
-                }
-            }
-            result
-        })
-    }
-
-    fn initialize(self: Arc<Self>, providers: Map<String, Value>, generation: u64, forced: Vec<String>) -> BoxFuture<'static, Result<(), RegistryError>> {
-        Box::pin(async move {
-            let (closed, current, mut latest) = {
-                let gate = self.gate();
-                (gate.closed, gate.generation, gate.providers.clone())
-            };
-            if closed {
+    /// One keyed initialization: the flight of this generation that was asked for the same providers, or a new one.
+    /// The key is the names alone: a request that names the same providers with other entries joins the flight, and
+    /// the entries of the request that started it are the ones a provider the runtime's providers do not hold is
+    /// built from.
+    async fn init(self: &Arc<Self>, providers: Option<Map<String, Value>>) -> Result<(), RegistryError> {
+        let (key, flight) = {
+            let mut gate = self.gate();
+            if gate.closed {
                 return Err(closing());
             }
-            if generation == current {
-                return self.registry.init_providers(&providers).await;
+            let asked = providers.as_ref().map(asked_providers);
+            let key: Option<Vec<String>> = asked.as_ref().map(|asked| asked.iter().map(|(name, _)| name.clone()).collect());
+            let flight = gate.flights.entry(key.clone()).or_insert_with(|| self.start(asked)).clone();
+            (key, flight)
+        };
+        let result = flight.clone().await;
+        if result.is_err() {
+            let mut gate = self.gate();
+            if gate.flights.get(&key).is_some_and(|held| held.ptr_eq(&flight)) {
+                gate.flights.remove(&key);
             }
-            // Superseded: the latest config wins, with the providers this request turned on.
-            for name in forced {
-                let mut entry = match latest.shift_remove(&name) {
-                    Some(Value::Object(entry)) => entry,
-                    _ => Map::new(),
-                };
-                entry.insert("enabled".into(), Value::Bool(true));
-                latest.insert(name, Value::Object(entry));
-            }
-            self.init(latest).await
-        })
+        }
+        result
+    }
+
+    /// Starts the flight of a request (`asked`: what its map enables, `None` for the runtime's providers) as its own
+    /// task: it runs to its end, and releases the registry's permit, whether or not any caller still waits for it.
+    fn start(self: &Arc<Self>, asked: Option<Vec<(String, Value)>>) -> Flight {
+        let task = mixdog_rt::spawn("providers.init", mixdog_rt::TaskClass::Work, self.clone().initialize(asked));
+        task.map(|joined| joined.unwrap_or_else(|error| Err(RegistryError { message: format!("provider initialization did not finish: {error}"), code: None })))
+            .boxed()
+            .shared()
+    }
+
+    /// The flight of a request. It ends when the registry is initialized on the runtime's providers with what the
+    /// request asked for, as they are in the step the registry settles in (`Gate::read_for`), or with that
+    /// initialization's error: a request superseded while it waits or builds registers the latest config in this same
+    /// flight, and waits for no other.
+    async fn initialize(self: Arc<Self>, asked: Option<Vec<(String, Value)>>) -> Result<(), RegistryError> {
+        if self.gate().closed {
+            return Err(closing());
+        }
+        let source = Newest { gate: &self.gate, read: |gate: &Gate| gate.read_for(asked.as_deref()), decisions: || None::<Map<String, Value>> };
+        self.registry.init_providers_from(&source).await
     }
 
     /// `invalidateProviderCaches`: the catalog's consumers start a new
@@ -743,9 +1215,7 @@ impl ProviderReadiness {
     fn invalidate(&self, preserve_init: bool, after_refresh: bool) {
         self.registry.bump_catalog_revision();
         if !preserve_init {
-            let mut gate = self.gate();
-            gate.flights.clear();
-            gate.generation += 1;
+            self.gate().supersede();
         }
         // Every caller drops the caches above the catalog too, so none can miss them.
         if let Some(hook) = self.invalidation.get() {
@@ -786,17 +1256,18 @@ impl ProviderReadiness {
     /// `reinitProviders`: provider config or secrets changed. Everything keyed to the old ones is dropped and the
     /// registry is synced to the runtime's providers (`syncProviders(providerRecord(), { decisions })`): a registered
     /// provider whose config changed is rebuilt, one the stored `decisions` turned off (a deleted custom provider among
-    /// them) is removed, and none is added. `decisions` is `None` when no stored section reads.
-    pub async fn reinit_providers(&self, decisions: Option<Map<String, Value>>) -> Result<(), RegistryError> {
+    /// them) is removed, and one they hold on that the runtime's providers enable is registered when it is missing, so
+    /// a provider turned off and on again is back when the reinit of the second decision returns. One the decisions do
+    /// not hold is not added. `decisions` reads the stored section, `None` when it does not read. It is never asked
+    /// when the reinit is called: it is read under the gate's lock with the providers the sync builds, and again in
+    /// the step that registers and removes, which settles only on decisions that are still the stored ones.
+    pub async fn reinit_providers(&self, decisions: impl Fn() -> Option<Map<String, Value>> + Send + Sync) -> Result<(), RegistryError> {
         self.invalidate_provider_caches(false);
-        let record = {
-            let gate = self.gate();
-            if gate.closed {
-                return Ok(());
-            }
-            gate.providers.clone()
-        };
-        self.registry.sync_providers(&record, decisions).await
+        if self.gate().closed {
+            return Ok(());
+        }
+        let source = Newest { gate: &self.gate, read: |gate: &Gate| gate.read_for(None), decisions };
+        self.registry.sync_providers_from(&source).await
     }
 
     /// A forced full catalog refresh (`refreshCatalogs({ force: true })`, which also arms the next 24 h one), then the

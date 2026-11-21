@@ -95,7 +95,7 @@ impl ProviderChangeEffects for LiveProviderEffects {
         let (readiness, config, effective, loaded) = (self.readiness.clone(), self.config.clone(), self.effective.clone(), self.loaded.clone());
         Box::pin(async move {
             reload(&config, &effective, &readiness, &loaded).await?;
-            readiness.reinit_providers(stored_providers(&config)).await.map_err(|error| error.message)
+            readiness.reinit_providers(|| stored_providers(&config)).await.map_err(|error| error.message)
         })
     }
 }
