@@ -113,6 +113,8 @@ struct Env {
     data: PathBuf,
     store: SqliteStore,
     io: FaultIo,
+    /// The activation that last marked each session ([`Env::mark`]).
+    activations: Mutex<std::collections::HashMap<String, u64>>,
 }
 
 impl Env {
@@ -120,7 +122,7 @@ impl Env {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().to_path_buf();
         let store = open_index(&data).unwrap();
-        Env { _tmp: tmp, data, store, io: FaultIo::default() }
+        Env { _tmp: tmp, data, store, io: FaultIo::default(), activations: Mutex::default() }
     }
 
     fn deps(&self) -> WriterDeps {
@@ -1468,7 +1470,7 @@ async fn placeholder_titles_refold_on_language_change() {
     env.store.set_placeholder_labels(ko).await.unwrap();
     // The refold step runs right after the transaction that stored the labels, so the
     // next append transaction is ordered after it.
-    env.store.mark_dirty("s1").await.unwrap();
+    env.store.mark_dirty("s1", LOG_ID, new_activation()).await.unwrap();
     assert_eq!(env.store.search("영상", 50, None).await.unwrap(), [summary]);
     let title_fold: String =
         rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap().query_row("SELECT title_fold FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap();
@@ -3019,11 +3021,516 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     drop(open_index(rebuilt.path()).unwrap());
     assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
 }
-/// A reconcile that fails to write the index fails every way into it with its reason: a read,
-/// a write, a read from inside a read-lane job and the wait for the reconcile itself. None
-/// answers from the index the crash left.
+/// A boot reconcile whose index cursor stopped behind the log's newest checkpoint reads the log from the anchor before the
+/// cursor, not from its first frame: a damaged frame before that anchor is never read, and the session reconciles to its end.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_failed_reconcile_fails_every_access() {
+async fn a_reconcile_behind_the_newest_checkpoint_reads_from_the_anchor_before_its_cursor() {
+    use crate::schema::record::Record;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let w = env.commit(w, (0..6).map(|i| big_item(&format!("p{i}"))).collect()).await.0;
+    let w = env.commit(w, vec![item("b")]).await.0;
+    let cursor = env.store.projected("s1").await.unwrap().unwrap();
+    let (w, unprojected) = env.append(w, (0..6).map(|i| big_item(&format!("q{i}"))).collect()).await;
+    unprojected.unwrap();
+    let (w, acked) = env.append(w, vec![item("c")]).await;
+    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
+    drop(w);
+    let dir = env.dir("s1");
+    let start = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
+    let mut checkpoints = Vec::new();
+    let mut pos = start;
+    loop {
+        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
+        checkpoints.extend(read.frames.iter().filter(|(record, ..)| matches!(record, Record::Checkpoint(_))).map(|(_, at, _)| at.ordinal));
+        match read.next {
+            crate::log::ForwardEnd::More(next) => pos = next,
+            crate::log::ForwardEnd::Done { torn: false, .. } => break,
+            other => panic!("the log reads to a clean end: {other:?}"),
+        }
+    }
+    assert!(checkpoints.first().is_some_and(|&first| first < cursor.ordinal), "an anchor before the cursor: {checkpoints:?}, {cursor:?}");
+    assert!(checkpoints.last().is_some_and(|&last| last >= cursor.ordinal), "the newest anchor past the cursor: {checkpoints:?}, {cursor:?}");
+    let path = dir.join(log_name(0));
+    let mut bytes = std::fs::read(&path).unwrap();
+    let needle = br#""iid":"a""#;
+    let at = bytes.windows(needle.len()).position(|window| window == needle).expect("the first item's frame");
+    bytes[at + needle.len() - 2] = b'z';
+    std::fs::write(&path, bytes).unwrap();
+    let reopened = open_index(&env.data).unwrap();
+    let reconciled = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.reconciled()).await.expect("the reconcile answered within 60 s");
+    assert!(reconciled.is_ok(), "{reconciled:?}");
+    assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    drop(reopened);
+    let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    let (status, damage, rows): (String, Option<String>, i64) =
+        conn.query_row("SELECT status, damage, row_count FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+    assert_eq!((status.as_str(), damage, rows), ("ok", None, 15));
+}
+/// Checkpoint A, the index cursor, a rewind to before A, checkpoint B: the reconcile restores the fold from A, and the rewind
+/// reaches rows A's state does not hold. It is folded all the same, from the log's first frame: the session's rows, cursor and
+/// status are those of a rebuild from the log, and no damage is recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_behind_the_anchor_before_the_cursor_reconciles_as_a_fold_from_the_first_frame() {
+    use crate::schema::record::Record;
+    let env = Env::new();
+    let header = json!({"k":"session","v":2,"id":"s1","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}});
+    let w = env.create_from("s1", rec(header)).await;
+    let w = env.commit(w, vec![item("a"), item("b")]).await.0;
+    let w = env.commit(w, (0..6).map(|i| big_item(&format!("p{i}"))).collect()).await.0;
+    let w = env.commit(w, vec![item("c")]).await.0;
+    let cursor = env.store.projected("s1").await.unwrap().unwrap();
+    let (w, rewound) = env.append(w, vec![rec(json!({"k":"rewind","to_ordinal":2,"reason":"edit"}))]).await;
+    rewound.unwrap();
+    let (w, unprojected) = env.append(w, (0..6).map(|i| big_item(&format!("q{i}"))).collect()).await;
+    unprojected.unwrap();
+    let (w, acked) = env.append(w, vec![item("d")]).await;
+    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
+    drop(w);
+    let dir = env.dir("s1");
+    let mut checkpoints = Vec::new();
+    let mut pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(&dir).unwrap(), file_no: 0, offset: 0 };
+    loop {
+        let read = read_forward_unlaned(&dir, pos, 1 << 20).unwrap();
+        checkpoints.extend(read.frames.iter().filter(|(record, ..)| matches!(record, Record::Checkpoint(_))).map(|(_, at, _)| at.ordinal));
+        match read.next {
+            crate::log::ForwardEnd::More(next) => pos = next,
+            crate::log::ForwardEnd::Done { torn: false, .. } => break,
+            other => panic!("the log reads to a clean end: {other:?}"),
+        }
+    }
+    let a = checkpoints.iter().copied().rfind(|&at| at < cursor.ordinal).expect("a checkpoint before the cursor");
+    assert!(2 < a && checkpoints.last().is_some_and(|&b| b > cursor.ordinal), "the rewind's target, A, the cursor, B: {checkpoints:?}, {cursor:?}");
+    let reopened = open_index(&env.data).unwrap();
+    let reconciled = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.reconciled()).await.expect("the reconcile answered within 60 s");
+    assert!(reconciled.is_ok(), "{reconciled:?}");
+    assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 20).await.unwrap();
+    drop(reopened);
+    let rebuilt = tempfile::tempdir().unwrap();
+    copy_tree(&dir, &rebuilt.path().join("sessions").join("s1"));
+    let fresh = open_index(rebuilt.path()).unwrap();
+    let (expected, _) = fresh.history_page(lineage(&[("s1", None)]), None, None, 20).await.unwrap();
+    drop(fresh);
+    assert_eq!(iids(&rows), ["d", "q5", "q4", "q3", "q2", "q1", "q0", "a"]);
+    assert_eq!(rows, expected);
+    assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
+    let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    let (status, damage): (String, Option<String>) = conn.query_row("SELECT status, damage FROM sessions WHERE id = 's1'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!((status.as_str(), damage), ("ok", None));
+}
+
+/// A session frame whose header carries its own `updatedAt`: the row does not take the clock of its write, so it compares
+/// with a rebuild's.
+fn stamped_session(id: &str) -> Encoded {
+    rec(json!({"k":"session","v":2,"id":id,"log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}}}))
+}
+
+/// The ordinals of the checkpoint frames of the log in `dir`.
+fn checkpoints_of(dir: &Path) -> Vec<u64> {
+    use crate::schema::record::Record;
+    let mut checkpoints = Vec::new();
+    let mut pos = crate::schema::checkpoint::FramePos { ordinal: first_ordinal_unlaned(dir).unwrap(), file_no: 0, offset: 0 };
+    loop {
+        let read = read_forward_unlaned(dir, pos, 1 << 20).unwrap();
+        checkpoints.extend(read.frames.iter().filter(|(record, ..)| matches!(record, Record::Checkpoint(_))).map(|(_, at, _)| at.ordinal));
+        match read.next {
+            crate::log::ForwardEnd::More(next) => pos = next,
+            crate::log::ForwardEnd::Done { torn: false, .. } => return checkpoints,
+            other => panic!("the log reads to a clean end: {other:?}"),
+        }
+    }
+}
+
+/// The `sessions` rows of an index built from nothing but a copy of the log of `id`: what the log alone says.
+fn rebuilt_rows(env: &Env, id: &str) -> Vec<Vec<rusqlite::types::Value>> {
+    let rebuilt = tempfile::tempdir().unwrap();
+    copy_tree(&env.dir(id), &rebuilt.path().join("sessions").join(id));
+    drop(open_index(rebuilt.path()).unwrap());
+    session_rows(rebuilt.path())
+}
+
+impl Env {
+    /// The close of `w` on the durability lane: what it projects last (the checkpoint it appended, or no frame) and its end.
+    async fn close(&self, w: LogWriter) -> (crate::projection::Projection, Retirement) {
+        let activation = self.activations.lock().unwrap().get(&w.fold().session).copied().unwrap_or(0);
+        on_lane(move |l| {
+            let mut w = w;
+            let closed = w.close(l).unwrap();
+            let retirement = Retirement { log_id: w.fold().log_id.clone(), end: w.end().expect("a closed writer is clean"), activation };
+            let projection = closed.map_or_else(
+                || crate::projection::Projection { session: w.fold().session.clone(), frames: Vec::new(), head: Arc::new(CatalogHead::of(w.fold())) },
+                |ack| ack.projection,
+            );
+            (projection, retirement)
+        })
+        .await
+    }
+
+    /// The clean retirement of `w`: its close, then the index's answer to its last projection.
+    async fn retire(&self, w: LogWriter) -> Result<(), DbError> {
+        let (projection, retirement) = self.close(w).await;
+        self.store.queue_retirement(projection, retirement).await?.await
+    }
+
+    /// The mark of a new activation of `id`'s writer, as the thread store sets it before the writer may append: the
+    /// retirement of the writer closed next clears that mark and no other.
+    async fn mark(&self, id: &str) -> u64 {
+        let activation = new_activation();
+        self.store.mark_dirty(id, LOG_ID, activation).await.unwrap();
+        self.activations.lock().unwrap().insert(id.to_owned(), activation);
+        activation
+    }
+
+    /// A writer over the log of `id` as it stands, marked first as an activation marks it.
+    async fn activate(&self, id: &str) -> LogWriter {
+        let opened = self.reopen(id).await;
+        self.mark(id).await;
+        let deps = self.deps();
+        on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await
+    }
+
+    /// The process ends here: this handle's writer stops, and the next start opens the index over what is on disk.
+    async fn restart(&self) -> SqliteStore {
+        self.store.close();
+        let reopened = open_index(&self.data).unwrap();
+        let reconciled = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.reconciled()).await.expect("the reconcile answered within 60 s");
+        assert!(reconciled.is_ok(), "{reconciled:?}");
+        reopened
+    }
+}
+
+/// A writer that closes clean clears its session's mark with the session's final row, whether the close appended a checkpoint
+/// or no frame: the last write is listed on the same handle, no session is left for the next start to repair, and the rows
+/// are those of a rebuild from the log.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clean_close_clears_the_mark_with_the_final_row_with_and_without_a_checkpoint() {
+    for with_checkpoint in [false, true] {
+        let env = Env::new();
+        let w = env.create_from("s1", stamped_session("s1")).await;
+        env.mark("s1").await;
+        // A log that ends with its `session` frame ends with an anchor: its close appends nothing.
+        let w = if with_checkpoint { env.commit(w, vec![item("a")]).await.0 } else { w };
+        assert_eq!(env.store.dirty_sessions().await.unwrap(), ["s1"], "marked while its writer is open");
+        assert!(env.store.listed("s1").await.unwrap().is_none(), "a marked session is not answered from the index");
+        env.retire(w).await.unwrap();
+        assert_eq!(checkpoints_of(&env.dir("s1")).len(), usize::from(with_checkpoint));
+        assert!(env.store.owed_repairs().await.unwrap().is_empty(), "the mark is cleared (checkpoint: {with_checkpoint})");
+        assert!(env.store.listed("s1").await.unwrap().is_some(), "the last write is listed on the same handle");
+        let (rows, _) = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+        assert_eq!(iids(&rows).len(), usize::from(with_checkpoint));
+        let retired = session_rows(&env.data);
+        assert_eq!(retired, rebuilt_rows(&env, "s1"));
+        let reopened = env.restart().await;
+        assert!(reopened.owed_repairs().await.unwrap().is_empty());
+        drop(reopened);
+        assert_eq!(session_rows(&env.data), retired, "the next start changed nothing");
+    }
+}
+
+/// A projection the index never took, then a later write that goes in: the later write is answered, its head is listed, and
+/// the cursor stays at the first frame missing. The close is no clean retirement (the index does not hold the log through its
+/// end), so the mark stays, and the next start projects the log from that cursor, in order: the rows of a rebuild.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_missed_projection_keeps_the_mark_and_the_cursor_at_the_first_frame_missing() {
+    let env = Env::new();
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    env.mark("s1").await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let cursor = env.store.projected("s1").await.unwrap().unwrap();
+    let (w, missed) = env.append(w, vec![item("b")]).await;
+    missed.unwrap();
+    let (w, _) = env.commit(w, vec![item("c")]).await;
+    assert_eq!(env.store.projected("s1").await.unwrap().unwrap(), cursor, "the later write moved the cursor across the missing one");
+    let refused = env.retire(w).await;
+    assert!(matches!(&refused, Err(DbError::Write(why)) if why.contains("not to its end")), "{refused:?}");
+    assert_eq!(env.store.owed_repairs().await.unwrap(), ["s1"], "a retirement over a hole left the mark");
+    assert_eq!(env.store.projected("s1").await.unwrap().unwrap(), cursor);
+    let reopened = env.restart().await;
+    let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+    assert!(reopened.owed_repairs().await.unwrap().is_empty());
+    drop(reopened);
+    assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
+}
+
+/// A session marked again (its next writer's activation) before the row of an earlier retirement is written is not cleared by
+/// that retirement, and one whose writer retires after it is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retirement_does_not_clear_the_mark_of_a_writer_activated_after_it() {
+    let env = Env::new();
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    env.mark("s1").await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let (projection, retirement) = env.close(w).await;
+    // Queued in this order with no wait between them: the mark is taken (a small command) before the retirement's row.
+    let retired = env.store.queue_retirement(projection, retirement).await.unwrap();
+    let w = env.activate("s1").await;
+    let _ = retired.await;
+    assert_eq!(env.store.dirty_sessions().await.unwrap(), ["s1"], "the earlier retirement cleared the mark of the writer opened after it");
+    let w = env.commit(w, vec![item("b")]).await.0;
+    env.retire(w).await.unwrap();
+    assert!(env.store.dirty_sessions().await.unwrap().is_empty());
+    assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
+}
+
+/// The mark of an activation is refused when the index holds no row of the session for that log: nothing is marked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_that_reaches_no_row_of_the_log_is_refused() {
+    let env = Env::new();
+    env.store.upsert(head("s1", "task", "Title"), DirtyMark::Clear).await.unwrap();
+    for (session, log_id) in [("s2", LOG_ID), ("s1", "000000000000000000000000")] {
+        let marked = env.store.mark_dirty(session, log_id, new_activation()).await;
+        assert!(matches!(&marked, Err(DbError::Write(why)) if why.contains("to mark dirty")), "{session} {log_id}: {marked:?}");
+    }
+    assert!(env.store.dirty_sessions().await.unwrap().is_empty());
+    env.store.mark_dirty("s1", LOG_ID, new_activation()).await.unwrap();
+    assert_eq!(env.store.dirty_sessions().await.unwrap(), ["s1"]);
+}
+
+/// The process ends at each point of a writer's life after a clean retirement: once the activation is marked, once its
+/// barrier is on disk, once the close's frames are projected but before the final row, and once the final row is committed.
+/// The next start leaves the session's rows and cursor as a rebuild from the log writes them, and only the last point
+/// leaves it nothing to repair.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_process_cut_at_each_point_of_a_retirement_recovers_the_rows_of_a_rebuild() {
+    for cut in ["marked", "barrier", "projected", "committed"] {
+        let env = Env::new();
+        let w = env.create_from("s1", stamped_session("s1")).await;
+        env.mark("s1").await;
+        let w = env.commit(w, vec![item("a")]).await.0;
+        env.retire(w).await.unwrap();
+        let w = env.activate("s1").await;
+        match cut {
+            "marked" => drop(w),
+            "barrier" => env.append(w, vec![item("b")]).await.1.map(drop).unwrap(),
+            "projected" => {
+                let w = env.commit(w, vec![item("b")]).await.0;
+                let (projection, _) = env.close(w).await;
+                env.store.project(projection).await.unwrap();
+            }
+            _ => {
+                let w = env.commit(w, vec![item("b")]).await.0;
+                env.retire(w).await.unwrap();
+            }
+        }
+        let owed: &[&str] = if cut == "committed" { &[] } else { &["s1"] };
+        assert_eq!(env.store.owed_repairs().await.unwrap(), owed, "{cut}");
+        let before = session_rows(&env.data);
+        let reopened = env.restart().await;
+        assert!(reopened.owed_repairs().await.unwrap().is_empty(), "{cut}");
+        let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+        assert_eq!(iids(&rows), if cut == "marked" { vec!["a"] } else { vec!["b", "a"] }, "{cut}");
+        drop(reopened);
+        let recovered = session_rows(&env.data);
+        assert_eq!(recovered, rebuilt_rows(&env, "s1"), "{cut}");
+        if cut == "committed" {
+            assert_eq!(recovered, before, "nothing was left to repair");
+        }
+    }
+}
+
+/// Every column but `sid` of every `sessions` row under `data`, in id order: a rebuilt row takes a new `sid`.
+fn session_rows_but_sid(data: &Path) -> Vec<Vec<rusqlite::types::Value>> {
+    session_rows(data).into_iter().map(|row| row[1..].to_vec()).collect()
+}
+
+/// [`session_rows_but_sid`] of an index built from nothing but a copy of every log under `env`.
+fn rebuilt_rows_of_all(env: &Env) -> Vec<Vec<rusqlite::types::Value>> {
+    let rebuilt = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &rebuilt.path().join("sessions"));
+    drop(open_index(rebuilt.path()).unwrap());
+    session_rows_but_sid(rebuilt.path())
+}
+
+/// `s1` with `a` projected, `b` in its log and never projected, `c` projected after it: a hole, its cursor before `b`.
+async fn holed(env: &Env) -> crate::schema::checkpoint::FramePos {
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    env.mark("s1").await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let cursor = env.store.projected("s1").await.unwrap().unwrap();
+    let (w, missed) = env.append(w, vec![item("b")]).await;
+    missed.unwrap();
+    drop(env.commit(w, vec![item("c")]).await);
+    assert_eq!(env.store.projected("s1").await.unwrap().unwrap(), cursor);
+    cursor
+}
+
+/// A rebuild of a holed session's rows cut off after its old row was purged, or after its new row was written (clean)
+/// with its frames not yet in: neither state is a marked row, and the next start still finds the session, by its hole, and
+/// finishes the rebuild.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hole_repair_cut_off_is_found_and_finished_by_the_next_start() {
+    for cut in ["purged", "started"] {
+        let env = Env::new();
+        holed(&env).await;
+        env.store.close();
+        {
+            let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+            let left = if cut == "purged" { "DELETE FROM sessions WHERE id = 's1'" } else { "UPDATE sessions SET dirty = 0 WHERE id = 's1'" };
+            assert_eq!(conn.execute(left, []).unwrap(), 1, "{cut}");
+            let marked: i64 = conn.query_row("SELECT count(*) FROM sessions WHERE dirty = 1", [], |r| r.get(0)).unwrap();
+            assert_eq!(marked, 0, "{cut}: no marked row names the session");
+        }
+        let reopened = env.restart().await;
+        assert!(reopened.owed_repairs().await.unwrap().is_empty(), "{cut}");
+        let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+        assert_eq!(iids(&rows), ["c", "b", "a"], "{cut}");
+        drop(reopened);
+        assert_eq!(session_rows_but_sid(&env.data), rebuilt_rows_of_all(&env), "{cut}");
+    }
+}
+
+/// Checkpoint A, a rewind to before A, another counted message, then the index cursor: the reconcile restores the fold from A
+/// and the rewind fails in the part before the cursor, which is folded only. The fold starts again from the first frame and
+/// still projects nothing the index holds: the message after the rewind is counted once, as a rebuild counts it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_behind_the_anchor_and_before_the_cursor_projects_nothing_twice() {
+    let env = Env::new();
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    let w = env.commit(w, vec![item("a"), item("b")]).await.0;
+    let w = env.commit(w, (0..6).map(|i| big_item(&format!("p{i}"))).collect()).await.0;
+    let w = env.commit(w, vec![item("c")]).await.0;
+    let (w, rewind) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":2,"reason":"edit"}))]).await;
+    let w = env.commit(w, vec![item("d")]).await.0;
+    let cursor = env.store.projected("s1").await.unwrap().unwrap();
+    drop(w);
+    let anchor = checkpoints_of(&env.dir("s1")).into_iter().rfind(|&at| at < cursor.ordinal).expect("a checkpoint before the cursor");
+    assert!(2 < anchor && anchor < rewind[0], "the rewind's target, A, the rewind: 2, {anchor}, {rewind:?}");
+    let reopened = env.restart().await;
+    let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 20).await.unwrap();
+    assert_eq!(iids(&rows), ["d", "a"]);
+    drop(reopened);
+    assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
+}
+
+/// A writer that lost its ownership of the log since its last barrier does not close clean, even when its close has no frame
+/// to append.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_with_no_frame_is_refused_once_ownership_is_lost() {
+    let env = Env::new();
+    let owned = Arc::new(MockOwnership::default());
+    let deps = WriterDeps { ownership: owned.clone(), ..env.deps() };
+    env.store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
+    let dir = env.dir("s1");
+    let w = on_lane(move |l| LogWriter::create(l, &dir, stamped_session("s1"), deps).unwrap().0).await;
+    owned.lose(mixdog_core_api::domain::ownership::FenceReason::LockLost);
+    let (w, closed) = on_lane(move |l| {
+        let mut w = w;
+        let closed = w.close(l).map(drop);
+        (w, closed)
+    })
+    .await;
+    assert!(matches!(closed, Err(AppendError::Fenced { .. })), "{closed:?}");
+    assert!(w.end().is_none(), "a fenced writer names no end to retire at");
+}
+
+/// A writer that lost the log while a rollback of its own is pending: its close checks ownership before it does anything,
+/// so the pending rollback (a truncate and a sync of a file that is no longer its) is not run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_checks_ownership_before_it_runs_a_pending_rollback() {
+    let env = Env::new();
+    let owned = Arc::new(MockOwnership::default());
+    let deps = WriterDeps { ownership: owned.clone(), ..env.deps() };
+    env.store.upsert(head("s1", "task", "Title"), DirtyMark::Set).await.unwrap();
+    let dir = env.dir("s1");
+    let w = on_lane(move |l| LogWriter::create(l, &dir, stamped_session("s1"), deps).unwrap().0).await;
+    let path = env.dir("s1").join(log_name(0));
+    let acked = std::fs::metadata(&path).unwrap().len();
+    {
+        let mut faults = env.io.0.lock().unwrap();
+        faults.sync = 1;
+        faults.truncate = 2;
+    }
+    let (w, failed) = env.append(w, vec![item("a")]).await;
+    assert!(matches!(failed, Err(AppendError::Indeterminate(_))), "{failed:?}");
+    assert!(matches!(w.state(), WriterState::PendingRollback { target, .. } if *target == acked));
+    let left = std::fs::metadata(&path).unwrap().len();
+    assert!(left > acked, "the frame the rollback would cut is still in the file");
+    owned.lose(mixdog_core_api::domain::ownership::FenceReason::LockLost);
+    let (w, closed) = on_lane(move |l| {
+        let mut w = w;
+        let closed = w.close(l).map(drop);
+        (w, closed)
+    })
+    .await;
+    assert!(matches!(closed, Err(AppendError::Fenced { .. })), "{closed:?}");
+    assert!(matches!(w.state(), WriterState::Fenced(_)));
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), left, "a writer that lost the log cut its file");
+}
+
+/// Another process marks the session after this one closed its writer and before this one's final row: the retirement
+/// leaves that mark, so what the new owner appends and never projects is still recovered by the next start.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retirement_leaves_the_mark_another_process_set_after_the_close() {
+    let env = Env::new();
+    let w = env.create_from("s1", stamped_session("s1")).await;
+    env.mark("s1").await;
+    let w = env.commit(w, vec![item("a")]).await.0;
+    let (projection, retirement) = env.close(w).await;
+    // The other process: its own handle on the index, its own activation, its own writer over the log.
+    let other = open_index(&env.data).unwrap();
+    other.reconciled().await.unwrap();
+    other.mark_dirty("s1", LOG_ID, new_activation()).await.unwrap();
+    let refused = env.store.queue_retirement(projection, retirement).await.unwrap().await;
+    assert!(matches!(&refused, Err(DbError::Write(why)) if why.contains("not this writer's activation")), "{refused:?}");
+    assert_eq!(other.owed_repairs().await.unwrap(), ["s1"], "the first process cleared the second one's mark");
+    let (opened, deps) = (env.reopen("s1").await, env.deps());
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    env.append(w, vec![item("b")]).await.1.map(drop).unwrap();
+    other.close();
+    let reopened = env.restart().await;
+    let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["b", "a"]);
+    assert!(reopened.owed_repairs().await.unwrap().is_empty());
+    drop(reopened);
+    assert_eq!(session_rows(&env.data), rebuilt_rows(&env, "s1"));
+}
+
+/// A fork taken at a holed base's pinned cursor, after a later message of the base was projected: the base's totals are not
+/// its state at the fork point, so the fork takes no ready view from them. Its row waits for a view no step of this process
+/// can compute, so its retirement is refused at once and both sessions stay owed; the next starts rebuild the base, compute the
+/// fork's view from it, and leave the rows of a rebuild, the fork counting only what lies below its fork point.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_of_a_holed_base_takes_no_view_and_its_retirement_is_refused_at_once() {
+    let env = Env::new();
+    let cursor = holed(&env).await;
+    let fork = rec(json!({"k":"session","v":2,"id":"s2","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}},
+        "base":{"session":"s1","log_id":LOG_ID,"end_ordinal_exclusive":cursor.ordinal}}));
+    // The row a creation writes before the log exists names the fork's base (`create_from` writes one that does not).
+    env.store.upsert(CatalogHead { base_session: Some("s1".into()), ..head("s2", "task", "Title") }, DirtyMark::Set).await.unwrap();
+    let w = env.create_from("s2", fork).await;
+    env.mark("s2").await;
+    {
+        let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+        let state: String = conn.query_row("SELECT state FROM message_views WHERE session = 's2'", [], |r| r.get(0)).unwrap();
+        assert_eq!(state, "pending", "a fork of a holed base took the base's totals as its state at the fork point");
+    }
+    let refused = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), env.retire(w)).await.expect("the retirement is answered, not kept waiting");
+    assert!(matches!(&refused, Err(DbError::Write(why)) if why.contains("fork view")), "{refused:?}");
+    assert_eq!(env.store.owed_repairs().await.unwrap(), ["s1", "s2"]);
+    // The fork's row is re-derived by the start after the one that computes its view.
+    let mut reopened = env.restart().await;
+    for _ in 0..2 {
+        if reopened.owed_repairs().await.unwrap().is_empty() {
+            break;
+        }
+        reopened.close();
+        reopened = open_index(&env.data).unwrap();
+        reopened.reconciled().await.unwrap();
+    }
+    assert!(reopened.owed_repairs().await.unwrap().is_empty());
+    let summary: serde_json::Value = serde_json::from_str(&reopened.summary("s2").await.unwrap().unwrap()).unwrap();
+    assert_eq!(summary["messageCount"], json!(1), "the fork counts the base's message below its fork point, and no other");
+    drop(reopened);
+    assert_eq!(session_rows_but_sid(&env.data), rebuilt_rows_of_all(&env));
+}
+/// A repair that fails to write the index fails every way into its session with its reason: a read, a write, a read from
+/// inside a read-lane job, and the wait for every repair. None answers from the rows the crash left, a listing takes the
+/// session as not answerable, and the other sessions owed a repair are repaired and served.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_repair_fails_every_access_to_its_session_and_to_no_other() {
     let step = Arc::new(std::sync::Mutex::new("its start"));
     let reached = step.clone();
     let at = move |name: &'static str| *step.lock().unwrap() = name;
@@ -3034,6 +3541,8 @@ async fn a_failed_reconcile_fails_every_access() {
         let (w, _) = env.commit(w, vec![item("a")]).await;
         let (_w, acked) = env.append(w, vec![item("b")]).await;
         acked.unwrap();
+        cut_off(&env, "s2").await;
+        env.store.close();
         crate::sqlite::reconcile_seam::fail(&env.data);
         let failed = open_index(&env.data).unwrap();
         let why = "s1: the test seam failed the index write";
@@ -3041,7 +3550,7 @@ async fn a_failed_reconcile_fails_every_access() {
         let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
         assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
         at("the write");
-        let write = failed.mark_dirty("s1").await;
+        let write = failed.mark_dirty("s1", LOG_ID, new_activation()).await;
         assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
         let laned = failed.clone();
         at("the lane read");
@@ -3051,9 +3560,21 @@ async fn a_failed_reconcile_fails_every_access() {
             .expect("lane");
         let on_lane = on_lane.await.expect("job ran");
         assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
-        at("the reconcile's outcome");
+        at("the listing");
+        assert_eq!(failed.listed("s1").await.unwrap(), None, "a session whose repair failed was answered from the rows the crash left");
+        at("the listed row by id");
+        let row = failed.lead_row("s1").await;
+        assert!(matches!(&row, Err(DbError::Write(w)) if w == why), "{row:?}");
+        at("a lookup that names no session under repair");
+        assert!(failed.archived_agent_parents("child").await.unwrap().is_empty(), "a lookup across the rows was refused for one session's failure");
+        at("the other session");
+        let (rows, _) = failed.history_page(lineage(&[("s2", None)]), None, None, 10).await.unwrap();
+        assert_eq!(iids(&rows), ["b", "a"]);
+        at("the repairs' outcome");
         let settled = failed.reconciled().await;
         assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+        let report = failed.repairs();
+        assert_eq!((report.owed, report.repaired, report.pending, report.failed), (2, 1, 0, vec![("s1".to_owned(), why.to_owned())]));
     };
     // The whole body under one real-time deadline (a thread's, so it fires on a paused clock too), naming the step reached.
     let (done, waiting) = std::sync::mpsc::channel::<()>();
@@ -3066,11 +3587,222 @@ async fn a_failed_reconcile_fails_every_access() {
     tokio::select! {
         biased;
         () = body => drop(done),
-        _ = expired => panic!("a_failed_reconcile_fails_every_access, at {}: not within 60 s", reached.lock().unwrap()),
+        _ = expired => panic!("a_failed_repair_fails_every_access_to_its_session_and_to_no_other, at {}: not within 60 s", reached.lock().unwrap()),
     }
 }
+
+/// A session the process ended in: `a` projected, `b` acked on disk and never projected, its row marked.
+async fn cut_off(env: &Env, id: &str) {
+    let w = env.create(id, None).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    env.append(w, vec![item("b")]).await.1.map(drop).unwrap();
+}
+
+const REPAIR_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn page_of(store: &SqliteStore, id: &str) -> Vec<String> {
+    let page = mixdog_rt::time::timeout(REPAIR_BOUND, store.history_page(lineage(&[(id, None)]), None, None, 10)).await;
+    iids(&page.unwrap_or_else(|_| panic!("the page of {id} answered within 60 s")).unwrap().0)
+}
+
+/// With the repair of one session held: the withheld set commits, a clean session reads and writes, a session repaired
+/// before the held one is answered from its repaired rows, an access to the held one waits for it alone, and a listing
+/// takes it as not answerable. A session of the withheld set is answered without content by the index, is the record's
+/// to answer (which refuses it), and nothing of its log is projected until it is released.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
+async fn sessions_not_under_repair_are_served_while_the_repair_of_another_is_held() {
+    let env = Env::new();
+    cut_off(&env, "s1").await;
+    let clean = env.create_from("s2", stamped_session("s2")).await;
+    env.mark("s2").await;
+    let clean = env.commit(clean, vec![item("a")]).await.0;
+    env.retire(clean).await.unwrap();
+    cut_off(&env, "s3").await;
+    cut_off(&env, "s4").await;
+    let cursor = env.store.projected("s4").await.unwrap().unwrap();
+    env.store.close();
+    let (release, arrived) = crate::sqlite::reconcile_seam::hold(&env.data, "s3");
+    let reopened = open_index(&env.data).unwrap();
+    assert_eq!(reopened.repairs().owed, 3);
+
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.withhold(vec!["s4".to_owned()])).await.expect("the withheld set committed before any repair").unwrap();
+    assert_eq!(reopened.repairs().repaired, 0, "the withheld set waited for a repair");
+
+    assert_eq!(page_of(&reopened, "s2").await, ["a"]);
+    assert!(reopened.listed("s2").await.unwrap().is_some(), "a clean session is answered from the index");
+    let (dir, blobs, index) = (env.dir("s2"), BlobStore::new(&env.data), reopened.clone());
+    let opened = on_lane(move |l| open_log(l, &dir, &blobs, &index as &dyn LineageIndex).unwrap()).await;
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.mark_dirty("s2", LOG_ID, new_activation())).await.expect("a clean session is marked at once").unwrap();
+    let deps = WriterDeps { index: Arc::new(reopened.clone()), ..env.deps() };
+    let written = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap().append_barrier(l, vec![item("c")]).unwrap()).await;
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.project(written.projection)).await.expect("a clean session is written at once").unwrap();
+    assert_eq!(page_of(&reopened, "s2").await, ["c", "a"]);
+
+    assert_eq!(page_of(&reopened, "s1").await, ["b", "a"], "a repaired session is answered while another's repair is held");
+    arrived.recv_timeout(REPAIR_BOUND).expect("the repairs got to the held session");
+    assert_eq!(reopened.repairs().pending, 2);
+
+    let mut waiters = reopened.reconcile_waiters();
+    let before = *waiters.borrow();
+    let held = tokio::spawn({
+        let reopened = reopened.clone();
+        async move { page_of(&reopened, "s3").await }
+    });
+    mixdog_rt::time::timeout(REPAIR_BOUND, waiters.wait_for(|n| *n > before)).await.expect("the read of the held session waited").unwrap();
+    assert!(!held.is_finished(), "a session under repair was answered before its repair ended");
+    assert_eq!(reopened.listed("s3").await.unwrap(), None, "a session under repair is the record's to answer");
+
+    assert!(reopened.is_withheld("s4").await.unwrap());
+    let listing = reopened.list_sessions(true, None, None).await.unwrap();
+    let row = |id: &str| listing.iter().find(|listed| listed.row["id"] == json!(id)).unwrap_or_else(|| panic!("{id} is listed")).row.clone();
+    assert_eq!((row("s2")["title"].clone(), row("s4")["title"].clone()), (json!("t"), json!("")), "the index answered a withheld title");
+    assert_eq!(reopened.listed("s4").await.unwrap(), None, "a withheld session is the record's to answer, which refuses it");
+
+    release.send(()).unwrap();
+    assert_eq!(mixdog_rt::time::timeout(REPAIR_BOUND, held).await.expect("the held session answered once released").unwrap(), ["b", "a"]);
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
+    let report = reopened.repairs();
+    assert_eq!((report.owed, report.repaired, report.pending, report.left, report.failed), (3, 2, 0, vec!["s4".to_owned()], Vec::new()));
+    assert_eq!(reopened.projected("s4").await.unwrap(), Some(cursor), "a repair projected the log of a withheld session");
+
+    reopened.release_withheld("s4").await.unwrap();
+    assert_eq!(page_of(&reopened, "s4").await, ["b", "a"], "a released session is repaired first");
+    assert!(reopened.repairs().left.is_empty() && !reopened.owed_repairs().await.unwrap().contains(&"s4".to_owned()));
+}
+
+/// The row changes the index tells.
+#[derive(Default)]
+struct ToldRows(Mutex<Vec<RowEdge>>);
+
+impl RowSink for ToldRows {
+    fn written(&self, edge: RowEdge) {
+        self.0.lock().unwrap().push(edge);
+    }
+}
+
+/// A repair that changes a session's row tells the row sink, whether it continues the rows from the cursor or rebuilds
+/// them from the log: a list that answered the row from before the repair learns of the one after it. A read of a
+/// listed row by its id waits for that session's repair, and answers the repaired row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_repair_that_changes_a_row_tells_the_row_sink() {
+    let env = Env::new();
+    holed(&env).await;
+    cut_off(&env, "s2").await;
+    env.store.close();
+    let stale = |id: &str| {
+        let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+        conn.query_row("SELECT summary FROM sessions WHERE id = ?1", [id], |r| r.get::<_, String>(0)).unwrap()
+    };
+    let (holed_before, cut_before) = (stale("s1"), stale("s2"));
+    let (release, arrived) = crate::sqlite::reconcile_seam::hold(&env.data, "s2");
+    let reopened = open_index(&env.data).unwrap();
+    let told = Arc::new(ToldRows::default());
+    reopened.observe_rows(told.clone()).unwrap();
+    let mut waiters = reopened.reconcile_waiters();
+    let by_id = tokio::spawn({
+        let reopened = reopened.clone();
+        async move { mixdog_rt::time::timeout(REPAIR_BOUND, reopened.lead_row("s2")).await.expect("the row by id answered within 60 s") }
+    });
+    mixdog_rt::time::timeout(REPAIR_BOUND, waiters.wait_for(|n| *n == 1)).await.expect("the read of the row by id waited").unwrap();
+    arrived.recv_timeout(REPAIR_BOUND).expect("the repairs got to the session asked for");
+    assert!(!by_id.is_finished(), "the row of a session under repair was answered by id");
+    release.send(()).unwrap();
+    let row = by_id.await.unwrap().unwrap().expect("a listed session");
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
+    let edges = told.0.lock().unwrap().clone();
+    for (id, before) in [("s1", holed_before), ("s2", cut_before)] {
+        let after = reopened.summary(id).await.unwrap().expect("listed");
+        assert_ne!(after, before, "{id}: the repair changed its row");
+        let edge = edges.iter().find(|edge| edge.id == id).unwrap_or_else(|| panic!("{id}: the repair's row change is told"));
+        assert_eq!((edge.before.as_ref().map(|row| row.summary.as_str()), edge.after.summary.as_str()), (Some(before.as_str()), after.as_str()), "{id}");
+    }
+    assert_eq!(serde_json::Value::Object(row.row), serde_json::from_str::<serde_json::Value>(&reopened.summary("s2").await.unwrap().unwrap()).unwrap());
+}
+
+/// `s1` as a log of its `session` frame alone, owed a rebuild of its rows: the row the rebuild's replay writes first is
+/// then the row it ends with. The row a reader holds from before the rebuild is returned: with `stale` another one, else
+/// the row as the log's frame left it, which the rebuild ends with again.
+async fn owed_a_rebuild_of_one_frame(env: &Env, stale: bool) -> String {
+    drop(env.create_from("s1", stamped_session("s1")).await);
+    env.store.close();
+    let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+    if stale {
+        let other = r#"{"id":"s1","title":"from before the rebuild"}"#;
+        assert_eq!(conn.execute("UPDATE sessions SET summary = ?1 WHERE id = 's1'", [other]).unwrap(), 1);
+    }
+    conn.execute("INSERT INTO meta (key, value) VALUES ('hole:s1', '1')", []).unwrap();
+    conn.query_row("SELECT summary FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap()
+}
+
+/// A rebuild whose final row equals the row from before it (it repaired frames, not the summary) still tells that row,
+/// as replacing the one from before: a list that read between the purge and the commit saw no row of the session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rebuild_tells_its_final_row_against_the_row_from_before_it() {
+    let env = Env::new();
+    let before = owed_a_rebuild_of_one_frame(&env, false).await;
+    let reopened = open_index(&env.data).unwrap();
+    let told = Arc::new(ToldRows::default());
+    reopened.observe_rows(told.clone()).unwrap();
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
+    let after = reopened.summary("s1").await.unwrap().expect("listed");
+    assert_eq!(after, before, "the rebuild ends with the row from before it");
+    let edges = told.0.lock().unwrap().clone();
+    let told: Vec<_> = edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
+    assert_eq!(told, [(Some(before), after)]);
+}
+
+/// A row sink set while a rebuild replays its log (the composition wires its publication after the repairs started) is
+/// told of the rebuild's final row: the sink is the one there at the commit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_sink_set_during_a_rebuild_is_told_of_its_final_row() {
+    let env = Env::new();
+    let before = owed_a_rebuild_of_one_frame(&env, true).await;
+    let (release, arrived) = crate::sqlite::reconcile_seam::hold_rebuild(&env.data);
+    let reopened = open_index(&env.data).unwrap();
+    let repaired = tokio::spawn(reopened.reconciled());
+    arrived.recv_timeout(REPAIR_BOUND).expect("the rebuild purged the rows and stopped before its replay");
+    let told = Arc::new(ToldRows::default());
+    reopened.observe_rows(told.clone()).unwrap();
+    release.send(()).unwrap();
+    mixdog_rt::time::timeout(REPAIR_BOUND, repaired).await.expect("the repairs ended").unwrap().unwrap();
+    let after = reopened.summary("s1").await.unwrap().expect("listed");
+    let edges = told.0.lock().unwrap().clone();
+    let told: Vec<_> = edges.iter().filter(|edge| edge.id == "s1").map(|edge| (edge.before.as_ref().map(|row| row.summary.clone()), edge.after.summary.clone())).collect();
+    assert_eq!(told, [(Some(before), after)]);
+}
+
+/// The repairs start once the withheld set is committed, not at the open, and a session an access asks for is the next
+/// repaired: it does not queue behind the others.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_an_access_asks_for_is_the_next_repaired() {
+    let env = Env::new();
+    for id in ["s1", "s2", "s3", "s4", "s5"] {
+        cut_off(&env, id).await;
+    }
+    env.store.close();
+    let (release, arrived) = crate::sqlite::reconcile_seam::hold(&env.data, "s1");
+    let reopened = open_index(&env.data).unwrap();
+    assert_eq!(reopened.owed_repairs().await.unwrap().len(), 5);
+    assert!(arrived.try_recv().is_err(), "a repair started before the withheld set was committed");
+    reopened.withhold(Vec::new()).await.unwrap();
+    arrived.recv_timeout(REPAIR_BOUND).expect("the repairs started once the withheld set was committed");
+    let mut waiters = reopened.reconcile_waiters();
+    let asked = tokio::spawn({
+        let reopened = reopened.clone();
+        async move { page_of(&reopened, "s5").await }
+    });
+    mixdog_rt::time::timeout(REPAIR_BOUND, waiters.wait_for(|n| *n == 1)).await.expect("the read of the last session waited").unwrap();
+    release.send(()).unwrap();
+    assert_eq!(mixdog_rt::time::timeout(REPAIR_BOUND, asked).await.expect("the session asked for answered").unwrap(), ["b", "a"]);
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
+    assert_eq!(reopened.repair_order(), ["s1", "s5", "s2", "s3", "s4"]);
+    assert!(reopened.owed_repairs().await.unwrap().is_empty());
+}
+
+/// The open returns before the repairs it owes, and every access that names a session under repair (a read, a write, a
+/// read from inside a read-lane job) waits for that session's repair, then answers from the repaired rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_store_opens_before_its_repairs_and_an_access_to_a_session_under_repair_waits_for_it() {
     const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
     let (_exec, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
     let tmp = tempfile::tempdir().unwrap();
@@ -3101,8 +3833,8 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     store.project(created).await.unwrap();
     store.project(first).await.unwrap();
     drop(store);
-    let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone())).await.expect("the open returned within 60 s while its reconcile was held").unwrap();
+    let (release, _arrived) = crate::sqlite::reconcile_seam::hold(&data, "s1");
+    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone())).await.expect("the open returned within 60 s while its repair was held").unwrap();
     let events = Arc::new(Mutex::new(Vec::<&str>::new()));
     let note = |event: &'static str| {
         let events = events.clone();
@@ -3120,7 +3852,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     let write = tokio::spawn({
         let noted = note("write");
         async move {
-            let written = writer.mark_dirty("s1").await;
+            let written = writer.mark_dirty("s1", LOG_ID, new_activation()).await;
             noted();
             written
         }
@@ -3139,7 +3871,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     let mut waiters = reopened.reconcile_waiters();
     mixdog_rt::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
         .await
-        .expect("the read, the write and the lane read waited at the gate within 60 s")
+        .expect("the read, the write and the lane read waited for the session's repair within 60 s")
         .unwrap();
     note("released")();
     release.send(()).unwrap();

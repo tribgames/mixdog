@@ -33,6 +33,40 @@ fn every_size_has_its_purge_test() {
     mixdog_rt::testing::assert_chunks_registered(SIZE_TESTS, SIZES.len(), 1);
 }
 
+/// The purge that starts a rebuild of a fork's rows from its log keeps the fork's edge: its deleted base is at no step a
+/// session nothing forks from, so no purge (a running one, or the next start's) takes the base's log while the fork is
+/// rebuilt. The purge of a fork that is gone for good takes the edge, and frees the base.
+#[test]
+fn the_purge_before_a_rebuild_keeps_the_forks_edge_to_its_deleted_base() {
+    let dir = tempfile::tempdir().unwrap();
+    drop(open_writer(&dir.path().join("store.sqlite"), Some(&runtime_ddl())).unwrap());
+    let mut w = Writer::start(&dir.path().join("store.sqlite")).unwrap();
+    w.step_rows = 1;
+    let row = |id: &str, deleted: u8| {
+        format!(
+            "INSERT INTO sessions (id, dirty, status, deleted, log_id, newest_file_no, projected_file_no,
+                 projected_offset, projected_ordinal, history_rev, row_count, visible_count, activity,
+                 closed, archived, id_key, title_fold, id_fold, summary)
+             VALUES ('{id}', 0, 'ok', {deleted}, 'l', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, CAST('{id}' AS BLOB), '', '{id}', '{{}}');"
+        )
+    };
+    w.conn.execute_batch(&format!("{}{} INSERT INTO fork_edges (base, child) VALUES ('b', 'c');", row("b", 1), row("c", 0))).unwrap();
+    w.conn.execute("INSERT INTO prompt_history (session, ordinal, key, text) VALUES ('c', 1, 'k', 't')", []).unwrap();
+    let purgeable = |w: &Writer| w.conn.query_row(PURGEABLE_SQL, [], |r| r.get::<_, String>(0)).optional().unwrap();
+    assert_eq!(purgeable(&w), None);
+    for step in 0..10 {
+        let done = w.purge_rows("c", true).unwrap();
+        assert_eq!(purgeable(&w), None, "step {step}: the base of a fork under rebuild was free to purge");
+        if done {
+            break;
+        }
+    }
+    assert_eq!(rows_of(&w.conn, "c"), 1, "all of the fork's rows are gone but its edge");
+    w.conn.execute_batch(&row("c", 1)).unwrap();
+    while !w.purge_rows("c", false).unwrap() {}
+    assert_eq!((rows_of(&w.conn, "c"), purgeable(&w).as_deref()), (0, Some("b")));
+}
+
 fn purge_size(chunk: usize) {
     for indexed in SIZES[mixdog_rt::testing::chunk_range(SIZES.len(), chunk, 1)].iter().copied() {
         let dir = tempfile::tempdir().unwrap();

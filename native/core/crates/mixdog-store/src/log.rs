@@ -296,20 +296,25 @@ fn counting<'a>(
     move |blob| read(blob).inspect(|bytes| *bytes_read += bytes.len() as u64)
 }
 
-/// The newest anchor of the newest log file, the fold right after it and the position of the frame that follows it: what
-/// a reader that needs only the frames after a known position starts from, instead of folding the log from its first frame
-/// (J1 and §6.3 step 3, as an open reads them). `None` for a group file or when the anchor cannot be read; the caller folds
-/// from the start then.
-pub(crate) fn newest_anchor_fold_unlaned(dir: &Path, resolve: &mut crate::fold::ResolveBody<'_>) -> Option<(FramePos, Fold, FramePos)> {
-    let head = read_head_of(dir, list_logs(dir).ok()?).ok()?;
-    if head.group_file {
+/// The newest anchor of the file holding `before` (a frame boundary) that lies before it, the fold right after that anchor
+/// and the position of the frame that follows it: what a reader that needs only the frames from `before` on starts from,
+/// instead of folding the log from its first frame (J1 and §6.3 step 3, over the part of the file before `before`). Frames
+/// written after `before` do not move it, so a cursor behind the log's newest anchor still costs only the bytes after it.
+/// `None` when `before` starts its file, is in a group file, or the anchor cannot be read; the caller folds from the start then.
+pub(crate) fn anchor_fold_before_unlaned(dir: &Path, before: FramePos, resolve: &mut crate::fold::ResolveBody<'_>) -> Option<(FramePos, Fold, FramePos)> {
+    let files = list_logs(dir).ok()?;
+    if before.offset == 0 || files.binary_search(&before.file_no).is_err() || is_group_file(&files, before.file_no) {
         return None;
     }
-    let (anchor, _) = head.scan.frames.split_first()?;
-    let anchor_pos = FramePos { ordinal: anchor.ordinal, file_no: head.newest, offset: head.window_start + anchor.start as u64 };
-    let next = FramePos { ordinal: anchor.ordinal + 1, file_no: head.newest, offset: head.window_start + anchor.end() as u64 };
+    let path = dir.join(log_name(before.file_no));
+    let mut file = File::open(&path).ok()?;
+    let window = locate_anchor(&mut file, &path, before.offset, &mut 0).ok()?;
+    let scan = framing::scan(&window.buf, window.window_start, window.anchor_start, window.anchor_ordinal);
+    let (anchor, _) = scan.frames.split_first()?;
+    let anchor_pos = FramePos { ordinal: anchor.ordinal, file_no: before.file_no, offset: window.window_start + anchor.start as u64 };
+    let next = FramePos { ordinal: anchor.ordinal + 1, file_no: before.file_no, offset: window.window_start + anchor.end() as u64 };
     let session_name = dir.file_name()?.to_string_lossy().into_owned();
-    let record = parse_record(anchor.payload(&head.buf)).ok()?;
+    let record = parse_record(anchor.payload(&window.buf)).ok()?;
     let fold = fold_at_anchor(record, anchor_pos, &session_name, resolve).ok()?;
     Some((anchor_pos, fold, next))
 }
@@ -668,6 +673,11 @@ pub(crate) fn first_ordinal_unlaned(dir: &Path) -> Result<u64, OpenError> {
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
     let digits = read_range(&mut file, &path, 0, ORDINAL_DIGITS)?;
     ordinal_of(&digits).ok_or_else(|| OpenError::Format(format!("{}: no frame header", path.display())))
+}
+
+/// Where a log's first frame starts ([`read_forward`] from here reads every committed frame).
+pub fn first_frame<L: IoLane>(_lane: &InLane<L>, dir: &Path) -> Result<FramePos, OpenError> {
+    Ok(FramePos { ordinal: first_ordinal_unlaned(dir)?, file_no: 0, offset: 0 })
 }
 
 /// `read_frame` when only the position is known (open-set records, whose checkpoint
@@ -1142,10 +1152,35 @@ impl LogWriter {
         self.append(batch, false)
     }
 
+    /// Where the next frame would go: the end of the last frame this writer holds as durable. `None` unless the writer is
+    /// `Clean` (a pending rollback, a fence).
+    pub fn end(&self) -> Option<FramePos> {
+        match self.state {
+            WriterState::Clean { end } => Some(FramePos { ordinal: self.fold.next_ordinal, file_no: self.file_no, offset: end }),
+            _ => None,
+        }
+    }
+
     /// Clean close: ends the file with a checkpoint unless its last frame is one. A group file
-    /// gets none (it holds no anchor after its group, FORMAT.md §3.6).
+    /// gets none (it holds no anchor after its group, FORMAT.md §3.6). `Ok` only from a writer that is `Clean` and still
+    /// the log's only one, with or without a frame to append: a pending rollback is run first, and a fence refuses.
     pub fn close(&mut self, _lane: &InLane<DurabilityIo>) -> Result<Option<BatchAck>, AppendError> {
+        // Before anything else: a pending rollback cuts and syncs the file, which a writer that lost the log must not.
+        if !matches!(self.state, WriterState::Fenced(_))
+            && let Err(reason) = self.deps.ownership.revalidate()
+        {
+            self.state = WriterState::Fenced(reason);
+            return Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied });
+        }
         if self.last_is_anchor || self.sealed {
+            let _writing = crate::log_epoch::writing_dir(&self.dir);
+            let end = self.ready()?;
+            self.alone(end)?;
+            // As a barrier ends: this writer may have lost the log since its last one, and then closed nothing.
+            if let Err(reason) = self.deps.ownership.revalidate() {
+                self.state = WriterState::Fenced(reason);
+                return Err(AppendError::Fenced { reason, outcome: Outcome::NotApplied });
+            }
             return Ok(None);
         }
         self.append(Vec::new(), true).map(Some)

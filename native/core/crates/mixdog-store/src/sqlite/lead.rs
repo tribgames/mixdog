@@ -158,10 +158,13 @@ const SCAN_SQL: &str = "SELECT summary, activity, id, archived, EXISTS (SELECT 1
 
 impl SqliteStore {
     /// The listed row of `session` as [`SqliteStore::lead_page`] would list it; `None` when the
-    /// session is deleted, unknown or not lead-visible.
+    /// session is deleted, unknown or not lead-visible. It names its session: a repair owed at open is waited for, and
+    /// one that failed is the answer.
     pub async fn lead_row(&self, session: &str) -> Result<Option<LeadRow>, DbError> {
+        let recovered = self.shared.gate.recovered(&[session]);
         let session = session.to_owned();
         let archive = self.archive_snapshot();
+        recovered.await?;
         self.read(move |c| {
             let found: Option<(String, bool, bool)> = c
                 .prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE id = ?1 AND deleted = 0", super::WITHHELD_COL))?

@@ -115,13 +115,22 @@ impl SqliteStore {
     /// Boot only, before anything is served: nothing adds to the set afterwards. The reads' safety rests on that (a
     /// session's release is never undone in a boot, so the log reads' copy, cleared after the release commits, never
     /// lets through what the catalog withholds; see `mixdog-core-session` `OwedRewrites`).
+    ///
+    /// It needs a working writer and no repaired row: it waits for no repair owed at open, and the repairs start once it
+    /// is committed, so each reads this start's set and projects nothing of a session in it.
     pub async fn withhold(&self, sessions: Vec<String>) -> Result<(), DbError> {
-        self.ask(|ack| super::Command::Withhold { sessions, ack }).await
+        self.ask(|ack| super::Command::Withhold { sessions, ack }).await?;
+        self.shared.gate.start_repairs();
+        Ok(())
     }
 
     /// `session` is answered in full again; a subscribed roster is told its row changed from the one it was answered without
-    /// content. Only once its rows were rebuilt from its rewritten log.
+    /// content. Only once its rows were rebuilt from its rewritten log. A session whose repair was owed at open and left
+    /// for its rewrite is repaired first, from the rewritten log.
     pub async fn release_withheld(&self, session: &str) -> Result<(), DbError> {
+        if self.shared.gate.release(session) {
+            self.shared.gate.recovered(&[session]).await?;
+        }
         let session = session.to_owned();
         self.ask(|ack| super::Command::Release { session, ack }).await
     }
