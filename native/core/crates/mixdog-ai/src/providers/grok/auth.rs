@@ -1125,11 +1125,7 @@ async fn refresh_tokens(
             Err(error) if is_invalid_grant(&error) => match stored_in(file).await {
                 Stored::Tokens(rotated) if !rotated.same_login(&current) => {
                     let rotated = with_claimed_expiry(rotated);
-                    if force || rotated.valid_at(valid_after) {
-                        Ok(Refreshed::Replaced(rotated))
-                    } else {
-                        refresh_with_retry(http, pace, file, &rotated).await
-                    }
+                    if force || rotated.valid_at(valid_after) { Ok(Refreshed::Replaced(rotated)) } else { refresh_with_retry(http, pace, file, &rotated).await }
                 }
                 // The sign-in the grant was refused for is gone: the refresh ends as that sign-out, not as the refusal.
                 Stored::SignedOut => Ok(Refreshed::SignedOut),

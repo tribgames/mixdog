@@ -32,6 +32,7 @@ use serde_json::json;
 
 use super::gateway::GatewayAdapter;
 use super::gateway::GatewayHttp;
+use super::gateway::MessagesCeilingLookup;
 use super::gateway::ResponsesEngine;
 use super::gateway::Sdk;
 use super::gateway::WirePick;
@@ -72,8 +73,8 @@ use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
 use crate::providers::connect::rewrite::Attempt;
 use crate::providers::connect::rewrite::Credential;
-use crate::providers::connect::rewrite::Recovered;
 use crate::providers::connect::rewrite::HttpAdapter;
+use crate::providers::connect::rewrite::Recovered;
 use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::cursor::CursorAdapter;
 use crate::providers::cursor::auth::ApiKeyAccess;
@@ -1196,7 +1197,7 @@ impl DefaultProviderBuilder {
     /// The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
     /// catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
     /// roster alone).
-    fn messages_ceiling(&self, name: &str, rows: Arc<dyn CachedModelInfo>) -> Arc<dyn Fn(&str) -> Option<u32> + Send + Sync> {
+    fn messages_ceiling(&self, name: &str, rows: Arc<dyn CachedModelInfo>) -> Arc<MessagesCeilingLookup> {
         let catalog = matches!(name, "deepseek" | "openrouter").then(|| (self.env.listing.clone(), name.to_owned()));
         Arc::new(move |model: &str| {
             let listed = rows.cached_row(model).and_then(|row| row.get("outputTokens").and_then(Value::as_u64)).filter(|n| *n > 0);

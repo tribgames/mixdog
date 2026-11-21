@@ -491,8 +491,11 @@ mod tests {
     }
 }
 
-/// The explicit copy/link entries as `(rel, link, line, from a pattern)`, the usable patterns, and a warning per unusable line.
-fn split_entries(entries: &[IncludeEntry]) -> (Vec<(String, bool, usize, bool)>, Vec<String>, Vec<String>) {
+/// A copy or link to make: `(rel, link, line, from a pattern)`.
+type Planned = (String, bool, usize, bool);
+
+/// The explicit copy/link entries, the usable patterns, and a warning per unusable line.
+fn split_entries(entries: &[IncludeEntry]) -> (Vec<Planned>, Vec<String>, Vec<String>) {
     let (mut planned, mut patterns, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
     for entry in entries {
         match entry {

@@ -141,7 +141,8 @@ impl TurnRunner {
         };
         let on_submitted = job.map(|job| {
             let (job, session_id) = (job.clone(), plan.session_id.clone());
-            Arc::new(move |turn: &str| job.set_turn(Some(JobTurn { session_id: session_id.clone(), turn_id: turn.to_owned() }))) as Arc<dyn Fn(&str) + Send + Sync>
+            Arc::new(move |turn: &str| job.set_turn(Some(JobTurn { session_id: session_id.clone(), turn_id: turn.to_owned() })))
+                as Arc<dyn Fn(&str) + Send + Sync>
         });
         let request = TurnRequest {
             kind: plan.kind,
@@ -185,11 +186,11 @@ impl TurnRunner {
             *status = FinalStatus::Cancelled;
             return Err(failure.message);
         }
-        if is_watchdog_abort(&failure.message) {
-            if let Some(value) = self.settle_watchdog_stop(plan, job, start, &failure).await {
-                *status = FinalStatus::Idle;
-                return Ok(value);
-            }
+        if is_watchdog_abort(&failure.message)
+            && let Some(value) = self.settle_watchdog_stop(plan, job, start, &failure).await
+        {
+            *status = FinalStatus::Idle;
+            return Ok(value);
         }
         *status = FinalStatus::Error;
         let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);

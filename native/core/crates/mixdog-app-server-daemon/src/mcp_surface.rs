@@ -99,7 +99,7 @@ pub struct BridgeFiles {
     slots: Mutex<HashMap<&'static str, Slot>>,
     watching: Mutex<Option<Watching>>,
     /// One [`Self::attach`] at a time: its resolution and registration run on the lane, outside `watching`.
-    attaching: tokio::sync::Mutex<()>,
+    attaching: tokio::sync::Semaphore,
     /// `Date.now()` in milliseconds.
     now_ms: Box<dyn Fn() -> f64 + Send + Sync>,
     /// Counts the reads taken into the copy; a test waits on it instead of polling.
@@ -378,7 +378,7 @@ impl BridgeFiles {
             io,
             slots: Mutex::new(slots),
             watching: Mutex::new(None),
-            attaching: tokio::sync::Mutex::new(()),
+            attaching: tokio::sync::Semaphore::new(1),
             now_ms,
             applied: tokio::sync::watch::channel(0).0,
         })
@@ -416,7 +416,7 @@ impl BridgeFiles {
     /// The folder is watched by its real path (the backend names events by it; `at` keeps the spelling given), which is
     /// resolved on the maintenance lane with the registration, so a folder on a stalled mount holds a lane job, not a worker.
     async fn attach(&self) {
-        let _one = self.attaching.lock().await;
+        let _one = self.attaching.acquire().await.expect("the attach gate is never closed");
         let watcher = {
             let watching = self.watching();
             let Some(held) = watching.as_ref() else { return };

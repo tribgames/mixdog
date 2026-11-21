@@ -268,14 +268,10 @@ fn cache_update(path: &std::path::Path, edit: impl FnOnce(&mut Obj) + Send + 'st
             serde_json::json!({ "version": 1, "updatedAt": now_ms(), "routes": routes })
         })
     };
-    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-        mixdog_rt::testing::tokens()
-            .durability_io
-            .submit(&tokio_util::sync::CancellationToken::new(), update)
-            .unwrap()
-            .await
-            .unwrap()
-    })
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async { mixdog_rt::testing::tokens().durability_io.submit(&tokio_util::sync::CancellationToken::new(), update).unwrap().await.unwrap() })
 }
 
 fn scratch_dir(tag: &str) -> PathBuf {
@@ -851,7 +847,7 @@ async fn an_erase_waiting_for_a_full_lane_is_owed_until_it_wrote() {
     r.usage.cache.saved().await;
     add_foreign_route(&r);
 
-    let full =mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
     let erasing = r.usage.cache.invalidate_provider("anthropic-oauth");
     full.met_by_a_submit().await;
     assert!(!erasing.is_finished(), "the erase waits for the lane");
@@ -879,7 +875,7 @@ async fn an_erase_whose_write_failed_is_written_with_the_next_save() {
     r.usage.cache.saved().await;
     add_foreign_route(&r);
 
-    let failing =Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let failing = Arc::new(std::sync::atomic::AtomicBool::new(true));
     r.usage.cache.seams.lock().unwrap().before_write = Some({
         let failing = failing.clone();
         Arc::new(move || if failing.load(std::sync::atomic::Ordering::SeqCst) { Err(std::io::Error::other("the disk is full")) } else { Ok(()) })

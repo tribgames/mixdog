@@ -665,7 +665,7 @@ fn stage_request(input: &Object, work_dir: &Path) -> Result<(String, Vec<String>
 
 /// Applies `patch` to the index through a temporary file: the applied run, or the failure text
 /// with the run to note.
-async fn apply_selected_patch(runner: &Runner<'_>, base_plan: &Plan, repo: &Path, patch: &str, limit: Cap) -> Result<GitRun, (String, Option<GitRun>)> {
+async fn apply_selected_patch(runner: &Runner<'_>, base_plan: &Plan, repo: &Path, patch: &str, limit: Cap) -> Result<GitRun, (String, Option<Box<GitRun>>)> {
     let directory = std::env::temp_dir().join(run_dir_name());
     let patch_path = directory.join("selected.patch");
     let written = {
@@ -684,7 +684,7 @@ async fn apply_selected_patch(runner: &Runner<'_>, base_plan: &Plan, repo: &Path
         Err((command_result(&apply_plan, &check, limit).text, None))
     } else {
         let applied = runner.run_write(&apply_plan, &strings(&["apply", "--cached", "--unidiff-zero", &patch])).await;
-        if applied.succeeded() { Ok(applied) } else { Err((command_result(&apply_plan, &applied, limit).text, Some(applied))) }
+        if applied.succeeded() { Ok(applied) } else { Err((command_result(&apply_plan, &applied, limit).text, Some(Box::new(applied)))) }
     };
     remove_run_dir(runner, &directory).await;
     outcome
@@ -744,7 +744,7 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
         return noted(fail(&format!("git stage change_ids are not present in the diff: {listed}")), None);
     }
     match apply_selected_patch(runner, &base_plan, &repo, &built.patch, limit).await {
-        Err((text, run)) => noted(text, run.as_ref()),
+        Err((text, run)) => noted(text, run.as_deref()),
         Ok(applied) => {
             stage::delete_diff_snapshot(&diff_id);
             let mut data = object(json!({"staged": true}));

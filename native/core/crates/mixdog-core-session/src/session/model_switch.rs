@@ -22,7 +22,7 @@ use mixdog_core_ports::ports::route::model_switch_anchor_index;
 
 enum Anchor {
     Settled(bool),
-    At { ordinal: u64, turn: Option<String>, item: Option<mixdog_protocol::ThreadItem> },
+    At { ordinal: u64, turn: Option<String>, item: Option<Box<mixdog_protocol::ThreadItem>> },
 }
 
 async fn locate_anchor(directory: &SessionDirectory, thread: &ThreadId, iid: &str, message: &Value, entry: &ModelSwitchEntry) -> Result<Anchor, CoreError> {
@@ -37,7 +37,7 @@ async fn locate_anchor(directory: &SessionDirectory, thread: &ThreadId, iid: &st
                 return Ok(Anchor::Settled(true));
             }
             let item = match live_model_switch(&anchor, entry) {
-                Some(Shown::Item(item)) => Some(item),
+                Some(Shown::Item(item)) => Some(Box::new(item)),
                 _ => None,
             };
             Ok(Anchor::At { ordinal, turn: anchor.turn.map(|t| t.as_str().to_owned()), item })
@@ -50,7 +50,7 @@ async fn locate_anchor(directory: &SessionDirectory, thread: &ThreadId, iid: &st
                 return Ok(Anchor::Settled(true));
             }
             let item = match live_divider_model_switch(&compaction.cid, entry) {
-                Some(Shown::Item(item)) => Some(item),
+                Some(Shown::Item(item)) => Some(Box::new(item)),
                 _ => None,
             };
             Ok(Anchor::At { ordinal: compaction.ordinal, turn: None, item })

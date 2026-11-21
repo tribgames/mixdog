@@ -229,7 +229,7 @@ fn reprice_signature(
     price: &mut dyn FnMut(&PriceRequest) -> Result<Priced>,
 ) -> Result<Option<f64>> {
     let rate = |key: &str| old_rates.and_then(|r| r.get(key));
-    let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false)) || is_unmeasuring_provider(&provider);
+    let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false)) || is_unmeasuring_provider(provider);
     let priced = if kind == "local" {
         Priced { cost_usd: Some(0.0), rates: None }
     } else {
@@ -250,7 +250,7 @@ fn reprice_signature(
             service_tier: old_rates.and_then(|r| optional_text(r, "serviceTier")),
             kind: kind.to_owned(),
             ts: row.ts,
-            historical: text_at(&signature, 6) != "live",
+            historical: text_at(signature, 6) != "live",
         })?
     };
     let cost = priced.cost_usd;
@@ -258,7 +258,7 @@ fn reprice_signature(
         return Err(LedgerError::RepairPrice);
     }
     let subscription = kind == "oauth" || kind == "quota-api";
-    signature[4] = Value::from(cost_source(&kind, cost, subscription));
+    signature[4] = Value::from(cost_source(kind, cost, subscription));
     // The count stays the record's own (`usage_event_cache_1h`), never part of the route.
     // The dispatched speed tier and missing output evidence cannot be rederived by the pricer.
     let sent_speed = old_rates.and_then(|r| optional_text(r, "sentSpeedTier"));

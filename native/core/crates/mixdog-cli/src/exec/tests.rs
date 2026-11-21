@@ -1103,9 +1103,8 @@ async fn a_route_profiles_roles_resolve_as_spawned_agents_and_its_fallback_backs
     let config = boundary.runtime_config.as_object().unwrap();
     let profile: Value = serde_json::from_str(FABLE_PROFILE).unwrap();
     for role in ["worker", "heavy-worker", "reviewer"] {
-        let candidates = mixdog_core_run::run_host::route_chain::route_candidates(config, role, &NoBots)
-            .await
-            .unwrap_or_else(|_| panic!("{role}: the config is read"));
+        let candidates =
+            mixdog_core_run::run_host::route_chain::route_candidates(config, role, &NoBots).await.unwrap_or_else(|_| panic!("{role}: the config is read"));
         let spawn = mixdog_agent::agent_tool::flow::preset::resolve_agent_spawn_preset(config, &json!({ "agent": role }), &candidates).unwrap();
         let want = &profile["routes"][role];
         for key in ["provider", "model", "effort", "fast"] {
@@ -1141,9 +1140,7 @@ async fn a_headless_lead_with_a_route_profile_can_spawn_a_worker_on_the_profiles
     let boundary = profile_boundary(dir.path(), FABLE_PROFILE).unwrap();
     assert!(lead_surface(&boundary).refusal("agent", None).is_none(), "the Lead may call agent");
     let config = boundary.runtime_config.as_object().unwrap();
-    let candidates = mixdog_core_run::run_host::route_chain::route_candidates(config, "worker", &NoBots)
-        .await
-        .unwrap_or_else(|_| panic!("the config is read"));
+    let candidates = mixdog_core_run::run_host::route_chain::route_candidates(config, "worker", &NoBots).await.unwrap_or_else(|_| panic!("the config is read"));
     let spawn = mixdog_agent::agent_tool::flow::preset::resolve_agent_spawn_preset(config, &json!({ "agent": "worker" }), &candidates).unwrap();
     let want = json!({ "provider": "openai-oauth", "model": "gpt-5.6-terra", "effort": "high", "fast": true });
     for key in ["provider", "model", "effort", "fast"] {

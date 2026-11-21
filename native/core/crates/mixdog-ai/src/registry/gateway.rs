@@ -8,7 +8,7 @@
 //! session's new route ([`StreamEvent::WireRerouted`]).
 
 // Private names for existing callback/result shapes; representations are unchanged.
-type MessagesCeilingLookup = dyn Fn(&str) -> Option<u32> + Send + Sync;
+pub(super) type MessagesCeilingLookup = dyn Fn(&str) -> Option<u32> + Send + Sync;
 
 use std::collections::VecDeque;
 use std::sync::Arc;

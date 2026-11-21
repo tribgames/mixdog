@@ -350,12 +350,12 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
                 };
                 let spelling = link_spelling(&target);
                 if let Some(refusal) = super::read_paths::string_guard(&spelling) {
-                    return refused_link_target(Path::new(&spelling), &refusal, shown);
+                    return refused_link_target(Path::new(&spelling), refusal, shown);
                 }
                 let target = path.parent().unwrap_or(path).join(if cfg!(windows) { PathBuf::from(spelling) } else { target });
                 let target = mixdog_workspace::pathguard::lexical(&target);
                 if let Some(refusal) = super::read_paths::string_guard(&fwd(&target)) {
-                    return refused_link_target(&target, &refusal, shown);
+                    return refused_link_target(&target, refusal, shown);
                 }
                 next_link = Some(target.join(full.strip_prefix(path).ok()?));
                 break;
@@ -368,7 +368,7 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
             }
             None => {
                 if let Some(reason) = super::read_paths::string_guard(&fwd(&full)) {
-                    return refused_link_target(&full, &reason, shown);
+                    return refused_link_target(&full, reason, shown);
                 }
                 // Native canonicalization also identifies a mapped share when the path was reached through a link.
                 if followed && let Ok(real) = mixdog_workspace::pathguard::canonical(&full) {

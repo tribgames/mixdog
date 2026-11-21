@@ -1133,11 +1133,11 @@ impl Driver {
         }
         self.count_response(p.cls);
         let result = m.get("result").cloned().unwrap_or(Json::Null);
-        if let Some(hook) = &p.hook {
-            if !self.record_subscription(hook, &result) {
-                let _ = p.reply.send(Err(ClientError::ProtocolViolation("response without subscription".into())));
-                return;
-            }
+        if let Some(hook) = &p.hook
+            && !self.record_subscription(hook, &result)
+        {
+            let _ = p.reply.send(Err(ClientError::ProtocolViolation("response without subscription".into())));
+            return;
         }
         let _ = p.reply.send(Ok(result));
     }

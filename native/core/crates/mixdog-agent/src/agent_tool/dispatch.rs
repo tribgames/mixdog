@@ -596,7 +596,8 @@ async fn close_tree(
     let _cancelling = sessions.begin_cancellation(&ids);
     let tag = registry.tag_for_session(&root);
     // Each member's own outcome, under its own id: none stands in for another's.
-    let of_member = |member: &str, reason: String| json!({ "tag": tag_or_null(if member == root { &row.tag } else { "" }), "sessionId": member, "reason": reason });
+    let of_member =
+        |member: &str, reason: String| json!({ "tag": tag_or_null(if member == root { &row.tag } else { "" }), "sessionId": member, "reason": reason });
     let another_turn = |member: &str| format!("agent close: \"{member}\" started another turn during the cleanup");
     let (mut closed, mut stamped, mut failed, mut moved) = (false, Vec::new(), false, None);
     for member in &tree.members {

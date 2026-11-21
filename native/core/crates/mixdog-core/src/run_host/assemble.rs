@@ -1234,7 +1234,7 @@ impl RunParts for HostRunParts {
         // or a cold heir does not carry the source's, `cold-heir.mjs:70`) mints one and stores it before its first request.
         let ensured = ensure_codex_wire_id(&directory, thread, header).await?;
         let header = ensured.as_deref().unwrap_or(header);
-        let route = self.route_hop(thread, header, &input.turn);
+        let route = self.route_hop(thread, header, input.turn);
         let live;
         let (header, provider) = match self.ready_provider(thread, header).await? {
             Some(provider) => (header, provider),

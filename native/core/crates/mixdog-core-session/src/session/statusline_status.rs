@@ -972,12 +972,10 @@ fn window_segment(window: &Value, fmt: &SegmentFormat<'_>, is_openai_oauth: bool
         format!("{d}{label}{r} {credit_color}{est}{}{r}", compact_number(left))
     } else if let (Some(used), Some(limit)) = (used_credits, limit_credits) {
         format!("{d}{label}{r} {est}{}/{}", compact_number(used), compact_number(limit))
-    } else if let Some(pct) = pct {
-        let pct_text = (fmt.colour_pct)(math::round(pct) as i64);
+    } else {
+        let pct_text = (fmt.colour_pct)(math::round(pct?) as i64);
         let shown = if fmt.cols >= 80 { pad_left_visible(&pct_text, 4) } else { pct_text };
         format!("{d}{label}{r} {est}{shown}")
-    } else {
-        return None;
     })
 }
 /// `formatGatewayLimitSegments(status, fmt)`: what the footer prints for the limits of a status: the quota windows

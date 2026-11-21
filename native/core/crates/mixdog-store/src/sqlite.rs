@@ -1023,6 +1023,14 @@ struct SmallEnv<'a> {
     watch: bool,
 }
 
+/// What the small commands of one append transaction leave for its commit: the acks to send, the requests it answers
+/// with a refusal of their own, and the rows they changed.
+struct SmallOut<'a> {
+    acks: &'a mut Vec<Ack>,
+    refused: &'a mut Vec<(Ack, String)>,
+    edges: &'a mut Vec<RowEdge>,
+}
+
 /// Applies one small command inside the append transaction: its ack joins `acks`, a row it changed joins `edges`.
 fn apply_small(
     tx: &Transaction<'_>,
@@ -1030,11 +1038,10 @@ fn apply_small(
     env: &SmallEnv<'_>,
     current_labels: &mut PlaceholderLabels,
     refold: &mut bool,
-    acks: &mut Vec<Ack>,
-    refused: &mut Vec<(Ack, String)>,
-    edges: &mut Vec<RowEdge>,
+    out: SmallOut<'_>,
 ) -> rusqlite::Result<()> {
     let SmallEnv { archive, read_seq, watch } = *env;
+    let SmallOut { acks, refused, edges } = out;
     match cmd {
         Command::MarkDirty { session, log_id, activation, ack } => {
             let marked = tx.prepare_cached("UPDATE sessions SET dirty = 1 WHERE id = ?1 AND log_id = ?2")?.execute([&session, &log_id])?;
@@ -1083,7 +1090,7 @@ fn apply_small(
                 // A row there is (taken in already, or listed by an earlier start) is left as it is.
                 if !tx.prepare_cached("SELECT 1 FROM sessions WHERE id = ?1")?.exists([&head.session])? {
                     let mut row = crate::summary::catalog_row(head, stats, now_ms());
-                    resolve_archive(&mut row, archive.as_deref());
+                    resolve_archive(&mut row, archive);
                     write_row(tx, &row, DirtyMark::Clear, current_labels)?;
                 }
             }
@@ -1092,7 +1099,7 @@ fn apply_small(
         Command::Archive { sessions, read, ack } => {
             read.store(read_seq, std::sync::atomic::Ordering::SeqCst);
             for session in &sessions {
-                let Some(entry) = archive.as_deref().and_then(|archive| archive.entry(session)) else { continue };
+                let Some(entry) = archive.and_then(|archive| archive.entry(session)) else { continue };
                 let archived_at = entry.archived_at();
                 let before = tx
                     .prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
@@ -1466,6 +1473,7 @@ impl Writer {
 
     /// The rows of a holed session rebuilt from its log ([`Command::Refold`]); the row it ends with is the first clean
     /// one, and takes the hole's key with it. A session whose folder is gone has nothing to rebuild.
+    #[allow(clippy::disallowed_methods, reason = "blocking by contract: runs on the writer's own thread")]
     fn refold(&mut self, rewrite: &Rewritten) -> Result<(), DbError> {
         if !rewrite.data.join("sessions").join(&rewrite.session).is_dir() {
             self.conn.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([hole_key(&rewrite.session)])?;
@@ -1649,7 +1657,8 @@ impl Writer {
                 && let Some(cmd) = self.small.pop_front()
             {
                 rows += 1;
-                apply_small(&tx, cmd, &env, &mut self.labels, &mut self.refold, &mut acks, &mut refused, &mut edges)?;
+                let out = SmallOut { acks: &mut acks, refused: &mut refused, edges: &mut edges };
+                apply_small(&tx, cmd, &env, &mut self.labels, &mut self.refold, out)?;
             }
             // Projections in arrival order, frame by frame. A projection is answered once its catalog row is written, so past
             // the transaction's first frame (not held back, so a frame larger than the room the rows leave still goes in) a
@@ -3604,7 +3613,13 @@ fn repair_owed(repairer: &gate::Repairer, data: &Path) {
 /// first frame when its rows hold frames past the cursor. A session of the withheld set is not projected (unless
 /// `forced`: it is being released, its rewrite done). `Ok(None)`: the test seam ended it, as a process ending there.
 #[allow(clippy::disallowed_methods, reason = "blocking by contract: runs on the repairs' own thread")]
-fn repair_session(repairer: &gate::Repairer, data: &Path, blobs: &crate::blobs::BlobStore, session: &str, forced: bool) -> Result<Option<gate::Repaired>, String> {
+fn repair_session(
+    repairer: &gate::Repairer,
+    data: &Path,
+    blobs: &crate::blobs::BlobStore,
+    session: &str,
+    forced: bool,
+) -> Result<Option<gate::Repaired>, String> {
     let (pool, sender) = (&repairer.pool, &repairer.sender);
     if !forced && pool.with(|c| Ok(withheld::is_withheld_in(c, session)?)).map_err(|e| e.to_string())? {
         return Ok(Some(gate::Repaired::Left));
@@ -4011,7 +4026,7 @@ fn row_switches(c: &Connection, lineage: &[LineageLevel], level: usize, ordinal:
     Ok(model_switches)
 }
 
-/// The history row of a `PAGE_SQL` row of `lineage[level]`; `frame_len` and `amend` are its frame and live amend as read.
+/// The history row of a `PAGE_SQL` row of `lineage[level]`; `frame` is its frame's length and live amend as read.
 fn history_row(
     c: &Connection,
     lineage: &[LineageLevel],
@@ -4019,9 +4034,9 @@ fn history_row(
     floor: i64,
     compactions: &mut crate::archive_index::Compactions<'_>,
     r: &rusqlite::Row<'_>,
-    frame_len: u64,
-    amend: Option<(FramePos, u64)>,
+    frame: (u64, Option<(FramePos, u64)>),
 ) -> Result<HistoryRow, DbError> {
+    let (frame_len, amend) = frame;
     let ordinal = r.get::<_, i64>(0)? as u64;
     let iid: String = r.get(1)?;
     let form = if r.get::<_, i64>(3)? == 1 { Form::Display } else { Form::Message };
@@ -4089,7 +4104,7 @@ fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: O
                 break;
             }
             bytes += cost;
-            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, frame_len, amend)?;
+            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, (frame_len, amend))?;
             cur.before = row.ordinal;
             out.push(row);
         }

@@ -5,6 +5,7 @@
 
 // Private spelling of the existing callback, with unchanged representation.
 type TerminalResultCallback = dyn Fn(&TurnResult) + Send + Sync;
+type SubmittedCallback = dyn Fn(&str) + Send + Sync;
 
 use std::sync::Arc;
 
@@ -80,7 +81,7 @@ pub struct TurnHooks {
     pub on_terminal_result: Option<Arc<TerminalResultCallback>>,
     /// Set for a job's turn only: told the id of the turn this request started, once the session started it. The job's
     /// cancellation stops that turn and no other.
-    pub on_submitted: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub on_submitted: Option<Arc<SubmittedCallback>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

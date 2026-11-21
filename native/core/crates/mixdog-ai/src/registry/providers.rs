@@ -466,12 +466,8 @@ impl ProviderRegistry {
         let config = self.with_custom_key_ids(&config).await?;
         let on: HashSet<String> = config.iter().filter(|(name, cfg)| self.enabled_for_init(name, cfg)).map(|(name, _)| name.clone()).collect();
         let signature = config_signature(&Value::Object(config.clone()));
-        let plan = Plan {
-            config,
-            rebuilds: Box::new(|_: &str| true),
-            adds: Box::new(|_: &str| true),
-            is_off: Some(Box::new(move |name: &str| !on.contains(name))),
-        };
+        let plan =
+            Plan { config, rebuilds: Box::new(|_: &str| true), adds: Box::new(|_: &str| true), is_off: Some(Box::new(move |name: &str| !on.contains(name))) };
         let built = self.build(&plan).await?;
         self.settle(&plan, built);
         self.note_applied(signature);

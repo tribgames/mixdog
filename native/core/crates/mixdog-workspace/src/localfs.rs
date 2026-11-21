@@ -5043,23 +5043,23 @@ fn publish_temp(target: &Path, tmp: &Path, expect: &Expect, cancel: Option<&Canc
             _ => None,
         };
         if let Some(conflict) = conflict {
-            let _ = fs::remove_file(&tmp);
+            let _ = fs::remove_file(tmp);
             return Err(conflict);
         }
         #[cfg(test)]
-        publish_barrier::reach(publish_barrier::Stage::BeforeRename, target, &tmp);
+        publish_barrier::reach(publish_barrier::Stage::BeforeRename, target, tmp);
         // Immediately before publishing (Node rechecks its signal here): a cancelled write never replaces the target.
         // A cancel that lands after this check finds the rename done, and the write answers as done.
         if cancel.is_some_and(CancellationToken::is_cancelled) {
-            return Err(cancelled_write(target, &tmp, matches!(expect, Expect::Absent)));
+            return Err(cancelled_write(target, tmp, matches!(expect, Expect::Absent)));
         }
-        match fs::rename(&tmp, target) {
+        match fs::rename(tmp, target) {
             Ok(()) => {
                 if fsync {
                     sync_directory(target);
                 }
                 #[cfg(test)]
-                publish_barrier::reach(publish_barrier::Stage::Renamed, target, &tmp);
+                publish_barrier::reach(publish_barrier::Stage::Renamed, target, tmp);
                 return Ok(());
             }
             Err(e) => {
@@ -5069,12 +5069,12 @@ fn publish_temp(target: &Path, tmp: &Path, expect: &Expect, cancel: Option<&Canc
                     std::thread::sleep(Duration::from_millis(backoff.expect("a retried attempt has a backoff") + jitter));
                     continue;
                 }
-                let _ = fs::remove_file(&tmp);
+                let _ = fs::remove_file(tmp);
                 if matches!(expect, Expect::Absent) {
                     let _ = cleanup_empty_placeholder(target);
                 }
                 let step = FsStep::Rename {
-                    from: AbsPath::new(&tmp).expect("a resolved target is absolute"),
+                    from: AbsPath::new(tmp).expect("a resolved target is absolute"),
                     to: AbsPath::new(target).expect("a resolved target is absolute"),
                 };
                 return Err(io_error(&e, target).at(step));

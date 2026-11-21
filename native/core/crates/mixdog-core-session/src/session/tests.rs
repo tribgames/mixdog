@@ -2610,6 +2610,7 @@ struct StoredPrompt {
     image: String,
 }
 
+#[allow(clippy::disallowed_methods, reason = "test setup: the blobs are written directly")]
 async fn stored_prompt_with_attachments(rig: &Rig) -> StoredPrompt {
     use sha2::Digest;
 
@@ -4621,10 +4622,12 @@ async fn thread_store_over(data: &std::path::Path) -> Arc<super::StoreThreads> {
     Arc::new(super::StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"))
 }
 
+#[allow(clippy::disallowed_methods, reason = "the test reads the written files")]
 fn holds_marked_code(path: &std::path::Path) -> bool {
     std::fs::read(path).is_ok_and(|bytes| bytes.windows(MARKED_CODE.len()).any(|w| w == MARKED_CODE.as_bytes()))
 }
 
+#[allow(clippy::disallowed_methods, reason = "the test reads the written files")]
 fn files_holding_marked_code(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];

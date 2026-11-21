@@ -1832,8 +1832,7 @@ async fn guard_run(run: impl std::future::Future<Output = ()>, ctl: mpsc::Sender
 }
 
 fn input_row(
-    iid: &mixdog_core_api::ids::ItemId,
-    turn: &TurnId,
+    (iid, turn): (&mixdog_core_api::ids::ItemId, &TurnId),
     op: Option<OpRef>,
     body: Value,
     facts: RowFacts,
@@ -5064,7 +5063,7 @@ impl SessionActor {
         };
         let (row_effects, answer): (Vec<Effect>, _) = if hidden { (answer.into_iter().collect(), None) } else { (Vec::new(), answer) };
         let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
-        let input_row = input_row(&input_iid, &turn, op_ref, body, facts, &input, submitter.is_some(), hidden);
+        let input_row = input_row((&input_iid, &turn), op_ref, body, facts, &input, submitter.is_some(), hidden);
         let last_model = Some(input_row.clone());
         // `applyTurnContextMeta`: the turn starts with the window figures the live provider's rows give the model now.
         let window = self.deps.route_change.turn_window(&self.projected.header);

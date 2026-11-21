@@ -280,6 +280,7 @@ struct Read {
 /// cancelled, not admitted (the lane shut down or has no healthy worker), and admitted without a result.
 // The future is declared `Send` here, where the job's type is concrete: callers behind `async_trait` cannot prove it
 // for the higher-ranked job closure themselves.
+#[allow(clippy::manual_async_fn, reason = "the Send bound is declared on the returned future")]
 fn waited<'a, L, R, F>(lane: L, cancel: &'a CancellationToken, stage: &'static str, job: F) -> impl std::future::Future<Output = Result<R, String>> + Send + 'a
 where
     L: LaneToken,

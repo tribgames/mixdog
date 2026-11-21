@@ -589,13 +589,7 @@ impl OpenAiOAuth {
                         .find(|pending| pending.forced.is_none())
                         .or_else(|| inflight.iter().rev().find(|pending| pending.renews(&stored)))
                         .or_else(|| inflight.last())
-                        .map(|pending| {
-                            if pending.renews(&stored) {
-                                Turn::Join(pending.running.clone())
-                            } else {
-                                Turn::WaitOut(pending.running.clone())
-                            }
-                        })
+                        .map(|pending| if pending.renews(&stored) { Turn::Join(pending.running.clone()) } else { Turn::WaitOut(pending.running.clone()) })
                 }
             };
             match joined {
