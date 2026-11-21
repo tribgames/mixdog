@@ -31,7 +31,7 @@
       },
       "grep": {
         "type": "string",
-        "description": "Single-line case-insensitive substring (cannot combine with since); numbered matches with 2 lines of context."
+        "description": "Single-line case-insensitive substring; numbered matches with 2 lines of context."
       },
       "offset_lines": {
         "type": "integer",

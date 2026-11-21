@@ -19,8 +19,7 @@
           "edit",
           "delete",
           "list"
-        ],
-        "description": "Manage user-curated standing memory only. list defaults to active entries; include_inactive:true also shows archived entries. Generated conversation history belongs to recall."
+        ]
       },
       "id": {
         "type": "integer",
