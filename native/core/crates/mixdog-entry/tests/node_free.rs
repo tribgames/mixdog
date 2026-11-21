@@ -15,12 +15,45 @@ use std::ffi::OsString;
 use std::process::Command;
 use std::process::Stdio;
 use std::time::Duration;
+use std::time::Instant;
 
 use sandbox::Sandbox;
 use stand_in::StandIn;
 
 const ANSWER: &str = "The stand-in answers.";
-const DEADLINE: Duration = Duration::from_secs(120);
+/// The time of all the waits of one scenario together: under nextest's limit (30 s × 4), so a wait that fails reports its screen
+/// before the run kills the test.
+const BUDGET: Duration = Duration::from_secs(100);
+
+/// The waits of one scenario, sharing [`BUDGET`]; each failure names its step and shows the screen.
+struct Steps<'a> {
+    pty: &'a mut pty::Pty,
+    end: Instant,
+    stand_in: &'a StandIn,
+}
+
+impl Steps<'_> {
+    fn left(&self) -> Duration {
+        self.end.saturating_duration_since(Instant::now())
+    }
+    fn fail(&self, step: &str) -> ! {
+        panic!("{step} (stand-in requests: {}); the screen:\n{}", self.stand_in.requests(), self.pty.screen().join("\n"))
+    }
+    fn stable(&self, step: &str) {
+        if !self.pty.wait_stable(Duration::from_millis(700), self.left()) {
+            self.fail(step);
+        }
+    }
+    fn shows(&self, marker: &str, step: &str) {
+        if !self.pty.wait_for(marker, self.left()) {
+            self.fail(step);
+        }
+    }
+    fn exits(&mut self) -> Option<u32> {
+        let left = self.left();
+        self.pty.wait_exit(left)
+    }
+}
 
 /// Starts `mixdog args` in a pseudo-terminal.
 fn interactive(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> pty::Pty {
@@ -37,13 +70,14 @@ fn the_terminal_interface_boots_answers_and_exits_without_node() {
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
     let mut tui = interactive(&sandbox, &stand_in, &["--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     let watch = procs::Watch::start(tui.pid().unwrap());
-    assert!(tui.wait_stable(Duration::from_millis(700), DEADLINE), "the interface never booted");
-    tui.send(b"hello\r");
-    assert!(tui.wait_for(ANSWER, DEADLINE), "no answer on the screen:\n{}", tui.screen().join("\n"));
-    tui.send(b"/exit\r");
-    let code = tui.wait_exit(DEADLINE);
+    let mut steps = Steps { pty: &mut tui, end: Instant::now() + BUDGET, stand_in: &stand_in };
+    steps.stable("the interface never booted");
+    steps.pty.send(b"hello\r");
+    steps.shows(ANSWER, "no answer on the screen");
+    steps.pty.send(b"/exit\r");
+    let code = steps.exits();
     let started = watch.finish();
-    assert_eq!(code, Some(0), "{}", tui.screen().join("\n"));
+    assert_eq!(code, Some(0), "/exit did not end the interface (stand-in requests: {}); the screen:\n{}", stand_in.requests(), tui.screen().join("\n"));
     assert!(started.is_empty(), "started {started:?}");
     assert!(stand_in.requests() >= 1);
 }
@@ -55,13 +89,14 @@ fn plain_answers_one_turn_without_node() {
     let stand_in = StandIn::start(sandbox.root(), &[ANSWER]);
     let mut repl = interactive(&sandbox, &stand_in, &["--plain", "--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     let watch = procs::Watch::start(repl.pid().unwrap());
-    assert!(repl.wait_stable(Duration::from_millis(700), DEADLINE), "the REPL never showed its prompt");
-    repl.send(b"hello\r");
-    assert!(repl.wait_for(ANSWER, DEADLINE), "no answer on the screen:\n{}", repl.screen().join("\n"));
-    repl.send(b"/quit\r");
-    let code = repl.wait_exit(DEADLINE);
+    let mut steps = Steps { pty: &mut repl, end: Instant::now() + BUDGET, stand_in: &stand_in };
+    steps.stable("the REPL never showed its prompt");
+    steps.pty.send(b"hello\r");
+    steps.shows(ANSWER, "no answer on the screen");
+    steps.pty.send(b"/quit\r");
+    let code = steps.exits();
     let started = watch.finish();
-    assert_eq!(code, Some(0), "{}", repl.screen().join("\n"));
+    assert_eq!(code, Some(0), "/quit did not end the REPL (stand-in requests: {}); the screen:\n{}", stand_in.requests(), repl.screen().join("\n"));
     assert!(started.is_empty(), "started {started:?}");
 }
 
