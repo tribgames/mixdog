@@ -3,6 +3,7 @@ import type { TurnChangesRef } from './turn-changes-model';
 import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
 import { streamingTextPaints } from './use-transcript-text-reveal';
+import { isLiveOnlyTranscriptRow } from '../../../../packages/protocol-client/src/rows.ts';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isProcessRestartStatusText, isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
@@ -299,7 +300,7 @@ function lastIndexesByTurn(items: readonly TranscriptItem[], turnKeys: readonly 
   items.forEach((item, index) => {
     const turnKey = turnKeys[index] || '';
     lastItemByTurn.set(turnKey, index);
-    if (item?.kind === 'assistant') lastAssistantByTurn.set(turnKey, index);
+    if (item?.kind === 'assistant' && isVisibleTranscriptItem(item)) lastAssistantByTurn.set(turnKey, index);
     if (isCompletionTranscriptItem(item)) lastCompletionByTurn.set(turnKey, index);
   });
   return { lastItemByTurn, lastCompletionByTurn, lastAssistantByTurn };
@@ -422,12 +423,30 @@ export function projectSettledTranscriptRows({
     rowKeys: new Set(),
   };
   let pendingToolActivity: PendingToolActivityItem[] = [];
+  // Live-only rows met inside a group: a reload has none to end it, so they follow it.
+  let heldLiveOnly: PendingToolActivityItem[] = [];
+  // Each turn's last row placed so far: the fallback failure row's item.
+  const lastShownByTurn = new Map<string, TranscriptItem>();
+  const pushContentItem = (item: TranscriptItem, index: number, turnKey: string) => {
+    pushBuilderItem(
+      builder,
+      sessionKey,
+      item,
+      index,
+      turnKey,
+      completionByIndex.get(index),
+      turnChangesByIndex.get(index)
+    );
+    lastShownByTurn.set(turnKey, item);
+  };
   const flushToolActivity = () => {
     pushToolActivity(builder, sessionKey, pendingToolActivity);
     pendingToolActivity = [];
+    const held = heldLiveOnly;
+    heldLiveOnly = [];
+    for (const { item, index, turnKey } of held) pushContentItem(item, index, turnKey);
   };
-  items.forEach((item, index) => {
-    const turnKey = turnKeys[index] || '';
+  const placeItem = (item: TranscriptItem, index: number, turnKey: string) => {
     const failed = failedTurns.has(turnKey);
     if (failed && isCompletionTranscriptItem(item)) {
       // One status row per failed turn, at its last completion marker.
@@ -452,26 +471,24 @@ export function projectSettledTranscriptRows({
         flushToolActivity();
       }
       pendingToolActivity.push({ item, index, turnKey });
-      if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
-        flushToolActivity();
-        pushFailureRow(builder, sessionKey, turnKey, item);
-      }
+      lastShownByTurn.set(turnKey, item);
+      return;
+    }
+    if (pendingToolActivity[0]?.turnKey === turnKey && isLiveOnlyTranscriptRow(item)) {
+      heldLiveOnly.push({ item, index, turnKey });
       return;
     }
     flushToolActivity();
-    pushBuilderItem(
-      builder,
-      sessionKey,
-      item,
-      index,
-      turnKey,
-      completionByIndex.get(index),
-      turnChangesByIndex.get(index)
-    );
+    pushContentItem(item, index, turnKey);
+  };
+  items.forEach((item, index) => {
+    const turnKey = turnKeys[index] || '';
+    placeItem(item, index, turnKey);
     // A turn that failed without ever emitting a completion marker still owes
-    // the reader one status row after its last content row.
-    if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
-      pushFailureRow(builder, sessionKey, turnKey, item);
+    // the reader one status row where it ends, whatever its last item shows.
+    if (failedTurns.has(turnKey) && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
+      flushToolActivity();
+      pushFailureRow(builder, sessionKey, turnKey, lastShownByTurn.get(turnKey));
     }
   });
   flushToolActivity();
@@ -571,7 +588,9 @@ function pushThinkingRow(builder: TranscriptRowBuilder, sessionKey: string, turn
 
 function openTailToolActivity(rows: TranscriptRowModel[]): void {
   let tail = rows.length - 1;
-  while (tail >= 0 && rows[tail]?._tag === 'Thinking') tail -= 1;
+  const passes = (row: TranscriptRowModel | undefined) =>
+    row?._tag === 'Thinking' || (row?._tag === 'AssistantPart' && !row.live && isLiveOnlyTranscriptRow(row.item));
+  while (tail >= 0 && passes(rows[tail])) tail -= 1;
   const row = rows[tail];
   if (row?._tag === 'ToolActivity') rows[tail] = { ...row, open: true };
 }

@@ -871,6 +871,11 @@ html[data-mixdog-mobile-tabs]
    its file link positions itself so a click reaches it, not the toggle. */
 .tool-activity-item-title .tool-path-link {
   position: relative;
+  /* A button is its own box: the subject's ellipsis cannot cut inside it. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
 }
 .tool-activity-item-toggle {
   position: absolute;
@@ -907,14 +912,16 @@ html[data-mixdog-mobile-tabs]
   white-space: nowrap;
 }
 /* The verb is the quiet half of the row and the target the loud half: the
-   eye lands on WHAT was read or edited, not on the tool that did it. */
+   eye lands on WHAT was read or edited, not on the tool that did it. It never
+   gives way to the subject or the outcome; only a verb longer than half a
+   narrow row ellipsizes. */
 .tool-title.tool-activity-item-title b {
   flex: 0 0 auto;
-  min-width: max-content;
-  max-width: none;
+  min-width: 0;
+  max-width: 50%;
   display: block;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-regular);
   letter-spacing: var(--mx-tracking-tight);
@@ -928,8 +935,11 @@ html[data-mixdog-mobile-tabs]
   overflow: visible;
   text-overflow: clip;
 }
+/* Shrink is shared in proportion to weight × width: a weight this far above
+   the outcome's leaves a short outcome ("HTTP 500") whole while the subject
+   still has room to give. */
 .tool-title.tool-activity-item-title small {
-  flex: 0 999 auto;
+  flex: 0 999999 auto;
   min-width: 4ch;
   max-width: 44ch;
   color: var(--mx-text-soft);
@@ -965,9 +975,14 @@ html[data-mixdog-mobile-tabs]
 .tool-panel .tool-path-link .seti-icon {
   display: none;
 }
-/* The outcome never truncates ("9…"): the target gives way instead. */
+/* The target gives way first, so a short outcome ("9 files") stays whole; a
+   long one (an error's first line) ellipsizes before it pushes the chevron
+   off a narrow row. */
 .tool-activity-item-result {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--mx-text-faint);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
@@ -979,8 +994,6 @@ html[data-mixdog-mobile-tabs]
    the status, exit and id beside it stay whole. */
 .tool-activity-item-result[data-reason="true"] {
   display: inline-flex;
-  flex: 0 1 auto;
-  min-width: 0;
   max-width: 60%;
 }
 .tool-activity-item-result .tool-activity-item-chips {

@@ -23,7 +23,7 @@ import {
   desktopToolActivityUnitLabel,
   desktopToolDisplayIdentity,
   carriedOutputFacts,
-  toolActivityItemTone,
+  toolCallOutcome,
   toolItemDone,
   toolOutputBasicsOf,
   uiDiffDigest,
@@ -45,8 +45,12 @@ import {
   toolActivityRepresentedKeys,
   toolActivitySubject,
   toolActivityTargets,
+  mcpToolSubject,
   visualizeRowSubject,
 } from './transcript-tool-format';
+// biome-ignore format: @ts-expect-error must precede the specifier
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { isExternalMcpToolName, parseMcpToolName } from '../../../../packages/protocol-client/src/rows/tool-primitives.mjs';
 import { callArgs } from './visualize-card-model';
 import { remoteOutputNotice } from './remote-output-notes';
 import {
@@ -65,7 +69,7 @@ import {
   type ToolActivityStructuredRow,
 } from './transcript-tool-result';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { formatToolSurface } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
+import { extractErrorCause, formatToolSurface } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { agentActionTitle, agentResponseTitle, deriveToolCardModel, resultTerminalStatus } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
@@ -165,7 +169,8 @@ interface DesktopToolActivityItemPresentation {
 const TASK_ENVELOPE_TOOLS = /^(?:task|agent)$/;
 
 const AGENT_TITLE_VERBS: Record<string, () => string> = {
-  'Agent status': () => t('Agent status'),
+  // The list's title: the row verb already says "Agent".
+  'Agent status': () => t('List'),
   Spawn: () => t('Spawn'),
   Send: () => t('Send'),
   Cancel: () => t('Cancel'),
@@ -318,8 +323,18 @@ export function outputFactsOf(wireItem: TranscriptItem, nowMs = Date.now()): Too
     taskWait,
   }).outputText;
   const text = body.trim();
-  const display = model.resultSummaryDisplay;
-  const summary = model.resultSummary == null ? null : String(model.resultSummary);
+  let display = model.resultSummaryDisplay;
+  let summary = model.resultSummary == null ? null : String(model.resultSummary);
+  // A failure presented by what it failed on alone (`[https://…]`) keeps its
+  // reason further down the raw output ("(error: HTTP 500)").
+  const rawCause =
+    item.isError && summary && /^\[[^\]]*\]$/.test(summary) && typeof item.rawResult === 'string'
+      ? String(extractErrorCause(item.rawResult))
+      : '';
+  if (rawCause) {
+    summary = rawCause;
+    display = null;
+  }
   const failure = oneLine(String(model.headerFailureText || model.detailLine || ''));
   const errorSummary = toolActivityErrorSummary(body);
   // The output on one line is only ever compared with a result label, and a
@@ -588,10 +603,14 @@ function presentationSubject(
   visualizeTabTitle: string
 ): string {
   let text: string;
+  // A bridge tool's action rides beside its nested `input`, which `args` is.
+  const { action } = callArgs(item);
+  const mcp = isExternalMcpToolName(item.name) ? parseMcpToolName(item.name) : null;
   if (agentTitle) text = localizeAgentTitle(agentTitle);
   else if (normalizedName === 'visualize') {
-    text = visualizeRowSubject(callArgs(item).action, args, visualizeTabTitle) || summary;
-  } else text = toolActivitySubject(normalizedName, args, summary);
+    text = visualizeRowSubject(action, args, visualizeTabTitle) || summary;
+  } else if (mcp) text = mcpToolSubject(String(mcp.tool || ''), summary);
+  else text = toolActivitySubject(normalizedName, action && !args.action ? { ...args, action } : args, summary);
   const subject = toolActivityRedactInlineSecrets(text, args);
   // A command is the user's own text; every other subject may carry machine
   // ids. Only task and agent subjects can carry the runtime's instructions.
@@ -644,27 +663,21 @@ function presentationRawOutput(
   return { rawOutputText, backgroundTask, restoredNotice, taskWait };
 }
 
-/** The row's tone, and the two outcomes that decide it beyond the item's own
- *  tone: a stopped command and a failed foreground command. */
+/** The row's tone: the call's own outcome (`toolCallOutcome`, as its group
+ *  counts it), and on a call that went through, the failure of the job it
+ *  reports (a waited task's exit, a media job's status). */
 function presentationTone(
   item: TranscriptItem,
   model: PresentationCardModel,
   normalizedName: string,
-  backgroundTask: PresentationBackgroundTask,
-  /** The status the output states (`ToolOutputFacts.resultStatus`). */
-  resultStatus: string
+  backgroundTask: PresentationBackgroundTask
 ): { tone: string; stopped: boolean; foregroundShellFailure: boolean } {
-  const failed =
-    item.isError ||
-    Number(item.errorCount || 0) > 0 ||
-    /fail|error|timeout|denied/i.test(String(model.terminalStatus || ''));
-  const stopped =
-    !model.pending &&
-    /^(?:shell|bash|bash_session|shell_command)$/.test(normalizedName) &&
-    resultStatus === 'cancelled';
-  let tone = stopped ? 'warning' : toolActivityItemTone(item);
-  if (tone === 'neutral' && failed) tone = 'error';
-  if (backgroundTask?.failed && tone === 'neutral') tone = 'error';
+  const call = toolCallOutcome(item);
+  const stopped = call.state === 'stopped';
+  let tone: string = call.tone;
+  const reportedFailure =
+    /fail|error|timeout|denied/i.test(String(model.terminalStatus || '')) || Boolean(backgroundTask?.failed);
+  if (tone === 'neutral' && reportedFailure) tone = 'error';
   // A foreground command that failed reads "실패 · <why>" and keeps its output.
   // (A non-zero exit is a "warning" tone: the call itself did not fail.)
   const foregroundShellFailure =
@@ -751,7 +764,8 @@ function presentationBaseResultLabel(input: {
       shown.errorSummary
     ));
   }
-  if (structuredRows.length) {
+  // Progress ("1/2 answered") is the outcome only of a call that went through.
+  if (structuredRows.length && tone === 'neutral') {
     const completed = structuredRows.filter((row) => toolActivityIsCompleted(row.status)).length;
     label = `${completed}/${structuredRows.length}`;
     localize = (text) => text;
@@ -1020,11 +1034,15 @@ function settledResultLabel(
     localize = () => oneLine(String(model.resultSummaryDisplay ?? semantic));
   }
   if (tone === 'neutral' && quietSuccessSurface) label = '';
-  if (!label && tone === 'error') {
+  if (!label && tone !== 'neutral') {
     const failure = model.failure;
     const failureText = errorSummary || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : '');
-    label = failureText || 'Failed';
-    localize = failureText ? (text) => text : () => t('Failed');
+    // A warning (a denial, a partial change) says why when the call says;
+    // only an error claims "Failed" without a reason.
+    if (failureText || tone === 'error') {
+      label = failureText || 'Failed';
+      localize = failureText ? (text) => text : () => t('Failed');
+    }
   }
   return { label, localize };
 }
@@ -1127,13 +1145,7 @@ export function desktopToolActivityItemPresentation(
     normalizedName,
     args
   );
-  const { tone, stopped, foregroundShellFailure } = presentationTone(
-    item,
-    model,
-    normalizedName,
-    backgroundTask,
-    facts.resultStatus
-  );
+  const { tone, stopped, foregroundShellFailure } = presentationTone(item, model, normalizedName, backgroundTask);
   const body = presentationOutputBody({
     normalizedName,
     outputText: rawOutputText,

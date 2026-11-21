@@ -47,7 +47,8 @@ import { SteerStatus } from './transcript-steer-status';
 import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isProcessRestartStatusText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
+import { isInternalTranscriptDisplayText, isProcessRestartStatusText, isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
+import { isTranscriptHiddenToolRow } from '../../../../packages/protocol-client/src/rows.ts';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
 import { routineNoticeText } from './routine-notice';
 import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';
@@ -320,11 +321,12 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
   if (item.kind === 'tool') {
     const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
     const hiddenAggregate =
-      item.aggregate === true && members.length > 0 && members.every((member) => isTranscriptHiddenToolItem(member));
-    return !isTranscriptHiddenToolItem(item) && !hiddenAggregate && !shouldSuppressFullyFailedToolItem(item);
+      item.aggregate === true && members.length > 0 && members.every((member) => isTranscriptHiddenToolRow(member));
+    return !isTranscriptHiddenToolRow(item) && !hiddenAggregate && !shouldSuppressFullyFailedToolItem(item);
   }
   if (item.kind === 'statusdone' || item.kind === 'turndone' || item.kind === 'notice') return true;
-  if (item.kind === 'assistant') return true;
+  // A reply of only whitespace has no row after a reload either.
+  if (item.kind === 'assistant') return Boolean(String(item.text ?? '').trim());
   if (item.kind !== 'user') return false;
   const metadataRecord =
     item.metadata && typeof item.metadata === 'object' ? (item.metadata as Record<string, unknown>) : null;

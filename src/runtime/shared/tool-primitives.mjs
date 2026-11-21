@@ -130,7 +130,8 @@ export function toolCallDisplayIdentity(name, args) {
   const parsed = parseToolArgs(args);
   const target = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
   if (!target) return { name, args };
-  const targetArgs = parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {};
+  const raw = typeof parsed.arguments === 'string' ? parseToolArgs(parsed.arguments) : parsed.arguments;
+  const targetArgs = raw && typeof raw === 'object' ? raw : {};
   return { name: target, args: targetArgs, via: 'call_tool' };
 }
 

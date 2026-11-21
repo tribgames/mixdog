@@ -7,6 +7,7 @@ import {
   formatAggregateHeader,
   formatToolActionHeader,
   isTaskWaitToolCall,
+  summarizeToolArgs,
   toolWorkUnit,
   toolLoadingTargets,
 } from '../../src/rows/tool-surface.mjs';
@@ -116,4 +117,28 @@ test('desktop-specialized tools share their category and work-unit identity', ()
     assert.equal(classifyToolCategory(name), category);
     assert.equal(toolWorkUnit(name).category, category);
   }
+});
+
+test('goal, plan, reaction, handoff, terminal run and session close each read as their own work', () => {
+  const header = (name, args) => formatToolActionHeader(name, args);
+  assert.equal(classifyToolCategory('goal', { action: 'complete' }), 'Goal');
+  assert.equal(header('goal', { action: 'complete' }), 'Completed 1 goal');
+  // One todo call is one plan update, whatever number of steps it carries.
+  assert.equal(header('todo', { op: 'set', items: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }), 'Updated 1 plan');
+  assert.equal(header('react', { emoji: '👍' }), 'Reacted 1 message');
+  assert.equal(header('handoff_user', { handoff: { kind: 'takeover', need: 'sign_in' } }), 'Handed over 1 step to user');
+  assert.equal(header('terminal', { action: 'run', command: 'npm run dev' }), 'Ran 1 terminal command');
+  assert.equal(header('terminal', { action: 'read', tab: 1 }), 'Read 1 terminal output');
+  assert.equal(header('session', { action: 'close' }), 'Closed 1 session');
+  assert.equal(header('session', { action: 'list-worktrees' }), 'Listed 1 worktree');
+  assert.equal(summarizeToolArgs('todo', { op: 'advance', note: 'shot taken' }), 'advance · shot taken');
+  assert.equal(summarizeToolArgs('react', { emoji: '👍' }), '👍');
+});
+
+test('a GitHub action without a phrase of its own still reads as English', () => {
+  assert.equal(summarizeToolArgs('github', { action: 'release.list' }), 'List releases');
+  assert.equal(summarizeToolArgs('github', { action: 'notification.list' }), 'List notifications');
+  assert.equal(summarizeToolArgs('github', { action: 'pr.list', repo: 'a/b' }), 'List PRs a/b');
+  assert.equal(summarizeToolArgs('github', { action: 'pr.checkout', number: 4 }), 'Check out PR 4');
+  assert.equal(summarizeToolArgs('github', { action: 'run.rerun', id: 9 }), 'Rerun 9');
 });

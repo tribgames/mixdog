@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseLineDelta, summarizeToolResult } from '../../src/rows/tool-result-summary.mjs';
+import {
+  extractErrorCause,
+  isEmptyLookupResult,
+  parseLineDelta,
+  summarizeToolResult,
+} from '../../src/rows/tool-result-summary.mjs';
+import { cancelledCallWasStopped } from '../../src/rows/tool-status.mjs';
 import { formatAggregateDetail } from '../../src/rows/tool-surface.mjs';
 import {
   renderAgentCompletionEnvelope,
@@ -318,4 +324,64 @@ test('singular counts still translate through the canonical plural key', () => {
     ['{{count}} matches', '1 match', { count: 1 }],
     ['{{count}} memories', '1 Memory', { count: 1 }],
   ]);
+});
+
+test('a failure presented by what it failed on reads the reason below it', () => {
+  assert.equal(extractErrorCause('Error: [https://example.com/a]\n(error: HTTP 500)\nerrorCode: HTTP_ERROR'), 'HTTP 500');
+  assert.equal(
+    extractErrorCause('Error: {"ok":false,"status":"failed","error":"paths must stay inside the project"}'),
+    'paths must stay inside the project'
+  );
+});
+
+test('a tool name in a failure keeps its underscores; emphasis is still dropped', () => {
+  assert.equal(
+    extractErrorCause('Error: MCP tool "mcp__gmail-2__search_emails" is unavailable'),
+    'MCP tool "mcp__gmail-2__search_emails" is unavailable'
+  );
+  assert.equal(extractErrorCause('Error: the __config__ file failed to load'), 'the config file failed to load');
+});
+
+test('a failure that is only a status word is UI text, passed to the translator', () => {
+  const translate = (key, _original) => `<${key}>`;
+  assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Cancelled', true, translate), '<Cancelled>');
+  assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Cancelled', true), 'Cancelled');
+  assert.equal(summarizeToolResult('grep', { pattern: 'x' }, 'Error: grep failed: bad pattern', true, translate), 'grep failed: bad pattern');
+});
+
+test('the one word a cancel action answers is UI text; the same word in content is not', () => {
+  const translate = (key, _original) => `<${key}>`;
+  assert.equal(summarizeToolResult('github', { action: 'run.cancel', id: 7 }, 'Cancelled', false, translate), '<Cancelled>');
+  assert.equal(summarizeToolResult('setup', { action: 'cancel_quota_resume' }, 'Cancelled', false, translate), '<Cancelled>');
+  assert.equal(summarizeToolResult('github', { action: 'run.view', id: 7 }, 'Cancelled', false, translate), null);
+  assert.equal(summarizeToolResult('read', { file_path: 'a.txt' }, 'Cancelled', false, translate), '<{{count}} lines>');
+});
+
+test('only an explicit interruption, or the bare word outside a cancel action, is a stop', () => {
+  const cancel = { args: { action: 'cancel', task_id: 't' } };
+  assert.equal(cancelledCallWasStopped('Cancelled', cancel), false);
+  assert.equal(cancelledCallWasStopped('Cancelled', { args: { action: 'run.cancel' } }), false);
+  assert.equal(cancelledCallWasStopped('Interrupted by process restart', cancel), true);
+  assert.equal(cancelledCallWasStopped('Error: Browser command interrupted by local user input.', cancel), true);
+  assert.equal(cancelledCallWasStopped('Cancelled', { args: { action: 'read' } }), true);
+  assert.equal(cancelledCallWasStopped('Cancelled', { ...cancel, errored: true }), true);
+  // A cancelled job's status in an envelope is the job's, not the call's.
+  assert.equal(cancelledCallWasStopped('status: cancelled\ntask_id: t', { args: { action: 'read' } }), false);
+  assert.equal(cancelledCallWasStopped('[status: cancelled]\n', { command: true }), true);
+});
+
+test("an empty lookup is the runtime's own note, never a path that reads like one", () => {
+  const empty = '(no files found) pattern="*.zz" path=.; .: path exists (dir)';
+  assert.equal(isEmptyLookupResult(empty), true);
+  assert.equal(isEmptyLookupResult(`${empty}\n[warning] search deadline reached; partial results shown.`), true);
+  assert.equal(isEmptyLookupResult('(no symbol matches in cwd=C:/repo)\ngraph: nodes=12'), true);
+  assert.equal(isEmptyLookupResult("(no references)\n# 'run' is declared (a.ts:1); no matches were found."), true);
+  assert.equal(isEmptyLookupResult('No files.md'), false);
+  assert.equal(isEmptyLookupResult('(no files found).md'), false);
+  assert.equal(isEmptyLookupResult('No files found'), false);
+  assert.equal(isEmptyLookupResult('(no fuzzy match for "a")\nsrc/b.ts'), false);
+  const tr = (key, _original, options) => `${options?.count ?? ''} ${key}`.trim();
+  assert.equal(summarizeToolResult('glob', { pattern: '*.md' }, 'No files.md', false, tr), '1 {{count}} files');
+  assert.equal(summarizeToolResult('glob', { pattern: '*.zz' }, empty, false, tr), '0 {{count}} files');
+  assert.equal(summarizeToolResult('list', { path: 'x' }, '(empty directory)', false, tr), '0 {{count}} entries');
 });

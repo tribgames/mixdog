@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Obj } from '../src/obj.ts';
 import { batchEntries, itemRows, mergeToolRows, rowOf, rowsOf } from '../src/rows.ts';
+import { toolCallDisplayIdentity } from '../src/rows/index.mjs';
 import { desktopSessionState, sessionReducer } from '../src/session-state.ts';
 const project = (items: Obj[]): Obj[] => mergeToolRows(items.map(rowOf).filter((row): row is Obj => row !== null));
 
@@ -29,6 +30,93 @@ test('a tool call still running is its own card, never part of an aggregate; rea
   );
   assert.equal(rows[1]?.completedCount, 0);
   assert.equal('result' in (rows[1] ?? {}), false);
+});
+
+const finishedCall = (id: string, name: string, input: Obj, output: string, live = false): Obj => ({
+  type: 'toolCall',
+  id,
+  name,
+  input,
+  output,
+  meta: { status: 'completed', at: 1 },
+  ...(live ? { run: { live: true, callId: id } } : {}),
+});
+
+test('a call_tool bridge of a hidden tool is hidden as its direct form; string arguments reach the bridged tool', () => {
+  const bridged = (id: string, name: string, args: unknown, output = 'ok'): Obj =>
+    finishedCall(id, 'call_tool', { name, arguments: args as Obj }, output);
+  const rows = project([
+    bridged('todo', 'todo', { items: [] }),
+    bridged('goal', 'goal', {}),
+    bridged('load', 'load_tool', '{"names":"browser"}'),
+    bridged('wait', 'task', '{"action":"wait"}'),
+    bridged('skill', 'Skill', { name: 'pdf' }, 'Loaded built-in skill: pdf'),
+    bridged('grep', 'grep', '{"pattern":"needle"}'),
+  ]);
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['grep']
+  );
+  assert.deepEqual(toolCallDisplayIdentity('call_tool', rows[0]?.args), {
+    name: 'grep',
+    args: { pattern: 'needle' },
+    via: 'call_tool',
+  });
+});
+
+test('a skill load shows only once its result says it is not built in, so a built-in one never counts in its group', () => {
+  const skill = (output?: string): Obj => ({
+    type: 'toolCall',
+    id: 's',
+    name: 'Skill',
+    input: { name: 'pdf' },
+    ...(output === undefined ? {} : { output }),
+    meta: { status: output === undefined ? 'inProgress' : 'completed', at: 1 },
+    run: { live: true, callId: 's' },
+  });
+  assert.deepEqual(project([skill()]), []);
+  assert.deepEqual(project([skill('Loaded built-in skill: pdf')]), []);
+  const shown = project([skill('Loaded skill: mine')]);
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0]?.count, 1);
+});
+
+test('an imported Skill run, finished and counted with no result body, stays shown', () => {
+  const marker = '[ran tools: Skill ×1]';
+  const item = {
+    type: 'agentMessage',
+    id: 'imported',
+    text: marker,
+    importedToolRuns: [{ start: 0, end: marker.length, tools: [{ name: 'Skill', count: 1 }] }],
+    meta: { at: 1 },
+  };
+  assert.deepEqual(
+    mergeToolRows(rowsOf(item)).map((row) => [row.name, row.completedCount]),
+    [['Skill', 1]]
+  );
+});
+
+test('a run notice or compaction marker inside a run of calls follows the run, which a reload shows whole', () => {
+  const notice = { type: 'statusRow', id: 'n', kind: 'notice', meta: { ext: { text: 'Prompt cache expired', tone: 'info' } } };
+  const marker = { type: 'statusRow', id: 'm', kind: 'statusdone', meta: { label: 'Compact checked' } };
+  for (const live of [false, true]) {
+    const rows = project([
+      finishedCall('a', 'read', { path: 'a' }, 'one', live),
+      notice,
+      marker,
+      finishedCall('b', 'read', { path: 'b' }, 'two', live),
+    ]);
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.name ?? row.kind]),
+      [
+        ['a', '__aggregate__'],
+        ['n', 'notice'],
+        ['m', 'statusdone'],
+      ],
+      live ? 'live' : 'restored'
+    );
+    assert.equal(rows[0]?.count, 2);
+  }
 });
 
 test("a live card completes at its result's time (aggregate-result.mjs completedAt: Date.now()); a restored one reads its message time", () => {

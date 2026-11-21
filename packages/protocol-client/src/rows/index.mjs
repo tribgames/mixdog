@@ -20,6 +20,11 @@ export {
   toolResultDisplay,
   withCancelledResultMarker,
 } from './tool-result-status.mjs';
-export { isTranscriptHiddenControlToolName, isTranscriptHiddenToolItem } from '../shared/tool-execution-contract.mjs';
+export {
+  isTranscriptHiddenControlToolName,
+  isTranscriptHiddenToolItem,
+  isTranscriptSkillToolName,
+} from '../shared/tool-execution-contract.mjs';
+export { toolCallDisplayIdentity } from './tool-primitives.mjs';
 export { toolResultTerminalStatus } from './tool-status.mjs';
 export { summarizeToolResult } from './tool-result-summary.mjs';

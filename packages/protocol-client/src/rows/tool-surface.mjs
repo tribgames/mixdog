@@ -153,7 +153,12 @@ function displayToolName(name, args = {}) {
     case 'handoff_user':
       return 'Question';
     case 'update_plan':
+    case 'todo':
       return 'Plan';
+    case 'goal':
+      return 'Goal';
+    case 'react':
+      return 'React';
     case 'memory':
     case 'remember':
     case 'save_memory':
@@ -232,6 +237,13 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return summarizeGithub(a, max);
     case 'goal':
       return compactParts([String(a.action || ''), truncateToolText(a.objective, max)]);
+    case 'todo':
+      return compactParts([
+        String(a.op || ''),
+        truncateToolText(firstText(a.item, a.note, a.reason), Math.min(max, 80)),
+      ]);
+    case 'react':
+      return truncateToolText(a.emoji, max);
     case 'handoff_user':
       return '';
     case 'ask_user':
@@ -506,10 +518,13 @@ function genericArgsSummary(a, max) {
 }
 
 const GITHUB_PHRASES = new Map([
+  ['list', (noun) => `List ${noun}s`],
   ['comments', (noun) => `Read ${noun} comments`],
   ['logs', (noun) => `Read ${noun} logs`],
   ['comment', (noun) => `Comment on ${noun}`],
   ['read', (noun) => `Mark ${noun} read`],
+  ['checkout', (noun) => `Check out ${noun}`],
+  ['rerun', (noun) => (noun === 'run' ? 'Rerun' : `Rerun ${noun}`)],
 ]);
 
 // "Create issue owner/repo · Bug", "Cancel run 42 · owner/repo": the action's

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useMemo,
   type Dispatch,
@@ -26,7 +27,7 @@ import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
-import { AskUserRecord, askUserCardKey, splitAskUser } from './ask-user-record';
+import { AskUserRecord, askUserCardKey, splitAskUser, toolCallsOf } from './ask-user-record';
 import { PreviewedTurnChangesCard } from './transcript-visualize-card';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
@@ -47,6 +48,61 @@ export type ConversationComposerActions = {
   onClearToNewTask?: (sessionId: string) => void;
   onInherit: () => Promise<boolean>;
 };
+
+export type ToolActivityPart =
+  | { tools: TranscriptItem[]; asked?: undefined }
+  | { tools?: undefined; asked: TranscriptItem }
+  | { tools?: undefined; asked?: undefined; waiting: true };
+
+/** A roll-up cut after each question among its members, so the calls made
+ *  after a question are a roll-up of their own; any other item as it is. */
+function questionChunks(item: TranscriptItem, taken: (member: TranscriptItem) => boolean): TranscriptItem[] {
+  const members = toolCallsOf(item);
+  const chunks: TranscriptItem[][] = [[]];
+  for (const member of members) {
+    chunks.at(-1)?.push(member);
+    if (taken(member)) chunks.push([]);
+  }
+  if (!chunks.at(-1)?.length) chunks.pop();
+  if (chunks.length < 2) return [item];
+  return chunks.map((chunk, at) => ({
+    ...item,
+    ...(at > 0 ? { id: `${String(item.id)}:${at}` } : {}),
+    toolMembers: chunk,
+    count: chunk.length,
+    completedCount: chunk.reduce((done, member) => done + Number(member.completedCount ?? 0), 0),
+  }));
+}
+
+/** A tool group's calls in call order, cut at each question it holds (also
+ *  inside a roll-up): an answered one is its record, a waiting one the live
+ *  card. */
+export function toolActivityParts(
+  items: readonly TranscriptItem[],
+  hasCard: boolean,
+  cardKey?: string
+): ToolActivityPart[] {
+  const parts: ToolActivityPart[] = [];
+  let tools: TranscriptItem[] = [];
+  const cut = () => {
+    if (tools.length) parts.push({ tools });
+    tools = [];
+  };
+  const taken = (member: TranscriptItem) => {
+    const { asked, waiting } = splitAskUser([member], hasCard, cardKey);
+    return asked.length > 0 || waiting;
+  };
+  for (const item of items.flatMap((entry) => questionChunks(entry, taken))) {
+    const { rest, asked, waiting } = splitAskUser([item], hasCard, cardKey);
+    tools.push(...rest);
+    if (!asked.length && !waiting) continue;
+    cut();
+    for (const question of asked) parts.push({ asked: question });
+    if (waiting) parts.push({ waiting: true });
+  }
+  cut();
+  return parts;
+}
 
 /** Chromium defers a press that lands INSIDE the live selection: it waits for
  *  a drag it is no longer allowed to start, so the next drag-select is
@@ -464,8 +520,8 @@ export function transcriptRowNode(
     const cardKey = questionCard
       ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
       : undefined;
-    const { rest, asked, waiting } = splitAskUser(row.items, cardKey !== undefined, cardKey);
-    if (!asked.length && !waiting) {
+    const parts = toolActivityParts(row.items, cardKey !== undefined, cardKey);
+    if (parts.length === 1 && parts[0]?.tools) {
       return quietTools ? null : (
         <ToolActivityGroup
           items={row.items}
@@ -477,18 +533,21 @@ export function transcriptRowNode(
     }
     return (
       <>
-        {rest.length > 0 && !quietTools && (
-          <ToolActivityGroup
-            items={rest}
-            disclosureScope={disclosureScope}
-            turnKey={row.turnKey}
-            running={row.open === true}
-          />
-        )}
-        {asked.map((item, index) => (
-          <AskUserRecord key={String(item.id ?? index)} item={item} />
-        ))}
-        {waiting && questionCard}
+        {parts.map((part, index) => {
+          if (part.tools) {
+            return quietTools ? null : (
+              <ToolActivityGroup
+                key={`tools:${index}`}
+                items={part.tools}
+                disclosureScope={disclosureScope}
+                turnKey={row.turnKey}
+                running={row.open === true && index === parts.length - 1}
+              />
+            );
+          }
+          if (part.asked) return <AskUserRecord key={String(part.asked.id ?? `asked:${index}`)} item={part.asked} />;
+          return <Fragment key={`waiting:${index}`}>{questionCard}</Fragment>;
+        })}
       </>
     );
   }
