@@ -4577,6 +4577,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .events
         .bind_app_feed(Arc::new(move |method, params| app_announcer.announce(method, params)))
         .map_err(|_| ComposeError::AlreadyBound("app feed of the remote events"))?;
+    built_remote.events.bind_log(b.log.line_log()).map_err(|_| ComposeError::AlreadyBound("daemon log of the remote events"))?;
     builder.register(Arc::new(
         mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
             built_remote.runtime.clone(),

@@ -214,6 +214,9 @@ pub trait RemoteEvents: Send + Sync {
     /// The relay refused an oversize frame of this core's leg and named no client (`relay-payload-refused`,
     /// `remote-relay-inbound.ts`): the windows show a toast with the size and the ceiling, when the relay reported them.
     fn relay_payload_refused(&self, _bytes: Option<u64>, _limit: Option<u64>) {}
+    /// The relay says a phone's socket closed (`client-close`), with the close code and reason it read (`None`/"" from a relay
+    /// that names none): the one place the core learns why a phone's link ended.
+    fn phone_left(&self, _client_id: &str, _code: Option<u16>, _reason: &str) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1832,7 +1835,8 @@ impl RemoteRuntime {
             // The relay names the id alone, and in order: what it closes is the open the id holds now. This is the one place the
             // current generation is taken rather than carried: the relay's `client-close` / `client-open` / `close-client` messages
             // name no open, so the wire cannot say which one is meant (an inherited limit of the protocol, unchanged from Node).
-            Inbound::ClientClose(client_id) => {
+            Inbound::ClientClose { client_id, code, reason } => {
+                self.inner.cfg.events.phone_left(&client_id, code, &reason);
                 let generation = self.inner.state().table.generation_of(&client_id);
                 if let Some(generation) = generation {
                     self.close_client_quietly(&client_id, generation);

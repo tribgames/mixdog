@@ -40,6 +40,18 @@ test('runClientLeg announces client-open and removes the socket on close', () =>
   assert.equal(entry.clients.size, 0);
   assert.equal(sent[1].type, 'client-close');
   assert.equal(sent[1].clientId, sent[0].clientId);
+  assert.deepEqual([sent[1].code, sent[1].reason], [1000, 'background'], 'the PC is told who hung up');
+});
+
+test('a client-close reason is cut by code point, so the envelope stays well-formed JSON for the PC', () => {
+  const sent = [];
+  const entry = { socket: fakeSocket(), clients: new Map() };
+  const phone = fakeSocket();
+  runClientLeg(entry, (_socket, payload) => sent.push(payload), phone, 'browser-1', { maxFrameBytes: 1024 });
+  phone.emit('close', 4000, Buffer.from(`${'a'.repeat(59)}😀 and more`));
+  const close = sent.find((payload) => payload.type === 'client-close');
+  assert.equal(close.reason, `${'a'.repeat(59)}😀`);
+  assert.doesNotMatch(JSON.stringify(close), /\\ud[89ab]/i, 'no unpaired surrogate escape');
 });
 
 test('runDesktopLeg publishes capabilities and replays live phone ids', () => {

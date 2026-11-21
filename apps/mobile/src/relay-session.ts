@@ -40,6 +40,39 @@ const CLOSE_HANDSHAKE_TIMEOUT = 4408;
 export const CLOSE_NORMAL = 1000;
 /** The logical end of a session whose desktop leg went away while the relay kept the socket. */
 const CLOSE_DESKTOP_LEG_GONE = 1012;
+/** This page ended a socket for a reason of its own (keepalive, wake probe, failed view sync, a broken frame); the reason says which. */
+const CLOSE_PHONE_ENDED = 4000;
+/** What a close frame may say. The frame is cleartext to the relay, and a caller's reason can carry feed ids or exception text
+ *  (`feed gap on <feed>`, `reducer failed on <feed>: <error>`, `transport failed: <error>`): only its category leaves this page. */
+const CLOSE_CATEGORIES: readonly string[] = [
+  'background',
+  'aborted',
+  'frame failed',
+  'transport failed',
+  'keepalive timed out',
+  'wake probe unanswered',
+  'view sync failed',
+  'relay connection timed out',
+  'relay handshake timed out',
+  'feed gap',
+  'reducer failed',
+  'invalid json',
+  'frame is not an object',
+  'bad notification',
+  'response to unknown request',
+  'bad error body',
+  'core silent',
+  'feed restore failed',
+  'feed restore refused',
+  'handshake failed',
+  'version refused',
+  'attempt failed',
+  'connect timed out',
+  'abandoned',
+  'client closed',
+];
+const closeCategory = (reason: string): string =>
+  CLOSE_CATEGORIES.find((c) => reason === c || reason.startsWith(`${c} `) || reason.startsWith(`${c}:`)) ?? 'other';
 /** Keepalive: the relay answers a cleartext `{"ping":1}` with `{"pong":1}`; a socket silent this long is probed, and one
  *  whose probe stays unanswered is recycled. */
 const KEEPALIVE_TICK_MS = 5_000;
@@ -253,13 +286,14 @@ export class RelaySession {
     else this.rejectOpen(new Error(`relay socket closed before ready (${code}${reason ? ` ${reason}` : ''})`));
   }
 
-  /** With `bare`, closes without a status (the relay then reads 1005). */
+  /** With `bare` (a recycle, not a normal close), the socket is closed with {@link CLOSE_PHONE_ENDED}. The frame carries the
+   *  reason's category so the PC's log names why this page ended it; the whole reason stays here (`finish`). */
   private fail(code: number, reason: string, bare = false): void {
     if (this.finished) return;
     try {
       // A browser WebSocket throws on any code but 1000 and 3000-4999 (1002 included), leaving the socket open.
-      if (bare || (code !== CLOSE_NORMAL && (code < 3000 || code > 4999))) this.ws.close();
-      else this.ws.close(code, reason);
+      const wire = bare || (code !== CLOSE_NORMAL && (code < 3000 || code > 4999)) ? CLOSE_PHONE_ENDED : code;
+      this.ws.close(wire, closeCategory(reason));
     } catch {
       // the socket is already gone; finish() below still ends the attempt
     }

@@ -127,6 +127,7 @@ pub struct SectionEvents {
     cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
     pc_access: OnceLock<Arc<dyn PcAccessEvents>>,
     app_feed: OnceLock<mixdog_core_config::config::Announcer>,
+    log: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 /// What the services holding a device's state drop when it is unpaired. Bound once they exist (they are built after the runtime).
@@ -141,7 +142,12 @@ pub trait DeviceCleanup: Send + Sync {
 
 impl SectionEvents {
     pub fn new() -> Self {
-        Self { cleanup: OnceLock::new(), pc_access: OnceLock::new(), app_feed: OnceLock::new() }
+        Self { cleanup: OnceLock::new(), pc_access: OnceLock::new(), app_feed: OnceLock::new(), log: OnceLock::new() }
+    }
+
+    /// The daemon log: each phone socket's close is written there with the code and reason the relay read.
+    pub fn bind_log(&self, log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), &'static str> {
+        self.log.set(log).map_err(|_| "the daemon log is already bound")
     }
 
     pub fn bind(&self, cleanup: Arc<dyn DeviceCleanup>) -> Result<(), &'static str> {
@@ -206,6 +212,14 @@ impl RemoteEvents for SectionEvents {
 
     fn status(&self, value: Value) {
         tracing::warn!(%value, "remote access relay status");
+    }
+
+    fn phone_left(&self, client_id: &str, code: Option<u16>, reason: &str) {
+        let Some(log) = self.log.get() else { return };
+        let client: String = client_id.chars().take(8).collect();
+        let code = code.map_or_else(|| "none".to_owned(), |code| code.to_string());
+        let reason: String = reason.chars().take(60).collect();
+        log(&format!("phone leg closed client={client} code={code} reason={reason:?}"));
     }
 }
 
@@ -425,6 +439,23 @@ mod tests {
         assert!(events.bind_app_feed(Arc::new(|_, _| {})).is_err());
         events.relay_payload_refused(Some(70_000_000), None);
         assert_eq!(*seen.lock().unwrap(), [("ui/relayPayloadRefused", serde_json::json!({ "bytes": 70_000_000, "limit": null }))]);
+    }
+
+    #[test]
+    fn a_phone_leaving_writes_the_relays_close_code_and_reason_to_the_daemon_log() {
+        let events = SectionEvents::new();
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = lines.clone();
+        events.bind_log(Arc::new(move |line| sink.lock().unwrap().push(line.to_owned()))).unwrap();
+        events.phone_left("0123456789abcdef", Some(4000), "keepalive unanswered");
+        events.phone_left("fedcba98", None, "");
+        assert_eq!(
+            *lines.lock().unwrap(),
+            [
+                "phone leg closed client=01234567 code=4000 reason=\"keepalive unanswered\"",
+                "phone leg closed client=fedcba98 code=none reason=\"\"",
+            ]
+        );
     }
 
     #[tokio::test]

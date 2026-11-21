@@ -251,7 +251,7 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     // client-close from the relay side when the phone leaves.
     drop(phone);
     loop {
-        if let Inbound::ClientClose(id) = next(&mut inbound).await {
+        if let Inbound::ClientClose { client_id: id, .. } = next(&mut inbound).await {
             assert_eq!(id, client_id);
             break;
         }

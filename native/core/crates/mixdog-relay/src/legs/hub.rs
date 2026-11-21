@@ -975,6 +975,7 @@ impl PhoneHandle {
             ingress.release();
         }
         self.hub.unregister_leg(self.leg_id);
+        let said: String = js::decode_utf8(reason).chars().take(60).collect();
         {
             let mut guard = self.hub.lock();
             if let Some(entry) = guard.desktops.get_mut(&self.device_id)
@@ -983,7 +984,8 @@ impl PhoneHandle {
                 let mut phone = entry.clients.remove(position);
                 phone.attached = false;
                 phone.watch.end();
-                send_json(&*entry.conn.socket, &json!({ "type": "client-close", "clientId": self.client_id }));
+                // The PC logs who hung up (the code and reason below), so its own log explains a phone that keeps reconnecting.
+                send_json(&*entry.conn.socket, &json!({ "type": "client-close", "clientId": self.client_id, "code": code, "reason": said }));
             }
         }
         let lived_ms = i64::try_from(self.shared.opened_at.elapsed().as_millis()).unwrap_or(i64::MAX);

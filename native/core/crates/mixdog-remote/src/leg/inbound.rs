@@ -21,7 +21,12 @@ pub enum Inbound {
         client_id: String,
         credential_id: String,
     },
-    ClientClose(String),
+    /// `code` and `reason` are the phone socket's close as the relay read it; a relay that does not name them gives `None` and "".
+    ClientClose {
+        client_id: String,
+        code: Option<u16>,
+        reason: String,
+    },
     Media(Value),
     /// The relay refused an oversize frame instead of dropping the leg.
     FrameTooLarge(Value),
@@ -61,7 +66,14 @@ pub fn classify(envelope: Value) -> Inbound {
             Some(client_id) => Inbound::ClientOpen { client_id, credential_id: string_field(&envelope, "browserClientId").unwrap_or_default() },
             None => Inbound::Ignored,
         },
-        "client-close" => string_field(&envelope, "clientId").map_or(Inbound::Ignored, Inbound::ClientClose),
+        "client-close" => match string_field(&envelope, "clientId") {
+            Some(client_id) => Inbound::ClientClose {
+                client_id,
+                code: envelope.get("code").and_then(Value::as_u64).and_then(|code| u16::try_from(code).ok()),
+                reason: string_field(&envelope, "reason").unwrap_or_default(),
+            },
+            None => Inbound::Ignored,
+        },
         "frame-too-large" => Inbound::FrameTooLarge(envelope),
         "frame" => match (string_field(&envelope, "clientId"), string_field(&envelope, "data")) {
             (Some(client_id), Some(data)) => Inbound::Frame { client_id, payload: Payload::Text(data) },
@@ -69,5 +81,22 @@ pub fn classify(envelope: Value) -> Inbound {
         },
         other if other.starts_with("media-") => Inbound::Media(envelope),
         _ => Inbound::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_client_close_carries_the_phone_sockets_close_code_and_reason() {
+        let close = classify(json!({ "type": "client-close", "clientId": "c1", "code": 1006, "reason": "" }));
+        assert_eq!(close, Inbound::ClientClose { client_id: "c1".into(), code: Some(1006), reason: String::new() });
+        let named = classify(json!({ "type": "client-close", "clientId": "c1", "code": 4000, "reason": "keepalive unanswered" }));
+        assert_eq!(named, Inbound::ClientClose { client_id: "c1".into(), code: Some(4000), reason: "keepalive unanswered".into() });
+        let older_relay = classify(json!({ "type": "client-close", "clientId": "c1" }));
+        assert_eq!(older_relay, Inbound::ClientClose { client_id: "c1".into(), code: None, reason: String::new() });
     }
 }
