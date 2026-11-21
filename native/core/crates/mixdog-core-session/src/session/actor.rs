@@ -5043,7 +5043,8 @@ impl SessionActor {
         let input_iid = mixdog_core_api::ids::ItemId::from(new_id());
         // The first submitted row is the turn's checkpoint; a wake submits none. Its key rides
         // the row's transcript metadata so the change record maps back to it (`stampCheckpoint`).
-        let checkpoint = if wake { "" } else { input_iid.as_str() };
+        // Every client reads the record by the submission id its prompt row carries; a start that names none has the item id as its row id.
+        let checkpoint = if wake { "" } else { submission_id(&input).unwrap_or(input_iid.as_str()) };
         if !checkpoint.is_empty()
             && let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut)
         {
