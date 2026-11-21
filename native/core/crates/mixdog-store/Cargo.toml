@@ -28,7 +28,7 @@ regex = { workspace = true }
 regress = { workspace = true }
 rusqlite = { workspace = true, features = ["hooks"] }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["unbounded_depth"] }
 indexmap = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }

@@ -439,8 +439,9 @@ impl StoresDriver {
             }
             Spec::Dirs(dirs) => {
                 for dir in *dirs {
-                    for rel in durable::walk_files(&base.join(dir))? {
-                        let path = format!("{dir}/{rel}");
+                    let paths: Vec<String> = durable::walk_files(&base.join(dir))?.into_iter().map(|rel| format!("{dir}/{rel}")).collect();
+                    sink.hash_ahead(store.root, &paths)?;
+                    for path in paths {
                         // An interrupted write was never renamed, so it was never state (SM §11.2): it is retired,
                         // not carried with the store it lies in.
                         if store.root == D && temp_files::is_store_leftover(&path) {
@@ -461,7 +462,7 @@ impl StoresDriver {
 
     fn plan_ledger_backups(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let usage = roots.data.join("usage");
-        let mut sources = Vec::new();
+        let mut rels = Vec::new();
         for (name, is_dir) in durable::list_dir(&usage)? {
             let backup = name.starts_with("ledger.backup-")
                 || name.contains(".v1-backup-")
@@ -472,13 +473,14 @@ impl StoresDriver {
                 continue;
             }
             if is_dir {
-                for rel in durable::walk_files(&usage.join(&name))? {
-                    sources.push(sink.source(D, &format!("usage/{name}/{rel}"), false)?);
-                }
+                rels.extend(durable::walk_files(&usage.join(&name))?.into_iter().map(|rel| format!("usage/{name}/{rel}")));
             } else {
-                sources.push(sink.source(D, &format!("usage/{name}"), false)?);
+                rels.push(format!("usage/{name}"));
             }
         }
+        // A few whole databases: hashed side by side.
+        sink.hash_ahead(D, &rels)?;
+        let sources = rels.iter().map(|rel| sink.source(D, rel, false)).collect::<Result<Vec<_>>>()?;
         if sources.is_empty() {
             return Ok(());
         }

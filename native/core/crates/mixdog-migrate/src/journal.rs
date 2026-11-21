@@ -57,6 +57,8 @@ pub struct Journal {
     next_ordinal: u64,
     items: BTreeMap<String, ItemProgress>,
     verified_all: bool,
+    /// Why an append failed; every later append is refused.
+    failed: Option<String>,
 }
 
 fn key_of(record: &JournalRecord) -> Option<&str> {
@@ -116,6 +118,7 @@ impl Journal {
             next_ordinal: 0,
             items: manifest.items.iter().map(|i| (i.key.as_str().to_string(), ItemProgress::planned())).collect(),
             verified_all: false,
+            failed: None,
         };
         for committed in &frames {
             let record: JournalRecord =
@@ -195,14 +198,26 @@ impl Journal {
                 }
             }
         }
+        if let Some(failed) = &self.failed {
+            return Err(Blocked::journal(format!("an earlier append failed ({failed}); the journal takes no frame until it is reopened")));
+        }
         let bytes = frame::encode(self.next_ordinal, &payload(&record));
-        let (first, second) = bytes.split_at(bytes.len() / 2);
-        self.file.write_all(first).map_err(|e| Blocked::io("append", &self.path, e))?;
-        durable::step(durable::Step::Append, &self.path, &bytes);
-        self.file.write_all(second).map_err(|e| Blocked::io("append", &self.path, e))?;
-        fsio::flush_data(&self.file).map_err(|e| Blocked::io("sync", &self.path, e))?;
+        if let Err(error) = self.write_frame(&bytes) {
+            self.failed = Some(error.to_string());
+            return Err(error);
+        }
         self.next_ordinal += 1;
         self.apply(&record)
+    }
+
+    /// One frame written in two halves and synced. After a failure the file may hold part of it, or all of it unsynced: only
+    /// a reopen, which cuts a torn tail and replays what is whole, knows where the next frame goes.
+    fn write_frame(&mut self, bytes: &[u8]) -> Result<()> {
+        let (first, second) = bytes.split_at(bytes.len() / 2);
+        self.file.write_all(first).map_err(|e| Blocked::io("append", &self.path, e))?;
+        durable::step(durable::Step::Append, &self.path, bytes);
+        self.file.write_all(second).map_err(|e| Blocked::io("append", &self.path, e))?;
+        fsio::flush_data(&self.file).map_err(|e| Blocked::io("sync", &self.path, e))
     }
 
     pub fn progress(&self, key: &str) -> Option<&ItemProgress> {
@@ -216,5 +231,49 @@ impl Journal {
     /// The ordinal the next frame gets (= frames written).
     pub fn next_ordinal(&self) -> u64 {
         self.next_ordinal
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_store::schema::bounded::Text;
+    use mixdog_store::schema::migration::Contract;
+    use mixdog_store::schema::migration::ItemKey;
+    use mixdog_store::schema::migration::ItemKind;
+    use mixdog_store::schema::migration::KindGroup;
+    use mixdog_store::schema::migration::MANIFEST_FORMAT;
+    use mixdog_store::schema::migration::QuarantinedEntry;
+    use mixdog_store::schema::migration::Roots;
+
+    use super::*;
+
+    /// A failed append leaves the file's tail unknown: a later append, from this item's worker or another's, is refused
+    /// instead of writing a frame after it, and a reopen replays only the whole frames.
+    #[test]
+    fn after_a_failed_append_the_journal_refuses_every_append_until_reopened() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.000000");
+        let item = |key: &str| crate::plan::item(key, KindGroup::Data, ItemKind::Session, Contract::Convert, Vec::new(), None).unwrap();
+        let manifest = Manifest {
+            format: MANIFEST_FORMAT,
+            roots: Roots { data: String::new(), home: String::new(), profile: None },
+            items: vec![item("session/a"), item("session/b")],
+            shared: Vec::new(),
+        };
+        let plan = PlanEntry { manifest_sha256: Text::try_from("0".repeat(64).as_str()).unwrap(), items: 2 };
+        let mut journal = Journal::create(&path, plan, &manifest).unwrap();
+        let quarantined = |key: &str| JournalRecord::Quarantined(QuarantinedEntry { key: ItemKey::try_from(key).unwrap(), code: QuarantineCode::ParseError });
+        let writable = std::mem::replace(&mut journal.file, std::fs::File::open(&path).unwrap());
+        assert!(journal.append(quarantined("session/a")).is_err(), "a read-only handle refuses the write");
+        journal.file = writable;
+        let refused = journal.append(quarantined("session/b")).unwrap_err();
+        assert!(refused.to_string().contains("an earlier append failed"), "{refused}");
+        assert_eq!(journal.next_ordinal(), 1);
+        drop(journal);
+
+        let mut reopened = Journal::open(&path, &manifest).unwrap().unwrap();
+        assert_eq!((reopened.next_ordinal(), reopened.progress("session/b").unwrap().state), (1, ItemState::Planned));
+        reopened.append(quarantined("session/b")).unwrap();
+        assert_eq!(reopened.progress("session/b").unwrap().state, ItemState::Quarantined);
     }
 }

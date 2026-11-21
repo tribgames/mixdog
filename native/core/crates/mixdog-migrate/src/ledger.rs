@@ -158,13 +158,10 @@ impl ItemDriver for LedgerDriver {
         if !roots.data.join(LEDGER_PATH).is_file() {
             return Ok(());
         }
-        let mut sources = Vec::new();
-        for suffix in ["", "-wal", "-shm"] {
-            let rel = format!("{LEDGER_PATH}{suffix}");
-            if roots.data.join(&rel).is_file() {
-                sources.push(sink.source(Root::Data, &rel, false)?);
-            }
-        }
+        let rels: Vec<String> =
+            ["", "-wal", "-shm"].iter().map(|suffix| format!("{LEDGER_PATH}{suffix}")).filter(|rel| roots.data.join(rel).is_file()).collect();
+        sink.hash_ahead(Root::Data, &rels)?;
+        let sources = rels.iter().map(|rel| sink.source(Root::Data, rel, false)).collect::<Result<Vec<_>>>()?;
         sink.add_item(plan::item(LEDGER_KEY, KindGroup::Data, ItemKind::Ledger, Contract::Convert, sources, Some(Target::Ledger))?)
     }
 

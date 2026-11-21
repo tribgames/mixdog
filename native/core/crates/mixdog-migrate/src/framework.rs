@@ -204,6 +204,8 @@ pub struct ItemContext<'a> {
     pub manifest: &'a Manifest,
     pub manifest_sha256: &'a str,
     pub(crate) fault: Option<&'a FaultHook>,
+    /// How many items the run may work on at once (`MigrateOptions::workers`).
+    pub(crate) workers: usize,
     pub(crate) blobs: &'a BlobStatuses,
     /// Item states when the current wave started.
     pub(crate) states: &'a BTreeMap<String, ItemState>,
@@ -298,4 +300,52 @@ impl ItemContext<'_> {
         self.blobs.0.lock().expect("blob statuses").insert(hex.to_string(), status);
         Ok(status)
     }
+}
+
+/// Runs `work` on what `next` hands out, on `workers` threads (on the caller's alone when it is one), until `next` has
+/// nothing left; the first failure stops every thread and is returned.
+pub(crate) fn on_threads<T>(workers: usize, next: impl Fn() -> Option<T> + Sync, work: impl Fn(T) -> Result<()> + Sync) -> Result<()> {
+    if workers <= 1 {
+        while let Some(task) = next() {
+            work(task)?;
+        }
+        return Ok(());
+    }
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let failure: Mutex<Option<Blocked>> = Mutex::new(None);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let Some(task) = next() else { break };
+                    if let Err(e) = work(task) {
+                        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                        failure.lock().expect("failure").get_or_insert(e);
+                    }
+                }
+            });
+        }
+    });
+    match failure.into_inner().expect("failure") {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// `f` of every item, in the items' order, computed on `workers` threads.
+pub(crate) fn map_on_threads<T: Sync, R: Send>(workers: usize, items: &[T], f: impl Fn(&T) -> Result<R> + Sync) -> Result<Vec<R>> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done = Mutex::new(Vec::with_capacity(items.len()));
+    on_threads(
+        workers,
+        || Some(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)).filter(|i| *i < items.len()),
+        |i| {
+            let value = f(&items[i])?;
+            done.lock().expect("results").push((i, value));
+            Ok(())
+        },
+    )?;
+    let mut done = done.into_inner().expect("results");
+    done.sort_by_key(|(i, _)| *i);
+    Ok(done.into_iter().map(|(_, value)| value).collect())
 }

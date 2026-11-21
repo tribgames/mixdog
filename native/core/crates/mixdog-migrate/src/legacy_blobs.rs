@@ -31,8 +31,27 @@ pub fn import(data: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
     import_with(data, fault, &|from, to| std::fs::hard_link(from, to))
 }
 
+/// [`import`] with the shards taken on `workers` threads: every blob is its own name, installed no-clobber, so the shards
+/// share nothing until the store is synced and the marker published.
+pub fn import_on(data: &Path, fault: &(dyn Fn(&str) -> Result<()> + Sync), workers: usize) -> Result<()> {
+    let link = |from: &Path, to: &Path| std::fs::hard_link(from, to);
+    import_within(data, fault, |legacy, core, shards| {
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        crate::framework::on_threads(
+            workers,
+            || shards.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            |shard| import_shard(legacy, core, shard, fault, &link),
+        )
+    })
+}
+
 /// [`import`] with the way a name is linked given, so a test can make a volume that cannot link.
 pub(crate) fn import_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>, link: &dyn Fn(&Path, &Path) -> std::io::Result<()>) -> Result<()> {
+    import_within(data, fault, |legacy, core, shards| shards.iter().try_for_each(|shard| import_shard(legacy, core, shard, fault, link)))
+}
+
+/// The import around `shards`, which takes in every shard of the legacy store (`legacy`, `core`, the shard names).
+fn import_within(data: &Path, fault: &dyn Fn(&str) -> Result<()>, shards: impl FnOnce(&Path, &Path, &[String]) -> Result<()>) -> Result<()> {
     let marker = data.join(LEGACY_BLOBS_IMPORTED);
     let core = data.join(BLOB_DIR);
     let complete = durable::exists(&marker)?;
@@ -40,45 +59,73 @@ pub(crate) fn import_with(data: &Path, fault: &dyn Fn(&str) -> Result<()>, link:
     if complete {
         return Ok(());
     }
+    sweep_stages(&core)?;
     let legacy = data.join(LEGACY_BLOB_DIR);
-    for (shard, is_dir) in durable::list_dir(&legacy)? {
-        if !is_dir {
-            continue;
-        }
-        let (from, to) = (legacy.join(&shard), core.join(&shard));
-        let entries = match std::fs::read_dir(&from) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(Blocked::io("list", &from, e)),
-        };
-        let mut created = false;
-        for entry in entries {
-            let entry = entry.map_err(|e| Blocked::io("list", &from, e))?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            // A blob is a regular file (never a link to follow) named by its digest in its own shard; a cut write's tmp
-            // and anything else is not one.
-            let is_file = entry.file_type().map_err(|e| Blocked::io("stat", &entry.path(), e))?.is_file();
-            if !is_file || digest_of_reference(&name).is_none() || shard.as_str() != &name[..2] {
-                continue;
-            }
-            let target = to.join(&name);
-            let source = entry.path();
-            if digest_at(&target)?.as_deref() == Some(name.as_str()) {
-                continue;
-            }
-            if !created {
-                durable::create_dir_all(&to)?;
-                created = true;
-            }
-            install(&source, &target, &name, fault, link)?;
-        }
-    }
+    let names: Vec<String> = durable::list_dir(&legacy)?.into_iter().filter(|(_, is_dir)| *is_dir).map(|(shard, _)| shard).collect();
+    shards(&legacy, &core, &names)?;
     if needs_replacement {
         recover_displacements(&core, false)?;
     }
     sync_core_store(&core, fault)?;
     fault("legacy-blobs:marker")?;
     durable::publish_file(&marker, b"")
+}
+
+/// An install's staged link or copy beside its target is `<STAGE_PREFIX><STAGE_RANDOM alphanumerics>`, a name no other
+/// writer of the store mints (theirs are `.mixdog-tmp-…`).
+const STAGE_PREFIX: &str = ".mixdog-legacy-blob-stage-";
+const STAGE_RANDOM: usize = 12;
+
+fn is_stage(name: &str) -> bool {
+    name.strip_prefix(STAGE_PREFIX).is_some_and(|random| random.len() == STAGE_RANDOM && random.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// Removes the staged links and copies a killed import left in the core's shards: never installed, so none is a blob, and
+/// until the marker no core has served from this store.
+fn sweep_stages(core: &Path) -> Result<()> {
+    for (shard, is_dir) in durable::list_dir(core)? {
+        if !is_dir {
+            continue;
+        }
+        let dir = core.join(&shard);
+        for (name, is_dir) in durable::list_dir(&dir)? {
+            if !is_dir && is_stage(&name) {
+                durable::remove_file(&dir.join(name))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn import_shard(legacy: &Path, core: &Path, shard: &str, fault: &dyn Fn(&str) -> Result<()>, link: &dyn Fn(&Path, &Path) -> io::Result<()>) -> Result<()> {
+    let (from, to) = (legacy.join(shard), core.join(shard));
+    let entries = match std::fs::read_dir(&from) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Blocked::io("list", &from, e)),
+    };
+    let mut created = false;
+    for entry in entries {
+        let entry = entry.map_err(|e| Blocked::io("list", &from, e))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // A blob is a regular file (never a link to follow) named by its digest in its own shard; a cut write's tmp
+        // and anything else is not one.
+        let is_file = entry.file_type().map_err(|e| Blocked::io("stat", &entry.path(), e))?.is_file();
+        if !is_file || digest_of_reference(&name).is_none() || shard != &name[..2] {
+            continue;
+        }
+        let target = to.join(&name);
+        let source = entry.path();
+        if digest_at(&target)?.as_deref() == Some(name.as_str()) {
+            continue;
+        }
+        if !created {
+            durable::create_dir_all(&to)?;
+            created = true;
+        }
+        install(&source, &target, &name, fault, link)?;
+    }
+    Ok(())
 }
 
 fn sync_core_store(core: &Path, fault: &dyn Fn(&str) -> Result<()>) -> Result<()> {
@@ -190,7 +237,12 @@ fn finish_displacement(aside: &Path, target: &Path, digest: &str, observed: Opti
 
 fn install(source: &Path, target: &Path, digest: &str, fault: &dyn Fn(&str) -> Result<()>, link: &dyn Fn(&Path, &Path) -> io::Result<()>) -> Result<()> {
     let parent = target.parent().expect("a blob has a shard");
-    let tmp = tempfile::Builder::new().prefix(".mixdog-tmp-").tempfile_in(parent).map_err(|e| Blocked::io("create blob temp", parent, e))?.into_temp_path();
+    let tmp = tempfile::Builder::new()
+        .prefix(STAGE_PREFIX)
+        .rand_bytes(STAGE_RANDOM)
+        .tempfile_in(parent)
+        .map_err(|e| Blocked::io("create blob temp", parent, e))?
+        .into_temp_path();
     let stage: &Path = tmp.as_ref();
     fs::remove_file(stage).map_err(|e| Blocked::io("remove empty blob temp", stage, e))?;
     if !link_or_copy(source, stage, link)? {

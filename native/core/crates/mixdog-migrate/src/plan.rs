@@ -91,7 +91,14 @@ impl PlanSink {
                 });
             }
         });
-        for (i, hashed) in done.into_inner().expect("hashed") {
+        self.take_hashed(root, rels, done.into_inner().expect("hashed"))
+    }
+
+    /// Keeps what [`Self::hash_ahead`]'s threads hashed, given as `(index in rels, result)` in the order they finished: the
+    /// first file in `rels` order that does not read is the one reported, whichever thread finished first.
+    fn take_hashed(&mut self, root: Root, rels: &[String], mut done: Vec<(usize, Result<(u64, String)>)>) -> Result<()> {
+        done.sort_by_key(|(i, _)| *i);
+        for (i, hashed) in done {
             self.hashed.insert((root, rels[i].clone()), hashed?);
         }
         Ok(())
@@ -145,7 +152,23 @@ impl PlanSink {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::path::PathBuf;
+
     use super::*;
+
+    /// Of several files that do not read, the plan reports the first in the order it lists them, as a plan that hashed
+    /// one after another did.
+    #[test]
+    fn the_first_unreadable_file_in_listing_order_is_reported() {
+        let roots = MigrationRoots { data: PathBuf::from("d"), home: PathBuf::from("h"), profile: None };
+        let rels: Vec<String> = (0..8).map(|n| format!("f{n}")).collect();
+        let unreadable = |n: usize| Blocked::Io { op: "hash", path: PathBuf::from(format!("f{n}")), os_error: "denied".into() };
+        // The threads finished last file first.
+        let done = (0..8).rev().map(|n| (n, if n % 3 == 2 { Err(unreadable(n)) } else { Ok((n as u64, format!("h{n}"))) })).collect();
+        let error = PlanSink::new(&roots).take_hashed(Root::Data, &rels, done).unwrap_err();
+        assert!(matches!(&error, Blocked::Io { path, .. } if path == Path::new("f2")), "{error}");
+    }
 
     #[test]
     fn keys_escape_every_other_byte() {
