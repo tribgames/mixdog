@@ -53,9 +53,8 @@ static LOG_FAILS: AtomicUsize = AtomicUsize::new(0);
 static DRAFT_FAILS: AtomicUsize = AtomicUsize::new(0);
 /// Writes of a delete mark still to fail.
 static MARK_FAILS: AtomicUsize = AtomicUsize::new(0);
-/// Log barriers failed so far, and the signal of each.
+/// Log barriers failed so far.
 static LOG_FAILED: AtomicUsize = AtomicUsize::new(0);
-static FAILED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 fn take(budget: &AtomicUsize) -> bool {
     budget.try_update(SeqCst, SeqCst, |left| left.checked_sub(1)).is_ok()
@@ -68,7 +67,6 @@ fn deletes(record: &Record) -> bool {
 fn append_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
     if step == AppendStep::Write && ((records.iter().any(deletes) && take(&MARK_FAILS)) || take(&LOG_FAILS)) {
         LOG_FAILED.fetch_add(1, SeqCst);
-        FAILED.notify_waiters();
         return Err(std::io::Error::other("EIO: injected"));
     }
     Ok(())
@@ -520,15 +518,16 @@ impl World {
         }
         let closing = async {
             if leave {
-                super::tests::left_idle(&old).await;
-                // Closed: the session left the directory. Failed: the write it gave what it holds failed, and it is loaded.
-                crate::eventually_on!(&[&old.cell.stepped, directory.left(), &FAILED], || {
-                    if !directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell)) {
-                        return Some(true);
-                    }
-                    (LOG_FAILED.load(SeqCst) > failed && old.cell.handed.load(SeqCst) == 0).then_some(false)
-                })
-                .await
+                crate::eventually_on!(&[&old.cell.stepped], || (!old.turn_busy()).then_some(())).await;
+                old.cell.unsubscribed();
+                caught_up(&old).await;
+                // The idle deadline, answered by the session's own decision: it left, or it stays because its close's
+                // write failed or because the racing open held it while the deadline was decided (no write then, failed
+                // or not, so no other signal tells that it stays).
+                let (ack, decided) = tokio::sync::oneshot::channel();
+                old.inbox.send(super::actor::Inbox::IdleRelease(ack)).await.expect("the actor takes the inbox");
+                let _ = super::testing::awaiting(|| format!("the idle decision (log writes failed meanwhile: {})", LOG_FAILED.load(SeqCst) - failed), decided).await;
+                !directory.handle(&id).is_some_and(|handle| Arc::ptr_eq(&handle.cell, &old.cell))
             } else {
                 close_of(&directory).detach(id.as_str(), "manual", false).await
             }

@@ -7082,8 +7082,17 @@ fn deliver<M: Matcher + Clone + Send + 'static>(readers: &Readers<M>, out: &Out<
             }
         };
         ctl.in_file.store(true, Ordering::SeqCst);
+        // Paused without the window: a hook may wait for a reader, and a reader takes its file through the window. Only
+        // this loop pops slots, so the head is still `path`'s; its work may have finished meanwhile, which is read below.
         #[cfg(test)]
-        pause::at(&readers.ticket.root, pause::Point::DeliverEntry, path.as_path());
+        {
+            drop(win);
+            pause::at(&readers.ticket.root, pause::Point::DeliverEntry, path.as_path());
+            win = window.lock();
+            if window.over() {
+                return;
+            }
+        }
         // On one thread the file would be read from now on, its first read after a check of the deadline.
         let late = ctl.expired();
         if !matches!(win.slots[0].work, Work::Finished { .. }) {
