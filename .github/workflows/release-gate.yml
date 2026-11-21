@@ -48,16 +48,19 @@ env:
 # longest part, so it is built once per system and its tests run from that build in
 # parallel legs:
 #
-#   changes ---> core-build (linux, macos, windows) ---> core-tests (N legs per system)
-#      |             `--> mixdogd (dev controls, one artifact) ---> desktop-slow
+#   changes ---> core-build (linux, macos, windows) ---> core-tests (N legs per system), core-pg, core-entry
+#      +-------> mixdogd (dev controls; linux, windows) ---> core-entry, desktop-slow, runtime-slow, desktop-computer
 #      +--> core-lint (clippy per system, rustfmt once)   core-real (release mixdogd, node real-core tests)
-#      +--> runtime, runtime-slow, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
+#      +--> runtime, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
 #
 # A pull request builds and tests only the crates the change can affect and the crates
 # that depend on them (scripts/ci/core-select.mjs); a push to main and a manual run, and
 # so the release gate, run every crate. The Rust jobs restore the compiled third-party
-# dependencies from a cache that a push to main refreshes; nothing in them compiles the
-# workspace's own crates twice in a run.
+# dependencies from a cache that a push to main refreshes. The dev mixdogd is built on a
+# runner of its own beside the archive, not after it: its feature set recompiles most of the
+# workspace's crates anyway (12 of the 47 minutes of the Windows build when it ran after the
+# archive), and every job that needs `needs` the whole core-build matrix, so the slowest system
+# held all of them.
 
 jobs:
   changes:
@@ -91,11 +94,14 @@ jobs:
       core_features: ${{ steps.core.outputs.core_features }}
       core_filter: ${{ steps.core.outputs.core_filter }}
       core_pg: ${{ steps.core.outputs.core_pg || 'false' }}
+      core_entry: ${{ steps.core.outputs.core_entry || 'false' }}
       core_pg_matrix: ${{ steps.core.outputs.core_pg_matrix || '{"include":[]}' }}
       # Empty only when the step did not run (a generated release commit, where no lane is selected): a discovery that fails fails `changes`.
       runtime_matrix: ${{ steps.shards.outputs.runtime_matrix || '{"include":[]}' }}
       runtime_excluded_path: ${{ steps.shards.outputs.runtime_excluded_path }}
       build_matrix: ${{ steps.core.outputs.build_matrix || '{"include":[]}' }}
+      mixdogd: ${{ steps.core.outputs.mixdogd || 'false' }}
+      mixdogd_matrix: ${{ steps.core.outputs.mixdogd_matrix || '{"include":[]}' }}
       test_matrix: ${{ steps.core.outputs.test_matrix || '{"include":[]}' }}
     steps:
       # Shallow: the selection below diffs two commits' trees, which needs the
@@ -446,8 +452,8 @@ jobs:
   # Files over ~10s (*.slow.test.mjs) run beside the default lane, not inside
   # it, so the gate finishes at the longer of the two instead of their sum.
   runtime-slow:
-    # core-build (Linux) leaves the three programs scripts/check-npm-packages.slow.test.mjs starts (see its mixdogd step).
-    needs: [changes, core-build]
+    # The mixdogd job (Linux) leaves the three programs scripts/check-npm-packages.slow.test.mjs starts.
+    needs: [changes, mixdogd]
     if: needs.changes.outputs.runtime == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-22.04
@@ -932,10 +938,10 @@ jobs:
           name: linux-desktop-fast-${{ matrix.shard }}of3
 
   # The Windows computer leg, and the real offscreen boot (app-start.electron.test.mjs, in its electron lane): the built app of
-  # `desktop` against the Windows mixdogd of `core-build`, neither built again here. It is its own job so that producer
+  # `desktop` against the Windows mixdogd of `mixdogd`, neither built again here. It is its own job so that producer
   # dependencies gate only this leg and never the independent Linux fast receipts above.
   desktop-computer:
-    needs: [changes, desktop, core-build]
+    needs: [changes, desktop, mixdogd]
     if: needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'
     timeout-minutes: 15
     runs-on: windows-latest
@@ -974,7 +980,8 @@ jobs:
       # (sharp/tesseract). The boot's dev core install needs two things from the root tree: onnxruntime-node (its library) and
       # pptxgenjs/jszip, the sources of the four data/pptxgenjs files `writeDevInstall` requires in the package root. test-env.mjs
       # treats a root tree without the rest as "nothing to compare". strip-ansi and unpdf are imported by the renderer
-      # sources the tab-motion probe bundles (protocol-client tool-card model, attachment-card).
+      # sources the tab-motion probe bundles (protocol-client tool-card model, attachment-card). tsx is the loader
+      # scripts/test.mjs always imports (scripts/test-tsx.mjs), for the root-tree invocation of the suites below.
       - name: Install dependencies
         shell: bash
         run: |
@@ -987,7 +994,7 @@ jobs:
             done
             return 1
           }
-          node scripts/ci/lock-subset.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf
+          node scripts/ci/lock-subset.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf tsx
           { npm_ci --prefix apps/desktop && node apps/desktop/node_modules/electron/install.js; } &
           desktop_pid=$!
           npm_ci --prefix ci-boot-subset --ignore-scripts &
@@ -1002,6 +1009,7 @@ jobs:
           cp -R ci-boot-subset/node_modules node_modules
           node --input-type=module -e "import { copyPptxgenjsData } from './apps/desktop/scripts/stage-js-bundle.mjs'; await copyPptxgenjsData({ modulesDir: 'node_modules', packageDir: '.' });"
           test -f node_modules/onnxruntime-node/package.json
+          test -f node_modules/tsx/package.json
           for file in pptxgen.cjs.js jszip.min.js LICENSE-pptxgenjs LICENSE-jszip.markdown; do test -f "data/pptxgenjs/$file"; done
       - name: Build the native Computer Use helper
         shell: bash
@@ -1035,9 +1043,10 @@ jobs:
           # Electron needs a display, which the Linux slow leg lacks: the live
           # status line layout regression (#326) is asserted here.
           MIXDOG_SLOT=computer-live-activity MIXDOG_RECEIPT="$RECEIPTS/computer-live-activity.json" npm run test:slow --prefix apps/desktop -- src/renderer/live-activity-layout.slow.test.mjs src/renderer/workspace-tab-motion.slow.test.mjs
-          # Windows-only files (ACLs, Windows PowerShell, the Windows crash handler): every case of them skips on Linux and macOS.
+          # Windows-only files (ACLs, Windows PowerShell, the Windows crash handler, the App-Bound key import, the deploy
+          # script's junction cleanup): every case of them skips on Linux and macOS.
           MIXDOG_SLOT=windows-only MIXDOG_RECEIPT="$RECEIPTS/windows-only.json" npm test --prefix apps/desktop -- scripts/direct-e2e-isolation.test.mjs src/main/secret-file.test.mjs
-          MIXDOG_SLOT=windows-only-slow MIXDOG_RECEIPT="$RECEIPTS/windows-only-slow.json" npm run test:slow --prefix apps/desktop -- src/main/crash-handler-watch.slow.test.mjs
+          MIXDOG_SLOT=windows-only-slow MIXDOG_RECEIPT="$RECEIPTS/windows-only-slow.json" npm run test:slow --prefix apps/desktop -- src/main/crash-handler-watch.slow.test.mjs src/main/browser/profile-import-saved-key.slow.test.mjs scripts/dev-fast-snapshot.slow.test.mjs
           MIXDOG_SLOT=windows-only-root MIXDOG_RECEIPT="$RECEIPTS/windows-only-root.json" node scripts/test.mjs src/runtime/shared/file-permissions.test.mjs
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job, and so does a receipt that is missing,
       # incomplete or empty (check-skips.mjs).
@@ -1061,11 +1070,10 @@ jobs:
           name: windows-desktop-computer-1of1
 
   # The desktop's slow lane. The remote-protocol slow replays start a real core
-  # (MIXDOGD_BIN): the mixdogd of this run's Linux core-build (mixdog-cli/dev-controls,
-  # the replay controls every one of them needs, built beside the test archive so
-  # the libraries are compiled once), not a build of its own.
+  # (MIXDOGD_BIN): the Linux mixdogd of this run's `mixdogd` job (mixdog-cli/dev-controls,
+  # the replay controls every one of them needs), not a build of its own.
   desktop-slow:
-    needs: [changes, core-build]
+    needs: [changes, mixdogd]
     if: >-
       needs.changes.outputs.desktop == 'true'
       && needs.changes.outputs.desktop_css_only != 'true'
@@ -1723,6 +1731,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+      # The harness imports tomllib (Python 3.11+); the image's own python3 is 3.10.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Install the script dependencies
         run: python3 -m pip install --quiet --upgrade pyjwt "cryptography>=42"
       # unittest runs through a structured result (scripts/ci/coverage/py-runner.py): each case is final after its teardown, and a skip's
@@ -1807,9 +1819,7 @@ jobs:
           restore-keys: |
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
-        if: matrix.tests
       - name: Build the test binaries once (nextest archive)
-        if: matrix.tests
         env:
           ARCHIVE_ARGS: ${{ needs.changes.outputs.core_archive_args }}
           FEATURES: ${{ needs.changes.outputs.core_features }}
@@ -1819,16 +1829,7 @@ jobs:
           # shellcheck disable=SC2086
           cd native/core
           cargo nextest archive --manifest-path Cargo.toml --locked $ARCHIVE_ARGS "${features[@]}" --archive-file ../../core-tests.tar.zst
-      # The development mixdogd with every replay control (mixdog-cli/dev-controls, the feature set a test build
-      # gives every library, so this adds only the binary): desktop replays and the ignored core entry tests drive it. Built beside the archive in
-      # the same target directory; this is the run's one build of it. The terminal program and the ssh helper are built in the same
-      # invocation, with the feature on mixdog-cli only: scripts/check-npm-packages.slow.test.mjs packs the three programs into
-      # the npm packages and starts them through the launcher, and skips without them (runtime-slow downloads this artifact).
-      - name: Build the mixdogd the desktop replays drive, and the programs the npm package check starts
-        if: matrix.mixdogd
-        run: cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-entry --bin mixdog -p mixdog-askpass --bin mixdog-askpass --features mixdog-cli/dev-controls
       - name: Upload the test archive
-        if: matrix.tests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
@@ -1836,19 +1837,6 @@ jobs:
           path: core-tests.tar.zst
           # Already zstd-compressed.
           compression-level: 0
-          retention-days: 1
-          if-no-files-found: error
-      - name: Upload mixdogd
-        if: matrix.mixdogd
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mixdogd-dev-${{ env.GATE_KEY }}${{ matrix.os == 'windows' && '-windows' || '' }}
-          overwrite: true
-          # One folder of the three programs: desktop-slow takes mixdogd from it, runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
-          path: |
-            native/core/target/debug/mixdogd${{ matrix.exe }}
-            native/core/target/debug/mixdog${{ matrix.exe }}
-            native/core/target/debug/mixdog-askpass${{ matrix.exe }}
           retention-days: 1
           if-no-files-found: error
       - name: Keep only the third-party dependencies in the cache
@@ -1863,6 +1851,66 @@ jobs:
             ~/.cargo/git
             native/core/target
           key: ${{ steps.deps.outputs.cache-primary-key }}
+
+  # The development mixdogd with every replay control (mixdog-cli/dev-controls): desktop replays, the Windows app boot and the
+  # ignored core entry tests (core-entry) drive it. The terminal program and the ssh helper are built in the same invocation, with the
+  # feature on mixdog-cli only: scripts/check-npm-packages.slow.test.mjs packs the three programs into the npm packages and
+  # starts them through the launcher, and skips without them (runtime-slow downloads this artifact). Its own runner, beside
+  # core-build rather than after the archive in the same job: that order held every consumer of the archive and of the daemon
+  # behind both builds (run 44930949033: 7.8 min Linux, 12.3 min Windows after the archive). It reads the dependency cache
+  # core-build keeps and saves none.
+  mixdogd:
+    name: mixdogd (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.mixdogd == 'true'
+    timeout-minutes: 60
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.mixdogd_matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: "3"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      # The daemon the replays and the entry scenarios drive is built from a clean checkout, as the archive is (core-build).
+      - name: Check that the build is a clean checkout
+        run: node scripts/ci/check-clean-checkout.mjs --build
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - name: Restore the compiled dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
+          restore-keys: |
+            core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      - name: Build the mixdogd the desktop replays drive, and the programs the npm package check starts
+        run: cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-entry --bin mixdog -p mixdog-askpass --bin mixdog-askpass --features mixdog-cli/dev-controls
+      - name: Upload mixdogd
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mixdogd-dev-${{ env.GATE_KEY }}${{ matrix.os == 'windows' && '-windows' || '' }}
+          overwrite: true
+          # One folder of the three programs: desktop-slow takes mixdogd from it, runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
+          path: |
+            native/core/target/debug/mixdogd${{ matrix.exe }}
+            native/core/target/debug/mixdog${{ matrix.exe }}
+            native/core/target/debug/mixdog-askpass${{ matrix.exe }}
+          retention-days: 1
+          if-no-files-found: error
 
   # The legs. Each downloads its system's archive and runs one partition of it: `count` deals the
   # tests (in binary and name order) out one by one, so the neighbouring tests of a heavy module
@@ -1934,15 +1982,15 @@ jobs:
           cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --message-format json > nextest-list.json
           node scripts/ci/check-lane-filters.mjs nextest-list.json "${flags[@]}"
       # An ignored test proves nothing in this run, and a listing that matches a profile's filter proves nothing either: the reconciliation
-      # (job `complete`, scripts/ci/coverage/reconcile.mjs) needs the profile run to have PASSED the test (core-pg, the entry run below) or
+      # (job `complete`, scripts/ci/coverage/reconcile.mjs) needs the profile run to have PASSED the test (core-pg, core-entry) or
       # an exact reviewed exception for it (scripts/ci/coverage/exceptions.json) with the ignore disposition this leg's listing states. The
       # listings made here are the build variant's inventory fragments: the unfiltered list of every test the archive compiled, and for each
       # profile that runs ignored tests on this system the tests its filter schedules (routing only, never evidence). They are uploaded
       # once per system as rust-lists-<os>. Windows has no Postgres leg, so it has no profile lists; macOS has its Postgres legs.
       #
       # The interactive scenarios of mixdog-entry (tests/node_free.rs) are ignored because they need the development mixdogd this
-      # run's core-build makes (mixdog-cli/dev-controls includes mixdog-ai/test-support): the Linux leg runs them below against that
-      # artifact.
+      # run's `mixdogd` job makes (mixdog-cli/dev-controls includes mixdog-ai/test-support): job core-entry runs them against that
+      # artifact, so no partition here waits for a daemon.
       - name: List the archive (unfiltered, and per profile that runs ignored tests)
         id: ignored-audit
         if: matrix.part == 1
@@ -1964,8 +2012,6 @@ jobs:
           if [[ "$OS" == linux ]]; then
             cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
               --run-ignored only -E 'package(mixdog-entry) & binary(node_free)' --message-format json > rust-lists/entry.json
-            # the archive of a pull request holds the crate only when it changed
-            if node scripts/ci/check-skips.mjs matches rust-lists/entry.json; then echo "entry=true" >> "$GITHUB_OUTPUT"; fi
           fi
       - name: Upload the unfiltered nextest listings of this build variant
         if: matrix.part == 1
@@ -1976,23 +2022,6 @@ jobs:
           path: rust-lists
           if-no-files-found: error
           retention-days: 14
-      - name: Download the development mixdogd the interactive entry scenarios drive
-        if: steps.ignored-audit.outputs.entry == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: mixdogd-dev-${{ env.GATE_KEY }}
-          path: native-dev
-      - name: Run the interactive entry scenarios (the terminal interface and --plain, without Node)
-        if: steps.ignored-audit.outputs.entry == 'true'
-        env:
-          MIXDOG_SLOT: entry
-          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/entry.json
-        run: |
-          chmod +x native-dev/mixdogd
-          MIXDOGD_BIN="$PWD/native-dev/mixdogd" \
-            node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
-            --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
-            -E 'package(mixdog-entry) & binary(node_free)' -- --run-ignored only --no-tests=fail
       # nextest does not run doctests: the rustdoc blocks of mixdog-core-api (scripts/ci/run-doctest.mjs, its own slot of this leg).
       - name: Run the doctests of mixdog-core-api
         if: matrix.os == 'linux' && matrix.part == 1
@@ -2048,6 +2077,63 @@ jobs:
         uses: ./.github/actions/upload-evidence
         with:
           name: ${{ matrix.os }}-core-tests-${{ matrix.part }}of${{ matrix.of }}
+
+  # The interactive scenarios of mixdog-entry (tests/node_free.rs, the terminal interface and --plain, without Node): ignored in the
+  # partitions because they drive the development mixdogd, so they run here, from the Linux archive against the Linux daemon of
+  # this run, and the partitions depend on the archives alone. Selected when the archive holds mixdog-entry (core-select.mjs);
+  # the reconciliation credits the `entry` profile of the Linux variant to this leg.
+  core-entry:
+    needs: [changes, core-build, mixdogd]
+    if: needs.changes.outputs.core_entry == 'true'
+    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    env:
+      MIXDOG_LEG: linux/core-entry/1of1
+      MIXDOG_LEG_OS: linux
+      GIT_AUTHOR_NAME: mixdog-test
+      GIT_AUTHOR_EMAIL: mixdog-test@example.invalid
+      GIT_COMMITTER_NAME: mixdog-test
+      GIT_COMMITTER_EMAIL: mixdog-test@example.invalid
+      MIXDOG_SKIP_USER_DATA_BACKUP: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - uses: ./.github/actions/install-nextest
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: core-tests-${{ env.GATE_KEY }}-linux
+      - name: Download the development mixdogd the interactive entry scenarios drive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-dev-${{ env.GATE_KEY }}
+          path: native-dev
+      - name: Run the interactive entry scenarios (the terminal interface and --plain, without Node)
+        env:
+          MIXDOG_SLOT: entry
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/entry.json
+        run: |
+          chmod +x native-dev/mixdogd
+          MIXDOGD_BIN="$PWD/native-dev/mixdogd" \
+            node scripts/ci/run-nextest.mjs --junit native/core/target/nextest/ci-ignored/junit.xml -- \
+            --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --profile ci-ignored \
+            -E 'package(mixdog-entry) & binary(node_free)' -- --run-ignored only --no-tests=fail
+      - name: Upload the evidence of this leg
+        uses: ./.github/actions/upload-evidence
+        with:
+          name: linux-core-entry-1of1
 
   # The #[ignore]d tests that need a PostgreSQL runtime, from the archive core-build made (nothing compiles here):
   #   services-pg  mixdog-services' memory tests that need only a Postgres runtime
@@ -2346,7 +2432,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build, core-tests, core-pg, core-lint, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build, mixdogd, core-tests, core-entry, core-pg, core-lint, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -2375,7 +2461,9 @@ jobs:
           WINDOW: ${{ needs.window.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
           CORE_BUILD: ${{ needs.core-build.result }}
+          MIXDOGD: ${{ needs.mixdogd.result }}
           CORE_TESTS: ${{ needs.core-tests.result }}
+          CORE_ENTRY: ${{ needs.core-entry.result }}
           CORE_PG: ${{ needs.core-pg.result }}
           CORE_LINT: ${{ needs.core-lint.result }}
           CORE_REAL: ${{ needs.core-real.result }}
@@ -2398,7 +2486,9 @@ jobs:
           SEL_WINDOW: ${{ needs.changes.outputs.window == 'true' }}
           SEL_MOBILE_SCRIPTS: ${{ needs.changes.outputs.mobile == 'true' }}
           SEL_CORE_BUILD: ${{ needs.changes.outputs.core_build == 'true' }}
+          SEL_MIXDOGD: ${{ needs.changes.outputs.mixdogd == 'true' }}
           SEL_CORE_TESTS: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_ENTRY: ${{ needs.changes.outputs.core_entry == 'true' }}
           SEL_CORE_PG: ${{ needs.changes.outputs.core_pg == 'true' }}
           SEL_CORE_LINT: ${{ needs.changes.outputs.core == 'true' }}
           SEL_CORE_REAL: ${{ (github.event_name != 'pull_request' && (needs.changes.outputs.core == 'true' || needs.changes.outputs.core_scripts == 'true')) || (github.event_name == 'pull_request' && needs.changes.outputs.core_scripts == 'true') }}
@@ -2434,7 +2524,9 @@ jobs:
           gate window "$SEL_WINDOW" "$WINDOW"
           gate mobile-scripts "$SEL_MOBILE_SCRIPTS" "$MOBILE_SCRIPTS"
           gate core-build "$SEL_CORE_BUILD" "$CORE_BUILD"
+          gate mixdogd "$SEL_MIXDOGD" "$MIXDOGD"
           gate core-tests "$SEL_CORE_TESTS" "$CORE_TESTS"
+          gate core-entry "$SEL_CORE_ENTRY" "$CORE_ENTRY"
           gate core-pg "$SEL_CORE_PG" "$CORE_PG"
           gate core-lint "$SEL_CORE_LINT" "$CORE_LINT"
           gate core-real "$SEL_CORE_REAL" "$CORE_REAL"

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Prints, as `name=value` lines (GitHub's output file format): core, core_scope (all | packages | none), core_packages,
-// core_archive_args, core_filter, core_features, core_pg, core_pg_matrix, core_tests, core_legs, core_build, build_matrix, test_matrix.
+// core_archive_args, core_filter, core_features, core_pg, core_pg_matrix, core_entry, core_tests, core_legs, core_build, build_matrix, mixdogd,
+// mixdogd_matrix, test_matrix.
 //
 // Usage: node scripts/ci/core-select.mjs --changed <file with one path per line> [--all] [--mixdogd-dev true|false] [--mixdogd-windows true|false]
 //          [--metadata <cargo metadata json>] [--root <repository root>]
@@ -237,24 +238,21 @@ function pgMatrixOf(selected, all) {
   );
 }
 
-function jobMatrices({ scope, legs, selected, mixdogdDev, mixdogdWindows }) {
-  // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
-  const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
-  // The Windows hidden-window app boot (desktop-computer) starts the app against this run's Windows dev daemon.
+function jobMatrices({ scope, legs, entry, mixdogdDev, mixdogdWindows }) {
+  // The dev daemon is its own job (`mixdogd`), beside the archive build rather than after it. The Linux entry scenarios
+  // (core-entry) drive it even when no Node lane needs it. The Windows hidden-window app boot (desktop-computer) starts the
+  // app against this run's Windows dev daemon.
   const wantsDaemon = (system) =>
-    (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
-  const build = SYSTEMS.filter((system) => scope !== 'none' || wantsDaemon(system)).map((system) => ({
-    ...system,
-    tests: scope !== 'none',
-    mixdogd: wantsDaemon(system),
-  }));
+    ((mixdogdDev || entry) && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
+  const build = scope === 'none' ? [] : SYSTEMS.map((system) => ({ ...system }));
+  const mixdogd = SYSTEMS.filter(wantsDaemon).map((system) => ({ ...system }));
   const test = [];
   if (scope !== 'none') {
     for (const system of SYSTEMS) {
       for (let part = 1; part <= legs; part += 1) test.push({ ...system, part, of: legs });
     }
   }
-  return { build, test };
+  return { build, mixdogd, test };
 }
 export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
   const crates = readWorkspace({ root, metadata });
@@ -290,7 +288,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     .flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`))
     .join(',');
   const pgMatrix = pgMatrixOf(selected, all);
-  const { build, test } = jobMatrices({ scope, legs, selected, mixdogdDev, mixdogdWindows });
+  const entry = selected.some((crate) => crate.name === 'mixdog-entry');
+  const { build, mixdogd, test } = jobMatrices({ scope, legs, entry, mixdogdDev, mixdogdWindows });
   return {
     core: scope !== 'none',
     core_scope: scope,
@@ -300,10 +299,13 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, mix
     core_features: features,
     core_pg: pgMatrix.length > 0,
     core_pg_matrix: JSON.stringify({ include: pgMatrix }),
+    core_entry: entry,
     core_tests: tests,
     core_legs: legs,
     core_build: build.length > 0,
     build_matrix: JSON.stringify({ include: build }),
+    mixdogd: mixdogd.length > 0,
+    mixdogd_matrix: JSON.stringify({ include: mixdogd }),
     test_matrix: JSON.stringify({ include: test }),
     reasons,
   };

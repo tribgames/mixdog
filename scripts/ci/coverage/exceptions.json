@@ -229,7 +229,58 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/elevated-program.test.mjs",
-        "elevated supervisor cancels only its harmless child and acknowledges its actual exit"
+        "elevated supervisor: a cancel request stops the child, releases input and reports the cancellation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/elevated-program.test.mjs",
+        "elevated supervisor: an expired deadline stops the child, releases input and reports the cancellation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/elevated-program.test.mjs",
+        "elevated supervisor: a lost parent stops the child, releases input and reports the cancellation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/elevated-program.test.mjs",
+        "elevated supervisor: a child that exits on its own is acknowledged without releasing input"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -280,7 +331,7 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/foreground-continuity.test.mjs",
-        "a semantic step of a foreground operation leaves its target in front instead of bouncing focus to the user window"
+        "a target already in front is not activated again"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -297,7 +348,58 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/foreground-continuity.test.mjs",
-        "a target already in front is not activated again, and an activation that landed late is not replayed"
+        "a target behind the user window is brought to front exactly once"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-continuity.test.mjs",
+        "an activation that landed late is not replayed"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-continuity.test.mjs",
+        "a foreground semantic step leaves its target in front instead of bouncing focus to the user window"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-continuity.test.mjs",
+        "a background semantic step keeps the user window in front"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -314,7 +416,160 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
-        "the worker accepts only the host answer naming its request and lease, and says how each hold ended"
+        "each lease request names the in-flight action, a fresh sequence and, for a release, the lease"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "an answer naming the request and lease holds the lock as the host and releases it"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "a request the host never answers takes no lock"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "an answer past its deadline on arrival takes no lock"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "a worker-owned hold reports released, unknown after a false unlock, failed after a throwing one"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "a hold ends at its own deadline when never released"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "a false unlock ends the worker hold so the next refused request gets the host lease"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "after an unlock call throws, each later release retries until one succeeds"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "the next request retries an unproven unlock first, on the request that held it"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-lock-worker.test.mjs",
+        "an unproven unlock not superseded by a granted lock starts nothing new"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -332,6 +587,23 @@
         "node",
         "apps/desktop/src/main/computer/backend/foreground-order.test.mjs",
         "covered semantic click prepares focus then rechecks before physical movement"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/foreground-order.test.mjs",
+        "covered semantic scroll prepares focus then rechecks before physical movement"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -489,7 +761,7 @@
       "platform": "linux",
       "kind": "skip",
       "reasonCode": "uncoded",
-      "reasonText": "Windows only",
+      "reasonText": "",
       "owner": "release-engineering",
       "reason": "Windows-only behaviour (skips on Linux and macOS)",
       "replacement": {
@@ -739,7 +1011,41 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/input-audit-regressions.slow.test.mjs",
-        "ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input"
+        "launch routes packaged apps, unpackaged Start entries, files and URLs to their own route"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-audit-regressions.slow.test.mjs",
+        "ref clicks expand and collapse through UIA"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-audit-regressions.slow.test.mjs",
+        "ref clicks reject disabled UIA and MSAA controls before any input"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -790,7 +1096,75 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/input-observation.test.mjs",
-        "native input ledger uses event origin, retains physical intervention, and handles tick wrap"
+        "the input ledger separates own from foreign events, keeps interventions, survives tick wrap and resyncs only after confirmed quiet"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-observation.test.mjs",
+        "input reaches an action through its target process or the shared pointer, and unattributed input reaches all"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-observation.test.mjs",
+        "only the activation key 0xB9 is ignored as typing"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-observation.test.mjs",
+        "background keyboard routing rejects UWP frame classes and accepts native Edit"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-observation.test.mjs",
+        "physical cursor motion starts at the origin, travels through intermediate points and ends on the target"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -824,7 +1198,75 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/input-transport.test.mjs",
-        "checked input releases only partial held input and acknowledges every cleanup failure"
+        "a partly accepted input batch releases what it pressed and is never replayed"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-transport.test.mjs",
+        "a failed release is reported as unconfirmed cleanup without retrying the action"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-transport.test.mjs",
+        "owned keys release exactly what this session holds, refuse keys the user holds, and acknowledge cleanup failures"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-transport.test.mjs",
+        "an owned mouse button is released while the user's other button is left alone"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/input-transport.test.mjs",
+        "the abort cleanup program compiles in its own namespace"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -875,7 +1317,41 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/native-audit-state.test.mjs",
-        "native dispatch rejects old observations, clipped cursors, and stale message error codes without desktop input"
+        "a drag with an outdated or replaced input observation is refused after one dispatch"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-audit-state.test.mjs",
+        "a click whose cursor lands off target is refused and the same click unclipped is sent once"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-fast"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-audit-state.test.mjs",
+        "a background press that fails with a hung target still releases once"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -892,7 +1368,211 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
-        "MSAA roles map to the control types their oleacc constants name, and editing keys carry their character"
+        "a close request returns before a slow close handler finishes and the window then closes"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "a close request the window cancels is accepted and does not force the window shut"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "a close request for an invalid window handle is not accepted"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "MSAA roles map to the control types their oleacc constants name"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "editing keys carry their character and only an Edit window receives translated characters"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "foreground pointer feedback reports completed theme restoration and restores on body failure"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "foreground key input never replaces the user cursor artwork"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "authority that expires during feedback preparation sends no input and releases every scope"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "focus_window is guarded by the observation token whatever its delivery field says"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "the observation token is judged against the target process, and only foreground input widens it to the pointer"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "foreground admission neither waits nor reads recent user input"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "background key grammar parses characters, repeated keys and escaped braces"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "Windows only",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#computer-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
+        "background key grammar errors are rejected before any target input"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -1011,41 +1691,7 @@
       "id": [
         "node",
         "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
-        "background key grammar is completely validated before any target input"
-      ],
-      "platform": "linux",
-      "kind": "skip",
-      "reasonCode": "uncoded",
-      "reasonText": "Windows only",
-      "owner": "release-engineering",
-      "reason": "Windows-only behaviour (skips on Linux and macOS)",
-      "replacement": {
-        "kind": "runs",
-        "in": ["windows/desktop-computer/1of1#computer-slow"]
-      }
-    },
-    {
-      "id": [
-        "node",
-        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
         "background press lifetimes release once after uncertain delivery and preserve cleanup failure"
-      ],
-      "platform": "linux",
-      "kind": "skip",
-      "reasonCode": "uncoded",
-      "reasonText": "Windows only",
-      "owner": "release-engineering",
-      "reason": "Windows-only behaviour (skips on Linux and macOS)",
-      "replacement": {
-        "kind": "runs",
-        "in": ["windows/desktop-computer/1of1#computer-slow"]
-      }
-    },
-    {
-      "id": [
-        "node",
-        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
-        "close requests do not time out on slow shutdown or force a cancelled close"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -1114,23 +1760,6 @@
         "node",
         "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
         "foreground admission names an elevated holder and never waits on recent user input"
-      ],
-      "platform": "linux",
-      "kind": "skip",
-      "reasonCode": "uncoded",
-      "reasonText": "Windows only",
-      "owner": "release-engineering",
-      "reason": "Windows-only behaviour (skips on Linux and macOS)",
-      "replacement": {
-        "kind": "runs",
-        "in": ["windows/desktop-computer/1of1#computer-slow"]
-      }
-    },
-    {
-      "id": [
-        "node",
-        "apps/desktop/src/main/computer/backend/native-guards.slow.test.mjs",
-        "foreground feedback reports completed theme restoration and restores on body failure"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -2234,6 +2863,431 @@
     {
       "id": [
         "node",
+        "apps/desktop/scripts/dev-fast-snapshot.slow.test.mjs",
+        "powershell.exe: the cleanup sweeps snapshots outside this TEMP, unlinking live and dangling junctions first"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "PowerShell deploy script (Windows only)",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/scripts/dev-fast-snapshot.slow.test.mjs",
+        "powershell.exe: a snapshot whose junction cannot be unlinked is skipped and reported, nothing of it deleted"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "PowerShell deploy script (Windows only)",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/scripts/dev-fast-snapshot.slow.test.mjs",
+        "pwsh.exe: the cleanup sweeps snapshots outside this TEMP, unlinking live and dangling junctions first"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "PowerShell deploy script (Windows only)",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/scripts/dev-fast-snapshot.slow.test.mjs",
+        "pwsh.exe: a snapshot whose junction cannot be unlinked is skipped and reported, nothing of it deleted"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "PowerShell deploy script (Windows only)",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a manual import elevates once, keeps the key encrypted, and the next one needs no elevation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an automatic import with the saved key imports without ever allowing elevation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an automatic import with no saved key never elevates and records that one manual import is needed"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a profile with nothing App-Bound imports automatically with no key at all"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "only an import that left a key saved marks its profile ready; a successful import without a key does not"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an automatic run has no profile fallback: without a bound profile nothing is imported"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "when Chrome rotates its key the saved one is discarded: automatic stops, manual elevates once and re-saves"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a saved key the importer rejects is discarded: automatic stops, manual falls back to one elevation"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "without OS encryption nothing is stored, the importer is not asked for the key, and automatic import cannot run"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "automatic runs do nothing while the Cookies database looks the same as at the last import"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a changed Cookies database (size or time, or a journal beside it) leads to one run, then quiet again"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a manual import runs even when the Cookies database has not changed"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a failed automatic run is not remembered as imported: the next one tries again"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an automatic run while Chrome holds the database is skipped quietly"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a failed automatic import is recorded without secrets and does not claim \"needs a manual import\""
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an automatic run waits for a manual cookie import in progress, then runs after it"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an importer built before key reuse keeps the old behaviour for manual imports and cannot run unattended"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "a capabilities probe that cannot run is not remembered as \"unsupported\""
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "automatic runs keep only the latest recovery snapshots of the cookie jar"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "clearing imported data also forgets the saved key and the import record"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "forgetting the saved key removes it and the next import elevates again"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
         "apps/desktop/src/main/secret-file.test.mjs",
         "repeated secret reads verify the ACL without spawning a process; a widened ACL is tightened"
       ],
@@ -2269,7 +3323,7 @@
       "id": [
         "node",
         "apps/desktop/src/renderer/live-activity-layout.slow.test.mjs",
-        "the live status line never paints one item over the next while the quiet cue shows"
+        "the live status line stays one row and never paints one item over the next while the quiet cue shows"
       ],
       "platform": "linux",
       "kind": "skip",
@@ -3459,10 +4513,10 @@
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which core-build builds on Linux only",
+      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which only the Linux core-entry job receives from the mixdogd job",
       "replacement": {
         "kind": "runs",
-        "in": ["linux/core-tests/1of4#entry"]
+        "in": ["linux/core-entry/1of1#entry"]
       }
     },
     {
@@ -3477,10 +4531,10 @@
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which core-build builds on Linux only",
+      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which only the Linux core-entry job receives from the mixdogd job",
       "replacement": {
         "kind": "runs",
-        "in": ["linux/core-tests/1of4#entry"]
+        "in": ["linux/core-entry/1of1#entry"]
       }
     },
     {
@@ -3495,10 +4549,10 @@
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which core-build builds on Linux only",
+      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which only the Linux core-entry job receives from the mixdogd job",
       "replacement": {
         "kind": "runs",
-        "in": ["linux/core-tests/1of4#entry"]
+        "in": ["linux/core-entry/1of1#entry"]
       }
     },
     {
@@ -3513,10 +4567,10 @@
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
       "owner": "release-engineering",
-      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which core-build builds on Linux only",
+      "reason": "the interactive scenarios drive the development mixdogd (mixdog-cli/dev-controls, which includes mixdog-ai/test-support), which only the Linux core-entry job receives from the mixdogd job",
       "replacement": {
         "kind": "runs",
-        "in": ["linux/core-tests/1of4#entry"]
+        "in": ["linux/core-entry/1of1#entry"]
       }
     },
     {
@@ -7527,7 +8581,61 @@
         "native/mixdog-computer/Cargo.toml",
         "test",
         "windows_backend",
-        "windows_backend_serves_the_computer_protocol"
+        "windows_backend_acts_on_accessibility_elements"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows desktop (MIXDOG_COMPUTER_LIVE_TESTS=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/mixdog-computer/Cargo.toml",
+        "test",
+        "windows_backend",
+        "windows_backend_delivers_background_input_to_the_fixture_alone"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows desktop (MIXDOG_COMPUTER_LIVE_TESTS=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/mixdog-computer/Cargo.toml",
+        "test",
+        "windows_backend",
+        "windows_backend_moves_minimizes_restores_and_closes_the_fixture"
+      ],
+      "platform": "windows",
+      "kind": "ignored",
+      "reasonCode": "nextest-ignored",
+      "owner": "release-engineering",
+      "reason": "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only",
+      "replacement": {
+        "kind": "none",
+        "reason": "manual before release: a Windows desktop (MIXDOG_COMPUTER_LIVE_TESTS=1)"
+      }
+    },
+    {
+      "id": [
+        "rust",
+        "native/mixdog-computer/Cargo.toml",
+        "test",
+        "windows_backend",
+        "windows_backend_observes_the_fixture_window"
       ],
       "platform": "windows",
       "kind": "ignored",

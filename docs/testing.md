@@ -259,8 +259,14 @@ consumes it (the test runs the selection over a table of paths).
 
 - **Rust core.** `core-build` compiles the tests once per system (Linux x64, macOS arm64, Windows x64) with
   `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (no Cargo test target git does not
-  track), so no untracked test file is in the archive. `core-tests` legs download it and run
-  `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). A pull
+  track), so no untracked test file is in the archive. The development `mixdogd` (dev controls, with the `mixdog` terminal
+  program and the ssh helper) is the `mixdogd` job's, on Linux when a slow Node lane or the entry scenarios need it, and on
+  Windows for the app boot in `desktop-computer`: a runner of its own beside `core-build`, checking its checkout the same way, so
+  `desktop-slow`, `runtime-slow` and `desktop-computer` start when it is done, not when the slowest system's archive is.
+  `core-tests` legs depend on the archives alone: they download theirs and run
+  `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). The
+  ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
+  `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
   request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
   `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
   archive holds the crate). `core-lint` is clippy of the daemon on each system, and on Linux

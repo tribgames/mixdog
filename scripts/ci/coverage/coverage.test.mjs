@@ -1272,7 +1272,7 @@ test('release refs: no force, candidates only before the gate, and every sink ch
     [
       'a gate artifact is unqualified by gate and SHA',
       (w) => {
-        w['release-gate.yml'].jobs['core-build'].steps.find(
+        w['release-gate.yml'].jobs.mixdogd.steps.find(
           (step) => /upload-artifact/.test(step.uses ?? '') && /mixdogd-dev/.test(step.with?.name ?? '')
         ).with.name = 'mixdogd-dev';
       },
