@@ -1,6 +1,6 @@
-//! `routeRequest` of `server.mjs`: which service answers a request. The tests are Node's exact string tests on the raw
-//! `request.url`, in Node's order, first match wins: no route table over the pathname, so `/client/registerX` reaches the
-//! registration, `/claims` reaches the claims, and an absolute-form target (`GET http://host/x`) falls to the static gate.
+//! `routeRequest` of `server.mjs`: which service answers a request. String tests on the raw `request.url`, first match wins:
+//! a route answers its exact path plus the sub-path or query it takes, so `/client/registerX` and `/claims` fall to the
+//! static gate as unknown paths, as does an absolute-form target (`GET http://host/x`).
 
 use std::sync::Arc;
 
@@ -40,6 +40,21 @@ fn send_page(response: &mut ResponseWriter, reply: &PageReply) {
     if let Err(error) = write_page_reply(response, reply) {
         fail_request("request", &error.to_string(), response);
     }
+}
+
+/// `url` is `path` itself or `path` followed by one of `continuations`.
+fn is_route(url: &str, path: &str, continuations: &[char]) -> bool {
+    url.strip_prefix(path).is_some_and(|rest| rest.chars().next().is_none_or(|next| continuations.contains(&next)))
+}
+
+/// `POST /client/register`, whose pairing token may ride `?token=`.
+fn is_registration(url: &str) -> bool {
+    is_route(url, "/client/register", &['?'])
+}
+
+/// `POST /claim` and `GET /claim/<claimId>`.
+fn is_claim(url: &str) -> bool {
+    is_route(url, "/claim", &['/', '?'])
 }
 
 impl Routes {
@@ -86,12 +101,12 @@ impl Routes {
             self.web_push.handle(request, response).await;
             return;
         }
-        if url.starts_with("/client/register") {
+        if is_registration(&url) {
             self.pairing.handle_registration(request, response).await;
             return;
         }
         // Approval handoff: the only surface a credential-less container may use, and it grants nothing without the desktop's answer.
-        if url.starts_with("/claim") {
+        if is_claim(&url) {
             self.pairing.handle_claim(request, response).await;
             return;
         }
@@ -121,14 +136,37 @@ mod tests {
 
     /// The order of `routeRequest` is the order of the string tests; this keeps the one place that decides them honest.
     #[test]
-    fn the_prefix_tests_match_nodes_on_the_raw_target() {
+    fn the_string_tests_match_nodes_on_the_raw_target() {
         let split = |url: &str| url.split('?').next().unwrap_or("").to_owned();
         assert_eq!(split("/readyz?probe=1"), "/readyz");
         assert_eq!(split("/readyz/"), "/readyz/");
         assert_eq!(split("http://other.example/readyz"), "http://other.example/readyz");
-        assert!("/client/registerX".starts_with("/client/register"));
-        assert!("/claims".starts_with("/claim"));
         assert!(!"/hook".starts_with("/hook/"));
         assert!(is_web_push_request("/webpush?x=1") && is_web_push_request("/webpush/key") && !is_web_push_request("/webpushx"));
+    }
+
+    #[test]
+    fn look_alike_paths_miss_the_registration_and_claim_routes() {
+        for url in ["/client/register", "/client/register?token=fedcba9876543210"] {
+            assert!(is_registration(url), "{url}");
+        }
+        for url in ["/claim", "/claim?x=1", "/claim/0f8c2a6e-1d3b-4c5a-9e7f-2b6d8a4c1e3f"] {
+            assert!(is_claim(url), "{url}");
+        }
+        for url in [
+            "/client/registerX",
+            "/client/registered",
+            "/client/register/",
+            "/client/register-x?token=1",
+            "/client/register.json",
+            "/client/registe",
+            "//client/register",
+            "http://host/client/register",
+        ] {
+            assert!(!is_registration(url), "{url}");
+        }
+        for url in ["/claimfoo", "/claims", "/claims/abc", "/claim-x", "/claim.json", "/clai", "http://host/claim"] {
+            assert!(!is_claim(url), "{url}");
+        }
     }
 }
