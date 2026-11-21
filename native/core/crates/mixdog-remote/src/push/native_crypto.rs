@@ -13,7 +13,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hkdf::Hkdf;
 use p256::PublicKey;
 use p256::ecdh::diffie_hellman;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -103,7 +104,7 @@ pub fn encrypt_native_push(device_public_key: &str, content: &NativePushContent,
     let ct = Aes256Gcm::new((&key).into()).encrypt(Nonce::from_slice(&iv), plaintext.as_slice()).map_err(|_| NativeKeyError)?;
     let envelope = Envelope {
         v: NATIVE_PUSH_VERSION,
-        epk: URL_SAFE_NO_PAD.encode(ephemeral.public_key().to_encoded_point(false).as_bytes()),
+        epk: URL_SAFE_NO_PAD.encode(ephemeral.public_key().to_sec1_point(false).as_bytes()),
         iv: URL_SAFE_NO_PAD.encode(iv),
         ct: URL_SAFE_NO_PAD.encode(ct),
     };
@@ -112,7 +113,7 @@ pub fn encrypt_native_push(device_public_key: &str, content: &NativePushContent,
 
 /// A fresh ephemeral key and IV per message.
 pub fn encrypt_native_push_fresh(device_public_key: &str, content: &NativePushContent) -> Result<String, NativeKeyError> {
-    let ephemeral = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let ephemeral = p256::SecretKey::generate();
     let mut iv = [0u8; 12];
     rand::fill(&mut iv[..]);
     encrypt_native_push(device_public_key, content, &ephemeral, iv)

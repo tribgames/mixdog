@@ -98,14 +98,15 @@ fn media_ranges_windows_and_frames() {
 
 #[test]
 fn web_push_payload_is_bounded_and_decryptable_shape() {
-    let ua = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let ua = p256::SecretKey::generate();
     let mut auth = [0u8; 16];
     rand::fill(&mut auth[..]);
     use base64::Engine;
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    use p256::elliptic_curve::Generate;
+    use p256::elliptic_curve::sec1::ToSec1Point;
     let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let keys = mixdog_remote::e2ee::WebPushKeys { p256dh: b64.encode(ua.public_key().to_encoded_point(false).as_bytes()), auth: b64.encode(auth) };
-    let local = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let keys = mixdog_remote::e2ee::WebPushKeys { p256dh: b64.encode(ua.public_key().to_sec1_point(false).as_bytes()), auth: b64.encode(auth) };
+    let local = p256::SecretKey::generate();
     let body = encrypt_web_push_payload(&keys, b"hello", [1u8; 16], &local).unwrap();
     assert_eq!(&body[16..20], &4096u32.to_be_bytes());
     assert_eq!(body.len(), 16 + 4 + 1 + 65 + 5 + 1 + 16);

@@ -4,6 +4,7 @@
 use aes_gcm::Nonce;
 use aes_gcm::aead::{Aead, Payload};
 use p256::SecretKey;
+use p256::elliptic_curve::Generate;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -40,7 +41,7 @@ pub struct WebPushKeys {
 }
 
 pub fn generate_claim_key_pair() -> ClaimKeyPair {
-    let secret = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let secret = SecretKey::generate();
     ClaimKeyPair { public_key: public_key_b64(&secret.public_key()), secret }
 }
 
@@ -58,7 +59,7 @@ pub fn seal_pairing(material: &PairingMaterial, client_public_key: &str) -> Resu
     if !is_claim_public_key(client_public_key) {
         return Err(E2eeError::Invalid("Invalid approval key."));
     }
-    let ephemeral = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let ephemeral = SecretKey::generate();
     let ephemeral_public = public_key_b64(&ephemeral.public_key());
     let key = claim_key(&ephemeral, client_public_key, client_public_key, &ephemeral_public)?;
     let nonce: [u8; 12] = random();
@@ -86,7 +87,7 @@ fn web_push_key(private: &SecretKey, peer: &str, secret: &str, server_public: &s
 
 /// The browser side: its subscription keys sealed to one paired PC, bound to the endpoint.
 pub fn seal_web_push_keys(pairing: &PairingMaterial, endpoint: &str, keys: &WebPushKeys) -> Result<SealedBox, E2eeError> {
-    let ephemeral = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let ephemeral = SecretKey::generate();
     let ephemeral_public = public_key_b64(&ephemeral.public_key());
     let key = web_push_key(&ephemeral, &pairing.server_public_key, &pairing.pairing_secret, &pairing.server_public_key, &ephemeral_public)?;
     let nonce: [u8; 12] = random();

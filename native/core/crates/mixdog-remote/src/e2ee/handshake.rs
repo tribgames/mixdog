@@ -1,9 +1,13 @@
 //! The server identity, the challenge/hello exchange and the browser-side handshake (the test
 //! peer and the Rust client both use `create_client_handshake`).
 
-use p256::SecretKey;
+use base64ct::{Base64UrlUnpadded, Encoding};
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use zeroize::{Zeroize, Zeroizing};
 
 use super::channel::{Channel, HandshakeState, Role, TransportKeys, cipher};
 use super::kdf::{SessionMaterial, handshake_transcript, hello_proof, public_key_b64, verify_hello_proof};
@@ -28,19 +32,43 @@ struct IdentityFile {
     public_key_jwk: Value,
 }
 
-/// A WebCrypto private JWK carries `ext`/`key_ops`, which the JWK parser refuses; only the
-/// key members are handed over.
-pub fn secret_from_jwk(jwk: &Value) -> Option<SecretKey> {
-    let mut key = Map::new();
-    for member in ["kty", "crv", "x", "y", "d"] {
-        key.insert(member.into(), jwk.get(member)?.clone());
+/// A P-256 JWK as `kty`, `crv`, `x`, `y` and, for a private key, `d`.
+fn key_jwk(public: &PublicKey, secret: Option<&SecretKey>) -> Value {
+    let point = public.to_sec1_point(false);
+    let mut jwk = json!({
+        "kty": "EC",
+        "crv": "P-256",
+        "x": b64(point.x().map_or(&[][..], |x| x.as_slice())),
+        "y": b64(point.y().map_or(&[][..], |y| y.as_slice())),
+    });
+    if let Some(secret) = secret {
+        let mut d = secret.to_bytes();
+        jwk["d"] = Value::String(Base64UrlUnpadded::encode_string(&d));
+        d.zeroize();
     }
-    SecretKey::from_jwk_str(&Value::Object(key).to_string()).ok()
+    jwk
+}
+
+/// A private P-256 JWK whose `d` is the key of its `x`/`y`; other members (WebCrypto's
+/// `ext`/`key_ops`) are ignored.
+pub fn secret_from_jwk(jwk: &Value) -> Option<SecretKey> {
+    let member = |name: &str| jwk.get(name).and_then(Value::as_str);
+    if member("kty")? != "EC" || member("crv")? != "P-256" {
+        return None;
+    }
+    let field = |name: &str| unb64(member(name)?).ok().filter(|bytes| bytes.len() == 32);
+    let mut d = Zeroizing::new([0u8; 32]);
+    if Base64UrlUnpadded::decode(member("d")?, &mut *d).ok()?.len() != 32 {
+        return None;
+    }
+    let secret = SecretKey::from_slice(&*d).ok()?;
+    let point = secret.public_key().to_sec1_point(false);
+    (point.x()?.as_slice() == field("x")?.as_slice() && point.y()?.as_slice() == field("y")?.as_slice()).then_some(secret)
 }
 
 impl ServerIdentity {
     pub fn generate() -> Self {
-        let secret = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let secret = SecretKey::generate();
         Self { server_public_key: public_key_b64(&secret.public_key()), pairing_secret: b64(&random::<32>()), secret }
     }
 
@@ -56,13 +84,13 @@ impl ServerIdentity {
     }
 
     pub fn to_json(&self) -> String {
-        let jwk = |text: String| serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+        let public = self.secret.public_key();
         let file = IdentityFile {
             version: VERSION,
             server_public_key: self.server_public_key.clone(),
             pairing_secret: self.pairing_secret.clone(),
-            private_key_jwk: jwk(self.secret.to_jwk_string().to_string()),
-            public_key_jwk: jwk(self.secret.public_key().to_jwk_string()),
+            private_key_jwk: key_jwk(&public, Some(&self.secret)),
+            public_key_jwk: key_jwk(&public, None),
         };
         serde_json::to_string_pretty(&file).unwrap_or_default()
     }
@@ -193,7 +221,7 @@ pub fn create_client_handshake(pairing: &PairingMaterial, challenge: &Challenge,
     if pairing.version != VERSION {
         return Err(E2eeError::Invalid("Unsupported relay encryption handshake."));
     }
-    let pair = options.client_key.unwrap_or_else(|| SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng));
+    let pair = options.client_key.unwrap_or_else(|| SecretKey::generate());
     let client_public = public_key_b64(&pair.public_key());
     let select = options.transport && challenge.flag("transportWebrtc") && challenge.flag("binaryFrames");
     let deflate = challenge.flag("deflate");

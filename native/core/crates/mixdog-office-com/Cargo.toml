@@ -19,6 +19,7 @@ tokio = { workspace = true, features = ["rt", "process", "io-util", "macros", "s
 tokio-util = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 zip = { workspace = true }
+oem_cp = { workspace = true }
 
 [target."cfg(windows)".dependencies]
 # src/ps/collate.rs (CompareStringEx: Sort-Object and -eq on strings), src/ps/datetime.rs (ToUniversalTime with the dynamic time zone).

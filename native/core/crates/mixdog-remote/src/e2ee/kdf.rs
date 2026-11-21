@@ -1,7 +1,7 @@
 //! Key agreement and handshake proofs (shared/remote-e2ee.ts).
 
 use hmac::{Hmac, Mac};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use p256::{PublicKey, SecretKey};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use super::{CONTEXT, E2eeError, b64, unb64};
 
 pub(crate) fn public_key_b64(key: &PublicKey) -> String {
-    b64(key.to_encoded_point(false).as_bytes())
+    b64(key.to_sec1_point(false).as_bytes())
 }
 
 pub(crate) fn parse_public_key(raw: &str) -> Result<PublicKey, E2eeError> {

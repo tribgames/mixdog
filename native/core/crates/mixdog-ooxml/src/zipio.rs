@@ -117,6 +117,16 @@ fn no_end_of_central_directory(bytes: &[u8]) -> String {
     }
 }
 
+/// An entry name decoded by its language-encoding flag (bit 11, which a valid Unicode Path field sets): UTF-8 with it,
+/// CP437 without, as zip 2 read it. zip 9 reads any valid UTF-8 as UTF-8, so two distinct CP437 names could become one.
+fn entry_name(raw: &[u8], flags: u16) -> String {
+    if flags & (1 << 11) != 0 {
+        String::from_utf8_lossy(raw).into_owned()
+    } else {
+        oem_cp::decode_string_complete_table(raw, &oem_cp::code_table::DECODING_TABLE_CP437)
+    }
+}
+
 /// The text a failed read is reported with: jszip's wording where the cause is the same.
 fn read_error(error: &ZipError, bytes: &[u8]) -> String {
     match error {
@@ -200,7 +210,7 @@ impl Package {
         let mut package = Self::new();
         for number in 0..archive.len() {
             let mut file = archive.by_index(number).map_err(|error| read_error(&error, bytes))?;
-            let name = resolve(file.name());
+            let name = resolve(&entry_name(file.name_raw(), file.flags().as_u16()));
             let dir = file.is_dir() || file.unix_mode().is_some_and(|mode| mode & 0x4000 != 0);
             let date = file.last_modified().unwrap_or_default();
             let mut data = Vec::new();
@@ -422,6 +432,25 @@ mod tests {
         writer.start_file(name, SimpleFileOptions::default().compression_method(CompressionMethod::Stored)).expect("start");
         writer.write_all(content).expect("write");
         writer.finish().expect("finish").into_inner()
+    }
+
+    #[test]
+    fn names_without_the_utf8_flag_read_as_cp437_and_stay_distinct() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in [("@@x.txt", b"first"), ("#x.txt", b"other")] {
+            writer.start_file(name, SimpleFileOptions::default().compression_method(CompressionMethod::Stored)).expect("start");
+            writer.write_all(content).expect("write");
+        }
+        let mut bytes = writer.finish().expect("finish").into_inner();
+        for (placeholder, raw) in [(&b"@@x.txt"[..], &b"\xC3\xA9x.txt"[..]), (b"#x.txt", b"\x82x.txt")] {
+            while let Some(at) = bytes.windows(placeholder.len()).position(|window| window == placeholder) {
+                bytes[at..at + raw.len()].copy_from_slice(raw);
+            }
+        }
+        let loaded = Package::load(&bytes).expect("load");
+        assert_eq!(loaded.names(), ["\u{251C}\u{2310}x.txt", "\u{E9}x.txt"]);
+        assert_eq!(loaded.text("\u{251C}\u{2310}x.txt"), "first");
+        assert_eq!(loaded.text("\u{E9}x.txt"), "other");
     }
 
     #[test]

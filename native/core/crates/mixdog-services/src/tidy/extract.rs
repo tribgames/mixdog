@@ -146,13 +146,23 @@ pub fn is_nupkg_metadata(name: &str) -> bool {
         || base.to_lowercase().ends_with(".nuspec")
 }
 
+/// An entry name decoded by its language-encoding flag (bit 11, which a valid Unicode Path field sets): UTF-8 with it,
+/// CP437 without, as zip 2 read it. zip 9 reads any valid UTF-8 as UTF-8, so two distinct CP437 names could become one.
+fn entry_name(raw: &[u8], flags: u16) -> String {
+    if flags & (1 << 11) != 0 {
+        String::from_utf8_lossy(raw).into_owned()
+    } else {
+        oem_cp::decode_string_complete_table(raw, &oem_cp::code_table::DECODING_TABLE_CP437)
+    }
+}
+
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub fn extract_zip(src: &Path, dest: &Path, skip: impl Fn(&str) -> bool) -> Result<Vec<String>, ExtractError> {
     let mut archive = zip::ZipArchive::new(fs::File::open(src)?).map_err(|e| ExtractError::Other(e.to_string()))?;
     let mut written = Vec::new();
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| ExtractError::Other(e.to_string()))?;
-        let name = file.name().to_owned();
+        let name = entry_name(file.name_raw(), file.flags().as_u16());
         if skip(&name) {
             continue;
         }
@@ -283,5 +293,27 @@ mod tests {
         assert_eq!(std::fs::read(out.join("tool")).unwrap(), b"bin");
         assert!(matches!(extract_archive("gz", &zipped, &out, "/tool"), Err(ExtractError::UnsafeBinPath(_))));
         assert!(matches!(extract_archive("rar", &single, &out, ""), Err(ExtractError::Unsupported(_))));
+    }
+
+    #[test]
+    fn zip_names_without_the_utf8_flag_read_as_cp437_and_each_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("a.zip");
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, data) in [("@@x.txt", "first"), ("#x.txt", "other")] {
+            w.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            w.write_all(data.as_bytes()).unwrap();
+        }
+        let mut bytes = w.finish().unwrap().into_inner();
+        for (placeholder, raw) in [(&b"@@x.txt"[..], &b"\xC3\xA9x.txt"[..]), (b"#x.txt", b"\x82x.txt")] {
+            while let Some(at) = bytes.windows(placeholder.len()).position(|window| window == placeholder) {
+                bytes[at..at + raw.len()].copy_from_slice(raw);
+            }
+        }
+        std::fs::write(&archive, bytes).unwrap();
+        let out = dir.path().join("o");
+        assert_eq!(extract_archive("zip", &archive, &out, "").unwrap(), ["\u{251C}\u{2310}x.txt", "\u{E9}x.txt"]);
+        assert_eq!(std::fs::read(out.join("\u{251C}\u{2310}x.txt")).unwrap(), b"first");
+        assert_eq!(std::fs::read(out.join("\u{E9}x.txt")).unwrap(), b"other");
     }
 }

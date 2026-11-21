@@ -21,6 +21,16 @@ use super::Actions;
 use super::file_error;
 use crate::office::get_full_path;
 
+/// An entry name decoded by its language-encoding flag (bit 11, which a valid Unicode Path field sets): UTF-8 with it,
+/// CP437 without, as zip 2 read it. zip 9 reads any valid UTF-8 as UTF-8, so two distinct CP437 names could become one.
+fn entry_name(raw: &[u8], flags: u16) -> String {
+    if flags & (1 << 11) != 0 {
+        String::from_utf8_lossy(raw).into_owned()
+    } else {
+        oem_cp::decode_string_complete_table(raw, &oem_cp::code_table::DECODING_TABLE_CP437)
+    }
+}
+
 fn sheet_entry() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
     PATTERN.get_or_init(|| Regex::new(r"(?i)^xl/worksheets/sheet\d+\.xml$").expect("the worksheet entry pattern is valid"))
@@ -65,7 +75,7 @@ pub fn repair_package(bytes: &[u8]) -> Result<(Vec<u8>, usize), String> {
     let mut repaired: Vec<(usize, String)> = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        if !sheet_entry().is_match(entry.name()) {
+        if !sheet_entry().is_match(&entry_name(entry.name_raw(), entry.flags().as_u16())) {
             continue;
         }
         let mut raw = Vec::new();
@@ -91,7 +101,7 @@ pub fn repair_package(bytes: &[u8]) -> Result<(Vec<u8>, usize), String> {
                 if let Some(mode) = entry.unix_mode() {
                     options = options.unix_permissions(mode);
                 }
-                writer.start_file(entry.name().to_owned(), options).map_err(|error| error.to_string())?;
+                writer.start_file(entry_name(entry.name_raw(), entry.flags().as_u16()), options).map_err(|error| error.to_string())?;
                 writer.write_all(xml.as_bytes()).map_err(|error| error.to_string())?;
             }
             None => {
