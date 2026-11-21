@@ -6261,9 +6261,12 @@ dependencies = [
  "mixdog-workspace-hack",
  "p256",
  "rand 0.9.5",
+ "rcgen",
  "regex",
  "reqwest",
  "rtc",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -6271,11 +6274,13 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "url",
  "uuid",
+ "webpki-roots",
  "webrtc",
  "zeroize",
 ]
@@ -8619,8 +8624,6 @@ dependencies = [
 [[package]]
 name = "rtc"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2ca201de5ccc83aa3c08d49a2f08d7ed0aeeb2052fb1ccc517a8b77a6927ce"
 dependencies = [
  "bytes",
  "hex",
@@ -8707,8 +8710,6 @@ dependencies = [
 [[package]]
 name = "rtc-ice"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099984f1be120b2e5692f232f8cbb82e53f6b4261c5c2eeda5be6223ba1adaa9"
 dependencies = [
  "bytes",
  "crc",
@@ -8865,8 +8866,6 @@ dependencies = [
 [[package]]
 name = "rtc-turn"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c53078a0696df5a3a5e4947bc550c5e903b59803b252f1d39062d637ebd3d17e"
 dependencies = [
  "bytes",
  "log",
@@ -11005,8 +11004,6 @@ dependencies = [
 [[package]]
 name = "webrtc"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b621e736302bef784948cc8d8099fd0a8fdb5757693c80a344ffbe38c49387d2"
 dependencies = [
  "async-broadcast",
  "async-channel",
@@ -11017,6 +11014,7 @@ dependencies = [
  "log",
  "quinn-udp 0.6.3",
  "rtc",
+ "rustls",
  "tokio",
 ]
 

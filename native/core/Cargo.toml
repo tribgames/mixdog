@@ -112,6 +112,10 @@ exclude = [
     "vendor/fancy-regex",
     "vendor/icu_collator",
     "vendor/regress",
+    "vendor/rtc",
+    "vendor/rtc-ice",
+    "vendor/rtc-turn",
+    "vendor/webrtc",
 ]
 
 [workspace.package]
@@ -413,3 +417,13 @@ ast-grep-core = { path = "vendor/ast-grep-core" }
 icu_collator = { path = "vendor/icu_collator" }
 # regress 0.10.5 with a start-anchored match tried at one position under the `utf16` feature (native/core/vendor/regress/MIXDOG.md).
 regress = { path = "vendor/regress" }
+# webrtc 0.21.1 that gathers TURN relay candidates over TCP and TLS as well as UDP, each connection owned with its TURN
+# client (native/core/vendor/webrtc/MIXDOG.md). `webrtc = "=0.21.1"` above pins the base the four copies are of.
+webrtc = { path = "vendor/webrtc" }
+# rtc 0.21.1 whose local relay candidate keeps the transport of its TURN allocation in its event and stats entry
+# (native/core/vendor/rtc/MIXDOG.md).
+rtc = { path = "vendor/rtc" }
+# rtc-turn 0.21.1 whose Allocate completes under one id across its wire transactions (native/core/vendor/rtc-turn/MIXDOG.md).
+rtc-turn = { path = "vendor/rtc-turn" }
+# rtc-ice 0.21.1 whose agent can take back a local candidate whose transport is gone (native/core/vendor/rtc-ice/MIXDOG.md).
+rtc-ice = { path = "vendor/rtc-ice" }

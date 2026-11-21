@@ -240,7 +240,13 @@ pub(crate) async fn selected_pair(pc: &dyn PeerConnection) -> Option<CandidatePa
     Some(CandidatePair {
         local_type,
         remote_type,
-        protocol: if local.protocol.eq_ignore_ascii_case("tcp") { TransportProtocol::Tcp } else { TransportProtocol::Udp },
+        protocol: if local.protocol.eq_ignore_ascii_case("tcp") {
+            Some(TransportProtocol::Tcp)
+        } else if local.protocol.eq_ignore_ascii_case("udp") {
+            Some(TransportProtocol::Udp)
+        } else {
+            None
+        },
         relay_protocol: if local_type == CandidateType::Relay {
             match local.relay_protocol {
                 RTCIceServerTransportProtocol::Tcp => Some(RelayProtocol::Tcp),
@@ -360,11 +366,11 @@ async fn build(
             credential: server.credential.clone().unwrap_or_default(),
         })
         .collect();
-    let rtc_config = RTCConfigurationBuilder::new()
-        .with_ice_servers(ice_servers)
-        .with_ice_transport_policy(RTCIceTransportPolicy::All)
-        .with_bundle_policy(RTCBundlePolicy::MaxBundle)
-        .build();
+    let policy = RTCIceTransportPolicy::All;
+    #[cfg(test)]
+    let policy = if config.hooks.relay_only { RTCIceTransportPolicy::Relay } else { policy };
+    let rtc_config =
+        RTCConfigurationBuilder::new().with_ice_servers(ice_servers).with_ice_transport_policy(policy).with_bundle_policy(RTCBundlePolicy::MaxBundle).build();
     let settings = SettingEngineBuilder::new().with_include_loopback_candidate(config.include_loopback).with_multicast_dns_mode(mdns).build();
     let mut builder = PeerConnectionBuilder::new()
         .with_configuration(rtc_config)
@@ -374,11 +380,58 @@ async fn build(
     if let Some(media) = media {
         builder = builder.with_media_engine(media.engine).with_interceptor_registry(media.registry);
     }
+    if let Some(tls) = turn_tls(config).await {
+        builder = builder.with_turn_tls_config(tls);
+    }
     #[cfg(test)]
     if let Some(runtime) = &config.hooks.runtime {
         builder = builder.with_runtime(Arc::clone(runtime));
     }
     Ok(Arc::new(builder.build().await?))
+}
+/// How a `turns:` server is verified, when the connection is offered one: against the bundled roots and the system's,
+/// as the workspace's other TLS clients, by the url's host name. Read once per process, by the first connection
+/// offered such a server.
+///
+/// Reading the system's roots is blocking work (the store is enumerated and every certificate parsed), so it runs
+/// on a thread of its own: one for the process, started by the first caller. Every caller waits for that one
+/// thread, under its own step's budget, so a read that stalls holds one thread however many connections are tried
+/// meanwhile, and a step that gave up leaves the roots for the next. `None` when the thread could not be started:
+/// a `turns:` server is then not reached at all.
+async fn turn_tls(config: &PeerConfig) -> Option<Arc<rustls::ClientConfig>> {
+    type Loaded = tokio::sync::watch::Receiver<Option<Arc<rustls::ClientConfig>>>;
+    static MACHINE: std::sync::OnceLock<Loaded> = std::sync::OnceLock::new();
+    if !config.ice_servers.iter().flat_map(|server| &server.urls).any(|url| url.starts_with("turns:")) {
+        return None;
+    }
+    #[cfg(test)]
+    if let Some(tls) = &config.hooks.turn_tls {
+        return Some(Arc::clone(tls));
+    }
+    let mut loaded = MACHINE
+        .get_or_init(|| {
+            let (done, loaded) = tokio::sync::watch::channel(None);
+            // A thread that does not start drops `done`, which ends every wait with `None`.
+            let _ = std::thread::Builder::new().name("turn-tls-roots".to_owned()).spawn(move || done.send_replace(Some(machine_tls())));
+            loaded
+        })
+        .clone();
+    loaded.wait_for(Option::is_some).await.ok().and_then(|tls| tls.clone())
+}
+fn machine_tls() -> Arc<rustls::ClientConfig> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for certificate in rustls_native_certs::load_native_certs().certs {
+        // A system certificate this library cannot parse is skipped: the rest still verify.
+        let _ = roots.add(certificate);
+    }
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let tls = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("the ring provider supports the default protocol versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Arc::new(tls)
 }
 /// The first offer, or an ICE restart on the same connection. Returns the local SDP.
 pub(crate) async fn make_offer(pc: &dyn PeerConnection, ice_restart: bool) -> Result<String, PeerFault> {

@@ -1094,6 +1094,30 @@
       "owner": "release-engineering"
     },
     {
+      "glob": "native/core/vendor/webrtc/**",
+      "class": "vendor",
+      "reason": "third-party crate vendored for a [patch]; its upstream suite is not Mixdog's and no workspace member depends on running it",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "native/core/vendor/rtc/**",
+      "class": "vendor",
+      "reason": "third-party crate vendored for a [patch]; its upstream suite is not Mixdog's and no workspace member depends on running it",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "native/core/vendor/rtc-ice/**",
+      "class": "vendor",
+      "reason": "third-party crate vendored for a [patch]; its upstream suite is not Mixdog's and no workspace member depends on running it",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "native/core/vendor/rtc-turn/**",
+      "class": "vendor",
+      "reason": "third-party crate vendored for a [patch]; its upstream suite is not Mixdog's and no workspace member depends on running it",
+      "owner": "release-engineering"
+    },
+    {
       "glob": "apps/desktop/src/main/computer/backend/cursor-theme.live.test.mjs",
       "class": "not-run-in-ci",
       "reason": "live: changes and restores the real Windows cursor theme on an interactive desktop; a hosted runner has none",

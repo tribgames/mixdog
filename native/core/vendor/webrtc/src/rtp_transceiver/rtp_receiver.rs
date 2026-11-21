@@ -1,0 +1,137 @@
+use crate::error::{Error, Result};
+use crate::media_stream::track_remote::TrackRemote;
+use crate::peer_connection::PeerConnectionRef;
+use crate::peer_connection::transport::{DtlsRoute, DtlsTransport, DtlsTransportImpl};
+use crate::rtp_transceiver::RtpReceiver;
+use rtc::rtp_transceiver::RTCRtpReceiverId;
+use rtc::rtp_transceiver::rtp_receiver::{RTCRtpContributingSource, RTCRtpSynchronizationSource};
+use rtc::rtp_transceiver::rtp_sender::{RTCRtpCapabilities, RTCRtpReceiveParameters, RtpCodecKind};
+use rtc::statistics::StatsSelector;
+use rtc::statistics::report::RTCStatsReport;
+use std::sync::{Arc, Weak};
+use std::time::Instant;
+
+/// Concrete async rtp receiver implementation (generic over interceptor type).
+///
+/// This wraps a rtp receiver and provides async send/receive APIs.
+pub(crate) struct RtpReceiverImpl {
+    /// Unique identifier for this rtp receiver
+    id: RTCRtpReceiverId,
+
+    /// Inner PeerConnection Reference
+    inner: Weak<PeerConnectionRef>,
+
+    track: Arc<dyn TrackRemote>,
+}
+
+impl RtpReceiverImpl {
+    /// The owning connection, or `ErrConnectionClosed` once it is gone. The back-reference is
+    /// `Weak` because `PeerConnectionRef` owns this object: a strong one would form a cycle that
+    /// keeps the whole connection alive after `close()` and drop (webrtc#906).
+    fn peer_connection(&self) -> Result<Arc<PeerConnectionRef>> {
+        self.inner.upgrade().ok_or(Error::ErrConnectionClosed)
+    }
+
+    /// Create a new rtp receiver wrapper
+    pub(crate) fn new(
+        id: RTCRtpReceiverId,
+        inner: Arc<PeerConnectionRef>,
+        track: Arc<dyn TrackRemote>,
+    ) -> Self {
+        Self {
+            id,
+            inner: Arc::downgrade(&inner),
+            track,
+        }
+    }
+}
+
+impl crate::sealed::Sealed for RtpReceiverImpl {}
+
+#[async_trait::async_trait]
+impl RtpReceiver for RtpReceiverImpl {
+    fn id(&self) -> RTCRtpReceiverId {
+        self.id
+    }
+
+    fn track(&self) -> &Arc<dyn TrackRemote> {
+        &self.track
+    }
+
+    async fn get_capabilities(&self, kind: RtpCodecKind) -> Result<Option<RTCRtpCapabilities>> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+
+        Ok(peer_connection
+            .rtp_receiver(self.id)
+            .ok_or(Error::ErrRTPReceiverNotExisted)?
+            .get_capabilities(kind))
+    }
+
+    async fn get_parameters(&self) -> Result<RTCRtpReceiveParameters> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+
+        Ok(peer_connection
+            .rtp_receiver(self.id)
+            .ok_or(Error::ErrRTPReceiverNotExisted)?
+            .get_parameters()
+            .to_owned())
+    }
+
+    async fn get_contributing_sources(&self) -> Result<Vec<RTCRtpContributingSource>> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+
+        Ok(peer_connection
+            .rtp_receiver(self.id)
+            .ok_or(Error::ErrRTPReceiverNotExisted)?
+            .get_contributing_sources()
+            .map(|s| s.to_owned())
+            .collect())
+    }
+
+    async fn get_synchronization_sources(&self) -> Result<Vec<RTCRtpSynchronizationSource>> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+
+        Ok(peer_connection
+            .rtp_receiver(self.id)
+            .ok_or(Error::ErrRTPReceiverNotExisted)?
+            .get_synchronization_sources()
+            .map(|s| s.to_owned())
+            .collect())
+    }
+
+    async fn get_stats(&self, now: Instant) -> Result<RTCStatsReport> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+        peer_connection
+            .rtp_receiver(self.id)
+            .ok_or(Error::ErrRTPReceiverNotExisted)?;
+        Ok(peer_connection.get_stats(now, StatsSelector::Receiver(self.id)))
+    }
+    async fn transport(&self) -> Result<Option<Arc<dyn DtlsTransport>>> {
+        let pc = self.peer_connection()?;
+        let mut peer_connection = pc.core.lock().await;
+
+        // Walk under the lock and keep only the ids: a borrowed view cannot cross an await, so
+        // the handle re-walks per call and carries the ids so `id()` can stay synchronous.
+        let ids = match peer_connection.rtp_receiver(self.id) {
+            Some(receiver) => receiver
+                .transport()
+                .map(|dtls| (dtls.id(), dtls.ice_transport().id())),
+            None => return Err(Error::ErrRTPReceiverNotExisted),
+        };
+        drop(peer_connection);
+
+        Ok(ids.map(|(id, ice_id)| {
+            Arc::new(DtlsTransportImpl::new(
+                id,
+                ice_id,
+                DtlsRoute::Receiver(self.id),
+                Arc::clone(&pc),
+            )) as Arc<dyn DtlsTransport>
+        }))
+    }
+}

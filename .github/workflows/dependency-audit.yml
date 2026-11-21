@@ -8,7 +8,10 @@ name: dependency-audit
 # installer. npm audit reads package-lock.json, so no install is needed. The
 # Rust job audits every Cargo.lock in the tree against the RustSec database:
 # cargo audit fails on any vulnerability (unmaintained and yanked notices are
-# warnings), which is the stricter gate for the code that ships as mixdogd.
+# warnings), which is the stricter gate for the code that ships as mixdogd. A
+# crate patched in from native/core/vendor has no registry source in its lock
+# entry and cargo audit passes over it, so the releases those copies were made
+# from are audited from native/core/vendor/audit-bases.lock.
 on:
   pull_request:
     paths:
@@ -21,6 +24,9 @@ on:
       - apps/mobile/package.json
       - apps/mobile/package-lock.json
       - "**/Cargo.lock"
+      - native/core/Cargo.toml
+      - native/core/vendor/audit-bases.lock
+      - native/core/vendor/*/Cargo.toml
       - .github/workflows/dependency-audit.yml
   push:
     branches: [main]
@@ -34,6 +40,9 @@ on:
       - apps/mobile/package.json
       - apps/mobile/package-lock.json
       - "**/Cargo.lock"
+      - native/core/Cargo.toml
+      - native/core/vendor/audit-bases.lock
+      - native/core/vendor/*/Cargo.toml
       - .github/workflows/dependency-audit.yml
   schedule:
     - cron: "17 5 * * 1"
@@ -111,4 +120,66 @@ jobs:
             # The advisory database is fetched once, by the first lockfile.
             fetch="--no-fetch"
           done < <(git ls-files '*Cargo.lock')
+          exit "$status"
+      - name: cargo audit (the releases the patched copies are of)
+        if: ${{ !cancelled() }}
+        working-directory: native/core
+        run: |
+          status=0
+          # What must be listed comes from Cargo's own patch set, read as TOML, not from the file under check.
+          python3 - <<'PY' || status=1
+          import pathlib
+          import sys
+          import tomllib
+
+          BASES = "vendor/audit-bases.lock"
+          # Patched copies whose releases are not audited here, each with why. A patch that is neither
+          # here nor in the file fails the job, so one cannot be added without a decision.
+          EXCLUDED = {
+              "ast-grep-core": "patched before the file existed; its release is not yet listed",
+              "fancy-regex": "patched before the file existed; its release is not yet listed",
+              "icu_collator": "patched before the file existed; its release is not yet listed",
+              "regress": "patched before the file existed; its release is not yet listed",
+          }
+
+          failed = False
+
+
+          def fail(message):
+              global failed
+              failed = True
+              print(f"::error file=native/core/{BASES}::{message}")
+
+
+          def read(path):
+              return tomllib.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+          # Every path patch of every registry: its lock entry has no source, wherever the copy lives.
+          patched = {}
+          for registry in read("Cargo.toml").get("patch", {}).values():
+              for name, spec in registry.items():
+                  if isinstance(spec, dict) and "path" in spec:
+                      patched[spec.get("package", name)] = spec["path"]
+          if not patched:
+              fail("Cargo.toml has no path patch: the guard no longer reads Cargo's patch set")
+
+          listed = {package["name"]: package.get("version") for package in read(BASES).get("package", [])}
+          for name, path in sorted(patched.items()):
+              if name in EXCLUDED:
+                  print(f"not audited: {name} ({EXCLUDED[name]})")
+                  if name in listed:
+                      fail(f"{name} is listed here and excluded in the workflow")
+                  continue
+              declared = read(f"{path}/Cargo.toml")["package"]["version"]
+              if listed.get(name) != declared:
+                  fail(f"{name} is {declared} in {path}/Cargo.toml and {listed.get(name, 'missing')} here")
+          # Nothing stale either way: an exclusion or a listed release without its patch.
+          for name in sorted(set(EXCLUDED) - set(patched)):
+              fail(f"{name} is excluded in the workflow and no longer patched")
+          for name in sorted(set(listed) - set(patched)):
+              fail(f"{name} is listed here and no longer patched")
+          sys.exit(1 if failed else 0)
+          PY
+          cargo audit --file vendor/audit-bases.lock || status=1
           exit "$status"
