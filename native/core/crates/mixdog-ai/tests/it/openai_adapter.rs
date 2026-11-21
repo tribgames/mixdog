@@ -182,12 +182,15 @@ impl Credentials {
 
 #[async_trait]
 impl CredentialSource for Credentials {
-    async fn current(&self) -> Result<Credential, ProviderError> {
-        Ok(self.current.clone())
+    async fn current(&self) -> Result<mixdog_ai::providers::openai::adapter::Attempt, ProviderError> {
+        Ok(self.current.clone().into())
     }
-    async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+    async fn after_rejection(
+        &self,
+        _: &mixdog_ai::providers::openai::adapter::Attempt,
+    ) -> Result<Option<mixdog_ai::providers::openai::adapter::Attempt>, ProviderError> {
         *self.asked.lock().unwrap() += 1;
-        Ok(self.refreshed.lock().unwrap().take())
+        Ok(self.refreshed.lock().unwrap().take().map(Into::into))
     }
 }
 

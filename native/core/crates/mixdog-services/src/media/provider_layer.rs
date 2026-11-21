@@ -360,7 +360,7 @@ impl CodexSession for CodexProviderSession {
                 return Err(AdapterError::plain(CODEX_NOT_AUTHENTICATED));
             }
         }
-        let Credential { bearer, account_id } = self.oauth.current().await.map_err(|error| AdapterError::plain(error.into_message()))?;
+        let Credential { bearer, account_id } = self.oauth.current().await.map_err(|error| AdapterError::plain(error.into_message()))?.credential;
         Ok(CodexAuth { access_token: bearer, account_id })
     }
 

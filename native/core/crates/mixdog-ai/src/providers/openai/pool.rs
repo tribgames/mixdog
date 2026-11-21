@@ -17,6 +17,7 @@ use std::sync::PoisonError;
 use sha2::Digest;
 use sha2::Sha256;
 
+use super::adapter::Attempt;
 use super::delta::Chain;
 use crate::transport::WsSocket;
 use crate::transport::ws::WsCloser;
@@ -47,6 +48,7 @@ struct Parked {
     owner: u64,
     chain: Chain,
     compat: Compat,
+    auth: Option<Attempt>,
     released: u64,
 }
 
@@ -109,6 +111,9 @@ pub struct Checkout {
     /// The socket's number ([`WsPool::number`]), set with the socket.
     pub owner: u64,
     pub chain: Chain,
+    /// The attempt whose authorization the socket's upgrade carried: a response on the socket, a reused one too, is
+    /// that login's, whatever the account holds by then.
+    pub auth: Option<Attempt>,
 }
 
 impl WsPool {
@@ -220,11 +225,11 @@ impl WsPool {
         for gone in closed {
             self.retire(key, gone.owner, None, gone.socket, None);
         }
-        let (socket, owner, chain) = match reused {
-            Some(p) => (Some(p.socket), p.owner, if shared { Chain::default() } else { p.chain }),
-            None => (None, 0, Chain::default()),
+        let (socket, owner, chain, auth) = match reused {
+            Some(p) => (Some(p.socket), p.owner, if shared { Chain::default() } else { p.chain }, p.auth),
+            None => (None, 0, Chain::default(), None),
         };
-        Checkout { pool: self.clone(), id, owns: !shared, key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, owner, chain }
+        Checkout { pool: self.clone(), id, owns: !shared, key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, owner, chain, auth }
     }
 
     pub fn http_active(&self, keys: &[&str]) -> bool {
@@ -364,7 +369,8 @@ impl Checkout {
         state.leases.remove(&self.id);
         state.released += 1;
         let released = state.released;
-        state.idle.entry(self.key.clone()).or_default().push(Parked { socket, owner: self.owner, chain, compat: self.compat.clone(), released });
+        let auth = self.auth.take();
+        state.idle.entry(self.key.clone()).or_default().push(Parked { socket, owner: self.owner, chain, compat: self.compat.clone(), auth, released });
         drop(state);
         if let Some(claim) = self.claim() {
             self.pool.release_owner(&self.key, claim);

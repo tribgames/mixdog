@@ -99,14 +99,39 @@ pub trait UsageHttp: Send + Sync {
     async fn post_json(&self, url: &str, headers: &[(String, String)], body: &Value, timeout: Duration) -> Result<UsageResponse, UsageError>;
 }
 
+/// The credential one usage request is sent with: a JSON doc with Node's key spelling (`access_token`/`accessToken`,
+/// `account_id`, `user_id`, `key`), and the attempt its source handed it out on. The retry behind its refusal hands the
+/// whole of it back, so the source refreshes the login of that attempt and of no other.
+#[derive(Clone)]
+pub struct UsageAuth {
+    pub doc: Value,
+    /// The source's own; nothing else reads it.
+    attempt: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+impl UsageAuth {
+    /// A credential whose source tells no login behind it.
+    pub fn plain(doc: Value) -> Self {
+        Self { doc, attempt: None }
+    }
+
+    /// A credential handed out on `attempt`, which [`Self::attempt`] gives back to the source.
+    pub fn sent_on(doc: Value, attempt: impl std::any::Any + Send + Sync) -> Self {
+        Self { doc, attempt: Some(Arc::new(attempt)) }
+    }
+
+    pub fn attempt<T: std::any::Any>(&self) -> Option<&T> {
+        self.attempt.as_ref()?.downcast_ref()
+    }
+}
+
 /// The provider side of a measurement: its credential and, for the providers
 /// that report plan usage themselves, their own snapshot.
 #[async_trait]
 pub trait UsageSource: Send + Sync {
-    /// The account's credential (`ensureAuth({reason: 'usage'})`): a JSON doc
-    /// with Node's key spelling (`access_token`/`accessToken`, `account_id`,
-    /// `user_id`, `key`). `force_refresh` is the retry after a 401/403.
-    async fn ensure_auth(&self, provider: &str, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError>;
+    /// The account's credential (`ensureAuth({reason: 'usage'})`). `rejected` is the retry after a 401/403: the
+    /// credential the refused request was sent with, whose login is refreshed (`forceRefresh`).
+    async fn ensure_auth(&self, provider: &str, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError>;
 
     /// `getUsageSnapshot()` of cursor-oauth, cursor-api, antigravity-oauth,
     /// muse-code-oauth, command-code-oauth and opencode-go-oauth.
@@ -363,13 +388,17 @@ struct CodexAuth {
     account_id: Option<String>,
     /// The sign-in this credential is ([`credential_stamp`]).
     stamp: Option<String>,
+    /// What the source handed out, for the retry behind a refusal.
+    sent: UsageAuth,
 }
 
-fn codex_auth_shape(auth: Option<&Value>) -> Option<CodexAuth> {
-    let auth = auth?;
+fn codex_auth_shape(sent: Option<UsageAuth>) -> Option<CodexAuth> {
+    let sent = sent?;
+    let auth = &sent.doc;
     let token = clean_token(or_truthy(auth, &["access_token", "accessToken"]))?;
     let stamp = auth.as_object().and_then(|doc| credential_stamp("openai-oauth", doc));
-    Some(CodexAuth { token, account_id: clean(or_truthy(auth, &["account_id", "accountId"])), stamp })
+    let account_id = clean(or_truthy(auth, &["account_id", "accountId"]));
+    Some(CodexAuth { token, account_id, stamp, sent })
 }
 
 fn clean_token(v: Option<&Value>) -> Option<String> {
@@ -584,9 +613,9 @@ impl OAuthUsage {
 
     // Codex
 
-    async fn codex_auth(&self, account_id: &str, force_refresh: bool) -> Result<Option<CodexAuth>, UsageError> {
-        let auth = self.deps.source.ensure_auth("openai-oauth", account_id, force_refresh).await?;
-        Ok(codex_auth_shape(auth.as_ref()))
+    async fn codex_auth(&self, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<CodexAuth>, UsageError> {
+        let auth = self.deps.source.ensure_auth("openai-oauth", account_id, rejected).await?;
+        Ok(codex_auth_shape(auth))
     }
 
     async fn reset_credits_with_auth(&self, auth: &CodexAuth) -> Result<Option<Value>, UsageError> {
@@ -600,7 +629,7 @@ impl OAuthUsage {
 
     /// The reset-credit offer of an account (`fetchOpenAICodexResetCredits`).
     pub async fn fetch_codex_reset_credits(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
-        match self.codex_auth(account_id, false).await? {
+        match self.codex_auth(account_id, None).await? {
             Some(auth) => self.reset_credits_with_auth(&auth).await,
             None => Ok(None),
         }
@@ -630,7 +659,7 @@ impl OAuthUsage {
         if !is_uuid_v1_to_5(key) {
             return Err(UsageError::new("Codex reset idempotency key is invalid"));
         }
-        let Some(auth) = self.codex_auth(account_id, false).await? else {
+        let Some(auth) = self.codex_auth(account_id, None).await? else {
             return Err(UsageError::new("Codex is not signed in"));
         };
         let response = match self.post_consume(&auth, key).await {
@@ -646,8 +675,9 @@ impl OAuthUsage {
         Ok(ResetCreditResult { outcome, reset_credits })
     }
 
-    async fn fetch_codex_usage(&self, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError> {
-        let Some(auth) = self.codex_auth(account_id, force_refresh).await? else { return Ok(None) };
+    async fn fetch_codex_usage(&self, account_id: &str, rejected: Option<&UsageAuth>, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        let Some(auth) = self.codex_auth(account_id, rejected).await? else { return Ok(None) };
+        *sent = Some(auth.sent.clone());
         let headers = codex_headers(&auth, "responses=experimental");
         let usage_request = self.deps.http.get("https://chatgpt.com/backend-api/wham/usage", &headers, FETCH_TIMEOUT);
         let (res, credits) = futures::future::join(usage_request, self.reset_credits_with_auth(&auth)).await;
@@ -673,8 +703,10 @@ impl OAuthUsage {
 
     // Anthropic
 
-    async fn fetch_anthropic_usage(&self, account_id: &str, force_refresh: bool) -> Result<Option<Value>, UsageError> {
-        let auth = self.deps.source.ensure_auth("anthropic-oauth", account_id, force_refresh).await?;
+    async fn fetch_anthropic_usage(&self, account_id: &str, rejected: Option<&UsageAuth>, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        let auth = self.deps.source.ensure_auth("anthropic-oauth", account_id, rejected).await?;
+        sent.clone_from(&auth);
+        let auth = auth.map(|auth| auth.doc);
         let Some(token) = auth.as_ref().and_then(|a| clean_token(or_truthy(a, &["accessToken", "access_token"]))) else {
             return Ok(None);
         };
@@ -762,9 +794,11 @@ impl OAuthUsage {
         None
     }
 
-    async fn fetch_grok_usage(&self, route: &RouteInfo, force_refresh: bool) -> Result<Option<Value>, UsageError> {
-        let auth = self.deps.source.ensure_auth("grok-oauth", &route.account_id, force_refresh).await?;
+    async fn fetch_grok_usage(&self, route: &RouteInfo, rejected: Option<&UsageAuth>, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
+        let auth = self.deps.source.ensure_auth("grok-oauth", &route.account_id, rejected).await?;
         let Some(auth) = auth else { return Ok(None) };
+        *sent = Some(auth.clone());
+        let auth = auth.doc;
         let Some(token) = clean_token(or_truthy(&auth, &["access_token", "accessToken", "key"])) else {
             return Ok(None);
         };
@@ -780,12 +814,14 @@ impl OAuthUsage {
 
     // measurement
 
-    async fn measure_usage(&self, route: &RouteInfo, force_refresh: bool) -> Result<Option<Value>, UsageError> {
+    /// `rejected`: the credential a refused measurement was sent with, for the retry behind it. `sent`: the one this
+    /// measurement was sent with, once its source handed it out.
+    async fn measure_usage(&self, route: &RouteInfo, rejected: Option<&UsageAuth>, sent: &mut Option<UsageAuth>) -> Result<Option<Value>, UsageError> {
         let provider = provider_key(route);
         match provider.as_str() {
-            "openai-oauth" => self.fetch_codex_usage(&route.account_id, force_refresh).await,
-            "anthropic-oauth" => self.fetch_anthropic_usage(&route.account_id, force_refresh).await,
-            "grok-oauth" => self.fetch_grok_usage(route, force_refresh).await,
+            "openai-oauth" => self.fetch_codex_usage(&route.account_id, rejected, sent).await,
+            "anthropic-oauth" => self.fetch_anthropic_usage(&route.account_id, rejected, sent).await,
+            "grok-oauth" => self.fetch_grok_usage(route, rejected, sent).await,
             "cursor-oauth" | "cursor-api" | "antigravity-oauth" | "muse-code-oauth" | "command-code-oauth" | "opencode-go-oauth" => {
                 self.deps.source.provider_snapshot(&provider, &route.account_id).await
             }
@@ -797,8 +833,13 @@ impl OAuthUsage {
     /// the server rejected the token: the stored expiry is only what the
     /// server said at issue, a subscription change can revoke it earlier.
     async fn measure_with_auth_retry(&self, route: &RouteInfo) -> Result<Option<Value>, UsageError> {
-        match self.measure_usage(route, false).await {
-            Err(e) if e.auth_rejection() && self.deps.source.can_refresh(&provider_key(route)) => self.measure_usage(route, true).await,
+        let mut sent = None;
+        match self.measure_usage(route, None, &mut sent).await {
+            Err(e) if e.auth_rejection() && self.deps.source.can_refresh(&provider_key(route)) => {
+                // The refresh is for the credential the refused request itself carried.
+                let rejected = sent.take();
+                self.measure_usage(route, rejected.as_ref(), &mut sent).await
+            }
             other => other,
         }
     }

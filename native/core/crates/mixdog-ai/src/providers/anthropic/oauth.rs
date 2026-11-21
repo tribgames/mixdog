@@ -32,13 +32,19 @@ use url::Url;
 use crate::oauth::AuthorizeRequest;
 use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
+use crate::oauth::Pace;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
+use crate::oauth::SystemPace;
 use crate::oauth::classify_refresh_failure;
 use crate::oauth::http;
 use crate::oauth::is_definitive_oauth_failure;
+use crate::oauth::lease::LockProcess;
+use crate::oauth::lease::REFRESH_LEASE;
+use crate::oauth::lease::lease_error;
+use crate::oauth::lease::refresh_lock_path;
 use crate::oauth::pages;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::http::HttpSend;
@@ -136,16 +142,24 @@ pub struct LeaseOutcome {
     pub refreshed: bool,
 }
 
-/// The access+refresh pair a refresh started from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TokenPair {
+/// The login one attempt was made on: the bearer it sent, and the refresh grant and account that bearer was served
+/// under. A rejection of the attempt acts on that login alone.
+#[derive(Clone)]
+pub struct Attempt {
     pub access_token: String,
-    pub refresh_token: String,
+    refresh_token: String,
+    owner: Option<Value>,
 }
 
-impl From<&StoredOAuth> for TokenPair {
-    fn from(stored: &StoredOAuth) -> Self {
-        Self { access_token: stored.access_token.clone(), refresh_token: stored.refresh_token.clone() }
+impl Attempt {
+    fn of(stored: &StoredOAuth) -> Self {
+        Self { access_token: stored.access_token.clone(), refresh_token: stored.refresh_token.clone(), owner: stored.identity.clone() }
+    }
+
+    /// Whether `stored` is still the login the attempt was made on: the same refresh grant, of the same account. An
+    /// account that is not known is the same only as another that is not known.
+    fn made_on(&self, stored: &StoredOAuth) -> bool {
+        self.refresh_token == stored.refresh_token && self.owner == stored.identity
     }
 }
 
@@ -181,19 +195,20 @@ async fn load_stored(file: &CredentialFile) -> Result<Option<StoredOAuth>, Provi
     }
 }
 
-/// Writes `next` only if the stored pair still equals `from`; returns whether
-/// it was written. Another process may have refreshed meanwhile.
+/// Writes `next` only if the stored login is still `from`: its token pair, for its account. Returns whether it was
+/// written. Another process may have refreshed meanwhile, or a sign-in stored the same pair for another account.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) -> Result<bool, ProviderError> {
+async fn publish(file: &CredentialFile, from: &StoredOAuth, next: &StoredOAuth) -> Result<bool, ProviderError> {
     file.keep(&[&next.access_token, &next.refresh_token]);
-    let expected = from.clone();
+    let (access, refresh, owner) = (from.access_token.clone(), from.refresh_token.clone(), from.identity.clone());
     let mut update = Map::new();
     update.insert(DOCUMENT_KEY.to_owned(), serde_json::to_value(next).map_err(|e| file_error(&e))?);
     file.replace_if(
         move |document| {
             document.get(DOCUMENT_KEY).is_some_and(|stored| {
-                stored.get("accessToken").and_then(Value::as_str) == Some(expected.access_token.as_str())
-                    && stored.get("refreshToken").and_then(Value::as_str) == Some(expected.refresh_token.as_str())
+                stored.get("accessToken").and_then(Value::as_str) == Some(access.as_str())
+                    && stored.get("refreshToken").and_then(Value::as_str) == Some(refresh.as_str())
+                    && stored.get("identity").filter(|identity| !identity.is_null()) == owner.as_ref()
             })
         },
         update,
@@ -207,7 +222,7 @@ async fn publish(file: &CredentialFile, from: &TokenPair, next: &StoredOAuth) ->
 async fn mark_reauth_required(file: &CredentialFile, stored: &StoredOAuth) -> Result<(), ProviderError> {
     let mut dead = stored.clone();
     dead.reauth_required = Some(true);
-    publish(file, &TokenPair::from(stored), &dead).await.map(drop)
+    publish(file, stored, &dead).await.map(drop)
 }
 
 pub fn now_ms() -> u64 {
@@ -463,6 +478,9 @@ struct RefreshParts {
     token_url: String,
     cli_version: Option<Arc<super::ClaudeClientVersion>>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// The process as the refresh lease's lock protocol sees it, and its clock and waits.
+    process: Arc<LockProcess>,
+    pace: Arc<dyn Pace>,
 }
 
 impl RefreshParts {
@@ -474,24 +492,36 @@ impl RefreshParts {
         }
     }
 
-    /// `lease_ms`: refresh unless the token outlasts that window (`preflightAnthropicOAuthCredentials`), instead
-    /// of the usual skew.
+    /// The refresh grant is single-use: the exchange runs holding the cross-process lease beside the credential file,
+    /// from the read of the stored pair to its replacement, so another process (or another handle in this one) that
+    /// refreshes first has stored its pair before this one reads the file, and this one never spends the old grant. The
+    /// file is the one read and written now, held for the whole refresh: a handle that follows the selected account
+    /// and one bound to that account's file take the same lease.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh(self, held: StoredOAuth, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
-        // Reload first: another process may already have rotated the pair. The flight refreshes only the credential its
-        // callers hold (`held`); one stored meanwhile is not this flight's to refresh.
+    async fn refresh(mut self, held: Attempt, rejected: bool, lease_ms: Option<u64>) -> Result<Attempt, ProviderError> {
+        self.file = self.file.pinned().await;
+        let lock = refresh_lock_path(self.file.path());
+        self.file.lease(&lock, &self.process, &*self.pace, REFRESH_LEASE, self.exchange(held, rejected, lease_ms)).await.map_err(lease_error)?
+    }
+
+    /// `rejected`: the server refused `held`'s access token. `lease_ms`: refresh unless the token outlasts that window
+    /// (`preflightAnthropicOAuthCredentials`), instead of the usual skew.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn exchange(&self, held: Attempt, rejected: bool, lease_ms: Option<u64>) -> Result<Attempt, ProviderError> {
+        // Reload first: another process may already have rotated the pair. The flight acts only on the login its callers
+        // hold (`held`); one stored since is used as it is, never refreshed or marked on their behalf.
         let stored = self.stored().await?;
-        if stored.refresh_token != held.refresh_token {
-            return Ok(stored.access_token);
+        if !held.made_on(&stored) {
+            return Ok(Attempt::of(&stored));
         }
         let now = (self.clock)();
-        let current = match (&rejected, lease_ms) {
-            (Some(token), _) => stored.access_token != *token,
-            (None, Some(lease)) => !lease_is_short(&stored, now, lease),
-            (None, None) => !stored.needs_refresh(now),
+        let current = match (rejected, lease_ms) {
+            (true, _) => stored.access_token != held.access_token,
+            (false, Some(lease)) => !lease_is_short(&stored, now, lease),
+            (false, None) => !stored.needs_refresh(now),
         };
         if current {
-            return Ok(stored.access_token);
+            return Ok(Attempt::of(&stored));
         }
         if stored.refresh_token.is_empty() {
             return Err(auth_error("Anthropic OAuth refresh token is unavailable", true));
@@ -500,18 +530,17 @@ impl RefreshParts {
         let request = refresh_request(&self.token_url, &stored.refresh_token, &version);
         match token_call(self.http.as_ref(), request, &stored, now, TokenFlow::Refresh, &version).await {
             Ok(next) => {
-                let access = next.access_token.clone();
-                if !publish(&self.file, &TokenPair::from(&stored), &next).await? {
+                if !publish(&self.file, &stored, &next).await? {
                     // Someone else published first: their pair is the truth.
-                    return Ok(self.stored().await?.access_token);
+                    return Ok(Attempt::of(&self.stored().await?));
                 }
-                Ok(access)
+                Ok(Attempt::of(&next))
             }
             Err(TokenFailure::Dead(message)) => {
-                // A rotation by another process may have replaced the pair.
+                // A writer outside the lease (a sign-in) may have replaced the pair.
                 let latest = self.stored().await?;
-                if latest.refresh_token != stored.refresh_token {
-                    return Ok(latest.access_token);
+                if !held.made_on(&latest) {
+                    return Ok(Attempt::of(&latest));
                 }
                 mark_reauth_required(&self.file, &stored).await?;
                 Err(auth_error(&message, true))
@@ -529,7 +558,17 @@ pub struct OAuthSession {
 
 impl OAuthSession {
     pub fn new(file: CredentialFile, http: Arc<dyn HttpSend>) -> Self {
-        Self { parts: RefreshParts { file, http, token_url: TOKEN_URL.to_owned(), cli_version: None, clock: Arc::new(now_ms) } }
+        Self {
+            parts: RefreshParts {
+                file,
+                http,
+                token_url: TOKEN_URL.to_owned(),
+                cli_version: None,
+                clock: Arc::new(now_ms),
+                process: LockProcess::this_process(),
+                pace: Arc::new(SystemPace),
+            },
+        }
     }
 
     pub fn with_clock(mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
@@ -569,37 +608,39 @@ impl OAuthSession {
     /// A usable access token, refreshing first when it is near expiry.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub async fn access_token(&self) -> Result<String, ProviderError> {
+        self.attempt().await.map(|attempt| attempt.access_token)
+    }
+
+    /// What one attempt is made on: a usable access token (refreshed first when it is near expiry) and the login it
+    /// was served under, which [`Self::after_rejection`] takes back.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    pub async fn attempt(&self) -> Result<Attempt, ProviderError> {
         let stored = self.stored().await?;
         if stored.reauth_required == Some(true) {
             return Err(auth_error("Anthropic sign-in expired; sign in again", true));
         }
         if !stored.needs_refresh((self.parts.clock)()) {
-            return Ok(stored.access_token);
+            return Ok(Attempt::of(&stored));
         }
-        self.refresh(None).await
+        self.refresh_for(Attempt::of(&stored), false, None).await
     }
 
-    /// A token after the server rejected `rejected`: refreshes unless another
-    /// caller already replaced it.
+    /// What to send next after the server rejected `rejected`'s token: the login it was made on is refreshed, unless
+    /// another caller already replaced its token. A login stored since the attempt is returned as it is.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub async fn token_after_rejection(&self, rejected: &str) -> Result<String, ProviderError> {
-        self.refresh(Some(rejected.to_owned())).await
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh(&self, rejected: Option<String>) -> Result<String, ProviderError> {
-        self.refresh_for(rejected, None).await
+    pub async fn after_rejection(&self, rejected: &Attempt) -> Result<Attempt, ProviderError> {
+        self.refresh_for(rejected.clone(), true, None).await
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh_for(&self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
+    async fn refresh_for(&self, held: Attempt, rejected: bool, lease_ms: Option<u64>) -> Result<Attempt, ProviderError> {
         // When the file holds another login by the time this settles, the caller gets that login's token: the roster row is
         // the identity, as in Node 1.4.5, so this is the rule and not a leak.
-        let held = self.parts.stored().await?;
         let parts = self.parts.clone();
+        let grant = held.refresh_token.clone();
         self.parts
             .file
-            .refresh_once(&held.refresh_token.clone(), async move { parts.refresh(held, rejected, lease_ms).await })
+            .refresh_once(&grant, async move { parts.refresh(held, rejected, lease_ms).await })
             .await
             .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
     }
@@ -616,7 +657,7 @@ impl OAuthSession {
         }
         let refreshed = lease_is_short(&before, (self.parts.clock)(), lease_ms);
         if refreshed {
-            self.refresh_for(None, Some(lease_ms)).await?;
+            self.refresh_for(Attempt::of(&before), false, Some(lease_ms)).await?;
         }
         let after = self.stored().await?;
         let remaining_ms = after.expires_at.saturating_sub((self.parts.clock)());
@@ -886,5 +927,185 @@ mod hosted_paste_tests {
         assert_eq!(body["state"], json!(state));
         assert_eq!(body["code"], "the-code");
         assert_eq!(body["redirect_uri"], MANUAL_REDIRECT_URI);
+    }
+}
+
+#[cfg(test)]
+mod grant_tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use mixdog_statefile::LockOwner;
+    use std::collections::VecDeque;
+    use std::path::Path;
+    use std::time::Duration;
+
+    /// A token endpoint that counts the refreshes it is sent and answers one per permit, in script order.
+    struct Endpoint {
+        replies: Mutex<VecDeque<(u16, &'static str)>>,
+        seen: Mutex<usize>,
+        /// One permit per refresh that arrived.
+        arrived: tokio::sync::Semaphore,
+        gate: tokio::sync::Semaphore,
+    }
+
+    impl Endpoint {
+        fn new(permits: usize, replies: &[(u16, &'static str)]) -> Arc<Self> {
+            Arc::new(Self {
+                replies: Mutex::new(replies.iter().copied().collect()),
+                seen: Mutex::new(0),
+                arrived: tokio::sync::Semaphore::new(0),
+                gate: tokio::sync::Semaphore::new(permits),
+            })
+        }
+
+        fn seen(&self) -> usize {
+            *self.seen.lock().unwrap()
+        }
+    }
+
+    /// A contender for the lease whose every wait for it is announced and parks until the test lets it go.
+    struct Parked {
+        waiting: tokio::sync::Semaphore,
+        go: tokio::sync::Semaphore,
+    }
+
+    #[async_trait]
+    impl Pace for Parked {
+        fn now_ms(&self) -> u64 {
+            now_ms()
+        }
+
+        async fn wait(&self, _: Duration) {
+            self.waiting.add_permits(1);
+            self.go.acquire().await.expect("an open gate").forget();
+        }
+    }
+
+    struct Body(Option<bytes::Bytes>);
+
+    #[async_trait]
+    impl crate::transport::BodyStream for Body {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            self.0.take().map(Ok)
+        }
+    }
+
+    #[async_trait]
+    impl HttpSend for Endpoint {
+        async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
+            *self.seen.lock().unwrap() += 1;
+            self.arrived.add_permits(1);
+            self.gate.acquire().await.expect("an open gate").forget();
+            let (status, body) = self.replies.lock().unwrap().pop_front().expect("a scripted reply");
+            Ok(crate::transport::HttpResponse { status, headers: Vec::new(), body: Box::new(Body(Some(bytes::Bytes::from(body)))) })
+        }
+    }
+
+    const DEAD: (u16, &str) = (400, r#"{"error":"invalid_grant"}"#);
+
+    #[allow(clippy::disallowed_methods, reason = "test-only seeding of a credential file")]
+    fn store(path: &Path, access: &str, refresh: &str, expires_at: u64, identity: Option<Value>) {
+        let oauth = StoredOAuth { access_token: access.into(), refresh_token: refresh.into(), expires_at, identity, ..blank_credential() };
+        std::fs::write(path, serde_json::to_vec(&Document { oauth }).unwrap()).unwrap();
+    }
+
+    fn file(dir: &tempfile::TempDir) -> CredentialFile {
+        let rt = mixdog_rt::testing::tokens();
+        CredentialFile::new(dir.path().join("anthropic-oauth-credentials.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io })
+    }
+
+    const FAR: u64 = 4_000_000_000_000;
+
+    /// An attempt goes out on one login; the slot is then rewritten with the same bearer under another refresh grant (or
+    /// the same pair for an account the attempt did not name), and the attempt is refused. The login stored now is
+    /// returned as it is: its grant is not spent and it is not marked as needing a sign-in, though the endpoint would
+    /// refuse it.
+    #[tokio::test]
+    async fn a_rejection_does_not_refresh_or_mark_a_login_stored_since_its_attempt() {
+        for (refresh, identity) in [("r2", None), ("r1", Some(json!({ "id": "another-account" })))] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = file(&dir);
+            store(file.path(), "a", "r1", FAR, None);
+            let endpoint = Endpoint::new(1, &[DEAD]);
+            let session = OAuthSession::new(file.clone(), endpoint.clone());
+            let attempt = session.attempt().await.expect("the first login");
+            store(file.path(), "a", refresh, FAR, identity.clone());
+            let next = session.after_rejection(&attempt).await.expect("the login stored now");
+            assert_eq!(next.access_token, "a");
+            assert_eq!(endpoint.seen(), 0, "the new login's grant was spent for the old attempt ({refresh})");
+            let stored = session.stored().await.unwrap();
+            assert_eq!((stored.refresh_token.as_str(), stored.reauth_required, stored.identity), (refresh, None, identity));
+            // The attempt the new login serves is refreshed on its own rejection.
+            assert!(session.after_rejection(&next).await.is_err_and(|error| error.reauth_required));
+            assert_eq!(endpoint.seen(), 1);
+        }
+    }
+
+    /// Two processes hold the same expiring login and refresh it at once, by the two routes to its file: one handle
+    /// follows the selected account to the file, the other is bound to it. The second finds the first one's lease taken
+    /// and waits; it then reads the pair the first stored and returns it: the grant is spent once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_routes_to_one_file_refreshing_one_grant_spend_it_once() {
+        use futures::FutureExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bound = file(&dir);
+        let selected = bound.path().to_path_buf();
+        let rt = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: rt.interactive_io, write: rt.durability_io };
+        let following = CredentialFile::new(dir.path().join("default.json"), io).following(Arc::new(move || {
+            let selected = selected.clone();
+            async move { selected }.boxed()
+        }));
+        store(bound.path(), "a", "r1", now_ms() + 1_000, None);
+        let endpoint = Endpoint::new(0, &[(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#), DEAD]);
+        let held = Attempt::of(&load_stored(&bound).await.unwrap().unwrap());
+        let parked = Arc::new(Parked { waiting: tokio::sync::Semaphore::new(0), go: tokio::sync::Semaphore::new(0) });
+
+        let first = tokio::spawn(OAuthSession::new(following, endpoint.clone()).parts.refresh(held.clone(), false, None));
+        endpoint.arrived.acquire().await.unwrap().forget();
+        let mut contender = OAuthSession::new(bound.clone(), endpoint.clone()).parts;
+        contender.process = Arc::new(LockProcess::new(LockOwner::another_in_process()));
+        contender.pace = parked.clone();
+        let second = tokio::spawn(contender.refresh(held, false, None));
+        // Whichever comes first: the contender waiting for the lease, or its own exchange reaching the endpoint.
+        let waited = tokio::select! {
+            _ = parked.waiting.acquire() => true,
+            _ = endpoint.arrived.acquire() => false,
+        };
+        assert!(waited, "the second route entered the exchange while the first one's was in flight");
+        endpoint.gate.add_permits(2);
+        assert_eq!(first.await.unwrap().map(|next| next.access_token).unwrap(), "a2");
+        parked.go.add_permits(1_000);
+        assert_eq!(second.await.unwrap().map(|next| next.access_token).unwrap(), "a2", "the second route adopts the stored pair");
+        assert_eq!(endpoint.seen(), 1);
+        assert_eq!(load_stored(&bound).await.unwrap().unwrap().refresh_token, "r2");
+    }
+
+    /// A sign-in stores the same token pair for another account while the exchange is at the endpoint. Neither the
+    /// refreshed pair nor a refusal's mark is written over it: the login stored now is returned as it is.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refresh_does_not_write_over_the_same_pair_stored_for_another_account() {
+        for reply in [(200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#), DEAD] {
+            let dir = tempfile::tempdir().unwrap();
+            let file = file(&dir);
+            let expiry = now_ms() + 1_000;
+            store(file.path(), "a", "r1", expiry, None);
+            let endpoint = Endpoint::new(0, &[reply]);
+            let session = Arc::new(OAuthSession::new(file.clone(), endpoint.clone()));
+            let refreshing = tokio::spawn({
+                let session = session.clone();
+                async move { session.attempt().await }
+            });
+            endpoint.arrived.acquire().await.unwrap().forget();
+            let other = json!({ "id": "another-account" });
+            store(file.path(), "a", "r1", expiry, Some(other.clone()));
+            endpoint.gate.add_permits(1);
+            let next = refreshing.await.unwrap().map(|next| next.access_token);
+            assert_eq!(next.unwrap(), "a", "the login stored now ({})", reply.0);
+            let stored = load_stored(&file).await.unwrap().unwrap();
+            assert_eq!((stored.access_token.as_str(), stored.refresh_token.as_str(), stored.reauth_required), ("a", "r1", None), "{}", reply.0);
+            assert_eq!(stored.identity, Some(other), "{}", reply.0);
+        }
     }
 }

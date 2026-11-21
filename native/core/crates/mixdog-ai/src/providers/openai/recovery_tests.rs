@@ -16,14 +16,14 @@ struct Keys(AtomicUsize);
 
 #[async_trait]
 impl CredentialSource for Keys {
-    async fn current(&self) -> Result<Credential, ProviderError> {
-        Ok(Credential { bearer: "fixture-old".into(), account_id: None })
+    async fn current(&self) -> Result<Attempt, ProviderError> {
+        Ok(Credential { bearer: "fixture-old".into(), account_id: None }.into())
     }
 
-    async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError> {
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Option<Attempt>, ProviderError> {
         assert_eq!(rejected.bearer, "fixture-old");
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(Some(Credential { bearer: "fixture-new".into(), account_id: None }))
+        Ok(Some(Credential { bearer: "fixture-new".into(), account_id: None }.into()))
     }
 }
 
@@ -529,4 +529,61 @@ async fn the_accounted_send_keeps_a_billed_effort_refusal_exactly_once() {
             }
         }
     }
+}
+
+/// A source whose account moves to another login between sends, the account id staying: each `current` serves the next
+/// login, and the login of every attempt handed back as rejected is kept.
+struct Moving {
+    served: AtomicUsize,
+    rejected: Mutex<Vec<&'static str>>,
+}
+
+#[async_trait]
+impl CredentialSource for Moving {
+    async fn current(&self) -> Result<Attempt, ProviderError> {
+        let login = ["grant-a", "grant-b"][self.served.fetch_add(1, Ordering::SeqCst).min(1)];
+        Ok(Attempt::served_under(Credential { bearer: format!("token-of-{login}"), account_id: Some("acct".into()) }, login))
+    }
+
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Option<Attempt>, ProviderError> {
+        self.rejected.lock().unwrap().push(rejected.login::<&'static str>().copied().unwrap_or("none"));
+        Ok(None)
+    }
+}
+
+/// A session's pooled socket was opened under one login; the account then moves to another, and the session's next
+/// request reuses the socket, sending no authorization of its own. A 401 on that socket is the first login's: the
+/// attempt handed back for renewal is the one the socket's upgrade carried, not the one served for the request.
+#[tokio::test]
+async fn a_401_on_a_reused_socket_is_of_the_login_that_opened_it() {
+    let source = Arc::new(Moving { served: AtomicUsize::new(0), rejected: Mutex::default() });
+    let dial = ScriptedDial::with(vec![socket(&[DONE, AUTH]), socket(&[DONE])]);
+    let context = context(None);
+    let adapter = OpenAiAdapter::new(
+        ProviderId::from("openai"),
+        OpenAiCodec::new(OpenAiConfig::api_key(true, Arc::new(Facts), context.clone()), TransportKind::WebSocket),
+        AdapterLinks {
+            http: Arc::new(Http::default()),
+            dial: dial.clone(),
+            context,
+            credentials: source.clone(),
+            compress_lane: mixdog_rt::testing::tokens().cpu_bulk,
+            listing: ListingLookup::new(),
+        },
+    )
+    .with_mode(TransportMode::WsDelta);
+    assert!(result(&adapter, request()).await.1.is_none(), "the first request opens the socket and completes");
+    assert!(result(&adapter, request()).await.1.is_none(), "the second is refused on that socket and completes on a new one");
+    let upgrades: Vec<String> = dial
+        .wire()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            SocketWire::Upgrade { headers, .. } => headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, key)| key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(upgrades.len(), 2, "the second request reused the first one's socket until the 401: {upgrades:?}");
+    assert_eq!(upgrades[0], "Bearer token-of-grant-a");
+    assert_eq!(source.served.load(Ordering::SeqCst), 2, "the second request was served the second login");
+    assert_eq!(*source.rejected.lock().unwrap(), ["grant-a"]);
 }

@@ -99,10 +99,10 @@ struct Flow {
 
 #[async_trait]
 impl UsageSource for Flow {
-    async fn ensure_auth(&self, _: &str, _: &str, force: bool) -> Result<Option<Value>, UsageError> {
+    async fn ensure_auth(&self, _: &str, _: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
         let mut refreshed = self.refreshed.lock().unwrap();
-        *refreshed |= force;
-        Ok(Some(if *refreshed && !self.forced.is_null() { self.forced.clone() } else { self.auth.clone() }))
+        *refreshed |= rejected.is_some();
+        Ok(Some(UsageAuth::plain(if *refreshed && !self.forced.is_null() { self.forced.clone() } else { self.auth.clone() })))
     }
 
     async fn provider_snapshot(&self, _: &str, _: &str) -> Result<Option<Value>, UsageError> {
@@ -161,9 +161,9 @@ async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_i
     let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     let source = ProviderUsageSource::new(store, Net::from(&json!([])));
     for provider in ["openai-oauth", "anthropic-oauth", "grok-oauth"] {
-        assert!(source.ensure_auth(provider, "default", false).await.is_err(), "{provider}");
+        assert!(source.ensure_auth(provider, "default", None).await.is_err(), "{provider}");
     }
-    assert!(source.ensure_auth("cursor-oauth", "default", false).await.unwrap().is_none());
+    assert!(source.ensure_auth("cursor-oauth", "default", None).await.unwrap().is_none());
     assert!(source.provider_snapshot("cursor-oauth", "default").await.is_err());
 }
 
@@ -192,12 +192,70 @@ async fn anthropic_usage_refresh_uses_the_daemons_claude_client_identity() {
     let env = Vars(HashMap::from([("MIXDOG_CLI_VERSION".to_owned(), "2.9.120".to_owned())]));
     let versions = ClientVersions::new(net.clone(), dir.path().to_path_buf(), io, Arc::new(env));
     let source = ProviderUsageSource::new(store, net.clone()).with_versions(versions);
-    let auth = source.ensure_auth("anthropic-oauth", "default", true).await.unwrap().unwrap();
-    assert_eq!(auth["accessToken"], "fixture-after-refresh");
+    let refused = source.ensure_auth("anthropic-oauth", "default", None).await.unwrap().unwrap();
+    assert_eq!(refused.doc["accessToken"], "fixture-before-refresh");
+    let auth = source.ensure_auth("anthropic-oauth", "default", Some(&refused)).await.unwrap().unwrap();
+    assert_eq!(auth.doc["accessToken"], "fixture-after-refresh");
     let seen = net.seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].method, "POST");
     assert!(seen[0].headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("user-agent") && value == "claude-cli/2.9.120 (external, sdk-cli)"));
+}
+
+/// Two usage readings of one account overlap a login change: the first is sent on one login, the second on the login
+/// stored after it, and both are refused. Each retry hands back the credential its own request carried. The first
+/// one's names a login that is no longer stored, so it is handed the stored one as it is and nothing is spent; the
+/// second one's refreshes the login it was sent on, once.
+#[tokio::test]
+async fn overlapping_readings_across_a_login_change_each_answer_for_their_own_login() {
+    let logins: [(&str, &str, &str, fn(&str, &str) -> Value); 2] = [
+        (
+            "anthropic-oauth",
+            "accessToken",
+            "https://platform.claude.com/v1/oauth/token",
+            |access, refresh| json!({ "claudeAiOauth": { "accessToken": access, "refreshToken": refresh } }),
+        ),
+        (
+            "openai-oauth",
+            "access_token",
+            "https://auth.openai.com/oauth/token",
+            |access, refresh| json!({ "access_token": access, "refresh_token": refresh, "account_id": "acct" }),
+        ),
+    ];
+    for (provider, field, token_url, login) in logins {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        let file = store.credential_file(provider, "default").unwrap();
+        file.save(&login("fixture-first", "fixture-first-refresh")).await.unwrap();
+        let net = Net::from(&json!([{
+            "url": token_url,
+            "body": {"access_token": "fixture-refreshed", "refresh_token": "fixture-third-refresh", "expires_in": 3600}
+        }]));
+        let source = ProviderUsageSource::new(store, net.clone());
+        let first = source.ensure_auth(provider, "default", None).await.unwrap().unwrap();
+        assert_eq!(first.doc[field], "fixture-first", "{provider}");
+        file.save(&login("fixture-second", "fixture-second-refresh")).await.unwrap();
+        let second = source.ensure_auth(provider, "default", None).await.unwrap().unwrap();
+        assert_eq!(second.doc[field], "fixture-second", "{provider}");
+
+        let retried = source.ensure_auth(provider, "default", Some(&first)).await.unwrap().unwrap();
+        assert_eq!(retried.doc[field], "fixture-second", "{provider}");
+        assert!(net.seen.lock().unwrap().is_empty(), "{provider}: the second login's grant was spent for the first reading's refusal");
+
+        let retried = source.ensure_auth(provider, "default", Some(&second)).await.unwrap().unwrap();
+        assert_eq!(retried.doc[field], "fixture-refreshed", "{provider}");
+        {
+            let seen = net.seen.lock().unwrap();
+            assert_eq!(seen.len(), 1, "{provider}");
+            assert!(String::from_utf8_lossy(&seen[0].body).contains("fixture-second-refresh"), "{provider}: the second reading's own grant");
+        }
+
+        // The first reading's refusal arriving last of all finds the refreshed login and leaves it alone.
+        let last = source.ensure_auth(provider, "default", Some(&first)).await.unwrap().unwrap();
+        assert_eq!(last.doc[field], "fixture-refreshed", "{provider}");
+        assert_eq!(net.seen.lock().unwrap().len(), 1, "{provider}");
+    }
 }
 
 #[tokio::test]
