@@ -239,6 +239,11 @@ const VALUES: &[(&str, &str, Verdict)] = &[
         "NEXT",
         Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends"),
     ),
+    (
+        "service/oauth_usage/cache.rs",
+        "OWNERS",
+        Survives("the usage cache owners keyed by cache file path and held weakly; an owner leaves when nothing holds it, and a replay's cache file is its own"),
+    ),
     ("catalog/overlay.rs", "EMPTY", NotState("the empty overlay document a cold layer reads")),
     ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),
     ("catalog/lookup/registry.rs", "CURSOR_PRICING", NotState("a constant price table")),
