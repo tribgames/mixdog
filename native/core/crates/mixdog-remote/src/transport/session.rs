@@ -61,7 +61,6 @@ use crate::webrtc::carrier::CarrierConnection;
 use crate::webrtc::carrier::CarrierEvent;
 use crate::webrtc::carrier::CarrierItem;
 use crate::webrtc::config::Candidate;
-use crate::webrtc::config::CandidatePath;
 use crate::webrtc::config::IceServer;
 use crate::webrtc::config::PeerConfig;
 use crate::webrtc::config::PeerFailure;
@@ -194,7 +193,7 @@ impl Host for SessionHost {
     }
 
     fn log(&mut self, line: &str) {
-        tracing::info!("{line}");
+        mixdog_rt::node_stderr!("{line}");
     }
 
     fn mint_connection_id(&mut self) -> String {
@@ -469,7 +468,7 @@ impl TransportSession {
                 let local = sdp_fingerprints(&sdp).map(|fingerprints| LocalOffer { sdp, fingerprints }).map_err(|_| ());
                 c.complete_offer(connection_id, local);
             }
-            CarrierEvent::Candidate { candidate, .. } => c.peer_candidate_event(connection_id, candidate),
+            CarrierEvent::Candidate { candidate, relay_protocol, .. } => c.peer_candidate_event(connection_id, candidate, relay_protocol),
             CarrierEvent::Connected { remote_certificate } => {
                 let matched = c.host_mut().peers.get_mut(connection_id).is_some_and(|peer| {
                     let ok = match (&peer.declared, &remote_certificate) {
@@ -483,9 +482,9 @@ impl TransportSession {
                     c.peer_closed(connection_id, CloseReason::FingerprintMismatch);
                 }
             }
-            CarrierEvent::Open { max_message_size, path } => {
+            CarrierEvent::Open { max_message_size, pair } => {
                 if c.host_mut().peers.get(connection_id).is_some_and(|peer| peer.certified) {
-                    c.peer_open(connection_id, max_message_size.map(f64::from), path == Some(CandidatePath::Relay));
+                    c.peer_open(connection_id, max_message_size.map(f64::from), pair);
                 }
             }
             CarrierEvent::Message { data, .. } => c.peer_message(connection_id, &data),
@@ -510,7 +509,8 @@ impl TransportSession {
                     c.peer_drain(connection_id);
                 }
             }
-            CarrierEvent::Failed(fault) => c.peer_closed(connection_id, close_reason(fault.reason)),
+            // The fault's detail can quote the peer's SDP (its addresses): only its category is logged.
+            CarrierEvent::Failed(fault) => c.peer_failed(connection_id, close_reason(fault.reason), Some(fault.reason.wire_name())),
         });
     }
 }

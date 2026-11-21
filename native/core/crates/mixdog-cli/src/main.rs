@@ -3,6 +3,7 @@
 
 #[cfg(feature = "crash-gates")]
 mod boot_fault;
+mod log_filter;
 mod projector;
 
 #[cfg(all(feature = "alloc-profile", windows))]
@@ -426,7 +427,15 @@ fn leave_console() {}
 fn serve(desktop_confirmation_pipe: bool) -> ExitCode {
     adopt_desktop_app_identity();
     leave_console();
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).init();
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(log_filter::RefusedWrites)
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+            .init();
+    }
     #[cfg(feature = "crash-gates")]
     boot_fault::wait_for_launcher();
     // Node installs its recorder at module load: a start that fails on its way up (no JS runtime, no executors) is recorded too.

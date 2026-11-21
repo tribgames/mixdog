@@ -83,6 +83,9 @@ uuid = { workspace = true, features = ["v4"] }
 clap = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "signal"] }
+tracing = { workspace = true }
+# The `webrtc` driver logs through `log`: `log_filter.rs` reads the target of a bridged record.
+tracing-log = "0.2"
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-office = { workspace = true }
@@ -92,6 +95,8 @@ mixdog-office-com = { workspace = true }
 # The stand-in provider of the process-level exec tests: the request head and the gzip body the provider sends.
 flate2 = { workspace = true }
 httparse = { workspace = true }
+# `log_filter.rs` tests the driver's own `log::error!` records.
+log = "0.4"
 mixdog-testkit = { workspace = true }
 
 mixdog-cli = { path = ".", features = ["crash-gates"] }
