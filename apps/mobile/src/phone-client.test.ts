@@ -511,6 +511,10 @@ test('a relay frame-too-large notice reaches the page with its size and ceiling'
   const served = serve(far.next, far.send);
   far.start();
   const hints: Array<Record<string, unknown>> = [];
+  let hinted!: () => void;
+  const hintedOnce = new Promise<void>((resolve) => {
+    hinted = resolve;
+  });
   const phone = await connectPhone({
     deviceId: 'dev',
     version: options.clientInfo.version,
@@ -519,13 +523,17 @@ test('a relay frame-too-large notice reaches the page with its size and ceiling'
     createSocket: () => far.ws,
     random: () => 0.5,
     onConnection: () => undefined,
-    resyncHint: (word) => void hints.push({ ...word }),
+    resyncHint: (word) => {
+      hints.push({ ...word });
+      hinted();
+    },
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   far.ws.onmessage!({
     data: JSON.stringify({ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }),
   });
-  await settle();
+  // The notice queues behind frames still decrypting on the crypto thread pool, so no tick count bounds its arrival.
+  await hintedOnce;
   assert.deepEqual(hints, [{ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }]);
   await phone.client.close();
 });

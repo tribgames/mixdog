@@ -116,7 +116,7 @@ export function conditions(env, extra = {}) {
       cdpPort: env.info?.cdpPort,
       inspectorPort: env.info?.inspectorPort,
     },
-    pages: 'local fixtures only (127.0.0.1 / 127.0.0.2); no public sites',
+    pages: 'local fixtures only (127.0.0.1 / localhost); no public sites',
     ...extra,
   };
 }

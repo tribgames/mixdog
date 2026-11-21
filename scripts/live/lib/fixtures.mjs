@@ -1,5 +1,5 @@
 // Local fixture pages (no public sites): a form page with no iframe, a page with a cross-origin iframe served from
-// 127.0.0.2 (as host-integration-fixtures.ts's /frames), a submit target and a slow page for the cancel case.
+// localhost, a different origin from the 127.0.0.1 page on every OS (macOS has no 127.0.0.2) (as host-integration-fixtures.ts's /frames), a submit target and a slow page for the cancel case.
 import { createServer } from 'node:http';
 
 const html = (title, body) =>
@@ -32,7 +32,7 @@ const framesPage = (framePort) =>
     'lat frames',
     `<h1>Frames</h1>
 ${PLAIN_BUTTON}
-<iframe title="cross origin" src="http://127.0.0.2:${framePort}/inner" width="400" height="160"></iframe>`
+<iframe title="cross origin" src="http://localhost:${framePort}/inner" width="400" height="160"></iframe>`
   );
 
 const submittedPage = (query) =>
@@ -74,11 +74,11 @@ export async function startFixtures() {
     res.end(innerPage());
   });
   const port = await listen(main, '127.0.0.1');
-  framePort = await listen(frame, '127.0.0.2');
+  framePort = await listen(frame, '127.0.0.1');
   const origin = `http://127.0.0.1:${port}`;
   return {
     origin,
-    frameOrigin: `http://127.0.0.2:${framePort}`,
+    frameOrigin: `http://localhost:${framePort}`,
     url: (path) => `${origin}${path}`,
     close: () =>
       Promise.all(
