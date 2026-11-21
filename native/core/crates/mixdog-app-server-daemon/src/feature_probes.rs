@@ -42,7 +42,7 @@ impl FeatureProbes for HostFeatureProbes {
         let git = match self.remembered(&path) {
             Some(present) => present,
             None => {
-                let present = mixdog_core_base::support::on_lane(self.lane, &mixdog_rt::CancellationToken::new(), |_| which("git", None, None).is_some())
+                let present = mixdog_core_base::support::on_lane_wait(self.lane, &mixdog_rt::CancellationToken::new(), |_| which("git", None, None).is_some())
                     .await
                     .map_err(|error| SurfaceFailure(format!("looking for git on PATH: {error}")))?;
                 *self.git.lock().unwrap_or_else(PoisonError::into_inner) = Some((path, self.clock.now_ms(), present));
