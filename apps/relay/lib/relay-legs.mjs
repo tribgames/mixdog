@@ -606,7 +606,8 @@ export function runClientLeg(entry, sendJson, socket, browserClientId = null, op
     releaseLeg(socket);
     releaseIngressLeg(socket);
     entry.clients.delete(clientId);
-    sendJson(entry.socket, { type: 'client-close', clientId });
+    // The PC logs who hung up, so its own log explains a phone that keeps reconnecting.
+    sendJson(entry.socket, { type: 'client-close', clientId, code, reason: [...String(reason || '')].slice(0, 60).join('') });
     console.log(
       `[relay] phone leg closed client=${clientId.slice(0, 8)}` +
         ` code=${code} reason=${String(reason || '').slice(0, 60)}` +

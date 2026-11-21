@@ -446,6 +446,7 @@ async fn a_phone_is_announced_to_the_desktop_and_leaves_its_entry_when_it_closes
     assert_eq!(rig.hub.client_count("dev"), 0);
     let close = &desktop.frames_of("client-close")[0];
     assert_eq!(close["clientId"], open["clientId"]);
+    assert_eq!((&close["code"], &close["reason"]), (&json!(1000), &json!("background")), "the PC is told who hung up");
     assert_eq!(desktop.types(), ["relay-capabilities", "client-open", "client-close"]);
 }
 #[tokio::test]

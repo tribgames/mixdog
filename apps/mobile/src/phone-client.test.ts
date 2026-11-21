@@ -30,7 +30,6 @@ import {
 import { connectPhone } from './phone-client.ts';
 import type { PhoneConnection } from './phone-status.ts';
 import type { RelaySocket } from './relay-connector.ts';
-
 const conformance = new URL('../../../packages/protocol-client/conformance/', import.meta.url);
 const options = JSON.parse(readFileSync(new URL('options.json', conformance), 'utf8'));
 
@@ -466,7 +465,7 @@ test('a hidden page does not redial; the wake that brings it back does', async (
   visible = false;
 });
 
-test('a fatal transport error closes the socket without a status code a browser would refuse', async () => {
+test('a fatal transport error closes the socket with a status code a browser accepts', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);
   const served = serve(far.next, far.send);
@@ -499,7 +498,7 @@ test('a fatal transport error closes the socket without a status code a browser 
     void phone.client.call('thread/list', {}).catch(() => undefined);
     // Sealing the frame runs on the crypto thread pool, so its failure lands after a time no tick count bounds.
     await closedOnce;
-    assert.deepEqual(closed[0], [], 'closed without a code');
+    assert.deepEqual(closed[0], [4000, 'frame failed'], 'closed with a code a browser accepts, naming why');
   } finally {
     await phone.client.close();
   }
@@ -652,6 +651,49 @@ test('a socket parked on desktop-gone is closed by a suspension', async () => {
   phone.link.suspend();
   await settle();
   assert.deepEqual(far.closes.at(-1), [1000, 'background']);
+  await phone.client.close();
+});
+
+test('a socket this page ends for a reason of its own tells the relay that reason', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  far.ws.onmessage!({ data: 'not a frame' });
+  await settle();
+  assert.deepEqual(far.closes.at(0), [4000, 'frame failed']);
+  await phone.client.close();
+});
+
+test('the relay reads only the category of a close, never the feed or the error behind it', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  // Seq 20 after 12: a feed gap, which the library names with the feed's id.
+  await far.send(message(20, 'a2', 'agentMessage', { text: 'later' }));
+  await settle();
+  assert.deepEqual(far.closes.at(0), [4000, 'feed gap']);
   await phone.client.close();
 });
 
