@@ -2170,12 +2170,12 @@ async function mountFilesMenu(t) {
       return [foot[1], foot[0]];
     },
     dialog: () => document.querySelector('.settings-confirm-dialog'),
-    escape: () => act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))),
+    pressEscape: () => act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }))),
   };
 }
 
 test('the files segment opens an island menu listing every file; Escape closes it and returns focus', async (t) => {
-  const { document, window, state, segment, menu, all, fileRows, items, flush, escape } = await mountFilesMenu(t);
+  const { document, window, state, segment, menu, all, fileRows, items, flush, pressEscape } = await mountFilesMenu(t);
   assert.ok(segment(), 'the session has uncommitted files');
   assert.equal(segment().getAttribute('aria-haspopup'), 'menu');
 
@@ -2203,7 +2203,7 @@ test('the files segment opens an island menu listing every file; Escape closes i
   assert.equal(document.activeElement, fileRows()[0], 'keyboard focus lands on the first item');
   await act(async () => menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   assert.equal(document.activeElement, fileRows()[1]);
-  await escape();
+  await pressEscape();
   assert.equal(menu(), null, 'Escape closes the menu');
   assert.equal(island.dataset.expanded, undefined);
   assert.equal(document.activeElement, segment(), 'focus returns to the segment');
@@ -2272,7 +2272,7 @@ test('Delete history asks first in a modal with Cancel focused; Escape and Cance
 });
 
 test('a refused Delete history (a running turn) shows its reason in the reopened menu and deletes nothing', async (t) => {
-  const { state, segment, menu, items, dialog, flush, escape } = await mountFilesMenu(t);
+  const { state, segment, menu, items, dialog, flush, pressEscape } = await mountFilesMenu(t);
   state.refuse = 'Change history cannot be deleted while this session is running a turn';
   await act(async () => segment().click());
   await act(async () => items()[1].click());
@@ -2280,7 +2280,7 @@ test('a refused Delete history (a running turn) shows its reason in the reopened
   await flush();
   assert.match(menu().querySelector('.error-notice').textContent, /while a response is running/);
   assert.ok(segment(), 'nothing was deleted');
-  await escape();
+  await pressEscape();
 });
 
 test("confirming Delete history clears this session's history and the segment leaves", async (t) => {

@@ -349,6 +349,7 @@ export function StudioPane({
   };
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: a click on empty surface focuses the prompt, which the keyboard reaches directly
     <div
       className="studio-root stable-surface-preserved"
       ref={studioRootRef}

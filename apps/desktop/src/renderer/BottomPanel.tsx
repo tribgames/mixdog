@@ -161,7 +161,7 @@ function useBottomPanelOverlay(panelRef: { current: HTMLDivElement | null }, ope
     return () => {
       delete column.dataset.bottomPanel;
     };
-  }, []);
+  }, [panelRef]);
   useEffect(() => {
     if (!open || typeof ResizeObserver === 'undefined') return undefined;
     const parent = panelRef.current?.parentElement;

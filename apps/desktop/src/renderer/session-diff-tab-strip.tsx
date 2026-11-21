@@ -29,10 +29,22 @@ export function SessionDiffTabStrip({
   onCloseDiffTab(path: string): void;
 }) {
   return (
-    <div className="browser-tab-list session-diff-tabs" role="tablist" aria-label={t('Files')}>
+    // While a file is read the list is busy: its placeholder cell is not a
+    // tab, so assistive technology hears the loading state, not a dead tab.
+    <div
+      className="browser-tab-list session-diff-tabs"
+      role="tablist"
+      aria-label={t('Files')}
+      aria-busy={pendingPath ? true : undefined}
+    >
       {pendingPath && (
-        <div className="browser-tab is-active" data-session-diff-tab={pendingPath} data-pending="true">
-          <span className="browser-tab-select" role="tab" aria-selected="true" title={pendingPath}>
+        <div
+          className="browser-tab is-active"
+          data-session-diff-tab={pendingPath}
+          data-pending="true"
+          aria-hidden="true"
+        >
+          <span className="browser-tab-select" title={pendingPath}>
             <FileDiff size={14} aria-hidden="true" />
             <span>{fileBaseName(pendingPath)}</span>
           </span>

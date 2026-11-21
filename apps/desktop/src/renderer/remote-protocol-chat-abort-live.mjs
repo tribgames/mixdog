@@ -331,7 +331,8 @@ export async function runAbortLive({ only } = {}) {
       let shownId;
       for (const [n, step] of (c.notify ?? []).entries()) {
         // 'shown' is the approval the phone was shown when it first answered one: a later answer goes to the same approval.
-        const approvalId = step.id === 'shown' ? (shownId ??= String(state()?.toolApproval?.id ?? '')) : step.id;
+        if (step.id === 'shown') shownId ??= String(state()?.toolApproval?.id ?? '');
+        const approvalId = step.id === 'shown' ? shownId : step.id;
         if (!approvalId) throw new Error(`${c.name}: no approval is shown for notification answer ${n}`);
         answers.push(await submitter.call('answerApprovalNotification', [id, approvalId, step.action]));
       }

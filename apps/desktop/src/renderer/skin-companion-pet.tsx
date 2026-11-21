@@ -482,6 +482,7 @@ function ApprovalRequest({ item, position, count, busy, onDecide, onOpen, takeFo
     );
   };
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the card; only the group role is wanted
     <div
       ref={groupRef}
       className="skin-companion-req"
@@ -522,6 +523,7 @@ function ApprovalRequest({ item, position, count, busy, onDecide, onOpen, takeFo
         </div>
       ) : open ? (
         <>
+          {/* biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the details box; only the group role is wanted */}
           <div ref={detailRef} className="skin-companion-req-more" role="group" aria-label={t('Details')} tabIndex={-1}>
             {item.full ? (
               <pre className="skin-companion-req-detail" data-full="true">

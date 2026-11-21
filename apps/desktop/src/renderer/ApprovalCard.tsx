@@ -803,6 +803,7 @@ function SecretFields({
           onKeyDown={submitOnEnter}
         />
       </label>
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: `password` is the password input, built above */}
       <label className="approval-field">
         <span className="approval-field-label">{t('Password')}</span>
         {password}

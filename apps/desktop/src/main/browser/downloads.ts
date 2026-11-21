@@ -46,6 +46,7 @@ export function browserDownloadExceedsLimit(received: number, total: number, ses
 export function safeBrowserDownloadName(suggested: string): string {
   const leaf = basename(String(suggested || '').replace(/\\/g, '/')).trim();
   let safe = leaf
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are invalid in file names and are replaced
     .replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_')
     .replace(/[. ]+$/g, '')
     .slice(0, 180);

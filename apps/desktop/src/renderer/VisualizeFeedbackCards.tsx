@@ -101,6 +101,7 @@ export function VisualizeFeedbackCards({ sessionId }: { sessionId?: string }) {
     requestVisualizePinOpen(sessionId, card.id);
   };
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the card row; only the group role is wanted
     <div className="composer-attachments visualize-feedback-cards" role="group" aria-label={t('Visualize feedback')}>
       {visualizeFeedbackCards(value).map((card) => {
         if (card.type === 'pin') {

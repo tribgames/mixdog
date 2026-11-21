@@ -90,6 +90,7 @@ export function createBrowserScreenshotService(
         /* teardown can reject repaint */
       }
       const engines: Engines = {
+        // biome-ignore lint/correctness/noComponentHookFactories: the key names a capture engine, not a component
         CDP: () => captureViaCdp(cdp, slow, guest, options, signal, retainCropSource),
         native: () => captureViaNative(guest, options, nativeTimeoutMs, signal),
       };

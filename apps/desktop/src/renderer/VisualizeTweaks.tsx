@@ -59,6 +59,7 @@ function TweakControl({
         ) : (
           <input
             type="checkbox"
+            // biome-ignore lint/a11y/useAriaPropsForRole: a native checkbox exposes its checked state to the switch role; aria-checked must not duplicate it
             role="switch"
             aria-label={tweak.label}
             checked={value === 'true'}
@@ -119,6 +120,7 @@ export function VisualizeTweaksDrawer({
     }
   };
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset's default border and padding would change the drawer; only the group role is wanted
     <div className="visualize-tweaks" role="group" aria-label={t('Tweaks')}>
       <div className="visualize-tweaks-head">
         <span className="visualize-tweaks-title">{t('Tweaks')}</span>

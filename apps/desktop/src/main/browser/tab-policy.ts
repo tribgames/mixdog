@@ -65,6 +65,7 @@ export function normalizeBackgroundTabName(raw: string, options: { required?: bo
   if (name.length > MAX_BACKGROUND_TAB_NAME_CHARS) {
     throw new Error(`background tab names may not exceed ${MAX_BACKGROUND_TAB_NAME_CHARS} characters`);
   }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the check
   if (/[\u0000-\u001f\u007f]/.test(name)) {
     throw new Error('background tab names may not contain control characters');
   }

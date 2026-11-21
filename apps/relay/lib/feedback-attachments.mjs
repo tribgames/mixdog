@@ -10,6 +10,7 @@ const MAX_BASE64_CHARS = Math.ceil(FEEDBACK_ATTACHMENT_MAX_BYTES / 3) * 4;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 // No separators, wildcards, control characters, or leading dot / trailing dot or space.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are among the rejected name characters
 const UNSAFE_NAME = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\\/:*?"<>|]/;
 
 const invalid = () => new TypeError('Feedback attachments are invalid.');

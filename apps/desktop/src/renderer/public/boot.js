@@ -417,7 +417,6 @@ if (mixdogInstalledApp) {
     // reveal that will never arrive.
     if (window.mixdogRevealApp) window.mixdogRevealApp();
     var div = document.getElementById('mixdog-boot-error');
-    var div = document.getElementById('mixdog-boot-error');
     if (!div) {
       div = document.createElement('div');
       div.id = 'mixdog-boot-error';

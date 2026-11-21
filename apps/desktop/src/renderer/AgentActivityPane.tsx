@@ -377,6 +377,7 @@ function AgentBotsSection({
   const pinnedDividerAt = contacts.findIndex((contact) => !contact.mixy);
   return (
     <>
+      {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: an hr is not focusable; the hairline is decoration */}
       {divider && <hr className="agent-chat-divider" aria-hidden="true" />}
       {mixyEmpty && contacts.length === 0 && <MixyEmptyState onCreate={onCreateMixy} />}
       <ul className="agent-contact-list" aria-label={t('Bots')} {...botList.listProps}>
@@ -789,6 +790,7 @@ export function AgentActivityPane({
         agents: (divider) =>
           !hidden.has('agents') && (
             <>
+              {/* biome-ignore lint/a11y/noAriaHiddenOnFocusable: an hr is not focusable; the hairline is decoration */}
               {divider && workCount > 0 && <hr className="agent-chat-divider" aria-hidden="true" />}
               {/* Work sessions follow the contacts after a hairline, no heading. With
           contacts present, no work shows nothing at all; the centred empty

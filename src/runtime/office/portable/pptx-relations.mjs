@@ -20,6 +20,7 @@ export function relationOptions(relation) {
 }
 
 function validId(value) {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: an id with control characters is invalid
   return typeof value === 'string' && value.length > 0 && value.length <= 100 && !/[\u0000-\u001f]/.test(value);
 }
 

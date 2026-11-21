@@ -272,10 +272,12 @@ export function QuestionCard({
         </button>
       </div>
       <div className="question-text">{question.question}</div>
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is group or radiogroup, both of which take aria-label */}
       <div className="question-options" role={multi ? 'group' : 'radiogroup'} aria-label={t('Options')}>
         {question.options.map((option, i) => {
           const on = draft.selected.includes(i);
           return (
+            // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the role is checkbox or radio, both of which take aria-checked
             <button
               // biome-ignore lint/suspicious/noArrayIndexKey: options are positional and never reorder
               key={i}

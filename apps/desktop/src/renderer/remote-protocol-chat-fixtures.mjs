@@ -134,7 +134,9 @@ export function verifiedFixture(name, dir = dirOf(name)) {
         `${file} changed since ${FIXTURES[name].dir} was recorded (sha256 ${now[file]}, manifest ${want}): record again`
       );
   }
-  manifest.recordings.forEach(({ file }, i) => checkCoreRecording(name, file, recordings[i]));
+  manifest.recordings.forEach(({ file }, i) => {
+    checkCoreRecording(name, file, recordings[i]);
+  });
   return { manifest, recordings };
 }
 
@@ -145,7 +147,9 @@ export function verifiedFixture(name, dir = dirOf(name)) {
 export function installFixture(name, files, extra = {}) {
   const bytesOf = files.map((file) => readFileSync(file));
   const recordings = bytesOf.map((bytes) => JSON.parse(bytes.toString('utf8')));
-  recordings.forEach((r, i) => checkCoreRecording(name, files[i], r));
+  recordings.forEach((r, i) => {
+    checkCoreRecording(name, files[i], r);
+  });
   const listed = bytesOf.map((bytes, i) => ({ file: `${String(i + 1).padStart(2, '0')}.json`, sha256: sha256(bytes) }));
   const manifest = {
     count: files.length,
@@ -156,7 +160,9 @@ export function installFixture(name, files, extra = {}) {
   const dir = dirOf(name);
   mkdirSync(dir, { recursive: true });
   for (const file of readdirSync(dir)) rmSync(new URL(file, dir));
-  listed.forEach(({ file }, i) => writeFileSync(new URL(file, dir), bytesOf[i]));
+  listed.forEach(({ file }, i) => {
+    writeFileSync(new URL(file, dir), bytesOf[i]);
+  });
   writeFileSync(new URL('MANIFEST.json', dir), `${JSON.stringify(manifest, null, 2)}\n`);
   return { manifest, recordings };
 }

@@ -96,6 +96,7 @@ function connectorFor(doc, windowId) {
   };
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches terminal escape sequences, which ESC introduces and BEL can terminate
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>]/g;
 
 /** One connection: the client, the approvals offered to it and resolved on it, and the output of the tabs it attached. */

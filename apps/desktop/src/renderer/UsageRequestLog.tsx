@@ -342,6 +342,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               </tr>
             )}
             {cursor && (
+              // biome-ignore lint/a11y/noAriaHiddenOnFocusable: the empty row is not focusable; it only marks where the next page loads
               <tr ref={end} className="request-log-more" aria-hidden="true">
                 <td colSpan={COLUMNS.length} />
               </tr>

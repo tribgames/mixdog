@@ -207,7 +207,7 @@ function useComposerRenameShortcut(
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [enabled, onStartRename, session]);
+  }, [enabled, onStartRename, session, titleInput]);
 }
 
 function SessionRowActions({

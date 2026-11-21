@@ -11,6 +11,32 @@ import { scrimDismiss } from '../scrim-dismiss';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import './skin-panel.css';
 
+/** One axis of the subject point, 0–100% of the picture. */
+function FocalAxis({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
+  const labelId = useId();
+  const percent = Math.round(value * 100);
+  return (
+    <div className="skin-focal-axis">
+      <span id={labelId}>{label}</span>
+      <span className="skin-slider">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={percent}
+          aria-labelledby={labelId}
+          aria-valuetext={`${percent}%`}
+          onChange={(event) => onChange(Number(event.currentTarget.value) / 100)}
+        />
+        <output className="skin-slider-value" aria-hidden="true">
+          {percent}%
+        </output>
+      </span>
+    </div>
+  );
+}
+
 export function SkinCustomDialog({
   prepared,
   onClose,
@@ -52,35 +78,30 @@ export function SkinCustomDialog({
             <X aria-hidden="true" size={16} />
           </button>
         </header>
-        {/* The body scrolls under a tall picture; a tab stop lets the keyboard scroll it. */}
-        <div className="skin-custom-body" role="region" tabIndex={0} aria-labelledby={titleId}>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the body scrolls under a tall picture; a tab stop lets the keyboard scroll it */}
+        <section className="skin-custom-body" tabIndex={0} aria-labelledby={titleId}>
           <p>{t('Click the part of the picture to keep in view when the window crops it.')}</p>
-          {/* The pointer marks a point; the arrow keys below move it. */}
-          <div
-            className="skin-focal"
-            role="button"
-            tabIndex={0}
-            aria-label={t('Subject position')}
-            data-focal={`${focalX} ${focalY}`}
-            onPointerDown={mark}
-            onKeyDown={(event) => {
-              const d = { ArrowLeft: [-0.05, 0], ArrowRight: [0.05, 0], ArrowUp: [0, -0.05], ArrowDown: [0, 0.05] }[
-                event.key
-              ];
-              if (!d) return;
-              event.preventDefault();
-              setPoint((p) => ({
-                x: Math.min(1, Math.max(0, p.x + d[0])),
-                y: Math.min(1, Math.max(0, p.y + d[1])),
-              }));
-            }}
-          >
+          {/* The pointer marks a point on the picture; the two sliders below set
+              the same point one axis at a time, for the keyboard and screen readers. */}
+          <div className="skin-focal" aria-hidden="true" data-focal={`${focalX} ${focalY}`} onPointerDown={mark}>
             <img src={prepared.dataUrl} alt="" draggable={false} />
             <div className="skin-focal-safe">
               <span>{t('Where the chat sits')}</span>
             </div>
             <div className="skin-focal-pin" style={{ left: focalX, top: focalY }} />
           </div>
+          <fieldset className="skin-focal-axes" aria-label={t('Subject position')}>
+            <FocalAxis
+              label={t('Horizontal position')}
+              value={point.x}
+              onChange={(x) => setPoint((p) => ({ ...p, x }))}
+            />
+            <FocalAxis
+              label={t('Vertical position')}
+              value={point.y}
+              onChange={(y) => setPoint((p) => ({ ...p, y }))}
+            />
+          </fieldset>
           <div className="skin-picked">
             <span>{t('Accent colors from the picture')}</span>
             {prepared.swatches.map((color) => (
@@ -96,7 +117,7 @@ export function SkinCustomDialog({
             ))}
           </div>
           {failed && <p role="alert">{t('The skin could not be applied. Try a smaller image.')}</p>}
-        </div>
+        </section>
         <footer>
           <button type="button" onClick={onClose}>
             {t('Cancel')}

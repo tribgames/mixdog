@@ -75,7 +75,7 @@ function useCallHierarchyLayout(editorRef: RefObject<EditorInstance | null>, zon
     if (!editor || !current) return;
     current.zone.heightInLines = layout.height;
     editor.changeViewZones((accessor) => accessor.layoutZone(current.id));
-  }, [editorRef, layout]);
+  }, [editorRef, zoneRef, layout]);
   const beginSplitResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const container = event.currentTarget.parentElement;
@@ -204,12 +204,15 @@ export function useEditorCallHierarchy({
     setTarget(null);
   }, [editorRef]);
 
+  const selected = state?.rows[Math.max(0, Math.min(state.selectedIndex, state.rows.length - 1))] ?? null;
+  const [preview, setPreview] = useCallHierarchyPreview(selected, projectPath, accessToken);
+
   const close = useCallback(() => {
     setState(null);
     setPreview(null);
     removeZone();
     editorRef.current?.focus();
-  }, [editorRef, removeZone]);
+  }, [editorRef, removeZone, setPreview]);
   useMobileBack(Boolean(state), close);
 
   const { layout, beginSplitResize, beginHeightResize } = useCallHierarchyLayout(editorRef, zoneRef);
@@ -312,9 +315,6 @@ export function useEditorCallHierarchy({
     },
     [onOpenAt, projectPath]
   );
-
-  const selected = state?.rows[Math.max(0, Math.min(state.selectedIndex, state.rows.length - 1))] ?? null;
-  const [preview, setPreview] = useCallHierarchyPreview(selected, projectPath, accessToken);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: focus only when the loaded root, loading or error status changes, not on selection changes in state.
   useEffect(() => {

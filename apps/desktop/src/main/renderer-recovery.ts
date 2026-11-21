@@ -50,11 +50,14 @@ function componentToken(value: unknown): string {
 /** Free text a user already read on screen. Control characters and runaway
  *  length are the only real risks, so both are bounded and nothing else is. */
 function noticeMessage(value: unknown): string {
-  return String(value || '')
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 300);
+  return (
+    String(value || '')
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this strips
+      .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 300)
+  );
 }
 
 export function normalizeRendererDiagnostic(input: unknown): Record<string, unknown> {
