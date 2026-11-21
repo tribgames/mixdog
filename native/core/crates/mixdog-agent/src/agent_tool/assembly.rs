@@ -4,7 +4,7 @@
 //! `createAgentFlows`). [`assemble`] is the constructor the compose root calls; the result serves
 //! as the `AgentPort` the orchestration tools take:
 //!
-//! ```ignore
+//! ```text
 //! let agents: Arc<dyn AgentPort> = mixdog_agent::agent_tool::assemble(parts).port();
 //! ```
 
