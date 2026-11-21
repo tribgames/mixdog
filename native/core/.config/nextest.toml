@@ -191,5 +191,5 @@ slow-timeout = { period = "120s", terminate-after = 6 }
 # of mixdog-scm (chains of git processes, 15-60 s each) the test's setup took 6 s longer than alone and no event came in 3 s. It
 # takes every test thread, so it runs alone.
 [[profile.default.overrides]]
-filter = 'package(mixdog-workspace) & test(=nothing_runs_while_idle_and_external_writes_are_pushed)'
+filter = 'package(mixdog-workspace) & test(=no_lane_job_runs_while_idle_and_external_writes_are_pushed)'
 threads-required = 'num-test-threads'

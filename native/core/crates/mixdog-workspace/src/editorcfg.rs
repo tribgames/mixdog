@@ -432,6 +432,7 @@ const MIGRATED_BACKUPS: &str = "desktop/editor-backups";
 
 pub struct Backups {
     dir: PathBuf,
+    clock: fn() -> i64,
 }
 
 /// The app's internal "no project" working folder, created on demand.
@@ -749,8 +750,12 @@ impl Backups {
     /// The backups of `user_data` (`<data>/userdata`). Read, write and delete adopt
     /// `<data>/desktop/editor-backups` first; construction and path lookup perform no I/O.
     pub fn new(user_data: &Path) -> Self {
-        let dir = user_data.join("editor-backups");
-        Self { dir }
+        Self::with_clock(user_data, now_ms)
+    }
+
+    /// [`Backups::new`] stamping and aging backups on `clock` (epoch milliseconds) instead of [`now_ms`].
+    pub fn with_clock(user_data: &Path, clock: fn() -> i64) -> Self {
+        Self { dir: user_data.join("editor-backups"), clock }
     }
 
     fn adopt(&self) -> WsResult<()> {
@@ -786,7 +791,7 @@ impl Backups {
         };
         // A draft Node saved with half of an emoji holds `\ud83d`: read as U+FFFD, never deleted as unparsable.
         match serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)) {
-            Ok(v) if Self::valid(&v) && now_ms() - v["updatedAt"].as_f64().unwrap_or(0.0) as i64 <= MAX_BACKUP_AGE_MS => Ok(v),
+            Ok(v) if Self::valid(&v) && (self.clock)() - v["updatedAt"].as_f64().unwrap_or(0.0) as i64 <= MAX_BACKUP_AGE_MS => Ok(v),
             _ => {
                 let _ = std::fs::remove_file(&path);
                 Ok(Value::Null)
@@ -820,7 +825,7 @@ impl Backups {
         }
         let path = self.path_of(source)?;
         self.adopt()?;
-        let backup = json!({ "content": content, "expectedContent": expected, "updatedAt": now_ms() });
+        let backup = json!({ "content": content, "expectedContent": expected, "updatedAt": (self.clock)() });
         std::fs::create_dir_all(&self.dir)?;
         self.prune();
         let temp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));

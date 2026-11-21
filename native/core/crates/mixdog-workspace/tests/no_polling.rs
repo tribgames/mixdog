@@ -95,7 +95,8 @@ async fn idle_run(idle: Duration) {
     };
     assert!(opened["transferId"].is_string());
 
-    // The editor is "open": everything above has settled. From here on nothing may run.
+    // The editor is "open": everything above has settled. From here on no lane job may start. File-system calls made outside a
+    // lane job (the notify backend's watch thread, the store's writer thread) are not counted.
     mixdog_rt::time::sleep(Duration::from_secs(2)).await;
     conn.drain_text();
     // Calibration: a stat run through the crate's entry point shows in the counter, so a zero below
@@ -113,7 +114,7 @@ async fn idle_run(idle: Duration) {
     mixdog_rt::time::sleep(idle).await;
     let close = job_snapshot();
     if let Some(violation) = idle_window_violation(open, close) {
-        panic!("{violation} over an idle window of {idle:?}: something polls");
+        panic!("{violation} over an idle window of {idle:?}: a lane job polls");
     }
     assert!(conn.drain_text().is_empty(), "frames arrived while idle");
 
@@ -127,11 +128,11 @@ async fn idle_run(idle: Duration) {
         mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
     assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}");
-    eprintln!("idle {idle:?}: 0 file-system jobs started; external write pushed after {latency:?}");
+    eprintln!("idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn nothing_runs_while_idle_and_external_writes_are_pushed() {
+async fn no_lane_job_runs_while_idle_and_external_writes_are_pushed() {
     let seconds: u64 = std::env::var("MIXDOG_IDLE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
     idle_run(Duration::from_secs(seconds)).await;
 }
