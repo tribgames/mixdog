@@ -13,11 +13,18 @@ const lock = {
       integrity: 'sha512-a',
       dev: true,
       dependencies: { shared: '^1', typed: '^2' },
-      optionalDependencies: { fast: '^1' },
+      optionalDependencies: { fast: '^1', both: '^1' },
     },
-    'node_modules/app/node_modules/typed': { version: '2.0.0', integrity: 'sha512-t', dependencies: { inner: '^1' } },
+    'node_modules/app/node_modules/typed': {
+      version: '2.0.0',
+      integrity: 'sha512-t',
+      dependencies: { inner: '^1' },
+      optionalDependencies: { native: '^1' },
+    },
     'node_modules/app/node_modules/typed/node_modules/inner': { version: '1.5.0', integrity: 'sha512-i' },
-    'node_modules/shared': { version: '1.2.0', integrity: 'sha512-s', dependencies: { typed: '^1' } },
+    'node_modules/app/node_modules/typed/node_modules/native': { version: '1.0.0', integrity: 'sha512-n', optional: true },
+    'node_modules/shared': { version: '1.2.0', integrity: 'sha512-s', dependencies: { typed: '^1', both: '^1' } },
+    'node_modules/both': { version: '1.0.0', integrity: 'sha512-b' },
     'node_modules/typed': { version: '1.0.0', integrity: 'sha512-t1' },
     'node_modules/fast': { version: '1.0.0', integrity: 'sha512-f', optional: true },
     'node_modules/other': { version: '1.0.0', integrity: 'sha512-o', dependencies: { unrelated: '^1' } },
@@ -34,6 +41,8 @@ test('the subset holds the requested packages and what they need, each at the ve
     'node_modules/app',
     'node_modules/app/node_modules/typed',
     'node_modules/app/node_modules/typed/node_modules/inner',
+    'node_modules/app/node_modules/typed/node_modules/native',
+    'node_modules/both',
     'node_modules/fast',
     'node_modules/shared',
     'node_modules/typed',
@@ -49,10 +58,45 @@ test('a dependency resolves to the nearest node_modules above its requirer, as N
   assert.equal(sub.packages['node_modules/typed'].version, '1.0.0');
 });
 
-test('flags that describe the old tree are dropped, so npm computes them for the new root', () => {
+test('dev flags of the old tree are dropped, and a package the new root reaches only optionally is optional', () => {
   const { lock: sub } = lockSubset({ lock, manifest, names: ['app'] });
   assert.equal('dev' in sub.packages['node_modules/app'], false);
-  assert.equal('optional' in sub.packages['node_modules/fast'], false);
+  const optional = Object.keys(sub.packages).filter((key) => sub.packages[key].optional);
+  // `both` is optional for app but required by shared; the nested typed and inner are required, typed's native is not
+  assert.deepEqual(optional.sort(), ['node_modules/app/node_modules/typed/node_modules/native', 'node_modules/fast']);
+});
+
+test('a name listed as a required peer and as an optional dependency is optional, as npm treats it', () => {
+  const overlap = (extra) => ({
+    lockfileVersion: 3,
+    packages: {
+      'node_modules/a': {
+        version: '1.0.0',
+        integrity: 'sha512-a',
+        peerDependencies: { p: '^1' },
+        optionalDependencies: { p: '^1' },
+      },
+      ...extra,
+    },
+  });
+  const request = { manifest: { dependencies: { a: '^1' } }, names: ['a'] };
+  const held = lockSubset({ lock: overlap({ 'node_modules/p': { version: '1.0.0', integrity: 'sha512-p' } }), ...request });
+  assert.equal(held.lock.packages['node_modules/p'].optional, true);
+  assert.ok(lockSubset({ lock: overlap({}), ...request }));
+});
+
+const readRepo = (name) => JSON.parse(readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8'));
+
+test("@napi-rs/canvas is optional in the desktop-computer subset (unpdf's optional peer) and required where it is named", () => {
+  const subset = (names) =>
+    lockSubset({ lock: readRepo('package-lock.json'), manifest: readRepo('package.json'), names }).lock.packages;
+  const boot = subset(['onnxruntime-node', 'pptxgenjs', 'jszip', 'strip-ansi', 'unpdf']);
+  const core = subset(['pptxgenjs', 'jszip', '@napi-rs/canvas']);
+  assert.equal(boot['node_modules/@napi-rs/canvas'].optional, true);
+  assert.equal(boot['node_modules/@napi-rs/canvas-android-arm64'].optional, true);
+  assert.equal('optional' in core['node_modules/@napi-rs/canvas'], false);
+  assert.equal(core['node_modules/@napi-rs/canvas-android-arm64'].optional, true);
+  assert.equal('optional' in boot['node_modules/unpdf'], false);
 });
 
 test('a name that is not a root dependency, or not in the lockfile, or a dependency the lockfile lacks, fails', () => {
@@ -123,4 +167,5 @@ test('a devDependency of another package is installable (apps/desktop: @electron
   assert.ok(manifest.dependencies['@electron/asar']);
   assert.ok(lock.packages['node_modules/@electron/asar']);
   assert.equal(Object.keys(lock.packages).length - 1, 16);
+  assert.deepEqual(Object.keys(lock.packages).filter((key) => lock.packages[key].optional), []);
 });
