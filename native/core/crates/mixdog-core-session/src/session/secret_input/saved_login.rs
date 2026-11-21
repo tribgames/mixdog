@@ -450,11 +450,12 @@ pub async fn fill_saved_login(command: &Value, logins: &dyn SavedLogins, worker:
     };
     assert_runnable()?;
     let origin = js_string(target.get("origin"));
-    let lookup = match assert_available(command, logins, *windows) {
-        Ok(available) => logins.vault().value(&origin, &account, available.field).await,
-        Err(message) => Err(message),
-    };
-    let saved = lookup.map_err(|message| format!("saved_login_unavailable: {}; no input was sent", error_text(&message)))?;
+    let available = assert_available(command, logins, *windows)?;
+    let saved = logins
+        .vault()
+        .value(&origin, &account, available.field)
+        .await
+        .map_err(|message| format!("saved_login_unavailable: {}; no input was sent", error_text(&message)))?;
     // The worker's origin and the vault's (secureOrigin) must agree exactly.
     if saved.origin != origin {
         return Err("saved_login_refused: the page origin could not be matched exactly to the saved login; no input was sent".to_owned());
@@ -811,9 +812,10 @@ mod rule_tests {
         let worker = Worker::ok();
         assert_eq!(
             refused(fill(&registry, &command("password"), &off_during, &worker, true, true).await),
-            "saved_login_unavailable: saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent; no input was sent"
+            "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent"
         );
         assert_eq!(worker.actions(), ["saved_login_check"]);
+        assert!(off_during.vault.lookups.lock().unwrap().is_empty(), "the vault was not asked");
         assert!(registry.pixel_guards().is_empty() && registry.redact(PASSWORD) == PASSWORD);
 
         let mut unchecked = Worker::ok();
