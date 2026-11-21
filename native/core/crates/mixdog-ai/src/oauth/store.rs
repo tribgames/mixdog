@@ -53,30 +53,25 @@ pub struct CredentialIo {
 }
 
 impl CredentialIo {
-    /// Runs `body` as a read-lane job.
-    pub(crate) async fn read_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
-        let job = self.read.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
-        job.await.map_err(|_| io::Error::other(LaneUnrun))?
-    }
-
-    /// Runs `body` as a durability-lane job; it takes its own file locks.
-    pub(crate) async fn write_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
-        let job = self.write.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
-        job.await.map_err(|_| io::Error::other(LaneUnrun))?
-    }
-
-    /// [`Self::read_job`] for a read a send cannot go on without (the credential it carries, the account it goes out
-    /// on): a full lane is waited out in arrival order, never refused. [`LaneUnrun`] only when the lane cannot run it.
+    /// Runs `body` as a read-lane job. A full lane says nothing about what is stored: it is waited out in arrival order,
+    /// never refused and read as nothing. [`LaneUnrun`] only when the lane cannot run it.
     // The `Send` bound is stated, not inferred: the job's higher-ranked `&InLane` signature otherwise defeats the
     // `Send` proof of a caller behind `async_trait`.
-    pub(crate) fn read_required<R: Send + 'static>(
+    pub(crate) fn read_job<R: Send + 'static>(
         &self,
         body: impl FnOnce(&InLane<InteractiveIo>) -> io::Result<R> + Send + 'static,
     ) -> impl Future<Output = io::Result<R>> + Send {
         required(self.read, body)
     }
 
-    /// [`Self::write_job`] for the recovery a required read needs under the file's lock: waited out like it.
+    /// Runs `body` as a durability-lane job; it takes its own file locks. A full lane refuses it ([`LaneUnrun`]): nothing
+    /// was written, and that is the caller's error.
+    pub(crate) async fn write_job<R: Send + 'static>(&self, body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static) -> io::Result<R> {
+        let job = self.write.submit(&CancellationToken::new(), body).map_err(|_| io::Error::other(LaneUnrun))?;
+        job.await.map_err(|_| io::Error::other(LaneUnrun))?
+    }
+
+    /// [`Self::write_job`] for the recovery a read needs under the file's lock: waited out like the read.
     pub(crate) fn write_required<R: Send + 'static>(
         &self,
         body: impl FnOnce(&InLane<DurabilityIo>) -> io::Result<R> + Send + 'static,
@@ -219,7 +214,7 @@ impl CredentialFile {
         }
         let path = self.path_now().await;
         // A busy lane says nothing about the file: the read waits for room.
-        self.io.read_required(move |_| Ok(read_document(&path))).await.unwrap_or(Probe::Unreadable)
+        self.io.read_job(move |_| Ok(read_document(&path))).await.unwrap_or(Probe::Unreadable)
     }
 
     pub async fn load_document(&self) -> Probe<Document> {
@@ -399,6 +394,19 @@ mod tests {
         assert_eq!(doc["access"], "new");
         f.remove().await.unwrap();
         assert_eq!(f.load_document().await, Probe::Absent);
+    }
+
+    /// A read-lane job submitted while the lane's queue is full is not refused (which its callers read as nothing
+    /// stored): it waits for room and is answered.
+    #[tokio::test]
+    async fn a_read_job_submitted_to_a_full_lane_waits_and_is_answered() {
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+        let mut read = std::pin::pin!(io.read_job(|_| Ok(7)));
+        assert!(futures::poll!(read.as_mut()).is_pending(), "the read waits for the lane");
+        drop(full);
+        assert_eq!(read.await.expect("answered once the lane has room"), 7);
     }
 
     /// A refresh writes one spelling of a field: the other, imported one does not stay beside it.

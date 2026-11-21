@@ -66,10 +66,57 @@ impl<R: Rewriter> WireCodec for RewriteCodec<R> {
     }
 }
 
-/// The credential header of a request, if the endpoint wants one.
+/// What one request is sent on: its credential header, if the endpoint wants one, and what the credential that served
+/// it tells the login behind it by. A refusal hands the whole attempt back, so the credential acts on that login and on
+/// no other.
+#[derive(Clone)]
+pub struct Attempt {
+    pub header: Option<(String, String)>,
+    /// The credential's own; nothing else reads it.
+    login: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+impl Attempt {
+    /// A header with no login behind it (a key, or none).
+    pub fn plain(header: Option<(String, String)>) -> Self {
+        Self { header, login: None }
+    }
+
+    /// A header served under `login`, which [`Self::login`] gives back to the credential.
+    pub fn served_under(header: Option<(String, String)>, login: impl std::any::Any + Send + Sync) -> Self {
+        Self { header, login: Some(Arc::new(login)) }
+    }
+
+    pub fn login<T: std::any::Any>(&self) -> Option<&T> {
+        self.login.as_ref()?.downcast_ref()
+    }
+}
+
+/// What a credential answers a refusal with: the attempt the request is sent again on, and what was done to get it.
+pub struct Recovered {
+    pub attempt: Attempt,
+    /// Whether the refused attempt's own login was renewed for this answer (its key read again, its token exchanged).
+    /// False when another login, stored since, is returned as it is: nothing was tried for that one yet.
+    pub exchanged: bool,
+}
+
+/// The credential of a request.
 #[async_trait]
 pub trait Credential: Send + Sync {
-    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError>;
+    /// What a request is sent on now.
+    async fn attempt(&self) -> Result<Attempt, ProviderError>;
+
+    /// The server refused `rejected`: the key is read again, or the token refreshed, of the login that attempt was served
+    /// under and of no other. A login stored since is returned as it is. A credential that cannot change answers as
+    /// [`Self::attempt`] does.
+    async fn after_rejection(&self, _rejected: &Attempt) -> Result<Recovered, ProviderError> {
+        Ok(Recovered { attempt: self.attempt().await?, exchanged: false })
+    }
+
+    /// The header alone, for a request that is not sent again when refused.
+    async fn header(&self) -> Result<Option<(String, String)>, ProviderError> {
+        Ok(self.attempt().await?.header)
+    }
 
     /// Puts the credential header among the request's headers: after them all, unless the client the wire stands in for
     /// writes it elsewhere.
@@ -93,7 +140,7 @@ pub trait Credential: Send + Sync {
         true
     }
 
-    /// Marks the error of a resend refused again after a refresh.
+    /// Marks the error of a resend refused again after the refused login was renewed for it ([`Recovered::exchanged`]).
     fn refused_again(&self, _status: u16, _error: &mut ProviderError) {}
 
     /// The account `header` (a header this credential produced) signs in as, when the credential names one.
@@ -107,8 +154,8 @@ pub struct StaticCredential(pub Option<(String, String)>);
 
 #[async_trait]
 impl Credential for StaticCredential {
-    async fn header(&self, _force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
-        Ok(self.0.clone())
+    async fn attempt(&self) -> Result<Attempt, ProviderError> {
+        Ok(Attempt::plain(self.0.clone()))
     }
 }
 
@@ -151,7 +198,7 @@ pub async fn run_fitted_attempt(
     images: Option<&crate::providers::anthropic::images::ImageFitter>,
 ) -> Result<Box<dyn ModelStream>, ProviderError> {
     // The credential first: a rewriter may read identity it loads.
-    let mut header = credential.header(false).await?;
+    let mut attempt = credential.attempt().await?;
     let mut wire = encode_fitted(codec, request, images).await?;
     let mut again = false;
     let mut refreshed = false;
@@ -164,7 +211,7 @@ pub async fn run_fitted_attempt(
     }
     loop {
         let mut sent = wire.clone();
-        if let Some(header) = header.clone() {
+        if let Some(header) = attempt.header.clone() {
             credential.place(&mut sent.headers, header);
         }
         let head = http.send(sent, MODEL_STREAM).await?;
@@ -182,11 +229,13 @@ pub async fn run_fitted_attempt(
         }
         if !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery() && credential.refreshes_on(status, &rejected.body) {
             again = true;
-            refreshed = true;
-            let next = credential.header(true).await?;
+            // The refusal is of the attempt this request was sent on, whatever login the credential holds by now.
+            let next = credential.after_rejection(&attempt).await?;
+            // A login stored since goes out untried: its refusal is its first, not a refresh that did not help.
+            refreshed = next.exchanged;
             // The same rejected credential is not sent again, unless the provider resends whatever the refresh gave.
-            if next != header || !credential.resend_needs_new() {
-                header = next;
+            if next.attempt.header != attempt.header || !credential.resend_needs_new() {
+                attempt = next.attempt;
                 continue;
             }
             return Err(codec.classify(&rejected));

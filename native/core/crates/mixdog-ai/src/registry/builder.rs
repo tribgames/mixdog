@@ -70,7 +70,9 @@ use crate::providers::compat::login::opencode_go::RefreshError;
 use crate::providers::compat::profile::CompatProfile;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::providers::connect::rewrite::Attempt;
 use crate::providers::connect::rewrite::Credential;
+use crate::providers::connect::rewrite::Recovered;
 use crate::providers::connect::rewrite::HttpAdapter;
 use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::cursor::CursorAdapter;
@@ -616,11 +618,10 @@ enum CustomCredential {
     Pinned(Option<String>),
 }
 
-#[async_trait]
-impl Credential for CustomKey {
-    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
-        let Some(source) = &self.source else { return Ok(None) };
-        let read = if force_refresh { source.reload().await } else { source.key().await };
+impl CustomKey {
+    /// The header of a key as it was read; a key that cannot be read is none, or the missing variable's error.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    fn header_of(&self, read: Result<String, ProviderError>) -> Result<Option<(String, String)>, ProviderError> {
         match read {
             Ok(key) => {
                 let value = if self.bearer { format!("Bearer {key}") } else { key };
@@ -636,6 +637,21 @@ impl Credential for CustomKey {
             },
         }
     }
+}
+
+#[async_trait]
+impl Credential for CustomKey {
+    async fn attempt(&self) -> Result<Attempt, ProviderError> {
+        let Some(source) = &self.source else { return Ok(Attempt::plain(None)) };
+        Ok(Attempt::plain(self.header_of(source.key().await)?))
+    }
+
+    /// One read: what the configuration holds now is what the request is sent again on, the refused key or another.
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Recovered, ProviderError> {
+        let Some(source) = &self.source else { return Ok(Recovered { attempt: Attempt::plain(None), exchanged: false }) };
+        let read = source.reload_after(refused_key(rejected, self.bearer)).await;
+        Ok(Recovered { attempt: Attempt::plain(self.header_of(read)?), exchanged: true })
+    }
 
     fn refreshable(&self) -> bool {
         self.refreshable
@@ -650,11 +666,28 @@ struct KeyHeader {
     bearer: bool,
 }
 
+/// The key a refused attempt carried in its header.
+fn refused_key(rejected: &Attempt, bearer: bool) -> &str {
+    let value = rejected.header.as_ref().map_or("", |(_, value)| value.as_str());
+    if bearer { value.strip_prefix("Bearer ").unwrap_or(value) } else { value }
+}
+
+impl KeyHeader {
+    fn sent_on(&self, key: String) -> Attempt {
+        Attempt::plain(Some((self.header.to_owned(), if self.bearer { format!("Bearer {key}") } else { key })))
+    }
+}
+
 #[async_trait]
 impl Credential for KeyHeader {
-    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
-        let key = if force_refresh { self.source.reload().await? } else { self.source.key().await? };
-        Ok(Some((self.header.to_owned(), if self.bearer { format!("Bearer {key}") } else { key })))
+    async fn attempt(&self) -> Result<Attempt, ProviderError> {
+        Ok(self.sent_on(self.source.key().await?))
+    }
+
+    /// One read: what the source holds now is what the request is sent again on, the refused key or another.
+    async fn after_rejection(&self, rejected: &Attempt) -> Result<Recovered, ProviderError> {
+        let key = self.source.reload_after(refused_key(rejected, self.bearer)).await?;
+        Ok(Recovered { attempt: self.sent_on(key), exchanged: true })
     }
 
     fn refreshable(&self) -> bool {
@@ -782,7 +815,12 @@ struct OpenCodeKey(OpenCodeGoAuth);
 impl OpenCodeKey {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn token(&self, force: bool) -> Result<String, ProviderError> {
-        match self.0.ensure_fresh(force).await {
+        Self::token_of(self.0.ensure_fresh(force).await)
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    fn token_of(renewed: Result<OpenCodeGoCredentials, RefreshError>) -> Result<String, ProviderError> {
+        match renewed {
             Ok(credentials) => Ok(credentials.access_token),
             Err(RefreshError::Reauth(message, status)) => {
                 let mut err = reauth(&format!("OpenCode sign-in expired: {message}"));
@@ -809,6 +847,9 @@ impl ApiKeySource for OpenCodeKey {
     }
     async fn reload(&self) -> Result<String, ProviderError> {
         self.token(true).await
+    }
+    async fn reload_after(&self, rejected: &str) -> Result<String, ProviderError> {
+        Self::token_of(self.0.after_rejection_of(rejected, None).await)
     }
     fn opencode_auth(&self) -> Option<&OpenCodeGoAuth> {
         Some(&self.0)
@@ -1214,7 +1255,7 @@ impl DefaultProviderBuilder {
     async fn gcloud_config_project(&self) -> Option<String> {
         let dir = self.gcloud_dir();
         let named = self.env.env.var("CLOUDSDK_ACTIVE_CONFIG_NAME").map(|v| v.trim().to_owned()).unwrap_or_default();
-        self.env.io.read_required(move |_| Ok(read_gcloud_project(&dir, named))).await.ok().flatten().filter(|p| !p.is_empty())
+        self.env.io.read_job(move |_| Ok(read_gcloud_project(&dir, named))).await.ok().flatten().filter(|p| !p.is_empty())
     }
 
     /// `adcLocation` + `readAdcFile`: `GOOGLE_APPLICATION_CREDENTIALS`, when
@@ -1227,7 +1268,7 @@ impl DefaultProviderBuilder {
             None => self.gcloud_dir().join("application_default_credentials.json"),
         };
         let shown = path.display().to_string();
-        let read = self.env.io.read_required(move |_| read_credential_text(&path)).await;
+        let read = self.env.io.read_job(move |_| read_credential_text(&path)).await;
         match read {
             Ok(raw) => Ok(AdcRead::Found { raw, path: shown }),
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {

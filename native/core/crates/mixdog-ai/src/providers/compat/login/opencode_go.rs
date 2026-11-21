@@ -286,6 +286,17 @@ impl OpenCodeGoAuth {
         self.refresh(current, force, false).await.map(|answer| answer.credential)
     }
 
+    /// The credential behind a request refused on the access token `rejected`, sent under the refresh token `refresh`
+    /// (`None` for a caller that holds the bearer alone): the stored login is refreshed only while it is still that
+    /// pair. One stored since is returned as it is, with nothing exchanged for it.
+    pub async fn after_rejection_of(&self, rejected: &str, refresh: Option<&str>) -> Result<OpenCodeGoCredentials, RefreshError> {
+        let current = self.stored().await?;
+        if current.access_token != rejected || refresh.is_some_and(|refresh| current.refresh_token != refresh) {
+            return Ok(current);
+        }
+        self.refresh(current, true, false).await.map(|answer| answer.credential)
+    }
+
     pub(crate) async fn pin(&self) -> Result<(Self, OpenCodeGoCredentials), RefreshError> {
         let pinned = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.pinned().await };
         let held = pinned.stored().await?;
@@ -330,7 +341,9 @@ impl OpenCodeGoAuth {
         let adopted = |credential| RefreshAnswer { credential, renewed_from: None };
         let skew = if force { 0 } else { OPENCODE_REFRESH_SKEW_SECS * 1000 };
         let rotated = disk.access_token != held.access_token || disk.refresh_token != held.refresh_token;
-        if rotated && (disk.expires_at == 0 || disk.expires_at >= self.pace.now_ms() + skew) {
+        // A forced refresh is for the pair a refused request was sent on: one stored since is its answer as it is. A
+        // pinned send keeps its own rule (the same login's newer pair, refreshed when it is out of date).
+        if rotated && ((force && !pinned) || disk.expires_at == 0 || disk.expires_at >= self.pace.now_ms() + skew) {
             return Ok(adopted(disk));
         }
         let reply = post_json(

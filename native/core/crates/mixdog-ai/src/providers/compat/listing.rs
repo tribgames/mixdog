@@ -171,7 +171,8 @@ impl CompatAdapter {
                 && let Some(source) = &self.key
             {
                 reloaded = true;
-                key = Some(source.reload().await?);
+                // The refusal is of the key this request carried, whatever login the source holds by now.
+                key = Some(source.reload_after(key.as_deref().unwrap_or_default()).await?);
                 continue;
             }
             // The key the answer was fetched with: the roster is that credential's.

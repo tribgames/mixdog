@@ -504,15 +504,15 @@ impl ProviderUsageSource {
         Ok(snapshot)
     }
 
-    /// `ensureAuth()` of the OpenCode Go provider: the stored sign-in, refreshed when it is about to expire (or `force`).
-    async fn opencode_tokens(&self, account_id: &str, force: bool) -> Result<OpenCodeGoCredentials, UsageError> {
+    /// `ensureAuth()` of the OpenCode Go provider: the stored sign-in, refreshed when it is about to expire.
+    async fn opencode_tokens(&self, account_id: &str) -> Result<OpenCodeGoCredentials, UsageError> {
         let file = self.file(usage_opencode_go::PROVIDER_ID, account_id)?;
         match file.load::<OpenCodeGoCredentials>().await {
             Probe::Present(stored) if !js_trim(&stored.access_token).is_empty() && !js_trim(&stored.refresh_token).is_empty() => {}
             _ => return Err(UsageError { status: Some(401), message: OPENCODE_SIGNED_OUT.into() }),
         }
         let Some(Held::OpenCode(auth)) = self.held(usage_opencode_go::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
-        auth.ensure_fresh(force).await.map_err(opencode_failure)
+        auth.ensure_fresh(false).await.map_err(opencode_failure)
     }
 
     /// One `/api/go/status` read with `tokens` (`requestGoStatus`).
@@ -543,12 +543,13 @@ impl ProviderUsageSource {
     /// `getUsageSnapshot()` of opencode-go-oauth: the status read, behind one refresh when the token is
     /// rejected (`withConsoleTokenRetry`).
     async fn opencode_go_snapshot(&self, account_id: &str) -> Result<Option<Value>, UsageError> {
-        let tokens = self.opencode_tokens(account_id, false).await?;
+        let tokens = self.opencode_tokens(account_id).await?;
         let mut sent = tokens.clone();
         let parsed = match self.opencode_status(&tokens).await {
             Err(error) if error.status == Some(401) => {
                 let Some(Held::OpenCode(auth)) = self.held(usage_opencode_go::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
-                let next = auth.ensure_fresh(true).await.map_err(opencode_failure)?;
+                // The refusal is of the pair this read was sent on: a sign-in stored since is not refreshed on its behalf.
+                let next = auth.after_rejection_of(&tokens.access_token, Some(&tokens.refresh_token)).await.map_err(opencode_failure)?;
                 if identity(next.account_id.as_deref()) != identity(tokens.account_id.as_deref())
                     || identity(next.org_id.as_deref()) != identity(tokens.org_id.as_deref())
                 {
@@ -610,8 +611,7 @@ impl UsageSource for ProviderUsageSource {
     /// when the file still holds the login that credential was handed out on.
     async fn ensure_auth(&self, provider: &str, account_id: &str, rejected: Option<&UsageAuth>) -> Result<Option<UsageAuth>, UsageError> {
         let Some(held) = self.held(provider, account_id)? else { return Ok(None) };
-        let force_refresh = rejected.is_some();
-        let auth = match held {
+        match held {
             Held::OpenAi(oauth) => {
                 // The login refreshed is the one the refused credential was handed out on, which it carries.
                 let attempt = match rejected.and_then(UsageAuth::attempt::<crate::providers::openai::adapter::Attempt>) {
@@ -622,7 +622,7 @@ impl UsageSource for ProviderUsageSource {
                 if let Some(id) = &attempt.account_id {
                     doc["account_id"] = Value::String(id.clone());
                 }
-                return Ok(Some(UsageAuth::sent_on(doc, attempt)));
+                Ok(Some(UsageAuth::sent_on(doc, attempt)))
             }
             Held::Anthropic(session) => {
                 let attempt = match rejected.and_then(UsageAuth::attempt::<crate::providers::anthropic::oauth::Attempt>) {
@@ -630,25 +630,33 @@ impl UsageSource for ProviderUsageSource {
                     None => session.attempt().await,
                 }
                 .map_err(failure)?;
-                return Ok(Some(UsageAuth::sent_on(json!({ "accessToken": attempt.access_token }), attempt)));
+                Ok(Some(UsageAuth::sent_on(json!({ "accessToken": attempt.access_token }), attempt)))
             }
-            Held::Antigravity(_) | Held::Cursor(_) => return Ok(None),
-            Held::OpenCode(_) => {
-                let tokens = self.opencode_tokens(account_id, force_refresh).await?;
-                json!({ "access_token": tokens.access_token })
+            Held::Antigravity(_) | Held::Cursor(_) => Ok(None),
+            Held::OpenCode(auth) => {
+                // The sign-in refreshed is the pair the refused credential was handed out on, which it carries.
+                let tokens = match rejected.and_then(UsageAuth::attempt::<OpenCodeGoCredentials>) {
+                    Some(refused) => auth.after_rejection_of(&refused.access_token, Some(&refused.refresh_token)).await.map_err(opencode_failure)?,
+                    None => self.opencode_tokens(account_id).await?,
+                };
+                Ok(Some(UsageAuth::sent_on(json!({ "access_token": tokens.access_token }), tokens)))
             }
             Held::Grok(credential) => {
-                let header = credential.header(force_refresh).await.map_err(failure)?;
-                let token = header.and_then(|(_, value)| value.strip_prefix("Bearer ").map(str::to_owned));
+                // The generation refreshed is the one the refused credential was handed out on, which it carries.
+                let attempt = match rejected.and_then(UsageAuth::attempt::<crate::providers::connect::rewrite::Attempt>) {
+                    Some(rejected) => credential.after_rejection(rejected).await.map(|next| next.attempt),
+                    None => credential.attempt().await,
+                }
+                .map_err(failure)?;
+                let token = attempt.header.as_ref().and_then(|(_, value)| value.strip_prefix("Bearer ").map(str::to_owned));
                 let Some(token) = token else { return Ok(None) };
                 let mut doc = json!({ "access_token": token });
                 if let Some(user) = credential.user_id() {
                     doc["user_id"] = Value::String(user);
                 }
-                doc
+                Ok(Some(UsageAuth::sent_on(doc, attempt)))
             }
-        };
-        Ok(Some(UsageAuth::plain(auth)))
+        }
     }
 
     /// The Antigravity and Cursor provider objects have no `ensureAuth()`, so a rejected token is not retried.

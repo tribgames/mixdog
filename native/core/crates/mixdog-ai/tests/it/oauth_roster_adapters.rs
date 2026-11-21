@@ -264,13 +264,65 @@ async fn opencode_go_lists_the_console_config_and_the_file_returns_it_whole_with
     lives_through("opencode-go-oauth", "opencode-go-oauth-models.json", 1, with_cache("opencode-go-oauth", compat(profile, http.clone())), http, true).await;
 }
 
+/// The console refuses the token the config request carried. The retry asks the source for the credential behind that
+/// refusal, naming the refused token, so a source whose token is a sign-in's renews that sign-in only while the refused
+/// token is still its own. It is not asked to renew whatever sign-in is stored by then.
+#[tokio::test]
+async fn opencode_go_names_the_refused_token_when_the_console_refuses_the_config_request() {
+    #[derive(Default)]
+    struct Tokens {
+        unbound_reloads: std::sync::atomic::AtomicUsize,
+        refused: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl ApiKeySource for Tokens {
+        async fn key(&self) -> Result<String, ProviderError> {
+            Ok("token-first".into())
+        }
+        async fn reload(&self) -> Result<String, ProviderError> {
+            self.unbound_reloads.fetch_add(1, Ordering::SeqCst);
+            Ok("token-second".into())
+        }
+        async fn reload_after(&self, rejected: &str) -> Result<String, ProviderError> {
+            self.refused.lock().unwrap().push(rejected.to_owned());
+            Ok("token-second".into())
+        }
+    }
+
+    /// Refuses every request but one carrying the second token, which gets the config.
+    struct Console(Value);
+
+    #[async_trait]
+    impl HttpSend for Console {
+        async fn send(&self, request: WireRequest, _exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            let renewed = request.headers.iter().any(|(_, value)| value.contains("token-second"));
+            let (status, body) = if renewed { (200, self.0.to_string()) } else { (401, "{}".to_owned()) };
+            Ok(HttpResponse { status, headers: vec![], body: Box::new(Body(Some(body.into_bytes()))) })
+        }
+    }
+
+    let profile = CompatProfile::opencode_go();
+    let ListingShape::ConsoleConfig { provider_key, .. } = profile.listing.shape else { panic!("OpenCode Go reads the console config") };
+    let config = json!({"providers": {provider_key: {"package": "@ai-sdk/openai-compatible", "models": {
+        "model-one": {"limit": {"context": 200_000, "output": 8_000}},
+    }}}});
+    let tokens = Arc::new(Tokens::default());
+    let compat_config = CompatConfig::for_profile(&profile);
+    let adapter = CompatAdapter::new(CompatChatCodec::new(profile, compat_config), Arc::new(Console(config)), Some(tokens.clone()));
+    let rows = adapter.models().expect("a listing adapter").list_models().await.expect("the retry is answered");
+    assert!(rows.iter().any(|row| row.id == "model-one"), "the config listed after the retry");
+    assert_eq!(*tokens.refused.lock().unwrap(), ["token-first"], "the retry names the token the refused request carried");
+    assert_eq!(tokens.unbound_reloads.load(Ordering::SeqCst), 0, "whatever sign-in is stored was renewed for the refused request");
+}
+
 /// A credential that names the user its token belongs to (a real Grok token carries the claim).
 struct GrokUser(StaticCredential);
 
 #[async_trait]
 impl mixdog_ai::providers::connect::rewrite::Credential for GrokUser {
-    async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
-        self.0.header(force_refresh).await
+    async fn attempt(&self) -> Result<mixdog_ai::providers::connect::rewrite::Attempt, ProviderError> {
+        self.0.attempt().await
     }
     fn account_of(&self, _header: &(String, String)) -> Option<String> {
         Some("grok-user".to_owned())

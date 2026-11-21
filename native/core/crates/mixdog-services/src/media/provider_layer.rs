@@ -169,7 +169,7 @@ impl ProviderLayer {
     /// (`user_id`) is what identifies the credential.
     async fn grok(&self, account: Option<&Path>) -> Result<Auth, FetchError> {
         let credential = self.grok_credential(account)?;
-        let header = credential.header(false).await.map_err(from_provider)?;
+        let header = credential.header().await.map_err(from_provider)?;
         let token = header.and_then(|(_, value)| value.strip_prefix("Bearer ").map(str::to_owned)).unwrap_or_default();
         Ok(Auth { token, base_url: XAI_BASE_URL.to_owned(), project_id: None, account_id: Some(credential.user_id().unwrap_or_default()) })
     }

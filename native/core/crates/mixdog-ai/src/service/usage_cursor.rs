@@ -437,7 +437,7 @@ impl CursorUsage {
 
     /// `getUsageSnapshot()`.
     pub async fn read(&self) -> Result<Value, UsageError> {
-        let token = self.tokens.access_token(false).await.map_err(failure)?;
+        let token = self.tokens.access_token().await.map_err(failure)?.token;
         let (usage, plan) = futures::future::join(self.call(&token, USAGE_PATH), self.call(&token, PLAN_PATH)).await;
         let usage_body = usage.map_err(failure)?;
         let unwrapped = unwrap_unary_body(&usage_body);

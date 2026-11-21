@@ -105,6 +105,11 @@ impl Stored {
         Served { credential: self.credential(), grant: self.refresh_token.clone() }
     }
 
+    /// Whether `other` is this login: the same account under the same refresh grant, whatever its bearer.
+    fn is_login(&self, other: &Stored) -> bool {
+        self.refresh_token == other.refresh_token && self.account_id == other.account_id
+    }
+
     /// Whether `attempt` was made on this login: its bearer, on its account, under its refresh grant. An account that
     /// is not known is the same only as another that is not known.
     fn served(&self, attempt: &Served) -> bool {
@@ -195,13 +200,23 @@ enum Refreshed {
     Adopted(Served),
     /// The exchange did not run or failed and the token still in date keeps serving.
     Coasted(Served),
+    /// The file holds another login than the one this refresh was for: stored since the rejected attempt it was forced
+    /// for, or while its exchange was at the endpoint (whatever that exchange answered). It is left as it is, whatever
+    /// its expiry. The caller with the rejected attempt is sent on it; an ordinary caller reads the file again, so it
+    /// passes the validity check, and gets the refresh, of any login read there.
+    Replaced(Served),
 }
 
 impl Refreshed {
     fn attempt(self) -> Served {
         match self {
-            Self::Exchanged(attempt) | Self::Adopted(attempt) | Self::Coasted(attempt) => attempt,
+            Self::Exchanged(attempt) | Self::Adopted(attempt) | Self::Coasted(attempt) | Self::Replaced(attempt) => attempt,
         }
+    }
+
+    /// The stored login taken without an exchange: one stored since `rejected`, or one still clear of the skew.
+    fn taken(stored: &Stored, rejected: Option<&Served>) -> Self {
+        if rejected.is_some() { Self::Replaced(stored.attempt()) } else { Self::Adopted(stored.attempt()) }
     }
 }
 
@@ -248,8 +263,8 @@ impl Pending {
 
 /// What a caller does about the refreshes published.
 enum Turn {
-    /// Await this refresh's result; the flag says it was forced for a rejected attempt.
-    Join(Refreshing, bool),
+    /// Await this refresh's result.
+    Join(Refreshing),
     /// Await the end of a refresh of a login not known to be the caller's, without its result, then look again.
     WaitOut(Refreshing),
     /// Run a refresh of its own, after `prior` (the file's latest refresh) ended.
@@ -345,7 +360,7 @@ impl Inner {
         let file = self.file.pinned().await;
         let stored = self.stored_in(&file).await?;
         if adoptable(&stored, rejected.as_ref()) {
-            return Ok(Refreshed::Adopted(stored.attempt()));
+            return Ok(Refreshed::taken(&stored, rejected.as_ref()));
         }
         // The refresh token is single-use: the exchange runs holding the cross-process lease beside the credential
         // file (`withFileLock(refresh.lock)`, openai-oauth-tokens.mjs:403), so another process (or another handle in
@@ -361,7 +376,7 @@ impl Inner {
         let stored = self.stored_in(file).await?;
         if adoptable(&stored, rejected.as_ref()) {
             mixdog_rt::node_stderr!("[openai-oauth] Reloaded tokens from disk");
-            return Ok(Refreshed::Adopted(stored.attempt()));
+            return Ok(Refreshed::taken(&stored, rejected.as_ref()));
         }
         let Some(refresh_token) = stored.refresh_token.clone().filter(|t| !t.is_empty()) else {
             // `reusableCurrentTokens` (openai-oauth-tokens.mjs:318): no refresh token, but a token that is not past its
@@ -428,15 +443,14 @@ impl Inner {
                 Ok(Value::Null) => "Cannot read properties of null (reading 'access_token')".to_owned(),
                 Ok(_) => "refresh returned null".to_owned(),
             });
-            // A refusal for a login the file no longer holds (another writer stored a newer pair, or the same token for
-            // another account, while this exchange was in flight) is not about the stored one: a usable stored pair is
-            // adopted.
-            if permanent_refusal(status, &body)
-                && let Ok(latest) = self.stored_in(file).await
-                && (latest.refresh_token != stored.refresh_token || latest.account_id != stored.account_id)
-                && latest.usable_at(now_ms(), 0)
+            // A failed exchange for a login the file no longer holds (another writer stored a newer pair, or the same
+            // token for another account, while this exchange was in flight) is not about the stored one, whatever the
+            // failure was. What the file holds decides what its sends go out on: the stored login, never the token of
+            // the one this exchange was for, in date or not.
+            if let Ok(latest) = self.stored_in(file).await
+                && !latest.is_login(&stored)
             {
-                return Ok(Refreshed::Adopted(latest.attempt()));
+                return Ok(Refreshed::Replaced(latest.attempt()));
             }
             return self.failed(&stored, &refresh_token, rejected.is_some(), status, &body, unanswered.as_ref(), unusable);
         };
@@ -475,10 +489,10 @@ impl Inner {
                 err.message = UNSTORED.into();
                 err
             })?;
-        // Published or not, the file now holds the live pair: when another
-        // process refreshed first, its pair wins.
-        let _ = published;
-        Ok(Refreshed::Exchanged(self.stored_in(file).await?.attempt()))
+        // Published or not, the file now holds the live pair: when another process refreshed first, or another login was
+        // stored, that one wins. It is not this exchange's result, so it is not handed out as fresh.
+        let latest = self.stored_in(file).await?.attempt();
+        Ok(if published { Refreshed::Exchanged(latest) } else { Refreshed::Replaced(latest) })
     }
 
     /// A refresh that did not produce tokens. A dead grant needs a new login;
@@ -568,7 +582,7 @@ impl OpenAiOAuth {
         let turn = {
             let mut inflight = self.inner.inflight.lock().unwrap_or_else(PoisonError::into_inner);
             let joined = match &rejected {
-                Some(_) => inflight.iter().find(|pending| pending.forced == rejected).map(|pending| Turn::Join(pending.running.clone(), true)),
+                Some(_) => inflight.iter().find(|pending| pending.forced == rejected).map(|pending| Turn::Join(pending.running.clone())),
                 None => {
                     let own = || inflight.iter().filter(|pending| pending.renews(&stored));
                     own()
@@ -577,7 +591,7 @@ impl OpenAiOAuth {
                         .or_else(|| inflight.last())
                         .map(|pending| {
                             if pending.renews(&stored) {
-                                Turn::Join(pending.running.clone(), pending.forced.is_some())
+                                Turn::Join(pending.running.clone())
                             } else {
                                 Turn::WaitOut(pending.running.clone())
                             }
@@ -615,12 +629,8 @@ impl OpenAiOAuth {
             }
         };
         let ordinary = rejected.is_none();
-        let mut joined_forced = false;
         let shared = match turn {
-            Turn::Join(shared, forced) => {
-                joined_forced = forced;
-                shared
-            }
+            Turn::Join(shared) => shared,
             Turn::WaitOut(running) => {
                 let _ = running.await;
                 return None;
@@ -659,10 +669,15 @@ impl OpenAiOAuth {
         // date (`reusableCurrentTokens`): a refresh run for another bearer of the login never takes it down. A rejected
         // bearer has no such licence.
         Some(match shared.await {
-            // What a forced refresh adopted is a login stored since its attempt, left as it is whatever its expiry. An
-            // ordinary caller that joined it reads the file again, and that login gets its usual refresh.
-            Ok(Refreshed::Adopted(_)) if ordinary && joined_forced => return None,
+            // A login the refresh found stored in place of its own was left as it is, whatever its expiry. An ordinary
+            // caller reads the file again, and that login gets its usual check and refresh.
+            Ok(Refreshed::Replaced(_)) if ordinary => return None,
             Err(err) if ordinary && stored.usable_at(now_ms(), 0) => {
+                // Coasting is for a file that still holds this caller's login: with another one stored the caller reads
+                // again.
+                if self.inner.stored().await.is_ok_and(|latest| !latest.is_login(&stored)) {
+                    return None;
+                }
                 if err.message == UNSTORED {
                     tracing::warn!(
                         "[openai-oauth] The refreshed login could not be stored, so its rotated refresh token was not saved; serving the still-valid current token, and the next refresh may need a new sign-in"
@@ -974,8 +989,9 @@ mod tests {
     }
 
     /// Login `b` replaces login `a` while `a`'s preemptive refresh is at the endpoint, neither naming an account (absent or
-    /// empty). A caller holding `b` is not handed `a`'s result: `a`'s refresh fails transiently and coasts on `a`, and the
-    /// `b` caller, having waited it out, reads the file again and is served `b` by a refresh of its own.
+    /// empty). A caller holding `b` is not handed `a`'s result: `a`'s refresh fails transiently, and both callers read the
+    /// file again and are served `b`, the login it holds, by `b`'s own refresh (which coasts on `b`); `a`'s caller does
+    /// not coast on `a` over a file that holds `b`.
     #[tokio::test]
     async fn a_caller_never_gets_the_credential_of_a_login_not_known_to_be_its_own() {
         for account in [Value::Null, json!("")] {
@@ -987,28 +1003,44 @@ mod tests {
             let mut other = Box::pin(oauth.current());
             assert!(futures::poll!(other.as_mut()).is_pending(), "b's caller waits while a's refresh runs ({account})");
             endpoint.gate.add_permits(2);
-            assert_eq!(first.await.unwrap().bearer, "a", "a's refresh coasts on a ({account})");
+            assert_eq!(first.await.unwrap().bearer, "b", "a's caller is served the login stored now ({account})");
             assert_eq!(other.await.unwrap().bearer, "b", "b's caller is served b, never a ({account})");
             assert_eq!(*endpoint.seen.lock().unwrap(), 2, "b's refresh ran on its own ({account})");
         }
     }
 
     /// A preemptive refresh for an expired `a` is at the endpoint when another writer stores `b`, still in date but inside
-    /// the refresh skew, for the same account. `b`'s caller joins that refresh; when it fails, `b`'s caller keeps `b`
-    /// rather than taking `a`'s failure.
+    /// the refresh skew, for the same account. `b`'s caller joins that refresh; when it fails, neither caller takes
+    /// `a`'s failure: the file holds `b`, so both read it again, and `b`'s own refresh, failing too, leaves them `b`.
     #[tokio::test]
     async fn a_failed_refresh_a_caller_joined_leaves_it_the_bearer_it_holds_in_date() {
-        let (_dir, path, endpoint, oauth) = gated(login("a", "r1", json!("acct"), -1_000), &[(503, "{}")]).await;
+        let (_dir, path, endpoint, oauth) = gated(login("a", "r1", json!("acct"), -1_000), &[(503, "{}"), (503, "{}")]).await;
         let mut first = Box::pin(oauth.current());
         assert!(futures::poll!(first.as_mut()).is_pending());
         reached(&endpoint, 1).await;
         std::fs::write(&path, login("b", "r2", json!("acct"), 60_000)).unwrap();
         let mut other = Box::pin(oauth.current());
         assert!(futures::poll!(other.as_mut()).is_pending(), "b's caller joined a's refresh");
-        endpoint.gate.add_permits(1);
-        assert!(first.await.is_err(), "nothing in date is left to a's caller");
+        endpoint.gate.add_permits(2);
+        assert_eq!(first.await.unwrap().bearer, "b", "a's caller is served the login stored now");
         assert_eq!(other.await.unwrap().bearer, "b", "b's caller keeps its bearer");
-        assert_eq!(*endpoint.seen.lock().unwrap(), 1, "b's caller shared a's exchange");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 2, "a's exchange, then one for b that both callers share");
+    }
+
+    /// The first account's exchange fails transiently while the file has come to hold another account's login, past its
+    /// expiry. The send does not coast on the first account's token, though that one is in date: the file holds the
+    /// other login, which is read again, refreshed as itself and sent on.
+    #[tokio::test]
+    async fn a_failed_exchange_does_not_coast_on_its_own_token_over_another_accounts_login() {
+        let replies = [(503, "{}"), (200, r#"{"access_token":"b2","refresh_token":"rc","expires_in":3600}"#)];
+        let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 60_000), &replies).await;
+        let mut first = Box::pin(oauth.current());
+        assert!(futures::poll!(first.as_mut()).is_pending());
+        reached(&endpoint, 1).await;
+        std::fs::write(&path, login("b", "rb", json!("acct-b"), -1_000)).unwrap();
+        endpoint.gate.add_permits(2);
+        assert_eq!(first.await.unwrap().bearer, "b2", "the stored account answers for the file");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 2, "the failed exchange and the stored login's own");
     }
 
     /// A forced refresh for an attempt on `a` is queued behind a preemptive one, which rotates the refresh token and hands
@@ -1158,28 +1190,62 @@ mod tests {
 
     /// The same refresh token is stored for another account while its exchange is at the endpoint. The exchange was the
     /// first account's: its tokens are not written over the other login, and its refusal is not remembered against the
-    /// other login, in date or not.
+    /// other login.
     #[tokio::test]
     async fn an_exchange_neither_publishes_nor_refuses_for_another_account_storing_the_same_token() {
         let granted = (200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#);
         let dead = (400, r#"{"error":"invalid_grant"}"#);
-        for (reply, other_left_ms, served) in [(granted, 60_000, Some("b")), (dead, 60_000, Some("b")), (dead, -1_000, None)] {
-            let case = format!("{} with {other_left_ms} ms left", reply.0);
+        for reply in [granted, dead] {
             let (_dir, path, endpoint, oauth) = gated(login("a", "r1", json!("acct-a"), 60_000), &[reply]).await;
             let mut first = Box::pin(oauth.current());
             assert!(futures::poll!(first.as_mut()).is_pending());
             reached(&endpoint, 1).await;
-            let other = login("b", "r1", json!("acct-b"), other_left_ms);
+            let other = login("b", "r1", json!("acct-b"), 3_600_000);
             std::fs::write(&path, &other).unwrap();
             endpoint.gate.add_permits(1);
-            let answered = first.await.unwrap();
-            if let Some(bearer) = served {
-                assert_eq!(answered.bearer, bearer, "the login stored now ({case})");
-            }
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), other, "the other account's login was written over ({case})");
+            assert_eq!(first.await.unwrap().bearer, "b", "the login stored now ({})", reply.0);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), other, "the other account's login was written over ({})", reply.0);
             let stored = oauth.inner.stored().await.unwrap();
-            assert!(oauth.inner.refused_grant(&stored, false).is_none(), "the other account was refused with the first one's token ({case})");
+            assert!(oauth.inner.refused_grant(&stored, false).is_none(), "the other account was refused with the first one's token ({})", reply.0);
         }
+    }
+
+    /// The first account's exchange is refused with `invalid_grant` while the file has come to hold another account's
+    /// login, itself past its expiry. Whose login is stored decides: the send is not served the refused account's token,
+    /// though that one is still in date; the stored login is refreshed as itself and the send goes out on it.
+    #[tokio::test]
+    async fn a_refused_exchange_does_not_coast_on_its_own_token_over_another_accounts_login() {
+        let replies = [(400, r#"{"error":"invalid_grant"}"#), (200, r#"{"access_token":"b2","refresh_token":"rc","expires_in":3600}"#)];
+        let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 60_000), &replies).await;
+        let mut first = Box::pin(oauth.current());
+        assert!(futures::poll!(first.as_mut()).is_pending());
+        reached(&endpoint, 1).await;
+        std::fs::write(&path, login("b", "rb", json!("acct-b"), -1_000)).unwrap();
+        endpoint.gate.add_permits(2);
+        assert_eq!(first.await.unwrap().bearer, "b2", "the stored account answers for the file, refreshed as itself");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 2, "the refused exchange and the stored login's own");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"b2\""));
+    }
+
+    /// An exchange succeeds at the endpoint, but another login, already past its expiry, was stored while it was there:
+    /// its write is declined. What the file holds is not handed out as the fresh result: it is checked like any login
+    /// read from the file, and being expired it is refreshed as itself.
+    #[tokio::test]
+    async fn an_exchange_that_loses_its_write_does_not_hand_out_an_expired_login_as_fresh() {
+        let replies = [
+            (200, r#"{"access_token":"a2","refresh_token":"r2","expires_in":3600}"#),
+            (200, r#"{"access_token":"b2","refresh_token":"rc","expires_in":3600}"#),
+        ];
+        let (_dir, path, endpoint, oauth) = gated(login("a", "ra", json!("acct-a"), 60_000), &replies).await;
+        let mut first = Box::pin(oauth.current());
+        assert!(futures::poll!(first.as_mut()).is_pending());
+        reached(&endpoint, 1).await;
+        std::fs::write(&path, login("b", "rb", json!("acct-b"), -1_000)).unwrap();
+        endpoint.gate.add_permits(2);
+        assert_eq!(first.await.unwrap().bearer, "b2", "the expired login takes its normal refresh");
+        assert_eq!(*endpoint.seen.lock().unwrap(), 2);
+        let stored = std::fs::read_to_string(&path).unwrap();
+        assert!(stored.contains("\"b2\"") && !stored.contains("\"a2\""), "{stored}");
     }
 
     /// A stale attempt's 401 and an ordinary send overlap on a replacement login already past its expiry. The stale

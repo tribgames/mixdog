@@ -422,7 +422,7 @@ impl CustomListing {
         if self.keyless {
             return Ok((None, String::new()));
         }
-        let header = self.credential.header(false).await?;
+        let header = self.credential.header().await?;
         let key = header.as_ref().map(|(_, v)| v.strip_prefix("Bearer ").unwrap_or(v).to_owned()).unwrap_or_default();
         let header = match (header, &self.protocol) {
             (Some(h), _) => h,
