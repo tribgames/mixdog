@@ -3672,7 +3672,8 @@ async fn a_large_prompt_round_trips_through_the_real_store() {
     let handle = start_thread(&first).await;
     let text = format!("ask {}", "p".repeat(300 << 10));
     turn(&handle, &text, "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    // Settled, not just idle: the reopened thread's rewind refuses a history whose turn end is not stored yet.
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     let id = handle.id.clone();
     // Body and prompt are blobs: the log holds neither copy of the text.
     let log = std::fs::read(data.path().join("sessions").join(id.as_str()).join("log.000000")).unwrap();
