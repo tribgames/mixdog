@@ -8,12 +8,15 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use p256::SecretKey;
 use p256::ecdsa::SigningKey;
 use p256::ecdsa::signature::Signer;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::{Value, json};
 use url::Url;
+use zeroize::Zeroizing;
 
 use super::write_owner_only;
 use crate::{js, logline};
@@ -32,12 +35,12 @@ pub struct VapidKeys {
 
 /// The uncompressed point (0x04 || X || Y), base64url.
 fn raw_public_key(secret: &SecretKey) -> String {
-    URL_SAFE_NO_PAD.encode(secret.public_key().to_encoded_point(false).as_bytes())
+    URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_point(false).as_bytes())
 }
 
 /// The private JWK in the key order Node's `export({ format: 'jwk' })` writes.
 fn private_jwk(secret: &SecretKey) -> Value {
-    let point = secret.public_key().to_encoded_point(false);
+    let point = secret.public_key().to_sec1_point(false);
     let coordinate = |bytes: Option<&[u8]>| URL_SAFE_NO_PAD.encode(bytes.unwrap_or_default());
     json!({
         "kty": "EC",
@@ -46,6 +49,25 @@ fn private_jwk(secret: &SecretKey) -> Value {
         "crv": "P-256",
         "d": URL_SAFE_NO_PAD.encode(secret.to_bytes()),
     })
+}
+
+/// The key of a private P-256 JWK whose `d` is the key of its `x`/`y`.
+fn secret_from_jwk(jwk: &Value) -> Result<SecretKey, String> {
+    let member = |name: &str| jwk.get(name).and_then(Value::as_str);
+    let field = |name: &str| URL_SAFE_NO_PAD.decode(member(name)?).ok().filter(|bytes| bytes.len() == 32);
+    let secret = || {
+        if member("kty")? != "EC" || member("crv")? != "P-256" {
+            return None;
+        }
+        let mut d = Zeroizing::new([0u8; 32]);
+        if Base64UrlUnpadded::decode(member("d")?, &mut *d).ok()?.len() != 32 {
+            return None;
+        }
+        let secret = SecretKey::from_slice(&*d).ok()?;
+        let point = secret.public_key().to_sec1_point(false);
+        (point.x()?.as_slice() == field("x")?.as_slice() && point.y()?.as_slice() == field("y")?.as_slice()).then_some(secret)
+    };
+    secret().ok_or_else(|| p256::elliptic_curve::Error.to_string())
 }
 
 impl VapidKeys {
@@ -82,7 +104,7 @@ impl VapidKeys {
     fn parse(text: &str) -> Result<Self, String> {
         let parsed = js::parse(text).map_err(|error| mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| error.to_string()))?;
         let jwk = parsed.get("privateKeyJwk").ok_or("privateKeyJwk is missing")?;
-        let secret = SecretKey::from_jwk_str(&jwk.to_string()).map_err(|error| error.to_string())?;
+        let secret = secret_from_jwk(jwk)?;
         let keys = Self::of(&secret);
         if parsed.get("publicKey").and_then(Value::as_str) != Some(keys.public_key.as_str()) {
             return Err("public key does not match the private key".to_owned());
@@ -91,7 +113,7 @@ impl VapidKeys {
     }
 
     fn create(path: &Path) -> Option<Self> {
-        let secret = SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let secret = SecretKey::generate();
         let keys = Self::of(&secret);
         let text = js::pretty(&json!({ "version": 1, "publicKey": keys.public_key, "privateKeyJwk": private_jwk(&secret) }));
         match write_owner_only(path, &text) {

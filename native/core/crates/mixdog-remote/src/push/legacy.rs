@@ -13,7 +13,8 @@ use mixdog_rt::InLane;
 use mixdog_store::fsio::WriteLane;
 use p256::ecdsa::SigningKey;
 use p256::ecdsa::signature::Signer;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::{Value, json};
 
 use super::web::{WebPushError, WebPushTarget, encrypt_for_target};
@@ -62,8 +63,8 @@ impl LegacyKeys {
 
     /// `generateWebPushKeys()`.
     pub fn generate() -> Self {
-        let secret = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-        let point = secret.public_key().to_encoded_point(false);
+        let secret = p256::SecretKey::generate();
+        let point = secret.public_key().to_sec1_point(false);
         let coordinate = |bytes: Option<&[u8]>| URL_SAFE_NO_PAD.encode(bytes.unwrap_or_default());
         Self {
             public_key: URL_SAFE_NO_PAD.encode(point.as_bytes()),

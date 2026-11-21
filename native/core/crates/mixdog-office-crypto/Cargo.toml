@@ -12,7 +12,7 @@ aes = "0.8.4"
 base64 = { workspace = true }
 md-5 = "0.10.6"
 mixdog-fsio = { workspace = true }
-quick-xml = { version = "0.38.4", default-features = false }
+quick-xml = { version = "0.41.0", default-features = false }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

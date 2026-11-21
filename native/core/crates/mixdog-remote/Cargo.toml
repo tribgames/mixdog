@@ -24,6 +24,8 @@ webrtc = { workspace = true }
 # WP-REMOTE (e2ee)
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
+base64ct = { workspace = true }
+zeroize = { workspace = true }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 hkdf = { workspace = true }

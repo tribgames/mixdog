@@ -14,7 +14,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hkdf::Hkdf;
 use p256::PublicKey;
 use p256::ecdh::diffie_hellman;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::Generate;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::{Value, json};
 use sha2::Sha256;
 
@@ -58,7 +59,7 @@ pub fn encrypt_web_push_payload(keys: &WebPushKeys, plaintext: &[u8], salt: [u8;
     let ua_raw = URL_SAFE_NO_PAD.decode(&keys.p256dh).map_err(|_| WebPushError::Keys)?;
     let auth = URL_SAFE_NO_PAD.decode(&keys.auth).map_err(|_| WebPushError::Keys)?;
     let ua_public = PublicKey::from_sec1_bytes(&ua_raw).map_err(|_| WebPushError::Keys)?;
-    let local_raw = local.public_key().to_encoded_point(false);
+    let local_raw = local.public_key().to_sec1_point(false);
     let shared = diffie_hellman(local.to_nonzero_scalar(), ua_public.as_affine());
     // The derivation is bound to BOTH public keys, so a payload for one subscription cannot be
     // replayed against another.
@@ -88,7 +89,7 @@ pub fn encrypt_web_push_payload(keys: &WebPushKeys, plaintext: &[u8], salt: [u8;
 pub fn encrypt_for_target(target: &WebPushTarget, plaintext: &[u8]) -> Result<Vec<u8>, WebPushError> {
     let mut salt = [0u8; 16];
     rand::fill(&mut salt[..]);
-    let local = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+    let local = p256::SecretKey::generate();
     let keys = WebPushKeys { p256dh: target.p256dh.clone(), auth: target.auth.clone() };
     encrypt_web_push_payload(&keys, plaintext, salt, &local)
 }

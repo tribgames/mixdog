@@ -172,7 +172,7 @@ fn unqualified(reader: &NsReader<&[u8]>, tag: &BytesStart<'_>) -> Result<Attribu
         if key == b"xmlns" || key.starts_with(b"xmlns:") {
             continue;
         }
-        let (resolved, local) = reader.resolve_attribute(attribute.key);
+        let (resolved, local) = reader.resolver().resolve_attribute(attribute.key);
         match resolved {
             ResolveResult::Unbound => {}
             ResolveResult::Bound(_) => continue,
