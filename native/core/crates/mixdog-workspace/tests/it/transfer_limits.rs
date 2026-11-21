@@ -106,19 +106,34 @@ fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
     assert_eq!(first.length, RANGE_MAX_BYTES);
     drop(first);
     let baseline = peak_working_set();
-    let (mut offset, mut pages) = (RANGE_MAX_BYTES, 1u64);
+    // The pages after which the peak is taken as settled: the allocator has its buffers by then.
+    const SETTLING: u64 = 16;
+    let (mut offset, mut pages, mut settled) = (RANGE_MAX_BYTES, 1u64, baseline);
     loop {
         let page = transfers.read_range(&["dev"], &opened.transfer_id, offset, RANGE_MAX_BYTES, None).unwrap();
         offset += page.length;
         pages += 1;
+        if pages == SETTLING {
+            settled = peak_working_set();
+        }
         if page.eof {
             break;
         }
     }
     assert_eq!((offset, pages), (SIZE, SIZE / RANGE_MAX_BYTES));
-    let growth = peak_working_set().saturating_sub(baseline);
-    // Two pages of bytes plus their base64 text; the file is 256 pages.
-    let bound = 2 * (RANGE_MAX_BYTES + RANGE_MAX_BYTES * 4 / 3);
+    let peak = peak_working_set();
+    // The peak is the whole process's and counts whole OS pages, so sizes are rounded up to the largest page of the systems this runs on
+    // (on Apple silicon's 16 KiB the two pages below are 1196 OS pages, and the unrounded bound was 1194.67 of them).
+    const OS_PAGE: u64 = 64 * 1024;
+    let whole = |bytes: u64| bytes.div_ceil(OS_PAGE) * OS_PAGE;
+    // Independent of the size, as far as the peak shows it: the 496 pages read after the peak settled raise the observed peak by at most
+    // one rounding step. Memory kept per range shows here only once it makes the process touch pages it had not.
+    let later = peak.saturating_sub(settled);
+    assert!(later <= OS_PAGE, "peak working set grew {later} bytes over the {} pages read after it had settled", pages - SETTLING);
+    // And small: two pages of bytes plus their base64 text, each buffer whole, and the one rounding step for what else the process
+    // touched while it settled.
+    let growth = peak.saturating_sub(baseline);
+    let bound = 2 * (whole(RANGE_MAX_BYTES) + whole(RANGE_MAX_BYTES * 4 / 3)) + OS_PAGE;
     assert!(growth <= bound, "peak working set grew {growth} bytes over {pages} pages (bound {bound})");
-    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (bound {bound})");
+    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (bound {bound}), {later} of them after page {SETTLING}");
 }

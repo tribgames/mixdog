@@ -26,7 +26,7 @@ fn current_thread() -> tokio::runtime::Builder {
 }
 
 fn setup(budget: Budget, pg_ctl: Option<(PathBuf, PathBuf)>, fault: Option<Fault>) -> Setup {
-    Setup { budget, pg_ctl, fault, lost: Duration::ZERO }
+    Setup { budget, pg_ctl, fault, lost: Duration::ZERO, stuck_threads: false }
 }
 
 /// A data directory (one holding `PG_VERSION`) at `parts` under `dir`.
@@ -233,7 +233,7 @@ fn a_step_gets_no_more_than_what_remains_of_the_run() {
     let remains = Duration::from_secs(20);
     let lost = Duration::from_secs(budget.total()) - remains;
     let started = Instant::now();
-    let report = run_within(&this(NAME), Setup { budget, pg_ctl: fake_pg_ctl(fake.path(), Status::Hang), fault: None, lost }, Duration::from_secs(60));
+    let report = run_within(&this(NAME), Setup { budget, pg_ctl: fake_pg_ctl(fake.path(), Status::Hang), fault: None, lost, stuck_threads: false }, Duration::from_secs(60));
     let took = started.elapsed();
     let shown = report.to_string();
     clean(&report);
@@ -641,7 +641,7 @@ fn a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_rem
     }) {
         return;
     }
-    let report = run(&this(NAME), &Setup { budget: AMPLE, fault: Some(Fault::KillOn(KILL)), ..Setup::composed() });
+    let report = run(&this(NAME), &Setup { budget: AMPLE, fault: Some(Fault::KillOn(KILL)), stuck_threads: false, ..Setup::composed() });
     let shown = report.to_string();
     clean(&report);
     assert!(report.failures[0].contains("was killed at its test's request with its process tree"), "{shown}");

@@ -48,8 +48,12 @@ async fn composed_with_non_default_limits() -> (tempfile::TempDir, Arc<ComposedC
     (dir, Arc::new(core), outgoing)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_non_default_limits_value_reaches_the_begin_answer() {
+#[test]
+fn a_non_default_limits_value_reaches_the_begin_answer() {
+    crate::compose_test_support::on_marked_runtime(the_begin_answer());
+}
+
+async fn the_begin_answer() {
     let (_dir, core, _outgoing) = composed_with_non_default_limits().await;
     let begun = match core
         .domain_for("transfer/beginWrite")
@@ -70,8 +74,12 @@ async fn a_non_default_limits_value_reaches_the_begin_answer() {
     mixdog_rt::time::timeout(Duration::from_secs(30), core.stop("limits test")).await.expect("the core stopped within 30 seconds");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_non_default_limits_value_reaches_the_advertisement() {
+#[test]
+fn a_non_default_limits_value_reaches_the_advertisement() {
+    crate::compose_test_support::on_marked_runtime(the_advertisement());
+}
+
+async fn the_advertisement() {
     let (_dir, core, outgoing) = composed_with_non_default_limits().await;
     let running = crate::server::Running::build(core.clone(), outgoing).expect("the composed limits are valid");
     let wire = Arc::new(MockConnection::new(ConnectionId(1), MockLimits::default()));

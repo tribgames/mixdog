@@ -119,6 +119,7 @@ async fn idle_run(idle: Duration) {
     assert!(conn.drain_text().is_empty(), "frames arrived while idle");
 
     // An external write is pushed, not found by a poll.
+    mixdog_workspace::watcher::await_backend_event(&root.join("src/main.rs"));
     let started = Instant::now();
     std::fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
     let latency = loop {
@@ -127,8 +128,10 @@ async fn idle_run(idle: Duration) {
         }
         mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
-    assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}");
-    eprintln!("idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?}");
+    // Where a late push waited: the service's own watcher heard of the written file from the OS this long after the write.
+    let heard = mixdog_workspace::watcher::backend_told().map(|at| at.saturating_duration_since(started));
+    assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}; the service's watcher heard of the write from the OS after {heard:?}");
+    eprintln!("idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?} (heard from the OS after {heard:?})");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -75,8 +75,12 @@ async fn next_change(changes: &mut tokio::sync::mpsc::UnboundedReceiver<()>, wha
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_home() {
+#[test]
+fn a_bots_send_through_the_composed_core_reports_the_final_answer_to_its_home() {
+    crate::compose_test_support::on_marked_runtime(the_send_reports_home());
+}
+
+async fn the_send_reports_home() {
     let final_text = FINAL.to_owned();
     let (caller, target) = (ThreadId::from("sess_home_ann"), ThreadId::from("sess_b"));
     let (bot_id, bot_name) = ("ann", "Ann");
@@ -202,7 +206,8 @@ async fn timed(name: &'static str, step: impl std::future::Future<Output = ()>, 
 }
 
 /// Diagnostic: `ComposedCore::stop` phase by phase and step by step, each timed on stderr under [`STEP_LIMIT`], so the one that does
-/// not end is named.
+/// not end is named. It takes the registered steps and runs them itself, where the core's stop runs them through `StopSteps::run`:
+/// a step over its limit is given up here, and a stop that overlaps this one finds no steps and does not wait for these.
 async fn diagnosed_stop(core: &ComposedCore) -> Vec<&'static str> {
     let mut stuck = Vec::new();
     core.set_stop_reason("session send test");
