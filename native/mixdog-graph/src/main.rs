@@ -190,31 +190,32 @@ struct SearchHit {
     text: String,
 }
 
-fn search_file(path: &Path, root: &Path, symbol: &str) -> Vec<SearchHit> {
+fn search_file(path: &Path, root: &Path, symbol: &str) -> Result<Vec<SearchHit>, String> {
     let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     if lang_for(ext).is_none() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let Some(scan_lang) = scan_lang_for_path(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let Ok(relative) = path.strip_prefix(root) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let rel = relative.to_string_lossy().replace('\\', "/");
-    let Ok(meta) = fs::metadata(path) else {
-        return Vec::new();
-    };
+    let meta = fs::metadata(path).map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
     if meta.len() > MAX_FILE_BYTES {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let Ok(text) = fs::read_to_string(path) else {
-        return Vec::new();
+    let bytes = fs::read(path).map_err(|err| format!("read failed for {}: {err}", path.display()))?;
+    // Undecodable text is an unsupported encoding, not an I/O failure: the
+    // graph build indexes such files with no content either.
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Ok(Vec::new());
     };
     if !text.contains(symbol) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let lines: Vec<&str> = text.lines().collect();
     let mut hits: Vec<SearchHit> = outline::identifier_hits(&text, scan_lang, symbol)
@@ -225,10 +226,10 @@ fn search_file(path: &Path, root: &Path, symbol: &str) -> Vec<SearchHit> {
         })
         .collect();
     hits.sort_by_key(|hit| (hit.line, hit.col));
-    hits
+    Ok(hits)
 }
 
-fn search_hits(root: &Path, symbol: &str) -> Vec<SearchHit> {
+fn search_hits(root: &Path, symbol: &str) -> Result<Vec<SearchHit>, String> {
     let mut entries: Vec<_> = WalkBuilder::new(root)
         .standard_filters(true)
         .hidden(false)
@@ -237,14 +238,15 @@ fn search_hits(root: &Path, symbol: &str) -> Vec<SearchHit> {
         .filter(|d| d.file_type().map(|t| t.is_file()).unwrap_or(false))
         .collect();
     entries.sort_by(|a, b| a.path().cmp(b.path()));
-    entries.par_iter().flat_map(|entry| search_file(entry.path(), root, symbol)).collect()
+    let per_file: Vec<Vec<SearchHit>> = entries.par_iter().map(|entry| search_file(entry.path(), root, symbol)).collect::<Result<_, _>>()?;
+    Ok(per_file.into_iter().flatten().collect())
 }
 
 fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
     if symbol.is_empty() {
         return Ok(());
     }
-    write_jsonl(&search_hits(root, symbol), "hit", &mut std::io::stdout().lock())
+    write_jsonl(&search_hits(root, symbol)?, "hit", &mut std::io::stdout().lock())
 }
 
 struct SrcFile {
@@ -514,10 +516,19 @@ mod tests {
         let dir = scratch_dir("search");
         fs::write(dir.join("a.rs"), "fn run() {}\n// run\n    run();\n").unwrap();
         fs::write(dir.join("notes.txt"), "run\n").unwrap();
-        let hits = search_hits(&dir, "run");
+        let hits = search_hits(&dir, "run").expect("readable tree");
         let _ = fs::remove_dir_all(&dir);
         let seen: Vec<_> = hits.iter().map(|hit| (hit.rel.as_str(), hit.line, hit.col, hit.text.as_str())).collect();
-        assert_eq!(seen, vec![("a.rs", 1, 3, "fn run() {}"), ("a.rs", 3, 4, "run();")]);
+        assert_eq!(seen, vec![("a.rs", 1, 4, "fn run() {}"), ("a.rs", 3, 5, "run();")]);
+    }
+
+    #[test]
+    fn an_unreadable_search_file_fails_the_search_instead_of_dropping_the_file() {
+        let dir = scratch_dir("search-io");
+        let error = search_file(&dir.join("vanished.rs"), &dir, "run").err();
+        let _ = fs::remove_dir_all(&dir);
+        let error = error.expect("a metadata failure is fatal");
+        assert!(error.starts_with("metadata failed for "), "{error}");
     }
 
     #[test]

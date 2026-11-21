@@ -140,6 +140,19 @@ pub(super) fn searcher(parsed: &ParsedArgs) -> Searcher {
     builder.build()
 }
 
+/// The soft deadline stopped a file's scan before it finished, so the file
+/// was not fully searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ScanTimedOut;
+
+/// One file's scan: its output block, `None` when it has no match (or was
+/// skipped), or `ScanTimedOut`.
+pub(super) type FileScan = Result<Option<Vec<String>>, ScanTimedOut>;
+
+fn is_soft_timeout(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::TimedOut && error.get_ref().is_some_and(|inner| inner.to_string() == SOFT_TIMEOUT)
+}
+
 pub(super) fn output_lines(bytes: Vec<u8>) -> Option<Vec<String>> {
     let lines: Vec<String> = String::from_utf8_lossy(&bytes).lines().map(str::to_string).collect();
     (!lines.is_empty()).then_some(lines)
@@ -162,12 +175,12 @@ where
     searcher.search_reader(matcher, reader, &mut sink)
 }
 
-fn scan_with_printer(
+pub(super) fn scan_with_printer(
     path: &Path,
     build_signature: bool,
     ctx: &ScanCtx<'_>,
     search: impl FnOnce(&mut CancellableReader<'_, File>) -> (io::Result<()>, Vec<u8>),
-) -> Option<Vec<String>> {
+) -> FileScan {
     // An unreadable file must not read as "no matches in this file": count it
     // so the response downgrades to partial (rg reports the same condition on
     // stderr and exits 2).
@@ -175,7 +188,7 @@ fn scan_with_printer(
         Ok(file) => file,
         Err(_) => {
             ctx.scan_errors.fetch_add(1, Ordering::Relaxed);
-            return None;
+            return Ok(None);
         }
     };
     let mut signature = build_signature.then(TrigramSignature::new);
@@ -183,22 +196,25 @@ fn scan_with_printer(
     let mut reader = CancellableReader::new(file, ctx.cancelled, ctx.deadline_at, signature.as_mut());
     let (result, bytes) = search(&mut reader);
     drop(reader);
-    if ctx.cancelled.load(Ordering::Relaxed) {
-        return None;
+    // A timed-out file was not fully searched even if cancellation followed,
+    // so the timeout is classified first.
+    if result.as_ref().is_err_and(is_soft_timeout) {
+        return Err(ScanTimedOut);
     }
-    if result.is_err() {
-        // Either the soft deadline fired mid-scan (surfaced by the response-
-        // level deadline re-check) or a real read error. Count only the
-        // latter so a genuine I/O failure downgrades the response to partial.
-        if !deadline_expired(ctx.deadline_at) {
+    if ctx.cancelled.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
+    match result {
+        Err(_) => {
             ctx.scan_errors.fetch_add(1, Ordering::Relaxed);
+            return Ok(None);
         }
-        return None;
+        Ok(()) => {}
     }
     if let Some(signature) = signature.as_ref() {
         remember_content_signature(path, signature, identity);
     }
-    output_lines(bytes)
+    Ok(output_lines(bytes))
 }
 
 pub(super) fn scan_standard<M: Matcher>(
@@ -208,7 +224,7 @@ pub(super) fn scan_standard<M: Matcher>(
     match_limit: Option<usize>,
     build_signature: bool,
     ctx: &ScanCtx<'_>,
-) -> Option<Vec<String>> {
+) -> FileScan {
     let p = ctx.parsed;
     let cancelled = ctx.cancelled;
     let mut printer_builder = StandardBuilder::new();
@@ -233,7 +249,7 @@ pub(super) fn scan_standard<M: Matcher>(
     })
 }
 
-pub(super) fn scan_summary<M: Matcher>(path: &Path, prefix: &str, matcher: &M, build_signature: bool, ctx: &ScanCtx<'_>) -> Option<Vec<String>> {
+pub(super) fn scan_summary<M: Matcher>(path: &Path, prefix: &str, matcher: &M, build_signature: bool, ctx: &ScanCtx<'_>) -> FileScan {
     let p = ctx.parsed;
     let cancelled = ctx.cancelled;
     let kind = if p.files_with_matches { SummaryKind::PathWithMatch } else { SummaryKind::Count };
@@ -256,11 +272,11 @@ pub(super) fn scan_summary<M: Matcher>(path: &Path, prefix: &str, matcher: &M, b
     })
 }
 
-pub(super) fn scan_file(path: &Path, prefix: &str, match_limit: Option<usize>, trust: &TrustSnapshot, ctx: &ScanCtx<'_>) -> Option<Vec<String>> {
+pub(super) fn scan_file(path: &Path, prefix: &str, match_limit: Option<usize>, trust: &TrustSnapshot, ctx: &ScanCtx<'_>) -> FileScan {
     let parsed = ctx.parsed;
     let signature_state = cached_signature_state(path, parsed.literal_trigrams.as_deref().unwrap_or(&[]), parsed.case_insensitive, trust);
     if signature_state == CachedSignatureState::Excludes {
-        return None;
+        return Ok(None);
     }
     let build_signature = signature_state == CachedSignatureState::Missing;
     macro_rules! scan {
@@ -278,18 +294,15 @@ pub(super) fn scan_file(path: &Path, prefix: &str, match_limit: Option<usize>, t
     }
 }
 
-/// One file's block for the content window, or `None` when the request
-/// stopped, the operand filter rejects the file, or it has no match.
-fn scan_window_file(
-    file: &Path,
-    scope: &OperandScope<'_>,
-    use_prefix: bool,
-    match_limit: Option<usize>,
-    trust: &TrustSnapshot,
-    ctx: &ScanCtx<'_>,
-) -> Option<Vec<String>> {
-    if ctx.cancelled.load(Ordering::Relaxed) || deadline_expired(ctx.deadline_at) || !scope.filter.allows(file) {
-        return None;
+/// One file's block for the content window, `None` when the request was
+/// cancelled, the operand filter rejects the file, or it has no match, and
+/// `ScanTimedOut` when the deadline stopped the file before it was searched.
+fn scan_window_file(file: &Path, scope: &OperandScope<'_>, use_prefix: bool, match_limit: Option<usize>, trust: &TrustSnapshot, ctx: &ScanCtx<'_>) -> FileScan {
+    if ctx.cancelled.load(Ordering::Relaxed) || !scope.filter.allows(file) {
+        return Ok(None);
+    }
+    if deadline_expired(ctx.deadline_at) {
+        return Err(ScanTimedOut);
     }
     let prefix = if use_prefix { display_path(scope.operand, scope.operand_path, file) } else { String::new() };
     ctx.files_scanned.fetch_add(1, Ordering::Relaxed);
@@ -322,33 +335,38 @@ pub(super) fn append_scanned_matches_ordered(
     trust: &TrustSnapshot,
     ctx: &ScanCtx<'_>,
     out: &mut ScanOutput<'_>,
-) -> bool {
+) -> Result<bool, ScanTimedOut> {
     let collect_until = out.collect_until;
     let mut chunk_len = (rayon::current_num_threads() * 8).max(32);
     let mut rest = files;
     while !rest.is_empty() {
         let remaining = collect_until.saturating_sub(out.all_lines.len());
         if remaining == 0 {
-            return true;
+            return Ok(true);
         }
         let bounded = collect_until != usize::MAX;
         let take = if bounded { chunk_len.min(rest.len()) } else { rest.len() };
         let (chunk, tail) = rest.split_at(take);
         rest = tail;
         let match_limit = bounded.then_some(remaining);
-        let blocks: Vec<Option<Vec<String>>> = chunk
+        let blocks: Vec<FileScan> = chunk
             .par_iter()
             .map(|file| match prior.get(file) {
-                Some(block) => block.clone(),
+                Some(block) => Ok(block.clone()),
                 None => scan_window_file(file, scope, use_prefix, match_limit, trust, ctx),
             })
             .collect();
-        if append_blocks(blocks.into_iter().flatten(), ctx.parsed, out) {
-            return true;
+        let timed_out = blocks.iter().any(Result::is_err);
+        let filled = append_blocks(blocks.into_iter().filter_map(Result::ok).flatten(), ctx.parsed, out);
+        if timed_out {
+            return Err(ScanTimedOut);
+        }
+        if filled {
+            return Ok(true);
         }
         chunk_len = chunk_len.saturating_mul(2).min(8192);
     }
-    out.all_lines.len() >= collect_until
+    Ok(out.all_lines.len() >= collect_until)
 }
 
 /// Scan `files` in parallel and return every file's result keyed by its path,
@@ -360,7 +378,7 @@ pub(super) fn scan_matches_keyed(
     match_limit: Option<usize>,
     trust: &TrustSnapshot,
     ctx: &ScanCtx<'_>,
-) -> Vec<(PathBuf, Option<Vec<String>>)> {
+) -> Vec<(PathBuf, FileScan)> {
     files
         .par_iter()
         .map(|file| {

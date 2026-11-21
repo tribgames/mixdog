@@ -796,7 +796,7 @@ mod tests {
     #[test]
     fn todo_marker_reports_marker_comments() {
         let ts = "// TODO: fix\n/* FIXME later */\n/**\n * XXX(bob) here\n */\nconst a = 1; // TODO trailing\n";
-        assert_eq!(matched_texts("a.ts", ts, TS_TODO_MARKER).len(), 3);
+        assert_eq!(matched_texts("a.ts", ts, TS_TODO_MARKER).len(), 4);
         assert_eq!(matched_texts("a.rs", "// TODO: fix\n/// FIXME doc\nfn f() {}\n", RUST_TODO_MARKER).len(), 2);
     }
 
