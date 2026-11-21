@@ -137,6 +137,10 @@ fn a_lock_of_a_dead_owner_is_reclaimed_and_a_live_one_is_not() {
         let file = file.clone();
         move |lane| with_lock(lane, &file, &strict, || ()).is_err()
     }));
+    // The lock's age is `Date.now()` in whole milliseconds less the file's exact time, negative within the millisecond it was
+    // written: the file is dated a second back so that even a zero window has passed.
+    let written = std::time::SystemTime::now() - Duration::from_secs(1);
+    mixdog_fsio::File::options().write(true).open(&mixdog_fsio::Unlaned, lock_path(&file)).unwrap().set_modified(&mixdog_fsio::Unlaned, written).unwrap();
     let stale = LockOpts { timeout: Some(Duration::ZERO), stale: Some(Duration::ZERO), strict_owner: false };
     on_lane(move |lane| with_lock(lane, &file, &stale, || ()).unwrap());
 }

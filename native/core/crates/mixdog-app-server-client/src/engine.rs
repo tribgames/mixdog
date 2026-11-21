@@ -148,6 +148,9 @@ struct Shared {
     feed_events: u64,
     thread_last_event: HashMap<String, u64>,
     unanswered: Vec<Unanswered>,
+    /// Per fold lane, the notifications queued on it and those it has folded.
+    #[cfg(feature = "test-support")]
+    lane_folds: HashMap<Option<String>, (u64, u64)>,
 }
 
 enum Cmd {
@@ -278,6 +281,8 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         feed_events: 0,
         thread_last_event: HashMap::new(),
         unanswered: Vec::new(),
+        #[cfg(feature = "test-support")]
+        lane_folds: HashMap::new(),
     };
     let inner = Arc::new(Inner {
         opts: options,
@@ -471,6 +476,25 @@ impl Shared {
 }
 
 impl Client {
+    /// Returns once every notification the client has read so far is folded into the store: each lane has folded what was
+    /// queued on it when this was called (a lane waiting on a blob waits for its reads).
+    #[cfg(feature = "test-support")]
+    pub async fn folded(&self) {
+        let mut pulse = self.inner.pulse.subscribe();
+        let queued: Vec<(Option<String>, u64)> = self.inner.lock().lane_folds.iter().map(|(lane, (queued, _))| (lane.clone(), *queued)).collect();
+        loop {
+            {
+                let s = self.inner.lock();
+                if queued.iter().all(|(lane, queued)| s.lane_folds.get(lane).is_some_and(|(_, done)| done >= queued)) {
+                    return;
+                }
+            }
+            if pulse.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
     /// The held requests with the address each answer goes to: an answer from this snapshot reaches only the socket the
     /// request arrived on, of this client.
     pub fn pending_replies(&self) -> Vec<(ServerRequest, ReplyAddress)> {
@@ -1186,16 +1210,29 @@ impl Driver {
     /// blob stubs are slow to resolve delays only itself; order within a lane is arrival order.
     fn fold(&mut self, lane: Option<String>, item: FoldItem) {
         let inner = &self.inner;
+        #[cfg(feature = "test-support")]
+        let counted = lane.clone();
         let tx = self.lanes.entry(lane).or_insert_with(|| {
             let (tx, mut rx) = mpsc::unbounded_channel::<FoldItem>();
             let inner = inner.clone();
+            #[cfg(feature = "test-support")]
+            let counted = counted.clone();
             tokio::spawn(async move {
                 while let Some(item) = rx.recv().await {
                     inner.fold_item(item).await;
+                    #[cfg(feature = "test-support")]
+                    {
+                        inner.lock().lane_folds.entry(counted.clone()).or_default().1 += 1;
+                        inner.pulse();
+                    }
                 }
             });
             tx
         });
+        #[cfg(feature = "test-support")]
+        {
+            self.inner.lock().lane_folds.entry(counted).or_default().0 += 1;
+        }
         let _ = tx.send(item);
     }
 

@@ -72,8 +72,10 @@ pub(crate) fn deadline(alarm: &dyn Alarm, delay: Duration) -> impl Future<Output
     }
 }
 
-/// A job as the thread runs it. When it panicked it hands back its answer, which the thread delivers
-/// once it has let itself go, so a caller that reads it finds the next job going to a new thread.
+/// A job as the thread runs it. It hands back its answer, which the thread delivers once the run is
+/// marked ended, so a watchdog ringing after the caller has its answer finds nothing to stop; when it
+/// panicked, once the thread has let itself go, so a caller that reads it finds the next job going
+/// to a new thread.
 struct Job {
     run: SeatWork,
     /// A judgment, under the watchdog; a model load is not (Node's has no watchdog for a load).
@@ -81,7 +83,7 @@ struct Job {
 }
 
 type Deliver = Box<dyn FnOnce() + Send>;
-type SeatWork = Box<dyn FnOnce(&mut Seat) -> Result<(), Deliver> + Send>;
+type SeatWork = Box<dyn FnOnce(&mut Seat) -> Result<Deliver, Deliver> + Send>;
 
 /// How a job ended, as its thread reports it.
 enum Ran<R> {
@@ -301,10 +303,7 @@ impl JudgeWorker {
     {
         let (tx, rx) = oneshot::channel::<Ran<R>>();
         let run = Box::new(move |seat: &mut Seat| match std::panic::catch_unwind(AssertUnwindSafe(|| job(seat))) {
-            Ok(out) => {
-                drop(tx.send(Ran::Done(out)));
-                Ok(())
-            }
+            Ok(out) => Ok(Box::new(move || drop(tx.send(Ran::Done(out)))) as Deliver),
             Err(payload) => {
                 let message = panic_message(payload.as_ref());
                 Err(Box::new(move || drop(tx.send(Ran::Panicked(message)))) as Deliver)
@@ -353,6 +352,14 @@ fn run_thread(generation: u64, jobs: &mpsc::Receiver<Job>, flight: &Arc<Mutex<Fl
             flight.running = None;
             flight.stop = seat.model.as_ref().map(|model| model.stopper());
         }
+        let ran = match ran {
+            Ok(Ok(deliver)) => {
+                deliver();
+                Ok(Ok(()))
+            }
+            Ok(Err(deliver)) => Ok(Err(deliver)),
+            Err(payload) => Err(payload),
+        };
         let Some(owner) = shared.upgrade() else { break };
         match ran {
             Ok(Ok(())) => {}
