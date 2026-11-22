@@ -43,11 +43,40 @@
    the 32px top scroll fade (12-transcript.css). The plate tint (a skin's
    --mx-skin-fill too) is nearly clear, so it is laid over the opaque ground
    and code never shows through. Tool panels scroll on their own. */
+.transcript .markdown-code:not(.tool-panel *) {
+  --markdown-code-pin: 44px;
+  --markdown-code-band: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
+}
 .transcript .markdown-code:not(.tool-panel *) > header {
   position: sticky;
-  top: 44px;
+  top: var(--markdown-code-pin);
   z-index: 1;
-  background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
+  background: var(--markdown-code-band);
+}
+/* The top inset above the pinned header is not opaque (the scroll fade ends
+   at 32px), so the block's own lines would pass in view above its header. A
+   cap in the header's paint rides at the scroller's top and covers them. It
+   starts above the code box and is clipped to it, so at rest nothing of it
+   shows. The clip is the code box's rectangle: a rounded one on the card
+   would take wheel hit-testing off the compositor. */
+.transcript .markdown-code:not(.tool-panel *) > pre {
+  --markdown-code-inset: 12px;
+  /* Down to the end of the header's rounded corners, which sit over the code. */
+  --markdown-code-cap: calc(var(--markdown-code-pin) + var(--mx-radius-lg, 0px));
+  padding: var(--markdown-code-inset);
+  overflow: clip;
+}
+.transcript .markdown-code:not(.tool-panel *) > pre::before {
+  content: "";
+  display: block;
+  position: sticky;
+  top: 0;
+  height: var(--markdown-code-cap);
+  margin: calc(-1 * (var(--markdown-code-cap) + var(--markdown-code-inset))) calc(-1 * var(--markdown-code-inset))
+    var(--markdown-code-inset);
+  background: var(--markdown-code-band);
+  /* A selection dragged up over the cap ends at the line under it, not at the block's first. */
+  pointer-events: none;
 }
 /* Parser fallback already uses the final code-block geometry and mono face.
    Only the copy action arrives with the rich AST, inside the fixed header. */

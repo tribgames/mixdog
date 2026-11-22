@@ -43,13 +43,17 @@ async function scrollTo(page, top) {
     const header = box('header');
     const copy = box('copy');
     const hit = document.elementFromPoint(copy.left + copy.width / 2, copy.top + copy.height / 2);
+    // Where a drag released over the cap ends its selection: the code under the cap.
+    const caret = document.caretPositionFromPoint(header.left + header.width / 2, scroller.top + 38);
     return {
+      scrollerTop: scroller.top,
       offset: header.top - scroller.top,
       cardTop: box('card').top - scroller.top,
       cardBottom: box('card').bottom - scroller.top,
       headerBottom: header.bottom - scroller.top,
       scrollTop: document.getElementById('scroller').scrollTop,
       copyHit: hit?.id === 'copy',
+      caretOffset: caret?.offset ?? null,
       // A blank point of the band: between the label and the actions.
       probe: { x: Math.round(header.left + header.width / 2), y: Math.round(header.top + header.height / 2) },
     };
@@ -106,8 +110,13 @@ test('code block header: sticks below the top chrome while the block scrolls, an
     const rest = await scrollTo(page, 0);
     assert.ok(rest.cardTop > 44, `${label}: the block starts below the top chrome at rest`);
     const restInk = await pixel(page, rest.probe);
+    const firstLine = { x: rest.probe.x, y: Math.round(rest.scrollerTop + rest.headerBottom + 20) };
+    assert.ok(
+      !samePaint(await pixel(page, firstLine), restInk),
+      `${label}: the block's first line shows under its header at rest`
+    );
 
-    for (const into of [300, 913]) {
+    for (const into of [10, 300, 913]) {
       const stuck = await scrollTo(page, rest.cardTop + into);
       assert.ok(stuck.cardTop < 0, `${label}: the block's top is scrolled past the chat's top`);
       assert.ok(
@@ -120,6 +129,18 @@ test('code block header: sticks below the top chrome while the block scrolls, an
         samePaint(stuckInk, restInk),
         `${label}: no code shows through the header (${into}px in): ${stuckInk} at rest ${restInk}`
       );
+      // Past the top fade's 32px and above the header's 44px line.
+      const above = await pixel(page, { x: stuck.probe.x, y: Math.round(stuck.scrollerTop + 38) });
+      assert.ok(
+        samePaint(above, stuckInk),
+        `${label}: none of the block's lines show above its pinned header (${into}px in): ${above} against ${stuckInk}`
+      );
+      if (into >= 300) {
+        assert.ok(
+          stuck.caretOffset > 121,
+          `${label}: a selection released over the cap ends at the line under it, not in the block's first line (${stuck.caretOffset})`
+        );
+      }
     }
 
     // Once the card's bottom passes the pinned header, the header leaves with
