@@ -376,6 +376,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_line_and_its_enter_read_in_one_chunk_run_the_turn() {
+        let (tx, mut rx) = unbounded_channel();
+        let mut session = Played::new(base_state(), answered("ok", vec![]));
+        session.after_last = Some(tx.clone());
+        tx.send(bytes("hello\r")).expect("sent");
+        let mut out = Capture { columns: Some(40), ..Capture::default() };
+        let config = config(OFF, true);
+        let code = Repl::new(&session, &Fixed, &config, &mut out, &mut rx).run().await;
+        assert_eq!(code, SIGINT_EXIT);
+        assert_eq!(session.submitted.lock().expect("submitted").as_slice(), ["hello"]);
+    }
+
+    #[tokio::test]
     async fn a_markdown_answer_replaces_its_raw_stream_in_place_on_a_terminal() {
         let session = Played::new(base_state(), answered("# Title\n\nsome **bold** words", vec![]));
         let (_, text) = run_lines(&session, ON, &["go", "/quit"]).await;
@@ -394,6 +407,28 @@ mod tests {
         assert_eq!(prompt_text(OFF), "\u{203a} ");
         assert_eq!(strip_ansi(&prompt_text(ON)), "\u{203a} ");
     }
+}
+
+/// A run of typed text that arrived in one read, cut at its line breaks into the text and an Enter for each (`\r\n` one), as
+/// readline reads a chunk key by key; the decoder keeps them inside the run, where the editor would drop them as control text.
+fn keystrokes(event: mixdog_term::InputEvent) -> Vec<mixdog_term::InputEvent> {
+    use mixdog_term::InputEvent;
+    use mixdog_term::KeyFlags;
+    let InputEvent::Key { input, key } = &event else { return vec![event] };
+    if input.len() < 2 || !input.contains(['\r', '\n']) || *key != KeyFlags::default() {
+        return vec![event];
+    }
+    let enter = KeyFlags { return_key: true, ..KeyFlags::default() };
+    let mut keys = Vec::new();
+    for (index, text) in input.replace("\r\n", "\r").split(['\r', '\n']).enumerate() {
+        if index > 0 {
+            keys.push(InputEvent::Key { input: "\r".to_owned(), key: enter.clone() });
+        }
+        if !text.is_empty() {
+            keys.push(InputEvent::Key { input: text.to_owned(), key: KeyFlags::default() });
+        }
+    }
+    keys
 }
 
 /// A wait until `due`, endless when there is none.
@@ -450,7 +485,7 @@ impl Input<'_> {
 
     fn apply(&mut self, events: Vec<mixdog_term::InputEvent>, mut paint: Option<Paint<'_>>) -> io::Result<bool> {
         let mut dirty = false;
-        for event in events {
+        for event in events.into_iter().flat_map(keystrokes) {
             for effect in self.editor.apply(&event) {
                 match effect {
                     Effect::Redraw => dirty = true,

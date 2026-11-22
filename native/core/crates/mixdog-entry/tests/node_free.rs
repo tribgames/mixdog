@@ -62,6 +62,15 @@ impl Steps<'_> {
             self.fail(step);
         }
     }
+    /// Waits for `marker` to leave the screen: the key that dismisses it was read.
+    fn gone(&self, marker: &str, step: &str) {
+        while self.pty.shows(marker) {
+            if self.left().is_zero() {
+                self.fail(step);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     fn exits(&mut self) -> Option<u32> {
         let left = self.left();
         self.pty.wait_exit(left)
@@ -157,6 +166,12 @@ fn the_terminal_interface_boots_answers_and_exits_without_node() {
     let watch = procs::Watch::start(tui.pid().unwrap());
     let mut steps = Steps { pty: &mut tui, end: Instant::now() + BUDGET, stand_in: &stand_in, sandbox: &sandbox, daemon: &daemon };
     steps.stable("the interface never booted");
+    // An empty session opens on the project list; Enter takes its first row, the folder the run started in.
+    steps.shows("Choose a project.", "no project list on the first screen");
+    steps.pty.send(b"\r");
+    // The Enter counts when the list is gone: what follows is typed into the prompt of the entered project.
+    steps.gone("Choose a project.", "the project was never entered");
+    steps.stable("the entered project never settled");
     steps.pty.send(b"hello\r");
     steps.shows(ANSWER, "no answer on the screen");
     steps.pty.send(b"/exit\r");
