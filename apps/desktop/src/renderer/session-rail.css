@@ -100,7 +100,6 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden auto;
-  scrollbar-width: thin;
   padding-block: var(--mx-rail-panel-content-top) 12px;
   border-radius: 0 0 calc(var(--mx-sheet-radius, 10px) - 1px) calc(var(--mx-sheet-radius, 10px) - 1px);
 }
