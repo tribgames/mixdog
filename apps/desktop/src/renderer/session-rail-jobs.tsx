@@ -1,18 +1,17 @@
 // The session panel's Agents and Shells categories: the island's own rows,
 // handlers (useSessionJobs) and footer line, in the panel's sheets.
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
-import { poolRowKey, type IslandAgentRow } from './agent-activity-model';
+import { agentRoleLabel, poolRowKey, type IslandAgentRow } from './agent-activity-model';
 import { AgentIslandRow } from './AgentIslandRow';
 import type { JobRow } from './background-jobs-model';
 import {
-  AgentsSummary,
-  agentStateLabels,
   clearableAgents,
   clearFinishedAgents,
   dismissShellRows,
   ShellJobItem,
   shellStateLabels,
   useAgentsUsage,
+  widestClocks,
 } from './ComposerIsland';
 import { t } from './i18n';
 import { IslandColumnSizer } from './IslandPanelFoot';
@@ -36,8 +35,23 @@ export function railAgentGroups(agents: readonly IslandAgentRow[]) {
   };
 }
 
-/** The Agents category: a fold for each state, as To-do folds its steps. The
- *  finished ones stay folded while any agent is at work or queued. */
+/** The agents by role, in the order each role first appears. */
+export function railAgentRoles(agents: readonly IslandAgentRow[]): { role: string; rows: IslandAgentRow[] }[] {
+  const roles = new Map<string, IslandAgentRow[]>();
+  for (const row of agents) {
+    const role = agentRoleLabel(row.node.agent.agent || row.node.agent.tag);
+    const rows = roles.get(role);
+    if (rows) rows.push(row);
+    else roles.set(role, [row]);
+  }
+  return [...roles].map(([role, rows]) => ({ role, rows }));
+}
+
+/** An agent's name under its role's fold: its tag, the role saying the rest. */
+const nameInRole = (row: IslandAgentRow, role: string) => String(row.node.agent.tag || '').trim() || role;
+
+/** The Agents category: a fold for each role (Worker, Reviewer, …) with its
+ *  agents under it, each named by its tag; the head counts them by state. */
 export function AgentsSection({
   sessionId,
   agents,
@@ -65,18 +79,14 @@ export function AgentsSection({
   const usage = useAgentsUsage({ sessionId, agentRows: agents, poolRows, busy, open: shown });
   if (agents.length === 0) return null;
   const { running, waiting, finished } = railAgentGroups(agents);
-  const active = running.length + waiting.length > 0;
-  const groups = [
-    { key: 'agents:running', name: t('Running {{count}}', { count: running.length }), rows: running, byDefault: true },
-    { key: 'agents:waiting', name: t('Waiting {{count}}', { count: waiting.length }), rows: waiting, byDefault: true },
-    {
-      key: 'agents:finished',
-      name: t('Finished {{count}}', { count: finished.length }),
-      rows: finished,
-      byDefault: !active,
-    },
-  ].filter((group) => group.rows.length > 0);
-  const summary = groups.map((group) => group.name).join(' · ');
+  const summary = [
+    running.length ? t('Running {{count}}', { count: running.length }) : '',
+    waiting.length ? t('Waiting {{count}}', { count: waiting.length }) : '',
+    finished.length ? t('Finished {{count}}', { count: finished.length }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const groups = railAgentRoles(agents).map(({ role, rows }) => ({ key: `agents:role:${role}`, role, rows }));
   return (
     <RailSection
       category="agents"
@@ -86,7 +96,6 @@ export function AgentsSection({
       open={open}
       onToggle={onToggle}
       scroll
-      foot={<AgentsSummary usage={usage} />}
       tidy={{
         kind: 'clear-finished',
         description: t('Clear finished'),
@@ -95,28 +104,26 @@ export function AgentsSection({
       }}
     >
       {groups.map((group) => {
-        const shown = folds.groupOpen(group.key, group.byDefault);
+        const shown = folds.groupOpen(group.key, true);
+        const name = `${group.role} ${group.rows.length}`;
         return (
           <div key={group.key} className="session-rail-group" data-group={group.key}>
-            <RailFold
-              id={group.key}
-              name={group.name}
-              open={shown}
-              onToggle={() => folds.setGroups({ [group.key]: !shown })}
-            />
+            <RailFold id={group.key} name={name} open={shown} onToggle={() => folds.setGroups({ [group.key]: !shown })} />
             {shown && (
               <div
                 className="composer-island-jobs composer-island-agents schedules-list agent-pool-list"
                 role="tree"
-                aria-label={group.name}
+                aria-label={name}
               >
-                {group.rows.map(({ node, state }, index) => (
-                  <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
+                {group.rows.map((row, index) => (
+                  <div key={poolRowKey(row.node.agent, index)} className="composer-island-agent-item" role="none">
                     <AgentIslandRow
-                      node={node}
-                      state={state}
+                      // Under its role an agent stands on its own line, whoever started it.
+                      node={row.node.depth === 0 ? row.node : { ...row.node, depth: 0 }}
+                      name={nameInRole(row, group.role)}
+                      state={row.state}
                       clock={clock}
-                      tokens={usage.agentRowTokens.get(node.sessionId)}
+                      tokens={usage.agentRowTokens.get(row.node.sessionId)}
                       posInSet={index + 1}
                       setSize={group.rows.length}
                       ownerSessionId={sessionId}
@@ -124,7 +131,8 @@ export function AgentsSection({
                     />
                   </div>
                 ))}
-                <IslandColumnSizer labels={agentStateLabels()} />
+                {/* The state column keeps a clock's width; the names take the rest of the card. */}
+                <IslandColumnSizer labels={widestClocks()} />
               </div>
             )}
           </div>

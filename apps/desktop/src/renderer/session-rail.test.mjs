@@ -313,21 +313,22 @@ test("each foot's Clean up is enabled only with something to clear", async (t) =
   const finished = { ...agent('b', 'completed'), settledAt: Date.now() - 1_000 };
   await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
   assert.equal(tidy().getAttribute('aria-disabled'), null);
-  // A fold for each state: the finished agents stay folded while one is at work.
-  const group = (key) => document.querySelector(`[data-category="agents"] [data-group="agents:${key}"]`);
-  const rows = (key) => group(key).querySelectorAll('[role="treeitem"]').length;
-  assert.equal(group('running').querySelector('[data-fold]').textContent, 'Running 1');
-  assert.equal(rows('running'), 1);
-  assert.equal(group('finished').querySelector('[data-fold]').textContent, 'Finished 1');
-  assert.equal(rows('finished'), 0);
-  assert.equal(group('waiting'), null, 'a state with no agent has no fold');
-  await act(async () => group('finished').querySelector('[data-fold]').click());
+  // A fold for each role, its agents under it by their tags; the head counts them by state.
+  const section = document.querySelector('[data-category="agents"]');
+  const folds = () => [...section.querySelectorAll('[data-group]')];
+  const names = (fold) => [...fold.querySelectorAll('.agent-pool-name')].map((name) => name.textContent);
+  assert.equal(section.querySelector('.session-rail-sm').textContent, 'Running 1 · Finished 1');
+  assert.deepEqual(
+    folds().map((fold) => fold.querySelector('[data-fold]').textContent),
+    ['Worker 2']
+  );
+  const workers = folds()[0];
+  assert.deepEqual(names(workers), ['a', 'b'], 'the role is said once, by the fold');
+  assert.equal(section.querySelector('.session-rail-ft .composer-island-summary'), null, 'no usage line in the panel');
+  await act(async () => workers.querySelector('[data-fold]').click());
   await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
-  assert.equal(rows('finished'), 1);
-  // With nothing at work the finished agents are what there is to read.
-  for (const key of Object.keys(opened)) delete opened[key];
-  await act(async () => root.render(agents([finished])));
-  assert.equal(rows('finished'), 1);
+  assert.deepEqual(names(folds()[0]), [], 'folded: the role keeps its count alone');
+  assert.equal(folds()[0].querySelector('[data-fold]').textContent, 'Worker 2');
 });
 
 test("the Worktrees foot's Clean up follows the cleanup preview", async (t) => {
@@ -695,7 +696,7 @@ test('Context is a category of its own: the share, a bar and the two actions; ab
       ['free', '60.0%'],
     ]
   );
-  assert.equal(section.querySelector('.session-rail-ct').textContent, '40%');
+  assert.equal(section.querySelector('.session-rail-sm').textContent, '80k / 200k · 40.0%');
   assert.equal(section.querySelector('[role="meter"]').getAttribute('aria-valuenow'), '40');
   const buttons = [...section.querySelectorAll('.session-rail-ft button')];
   assert.equal(buttons.length, 2, 'Compact and the details');

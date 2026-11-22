@@ -224,7 +224,7 @@ function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
 }
 
 /** A clock under an hour and one under ten hours, at their widest digits. */
-const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElapsed(35_999_000)];
+export const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElapsed(35_999_000)];
 
 /** Everything an agent row's state column can read (agentElapsedText). */
 export function agentStateLabels(): string[] {
