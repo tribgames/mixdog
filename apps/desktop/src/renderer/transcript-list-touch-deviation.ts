@@ -85,10 +85,16 @@ export function createTouchScrollDeviation({
     markProgrammaticScroll(landed, target);
     return true;
   };
+  /** A wheel ramp resting at native 0 with history held above it: no scroll is left there for a write to cancel, and no
+   *  scroll event will come to end the hold, so the history could never be reached while the wheel keeps turning. */
+  const wheelAtTop = (): boolean => {
+    const element = getViewport();
+    return amount > 0 && !clampAtEdge() && element !== null && element.scrollTop <= TOP_EDGE_PX;
+  };
   const settle = () => {
     frame = 0;
     if (!amount) return;
-    if (hasTouchScroll() || !land()) frame = window.requestAnimationFrame(settle);
+    if ((hasTouchScroll() && !wheelAtTop()) || !land()) frame = window.requestAnimationFrame(settle);
   };
   return {
     amount: () => amount,

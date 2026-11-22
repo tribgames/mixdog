@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { Snapshot } from './desktop-types';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { commandShowsActivity } from './transcript-status';
 import { useConversationFollowEffects } from './use-conversation-follow-effects';
+import type { TranscriptRowModel } from './transcript-rows';
 import { useTranscriptRows } from './use-conversation-rows';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
@@ -11,6 +12,33 @@ import { useTranscriptHistoryFill } from './use-transcript-history';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 import { useTranscriptReveal } from './use-transcript-reveal';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
+
+const firstItemId = (row: TranscriptRowModel | undefined): string | undefined => {
+  const item = row?._tag === 'ToolActivity' ? row.items[0] : row && 'item' in row ? row.item : undefined;
+  return item?.id === undefined || item.id === null ? undefined : String(item.id);
+};
+const lastItemId = (row: TranscriptRowModel | undefined): string | undefined => {
+  const item = row?._tag === 'ToolActivity' ? row.items.at(-1) : row && 'item' in row ? row.item : undefined;
+  return item?.id === undefined || item.id === null ? undefined : String(item.id);
+};
+
+/** The ids of the first and last transcript items in the reader's view: the rows the list shows there (overscan
+ *  excluded), from the first row downward and the last row upward to one that shows an item. */
+function readerItems(root: HTMLElement, rows: readonly TranscriptRowModel[]): { first: string; last: string } | null {
+  let from = Number.POSITIVE_INFINITY;
+  let to = -1;
+  for (const node of root.querySelectorAll<HTMLElement>('.transcript-virtual-row:not([data-offscreen])')) {
+    const index = Number(node.dataset.index);
+    if (index < from) from = index;
+    if (index > to) to = index;
+  }
+  if (to < 0) return null;
+  let first: string | undefined;
+  for (let index = from; index < rows.length && first === undefined; index += 1) first = firstItemId(rows[index]);
+  let last: string | undefined;
+  for (let index = to; index >= 0 && last === undefined; index -= 1) last = lastItemId(rows[index]);
+  return first !== undefined && last !== undefined ? { first, last } : null;
+}
 
 /** The virtual timeline for one pane: its rows, the entry reveal, the
  *  history fill of a short first window, and follow re-arming. */
@@ -37,6 +65,7 @@ export function useConversationTimeline({
     | 'activeStreamingTail'
     | 'showTranscriptTimeline'
     | 'requestEarlierTranscript'
+    | 'transcriptReaderAt'
     | 'resetTranscriptToLive'
     | 'transcriptHistoryRevision'
   >;
@@ -99,9 +128,24 @@ export function useConversationTimeline({
     onTranscriptHiddenChange?.(!transcriptRevealed);
     return () => onTranscriptHiddenChange?.(false);
   }, [onTranscriptHiddenChange, transcriptRevealed]);
+  // A positioned transcript pages by where the reader is: the pane says so on every scroll and whenever the window shown
+  // changes; the window decides what that view is near.
+  const rowsRef = useRef(transcriptRows);
+  rowsRef.current = transcriptRows;
+  const readerAt = source.transcriptReaderAt;
+  const reportReader = useCallback(() => {
+    const root = viewport.current;
+    const at = root ? readerItems(root, rowsRef.current) : null;
+    if (at) readerAt?.(at.first, at.last);
+  }, [readerAt, viewport]);
+  const revision = source.transcriptHistoryRevision;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the window's revision and the rows' count are the triggers
+  useEffect(() => {
+    if (readerAt && transcriptRevealed) reportReader();
+  }, [readerAt, reportReader, revision, transcriptRevealed, transcriptRows.length]);
   // A short first window (down to 8 huge rows) may not fill the pane, and
   // with nothing to scroll the top threshold is never crossed.
-  useTranscriptHistoryFill(viewport, requestEarlierTranscript, source.transcriptHistoryRevision, transcriptRevealed);
+  useTranscriptHistoryFill(viewport, requestEarlierTranscript, revision, transcriptRevealed && !readerAt);
   // The latest reply lives on the live tail: a history window gives way.
   const jumpToLatest = useCallback(() => {
     resetTranscriptToLive();
@@ -124,8 +168,21 @@ export function useConversationTimeline({
     transcriptRows,
     transcriptSessionKey: sessionKey,
     viewport,
+    windowGeneration: readerAt
+      ? typeof snapshot.transcriptGeneration === 'number'
+        ? snapshot.transcriptGeneration
+        : 0
+      : undefined,
   });
-  return { settledTurnKeys, transcriptRows, transcriptRevealed, jumpToLatest, shouldAnchorTranscriptBottom };
+  return {
+    settledTurnKeys,
+    transcriptRows,
+    transcriptRevealed,
+    jumpToLatest,
+    shouldAnchorTranscriptBottom,
+    /** A positioned transcript: tells the window where the reader is; null for a window paged by scroll offsets. */
+    reportTranscriptReader: readerAt ? reportReader : null,
+  };
 }
 
 export type ConversationTimeline = ReturnType<typeof useConversationTimeline>;

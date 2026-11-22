@@ -160,7 +160,7 @@ export function ConversationTranscript({
   >;
   timeline: Pick<
     ConversationTimeline,
-    'transcriptRows' | 'transcriptRevealed' | 'jumpToLatest' | 'shouldAnchorTranscriptBottom'
+    'transcriptRows' | 'transcriptRevealed' | 'jumpToLatest' | 'shouldAnchorTranscriptBottom' | 'reportTranscriptReader'
   >;
   links: { openFile?: OpenFile; openFolder?: OpenFolder; turnChangesSurface: TurnChangesSurface | null };
   sessionKey: string;
@@ -227,6 +227,10 @@ export function ConversationTranscript({
         onMouseDownCapture={collapseSelectionOnPress}
         onScroll={(event) => {
           follow.handleScroll();
+          if (timeline.reportTranscriptReader) {
+            timeline.reportTranscriptReader();
+            return;
+          }
           const element = event.currentTarget;
           const lead = transcriptHistoryLead(element.clientHeight);
           if (element.scrollTop <= lead) requestEarlierTranscript();

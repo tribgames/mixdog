@@ -19,9 +19,8 @@ window.mixdogDesktop = { rendererDiagnostic() {} };
 const { createSessionLane } = await import('../shared/core-lanes/session-lane.ts');
 const { sessionReducer } = await import('../../../../packages/protocol-client/src/session-state.ts');
 const { createSessionLaneStore, useSessionLane } = await import('./session-lane-store.ts');
-const { desktopConversationShellSnapshotsEqual, desktopStreamingTailSnapshotsEqual } = await import(
-  './desktop-snapshot-store.ts'
-);
+const { desktopConversationShellSnapshotsEqual, desktopStreamingTailSnapshotsEqual, paneConversationView } =
+  await import('./desktop-snapshot-store.ts');
 const { useSessionRouteChoices } = await import('./model-controls.tsx');
 const { useRouteLabelParts, ComposerRouteLabel } = await import('./composer-route-label.tsx');
 const { storeWorkflowOptions } = await import('./workflow-options-cache.ts');
@@ -287,4 +286,17 @@ test('speed, parameters and context changes on the seated model show at once', a
     });
     assert.equal(shown('context'), '50/200000');
   });
+});
+
+test("a pane's view of a positioned state carries the window's facts to the transcript", () => {
+  const facts = {
+    transcriptPositioned: true,
+    transcriptWindowVersion: 7,
+    transcriptTailRows: 31,
+    transcriptViewItems: [{ id: 'r1' }],
+    transcriptHistoryBefore: true,
+    transcriptHistoryAfter: true,
+  };
+  const view = paneConversationView({ sessionId: 's', items: [{ id: 'r9' }], ...facts });
+  assert.deepEqual(Object.fromEntries(Object.keys(facts).map((key) => [key, view[key]])), facts);
 });

@@ -147,13 +147,19 @@ test('a rewind cuts what follows its boundary and a clear leaves nothing', () =>
 
 test('the moves a reader asks for: a page above, a bounded stretch, the tail read anew, a hit opened', () => {
   const s = snapshot(['r20', 'r21']);
-  assert.deepEqual(windowWant(s.held!, { kind: 'older' }), {
+  // Fewer rows than the lead lie above the reader's view: the page above is asked for. A row no record holds stands at
+  // the newest end.
+  assert.deepEqual(windowWant(s.held!, { kind: 'read', first: 'r20', last: 'not-stored-yet' }), {
     ranges: [{ at: 'retain', id: 'tail' }, { at: 'before', position: pos('r20'), rows: 96 }],
     followTail: true,
     pinned: [],
   });
   assert.equal(windowWant(s.held!, { kind: 'follow' }), null, 'the followed tail alone is what following holds');
-  assert.equal(windowWant(s.held!, { kind: 'newer' }), null);
+  assert.equal(
+    windowWant(snapshot(['r1', 'r2'], [], false).held!, { kind: 'read', first: 'r1', last: 'r2' }),
+    null,
+    'the transcript starts there'
+  );
   assert.equal(windowWant(s.held!, { kind: 'at', position: pos('r21') }), null);
   assert.deepEqual(windowWant(s.held!, { kind: 'at', position: pos('r3') })?.ranges, [
     { at: 'retain', id: 'tail' },
@@ -162,15 +168,16 @@ test('the moves a reader asks for: a page above, a bounded stretch, the tail rea
   // A tail grown past its bound is read anew when the reader follows it.
   const grown = snapshot(Array.from({ length: WINDOW_TAIL_MAX_ROWS + 1 }, (_, i) => `g${i}`));
   assert.deepEqual(windowWant(grown.held!, { kind: 'follow' }), { ranges: [], followTail: true, pinned: [] });
-  // Pages above the tail, beyond the reader's bound, let go of those next to the tail first.
-  let paged = snapshot(['p999']);
-  let next = 1000;
-  const chunks: string[] = [];
-  for (let page = 0; page < 6; page++) {
+  // Pages above the tail. The way back down shows the rows held: nothing is asked for, and nothing let go, while the
+  // reader's view has the lead on both sides or the stretch is within its bound.
+  let paged = snapshot(['p9999']);
+  let next = 10000;
+  const oldest: string[] = [];
+  const grow = (page: number) => {
     const first = paged.held!.ranges.flatMap((range) => range.positions).sort()[0]!;
     const id = `q:${page}`;
     const rows = Array.from({ length: 96 }, () => `p${--next - 1}`).reverse();
-    chunks.push(id);
+    oldest.push(rows[0]!);
     paged = at(paged, 'thread/window/changed', {
       windowVersion: 20 + page,
       lineage: 1,
@@ -182,12 +189,20 @@ test('the moves a reader asks for: a page above, a bounded stretch, the tail rea
       added: [{ range: id, units: units([...rows, first.slice(5)]) }],
       followTail: true,
     });
-  }
-  const want = windowWant(paged.held!, { kind: 'older' })!;
-  const kept = want.ranges.filter((range) => range.at === 'retain').map((range) => (range as O).id);
+  };
+  const keptAt = (row: string): string[] | null => {
+    const want = windowWant(paged.held!, { kind: 'read', first: row, last: row });
+    return want && want.ranges.filter((range) => range.at === 'retain').map((range) => (range as O).id);
+  };
+  for (let page = 0; page < 6; page++) grow(page);
+  assert.equal(keptAt(oldest[2]!), null, 'in the middle of the rows held, nothing is asked for');
+  assert.deepEqual(keptAt(oldest[5]!), ['tail', 'q:0', 'q:1', 'q:2', 'q:3', 'q:4', 'q:5'], 'at the top, everything read stays');
+  // Past the bound, the pages farthest from the reader's view are let go; those within its lead and a page stay.
+  for (let page = 6; page < 24; page++) grow(page);
+  const kept = keptAt(oldest[23]!)!;
   assert.ok(kept.includes('tail'));
   assert.ok(!kept.includes('q:0'), 'the page next to the tail is let go first');
-  assert.ok(kept.includes('q:5'), 'the page the reader is at is kept');
+  assert.ok(['q:21', 'q:22', 'q:23'].every((id) => kept.includes(id)), 'the pages around the reader are kept');
 });
 
 test('a positioned client resumes with positionedWindow, takes window frames at the position they stand at, and sends the moves', async () => {
@@ -242,7 +257,7 @@ test('a positioned client resumes with positionedWindow, takes window frames at 
   await settle();
   assert.deepEqual(ids((sessionStateOf(client, 't') as O).items), ['r8', 'r9', 'r10']);
 
-  const moved = moveTranscriptWindow(client, 't', { kind: 'older' });
+  const moved = moveTranscriptWindow(client, 't', { kind: 'read', first: 'r8', last: 'r10' });
   const set = JSON.parse(await conn.nextSent());
   assert.equal(set.method, 'thread/window/set');
   assert.deepEqual(

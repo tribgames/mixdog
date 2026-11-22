@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, type RefObject } from 'react';
 import { WINDOW_TAIL_MAX_ROWS } from '../../../../packages/protocol-client/src/transcript-window.ts';
+import type { DesktopTranscriptMove } from '../shared/contract-session';
 import { noteHistoryPageRequest } from './tool-output-prefetch';
 import {
   nextTranscriptHistoryLimit,
@@ -225,10 +226,10 @@ export function positionedFactsOf<T>(state: Record<string, unknown>): Positioned
   };
 }
 
-/** A positioned transcript's rows and paging: the core holds the followed tail and the rows around the reader. Scrolling
- *  past the rows shown asks for the next page there and lets go of the far end (`moveTranscriptWindow`); the rows arrive as
- *  the session's state. One move is out at a time: a page asked for while one is on its way is asked again, if still wanted,
- *  when the window it brought is shown (`revision`). */
+/** A positioned transcript's rows and paging: the core holds the followed tail and the rows around the reader. The pane
+ *  says where the reader is (`readerAt`: the first and last items in its view) on every scroll and whenever the window
+ *  shown changes (`revision`); the window asks for the page that view is near and lets go of the rows far from it
+ *  (`moveTranscriptWindow`), and the rows arrive as the session's state. One move is out at a time. */
 function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   sessionId: string,
   liveItems: readonly T[],
@@ -236,20 +237,32 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   following: boolean,
   facts: PositionedFacts<T> | undefined
 ) {
+  // One move is out at a time; the latest asked meanwhile goes out when it returns.
   const moving = useRef(false);
+  const waiting = useRef<DesktopTranscriptMove | null>(null);
   const move = useCallback(
-    (kind: 'follow' | 'older' | 'newer') => {
+    (to: DesktopTranscriptMove) => {
       const ask = window.mixdogDesktop?.moveTranscriptWindow;
-      if (!sessionId || !ask || moving.current) return;
-      moving.current = true;
-      const release = kind === 'follow' ? () => undefined : noteHistoryPageRequest();
-      void Promise.resolve()
-        .then(() => ask(sessionId, { kind }))
-        .catch(() => false)
-        .finally(() => {
-          moving.current = false;
-          release();
-        });
+      if (!sessionId || !ask) return;
+      if (moving.current) {
+        waiting.current = to;
+        return;
+      }
+      const send = (next: DesktopTranscriptMove): void => {
+        moving.current = true;
+        const release = next.kind === 'follow' ? () => undefined : noteHistoryPageRequest();
+        void Promise.resolve()
+          .then(() => ask(sessionId, next))
+          .catch(() => false)
+          .finally(() => {
+            release();
+            const queued = waiting.current;
+            waiting.current = null;
+            if (queued) send(queued);
+            else moving.current = false;
+          });
+      };
+      send(to);
     },
     [sessionId]
   );
@@ -259,13 +272,10 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   // Following the tail holds the tail alone: a stretch read above it is let go, and the tail is read anew once it has grown.
   const loose = following && (historyActive || tailRows > WINDOW_TAIL_MAX_ROWS);
   useEffect(() => {
-    if (loose) move('follow');
+    if (loose) move({ kind: 'follow' });
   }, [loose, move, facts?.version]);
-  const requestEarlier = useCallback(() => move('older'), [move]);
-  const requestLater = useCallback(() => {
-    if (historyActive) move('newer');
-  }, [historyActive, move]);
-  const resetToLive = useCallback(() => move('follow'), [move]);
+  const readerAt = useCallback((first: string, last: string) => move({ kind: 'read', first, last }), [move]);
+  const resetToLive = useCallback(() => move({ kind: 'follow' }), [move]);
   const items = viewItems ?? liveItems;
   const hasOlder = historyActive ? facts?.viewOlder === true : liveHasOlder;
   return {
@@ -273,11 +283,14 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     hasOlder,
     revision: `${facts?.version ?? 0}:${items.length}:${String(hasOlder)}:${String(historyActive)}`,
     historyActive,
-    requestEarlier,
-    requestLater,
+    requestEarlier: noRequest,
+    requestLater: noRequest,
+    readerAt,
     resetToLive,
   };
 }
+
+const noRequest = (): void => undefined;
 
 function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
   sessionId: string,
@@ -372,6 +385,8 @@ function useLegacyTranscriptWindow<T extends { readonly id?: unknown }>(
     historyActive: held !== null,
     requestEarlier,
     requestLater,
+    /** A window read by scroll offsets has no reader's position to follow. */
+    readerAt: null,
     resetToLive,
   };
 }

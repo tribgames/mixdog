@@ -47,6 +47,7 @@ export function useConversationTranscriptSource({
   );
   const requestEarlierTranscript = history.requestEarlier;
   const requestLaterTranscript = history.requestLater;
+  const transcriptReaderAt = history.readerAt;
   const resetTranscriptToLive = history.resetToLive;
   const transcriptHistoryActive = history.historyActive;
   const identity = useConversationTranscriptIdentity({
@@ -65,6 +66,9 @@ export function useConversationTranscriptSource({
     settledRowItems,
     requestEarlierTranscript,
     requestLaterTranscript,
+    /** A positioned transcript's paging: told the first and last items in the reader's view; null for a window paged by
+     *  scroll offsets (`requestEarlierTranscript`, `requestLaterTranscript`). */
+    transcriptReaderAt,
     resetTranscriptToLive,
     transcriptHistoryActive,
     transcriptHistoryRevision: history.revision,

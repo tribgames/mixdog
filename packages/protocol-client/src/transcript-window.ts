@@ -4,20 +4,26 @@ import type { ProtocolClient } from './api.ts';
 import { TAIL_RANGE, viewRun, windowRuns, type HeldWindow, type WindowRun } from './positioned.ts';
 import type { SessionFold } from './session-state.ts';
 
-/** Where the reader is: on the live tail (`follow`), at the oldest rows shown (`older`), at the newest rows of a stretch
- *  shown apart from the tail (`newer`), or opening the transcript at a record (`at`: a search hit's position, a turn's). */
+/** Where the reader is: on the live tail (`follow`), reading the rows `first`..`last` of the stretch shown (`read`: the
+ *  ids of the first and last rows in the reader's view; a row no record holds stands at the newest end), or opening the
+ *  transcript at a record (`at`: a search hit's position, a turn's). */
 export type TranscriptMove =
   | { readonly kind: 'follow' }
-  | { readonly kind: 'older' }
-  | { readonly kind: 'newer' }
+  | { readonly kind: 'read'; readonly first: string; readonly last: string }
   | { readonly kind: 'at'; readonly position: string };
 
-/** Rows a page asks for past the end the reader reached. */
+/** Rows a page asks for past an end of the stretch shown. */
 export const WINDOW_PAGE_ROWS = 96;
-/** The most rows held for the reader apart from the tail's range: past it, the end the reader moves away from is let go. */
-export const WINDOW_VIEW_MAX_ROWS = 480;
+/** A page is asked for while fewer rows than this lie between the reader's view and an end that continues. */
+export const WINDOW_LEAD_ROWS = 144;
+/** The most rows held for the reader apart from the tail's range: past it, ranges far from the reader's view are let go.
+ *  Wide enough that the way back down an ordinary read shows the rows it already holds, with none read again. */
+export const WINDOW_VIEW_MAX_ROWS = 2_048;
 /** Rows the followed tail's range may grow to while the reader follows it before it is read anew from the newest record. */
 export const WINDOW_TAIL_MAX_ROWS = 192;
+/** A range is let go only when all of it lies farther than this from the reader's view: a page would not be asked for
+ *  there again until the reader moved a page toward it. */
+const WINDOW_KEEP_ROWS = WINDOW_LEAD_ROWS + WINDOW_PAGE_ROWS;
 
 export type WindowRangeWant =
   | { readonly at: 'retain'; readonly id: string }
@@ -41,23 +47,63 @@ function rowsOfRanges(held: HeldWindow, ids: Iterable<string>): number {
   return rows;
 }
 
-/** The ranges of `run` other than the tail's, ordered by where each ends: from the end `newest` names. */
-function byEnd(held: HeldWindow, run: WindowRun, newest: boolean): string[] {
-  const place = new Map(run.positions.map((position, at) => [position, at]));
-  const end = (id: string): number => {
-    const positions = held.ranges.find((range) => range.id === id)?.positions ?? [];
-    const at = positions.map((position) => place.get(position) ?? -1);
-    return newest ? Math.max(...at) : -Math.min(...at);
-  };
-  return run.ranges.filter((id) => id !== TAIL_RANGE).sort((a, b) => end(b) - end(a));
+/** The record of `run` that shows the row `id`, as its place in the run. */
+function placeOf(held: HeldWindow, run: WindowRun, id: string): number {
+  return run.positions.findIndex((position) => {
+    const unit = held.units.get(position);
+    return unit !== undefined && (unit.items.includes(id) || unit.rows.some((row) => row.id === id));
+  });
 }
 
-/** `kept` with ranges let go from the front of `order` while the rows they hold and a page more exceed the reader's bound;
- *  the last of them stays. */
-function bounded(held: HeldWindow, kept: Set<string>, order: readonly string[]): Set<string> {
-  for (const id of order) {
+/** Where the reader's view lies in the run that shows it: the records of its first and last rows, and the rows of the run
+ *  before and after them. A row no record holds (a pending prompt, the running turn's rows) stands at the newest end. */
+interface Reading {
+  readonly run: WindowRun;
+  readonly first: number;
+  readonly last: number;
+  readonly rowsBefore: number;
+  readonly rowsAfter: number;
+  /** Rows of the run up to each record: `upTo[i]` is the rows of the records before the i-th. */
+  readonly upTo: readonly number[];
+}
+
+function reading(held: HeldWindow, first: string, last: string): Reading | null {
+  const run = viewRun(held) ?? windowRuns(held).find((candidate) => candidate.tail);
+  if (!run) return null;
+  const end = run.positions.length - 1;
+  const at = (id: string): number => {
+    const place = placeOf(held, run, id);
+    return place < 0 ? end : place;
+  };
+  const upTo = [0];
+  for (const position of run.positions) upTo.push(upTo.at(-1)! + (held.units.get(position)?.rows.length ?? 0));
+  const from = Math.min(at(first), at(last));
+  const to = Math.max(at(first), at(last));
+  return { run, first: from, last: to, rowsBefore: upTo[from]!, rowsAfter: upTo[end + 1]! - upTo[to + 1]!, upTo };
+}
+
+/** The ranges of the reader's run to keep: all of them, less those far from the view on the side `newest` names, let go
+ *  from the far end while the rows held and a page more exceed the reader's bound. */
+function keptNear(held: HeldWindow, at: Reading, newest: boolean): Set<string> {
+  const place = new Map(at.run.positions.map((position, index) => [position, index]));
+  const span = (id: string): { from: number; to: number } => {
+    const places = (held.ranges.find((range) => range.id === id)?.positions ?? []).map((position) => place.get(position) ?? 0);
+    return { from: Math.min(...places), to: Math.max(...places) };
+  };
+  // Rows between the view and the nearest record of the range.
+  const away = (id: string): number => {
+    const { from, to } = span(id);
+    if (from > at.last) return at.upTo[from]! - at.upTo[at.last + 1]!;
+    if (to < at.first) return at.upTo[at.first]! - at.upTo[to + 1]!;
+    return 0;
+  };
+  const kept = new Set(at.run.ranges);
+  const far = at.run.ranges
+    .filter((id) => id !== TAIL_RANGE && (newest ? span(id).from > at.last : span(id).to < at.first))
+    .sort((a, b) => away(b) - away(a));
+  for (const id of far) {
     const rest = [...kept].filter((other) => other !== TAIL_RANGE);
-    if (rest.length <= 1 || rowsOfRanges(held, rest) + WINDOW_PAGE_ROWS <= WINDOW_VIEW_MAX_ROWS) break;
+    if (rowsOfRanges(held, rest) + WINDOW_PAGE_ROWS <= WINDOW_VIEW_MAX_ROWS || away(id) <= WINDOW_KEEP_ROWS) break;
     kept.delete(id);
   }
   return kept;
@@ -89,19 +135,23 @@ export function windowWant(held: HeldWindow, move: TranscriptMove): WindowWant |
       const same = held.followTail && kept.size === held_.size && [...kept].every((id) => held_.has(id));
       return same ? null : asked(kept);
     }
-    case 'older': {
-      const run = view ?? tail;
-      if (!run || run.older === null) return null;
-      const kept = bounded(held, new Set(run.ranges), byEnd(held, run, true));
-      if (!run.tail && tailKept) kept.add(TAIL_RANGE);
-      if (run.tail) kept.add(TAIL_RANGE);
-      return asked(kept, { at: 'before', position: run.positions[0]!, rows: WINDOW_PAGE_ROWS });
-    }
-    case 'newer': {
-      if (!view || view.newer === null) return null;
-      const kept = bounded(held, new Set(view.ranges), byEnd(held, view, false));
-      if (tailKept) kept.add(TAIL_RANGE);
-      return asked(kept, { at: 'after', position: view.positions.at(-1)!, rows: WINDOW_PAGE_ROWS });
+    case 'read': {
+      const at = reading(held, move.first, move.last);
+      if (!at) return null;
+      const { run } = at;
+      // Near both ends (a short stretch), the older one is paged first; the other is asked by the reader's next move.
+      const older = run.older !== null && at.rowsBefore < WINDOW_LEAD_ROWS;
+      const newer = !run.tail && run.newer !== null && at.rowsAfter < WINDOW_LEAD_ROWS;
+      if (!older && !newer) return null;
+      const kept = keptNear(held, at, older);
+      // The followed tail's own range stays with its run; apart from the reader's stretch it stays while it is small.
+      if (run.tail || tailKept) kept.add(TAIL_RANGE);
+      return asked(
+        kept,
+        older
+          ? { at: 'before', position: run.positions[0]!, rows: WINDOW_PAGE_ROWS }
+          : { at: 'after', position: run.positions.at(-1)!, rows: WINDOW_PAGE_ROWS }
+      );
     }
     case 'at': {
       const shown = [tail, view].some((run) => run?.positions.includes(move.position));
