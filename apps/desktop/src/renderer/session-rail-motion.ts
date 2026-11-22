@@ -3,63 +3,141 @@
 // and one that leaves closes to nothing, so the cards under it glide to their
 // place instead of jumping. Cards drawn with the panel, or with another
 // session, stand at once.
+//
+// The cards are watched where they are (the panel's own children), not at the
+// panel's render: a section that fills or empties by itself (the Git status)
+// never renders the panel.
 import { type RefObject, useLayoutEffect, useRef } from 'react';
 
-const MOTION: KeyframeAnimationOptions = { duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' };
-const CARD = '.session-rail-sec:not([data-leaving])';
+const DURATION = 200;
+const EASING = 'cubic-bezier(0.2, 0, 0, 1)';
 
-const categoryOf = (card: HTMLElement) => card.dataset.category ?? '';
-const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+const isCard = (node: Node | null): node is HTMLElement =>
+  node?.nodeType === 1 && (node as HTMLElement).classList.contains('session-rail-sec');
 
-/** `from` nothing to the card's own height, or the reverse: the gap it holds in the column goes with it. */
-function fold(card: HTMLElement, gap: number, opening: boolean): Animation {
-  const open = { height: `${card.offsetHeight}px`, marginBottom: '0px', opacity: 1 };
-  const closed = { height: '0px', marginBottom: `${-gap}px`, opacity: 0 };
-  card.style.overflow = 'clip';
-  return card.animate(opening ? [closed, open] : [open, closed], MOTION);
+interface RailMotion {
+  /** Everything stands as it is now: no card opens or closes for the changes made so far. */
+  stand(): void;
+  end(): void;
+}
+
+function railMotion(root: HTMLElement): RailMotion {
+  const view = root.ownerDocument.defaultView as Window & typeof globalThis;
+  const reduced = view.matchMedia?.('(prefers-reduced-motion: reduce)');
+  // A fold runs to the card's own height (`auto`), whatever it becomes meanwhile; without that the cards stand at once.
+  const folds = view.CSS?.supports?.('interpolate-size', 'allow-keywords') === true;
+  const still = () => !folds || reduced?.matches === true;
+  const present = new Set<HTMLElement>();
+  /** One fold a card: forward it opens, backward it closes, so a card turned round goes back from where it stands. */
+  const moving = new Map<HTMLElement, Animation>();
+  const leaving = new Set<HTMLElement>();
+
+  const settle = (card: HTMLElement) => {
+    moving.get(card)?.cancel();
+    moving.delete(card);
+    if (leaving.delete(card)) {
+      card.remove();
+      return;
+    }
+    card.style.removeProperty('overflow');
+    card.style.removeProperty('interpolate-size');
+  };
+
+  const fold = (card: HTMLElement): Animation => {
+    const running = moving.get(card);
+    if (running) return running;
+    const gap = Number.parseFloat(view.getComputedStyle(root).rowGap) || 0;
+    // Hidden, not clipped: a column's item is no shorter than its content unless it scrolls.
+    card.style.overflow = 'hidden';
+    card.style.setProperty('interpolate-size', 'allow-keywords');
+    const animation = card.animate(
+      [
+        { height: '0px', marginBottom: `${-gap}px`, opacity: 0 },
+        { height: 'auto', marginBottom: '0px', opacity: 1 },
+      ],
+      { duration: DURATION, easing: EASING, fill: 'both' }
+    );
+    animation.onfinish = () => settle(card);
+    moving.set(card, animation);
+    return animation;
+  };
+
+  const leave = (card: HTMLElement, record: MutationRecord) => {
+    present.delete(card);
+    if (still()) return;
+    // The card React let go of stands in its place, inert, while it closes.
+    const next = record.nextSibling?.parentNode === root ? record.nextSibling : null;
+    const after = record.previousSibling?.parentNode === root ? record.previousSibling.nextSibling : null;
+    leaving.add(card);
+    card.setAttribute('data-leaving', '');
+    card.setAttribute('aria-hidden', 'true');
+    card.inert = true;
+    root.insertBefore(card, next ?? after);
+    fold(card).reverse();
+  };
+
+  const arrive = (card: HTMLElement) => {
+    present.add(card);
+    // The same category back before its last card has closed: the new card goes on from there.
+    const twin = [...leaving].find((other) => other.dataset.category === card.dataset.category);
+    const from = twin ? moving.get(twin)?.currentTime : null;
+    if (twin) settle(twin);
+    if (still()) return;
+    const animation = fold(card);
+    if (from != null) animation.currentTime = from;
+  };
+
+  const observer = new view.MutationObserver((records) => {
+    // From the last: a card put back before its neighbour finds that neighbour standing again.
+    for (const record of [...records].reverse()) {
+      for (const node of [...record.removedNodes].reverse()) {
+        // A card moved to another place in the order is here still.
+        if (isCard(node) && present.has(node) && node.parentNode !== root) leave(node, record);
+      }
+    }
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (isCard(node) && node.parentNode === root && !present.has(node) && !leaving.has(node)) arrive(node);
+      }
+    }
+  });
+  const stand = () => {
+    observer.takeRecords();
+    for (const card of [...moving.keys()]) settle(card);
+    observer.takeRecords();
+    present.clear();
+    for (const node of root.children) if (isCard(node)) present.add(node);
+  };
+  const onReduced = () => {
+    if (reduced?.matches) for (const card of [...moving.keys()]) settle(card);
+  };
+
+  stand();
+  observer.observe(root, { childList: true });
+  reduced?.addEventListener('change', onReduced);
+  return {
+    stand,
+    end() {
+      observer.disconnect();
+      reduced?.removeEventListener('change', onReduced);
+      for (const card of [...moving.keys()]) settle(card);
+    },
+  };
 }
 
 export function useSessionRailMotion(content: RefObject<HTMLElement | null>, session: string): void {
-  /** The cards of the commit before, in order, for the session they were drawn for. */
-  const shown = useRef<{ session: string; cards: HTMLElement[]; parents: Map<HTMLElement, ParentNode | null> } | null>(
-    null
-  );
+  const motion = useRef<RailMotion | null>(null);
   useLayoutEffect(() => {
     const root = content.current;
     if (!root) return;
-    const cards = [...root.querySelectorAll<HTMLElement>(CARD)];
-    const prior = shown.current;
-    shown.current = { session, cards, parents: new Map(cards.map((card) => [card, card.parentNode])) };
-    if (!prior || prior.session !== session || reducedMotion() || typeof root.animate !== 'function') return;
-    const before = new Set(prior.cards.map(categoryOf));
-    const now = new Set(cards.map(categoryOf));
-    const gap = Number.parseFloat(window.getComputedStyle(root).rowGap) || 0;
-    for (const card of cards) {
-      if (before.has(categoryOf(card))) continue;
-      void fold(card, gap, true).finished.then(
-        () => card.style.removeProperty('overflow'),
-        () => undefined
-      );
-    }
-    prior.cards.forEach((card, at) => {
-      if (card.isConnected || now.has(categoryOf(card))) return;
-      // The card React let go of stands in its place, inert, while it closes.
-      const parent = prior.parents.get(card);
-      const host = parent?.isConnected ? parent : root;
-      const next = prior.cards.slice(at + 1).find((other) => other.isConnected && other.parentNode === host) ?? null;
-      card.setAttribute('data-leaving', '');
-      card.setAttribute('aria-hidden', 'true');
-      card.inert = true;
-      host.insertBefore(card, next);
-      const gone = () => card.remove();
-      void fold(card, gap, false).finished.then(gone, gone);
-    });
-  });
-  useLayoutEffect(
-    () => () => {
-      for (const card of shown.current?.cards ?? []) card.getAnimations?.().forEach((animation) => animation.cancel());
-      shown.current = null;
-    },
-    []
-  );
+    const made = railMotion(root);
+    motion.current = made;
+    return () => {
+      made.end();
+      motion.current = null;
+    };
+  }, [content]);
+  // Another session's cards are drawn in the commit this follows: they stand at once.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the session is the trigger, not a value read
+  useLayoutEffect(() => motion.current?.stand(), [session]);
 }
