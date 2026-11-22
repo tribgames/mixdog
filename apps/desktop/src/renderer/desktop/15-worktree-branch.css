@@ -359,6 +359,30 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   gap: 10px;
   padding: 6px;
 }
+/* The island's rows read like its agents panel's: a 16px mark in the soft
+   ink, the name in the name weight and ink (a worktree's too: it is told
+   apart by its mark and group), the trailing label in the state column's
+   type. */
+.branch-menu-body .branch-menu-item > svg:first-child:not(.progress-spinner-turn) {
+  width: 16px;
+  height: 16px;
+  color: var(--mx-text-soft);
+}
+.branch-menu-body .branch-menu-item > span {
+  color: var(--mx-text);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
+}
+.branch-menu-body .branch-menu-item > small {
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+/* While work runs no row can switch, which is most of the time: the list
+   stays in its ink instead of going grey, and a pressed row says why. */
+.branch-menu-body .branch-menu-item[data-locked][aria-disabled="true"] {
+  opacity: 1;
+}
 .branch-menu-body .branch-row-shell {
   --branch-row-h: 40px;
 }

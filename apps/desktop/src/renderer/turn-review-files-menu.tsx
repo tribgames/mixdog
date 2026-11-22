@@ -17,7 +17,7 @@ import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
 import { usePaneKey } from './pane-key-context';
-import { MxIcon } from './MxIcon';
+import { IslandPanelHead } from './IslandPanelFoot';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -114,9 +114,10 @@ function FileRowButton({
       onPointerDown={onPointerDown}
       onClick={onOpen}
     >
+      {/* The folder gives way first; the file name keeps its room. */}
       <span className="turn-review-files-path">
         {slash >= 0 && <span className="turn-review-files-dir">{clean.slice(0, slash + 1)}</span>}
-        {clean.slice(slash + 1)}
+        <span className="turn-review-files-name">{clean.slice(slash + 1)}</span>
       </span>
       {entry.lineStats && (
         <span className="diff-stats">
@@ -369,26 +370,13 @@ export function TurnReviewFilesMenu({
       </button>
       {open && (
         <section ref={panel} className="composer-island-panel turn-review-files-panel" aria-label={label}>
-          <div className="composer-island-phead">
-            <span className="composer-island-tab turn-review-files-tab" data-active="true">
-              {children}
-            </span>
-            {sourcePicker && (
-              <>
-                <span className="composer-island-phead-meta turn-review-files-source">{label}</span>
-                <ChangesSourceMenu />
-              </>
-            )}
-            <button
-              type="button"
-              className="composer-island-close"
-              aria-label={t('Close')}
-              title={t('Close')}
-              onClick={() => close(true)}
-            >
-              <MxIcon name="close-small" size={16} />
-            </button>
-          </div>
+          <IslandPanelHead
+            chip={children}
+            meta={sourcePicker ? label : undefined}
+            metaClassName="turn-review-files-source"
+            extra={sourcePicker ? <ChangesSourceMenu /> : undefined}
+            onClose={() => close(true)}
+          />
           <div
             className="composer-island-pbody turn-review-files-menu"
             role="menu"

@@ -218,7 +218,7 @@ const PAGE = `
       }
       // The text itself (not just its flex box) must stay clear of the right column.
       const right = [status, tokens].filter(Boolean).map(box);
-      for (const text of item.querySelectorAll('.agent-pool-name, .model-route-label')) {
+      for (const text of item.querySelectorAll('.agent-pool-name, .model-route-label, .agent-todo-mark')) {
         const range = document.createRange();
         range.selectNodeContents(text);
         const t = range.getBoundingClientRect();
@@ -227,7 +227,12 @@ const PAGE = `
       }
       if (box(status).right > it.right + 0.5 || (tokens && box(tokens).right > it.right + 0.5)) rowOverlaps.push('right column leaves the row');
     }
-    const marks = [...panel.querySelectorAll('.agent-todo-mark')].map((node) => box(node).left);
+    // A step mark sits after its row's model, on the model's line.
+    const marks = [...panel.querySelectorAll('.agent-todo-mark')].map((node) => {
+      const mark = box(node);
+      const model = box(node.parentElement.querySelector('.model-route-label'));
+      return mark.left >= model.right - 0.5 && Math.abs((mark.top + mark.bottom) / 2 - (model.top + model.bottom) / 2) <= 3;
+    });
     const list = panel.querySelector('.composer-island-jobs');
     const shown = box(list);
     const cutRows = items
@@ -285,10 +290,7 @@ function problems(label, m, phone) {
   expect(m.outside.length === 0, `pokes out of the panel: ${m.outside}`);
   expect(m.rowOverlaps.length === 0, `row text under the right column: ${m.rowOverlaps}`);
   expect(m.namesEllipsize, 'row titles ellipsize');
-  expect(
-    m.marks.length === 3 && Math.max(...m.marks) - Math.min(...m.marks) <= 0.5,
-    `step marks are not in one column: ${m.marks}`
-  );
+  expect(m.marks.length === 3 && m.marks.every(Boolean), `step marks do not follow their models: ${m.marks}`);
   expect(m.cutRows.length === 0 && m.moreBelow, `the list ends mid-row or without its shadow: ${m.cutRows}`);
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
   const a = m.footAction;

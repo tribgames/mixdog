@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from 'react';
 import { dismissShellJobs, useDismissedShellJobs } from './background-jobs-dismissed-store';
-import { AgentPoolRow } from './AgentActivityPane';
+import { AgentIslandRow } from './AgentIslandRow';
 import {
   clearableAgentNode,
   dismissFinishedAgentRows,
@@ -57,11 +57,17 @@ import { useWholeRowList } from './whole-row-list';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
 import { ComposerIslandContext, type ComposerIslandTab, type IslandSegmentReserves } from './composer-island-state';
-import { rememberedSegmentAdvances, useIslandFit, useIslandSlotPresence } from './composer-island-layout';
+import {
+  rememberedSegmentAdvances,
+  useIslandFit,
+  useIslandGlide,
+  useIslandSlotPresence,
+} from './composer-island-layout';
 import { desktopHeaderSnapshotsEqual, paneHeaderView } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT } from './desktop-types';
 import { t } from './i18n';
-import { IslandPanelFoot, TidyButton } from './IslandPanelFoot';
+import { IslandColumnSizer, IslandPanelFoot, IslandPanelHead, TidyButton } from './IslandPanelFoot';
+import { formatWorkElapsed } from './transcript-primitives';
 import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
@@ -169,41 +175,11 @@ function ShellJobItem({
   return (
     <li className="composer-island-row" data-finished={row.finished ? 'true' : undefined}>
       <ShellJobContent row={row} clock={clock} stop={stop} releasing={releasing} />
-      <ShellRowButton row={row} stop={stop} releasing={releasing} onStop={onStop} onDismiss={onDismiss} />
-    </li>
-  );
-}
-
-/** A jobs panel's header: its own title chip, optional state counts beside
- *  it, and the close button. Actions live in the footer (IslandPanelFoot). */
-function JobsPanelHead({
-  mark,
-  title,
-  meta,
-  onClose,
-}: {
-  mark: ReactNode;
-  title: string;
-  meta?: ReactNode;
-  onClose(): void;
-}) {
-  return (
-    <div className="composer-island-phead">
-      <span className="composer-island-tab" data-active="true">
-        {mark}
-        {title}
+      {/* One grid cell for the row's one or two buttons. */}
+      <span className="composer-island-row-actions">
+        <ShellRowButton row={row} stop={stop} releasing={releasing} onStop={onStop} onDismiss={onDismiss} />
       </span>
-      {meta ? <span className="composer-island-phead-meta">{meta}</span> : null}
-      <button
-        type="button"
-        className="composer-island-close"
-        aria-label={t('Close')}
-        title={t('Close')}
-        onClick={onClose}
-      >
-        <MxIcon name="close-small" size={16} />
-      </button>
-    </div>
+    </li>
   );
 }
 
@@ -221,20 +197,52 @@ function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   };
 }
 
-/** How many listed agents run, need the user, failed or wait: beside the title. */
+/** How many listed agents run, need the user, failed or wait: beside the
+ *  title, which already carries the total. When every listed agent runs, the
+ *  state alone says so instead of repeating the total. */
 function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
   const { running, needsUser, failed, waiting: queued, idle } = islandAgentCounts(agents);
   const waiting = queued + idle;
   return (
     <>
-      <span>
-        {t('Island: Running')} <b>{statsCount(running)}</b>
-      </span>
+      {running > 0 ? (
+        <span>
+          {t('Island: Running')}
+          {running === agents.length ? null : (
+            <>
+              {' '}
+              <b>{statsCount(running)}</b>
+            </>
+          )}
+        </span>
+      ) : null}
       {needsUser > 0 ? <span>{t('Needs you {{needs}}', { needs: needsUser })}</span> : null}
       {failed > 0 ? <span className="composer-island-failed">{t('{{failed}} failed', { failed })}</span> : null}
       {waiting > 0 ? <span>{t('Island: {{waiting}} waiting', { waiting })}</span> : null}
     </>
   );
+}
+
+/** A clock under an hour and one under ten hours, at their widest digits. */
+const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElapsed(35_999_000)];
+
+/** Everything an agent row's state column can read (agentElapsedText). */
+function agentStateLabels(): string[] {
+  return [
+    ...widestClocks(),
+    t('Queued'),
+    t('Waiting for approval'),
+    t('Cancel unconfirmed'),
+    t('Cancelled'),
+    t('Failed'),
+    t('Completed'),
+    t('Idle'),
+  ];
+}
+
+/** Everything a shell row's state column can read (ShellJobContent). */
+function shellStateLabels(): string[] {
+  return [...widestClocks(), t('Island: Exited'), t('Island: Stopped'), t('Failed'), t('Termination unconfirmed')];
 }
 
 /** Shown for a figure the ledger has not answered yet or cannot attribute
@@ -302,48 +310,37 @@ function AgentsPanel({
   const clearable = agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
   return (
     <section className="composer-island-panel" aria-label={t('Agents')}>
-      <JobsPanelHead
-        mark={jobsTabMark('agent', agents, 0)}
-        title={t('Agent {{agent}}', { agent: agents.length })}
+      <IslandPanelHead
+        chip={
+          <>
+            {jobsTabMark('agent', agents, 0)}
+            {t('Agent {{agent}}', { agent: agents.length })}
+          </>
+        }
         meta={<AgentsStateCounts agents={agents} />}
         onClose={onClose}
       />
-      {/* The Agents window's own tree and row component; each row's own
-          ledger total sits at its right edge. */}
+      {/* The Agents window's own tree, in the island's row (AgentIslandRow). */}
       <div
         ref={list}
         className="composer-island-pbody composer-island-jobs composer-island-agents schedules-list agent-pool-list"
         role="tree"
       >
-        {agents.map(({ node, state, waitingForTasks }, index) => {
-          const tokens = usage.agentRowTokens.get(node.sessionId);
-          return (
-            <div
-              key={poolRowKey(node.agent, index)}
-              className="composer-island-agent-item"
-              role="none"
-              data-tokens={tokens === undefined ? undefined : 'true'}
-            >
-              <AgentPoolRow
-                agent={node.agent}
-                clock={clock}
-                stateOverride={state}
-                waitingForTasks={waitingForTasks}
-                depth={node.depth}
-                parentSessionId={node.parentSessionId}
-                posInSet={index + 1}
-                setSize={agents.length}
-                ownerSessionId={sessionId}
-                onOpenSession={onOpenSession}
-              />
-              {tokens === undefined ? null : (
-                <span className="composer-island-agent-tokens" aria-hidden="true">
-                  {formatCompactTokens(tokens)}
-                </span>
-              )}
-            </div>
-          );
-        })}
+        {agents.map(({ node, state }, index) => (
+          <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
+            <AgentIslandRow
+              node={node}
+              state={state}
+              clock={clock}
+              tokens={usage.agentRowTokens.get(node.sessionId)}
+              posInSet={index + 1}
+              setSize={agents.length}
+              ownerSessionId={sessionId}
+              onOpenSession={onOpenSession}
+            />
+          </div>
+        ))}
+        <IslandColumnSizer labels={agentStateLabels()} />
       </div>
       <IslandPanelFoot
         end={
@@ -387,9 +384,13 @@ function ShellsPanel({
   const finished = shells.filter((row) => row.finished);
   return (
     <section className="composer-island-panel" aria-label={t('Background tasks')}>
-      <JobsPanelHead
-        mark={jobsTabMark('shell', [], runningShells)}
-        title={runningShells > 0 ? t('Shell {{shell}}', { shell: runningShells }) : t('Shell')}
+      <IslandPanelHead
+        chip={
+          <>
+            {jobsTabMark('shell', [], runningShells)}
+            {runningShells > 0 ? t('Shell {{shell}}', { shell: runningShells }) : t('Shell')}
+          </>
+        }
         meta={finished.length > 0 ? <span>{t('Island: Ended {{count}}', { count: finished.length })}</span> : undefined}
         onClose={onClose}
       />
@@ -405,6 +406,7 @@ function ShellsPanel({
             onDismiss={onDismiss}
           />
         ))}
+        <IslandColumnSizer element="li" labels={shellStateLabels()} />
       </ul>
       <IslandPanelFoot
         end={
@@ -623,8 +625,8 @@ function QuotaPanelFrame({
           {title}
         </p>
         <p className="composer-island-pnote">{note}</p>
-        <div className="composer-island-pfoot">{children}</div>
       </div>
+      <IslandPanelFoot className="composer-island-pfoot" end={children} />
     </section>
   );
 }
@@ -754,6 +756,7 @@ export const ComposerIsland = memo(function ComposerIsland({
   const pillRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
   useIslandFit(islandRef, pillRef);
+  useIslandGlide(islandRef, pillRef, useSurfaceActive());
   const heldHeightRef = useRef(heldHeight);
   const carriedHeightRef = useRef(carriedHeight);
   const routeSessionIdRef = useRef(routeSessionId);

@@ -1,7 +1,7 @@
 // The Bots page's work-session groups: a Lead's group with its pool rows and sub-agent tree, the live rows' status marks and the session-group bookkeeping that keeps them from shuffling (AgentActivityPane.tsx composes the page).
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type React from 'react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { type ScmContextMenuState, contextMenuRowProps } from './ScmContextMenu';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import {
@@ -42,7 +42,7 @@ function useRowClock(state: DesktopAgentActivityState, clock: number | undefined
 }
 
 /** The row's right-column text. */
-function AgentRowElapsed({
+export function AgentRowElapsed({
   state,
   agent,
   clock,
@@ -74,35 +74,8 @@ function agentTabTitle(agent: DesktopAgentPoolRow, role: string): string {
     : sessionTitle || tag || role;
 }
 
-export const AgentPoolRow = memo(function AgentPoolRow({
-  agent,
-  clock,
-  stateOverride,
-  ownerSessionId,
-  depth = 0,
-  parentSessionId = '',
-  hasChildren = false,
-  expanded = true,
-  posInSet,
-  setSize,
-  tabIndex,
-  unread = false,
-  waitingForTasks = false,
-  descendantCount = 0,
-  fallbackProvider,
-  onPrefetchSession,
-  onOpenLeadSession,
-  onOpenSession,
-}: {
-  /** The Lead row's brand when the pool row names none: its session's route. */
-  fallbackProvider?: string;
+type AgentRowFrameProps = {
   agent: DesktopAgentPoolRow;
-  /** A caller-owned clock (the composer island's); omitted, a running row
-   *  ticks on its own. */
-  clock?: number;
-  /** A lifecycle state the caller already resolved (the composer island's
-   *  rows, which merge worker and job entries); the sidebar derives its own. */
-  stateOverride?: DesktopAgentActivityState;
   ownerSessionId: string;
   /** Generations below the group heading: 0 for the visible root row (the Lead
    *  when the pool publishes one), 1 for its direct children, and so on. */
@@ -116,19 +89,36 @@ export const AgentPoolRow = memo(function AgentPoolRow({
   setSize?: number;
   /** Roving tab focus: exactly one row per tree is in the tab order. */
   tabIndex?: number;
-  /** Unseen activity is a completion only after descendant work has settled. */
-  unread?: boolean;
-  waitingForTasks?: boolean;
-  descendantCount?: number;
   onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+};
+
+/** An agent row's button, whatever it shows: what pressing it opens, how it
+ *  drags and where it stands in its tree. Each surface composes the content. */
+export function AgentRowFrame({
+  agent,
+  ownerSessionId,
+  depth = 0,
+  parentSessionId = '',
+  hasChildren = false,
+  expanded = true,
+  posInSet,
+  setSize,
+  tabIndex,
+  describedBy,
+  onPrefetchSession,
+  onOpenLeadSession,
+  onOpenSession,
+  children,
+}: AgentRowFrameProps & {
+  /** The element that reads the row's state. */
+  describedBy: string;
+  children: React.ReactNode;
 }): React.ReactElement {
-  const state = stateOverride ?? desktopAgentActivityState(agent, { unread, waitingForTasks });
   const role = agentRoleLabel(agent.agent || agent.tag);
   const sessionId = String(agent.sessionId || '').trim();
   const lead = Boolean(sessionId) && sessionId === ownerSessionId;
-  const name = agentRowName(agent, lead);
   const tabTitle = agentTabTitle(agent, role);
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
@@ -150,7 +140,8 @@ export const AgentPoolRow = memo(function AgentPoolRow({
       aria-setsize={setSize}
       aria-expanded={hasChildren ? expanded !== false : undefined}
       tabIndex={tabIndex}
-      aria-label={name}
+      aria-label={agentRowName(agent, lead)}
+      aria-describedby={describedBy}
       disabled={!sessionId}
       {...dragProps}
       onPointerEnter={prefetch}
@@ -162,10 +153,39 @@ export const AgentPoolRow = memo(function AgentPoolRow({
         else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
       }}
     >
+      {children}
+    </button>
+  );
+}
+
+export const AgentPoolRow = memo(function AgentPoolRow({
+  clock,
+  unread = false,
+  waitingForTasks = false,
+  descendantCount = 0,
+  fallbackProvider,
+  ...frame
+}: AgentRowFrameProps & {
+  /** The Lead row's brand when the pool row names none: its session's route. */
+  fallbackProvider?: string;
+  /** A caller-owned clock; omitted, a running row ticks on its own. */
+  clock?: number;
+  /** Unseen activity is a completion only after descendant work has settled. */
+  unread?: boolean;
+  waitingForTasks?: boolean;
+  descendantCount?: number;
+}): React.ReactElement {
+  const { agent, ownerSessionId } = frame;
+  const state = desktopAgentActivityState(agent, { unread, waitingForTasks });
+  const sessionId = String(agent.sessionId || '').trim();
+  const lead = Boolean(sessionId) && sessionId === ownerSessionId;
+  const statusId = useId();
+  return (
+    <AgentRowFrame {...frame} describedBy={statusId}>
       <AgentProviderMark agent={{ provider: agent.provider || (lead ? fallbackProvider : undefined) || null }} />
       <span className="schedules-row-copy">
         <span className="agent-pool-heading">
-          <b className="agent-pool-name">{name}</b>
+          <b className="agent-pool-name">{agentRowName(agent, lead)}</b>
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
         </span>
         <AgentRouteSummary agent={agent} />
@@ -174,10 +194,10 @@ export const AgentPoolRow = memo(function AgentPoolRow({
       <span className="agent-pool-progress">
         <AgentTodoMark todo={agent.todo} />
       </span>
-      <span className="agent-activity-status">
+      <span className="agent-activity-status" id={statusId}>
         <AgentRowElapsed state={state} agent={agent} clock={clock} />
       </span>
-    </button>
+    </AgentRowFrame>
   );
 });
 

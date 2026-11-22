@@ -6,7 +6,7 @@ import { IslandSegmentPending, useComposerIslandTab } from './composer-island-st
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
-import { MxIcon } from './MxIcon';
+import { IslandPanelFoot, IslandPanelHead } from './IslandPanelFoot';
 import { useMobileBack } from './mobile-back';
 import { requestOpenDockTab } from './open-dock-tab-event';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
@@ -130,22 +130,16 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
           aria-label={t('Git')}
           onKeyDown={onKeyDown}
         >
-          <div className="composer-island-phead">
-            <span className="composer-island-tab" data-active="true">
-              <GitPullRequest size={14} className="composer-island-seg-icon" aria-hidden="true" />
-              {t('Git')}
-            </span>
-            <span className="composer-island-phead-meta">{meta}</span>
-            <button
-              type="button"
-              className="composer-island-close"
-              aria-label={t('Close')}
-              title={t('Close')}
-              onClick={close}
-            >
-              <MxIcon name="close-small" size={16} />
-            </button>
-          </div>
+          <IslandPanelHead
+            chip={
+              <>
+                <GitPullRequest size={14} className="composer-island-seg-icon" aria-hidden="true" />
+                {t('Git')}
+              </>
+            }
+            meta={meta}
+            onClose={close}
+          />
           <div className="composer-island-pbody">
             <div className="composer-island-git-rows">
               {GIT_ROWS.map(({ action: rowAction, label, icon: Icon }) => (
@@ -166,20 +160,20 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
                 </div>
               ))}
             </div>
-            <div className="composer-island-pfoot composer-island-git-foot">
-              <button
-                type="button"
-                className="composer-island-button"
-                onClick={() => {
-                  setOpen(false);
-                  requestOpenDockTab('source-control');
-                }}
-              >
-                <List size={14} aria-hidden="true" />
-                <span>{t('Island: Source Control')}</span>
-              </button>
-            </div>
           </div>
+          <IslandPanelFoot className="composer-island-git-foot">
+            <button
+              type="button"
+              className="composer-island-button"
+              onClick={() => {
+                setOpen(false);
+                requestOpenDockTab('source-control');
+              }}
+            >
+              <List size={14} aria-hidden="true" />
+              <span>{t('Island: Source Control')}</span>
+            </button>
+          </IslandPanelFoot>
         </section>
       )}
     </>

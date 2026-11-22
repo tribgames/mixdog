@@ -241,20 +241,20 @@
 .turn-review-files-panel {
   white-space: normal;
 }
-.turn-review-files-tab .diff-stats {
+.turn-review-files-panel .composer-island-tab .diff-stats {
   display: inline;
 }
-.turn-review-files-tab .diff-stats i {
+.turn-review-files-panel .composer-island-tab .diff-stats i {
   color: var(--mx-success);
   font-style: normal;
 }
-.turn-review-files-tab .diff-stats em {
+.turn-review-files-panel .composer-island-tab .diff-stats em {
   color: var(--mx-danger);
   font-style: normal;
 }
 .turn-review-files-menu {
-  display: grid;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
 }
 .turn-review-files-menu > .mx-menu-item.danger {
   color: var(--mx-danger);
@@ -270,6 +270,10 @@
   height: 28px;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
+}
+html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .row-overflow-trigger {
+  width: 44px;
+  height: 44px;
 }
 .turn-review-files-panel .composer-island-phead .row-overflow-trigger svg {
   width: 16px;

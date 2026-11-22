@@ -1,4 +1,5 @@
 import { type RefObject, useLayoutEffect } from 'react';
+import { withoutGlides } from './composer-island-layout';
 
 /** Where a capped list ends so that its last visible row is whole: under the
  *  lowest row that fits within `cap` together with the list's end padding.
@@ -30,18 +31,22 @@ export function useWholeRowList(list: RefObject<HTMLElement | null>): void {
     const mark = () => {
       node.toggleAttribute('data-more', node.scrollTop + node.clientHeight < node.scrollHeight - 1);
     };
-    const measure = () => {
-      // The stylesheet's cap is the room; the inline cut is redone from it.
-      node.style.maxHeight = '';
-      const rows = Array.from(node.children as HTMLCollectionOf<HTMLElement>, (row) => ({
-        top: row.offsetTop,
-        bottom: row.offsetTop + row.offsetHeight,
-      }));
-      const paddingEnd = Number.parseFloat(getComputedStyle(node).paddingBottom) || 0;
-      const cut = wholeRowCut(rows, node.clientHeight, node.scrollHeight, paddingEnd);
-      if (cut !== null) node.style.maxHeight = `${cut}px`;
-      mark();
-    };
+    // The cut is taken from the panel as laid out, not from the height its
+    // glide holds for a moment (composer-island-layout).
+    const island = node.closest('.composer-island') ?? node;
+    const measure = () =>
+      withoutGlides(island, () => {
+        // The stylesheet's cap is the room; the inline cut is redone from it.
+        node.style.maxHeight = '';
+        const rows = Array.from(node.children as HTMLCollectionOf<HTMLElement>, (row) => ({
+          top: row.offsetTop,
+          bottom: row.offsetTop + row.offsetHeight,
+        }));
+        const paddingEnd = Number.parseFloat(getComputedStyle(node).paddingBottom) || 0;
+        const cut = wholeRowCut(rows, node.clientHeight, node.scrollHeight, paddingEnd);
+        if (cut !== null) node.style.maxHeight = `${cut}px`;
+        mark();
+      });
     measure();
     // A frame later, not inside the observer's own callback: the cut resizes
     // the list it observes.
@@ -57,9 +62,11 @@ export function useWholeRowList(list: RefObject<HTMLElement | null>): void {
       for (const row of Array.from(node.children)) resize.observe(row);
     };
     observeRows();
+    // A row added or removed is cut in the same frame: a frame later, the list
+    // first drew at the full cap and then jumped to the cut.
     const rows = new MutationObserver(() => {
       observeRows();
-      schedule();
+      measure();
     });
     rows.observe(node, { childList: true });
     node.addEventListener('scroll', mark, { passive: true });

@@ -24,6 +24,7 @@ import {
   type TodoProgress,
 } from './session-goal-presentation';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
+import { IslandPanelHead } from './IslandPanelFoot';
 import { useClock } from './use-clock';
 
 export {
@@ -264,8 +265,8 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
                 aria-controls={restListId}
                 onClick={() => setShowRest(!showRest)}
               >
-                <MxIcon name="chevron-down" size={12} />
                 {t('Rest {{n}}', { n: rest.length })}
+                <MxIcon name="chevron-down" size={12} />
               </button>
               <ul id={restListId} className="session-goal-task-list" hidden={!showRest}>
                 <TodoRows items={rest} phases={todo.phases} headings={headings} />
@@ -284,13 +285,13 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
             aria-controls={doneListId}
             onClick={() => setShowDone(!doneOpen)}
           >
-            <MxIcon name="chevron-down" size={12} />
             {[
               completedCount > 0 || abandonedCount === 0 ? t('Done {{n}}', { n: completedCount }) : '',
               abandonedCount > 0 ? t('{{n}} dropped', { n: abandonedCount }) : '',
             ]
               .filter(Boolean)
               .join(' · ')}
+            <MxIcon name="chevron-down" size={12} />
           </button>
           <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>
             <TodoRows items={done} phases={todo.phases} headings={headings} />
@@ -561,30 +562,24 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           role="region"
           aria-label={t(goal ? 'Goal tasks' : 'To-do')}
         >
-          <div className="composer-island-phead">
-            <span className="composer-island-tab" data-active="true">
-              <GoalRing kind={kind} progress={progress} />
-              <span className="session-goal-meta">
-                {!goal && <span className="session-goal-tab-label">{t('To-do')}</span>}
-                {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
-                {goal && (
-                  <span className="session-goal-meta-time">
-                    <span aria-hidden="true">·</span>
-                    <span className="session-goal-time">{elapsedLabel}</span>
-                  </span>
-                )}
-              </span>
-            </span>
-            <button
-              type="button"
-              className="composer-island-close"
-              aria-label={t('Close')}
-              title={t('Close')}
-              onClick={() => setOpen(false)}
-            >
-              <MxIcon name="close-small" size={16} />
-            </button>
-          </div>
+          <IslandPanelHead
+            chip={
+              <>
+                <GoalRing kind={kind} progress={progress} />
+                <span className="session-goal-meta">
+                  {!goal && <span className="session-goal-tab-label">{t('To-do')}</span>}
+                  {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
+                  {goal && (
+                    <span className="session-goal-meta-time">
+                      <span aria-hidden="true">·</span>
+                      <span className="session-goal-time">{elapsedLabel}</span>
+                    </span>
+                  )}
+                </span>
+              </>
+            }
+            onClose={() => setOpen(false)}
+          />
           <div className="session-goal-body">
             <div ref={contentRef} className="session-goal-content">
               {goal && (
