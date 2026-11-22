@@ -68,10 +68,14 @@ interface ComposerDockProps {
   /** A message sent behind the running turn waits to be read: the branch
    *  segment cannot switch. */
   pendingInput?: boolean;
+  /** The session panel is a column beside the pane and shows the session's
+   *  state: no island, unless for a live approval card. */
+  islandHidden?: boolean;
   children: ReactNode;
 }
 
-function useTurnReviewBar() {
+/** The changed-files segment's component, once its module has loaded. */
+export function useTurnReviewBar() {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
   const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
   useEffect(() => {
@@ -94,6 +98,24 @@ function useTurnReviewBar() {
   return reviewModule?.TurnReviewBar;
 }
 
+/** True while a new `flash` (by key) is showing: the island's own 2.5 s and a
+ *  little more. Beside the session panel the island is kept for it, so an
+ *  approval settled on another device still says so. */
+function useFlashShowing(flash: ComposerIslandFlash | null | undefined): boolean {
+  const [showing, setShowing] = useState('');
+  const seen = useRef('');
+  const key = flash?.key ?? '';
+  useEffect(() => {
+    if (!key || key === seen.current) return undefined;
+    seen.current = key;
+    setShowing(key);
+    const timer = window.setTimeout(() => setShowing(''), WORKTREE_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [key]);
+  // A key not yet seen shows from its first render, so the island holding it is not dropped for a frame.
+  return Boolean(key) && (key !== seen.current || showing === key);
+}
+
 function useContextBarHeight(shown: boolean) {
   const ref = useRef<HTMLDivElement | null>(null);
   const height = useRef(0);
@@ -110,6 +132,35 @@ function useContextBarHeight(shown: boolean) {
     };
   }, [shown]);
   return { ref, height };
+}
+
+/** View changes and one file's diff, in the pane's side dock (absent where
+ *  the surface has no dock): the island's files and branch segments and the
+ *  session panel open them alike. */
+export function useSessionDiffOpeners(reviewSessionId: string, onOpenSessionDiff: (() => void) | undefined) {
+  const openSessionDiff = useStableEvent(() => onOpenSessionDiff?.());
+  const hasSessionDiff = Boolean(onOpenSessionDiff);
+  const openChanges = useMemo(
+    () =>
+      hasSessionDiff
+        ? () => {
+            requestSessionDiffList(reviewSessionId);
+            openSessionDiff();
+          }
+        : undefined,
+    [hasSessionDiff, openSessionDiff, reviewSessionId]
+  );
+  const openChangeFile = useMemo(
+    () =>
+      hasSessionDiff
+        ? (path: string) => {
+            requestSessionDiffFile(reviewSessionId, path);
+            openSessionDiff();
+          }
+        : undefined,
+    [hasSessionDiff, openSessionDiff, reviewSessionId]
+  );
+  return { openChanges, openChangeFile };
 }
 
 /** The chrome stacked above the prompt input, the composer itself the last child: a New Task draft's context bar, or a session's island and quota card. */
@@ -133,6 +184,7 @@ export function ComposerDock({
   onOpenAgentSession,
   workspace,
   pendingInput = false,
+  islandHidden = false,
   children,
 }: ComposerDockProps) {
   const [worktreeFlash, setWorktreeFlash] = useState<{ sessionId: string; flash: ComposerIslandFlash } | null>(null);
@@ -143,28 +195,7 @@ export function ComposerDock({
   }, [worktreeFlash]);
   const { ref: contextBarRef, height: contextBarHeight } = useContextBarHeight(showProjectSelector);
   const TurnReviewBar = useTurnReviewBar();
-  const openSessionDiff = useStableEvent(() => onOpenSessionDiff?.());
-  const hasSessionDiff = Boolean(onOpenSessionDiff);
-  const openChanges = useMemo(
-    () =>
-      hasSessionDiff
-        ? () => {
-            requestSessionDiffList(reviewSessionId);
-            openSessionDiff();
-          }
-        : undefined,
-    [hasSessionDiff, openSessionDiff, reviewSessionId]
-  );
-  const openChangeFile = useMemo(
-    () =>
-      hasSessionDiff
-        ? (path: string) => {
-            requestSessionDiffFile(reviewSessionId, path);
-            openSessionDiff();
-          }
-        : undefined,
-    [hasSessionDiff, openSessionDiff, reviewSessionId]
-  );
+  const { openChanges, openChangeFile } = useSessionDiffOpeners(reviewSessionId, onOpenSessionDiff);
   const openAgentSessionEvent = useStableEvent((agentSessionId: string, title: string, ownerSessionId: string) =>
     onOpenAgentSession?.(agentSessionId, title, ownerSessionId)
   );
@@ -236,7 +267,15 @@ export function ComposerDock({
   // incoming island reserves that island's resting height when its own
   // session has none remembered (see ComposerIsland carriedHeight).
   const islandSession = useRef('');
-  const islandShown = !showProjectSelector && !awaitingLane && Boolean(reviewSessionId);
+  // Beside the session panel the island stays only for what the panel does not
+  // carry: a live approval card, a waiting quota resume (its cancel), and an
+  // approval's result notice while it shows.
+  const flashShowing = useFlashShowing(islandFlash);
+  const islandMounted =
+    !showProjectSelector &&
+    !awaitingLane &&
+    (!islandHidden || Boolean(dockedApproval) || Boolean(quotaResume) || flashShowing);
+  const islandShown = islandMounted && Boolean(reviewSessionId);
   useLayoutEffect(() => {
     if (islandShown) islandSession.current = reviewSessionId;
   });
@@ -247,7 +286,9 @@ export function ComposerDock({
   // reserve at mount: dropping the slot for the wait lifted the composer by
   // the pill's height and set it back down once the lane landed.
   const awaitingSlotHeight =
-    awaitingLane && !showProjectSelector ? (rememberedSlotHeight(reviewSessionId) ?? carriedHeight) : 0;
+    awaitingLane && !showProjectSelector && !islandHidden
+      ? (rememberedSlotHeight(reviewSessionId) ?? carriedHeight)
+      : 0;
 
   return (
     <div className="composer-region">
@@ -256,17 +297,18 @@ export function ComposerDock({
           {contextBar}
         </div>
       )}
-      {!showProjectSelector && !awaitingLane && (
+      {islandMounted && (
         <ComposerIsland
           key={reviewSessionId}
           routeSessionId={reviewSessionId}
-          sessionId={sessionId}
+          // Beside the session panel the island carries the approval card alone.
+          sessionId={islandHidden ? '' : sessionId}
           onOpenAgentSession={openAgentSession}
-          goal={goal}
-          files={agentMode ? undefined : files}
+          goal={islandHidden ? undefined : goal}
+          files={agentMode || islandHidden ? undefined : files}
           workBusy={reviewBusy || pendingInput}
-          branch={agentMode ? undefined : branch}
-          git={agentMode ? undefined : git}
+          branch={agentMode || islandHidden ? undefined : branch}
+          git={agentMode || islandHidden ? undefined : git}
           approval={dockedApproval}
           flash={islandFlash ?? (sessionId && worktreeFlash?.sessionId === sessionId ? worktreeFlash.flash : null)}
           quotaResume={quotaResume}

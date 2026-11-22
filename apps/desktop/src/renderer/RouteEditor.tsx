@@ -91,6 +91,8 @@ interface RouteEditorProps {
   onOpenSheet?: () => void;
   /** A conversation's workflow and delegation mode: rows below a separator. */
   sessionChoices?: RouteSessionChoice[];
+  /** The trigger is the session panel's row of this name (RouteTrigger). */
+  triggerRowLabel?: string;
 }
 
 /** What the sheet shows for the current route: its labels, its rows and the
@@ -206,6 +208,7 @@ export function RouteEditor({
   align = 'start',
   dropdown = false,
   sessionChoices = [],
+  triggerRowLabel,
 }: RouteEditorProps) {
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
@@ -350,6 +353,7 @@ export function RouteEditor({
         ultra={speed === 'ultrafast'}
         blue={daybreakOn}
         effortLabel={effortLabel}
+        rowLabel={triggerRowLabel}
         onShow={show}
         onToggle={toggle}
       />

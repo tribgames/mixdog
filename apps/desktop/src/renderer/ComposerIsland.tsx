@@ -43,9 +43,9 @@ import {
   islandUsageSummary,
   useIslandSessionUsage,
 } from './island-session-usage';
-import { CircleDollarSign } from 'lucide-react';
 import {
   cacheHitReadoutItem,
+  costReadoutItem,
   FittedReadout,
   formatCompactTokens,
   formatHitPercent,
@@ -186,7 +186,7 @@ function ShellJobItem({
 /** The listed agents tallied by state, read by both the pill segment and the
  *  panel head. An agent waiting on its own tasks is still at work (its
  *  timer runs), so it counts as running; `waiting` is queued only; `idle` rests. */
-function islandAgentCounts(agents: readonly IslandAgentRow[]) {
+export function islandAgentCounts(agents: readonly IslandAgentRow[]) {
   const count = (...states: DesktopAgentActivityState[]) => agents.filter(({ state }) => states.includes(state)).length;
   return {
     running: count('running', 'waiting', 'cancel-unconfirmed'),
@@ -261,16 +261,10 @@ function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
     agents: splitKnown ? formatCompactTokens(agentTokens) : SUMMARY_UNKNOWN,
   })})`;
   const total = tokensReadoutItem(totalTokens === null ? SUMMARY_UNKNOWN : formatCompactTokens(totalTokens));
-  const cost = t('Island: {{cost}} est. cost', { cost: costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd) });
   const parts = {
     total: { ...total, label: `${total.label} ${split}`, word: `${total.word} ${split}` },
     hit: cacheHitReadoutItem(cacheHitRate === null ? SUMMARY_UNKNOWN : formatHitPercent(cacheHitRate)),
-    cost: {
-      icon: CircleDollarSign,
-      text: costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd),
-      label: cost,
-      word: cost,
-    },
+    cost: costReadoutItem(costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd)),
   };
   const [detailed, ...icons] = readoutVariants(parts, SUMMARY_KEEP_ORDER, SUMMARY_DISPLAY_ORDER);
   // The composer's own wording (`11.6B tokens · Cache hit 92.0% · $6,216.60`) for a footer too narrow for the split.
@@ -306,8 +300,7 @@ function AgentsPanel({
   const clock = useClock(true);
   const list = useRef<HTMLDivElement>(null);
   useWholeRowList(list);
-  // The listed rows are already the tree flattened: each is judged on its own node.
-  const clearable = agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
+  const clearable = clearableAgents(agents);
   return (
     <section className="composer-island-panel" aria-label={t('Agents')}>
       <IslandPanelHead
@@ -351,7 +344,7 @@ function AgentsPanel({
             description={t('Clear finished')}
             named
             disabled={clearable.length === 0}
-            onClick={() => dismissFinishedAgentRows(clearable, hostAgentListing(), { sessionId, keys: shellKeys })}
+            onClick={() => clearFinishedAgents(sessionId, agents, shellKeys)}
           />
         }
       >
@@ -483,6 +476,57 @@ function useIslandAgentRows(sessionId: string): {
     startAgentPool(poolStore);
   }, [poolStore]);
   return { agentRows, poolRows };
+}
+
+/** The finished agents "Clean up" clears: the listed rows are already the
+ *  tree flattened, so each is judged on its own node. */
+export function clearableAgents(agents: readonly IslandAgentRow[]) {
+  return agents.filter(({ node }) => clearableAgentNode(node)).map(({ node }) => node.agent);
+}
+
+export function clearFinishedAgents(
+  sessionId: string,
+  agents: readonly IslandAgentRow[],
+  shellKeys: ReadonlySet<string> | null
+): void {
+  dismissFinishedAgentRows(clearableAgents(agents), hostAgentListing(), { sessionId, keys: shellKeys });
+}
+
+/** Hides finished shell rows for good. */
+export function dismissShellRows(sessionId: string, rows: readonly JobRow[], shellKeys: ReadonlySet<string> | null) {
+  dismissShellJobs(
+    sessionId,
+    rows.map((row) => row.key),
+    hostDismissListing(sessionId, shellKeys)
+  );
+}
+
+/** A session's background work as the island lists it: its lane's header
+ *  view, the shell rows (finished ones until dismissed or auto-dismissed) and
+ *  the agent rows. The island and the session panel both read it. */
+export function useSessionJobs(sessionId: string) {
+  const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
+  const snapshot = lane ? paneHeaderView(lane) : EMPTY_SNAPSHOT;
+  const dismissedShells = useDismissedShellJobs(sessionId);
+  const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
+  const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
+  const { agentRows, poolRows } = useIslandAgentRows(sessionId);
+  const shellKeys = useMemo(
+    () => listedShellKeys(lane, [...backgroundJobRows(snapshot), ...jobRows]),
+    [lane, snapshot, jobRows]
+  );
+  useAutoDismissShells(sessionId, jobRows, shellKeys);
+  const runningShells = jobRows.filter((row) => !row.finished).length;
+  const finishedShellCount = jobRows.length - runningShells;
+  return {
+    snapshot,
+    jobRows,
+    agentRows,
+    poolRows,
+    shellKeys,
+    finishedShellCount,
+    shellCount: Math.max(Number(snapshot.shellJobs?.count) || 0, runningShells),
+  };
 }
 
 function useIslandTabDismiss(
@@ -724,20 +768,8 @@ export const ComposerIsland = memo(function ComposerIsland({
   carriedAdvances,
   onOpenAgentSession,
 }: ComposerIslandProps) {
-  const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopHeaderSnapshotsEqual, Boolean(sessionId));
-  const snapshot = lane ? paneHeaderView(lane) : EMPTY_SNAPSHOT;
-  const dismissedShells = useDismissedShellJobs(sessionId);
-  const hostJobRows = useMemo(() => backgroundJobRows(snapshot, dismissedShells), [snapshot, dismissedShells]);
-  const jobRows = useShellRowsUntilFinished(sessionId, hostJobRows);
-  const { agentRows, poolRows } = useIslandAgentRows(sessionId);
-  const shellKeys = useMemo(
-    () => listedShellKeys(lane, [...backgroundJobRows(snapshot), ...jobRows]),
-    [lane, snapshot, jobRows]
-  );
-  useAutoDismissShells(sessionId, jobRows, shellKeys);
-  const shellRows = jobRows.filter((row) => !row.finished);
-  const finishedShellCount = jobRows.filter((row) => row.finished).length;
-  const shellCount = Math.max(Number(snapshot.shellJobs?.count) || 0, shellRows.length);
+  const { snapshot, jobRows, agentRows, poolRows, shellKeys, finishedShellCount, shellCount } =
+    useSessionJobs(sessionId);
   // Finished shells keep the shells panel open-able until dismissed.
   const shellTotal = shellCount + finishedShellCount;
   // No branch or worktree switch while anything of the session still works.
@@ -851,14 +883,8 @@ export const ComposerIsland = memo(function ComposerIsland({
                 sessionId={sessionId}
                 shells={jobRows}
                 onClose={() => setExpanded('')}
-                onDismiss={(row) => dismissShellJobs(sessionId, [row.key], hostDismissListing(sessionId, shellKeys))}
-                onDismissAll={(rows) =>
-                  dismissShellJobs(
-                    sessionId,
-                    rows.map((row) => row.key),
-                    hostDismissListing(sessionId, shellKeys)
-                  )
-                }
+                onDismiss={(row) => dismissShellRows(sessionId, [row], shellKeys)}
+                onDismissAll={(rows) => dismissShellRows(sessionId, rows, shellKeys)}
               />
             )}
             {agentsPanel && (

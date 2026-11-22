@@ -40,8 +40,24 @@ const MENU_ITEM = "[role='menuitem']:not(:disabled)";
 const FILE_ROW_PX = 26;
 /** Delete history and View changes, after the file rows in the menu's order. */
 const FOOT_ITEMS = 2;
-const runningTurnNotice = () =>
+export const runningTurnNotice = () =>
   new Error(t("Change history can't be deleted while a response is running. Try again after it finishes."));
+
+/** Delete history: the session's retained turn records (and Undo/Reapply)
+ *  go, working-tree files stay; every turn card and session diff of the
+ *  session re-reads. A running turn's refusal reads as runningTurnNotice. */
+export async function clearSessionChangeHistory(sessionId: string | undefined): Promise<void> {
+  try {
+    await window.mixdogDesktop?.invokeCapability?.({
+      capability: 'clearSessionChangeHistory',
+      args: [],
+      sessionId,
+    });
+  } catch (reason) {
+    throw /running a turn/.test(String(reason)) ? runningTurnNotice() : reason;
+  }
+  if (sessionId) bumpTurnChangesEpoch(sessionId);
+}
 /** The source picker's menu is a body portal: presses and keys there belong to it. */
 const inSourceMenu = (target: EventTarget | null) =>
   target instanceof Element && Boolean(target.closest('.row-overflow-menu'));
@@ -337,20 +353,13 @@ export function TurnReviewFilesMenu({
     while (scope && !scope.querySelector('.composer textarea')) scope = scope.parentElement;
     const composer = scope?.querySelector<HTMLTextAreaElement>('.composer textarea') ?? null;
     try {
-      await window.mixdogDesktop?.invokeCapability?.({
-        capability: 'clearSessionChangeHistory',
-        args: [],
-        sessionId,
-      });
+      await clearSessionChangeHistory(sessionId);
     } catch (reason) {
       // The refusal (a running turn, a failed write) shows where it was asked.
       setOpen(true);
-      setError(/running a turn/.test(String(reason)) ? runningTurnNotice() : reason);
+      setError(reason);
       return;
     }
-    // Every turn card and session diff of the session re-reads: retained
-    // turn records (and Undo/Reapply) are gone; working-tree files are not.
-    if (sessionId) bumpTurnChangesEpoch(sessionId);
     composer?.focus({ preventScroll: true });
   };
 
@@ -446,7 +455,7 @@ export function TurnReviewFilesMenu({
 /** Delete history's confirmation: the settings-confirm skin as a real modal
  *  (DesktopUpdateDialog's pattern) — the app shell goes inert, Tab stays in
  *  the dialog, Escape and the scrim cancel, and Cancel is the default. */
-function DeleteHistoryDialog({
+export function DeleteHistoryDialog({
   turns,
   returnFocus,
   onCancel,

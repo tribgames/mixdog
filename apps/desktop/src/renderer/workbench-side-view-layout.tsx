@@ -684,7 +684,7 @@ function useRetainedRoots(
   return retainedRoots;
 }
 
-function useSidePanelWidth({
+export function useSidePanelWidth({
   side,
   widthStorageKey,
   widthRange,
@@ -710,20 +710,22 @@ function useSidePanelWidth({
     const start = resizeStart.current;
     if (!start) return;
     resizeStart.current = null;
-    if (!commit) {
-      if (onWidthDrag) {
-        if (dragPending.current !== null) onWidthDrag(start.width, 'cancel');
-      } else setWidth(start.width);
-      dragPending.current = null;
+    const pending = dragPending.current;
+    dragPending.current = null;
+    // Only a width the gesture changed is written: one that never left its
+    // starting width, or came back to it, puts back what was there.
+    if (pending === null) return;
+    if (!commit || pending === start.width) {
+      if (onWidthDrag) onWidthDrag(start.width, 'cancel');
+      else setWidth(start.width);
       return;
     }
     if (onWidthDrag) {
-      onWidthDrag(dragPending.current ?? effectiveWidth, 'commit');
-      dragPending.current = null;
+      onWidthDrag(pending, 'commit');
       return;
     }
     try {
-      window.localStorage.setItem(widthKey, String(width));
+      window.localStorage.setItem(widthKey, String(pending));
     } catch {
       // A width that cannot persist only resets on the next launch.
     }
@@ -740,10 +742,11 @@ function useSidePanelWidth({
       if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
       const delta = side === 'left' ? event.clientX - start.x : start.x - event.clientX;
       const next = Math.max(widthMin, Math.min(widthMax, Math.round(start.width + delta)));
-      if (onWidthDrag) {
-        dragPending.current = next;
-        onWidthDrag(next, 'preview');
-      } else setWidth(next);
+      // Movement that leaves the width where it started (straight along the edge) is no resize yet.
+      if (dragPending.current === null && next === start.width) return;
+      dragPending.current = next;
+      if (onWidthDrag) onWidthDrag(next, 'preview');
+      else setWidth(next);
     },
     ...resizeGesture.handlers,
   };

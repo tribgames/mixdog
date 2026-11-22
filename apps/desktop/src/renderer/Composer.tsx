@@ -322,6 +322,9 @@ export type ComposerProps = {
   paneActive?: boolean;
   /** Replaces the rotating placeholder (a pending question: sending answers it). */
   placeholderOverride?: string;
+  /** The session panel is a column beside the pane and carries the model,
+   *  route, usage and context: the composer is input, attachments and send. */
+  bare?: boolean;
   /** Agent mode: a one-line messenger bar with the agent's route shown
    *  read-only under it; `/` and `$` are plain text, and `@` tags the room
    *  member who answers. */
@@ -467,6 +470,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     paneActive = true,
     placeholderOverride,
     agentMode = false,
+    bare = false,
   } = props;
   // A page reloaded or relaunched while a prompt was half-typed opens with it.
   const [draft, setDraft] = useState(() => stashedComposerDraft(identityScope));
@@ -1150,16 +1154,18 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           onStop={() => void stop()}
           sessionId={sessionId}
           onOpenSettings={onOpenSettings}
-          modelControls={card ? <ComposerModelControls {...modelControlProps} /> : null}
+          modelControls={card && !bare ? <ComposerModelControls {...modelControlProps} /> : null}
         />
       </form>
-      <ComposerModelLine
-        {...modelControlProps}
-        usageReadout={usageReadout}
-        pickers={phone ? undefined : contextBar}
-        room={Boolean(roomMembers)}
-        card={card}
-      />
+      {!bare && (
+        <ComposerModelLine
+          {...modelControlProps}
+          usageReadout={usageReadout}
+          pickers={phone ? undefined : contextBar}
+          room={Boolean(roomMembers)}
+          card={card}
+        />
+      )}
       {offSkills.length > 0 && !agentMode && (
         <p className="composer-skill-status" role="status">
           {t('{{name}} skill is off, so it is sent as plain text. Turn it on in Settings → Skills.', {

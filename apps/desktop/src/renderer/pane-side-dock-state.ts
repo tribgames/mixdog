@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   PANE_SIDE_DOCK_KEY,
+  SESSION_RAIL_KEY,
   PANE_DOCK_BROWSER_SURFACE,
   PANE_DOCK_TERMINAL_SURFACE,
   LEGACY_SIDE_SURFACE_KEYS,
@@ -450,6 +451,56 @@ function useLinkPreviewKeep(setDocks: Dispatch<SetStateAction<Record<string, Pan
   }, [setDocks]);
 }
 
+function readStoredSessionRails(leafIds: readonly string[]): ReadonlySet<string> {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(SESSION_RAIL_KEY) || '[]');
+    return new Set(Array.isArray(stored) ? stored.filter((id) => leafIds.includes(id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Which panes have their session panel on: a pane's own switch, kept apart
+ *  from its dock (opening, switching or closing a dock view leaves it). */
+function usePaneSessionRails(leafIds: readonly string[], leafKey: string) {
+  const [rails, setRails] = useState(() => readStoredSessionRails(leafIds));
+  const leafIdsRef = useRef(leafIds);
+  leafIdsRef.current = leafIds;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: leafKey is the change trigger for the ref-held leaf ids
+  useEffect(() => {
+    setRails((current) => {
+      const live = [...current].filter((id) => leafIdsRef.current.includes(id));
+      return live.length === current.size ? current : new Set(live);
+    });
+  }, [leafKey]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SESSION_RAIL_KEY, JSON.stringify([...rails]));
+    } catch {
+      // The switch holds for this renderer session.
+    }
+  }, [rails]);
+  const railOpen = useCallback((leafId: string) => rails.has(leafId), [rails]);
+  const setRailOpen = useCallback((leafId: string, open: boolean) => {
+    setRails((current) => {
+      if (current.has(leafId) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(leafId);
+      else next.delete(leafId);
+      return next;
+    });
+  }, []);
+  const toggleRail = useCallback(
+    (leafId: string) => setRails((current) => {
+      const next = new Set(current);
+      if (!next.delete(leafId)) next.add(leafId);
+      return next;
+    }),
+    []
+  );
+  return { railOpen, setRailOpen, toggleRail };
+}
+
 export function usePaneSideDocks({
   leafIds,
   groups,
@@ -503,6 +554,7 @@ export function usePaneSideDocks({
   });
   usePaneSideDockStorage(docks);
   useLinkPreviewKeep(setDocks);
+  const { railOpen, setRailOpen, toggleRail } = usePaneSessionRails(leafIds, leafKey);
   const entryFor = useCallback((leafId: string): PaneSideDockEntry => docks[leafId] ?? CLOSED_ENTRY, [docks]);
   const {
     select,
@@ -539,5 +591,8 @@ export function usePaneSideDocks({
     keepFile,
     openFolder,
     closeFolder,
+    railOpen,
+    setRailOpen,
+    toggleRail,
   };
 }

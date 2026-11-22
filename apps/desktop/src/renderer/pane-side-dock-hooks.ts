@@ -168,8 +168,8 @@ export function usePanelWidthDrag({
 
 /**
  * Drag-resize of the diff pair column. A cancel restores the preference as it
- * stood when the gesture began; a commit persists the pending (or rendered)
- * width through `commitWidth`.
+ * stood when the gesture began; a commit persists the dragged width through
+ * `commitWidth`.
  */
 export function useDiffColumnResize({
   diffPref,
@@ -192,9 +192,13 @@ export function useDiffColumnResize({
     const start = diffResizeStart.current;
     if (!start) return;
     diffResizeStart.current = null;
-    if (commit) commitWidth(diffDragPending.current ?? getDiffWidth());
-    else if (diffDragPending.current !== null) setDiffPref(start.pref);
+    const pending = diffDragPending.current;
     diffDragPending.current = null;
+    // Only a width the gesture changed is written: one that never left its
+    // starting width, or came back to it, puts back the preference.
+    if (pending === null) return;
+    if (commit && pending !== start.width) commitWidth(pending);
+    else setDiffPref(start.pref);
   });
   return {
     onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -207,6 +211,8 @@ export function useDiffColumnResize({
       const start = diffResizeStart.current;
       if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
       const next = Math.max(minWidth, Math.min(maxWidth, Math.round(start.width + (start.x - event.clientX))));
+      // Movement that leaves the width where it started (straight along the edge) is no resize yet.
+      if (diffDragPending.current === null && next === start.width) return;
       diffDragPending.current = next;
       setDiffPref(next);
     },
@@ -452,10 +458,12 @@ export function useDockHeightDrag({
     const current = start.current;
     if (!current) return;
     start.current = null;
-    if (commit) {
-      if (pending.current !== null) commitWidthPref(storageKey, pending.current);
-    } else if (pending.current !== null) setHeightPref(current.pref);
+    const changed = pending.current;
     pending.current = null;
+    // Only a height the gesture changed is written; otherwise the preference is put back.
+    if (changed === null) return;
+    if (commit && changed !== current.height) commitWidthPref(storageKey, changed);
+    else setHeightPref(current.pref);
   });
   return {
     onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -468,6 +476,8 @@ export function useDockHeightDrag({
       const current = start.current;
       if (!current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
       const next = clampPaneDockHeight(current.height + (current.y - event.clientY), room);
+      // Movement that leaves the height where it started (sideways) is no resize yet.
+      if (pending.current === null && next === current.height) return;
       pending.current = next;
       setHeightPref(next);
     },

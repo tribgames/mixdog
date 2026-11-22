@@ -132,6 +132,10 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           descriptors={descriptors}
           focused={focused}
           prewarm={prewarm}
+          sessionRail={{
+            open: Boolean(sessionId) && context.paneSideDocks.railOpen(leaf.id),
+            onClose: () => context.paneSideDocks.setRailOpen(leaf.id, false),
+          }}
           onFocusPane={() => context.paneWorkspace.focusLeaf(leaf.id)}
           onSelect={(id) => context.selectWorkbenchSideView(id, leaf.id)}
           onClose={() => context.closePaneRightRegion(leaf.id)}
@@ -412,6 +416,14 @@ export function renderPaneDockStripTrailing(
           descriptors={descriptors}
           activeRoot={paneDockActiveRoot(entry)}
           sessionBound={Boolean(sessionId)}
+          sessionRail={{
+            // A New Task has no panel to show: the switch reads off there.
+            open: Boolean(sessionId) && paneSideDocks.railOpen(leaf.id),
+            onToggle: () => {
+              focusLeaf(leaf.id);
+              paneSideDocks.toggleRail(leaf.id);
+            },
+          }}
           onSelect={(id) => {
             focusLeaf(leaf.id);
             selectWorkbenchSideView(id, leaf.id);

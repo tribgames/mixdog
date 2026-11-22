@@ -26,10 +26,15 @@ export function ComposerRouteChoices({
   anchor,
   choices,
   onClose,
+  side = 'above',
+  align = 'end',
 }: {
   anchor: RefObject<HTMLElement | null>;
   choices: RouteSessionChoice[];
   onClose(restoreFocus: boolean): void;
+  /** Where it opens from its anchor: the session panel's rows open it below, from their start. */
+  side?: 'above' | 'below';
+  align?: 'start' | 'end';
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -52,12 +57,12 @@ export function ComposerRouteChoices({
       bounds: paneBounds(trigger),
       preferredWidth: ROUTE_PANEL_WIDTH,
       naturalHeight: node.scrollHeight,
-      align: 'end',
-      placement: 'above',
+      align,
+      placement: side,
     });
     setPlacement(geometry.placement);
     setStyle({ ...anchoredPanelStyle(geometry, rect), width: geometry.width });
-  }, [anchor]);
+  }, [anchor, align, side]);
 
   useLayoutEffect(() => {
     place();

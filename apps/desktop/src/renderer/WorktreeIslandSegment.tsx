@@ -1,5 +1,5 @@
 import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../shared/contract';
 import {
@@ -33,10 +33,11 @@ import {
 
 /** A git checkout the segment can name. A project-folder workspace may carry
  *  its branch without repoCommonDir; a detached HEAD is told from "not a
- *  repository" by repoCommonDir alone. */
+ *  repository" by repoCommonDir alone. Outside a repository the workspace
+ *  holds no git field at all (only a pending project move, say). */
 function showsBranch(workspace: DesktopSessionWorkspace): boolean {
   return Boolean(
-    workspace.branch || workspace.repoCommonDir || workspace.worktreeId || workspace.transition.state === 'recovery'
+    workspace.branch || workspace.repoCommonDir || workspace.worktreeId || workspace.transition?.state === 'recovery'
   );
 }
 
@@ -47,7 +48,7 @@ function branchPresentation(workspace: DesktopSessionWorkspace | null) {
     cwd: workspace.cwd,
     baseCommit: workspace.baseCommit?.slice(0, 7) ?? '',
     mergeTarget: workspace.mergeTarget ?? '',
-    recovery: workspace.transition.state === 'recovery',
+    recovery: workspace.transition?.state === 'recovery',
     worktree: Boolean(workspace.worktreeId),
     // A menu action using the fallback must still reject a stale workspace.
     revision: workspace.revision,
@@ -55,6 +56,19 @@ function branchPresentation(workspace: DesktopSessionWorkspace | null) {
 }
 
 type BranchPresentation = NonNullable<ReturnType<typeof branchPresentation>>;
+
+/** What a branch tab trigger carries, whichever host draws it. */
+export type BranchTriggerProps = {
+  ref: RefObject<HTMLButtonElement | null>;
+  'aria-haspopup': 'dialog';
+  'aria-expanded': boolean;
+  'aria-controls': string | undefined;
+  'aria-busy': true | undefined;
+  title: string;
+  onPointerEnter(): void;
+  onFocus(): void;
+  onClick(): void;
+};
 
 /** Bridge a recent session's remount without holding its workspace DTO. */
 const lastShownBranches = new RendererLruCache<string, BranchPresentation>({
@@ -126,6 +140,86 @@ function useDetachedCommit(workspace: BranchPresentation | null, detached: boole
   return (own || commit).slice(0, 7);
 }
 
+/** The session's own worktree: merge it into its target or remove it, each
+ *  behind its confirmation; a refusal shows as a dialog, a merge as a flash.
+ *  The island's branch tab and the session panel both ask through it. */
+export function useWorktreeSessionActions({
+  sessionId,
+  onFlash,
+}: {
+  sessionId: string;
+  onFlash?: (flash: ComposerIslandFlash, sessionId: string) => void;
+}) {
+  const [dialog, setDialog] = useState<SettingsConfirmation | null>(null);
+  const [running, setRunning] = useState(false);
+  const failed = (title: string, description: string) => setDialog({ title, description });
+  const run = async (title: string, action: () => Promise<void>) => {
+    setRunning(true);
+    try {
+      await action();
+    } catch (reason) {
+      failed(title, worktreeFailureText(worktreeFailure(reason)));
+    } finally {
+      setRunning(false);
+    }
+  };
+  const merge = (branch: string, mergeInto: string, revision: number) =>
+    run(t("Couldn't merge"), async () => {
+      // Cleanup follows the worktree settings' automatic cleanup.
+      const result = await invokeWorktree<DesktopMergeWorkspaceResult>(
+        'mergeWorkspace',
+        [{ confirmed: true, target: mergeInto, expectedRevision: revision, cleanup: true }],
+        sessionId
+      );
+      if (!result.merged) {
+        // The preflight found conflicts; nothing changed.
+        failed(
+          t("Couldn't merge"),
+          worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } })
+        );
+        return;
+      }
+      // A refused cleanup never undoes the merge: it only keeps the worktree.
+      const kept = result.cleanup?.removed === false;
+      let text = result.upToDate
+        ? t('Nothing to merge into {{target}}', { target: mergeInto })
+        : t('Merged {{source}} into {{target}}', { source: branch, target: mergeInto });
+      if (kept && !result.upToDate) {
+        text = t('Merged {{source}} into {{target}}; the worktree was kept', { source: branch, target: mergeInto });
+      }
+      onFlash?.({ key: `worktree-merge:${result.commit ?? ''}:${revision}`, text }, sessionId);
+    });
+  const remove = (revision: number) =>
+    run(t("Couldn't remove the worktree"), async () => {
+      await invokeWorktree('removeWorktree', [{ expectedRevision: revision }], sessionId);
+    });
+  const askMerge = (branch: string, mergeInto: string, revision: number) =>
+    setDialog({
+      title: t('Merge {{source}} into {{target}}?', { source: branch, target: mergeInto }),
+      description: t(
+        'A merge commit joins the branches. The project folder must be on {{target}} with no uncommitted changes.',
+        { target: mergeInto }
+      ),
+      confirmLabel: t('Merge'),
+      onConfirm: () => merge(branch, mergeInto, revision),
+    });
+  const askRemove = (revision: number) =>
+    setDialog({
+      title: t('Remove this worktree?'),
+      description: t('The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'),
+      confirmLabel: t('Remove'),
+      danger: true,
+      onConfirm: () => remove(revision),
+    });
+  return {
+    running,
+    dialogShown: Boolean(dialog),
+    askMerge,
+    askRemove,
+    dialog: dialog && <SettingsConfirmDialog options={dialog} portal onClose={() => setDialog(null)} />,
+  };
+}
+
 export function BranchIslandSegment({
   sessionId,
   workspace: live,
@@ -133,6 +227,7 @@ export function BranchIslandSegment({
   locked = false,
   onViewChanges,
   onFlash,
+  renderTrigger,
 }: {
   sessionId: string;
   /** The session's live workspace; no segment outside a git repository. */
@@ -146,9 +241,15 @@ export function BranchIslandSegment({
   /** A short island notice after a merge, for the session that merged (the
    *  segment's session when the merge started, whatever is shown by then). */
   onFlash?: (flash: ComposerIslandFlash, sessionId: string) => void;
+  /** Another host's trigger for the same tab (the session panel's Branch
+   *  row): `button` carries the segment's own wiring, `meta` the branch's
+   *  status; the tab then opens under it. */
+  renderTrigger?: (button: BranchTriggerProps, view: { branch: string; meta: string; pending: boolean }) => ReactNode;
 }) {
-  const [dialog, setDialog] = useState<SettingsConfirmation | null>(null);
-  const [running, setRunning] = useState(false);
+  const { running, dialogShown: confirmShown, askMerge, askRemove, dialog } = useWorktreeSessionActions({
+    sessionId,
+    onFlash,
+  });
   const [namingBranch, setNamingBranch] = useState(false);
   const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
@@ -164,12 +265,14 @@ export function BranchIslandSegment({
   });
   const current = live && showsBranch(live) ? live : (menu?.workspace ?? live ?? null);
   const presentation = useMemo(() => branchPresentation(current), [current]);
-  const workspace = presentation ?? lastShownBranches.peek(sessionId) ?? null;
+  // Bridged per session and project: after a move the old project's branch is gone.
+  const shownKey = `${sessionId}\0${projectPath}`;
+  const workspace = presentation ?? lastShownBranches.peek(shownKey) ?? null;
   useLayoutEffect(() => {
     if (!sessionId) return;
-    if (presentation) lastShownBranches.set(sessionId, presentation);
-    else lastShownBranches.get(sessionId);
-  }, [sessionId, presentation]);
+    if (presentation) lastShownBranches.set(shownKey, presentation);
+    else lastShownBranches.get(shownKey);
+  }, [sessionId, shownKey, presentation]);
   const recovery = workspace?.recovery ?? false;
   const worktree = workspace?.worktree ?? false;
   const shown = Boolean(sessionId && workspace);
@@ -177,7 +280,7 @@ export function BranchIslandSegment({
   const commit = useDetachedCommit(workspace, detached);
   const panel = useRef<HTMLElement>(null);
   // The checkout's status beside the open tab's chip (the Git segment's own read).
-  const gitStatus = useIslandGitStatus(open ? (workspace?.cwd ?? '') : '');
+  const gitStatus = useIslandGitStatus(open || renderTrigger ? (workspace?.cwd ?? '') : '');
   // Set when a close should hand focus back to the segment; the segment is
   // hidden while its tab is open, so focus moves once the tab has closed.
   const refocus = useRef(false);
@@ -188,6 +291,25 @@ export function BranchIslandSegment({
   };
   const reopen = () => setOpen(true);
   useMobileBack(open, close);
+  // Hosted outside the island, the open tab closes on a press outside it.
+  // "Inside" is the tab's React tree, its body-portalled row menus included:
+  // they mark the press on its way through React, before it bubbles here.
+  const hosted = Boolean(renderTrigger);
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const insidePresses = useRef(new WeakSet<Event>());
+  const markInside = (event: { nativeEvent: Event }) => insidePresses.current.add(event.nativeEvent);
+  useEffect(() => {
+    if (!open || !hosted) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      if (insidePresses.current.has(event)) return;
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && trigger.current?.contains(target)) return;
+      closeRef.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open, hosted]);
   const actions = useBranchMenuActions({
     draft: false,
     intent: Boolean(menu?.pendingWorktree),
@@ -216,7 +338,7 @@ export function BranchIslandSegment({
     if (!shown) setOpen(false);
   }, [shown]);
   // A closed tab hands focus back to the segment, unless a dialog took it.
-  const dialogShown = Boolean(dialog || actions.carry || namingBranch);
+  const dialogShown = Boolean(confirmShown || actions.carry || namingBranch);
   // biome-ignore lint/correctness/useExhaustiveDependencies: open is the trigger; the rest is read at close time
   useEffect(() => {
     if (open) return;
@@ -254,48 +376,6 @@ export function BranchIslandSegment({
     void load();
   };
 
-  const failed = (title: string, description: string) => setDialog({ title, description });
-  const run = async (title: string, action: () => Promise<void>) => {
-    setRunning(true);
-    try {
-      await action();
-    } catch (reason) {
-      failed(title, worktreeFailureText(worktreeFailure(reason)));
-    } finally {
-      setRunning(false);
-    }
-  };
-  const merge = () =>
-    run(t("Couldn't merge"), async () => {
-      // Cleanup follows the worktree settings' automatic cleanup.
-      const result = await invokeWorktree<DesktopMergeWorkspaceResult>(
-        'mergeWorkspace',
-        [{ confirmed: true, target: mergeInto, expectedRevision: workspace.revision, cleanup: true }],
-        sessionId
-      );
-      if (!result.merged) {
-        // The preflight found conflicts; nothing changed.
-        failed(
-          t("Couldn't merge"),
-          worktreeFailureText({ code: 'MERGE_CONFLICT', message: '', details: { files: result.conflicts ?? [] } })
-        );
-        return;
-      }
-      // A refused cleanup never undoes the merge: it only keeps the worktree.
-      const kept = result.cleanup?.removed === false;
-      let text = result.upToDate
-        ? t('Nothing to merge into {{target}}', { target: mergeInto })
-        : t('Merged {{source}} into {{target}}', { source: branch, target: mergeInto });
-      if (kept && !result.upToDate) {
-        text = t('Merged {{source}} into {{target}}; the worktree was kept', { source: branch, target: mergeInto });
-      }
-      onFlash?.({ key: `worktree-merge:${result.commit ?? ''}:${workspace.revision}`, text }, sessionId);
-    });
-  const remove = () =>
-    run(t("Couldn't remove the worktree"), async () => {
-      await invokeWorktree('removeWorktree', [{ expectedRevision: workspace.revision }], sessionId);
-    });
-
   type WorktreeAction = {
     id: string;
     label: string;
@@ -329,16 +409,7 @@ export function BranchIslandSegment({
         switches: true,
         onSelect: () => {
           close();
-          setDialog({
-            title: t('Merge {{source}} into {{target}}?', { source: branch, target: mergeInto }),
-            description: t(
-              'A merge commit joins the branches. The project folder must be on {{target}} with no uncommitted changes.',
-              { target: mergeInto }
-            ),
-            confirmLabel: t('Merge'),
-            // Cleanup follows the worktree settings' automatic cleanup.
-            onConfirm: merge,
-          });
+          askMerge(branch, mergeInto, workspace.revision);
         },
       });
     }
@@ -350,13 +421,7 @@ export function BranchIslandSegment({
       switches: true,
       onSelect: () => {
         close();
-        setDialog({
-          title: t('Remove this worktree?'),
-          description: t('The session returns to the project folder. Uncommitted or unmerged work blocks the removal.'),
-          confirmLabel: t('Remove'),
-          danger: true,
-          onConfirm: remove,
-        });
+        askRemove(workspace.revision);
       },
     });
   }
@@ -402,25 +467,29 @@ export function BranchIslandSegment({
   if (!intent && ahead > 0) metaParts.push(`↑${ahead}`);
   const meta = metaParts.join(' · ');
 
-  return (
-    <>
-      <button
-        ref={trigger}
-        type="button"
-        className={`composer-island-seg composer-island-seg-branch${worktree ? ' composer-island-seg-worktree' : ''}${recovery ? ' composer-island-seg-warning' : ''}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        aria-busy={pendingMark || undefined}
-        aria-label={moving ? `${branch} — ${tooltip}` : undefined}
-        title={tooltip}
-        onPointerEnter={() => void load()}
-        onFocus={() => {
-          if (!open) void load();
-        }}
-        onClick={toggle}
-      >
-        {pendingMark ? (
+  const triggerProps: BranchTriggerProps = {
+    ref: trigger,
+    'aria-haspopup': 'dialog',
+    'aria-expanded': open,
+    'aria-controls': open ? panelId : undefined,
+    'aria-busy': pendingMark || undefined,
+    title: tooltip,
+    onPointerEnter: () => void load(),
+    onFocus: () => {
+      if (!open) void load();
+    },
+    onClick: toggle,
+  };
+  const segment = renderTrigger ? (
+    renderTrigger(triggerProps, { branch: label, meta, pending: pendingMark })
+  ) : (
+    <button
+      {...triggerProps}
+      type="button"
+      className={`composer-island-seg composer-island-seg-branch${worktree ? ' composer-island-seg-worktree' : ''}${recovery ? ' composer-island-seg-warning' : ''}`}
+      aria-label={moving ? `${branch} — ${tooltip}` : undefined}
+    >
+      {pendingMark ? (
           <ProgressSpinner size={14} aria-hidden="true" />
         ) : (
           <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
@@ -439,7 +508,9 @@ export function BranchIslandSegment({
         </span>
         {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
       </button>
-      {open && (menu || loading) && (
+  );
+
+  const tab = open && (menu || loading) && (
         <BranchIslandPanel
           management={actions.management}
           panel={panel}
@@ -489,6 +560,17 @@ export function BranchIslandSegment({
           }
           onClose={close}
         />
+      );
+
+  return (
+    <>
+      {segment}
+      {hosted && tab ? (
+        <div className="branch-tab-host" onPointerDownCapture={markInside}>
+          {tab}
+        </div>
+      ) : (
+        tab
       )}
       {namingBranch && (
         <BranchNameDialog
@@ -505,7 +587,7 @@ export function BranchIslandSegment({
       {actions.carry && (
         <WorktreeCarryDialog count={actions.carry.count} paths={actions.carry.paths} onChoose={actions.carry.choose} />
       )}
-      {dialog && <SettingsConfirmDialog options={dialog} portal onClose={() => setDialog(null)} />}
+      {dialog}
     </>
   );
 }

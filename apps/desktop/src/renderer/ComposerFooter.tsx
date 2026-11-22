@@ -54,9 +54,27 @@ export function ServerAccountBadge() {
   return <span className="composer-server-account">{t('Server account')}</span>;
 }
 
-/** The model picker and the context gauge beside it. In an agent chat every
- *  route change also lands on the agent itself (agent-chat-route.ts), so the
- *  chip and the agent's profile pane stay one setting. */
+/** In an agent chat every route change also lands on the agent itself
+ *  (agent-chat-route.ts), so the chip and the agent's profile pane stay one
+ *  setting: the route-applied callback a model picker of `sessionId` takes. */
+export function useAgentChatRouteApplied(
+  onRoutePreferenceApplied: ModelProps['onRoutePreferenceApplied'],
+  sessionId: string | undefined,
+  agentMode: boolean
+): ModelProps['onRoutePreferenceApplied'] {
+  const applyAgentRoute = useCallback<NonNullable<ModelProps['onRoutePreferenceApplied']>>(
+    (selection, options) => {
+      onRoutePreferenceApplied?.(selection, options);
+      persistAgentChatRoute(String(sessionId || ''), selection).catch((reason) =>
+        showDesktopToast(errorMessageText(reason), 'error')
+      );
+    },
+    [onRoutePreferenceApplied, sessionId]
+  );
+  return agentMode ? applyAgentRoute : onRoutePreferenceApplied;
+}
+
+/** The model picker and the context gauge beside it. */
 export const ComposerModelControls = memo(function ComposerModelControls({
   modelAside,
   agentMode = false,
@@ -72,16 +90,7 @@ export const ComposerModelControls = memo(function ComposerModelControls({
    *  (Display → Show workflow and delegation). */
   routeLabel?: RouteLabelParts | null;
 }) {
-  const { sessionId } = modelProps;
-  const applyAgentRoute = useCallback<NonNullable<ModelProps['onRoutePreferenceApplied']>>(
-    (selection, options) => {
-      onRoutePreferenceApplied?.(selection, options);
-      persistAgentChatRoute(String(sessionId || ''), selection).catch((reason) =>
-        showDesktopToast(errorMessageText(reason), 'error')
-      );
-    },
-    [onRoutePreferenceApplied, sessionId]
-  );
+  const routeApplied = useAgentChatRouteApplied(onRoutePreferenceApplied, modelProps.sessionId, agentMode);
   return (
     <span className="composer-model-line-controls">
       {routeLabel && (
@@ -99,7 +108,7 @@ export const ComposerModelControls = memo(function ComposerModelControls({
         modelDisabled={transitioning}
         answersModelPickerRequests={paneActive}
         tuningDisabled={commandBusy || transitioning}
-        onRoutePreferenceApplied={agentMode ? applyAgentRoute : onRoutePreferenceApplied}
+        onRoutePreferenceApplied={routeApplied}
       />
       {modelAside && <span className="composer-model-aside">{modelAside}</span>}
     </span>

@@ -441,10 +441,16 @@ export const ModelSelector = memo(function ModelSelector({
   sessionId,
   answersModelPickerRequests = false,
   sheetAlign,
+  sheetPlacement,
   sessionChoices,
+  triggerRowLabel,
 }: {
   /** A conversation's workflow / delegation rows (useSessionRouteChoices). */
   sessionChoices?: RouteSessionChoice[];
+  /** The side the sheet opens toward (RouteEditor `placement`). */
+  sheetPlacement?: 'above' | 'below';
+  /** The trigger is the session panel's row of this name. */
+  triggerRowLabel?: string;
   /** True only for the focused, visible conversation pane. */
   answersModelPickerRequests?: boolean;
   /** The pill edge its sheet lines up with (RouteEditor `align`). */
@@ -808,6 +814,8 @@ export const ModelSelector = memo(function ModelSelector({
         sessionChoices={sessionChoices}
         answersModelPickerRequests={answersModelPickerRequests}
         align={sheetAlign}
+        placement={sheetPlacement}
+        triggerRowLabel={triggerRowLabel}
       />
     </div>
   );

@@ -19,8 +19,10 @@ type MenuRead = { menu: DesktopBranchMenu | null; recovery: boolean };
 
 const lastMenuReads = new Map<string, MenuRead>();
 
+/** A session's read is its project's too: a session moved to another
+ *  project (or out of any repository) never shows the old one's menu. */
 const menuReadKey = (draft: boolean, projectPath: string, sessionId: string) =>
-  draft ? `project\0${projectPath}` : `session\0${sessionId}`;
+  draft ? `project\0${projectPath}` : `session\0${sessionId}\0${projectPath}`;
 
 /** Reads of one key share a single round trip: the composer's branch chip and
  *  the island's branch segment both read a session's menu as they mount, and

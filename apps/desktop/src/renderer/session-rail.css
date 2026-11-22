@@ -1,0 +1,542 @@
+/* ── Session panel ──
+   A column of its own at the pane cell's far right (after the dock), or
+   raised over the cell's right edge when the three do not fit
+   (session-rail-layout.ts sessionRailFit). */
+.pane-cell:has(> .session-rail[data-mode="column"]) {
+  grid-template-columns: minmax(min(360px, 100%), 1fr) auto auto;
+}
+/* Every row, the dock's own row below the chat included. */
+.pane-cell > .session-rail {
+  grid-column: 3;
+  grid-row: 1 / -1;
+}
+.session-rail {
+  --session-rail-row: 30px;
+  --session-rail-head: 36px;
+  --session-rail-inset: 16px;
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--mx-border-structure);
+  background: var(--mx-window-band);
+  color: var(--mx-text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
+  background: var(--mx-mica-panel-solid);
+}
+.session-rail[data-mode="raised"] {
+  position: absolute;
+  z-index: 31;
+  top: 0;
+  bottom: 0;
+  right: calc(1px * var(--frame, 0) * var(--edge-right, 0));
+  box-shadow: var(--mx-overlay);
+}
+.session-rail-resize {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.session-rail-resize:focus-visible {
+  outline: none;
+}
+.session-rail-resize:is(:hover, :active, :focus-visible)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+  background: var(--mx-focus);
+  pointer-events: none;
+}
+.session-rail-head {
+  flex: 0 0 var(--mx-rail-panel-band);
+  height: var(--mx-rail-panel-band);
+}
+.session-rail-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+}
+
+/* A category: name, chevron, summary while closed, buttons while open. */
+.session-rail-sec {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.session-rail-sec-host:last-child > .session-rail-sec,
+.session-rail-sec:last-child {
+  border-bottom: 0;
+}
+.session-rail-hd {
+  height: var(--session-rail-head);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+}
+.session-rail-tg {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.session-rail-tg:hover {
+  background: var(--mx-hover);
+}
+.session-rail-tt {
+  flex: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.session-rail-cv {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.session-rail-sm {
+  min-width: 0;
+  margin-left: auto;
+  padding-left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.session-rail-sec[data-open] > .session-rail-hd .session-rail-sm {
+  visibility: hidden;
+}
+.session-rail-tidy {
+  flex: none;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.session-rail-tidy:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.session-rail-tidy[aria-disabled="true"] {
+  opacity: 0.45;
+  background: none;
+  color: var(--mx-text-muted);
+  cursor: default;
+}
+.session-rail-bd {
+  padding: 0 var(--session-rail-inset) 6px;
+}
+
+/* A row: 30px, content from the name's line. */
+.session-rail-row,
+.session-rail .agent-pool-row {
+  position: relative;
+  box-sizing: border-box;
+  width: calc(100% + 16px);
+  height: var(--session-rail-row);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  list-style: none;
+}
+.session-rail-row > *,
+.session-rail .agent-pool-row > * {
+  min-width: 0;
+}
+button.session-rail-row,
+.session-rail .agent-pool-row {
+  cursor: pointer;
+}
+button.session-rail-row:disabled,
+button.session-rail-row[aria-disabled="true"] {
+  cursor: default;
+}
+button.session-rail-row:not(:disabled):hover,
+.session-rail .agent-pool-row:not(:disabled):hover,
+.session-rail-hover:hover,
+.session-rail-row[aria-expanded="true"] {
+  background: var(--mx-hover);
+}
+.session-rail-key {
+  flex: none;
+  width: 76px;
+  color: var(--mx-text-muted);
+}
+.session-rail-pk {
+  flex: none;
+  margin-left: auto;
+  color: var(--mx-text-muted);
+  visibility: hidden;
+}
+.session-rail-row:is(:hover, :focus-visible, [aria-expanded="true"]) .session-rail-pk {
+  visibility: visible;
+}
+.session-rail-cut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-rail-grow {
+  flex: 1 1 auto;
+}
+.session-rail-fx {
+  flex: none;
+}
+.session-rail-muted {
+  color: var(--mx-text-muted);
+}
+.session-rail-ic {
+  flex: none;
+  color: var(--mx-text-muted);
+}
+.session-rail-num {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-rail-num[data-pending] {
+  flex: 0 1 auto;
+}
+.session-rail-el {
+  flex: none;
+  min-width: 64px;
+  text-align: right;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-rail-add {
+  color: var(--mx-success);
+}
+.session-rail-del {
+  color: var(--mx-danger);
+}
+/* A name keeps up to half the row; a file's folder gives way before its name. */
+.session-rail-name {
+  flex: 0 1 auto;
+  max-width: 50%;
+}
+.session-rail-dir {
+  flex: 0 1000 auto;
+}
+.session-rail-dir + .session-rail-name {
+  max-width: none;
+  margin-left: -8px;
+}
+.session-rail-note {
+  margin: 0;
+  padding: 2px 0 6px;
+  overflow-wrap: anywhere;
+}
+.session-rail-note[data-tone="warning"] {
+  color: var(--mx-warning);
+}
+.session-rail-note[data-tone="error"] {
+  color: var(--mx-danger);
+}
+.session-rail-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.session-rail-icon:not(:disabled):hover {
+  background: var(--mx-hover);
+}
+.session-rail-icon[data-danger]:not(:disabled):hover {
+  color: var(--mx-danger);
+}
+.session-rail-icon:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.session-rail-text-button {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.session-rail-text-button:not(:disabled):hover {
+  background: var(--mx-hover);
+}
+.session-rail-text-button[data-danger] {
+  color: var(--mx-danger);
+}
+/* A row's actions sit over its figure and show on hover or focus. */
+.session-rail-act {
+  position: absolute;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.session-rail-row:is(:hover, :focus-within) .session-rail-act {
+  opacity: 1;
+}
+.session-rail-row:is(:hover, :focus-within) .session-rail-under-act {
+  visibility: hidden;
+}
+.session-rail-more,
+.session-rail-gh {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.session-rail-more:hover,
+.session-rail-gh:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.session-rail-list {
+  margin: 0;
+  padding: 0;
+}
+
+/* Info: the borrowed pickers take the row's whole width. */
+.session-rail-project {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.session-rail-project > .session-rail-row {
+  flex: 1 1 auto;
+  width: auto;
+  margin-right: 0;
+}
+.session-rail-model,
+.session-rail-context,
+.session-rail .session-context-indicator:has(> .session-rail-row) {
+  position: relative;
+  display: block;
+  width: auto;
+  height: auto;
+  min-width: 0;
+}
+.session-rail .session-context-indicator > button.session-rail-row {
+  width: calc(100% + 16px);
+  height: var(--session-rail-row);
+  display: flex;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: inherit;
+}
+.session-rail .session-context-indicator > button.session-rail-row:hover {
+  background: var(--mx-hover);
+}
+/* The branch tab's press boundary (BranchIslandSegment, hosted) draws no box. */
+.branch-tab-host {
+  display: contents;
+}
+/* The model row and, in a server-login window, the footer's "Server account" after it. */
+.session-rail-model {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.session-rail-model > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.session-rail-model > .composer-server-account {
+  flex: none;
+}
+.session-rail .route-trigger-copy {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.session-rail .session-context-indicator > .session-rail-row > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.session-rail .session-rail-context-summary {
+  width: auto;
+  height: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.session-rail-context-summary > svg {
+  width: 14px;
+  height: 14px;
+}
+.session-rail-usage > .session-rail-num {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+/* Goal */
+.session-rail-goal-title {
+  font-size: 14px;
+  gap: 4px;
+}
+.session-rail-goal-text {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.session-rail-goal-line {
+  height: var(--session-rail-row);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.session-rail-goal-line .session-rail-icon {
+  color: var(--mx-text);
+}
+.session-rail-goal-state[data-state="blocked"] {
+  color: var(--mx-warning);
+}
+.session-rail-goal-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 2px 0 6px;
+}
+.session-rail-goal-confirm > p {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+/* To-do */
+.session-rail-group > .session-rail-row[data-status="completed"],
+.session-rail-group > .session-rail-row[data-status="abandoned"] {
+  color: var(--mx-text-muted);
+}
+
+/* Agents: the Agents window's row frame, one line. */
+.session-rail .agent-pool-list {
+  display: block;
+}
+.session-rail .agent-pool-row .agent-todo-mark {
+  flex: none;
+}
+.session-rail .agent-pool-row .session-rail-el [data-state="running"],
+.session-rail .agent-pool-row .session-rail-el .agent-activity-elapsed[data-state="running"] {
+  color: var(--mx-accent);
+}
+
+/* Shells: the island's shell row content, one line. */
+.session-rail-shells .sidebar-resource-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+}
+.session-rail-shells .sidebar-resource-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.session-rail-shells .schedules-row-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.session-rail-shells .schedules-row-copy > small {
+  display: none;
+}
+.session-rail-shells .agent-pool-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+.session-rail-shells .agent-activity-status {
+  flex: none;
+  min-width: 64px;
+  text-align: right;
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-rail-shells .agent-activity-elapsed[data-state="running"] {
+  color: var(--mx-accent);
+}
+.session-rail-row-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.session-rail-row-actions .composer-island-button {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
