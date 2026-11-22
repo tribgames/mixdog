@@ -6634,5 +6634,6 @@
   "Island": "Ilha",
   "Session info: Hidden": "Sem exibição",
   "This turn's changes are still being recorded.": "As alterações do turno ainda estão sendo registradas.",
-  "Waiting for its turn": "Aguardando a vez"
+  "Waiting for its turn": "Aguardando a vez",
+  "All {{count}}": "Todos {{count}}"
 }

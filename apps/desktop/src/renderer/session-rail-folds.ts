@@ -94,8 +94,9 @@ export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v2';
 /** Sessions remembered, the most recently changed kept. */
 const REMEMBERED_SESSIONS = 200;
 
-/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`). */
-type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean> };
+/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`); a
+ *  card's view (the Agents card's state filter) once it was picked (`choices`). */
+type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean>; choices: Record<string, string> };
 
 function readAll(): Record<string, SessionFolds> {
   try {
@@ -111,6 +112,7 @@ function readFolds(sessionId: string): SessionFolds {
   return {
     closed: Array.isArray(stored?.closed) ? stored.closed : [],
     groups: stored?.groups && typeof stored.groups === 'object' ? stored.groups : {},
+    choices: stored?.choices && typeof stored.choices === 'object' ? stored.choices : {},
   };
 }
 
@@ -178,11 +180,21 @@ export function useSessionRailFolds(sessionId: string) {
     (groups: Record<string, boolean>) => update((current) => ({ ...current, groups: { ...current.groups, ...groups } })),
     [update]
   );
+  const setChoice = useCallback(
+    (key: string, value: string) =>
+      update((current) =>
+        current.choices[key] === value ? current : { ...current, choices: { ...current.choices, [key]: value } }
+      ),
+    [update]
+  );
   return {
     isOpen: (category: SessionRailCategory) => !folds.closed.includes(category),
     toggle,
     /** A to-do fold as the user left it, `byDefault` until they set it. */
     groupOpen: (key: string, byDefault: boolean) => folds.groups[key] ?? byDefault,
     setGroups,
+    /** A card's view as the user left it, `byDefault` until they pick one. */
+    choice: (key: string, byDefault: string) => folds.choices[key] ?? byDefault,
+    setChoice,
   };
 }

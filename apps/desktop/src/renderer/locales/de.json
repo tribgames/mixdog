@@ -6568,5 +6568,6 @@
   "Island": "Insel",
   "Session info: Hidden": "Keine Anzeige",
   "This turn's changes are still being recorded.": "Die Änderungen dieses Zugs werden noch aufgezeichnet.",
-  "Waiting for its turn": "Wartet, bis es an der Reihe ist"
+  "Waiting for its turn": "Wartet, bis es an der Reihe ist",
+  "All {{count}}": "Alle {{count}}"
 }

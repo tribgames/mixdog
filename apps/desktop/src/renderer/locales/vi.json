@@ -6502,5 +6502,6 @@
   "Island": "Đảo",
   "Session info: Hidden": "Không hiển thị",
   "This turn's changes are still being recorded.": "Thay đổi của lượt vẫn đang được ghi lại.",
-  "Waiting for its turn": "Đang chờ đến lượt"
+  "Waiting for its turn": "Đang chờ đến lượt",
+  "All {{count}}": "Tất cả {{count}}"
 }
