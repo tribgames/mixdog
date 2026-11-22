@@ -47,6 +47,20 @@ export function useStreamingTail(streamingTail: TranscriptItem | null | undefine
   return { activeStreamingTail, liveItemCount, settledRowItems };
 }
 
+/** Whether the first `count` items close with a turn's end that names a reply (`finalAssistantId`) its turn has not
+ *  settled: an end can be written before its reply is. */
+function endAwaitsReply(items: readonly TranscriptItem[], count: number): boolean {
+  const end = items[count - 1];
+  if (end?.kind !== 'turndone' || end.finalAssistantId == null) return false;
+  const named = String(end.finalAssistantId);
+  for (let at = count - 2; at >= 0; at -= 1) {
+    const item = items[at];
+    if (item?.kind === 'turndone' || item?.kind === 'user') return true;
+    if (item?.kind === 'assistant' && String(item.id) === named) return false;
+  }
+  return true;
+}
+
 /** Where a transcript's last turn's end is, carried on from the list a frame made it from. */
 const lastTurnEnd = carriedLast<TranscriptItem>((item) => item?.kind === 'turndone');
 
@@ -102,13 +116,16 @@ export function useTranscriptRows({
     ownTurnKeys.current = { items: settledItems, keys };
     return keys;
   }, [turnKeys, settledItems]);
-  // Only TRAILING typing rows leave: the turn keys stay aligned by index.
+  // Only TRAILING items leave, so the turn keys stay aligned by index: a room's typing rows, and a turn's end written
+  // before the reply it names has settled. Until that reply is among the items (while it can still arrive) the end is
+  // not shown at all: every row stands as it did before the end was written, and the end lands with its reply.
+  const arriving = Boolean(busy || commandBusy || liveItem);
   const projectedItems = useMemo(() => {
-    if (!room) return settledRowItems;
     let end = settledRowItems.length;
-    while (end > 0 && isRoomTypingItem(settledRowItems[end - 1])) end -= 1;
+    if (room) while (end > 0 && isRoomTypingItem(settledRowItems[end - 1])) end -= 1;
+    if (arriving && endAwaitsReply(settledRowItems, end)) end -= 1;
     return end === settledRowItems.length ? settledRowItems : settledRowItems.slice(0, end);
-  }, [room, settledRowItems]);
+  }, [room, settledRowItems, arriving]);
   // The pane's rows are carried on from the ones it made before: a frame's items are read from the first that changed.
   const projector = useRef<ReturnType<typeof createSettledProjector> | null>(null);
   projector.current ??= createSettledProjector();
