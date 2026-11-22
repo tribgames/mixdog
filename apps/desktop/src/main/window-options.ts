@@ -3,7 +3,11 @@ import { release } from 'node:os';
 
 import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
-import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
+import {
+  DESKTOP_WINDOW_DEFAULT_HEIGHT,
+  DESKTOP_WINDOW_DEFAULT_WIDTH,
+  DESKTOP_WINDOW_MIN_WIDTH,
+} from '../shared/window-layout';
 import {
   installMicaActiveAppearance,
   type MicaNative,
@@ -232,11 +236,11 @@ export function setWindowTitleBarBand(window: DesktopTitleBarWindow, light: bool
 // Shared by the real entry and the excluded capture harness so evidence uses
 // the same immutable window/chrome/security settings as production.
 export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
-  /* First-install layout (user reference): a 1200×800 window with the
-     sidebar open and the dock closed. Later launches restore the saved
-     bounds via window-state. */
+  /* First-install layout (user reference): a 1460×864 window with the
+     sidebar open, the dock closed and the session cards beside the
+     conversation. Later launches restore the saved bounds via window-state. */
   width: DESKTOP_WINDOW_DEFAULT_WIDTH,
-  height: 800,
+  height: DESKTOP_WINDOW_DEFAULT_HEIGHT,
   /* The side panels shrink from their preferred widths to their own floors;
      stop once sidebar + workspace + dock + shell spacing reach that floor. */
   minWidth: DESKTOP_WINDOW_MIN_WIDTH,

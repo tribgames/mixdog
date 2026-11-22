@@ -10,32 +10,34 @@ import {
   clearableAgents,
   clearFinishedAgents,
   dismissShellRows,
-  islandAgentCounts,
   ShellJobItem,
   shellStateLabels,
   useAgentsUsage,
 } from './ComposerIsland';
 import { t } from './i18n';
 import { IslandColumnSizer } from './IslandPanelFoot';
-import { RailSection } from './session-rail-parts';
+import type { useSessionRailFolds } from './session-rail-folds';
+import { RailFold, RailSection } from './session-rail-parts';
 import { useShellStops } from './shell-job-controls';
 import { useClock } from './use-clock';
 
 const RUNNING: readonly DesktopAgentActivityState[] = ['running', 'waiting', 'cancel-unconfirmed', 'needs-user'];
 
-/** Running agents first, then queued ones, then the rest; each keeps its place otherwise. */
-export function railAgentOrder(agents: readonly IslandAgentRow[]): IslandAgentRow[] {
-  const rank = ({ state }: IslandAgentRow) => (RUNNING.includes(state) ? 0 : state === 'queued' ? 1 : 2);
-  return [...agents].sort((a, b) => rank(a) - rank(b));
+type Folds = ReturnType<typeof useSessionRailFolds>;
+
+/** The agents by where they stand: at work (with those waiting on the user
+ *  or on their own tasks), queued, and the rest; each keeps its place. */
+export function railAgentGroups(agents: readonly IslandAgentRow[]) {
+  const working = (state: DesktopAgentActivityState) => RUNNING.includes(state);
+  return {
+    running: agents.filter(({ state }) => working(state)),
+    waiting: agents.filter(({ state }) => state === 'queued'),
+    finished: agents.filter(({ state }) => !working(state) && state !== 'queued'),
+  };
 }
 
-/** Running (with those waiting on the user), queued and finished. */
-export function railAgentTally(agents: readonly IslandAgentRow[]) {
-  const counts = islandAgentCounts(agents);
-  const running = counts.running + counts.needsUser;
-  return { running, waiting: counts.waiting, finished: agents.length - running - counts.waiting };
-}
-
+/** The Agents category: a fold for each state, as To-do folds its steps. The
+ *  finished ones stay folded while any agent is at work or queued. */
 export function AgentsSection({
   sessionId,
   agents,
@@ -44,10 +46,12 @@ export function AgentsSection({
   shellKeys,
   open,
   onToggle,
+  folds,
   onOpenSession,
 }: {
   sessionId: string;
   agents: IslandAgentRow[];
+  folds: Folds;
   poolRows: Parameters<typeof useAgentsUsage>[0]['poolRows'];
   /** The session's turn runs: a settled turn asks for the usage again. */
   busy: boolean;
@@ -60,15 +64,19 @@ export function AgentsSection({
   const clock = useClock(shown);
   const usage = useAgentsUsage({ sessionId, agentRows: agents, poolRows, busy, open: shown });
   if (agents.length === 0) return null;
-  const { running, waiting, finished } = railAgentTally(agents);
-  const summary = [
-    running ? t('Running {{count}}', { count: running }) : '',
-    waiting ? t('Waiting {{count}}', { count: waiting }) : '',
-    finished ? t('Finished {{count}}', { count: finished }) : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const ordered = railAgentOrder(agents);
+  const { running, waiting, finished } = railAgentGroups(agents);
+  const active = running.length + waiting.length > 0;
+  const groups = [
+    { key: 'agents:running', name: t('Running {{count}}', { count: running.length }), rows: running, byDefault: true },
+    { key: 'agents:waiting', name: t('Waiting {{count}}', { count: waiting.length }), rows: waiting, byDefault: true },
+    {
+      key: 'agents:finished',
+      name: t('Finished {{count}}', { count: finished.length }),
+      rows: finished,
+      byDefault: !active,
+    },
+  ].filter((group) => group.rows.length > 0);
+  const summary = groups.map((group) => group.name).join(' · ');
   return (
     <RailSection
       category="agents"
@@ -86,27 +94,42 @@ export function AgentsSection({
         onClick: () => clearFinishedAgents(sessionId, agents, shellKeys),
       }}
     >
-      <div
-        className="composer-island-jobs composer-island-agents schedules-list agent-pool-list"
-        role="tree"
-        aria-label={t('Agents')}
-      >
-        {ordered.map(({ node, state }, index) => (
-          <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
-            <AgentIslandRow
-              node={node}
-              state={state}
-              clock={clock}
-              tokens={usage.agentRowTokens.get(node.sessionId)}
-              posInSet={index + 1}
-              setSize={ordered.length}
-              ownerSessionId={sessionId}
-              onOpenSession={onOpenSession}
+      {groups.map((group) => {
+        const shown = folds.groupOpen(group.key, group.byDefault);
+        return (
+          <div key={group.key} className="session-rail-group" data-group={group.key}>
+            <RailFold
+              id={group.key}
+              name={group.name}
+              open={shown}
+              onToggle={() => folds.setGroups({ [group.key]: !shown })}
             />
+            {shown && (
+              <div
+                className="composer-island-jobs composer-island-agents schedules-list agent-pool-list"
+                role="tree"
+                aria-label={group.name}
+              >
+                {group.rows.map(({ node, state }, index) => (
+                  <div key={poolRowKey(node.agent, index)} className="composer-island-agent-item" role="none">
+                    <AgentIslandRow
+                      node={node}
+                      state={state}
+                      clock={clock}
+                      tokens={usage.agentRowTokens.get(node.sessionId)}
+                      posInSet={index + 1}
+                      setSize={group.rows.length}
+                      ownerSessionId={sessionId}
+                      onOpenSession={onOpenSession}
+                    />
+                  </div>
+                ))}
+                <IslandColumnSizer labels={agentStateLabels()} />
+              </div>
+            )}
           </div>
-        ))}
-        <IslandColumnSizer labels={agentStateLabels()} />
-      </div>
+        );
+      })}
     </RailSection>
   );
 }

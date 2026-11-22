@@ -221,6 +221,8 @@ export function useContextUsage(snapshot: Snapshot) {
   const action = useCompactAction(snapshot);
   return {
     percent: context?.percent ?? null,
+    used: context?.used ?? null,
+    limit: context?.limit ?? 0,
     tone: contextTone(context?.percent),
     text: context && context.used != null ? contextUsageText(context) : '',
     title: context ? contextUsageTitle(context) : undefined,

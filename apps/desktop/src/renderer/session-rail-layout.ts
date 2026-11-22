@@ -4,15 +4,16 @@
 import { useSyncExternalStore } from 'react';
 import { PANE_SIDE_DOCK_SHEET_FRAME_WIDTH, SESSION_RAIL_WIDTH_KEY } from './pane-side-dock-model';
 
-export const SESSION_RAIL_DEFAULT_WIDTH = 400;
 export const SESSION_RAIL_MIN_WIDTH = 300;
+/** Until the user widens them, the cards take the least room they can. */
+export const SESSION_RAIL_DEFAULT_WIDTH = SESSION_RAIL_MIN_WIDTH;
 export const SESSION_RAIL_MAX_WIDTH = 560;
 /** The transcript scrollbar's lane, right of the cards (session-rail.css). */
 export const SESSION_RAIL_GAP = 8;
 /** The conversation width that holds the reading column and composer in
- *  full: --pane-column's 800px floor between its two 24px insets
- *  (12-transcript.css). */
-export const PANE_READING_COLUMN_MAX = 848;
+ *  full: --pane-column's 800px floor (12-transcript.css) with 8px to spare
+ *  either side, which leaves the composer 32px from each edge. */
+export const PANE_READING_COLUMN_MAX = 816;
 
 export function clampSessionRailWidth(width: number): number {
   const value = Number.isFinite(width) ? width : SESSION_RAIL_DEFAULT_WIDTH;

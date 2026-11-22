@@ -854,6 +854,8 @@ ul.composer-island-jobs {
   column-gap: 10px;
 }
 ul.composer-island-jobs > .composer-island-row {
+  /* One line: the command's title. */
+  min-height: 40px;
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;

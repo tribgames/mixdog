@@ -117,7 +117,7 @@ const HARNESS = `
           <ContextSection {...fold()} snapshot={snapshot} onViewDetails={noop} />
           <GoalSection model={goal} {...fold()} />
           <TodoSection model={goal} folds={folds} {...fold()} />
-          <AgentsSection {...fold()} sessionId={SESSION} agents={islandAgentRows(pool, SESSION)} poolRows={pool}
+          <AgentsSection {...fold()} folds={folds} sessionId={SESSION} agents={islandAgentRows(pool, SESSION)} poolRows={pool}
             busy shellKeys={null} />
           <ShellsSection {...fold()} sessionId={SESSION} shells={shells} shellKeys={null} />
           <WorktreesSection {...fold()} sessionId={SESSION} workspace={workspace} projectPath={PROJECT} locked={false}

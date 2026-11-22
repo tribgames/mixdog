@@ -14,7 +14,7 @@ test('confirmText collapses newlines and truncates long commands to one ~100-cha
 });
 import {
   backgroundJobRows,
-  cwdFolderName,
+  shellCommandTitle,
   expiredShellRows,
   shellFinishedLabel,
   shellRowAction,
@@ -102,10 +102,16 @@ test('only clean exits expire, SHELL_AUTO_DISMISS_MS after they finished (or wer
   assert.deepEqual(expiredShellRows(rows, 110_000, seen), { keys: ['ok-old', 'ok-new', 'ok-unknown'], nextAt: 0 });
 });
 
-test('cwd folder name takes the last segment of either separator', () => {
-  assert.equal(cwdFolderName('C:\\Project\\cart-service\\'), 'cart-service');
-  assert.equal(cwdFolderName('/work/api'), 'api');
-  assert.equal(cwdFolderName(''), '');
+test("a shell row's title is its first command, quoted text kept whole", () => {
+  assert.equal(shellCommandTitle('npm test -- --changed 2>&1 | Select-String fail'), 'npm test -- --changed');
+  assert.equal(shellCommandTitle('npm run build; npm test'), 'npm run build');
+  assert.equal(shellCommandTitle('cargo check && cargo test'), 'cargo check');
+  assert.equal(shellCommandTitle('node run.mjs "a | b; c" 9407 > out.txt'), 'node run.mjs "a | b; c" 9407');
+  assert.equal(shellCommandTitle('npm run dev'), 'npm run dev');
+  assert.equal(shellCommandTitle('| odd'), '| odd');
+});
+
+test('a shell job row carries its working directory', () => {
   assert.equal(
     backgroundJobRows({
       shellJobs: { count: 1, elapsedLabel: '', jobs: [{ taskId: 'a', command: 'x', cwd: '/w/p', startedAt: 1 }] },

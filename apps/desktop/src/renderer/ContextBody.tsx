@@ -11,7 +11,7 @@ import { emptyStateHost } from './empty-state-host';
 
 type Row = Record<string, unknown>;
 
-function compactTokens(value: unknown): string {
+export function compactTokens(value: unknown): string {
   const number = nonNegativeNumber(value);
   if (number <= 0) return '0';
   if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(number >= 10_000_000 ? 0 : 1)}m`;
@@ -132,6 +132,26 @@ function estimatedCategories(semantic: Row, schema: Row, request: Row): Estimate
   ];
 }
 
+/** The estimated composition of a context status: each category's tokens,
+ *  their sum, the free space left in a window of `windowTokens`, and the
+ *  window the shares are of (never less than what the categories hold). */
+export function contextMix(status: unknown, windowTokens: number) {
+  const context = record(status);
+  const request = record(context.request);
+  const categories = estimatedCategories(
+    record(record(context.messages).semantic),
+    record(request.toolSchemaBreakdown),
+    request
+  );
+  const categorized = categories.reduce((sum, category) => sum + category.tokens, 0);
+  return {
+    categories,
+    categorized,
+    free: Math.max(0, windowTokens - categorized),
+    windowTokens: Math.max(windowTokens, categorized),
+  };
+}
+
 function EstimatedMix({ categories, windowTokens }: { categories: EstimatedCategory[]; windowTokens: number }) {
   return (
     <section className="context-mix" aria-labelledby="context-mix-title">
@@ -182,26 +202,21 @@ export function ContextBody({
   readingInHeader?: boolean;
 }) {
   const context = record(status);
-  const messages = record(context.messages);
-  const semantic = record(messages.semantic);
-  const request = record(context.request);
-  const schema = record(request.toolSchemaBreakdown);
   const inspection = context.inspection as ContextInspection | undefined;
   const usage = contextDisplayUsage(status, snapshot);
   const used = usage.used;
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const categories = estimatedCategories(semantic, schema, request);
+  const mix = contextMix(status, windowTokens);
+  const { categories, categorized: categorizedTokens } = mix;
   const measuredCategories = (inspection?.categories ?? categories).filter((category) => category.tokens > 0);
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
   const measuredBarDescription =
     used != null && measuredCategoryTotal > 0
       ? t('Measured total; category colors show estimated proportions.')
       : t(contextMeasurementLabel(usage.source));
-  const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
-  const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
-  const categoryWindowTokens = Math.max(windowTokens, categorizedTokens);
-  categories.push({ key: 'free', label: t('Free space'), tokens: estimatedFreeTokens });
+  const categoryWindowTokens = mix.windowTokens;
+  categories.push({ key: 'free', label: t('Free space'), tokens: mix.free });
   // Without a reading, every category is 0 and the window reads as free space.
   // Say the breakdown is still being measured instead of showing that as fact.
   const measuring = loading && !inspection && categorizedTokens <= 0;

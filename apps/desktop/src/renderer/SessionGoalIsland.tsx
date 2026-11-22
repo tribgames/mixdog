@@ -233,6 +233,34 @@ export function todoTaskGroups(todo: TodoSnapshot): { remaining: TodoItem[]; don
   };
 }
 
+/** The remaining steps a list shows at once and the `rest` it folds: the
+ *  first few stay, and every working step always makes the cut. */
+export function todoRemainingSplit(remaining: TodoItem[]): { shown: TodoItem[]; rest: TodoItem[] } {
+  const shownIndexes = new Set<number>();
+  remaining.forEach(({ task }, index) => {
+    if (task.status === 'in_progress') shownIndexes.add(index);
+  });
+  for (let index = 0; index < remaining.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
+    shownIndexes.add(index);
+  }
+  return {
+    shown: remaining.filter((_, index) => shownIndexes.has(index)),
+    rest: remaining.filter((_, index) => !shownIndexes.has(index)),
+  };
+}
+
+/** The done fold's name: how many steps were completed, and how many dropped. */
+export function todoDoneLabel(done: TodoItem[]): string {
+  const completedCount = done.filter(({ task }) => task.status === 'completed').length;
+  const abandonedCount = done.length - completedCount;
+  return [
+    completedCount > 0 || abandonedCount === 0 ? t('Done {{n}}', { n: completedCount }) : '',
+    abandonedCount > 0 ? t('{{n}} dropped', { n: abandonedCount }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** The step list: remaining rows (the first few, working ones
  *  always, the rest folded) and a fold for the finished and dropped ones. */
 function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishedOpenByDefault: boolean }) {
@@ -241,18 +269,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
   const doneListId = useId();
   const restListId = useId();
   const { remaining, done, headings } = todoTaskGroups(todo);
-  const completedCount = done.filter(({ task }) => task.status === 'completed').length;
-  const abandonedCount = done.length - completedCount;
-  // The first rows stay; every working row always makes the cut.
-  const shownIndexes = new Set<number>();
-  remaining.forEach(({ task }, index) => {
-    if (task.status === 'in_progress') shownIndexes.add(index);
-  });
-  for (let index = 0; index < remaining.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
-    shownIndexes.add(index);
-  }
-  const shown = remaining.filter((_, index) => shownIndexes.has(index));
-  const rest = remaining.filter((_, index) => !shownIndexes.has(index));
+  const { shown, rest } = todoRemainingSplit(remaining);
   // A finished list opens its done rows: they are all there is to read.
   const doneOpen = showDone ?? (finishedOpenByDefault && remaining.length === 0);
   return (
@@ -293,12 +310,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
             aria-controls={doneListId}
             onClick={() => setShowDone(!doneOpen)}
           >
-            {[
-              completedCount > 0 || abandonedCount === 0 ? t('Done {{n}}', { n: completedCount }) : '',
-              abandonedCount > 0 ? t('{{n}} dropped', { n: abandonedCount }) : '',
-            ]
-              .filter(Boolean)
-              .join(' · ')}
+            {todoDoneLabel(done)}
             <MxIcon name="chevron-down" size={12} />
           </button>
           <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>

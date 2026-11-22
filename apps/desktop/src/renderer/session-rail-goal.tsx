@@ -1,12 +1,21 @@
 // The session panel's Goal and To-do categories, on the island's goal model.
 import { ChevronDown, ChevronRight, Pause, Pencil, Play, Square, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import type { GoalSnapshot } from './desktop-types';
 import { t } from './i18n';
 import type { useSessionRailFolds } from './session-rail-folds';
-import { RailSection } from './session-rail-parts';
-import { GoalRing, phaseName, TodoGlyph, type TodoItem, todoTaskGroups, type useSessionGoal } from './SessionGoalIsland';
+import { RailFold, RailSection } from './session-rail-parts';
+import {
+  GoalRing,
+  phaseName,
+  TodoGlyph,
+  type TodoItem,
+  todoDoneLabel,
+  todoRemainingSplit,
+  todoTaskGroups,
+  type useSessionGoal,
+} from './SessionGoalIsland';
 
 type GoalModel = ReturnType<typeof useSessionGoal>;
 type Folds = ReturnType<typeof useSessionRailFolds>;
@@ -200,27 +209,36 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
   );
 }
 
-type TodoGroup = { key: string; name: string; items: TodoItem[] };
-
-/** The steps grouped as the island groups them: what remains (by phase when
- *  there are two or more), then the done ones. */
-export function railTodoGroups(todo: NonNullable<GoalModel['todo']>): TodoGroup[] {
-  const { remaining, done, headings } = todoTaskGroups(todo);
-  const groups: TodoGroup[] = [];
-  if (headings) {
-    for (const item of remaining) {
-      const key = `phase:${item.phase}`;
-      const group = groups.find((entry) => entry.key === key);
-      if (group) group.items.push(item);
-      else groups.push({ key, name: phaseName(todo.phases[item.phase]?.name), items: [item] });
-    }
-  } else if (remaining.length) {
-    groups.push({ key: 'remaining', name: t('Remaining'), items: remaining });
-  }
-  if (done.length) groups.push({ key: 'done', name: t('Done'), items: done });
-  return groups;
+/** Steps in plan order; with `headings`, each phase's first step follows its name. */
+function TodoRows({
+  items,
+  phases,
+  headings,
+}: {
+  items: TodoItem[];
+  phases: NonNullable<GoalModel['todo']>['phases'];
+  headings: boolean;
+}) {
+  return items.map(({ task, phase }, index) => {
+    const status = task.status || 'pending';
+    return (
+      // biome-ignore lint/suspicious/noArrayIndexKey: steps carry no id and stay in plan order
+      <Fragment key={`${index}:${task.content}`}>
+        {headings && (index === 0 || items[index - 1].phase !== phase) && (
+          <p className="session-rail-phase">{phaseName(phases[phase]?.name)}</p>
+        )}
+        <div className="session-rail-row" data-status={status} title={String(task.note || task.content || '')}>
+          <TodoGlyph status={status} />
+          <span className="session-rail-cut">{String(task.content || '')}</span>
+        </div>
+      </Fragment>
+    );
+  });
 }
 
+/** The To-do category, as the island lists a plan: the remaining steps (the
+ *  first few and every working one, the rest folded), then the done ones
+ *  folded. A plan with nothing left opens its done steps. */
 export function TodoSection({
   model,
   open,
@@ -234,10 +252,27 @@ export function TodoSection({
 }) {
   const { todo, progress } = model;
   if (!todo) return null;
-  const groups = railTodoGroups(todo);
-  const groupOpen = (group: TodoGroup) => folds.groupOpen(group.key);
+  const { remaining, done, headings } = todoTaskGroups(todo);
+  const { shown, rest } = todoRemainingSplit(remaining);
+  const groups = [
+    { key: 'rest', name: t('Rest {{n}}', { n: rest.length }), items: rest, open: folds.groupOpen('rest', false) },
+    { key: 'done', name: todoDoneLabel(done), items: done, open: folds.groupOpen('done', remaining.length === 0) },
+  ].filter((group) => group.items.length > 0);
+  const restFold = groups.find((group) => group.key === 'rest');
+  const doneFold = groups.find((group) => group.key === 'done');
   const setAll = (value: boolean) => folds.setGroups(Object.fromEntries(groups.map((group) => [group.key, value])));
-  const current = groups.flatMap((group) => group.items).find(({ task }) => task.status === 'in_progress');
+  const current = remaining.find(({ task }) => task.status === 'in_progress');
+  const fold = (group: (typeof groups)[number]) => (
+    <>
+      <RailFold
+        id={group.key}
+        name={group.name}
+        open={group.open}
+        onToggle={() => folds.setGroups({ [group.key]: !group.open })}
+      />
+      {group.open && <TodoRows items={group.items} phases={todo.phases} headings={headings} />}
+    </>
+  );
   return (
     <RailSection
       category="todo"
@@ -247,52 +282,32 @@ export function TodoSection({
       onToggle={onToggle}
       summary={current ? <span className="session-rail-cut">{String(current.task.content || '')}</span> : undefined}
       menu={[
-        { id: 'unfold', label: t('Expand all'), disabled: groups.every(groupOpen), onSelect: () => setAll(true) },
+        {
+          id: 'unfold',
+          label: t('Expand all'),
+          disabled: groups.every((group) => group.open),
+          onSelect: () => setAll(true),
+        },
         {
           id: 'fold',
           label: t('Collapse all'),
-          disabled: groups.every((group) => !groupOpen(group)),
+          disabled: groups.every((group) => !group.open),
           onSelect: () => setAll(false),
         },
       ]}
     >
-      {groups.map((group) => {
-        const shown = groupOpen(group);
-        return (
-          <div key={group.key} className="session-rail-group" data-group={group.key}>
-            <button
-              type="button"
-              className="session-rail-gh"
-              aria-expanded={shown}
-              onClick={() => folds.setGroups({ [group.key]: !shown })}
-            >
-              <span>{group.name}</span>
-              {shown ? (
-                <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
-              ) : (
-                <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
-              )}
-              <span>{group.items.length}</span>
-            </button>
-            {shown &&
-              group.items.map(({ task }, index) => {
-                const status = task.status || 'pending';
-                return (
-                  <div
-                    // biome-ignore lint/suspicious/noArrayIndexKey: steps carry no id and stay in plan order
-                    key={`${index}:${task.content}`}
-                    className="session-rail-row"
-                    data-status={status}
-                    title={String(task.note || task.content || '')}
-                  >
-                    <TodoGlyph status={status} />
-                    <span className="session-rail-cut">{String(task.content || '')}</span>
-                  </div>
-                );
-              })}
-          </div>
-        );
-      })}
+      {remaining.length > 0 && (
+        <div className="session-rail-group" data-group="remaining">
+          <p className="session-rail-gl">{t('Remaining {{n}}', { n: remaining.length })}</p>
+          <TodoRows items={shown} phases={todo.phases} headings={headings} />
+          {restFold && fold(restFold)}
+        </div>
+      )}
+      {doneFold && (
+        <div className="session-rail-group" data-group="done">
+          {fold(doneFold)}
+        </div>
+      )}
     </RailSection>
   );
 }

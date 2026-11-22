@@ -12,13 +12,14 @@ import {
   Workflow,
   X,
 } from 'lucide-react';
-import { type ComponentProps, useMemo, useRef, useState } from 'react';
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { ServerAccountBadge, useAgentChatRouteApplied } from './ComposerFooter';
 import { ComposerRouteChoices } from './composer-route-choices';
 import { ComposerRoutineReadout } from './composer-routine-readout';
+import { compactTokens, contextMix } from './ContextBody';
 import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
 import { errorMessageText } from './ErrorNotice';
@@ -313,8 +314,31 @@ export function InfoSection({
   );
 }
 
-/** The Context category: how full the window is, as its figures and a bar,
- *  with the gauge's two actions. Absent before the session has a reading. */
+/** The session's context status (what its window holds, by kind), read while
+ *  the category is open: for the session shown and again for each `reading`. */
+function useContextStatus(sessionId: string, open: boolean, reading: number | null): unknown {
+  const [read, setRead] = useState<{ sessionId: string; status: unknown } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new reading is what asks again
+  useEffect(() => {
+    if (!open || !sessionId) return undefined;
+    let current = true;
+    window.mixdogDesktop
+      .invokeCapability({ capability: 'contextStatus', sessionId })
+      .then((result) => {
+        if (current) setRead({ sessionId, status: result.value });
+      })
+      // Without the status the category still shows its figures and one bar.
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [open, sessionId, reading]);
+  return read?.sessionId === sessionId ? read.status : null;
+}
+
+/** The Context category: how full the window is, as its figures, a bar of
+ *  what it holds and a row for each kind, with the gauge's two actions.
+ *  Absent before the session has a reading. */
 export function ContextSection({
   open,
   onToggle,
@@ -327,7 +351,21 @@ export function ContextSection({
   onViewDetails(): void;
 }) {
   const usage = useContextUsage(snapshot);
+  const sessionId = String(snapshot.sessionId || '');
+  // The composition is read again for each reading a turn settles on, not for every request of a running turn.
+  const settled = useRef(usage.used);
+  if (!snapshot.busy) settled.current = usage.used;
+  const status = useContextStatus(sessionId, open && usage.percent !== null, settled.current);
   if (usage.percent === null) return null;
+  const mix = status ? contextMix(status, usage.limit) : null;
+  // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for.
+  const parts = mix
+    ? [
+        ...mix.categories.filter((category) => category.tokens > 0 || category.key === 'mcp'),
+        { key: 'free', label: t('Free space'), tokens: mix.free },
+      ]
+    : [];
+  const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
   return (
     <RailSection
       category="context"
@@ -349,7 +387,7 @@ export function ContextSection({
             onClick={() => void usage.compact()}
           >
             <FoldVertical size={14} aria-hidden="true" />
-            <span>{t('Compact context')}</span>
+            <span>{t('Compact')}</span>
           </button>
           <span className="session-rail-ft-end">
             <button type="button" className="composer-island-button" onClick={onViewDetails}>
@@ -360,16 +398,36 @@ export function ContextSection({
         </>
       }
     >
-      <div
-        className="session-rail-meter"
-        data-tone={usage.tone || undefined}
-        role="meter"
-        aria-label={t('Context usage')}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={usage.percent}
-      >
-        <i style={{ width: `${Math.min(100, usage.percent)}%` }} />
+      <div className="session-rail-context">
+        <div
+          className="session-rail-meter"
+          data-tone={usage.tone || undefined}
+          role="meter"
+          aria-label={t('Context usage')}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={usage.percent}
+        >
+          {mix ? (
+            // What the window holds, a colour for each kind; the track left over is free space.
+            mix.categories
+              .filter((category) => category.tokens > 0)
+              .map((category) => (
+                <b key={category.key} data-context-key={category.key} style={{ width: `${share(category.tokens)}%` }} />
+              ))
+          ) : (
+            <i style={{ width: `${Math.min(100, usage.percent)}%` }} />
+          )}
+        </div>
+        {parts.map((part) => (
+          <div key={part.key} className="session-rail-row session-rail-part" data-context-key={part.key}>
+            <i className="session-rail-swatch" aria-hidden="true" />
+            <span className="session-rail-cut">{part.label}</span>
+            <span className="session-rail-grow" />
+            <span className="session-rail-num">{compactTokens(part.tokens)}</span>
+            <span className="session-rail-num session-rail-share">{`${share(part.tokens).toFixed(1)}%`}</span>
+          </div>
+        ))}
       </div>
     </RailSection>
   );
