@@ -18,6 +18,7 @@ import {
   isPidAlive,
   leaseIsStale,
   prepareAppDir,
+  seedInstanceAuth,
   seedReadyConfig,
   startInstance,
   stopInstance,
@@ -713,4 +714,214 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
   assert.equal(existsSync(instanceDir), false);
   assert.equal(existsSync(join(target, 'keep.txt')), true);
   assert.deepEqual(await readdir(join(root, 'leases')), []);
+});
+
+/** An instance started with --keep-auth from `profile`, with the lease startInstance records for it. */
+async function keepAuthInstance(root, profile, name) {
+  const lease = await acquireLease(root, name, { list: () => [] });
+  const instanceDir = join(root, 'instances', `${name}-abcdef`);
+  const dataDir = join(instanceDir, 'profile', 'data');
+  await mkdir(dataDir, { recursive: true });
+  const holder = { root, name, startedAt: lease.startedAt };
+  const seeded = await seedInstanceAuth(dataDir, { devProfileDir: profile, holder });
+  const current = {
+    ...lease,
+    pid: process.pid,
+    instanceDir,
+    profile: join(instanceDir, 'profile'),
+    authCarry: { seeded: seeded.seeded },
+  };
+  await writeFile(join(root, 'leases', `${name}.json`), JSON.stringify(current));
+  const stop = () => stopInstance(root, current, { list: () => [], devProfileDir: profile });
+  return { dataDir, instanceDir, lease: current, carried: seeded.carried, stop };
+}
+
+const XAI_POOL = { accounts: [{ id: 'default', label: 'Account 1' }], selectedId: 'default' };
+
+async function signInToXai(dataDir, refreshToken) {
+  const credential = {
+    access_token: `access-${refreshToken}`,
+    refresh_token: refreshToken,
+    expires_at: Date.now() + DAY_MS,
+  };
+  await writeFile(join(dataDir, 'grok-oauth.json'), JSON.stringify(credential));
+  const roster = JSON.parse(await readFile(join(dataDir, 'provider-accounts.json'), 'utf8'));
+  roster.providers = { ...roster.providers, 'grok-oauth': XAI_POOL };
+  await writeFile(join(dataDir, 'provider-accounts.json'), JSON.stringify(roster));
+  return credential;
+}
+
+const readJsonFile = async (path) => JSON.parse(await readFile(path, 'utf8'));
+const readCredential = (dataDir, name = 'grok-oauth.json') => readJsonFile(join(dataDir, name));
+
+test('--keep-auth: an xAI sign-in made in an instance reaches the next one with its refresh token', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const keptData = await snapshot(join(profile, 'data'));
+
+  const first = await keepAuthInstance(root, profile, 'first');
+  assert.deepEqual(first.carried, []);
+  const signIn = await signInToXai(first.dataDir, 'xai-refresh-1');
+  const stopped = await first.stop();
+  assert.deepEqual(stopped.carried, ['grok-oauth']);
+  assert.equal(stopped.removed, true);
+  assert.deepEqual(await snapshot(join(profile, 'data')), keptData, 'the kept dev app never sees the kept sign-in');
+
+  const second = await keepAuthInstance(root, profile, 'second');
+  assert.deepEqual(second.carried, ['grok-oauth']);
+  assert.deepEqual(await readCredential(second.dataDir), signIn);
+  const roster = await readJsonFile(join(second.dataDir, 'provider-accounts.json'));
+  assert.equal(roster.version, 1);
+  assert.deepEqual(roster.providers['grok-oauth'], XAI_POOL);
+
+  // xAI rotates its refresh token: the one the instance holds at stop is the one the next instance gets.
+  const rotated = await signInToXai(second.dataDir, 'xai-refresh-2');
+  await second.stop();
+  const third = await keepAuthInstance(root, profile, 'third');
+  assert.deepEqual(await readCredential(third.dataDir), rotated);
+});
+
+test('--keep-auth is refused while a live instance, or one whose lease cannot be read, holds the sign-ins', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const first = await keepAuthInstance(root, profile, 'first');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  await first.stop();
+
+  const holder = await keepAuthInstance(root, profile, 'holder');
+  await assert.rejects(keepAuthInstance(root, profile, 'other'), /in use: isolated instance "holder".*--name holder/);
+  const rotated = await signInToXai(holder.dataDir, 'xai-refresh-2');
+  await writeFile(join(root, 'leases', 'holder.json'), '{not json');
+  await assert.rejects(keepAuthInstance(root, profile, 'unread'), /lease of isolated instance "holder" .*cannot be read/);
+  // A lease or a holder record that parses but does not say what it must holds them too.
+  await writeFile(join(root, 'leases', 'holder.json'), '{}');
+  await assert.rejects(keepAuthInstance(root, profile, 'shapeless'), /lease of isolated instance "holder" .*cannot be read/);
+  await writeFile(join(root, 'leases', 'holder.json'), JSON.stringify(holder.lease));
+  const record = join(profile, 'dev-isolated-auth', 'holder.json');
+  const written = await readFile(record, 'utf8');
+  await writeFile(record, 'null');
+  await assert.rejects(keepAuthInstance(root, profile, 'nameless'), /names no instance/);
+  // The holder's own stop finds its record under the root however a shell spelled it.
+  await writeFile(record, process.platform === 'win32' ? written.replace(/"root":"([a-z])/i, (_, drive) => `"root":"${drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase()}`) : written);
+
+  assert.deepEqual((await holder.stop()).carried, ['grok-oauth']);
+  const next = await keepAuthInstance(root, profile, 'next');
+  assert.deepEqual(next.carried, ['grok-oauth']);
+  assert.deepEqual(await readCredential(next.dataDir), rotated);
+});
+
+test('--keep-auth saves neither the kept profile sign-ins nor connector sign-ins or identity', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, copiedPath } = await gptProfile(root);
+  const keptData = await snapshot(join(profile, 'data'));
+  const instance = await keepAuthInstance(root, profile, 'plain');
+  assert.equal((await readCredential(instance.dataDir, copiedPath)).refresh_token, undefined);
+  await mkdir(join(instance.dataDir, 'secrets'), { recursive: true });
+  await writeFile(join(instance.dataDir, 'secrets', 'mcp-oauth.ab12.dpapi'), 'grant');
+  await writeFile(join(instance.dataDir, 'installation-id'), 'the-instance');
+
+  assert.deepEqual((await instance.stop()).carried, []);
+  assert.deepEqual(await readdir(join(profile, 'dev-isolated-auth')), []);
+  assert.deepEqual(await snapshot(join(profile, 'data')), keptData);
+  const next = await keepAuthInstance(root, profile, 'next');
+  assert.equal((await readCredential(next.dataDir, copiedPath)).refresh_token, undefined);
+});
+
+test('plain --copy-auth neither reads nor writes the kept sign-ins, even while an instance holds them', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const first = await keepAuthInstance(root, profile, 'first');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  await first.stop();
+  await keepAuthInstance(root, profile, 'holder');
+  const store = join(profile, 'dev-isolated-auth');
+  await writeFile(join(store, 'broken-oauth.json'), '{not json');
+  const before = await snapshot(store);
+
+  const dataDir = join(root, 'plain-data');
+  await mkdir(dataDir);
+  assert.deepEqual(await copyDevAuth(dataDir, { devProfileDir: profile }), ['provider-accounts.json']);
+  assert.equal(existsSync(join(dataDir, 'grok-oauth.json')), false);
+  assert.equal(await readFile(join(dataDir, 'provider-accounts.json'), 'utf8'), '{}');
+  assert.deepEqual(await snapshot(store), before);
+});
+
+test('a --keep-auth stop that cannot read a credential keeps the instance and its lease, and says why', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const first = await keepAuthInstance(root, profile, 'first');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  await first.stop();
+  const store = join(profile, 'dev-isolated-auth');
+  const saved = await readFile(join(store, 'grok-oauth.json'), 'utf8');
+
+  const broken = await keepAuthInstance(root, profile, 'broken');
+  await writeFile(join(broken.dataDir, 'grok-oauth.json'), '{"access_token":');
+  const result = await broken.stop();
+  assert.equal(result.removed, false);
+  assert.match(result.unsaved, /were not saved.*grok-oauth\.json is not valid JSON/);
+  assert.equal(existsSync(broken.instanceDir), true);
+  assert.equal(existsSync(join(root, 'leases', 'broken.json')), true);
+  assert.equal(await readFile(join(store, 'grok-oauth.json'), 'utf8'), saved);
+  await assert.rejects(keepAuthInstance(root, profile, 'next'), /in use: isolated instance "broken"/);
+});
+
+test('a late sweep of an instance that no longer holds the sign-ins never overwrites a newer rotation', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const first = await keepAuthInstance(root, profile, 'first');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  assert.deepEqual((await first.stop()).carried, ['grok-oauth']);
+  // `first` saved, then died before its folder and lease were deleted.
+  await mkdir(first.dataDir, { recursive: true });
+  await writeFile(join(first.dataDir, 'provider-accounts.json'), '{}');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  await writeFile(join(root, 'leases', 'first.json'), JSON.stringify({ ...first.lease, pid: await deadPid() }));
+
+  const second = await keepAuthInstance(root, profile, 'second');
+  const rotated = await signInToXai(second.dataDir, 'xai-refresh-2');
+  await second.stop();
+
+  const swept = await sweep(root, { list: () => [], devProfileDir: profile });
+  assert.deepEqual(
+    swept.map((result) => [result.name, result.removed, result.carried]),
+    [['first', true, []]]
+  );
+  const next = await keepAuthInstance(root, profile, 'next');
+  assert.deepEqual(await readCredential(next.dataDir), rotated);
+});
+
+test('the roster a --keep-auth instance gets is version 1 and keeps the kept and the carried accounts', async (t) => {
+  const root = await tempRoot(t);
+  const { profile } = await devProfile(root, { secrets: false });
+  const keptAccount = '0b0f1c3e-2a4d-4e6f-8a1b-2c3d4e5f6a7b';
+  const keptPool = { accounts: [{ id: keptAccount, label: 'Work' }], selectedId: keptAccount };
+  await mkdir(join(profile, 'data', 'provider-accounts', 'grok-oauth'), { recursive: true });
+  await writeFile(
+    join(profile, 'data', 'provider-accounts', 'grok-oauth', `${keptAccount}.json`),
+    JSON.stringify({ access_token: 'kept-access', refresh_token: 'kept-refresh' })
+  );
+  // A malformed kept roster is copied as is when nothing is carried.
+  await writeFile(join(profile, 'data', 'provider-accounts.json'), '{not json');
+  const first = await keepAuthInstance(root, profile, 'first');
+  assert.equal(await readFile(join(first.dataDir, 'provider-accounts.json'), 'utf8'), '{not json');
+  await writeFile(join(first.dataDir, 'provider-accounts.json'), '{}');
+  await signInToXai(first.dataDir, 'xai-refresh-1');
+  await first.stop();
+
+  await writeFile(
+    join(profile, 'data', 'provider-accounts.json'),
+    JSON.stringify({ version: 1, providers: { 'grok-oauth': keptPool } })
+  );
+  const second = await keepAuthInstance(root, profile, 'second');
+  const roster = await readJsonFile(join(second.dataDir, 'provider-accounts.json'));
+  assert.equal(roster.version, 1);
+  assert.deepEqual(
+    roster.providers['grok-oauth'].accounts.map((row) => row.id),
+    [keptAccount, 'default']
+  );
+  assert.equal(roster.providers['grok-oauth'].selectedId, keptAccount);
+  const keptCopy = await readCredential(second.dataDir, `provider-accounts/grok-oauth/${keptAccount}.json`);
+  assert.equal(keptCopy.refresh_token, undefined, 'the kept profile account still comes without its refresh token');
+  assert.equal((await readCredential(second.dataDir)).refresh_token, 'xai-refresh-1');
 });
