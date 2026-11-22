@@ -1,8 +1,8 @@
 // The session panel's Worktrees category: the project's worktrees from the
 // branch menu's own read, with the branch panel's actions.
 import { FolderOpen, GitFork, GitMerge, Trash2 } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
-import type { DesktopBranchMenu, DesktopManagedWorktreeRow, DesktopSessionWorkspace } from '../shared/contract';
+import { type ReactNode, useRef } from 'react';
+import type { DesktopBranchMenu, DesktopSessionWorkspace } from '../shared/contract';
 import { useBranchMenuActions, WorktreeCarryDialog } from './branch-menu';
 import { useBranchMenuData } from './branch-menu-data';
 import { openBranchFolder, runBranchRowAction } from './branch-row-actions';
@@ -10,7 +10,7 @@ import type { ComposerIslandFlash } from './ComposerIsland';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { RailList, RailSection } from './session-rail-parts';
-import { type BranchRow, branchRows, invokeWorktree, projectFolderBranch } from './worktree-branch-model';
+import { type BranchRow, branchRows, projectFolderBranch } from './worktree-branch-model';
 import { useWorktreeSessionActions } from './WorktreeIslandSegment';
 
 export const RAIL_WORKTREE_ROWS = 3;
@@ -18,7 +18,6 @@ export const RAIL_WORKTREE_ROWS = 3;
 /** `managed`: a folder the app made (a session's worktree); only those can be removed. */
 export type RailWorktree = { row: BranchRow; name: string; path: string; current: boolean; managed: boolean };
 
-const pathKey = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 const folderName = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() || path;
 
 /** The worktrees besides the project's main checkout: managed ones (this
@@ -37,26 +36,6 @@ export function railWorktrees(menu: DesktopBranchMenu | null, sessionId: string)
       return { row, path, current, managed, name: path ? folderName(path) : row.name };
     })
     .sort((a, b) => Number(b.current) - Number(a.current));
-}
-
-/** Uncommitted paths per managed worktree folder (listWorktrees), read while `active`. */
-function useWorktreeDirtyCounts(active: boolean, refreshKey: string): ReadonlyMap<string, number> {
-  const [counts, setCounts] = useState<ReadonlyMap<string, number>>(new Map());
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey is the deliberate re-read trigger
-  useEffect(() => {
-    if (!active) return undefined;
-    let live = true;
-    invokeWorktree<DesktopManagedWorktreeRow[]>('listWorktrees')
-      .then((rows) => {
-        if (!live || !Array.isArray(rows)) return;
-        setCounts(new Map(rows.map((row) => [pathKey(row.path), Number(row.dirty) || 0])));
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [active, refreshKey]);
-  return counts;
 }
 
 function IconAction({
@@ -140,7 +119,6 @@ export function WorktreesSection({
   });
   const own = useWorktreeSessionActions({ sessionId, onFlash: (flash) => onFlash(flash) });
   const worktrees = railWorktrees(menu, sessionId);
-  const dirty = useWorktreeDirtyCounts(open && worktrees.length > 0, refreshKey);
   // "New worktree" with uncommitted project-folder files asks, as the island's branch tab does.
   const carry = actions.carry && (
     <WorktreeCarryDialog count={actions.carry.count} paths={actions.carry.paths} onChoose={actions.carry.choose} />
@@ -204,13 +182,6 @@ export function WorktreesSection({
         <RailList
           budget={RAIL_WORKTREE_ROWS}
           rows={worktrees.map((tree) => {
-            const changes = tree.path ? dirty.get(pathKey(tree.path)) : undefined;
-            const figure = [
-              tree.current ? t('Current') : '',
-              changes === undefined ? '' : changes ? t('{{count}} changed', { count: changes }) : t('No changes'),
-            ]
-              .filter(Boolean)
-              .join(' · ');
             return (
               <div
                 key={tree.row.name}
@@ -221,7 +192,7 @@ export function WorktreesSection({
                 <GitFork size={14} className="session-rail-ic" aria-hidden="true" />
                 <span className="session-rail-cut session-rail-name">{tree.name}</span>
                 <span className="session-rail-cut session-rail-grow session-rail-muted">{tree.row.name}</span>
-                {figure && <span className="session-rail-num session-rail-under-act">{figure}</span>}
+                {tree.current && <span className="session-rail-num session-rail-under-act">{t('Current')}</span>}
                 <span className="session-rail-act">
                   {!tree.current && (
                     <IconAction
