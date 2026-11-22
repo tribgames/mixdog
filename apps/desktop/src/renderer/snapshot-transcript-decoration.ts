@@ -1,8 +1,8 @@
 import type { SessionSnapshot } from '../shared/contract';
 import { withStreamingPartial } from '../shared/streaming-partial';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
-import { createTranscriptIdentityReconciler } from './transcript-identity';
-import { reconcileTurnFailures, type TurnFailureModel } from './renderer-logic.mjs';
+import { createTranscriptIdentityReconciler, type TranscriptLaneFacts } from './transcript-identity';
+import { turnFailuresOf, type TurnFailures } from './turn-failures';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
 
@@ -15,19 +15,17 @@ const DECORATED_SCOPE_MAX_CHARS = 4 * 1024 * 1024;
 interface FailureScope {
   scope: string;
   items: WeakRef<TranscriptItem[]> | null;
-  model: TurnFailureModel;
+  model: TurnFailures;
 }
 
 export interface TranscriptSnapshotDecorator {
-  decorate(snapshot: SessionSnapshot | null): Snapshot;
+  decorate(snapshot: SessionSnapshot | null, lane?: TranscriptLaneFacts): Snapshot;
   clear(): void;
   /** Drop every per-session record for a session that ended or was forgotten. */
   forget?(sessionId: string): void;
 }
 
-const scopeChars = (failure: FailureScope): number =>
-  failure.model.turnKeys.reduce((sum: number, key: string) => sum + key.length, 0) +
-  failure.model.failedTurnKeys.reduce((sum: number, key: string) => sum + key.length, 0);
+const scopeChars = (failure: FailureScope): number => failure.model.chars;
 
 export function createTranscriptSnapshotDecorator({ register = true } = {}): TranscriptSnapshotDecorator {
   let identity = createTranscriptIdentityReconciler();
@@ -43,12 +41,12 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
   });
   if (register) registerIdleReclaim(() => scopes.clear());
   return {
-    decorate(next) {
+    decorate(next, lane) {
       const raw = next && typeof next === 'object' ? (next as Snapshot) : EMPTY_SNAPSHOT;
       if (raw === EMPTY_SNAPSHOT) return raw;
       // The live row paints the unfinished streamed line too, so every reader
       // downstream (rows, reveal, metrics) sees one growing text.
-      const state = identity.reconcile(withStreamingPartial(raw));
+      const state = identity.reconcile(withStreamingPartial(raw), lane);
       const sessionId = String(state.sessionId || '');
       const scope = `${String(state.currentProject || state.project || state.cwd || '')}\n${sessionId}`;
       const items = Array.isArray(state.items) ? state.items : null;
@@ -56,10 +54,16 @@ export function createTranscriptSnapshotDecorator({ register = true } = {}): Tra
       const unchanged =
         failure && failure.scope === scope && (items ? failure.items?.deref() === items : failure.items === null);
       if (!failure || !unchanged) {
+        // The lane's own list, row for row, carried on from the one it handed over last: the rows it says are held are
+        // the rows the turns were read from.
+        const held =
+          lane?.held && items === raw.items && failure?.scope === scope && failure.items?.deref() === lane.held.rows
+            ? lane.held.count
+            : undefined;
         failure = {
           scope,
           items: items ? new WeakRef(items) : null,
-          model: reconcileTurnFailures(failure?.model, state.items, state.toasts, scope),
+          model: turnFailuresOf(failure?.scope === scope ? failure.model : undefined, items ?? undefined, held),
         };
         scopes.set(sessionId, failure);
       }

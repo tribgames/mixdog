@@ -3,7 +3,7 @@ import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, StreamPo
 import { streamPositionReached } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { itemRows, mergeToolRows, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
+import { itemRows, mergeToolRows, mergeToolRowsFrom, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
 
 /** The projection the UI reads: a flat record of `DesktopSessionState` fields. */
 export type DesktopSessionState = Readonly<Record<string, Json>>;
@@ -219,13 +219,25 @@ function withSection(fields: Readonly<Obj>, def: SectionDef, value: Json | undef
 /** `fold.items` holds one row per item; the transcript the UI reads merges runs of tool rows into aggregate cards. The merge is
  * memoized on the identity of the (never mutated) row array, so a render that changed nothing costs nothing. */
 const transcriptCache = new WeakMap<readonly Obj[], Obj[]>();
+/** A row array not merged yet, by the array: the merged transcript of an earlier one it holds the same rows as before
+ *  `from`. However many notifications changed rows since that transcript was read, the next read merges once, from there. */
+const transcriptOwed = new WeakMap<readonly Obj[], { held: Obj[]; from: number }>();
 function transcriptOf(items: readonly Obj[]): Obj[] {
   let rows = transcriptCache.get(items);
   if (!rows) {
-    rows = mergeToolRows(items);
+    const owed = transcriptOwed.get(items);
+    rows = owed ? mergeToolRowsFrom(owed.held, items, owed.from) : mergeToolRows(items);
+    transcriptOwed.delete(items);
     transcriptCache.set(items, rows);
   }
   return rows;
+}
+/** `next` holds the rows of `prior` before `from`: its transcript is owed from the one `prior` has, or is owed from. */
+function oweTranscript(prior: readonly Obj[], next: readonly Obj[], from: number): void {
+  const merged = transcriptCache.get(prior);
+  const owed = merged ? undefined : transcriptOwed.get(prior);
+  if (merged) transcriptOwed.set(next, { held: merged, from });
+  else if (owed) transcriptOwed.set(next, { held: owed.held, from: Math.min(owed.from, from) });
 }
 
 /** The most rows a subscribed thread's fold holds while rows keep arriving: the desktop's largest transcript read (main/ipc-validation.ts
@@ -233,13 +245,14 @@ function transcriptOf(items: readonly Obj[]): Obj[] {
  * says older rows exist (`transcriptHasOlder`), which paging reads back as it reads rows above any window. */
 export const FOLD_MAX_ITEMS = 8_192;
 
-function upsert(items: readonly Obj[], row: Obj): Obj[] {
+/** `items` with `row` in the place of the row of its id, or after them all; `at` is where it went. */
+function upsert(items: readonly Obj[], row: Obj): { items: Obj[]; at: number } {
   let at = items.length - 1;
   while (at >= 0 && items[at]?.id !== row.id) at--;
-  if (at < 0) return [...items, row];
+  if (at < 0) return { items: [...items, row], at: items.length };
   const next = items.slice();
   next[at] = row;
-  return next;
+  return { items: next, at };
 }
 
 // ───────────────────────────── the reducer ─────────────────────────────
@@ -395,10 +408,21 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         // (`roomView`), so both are folded here, before any subscriber is told.
         const viewed =
           p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
-        const upserted = batched.reduce(upsert, upsert(s.items, row));
+        let upserted: readonly Obj[] = s.items;
+        let from = s.items.length;
+        for (const folded of [row, ...batched]) {
+          const placed = upsert(upserted, folded);
+          upserted = placed.items;
+          from = Math.min(from, placed.at);
+        }
         const drop = upserted.length - FOLD_MAX_ITEMS;
         const revision = s.structureRevision + 1;
-        if (drop <= 0) return { ...held, items: upserted, live, fields: viewed, structureRevision: revision };
+        if (drop <= 0) {
+          // The transcript is merged on from the one held, when it is next read (a frame's publication): the cards before
+          // the first row that changed are not made again, and a run of notifications between two reads is one merge.
+          oweTranscript(s.items, upserted, from);
+          return { ...held, items: upserted, live, fields: viewed, structureRevision: revision };
+        }
         // The dropped rows' items go with them: the window begins at the item of the first row kept.
         const items = upserted.slice(drop);
         const first = coreItems.indexOf(rowItems.get(items[0]!) ?? '');

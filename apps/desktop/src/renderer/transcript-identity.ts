@@ -5,7 +5,9 @@ import {
   fingerprintText,
   markClippedText,
   hasOwnId,
+  heldWindowGoesOn,
   sameRowId,
+  windowAnchored,
 } from './transcript-alignment';
 
 // Must cover every concurrently visible pane lane (8) plus the focused
@@ -81,19 +83,24 @@ function adoptItemIds(
   previous: SessionTranscriptIdentity,
   prevItems: readonly TranscriptItem[],
   incomingItems: readonly TranscriptItem[],
-  carriedByIncoming: (id: unknown) => boolean
+  carriedByIncoming: (id: unknown) => boolean,
+  kept = 0,
+  keptOffset = 0
 ): ItemAdoption {
   // A lone weak match (one completion row against another) is not evidence:
   // adopting across it gave an older page's first row the newest row's id.
   // An older page loaded above the displayed rows starts BEFORE them.
-  const { inWindow, prepend } = transcriptWindowAlignment(prevItems, incomingItems);
+  // `kept` > 0: the caller has shown (`heldWindowGoesOn`) that the alignment is the in-window one at `keptOffset`, every
+  // overlapping row matched by id. The first `kept` rows are the baseline's own under their own ids, so the walk begins
+  // after them.
+  const aligned = kept > 0 ? null : transcriptWindowAlignment(prevItems, incomingItems);
   // No candidate at all: the incoming transcript is a different history.
   // It keeps its own ids and replaces the baseline.
-  const accepted = inWindow !== null || prepend !== null;
-  const offset = prepend ? 0 : (inWindow?.offset ?? 0);
-  const start = prepend?.start ?? 0;
+  const accepted = kept > 0 || aligned?.inWindow != null || aligned?.prepend != null;
+  const offset = kept > 0 ? keptOffset : aligned?.prepend ? 0 : (aligned?.inWindow?.offset ?? 0);
+  const start = aligned?.prepend?.start ?? 0;
   let out: TranscriptItem[] | null = null;
-  let index = start;
+  let index = Math.max(start, kept);
   for (; accepted && index < incomingItems.length; index += 1) {
     const inc = incomingItems[index] as TranscriptItem;
     const prev = prevItems[index - start + offset];
@@ -154,7 +161,11 @@ export function adoptTranscriptIdentity(
   incomingItems: readonly TranscriptItem[] | undefined,
   incomingTail: TranscriptItem | null,
   // The incoming list is the very array the baseline was recorded from.
-  sameItems = false
+  sameItems = false,
+  // The incoming list's first `kept` rows are the rows the baseline holds from its row `keptOffset` on, under the same
+  // ids, and the list aligns there by the ids of every row it overlaps (`heldWindowGoesOn`).
+  kept = 0,
+  keptOffset = 0
 ): { items?: TranscriptItem[]; tail?: TranscriptItem; offset?: number } {
   const prevItems = previous?.items;
   let incomingIds: Set<string> | null = null;
@@ -166,7 +177,7 @@ export function adoptTranscriptIdentity(
   if (previous && prevItems && incomingItems) {
     if (sameItems || incomingItems === prevItems) adoption = { accepted: true, consumed: prevItems.length, offset: 0 };
     else if (incomingItems.length > 0 && prevItems.length > 0) {
-      adoption = adoptItemIds(previous, prevItems, incomingItems, carriedByIncoming);
+      adoption = adoptItemIds(previous, prevItems, incomingItems, carriedByIncoming, kept, keptOffset);
     }
   }
   const adoptedTail = incomingTail
@@ -175,8 +186,14 @@ export function adoptTranscriptIdentity(
   return { items: adoption.items, tail: adoptedTail, offset: adoption.offset };
 }
 
+/** What a lane knows of the list it hands over. */
+export interface TranscriptLaneFacts {
+  /** The list the lane handed over last (`rows`): the incoming one holds its first `count` rows in the same places. */
+  held?: { rows: readonly unknown[]; count: number };
+}
+
 interface TranscriptIdentityReconciler {
-  reconcile(snapshot: Snapshot): Snapshot;
+  reconcile(snapshot: Snapshot, lane?: TranscriptLaneFacts): Snapshot;
   /** Drop one session's baseline (lane unmounted with nothing cached, or the session ended). */
   forget(sessionId: string): void;
 }
@@ -184,15 +201,29 @@ interface TranscriptIdentityReconciler {
 interface RecordedIdentity extends SessionTranscriptIdentity {
   /** The displayed array the records came from; weak, so the baseline never pins a transcript. */
   source?: WeakRef<readonly TranscriptItem[]>;
+  /** The list handed over, when the records from `rawOffset` on are its rows one for one under their own ids (the records
+   *  before it are rows of an earlier window kept above). */
+  raw?: WeakRef<readonly TranscriptItem[]>;
+  rawOffset?: number;
+  /** The records from `rawOffset` on are `windowAnchored`; unset: not read yet. */
+  anchored?: boolean;
 }
 
 function nextBaseline(
   previous: RecordedIdentity | undefined,
   nextItems: readonly TranscriptItem[],
   offset: number,
-  sameItems: boolean
+  sameItems: boolean,
+  kept: number
 ): { items: readonly TranscriptItem[]; source?: WeakRef<readonly TranscriptItem[]> } {
   if (previous && previous.items.length > 0 && nextItems.length === 0) return { items: previous.items };
+  if (previous && kept > 0) {
+    // The records of the rows above and of the rows kept stand; only the rows after them are recorded.
+    const items = previous.items as TranscriptItem[];
+    items.length = Math.min(offset + kept, items.length);
+    for (let index = kept; index < nextItems.length; index += 1) items.push(identityRecord(nextItems[index]!));
+    return { items, source: new WeakRef(nextItems) };
+  }
   if (previous && previous.items.length > 0 && offset > 0) {
     return { items: [...previous.items.slice(0, offset), ...nextItems.map(identityRecord)] };
   }
@@ -210,7 +241,7 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
     forget(sessionId: string): void {
       sessions.delete(sessionId);
     },
-    reconcile(snapshot: Snapshot): Snapshot {
+    reconcile(snapshot: Snapshot, lane?: TranscriptLaneFacts): Snapshot {
       const sessionId = String(snapshot?.sessionId || '');
       const items = Array.isArray(snapshot?.items) ? snapshot.items : undefined;
       if (!sessionId || !items) return snapshot;
@@ -220,12 +251,36 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
           : null;
       const previous = sessions.get(sessionId);
       const sameItems = previous?.source?.deref() === items;
-      const adopted = adoptTranscriptIdentity(previous, items, tail, sameItems);
+      // The baseline ends in the lane's last list, row for row, and the incoming list still holds leading rows of it. Which
+      // rows correspond is ranked over the whole of both lists, so those rows are left unwalked only when the rows after
+      // them show the alignment to be the one at the held window (`heldWindowGoesOn`); any other frame is aligned whole.
+      const above = previous?.rawOffset ?? 0;
+      const held =
+        previous && !sameItems && lane?.held && previous.raw?.deref() === lane.held.rows
+          ? Math.min(lane.held.count, items.length, previous.items.length - above)
+          : 0;
+      const anchored = previous && held > 0 ? (previous.anchored ?? windowAnchored(previous.items, above)) : false;
+      const kept = previous && anchored && heldWindowGoesOn(previous.items, items, above, held) ? held : 0;
+      const adopted = adoptTranscriptIdentity(previous, items, tail, sameItems, kept, above);
       const nextItems = adopted.items ?? items;
       const nextTail = adopted.tail ?? tail;
       sessions.delete(sessionId);
-      const { items: baselineItems, source } = nextBaseline(previous, nextItems, adopted.offset || 0, sameItems);
-      sessions.set(sessionId, { items: baselineItems, tail: nextTail ? liveIdentityRecord(nextTail) : null, source });
+      const { items: baselineItems, source } = nextBaseline(previous, nextItems, adopted.offset || 0, sameItems, kept);
+      // Row for row under their own ids, below the records of an earlier window kept above: no id was adopted.
+      const rawOffset = baselineItems.length - items.length;
+      const rowForRow = !adopted.items && items.length > 0 && rawOffset >= 0;
+      sessions.set(sessionId, {
+        items: baselineItems,
+        tail: nextTail ? liveIdentityRecord(nextTail) : null,
+        source,
+        ...(rowForRow ? { raw: new WeakRef(items), rawOffset } : {}),
+        // A frame decided from its held rows leaves the window anchored; the same list again leaves it as it was read.
+        ...(rowForRow && kept > 0
+          ? { anchored: true }
+          : rowForRow && sameItems && previous?.anchored !== undefined
+            ? { anchored: previous.anchored }
+            : {}),
+      });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;
         if (oldest === undefined) break;

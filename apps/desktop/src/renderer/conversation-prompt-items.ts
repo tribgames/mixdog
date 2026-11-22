@@ -1,6 +1,7 @@
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
+import { carriedFirsts } from './list-carry';
 import { asRecord } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { recognisedSlashToken } from '../../../../src/tui/app/slash-commands.mjs';
@@ -61,6 +62,17 @@ export function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable
   }));
 }
 
+const NO_PENDING_PROMPTS: PendingPromptItem[] = [];
+
+/** Where each id first stands among a list's items, and among its prompts alone: carried on from the list a frame made
+ *  it from (list-carry.ts), so a list is read from the rows it did not keep. */
+export const itemPlacesById = carriedFirsts((item: TranscriptItem) =>
+  item?.id === undefined || item.id === null ? undefined : String(item.id)
+);
+const promptPlacesById = carriedFirsts((item: TranscriptItem) =>
+  item?.kind === 'user' && item.id !== undefined && item.id !== null ? String(item.id) : undefined
+);
+
 /** The prompts sent from this pane still waiting for their rows. A prompt's
  *  own row carries its submission id (the core's `clientSubmissionId`, which
  *  protocol-client `userRow` makes the row's id, for a turn it started and
@@ -70,12 +82,9 @@ export function pendingPromptTranscriptItems(
   optimistic: PendingPromptItem[],
   settled: TranscriptItem[]
 ): PendingPromptItem[] {
-  const settledIds = new Set(
-    settled
-      .map((item) => item?.id)
-      .filter((id) => id !== undefined && id !== null)
-      .map(String)
-  );
+  // No prompt waits: the settled rows are not read.
+  if (optimistic.length === 0) return NO_PENDING_PROMPTS;
+  const settledIds = itemPlacesById(settled);
   const byId = new Map<string, PendingPromptItem>();
   for (const item of optimistic) {
     if (item?.id === undefined || item.id === null) continue;
@@ -162,11 +171,7 @@ export function promptWaitsBehindActiveTurn(draftMode: boolean, snapshot: Pick<S
 
 export function unsettledQueueEntries(queued: unknown, settled: readonly TranscriptItem[]): unknown[] {
   if (!Array.isArray(queued) || queued.length === 0) return [];
-  const settledUserIds = new Set(
-    settled
-      .filter((item) => item?.kind === 'user' && item.id !== undefined && item.id !== null)
-      .map((item) => String(item.id))
-  );
+  const settledUserIds = promptPlacesById(settled);
   if (settledUserIds.size === 0) return queued;
   // One owner per submission: once the durable user row exists, it wins over
   // a delayed queue projection carrying the same id. Text is deliberately not

@@ -526,8 +526,77 @@ const sealed = (card: Obj, headerFinalized: boolean): Obj => {
   }
   return out;
 };
-export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[], void> {
-  const merged: Obj[] = [];
+/** Where the merge of a list can go on from, by the merged list: pairs of (rows read, merged rows made) after each row that
+ *  ends every run before it and is not itself a tool or live-only row. No run, held row or unsealed card reaches across one. */
+const mergeMarks = new WeakMap<readonly Obj[], number[]>();
+/** A merged list's place in the lists merged on from one another (`mergeToolRowsFrom`): the line they share, and how many of
+ *  them came before it. The line holds, for its newest lists, how many leading rows each took over from the one before. */
+interface MergeLine {
+  kept: number[];
+  /** The version `kept[0]` belongs to. */
+  first: number;
+  latest: number;
+}
+const mergeLines = new WeakMap<readonly Obj[], { line: MergeLine; version: number }>();
+/** A line would otherwise gain a number with every merge of a thread followed for long. A reader is one merge behind (each
+ *  frame published is one merge, and it reads each frame); one further behind than this many (a window that was not told of
+ *  the thread meanwhile) is answered "not known" and compares the whole list once, as it does a list of another fold. The
+ *  number sets only how rarely that happens, at eight bytes a step. */
+const MERGE_LINE_STEPS = 256;
+
+/** `mergeToolRows(rows)`, continued from `held`, the merge of a list that holds the same rows before index `from`: the rows
+ *  `held` made before the last mark at or before `from` are taken over as they are, and only the rest is merged. */
+export function mergeToolRowsFrom(held: readonly Obj[] | undefined, rows: readonly Obj[], from: number): Obj[] {
+  const marks = held && mergeMarks.get(held);
+  let at = marks ? marks.length : 0;
+  while (at > 0 && marks![at - 2]! > from) at -= 2;
+  if (!held || !marks || at === 0) return mergeToolRows(rows);
+  const kept = marks[at - 1]!;
+  const steps = mergeToolRowsSteps(rows, { rows: held.slice(0, kept), marks: marks.slice(0, at), from: marks[at - 2]! });
+  let merged: Obj[];
+  for (;;) {
+    const r = steps.next();
+    if (r.done) {
+      merged = r.value;
+      break;
+    }
+  }
+  // Two lists merged on from the same one are two lines: only the first goes on with `held`'s.
+  const before = mergeLines.get(held);
+  const line = before && before.version === before.line.latest ? before.line : { kept: [], first: 1, latest: 0 };
+  line.kept.push(kept);
+  line.latest += 1;
+  if (line.kept.length > MERGE_LINE_STEPS) {
+    line.kept.shift();
+    line.first += 1;
+  }
+  if (line !== before?.line) mergeLines.set(held, { line, version: 0 });
+  mergeLines.set(merged, { line, version: line.latest });
+  return merged;
+}
+
+/** How many leading rows of `rows` are the rows of `held`, in the same places, when `rows` was merged on from `held`
+ *  (`mergeToolRowsFrom`, in any number of steps the line still holds); undefined when that is not known. */
+export function rowsHeldFrom(rows: readonly unknown[], held: readonly unknown[]): number | undefined {
+  if (rows === held) return rows.length;
+  const next = mergeLines.get(rows as readonly Obj[]);
+  const prior = mergeLines.get(held as readonly Obj[]);
+  if (!next || !prior || next.line !== prior.line || next.version <= prior.version) return undefined;
+  const { kept, first } = next.line;
+  if (prior.version + 1 < first) return undefined;
+  let count = held.length;
+  for (let version = prior.version + 1; version <= next.version; version += 1) {
+    count = Math.min(count, kept[version - first]!);
+  }
+  return count;
+}
+
+export function* mergeToolRowsSteps(
+  rows: readonly Obj[],
+  resume?: { rows: Obj[]; marks: number[]; from: number }
+): Generator<void, Obj[], void> {
+  const merged: Obj[] = resume?.rows ?? [];
+  const marks: number[] = resume?.marks ?? [];
   let run: { bucket: string; live: boolean; members: { item: Obj; category: string }[] } | null = null;
   // Live-only rows met inside a run: a reload has none to end it, so they follow it.
   let held: Obj[] = [];
@@ -562,7 +631,8 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   // `finalizeToolCards`, turn-tool-cards.mjs:291, which a Stop runs too). Until then it shows the active header form, finished or not.
   const liveCards: { at: number; stopped: boolean }[] = [];
   let seen = 0;
-  for (const item of rows) {
+  for (let index = resume?.from ?? 0; index < rows.length; index += 1) {
+    const item = rows[index]!;
     if (++seen % ROWS_PER_STEP === 0) yield;
     if (item.kind === 'tool' && isTranscriptHiddenToolRow(item)) continue;
     if (run && isLiveOnlyTranscriptRow(item)) {
@@ -573,6 +643,8 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     if (!(live ? liveMergeable(item) : mergeable(item))) {
       yield* flush();
       merged.push(item);
+      // Every live card before such a row is sealed whatever follows (`lastOther` below is at or past it).
+      if (item.kind !== 'tool' && !isLiveOnlyTranscriptRow(item)) marks.push(index + 1, merged.length);
       continue;
     }
     const category = node.classifyToolCategory(item.name as string, item.args);
@@ -604,6 +676,7 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
   let lastOther = merged.length - 1;
   while (lastOther >= 0 && (merged[lastOther]!.kind === 'tool' || isLiveOnlyTranscriptRow(merged[lastOther]!))) lastOther--;
   for (const { at, stopped } of liveCards) merged[at] = sealed(merged[at]!, stopped || at < lastOther);
+  mergeMarks.set(merged, marks);
   return merged;
 }
 

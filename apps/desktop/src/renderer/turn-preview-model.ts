@@ -1,4 +1,5 @@
 import { type VisualizePaneKind, visualizeKindForPath } from '../shared/visualize';
+import { carriedFirsts } from './list-carry';
 import { linkedLocalPaths } from './markdown-plugins';
 import { isAbsolutePath } from './session-diff-model';
 import {
@@ -119,12 +120,15 @@ const liveTurns = new Set<string>();
 const pendingOpens = new Set<string>();
 const previewKey = (sessionId: string, id: string) => `${sessionId}\0${id}`;
 
+/** Where each turn begins in a list of turn keys, carried on from the list before. */
+const turnFirsts = carriedFirsts<string>();
+
 export function runningTurnKeyOf(
   items: readonly { kind?: string; id?: unknown }[],
   turnKeys: readonly string[],
   turnKey: string
 ): string {
-  const first = items[turnKeys.indexOf(turnKey)];
+  const first = items[turnFirsts(turnKeys).get(turnKey) ?? -1];
   if (first?.id === undefined || first.id === null) return turnKey;
   return `${first.kind === 'user' ? 'turn' : 'segment'}:${String(first.id)}`;
 }

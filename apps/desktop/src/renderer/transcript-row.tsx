@@ -318,6 +318,18 @@ function userTranscriptDisplayText(item: TranscriptItem): string {
 
 export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boolean {
   if (!item) return false;
+  let visible = visibleItems.get(item);
+  if (visible === undefined) {
+    visible = readsVisible(item);
+    visibleItems.set(item, visible);
+  }
+  return visible;
+}
+
+/** Whether an item has a row, by the item: read once (an item does not change; a changed row is another object). */
+const visibleItems = new WeakMap<TranscriptItem, boolean>();
+
+function readsVisible(item: TranscriptItem): boolean {
   if (item.kind === 'tool') {
     const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
     const hiddenAggregate =

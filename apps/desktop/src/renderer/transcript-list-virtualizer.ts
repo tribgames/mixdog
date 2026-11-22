@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-virtual';
 import { type MutableRefObject, type RefObject, useMemo, useRef } from 'react';
 import { holdsWaitingAskUser } from './ask-user-record';
+import { keptFrom } from './list-carry';
 import { useTranscriptRowEstimates } from './transcript-list-estimates';
 import { coreScrollState, SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { useProvisionalRowResize } from './transcript-list-provisional-resize';
@@ -21,13 +22,22 @@ type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivEl
 
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
+  // Carried on from the rows before: the rows a frame left in place are not read again.
+  const read = useRef<{ rows: readonly TranscriptRowModel[]; indexes: number[] } | null>(null);
   const activeIndexes = useMemo(() => {
+    const prior = read.current;
+    const kept = prior ? keptFrom(rows, prior.rows) : 0;
     const held: number[] = [];
-    rows.forEach((row, index) => {
+    for (let at = 0; prior && at < prior.indexes.length && (prior.indexes[at] as number) < kept; at += 1) {
+      held.push(prior.indexes[at] as number);
+    }
+    for (let index = kept; index < rows.length; index += 1) {
+      const row = rows[index] as TranscriptRowModel;
       if (('active' in row && row.active) || (row._tag === 'ToolActivity' && row.items.some(holdsWaitingAskUser))) {
         held.push(index);
       }
-    });
+    }
+    read.current = { rows, indexes: held };
     return held;
   }, [rows]);
   activeIndexesRef.current = activeIndexes;

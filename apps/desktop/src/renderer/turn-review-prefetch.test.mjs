@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { TurnReviewBar } from './TurnReview';
 import { installReviewDom } from './turn-review-test-support.mjs';
 import { prefetchTurnReview } from './turn-review-prefetch';
-import { turnReviewScope } from './renderer-logic.mjs';
+import { turnReviewScope } from './turn-review-scope.ts';
 import { cachedTurnReviewState } from './turn-review-model';
 
 const prompt = { kind: 'user', id: 'prompt', text: 'Change a file' };

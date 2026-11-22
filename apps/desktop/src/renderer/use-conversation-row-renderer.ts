@@ -14,14 +14,12 @@ import {
   chatRoutineOf,
   chatRoutineTriggerOf,
   handoffLinesAt,
-  isEndedTurnLastRow,
   isRoomTypingItem,
   roomPassIsQuiet,
   roomQuestionSeatsAt,
   routineGroupOf,
   routineReplyIsQuiet,
   taskReportHidden,
-  turnEndToolItems,
 } from './agent-chat-place';
 import {
   AgentBotFolded,
@@ -52,12 +50,15 @@ import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import type { TranscriptRowModel } from './transcript-rows';
 import { ToolVisualizeCards } from './transcript-visualize-card';
-import { turnIndexOf } from './conversation-turn-index';
+import { turnOf } from './conversation-turn-index';
+import { carriedLast } from './list-carry';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { visualizeCardCalls } from './visualize-card-model';
 import { useConversationRetry } from './use-conversation-retry';
 
-const NO_TOOL_ITEMS: TranscriptItem[] = [];
+const NO_TOOL_ITEMS: readonly TranscriptItem[] = [];
+/** Where a transcript's last turn's end is, carried on from the list a frame made it from. */
+const lastTurnEnd = carriedLast<TranscriptItem>((item) => item?.kind === 'turndone');
 const NO_MEMBERS: string[] = [];
 
 /** What a room's band shows: the core's trailing typing row as supplied. A member's name, or nobody's while the
@@ -96,12 +97,16 @@ function turnCards(
 ): { cards: ReactNode; visualized: readonly string[] | undefined } {
   // The turn's changed-files card (on its reply or error row) lists no file
   // its visualize cards showed; Undo moves onto them when none is left.
-  const turn = turnIndexOf(rows).get(row.turnKey);
+  const turn = turnOf(rows, row.turnKey);
   const changesRef = turn?.changes;
   const visualized = turn && changesRef ? turn.visualized() : undefined;
+  // The turn's last row (its live band aside), once the turn no longer runs: the items of its tool rounds, oldest
+  // first, close it under its reply.
+  const endsTurn = row._tag !== 'Thinking' && turn !== undefined && !turn.running && turn.lastRow === index;
+  const rounds = endsTurn ? turn.toolItems() : NO_TOOL_ITEMS;
   // A turn that changed files gets the card too, tool rounds or not: its
   // previews (the changed files the panel can show) fill it at its end.
-  const tools = turnEndToolItems(rows, index) ?? (changesRef && isEndedTurnLastRow(rows, index) ? NO_TOOL_ITEMS : null);
+  const tools = rounds.length ? rounds : changesRef && endsTurn ? NO_TOOL_ITEMS : null;
   const turnEnd =
     tools && turn && changesRef
       ? {
@@ -306,12 +311,7 @@ export function useConversationRowRenderer({
   questionCard: ReactNode;
 }) {
   const { retryTurn } = useConversationRetry(settledItems, settledTurnKeys, submit);
-  const latestCompletion = useMemo(() => {
-    for (let index = settledItems.length - 1; index >= 0; index -= 1) {
-      if (settledItems[index]?.kind === 'turndone') return settledItems[index];
-    }
-    return undefined;
-  }, [settledItems]);
+  const latestCompletion = settledItems[lastTurnEnd(settledItems)];
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   const { label } = useRoomContacts(agentMode);
   // Sessions waiting for the user now: a wait report shows only for them.

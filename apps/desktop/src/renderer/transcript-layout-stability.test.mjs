@@ -7,7 +7,7 @@ import { TranscriptRow } from './transcript-row';
 import { ComposerDock } from './ComposerDock';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { leadReviewCheckpointIdCache, leadReviewFilesCache, rememberAgentReviews } from './turn-review-cache';
-import { turnReviewScope } from './renderer-logic.mjs';
+import { turnReviewScope } from './turn-review-scope.ts';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
 import { useTranscriptRows } from './use-conversation-rows';

@@ -12,6 +12,12 @@ import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts
 const clientOptions = JSON.parse(
   readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8')
 );
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { installTestDom } from '../../renderer/test-support/test-dom.mjs';
+import { useComposerUserMessages } from '../../renderer/conversation-pane-user-messages.ts';
+import { useComposerMessageSelector } from '../../renderer/use-composer-message-selector.ts';
+import { createSessionLaneStore, useSessionLane } from '../../renderer/session-lane-store.ts';
 import { createSessionLane } from './session-lane.ts';
 
 const snapshotOf = (threadId, items, hasOlder = false) => ({
@@ -137,6 +143,262 @@ test('a followed thread is pushed as its folded state with every fold, a live fr
     frames[1].snapshot.items.map((row) => row.id),
     ['m1', 'm2']
   );
+});
+
+const replyRow = (id, text) => ({ type: 'agentMessage', id, text, meta: { status: 'completed', at: 2 } });
+const toolRow = (id, name, input) => ({
+  type: 'toolCall',
+  id,
+  name,
+  input,
+  output: `out ${id}`,
+  meta: { status: 'completed', at: 3 },
+});
+
+/** A session of few prompts and many agents, far below the fold's bound (session-state.ts `FOLD_MAX_ITEMS`): each turn is
+ *  one prompt, then `agents` agent results with a reply after every second one. */
+function agentSession(turns = 3, agents = 60) {
+  const items = [];
+  for (let turn = 0; turn < turns; turn += 1) {
+    items.push(userRow(`p${turn}`, `prompt ${turn}`));
+    for (let agent = 0; agent < agents; agent += 1) {
+      items.push(toolRow(`g${turn}-${agent}`, 'agent', { type: 'result', task_id: `task-${turn}-${agent}` }));
+      if (agent % 2) items.push(replyRow(`a${turn}-${agent}`, `reply ${turn}-${agent}`));
+    }
+  }
+  return items;
+}
+
+/** The lane over `core`, its frames applied to a renderer lane store as the window applies them. */
+function shownLane(core) {
+  const lane = createSessionLane({ protocol: core.protocol });
+  const store = createSessionLaneStore();
+  lane.subscribeSessionStates((update) => store.apply(update));
+  return { lane, store, rows: () => store.get('t1').items };
+}
+
+/** One item the core completes, and the frame that publishes it. */
+const land = (core, item) => {
+  core.notify('t1', 'item/completed', { item });
+  core.notify('t1', 'thread/frame', { structureChanged: true });
+};
+
+/** The composer dock's wiring of the Esc Esc selector (conversation-pane-composer-dock.tsx, Composer.tsx) over the lane's
+ *  settled rows. */
+async function mountedSelector(t, store) {
+  const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
+  const root = createRoot(document.getElementById('root'));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    restore();
+  });
+  const dock = { selector: null, notices: [] };
+  const Dock = () => {
+    const snapshot = useSessionLane('t1', store);
+    const userMessages = useComposerUserMessages(snapshot?.items ?? []);
+    dock.selector = useComposerMessageSelector({
+      userMessages,
+      restoring: false,
+      setRestoring: () => undefined,
+      invokeCapability: async () => undefined,
+      setDraft: () => undefined,
+      textarea: { current: null },
+      historyNavigation: { current: { index: -1, seed: '' } },
+      showNotice: (message) => dock.notices.push(message),
+    });
+    return null;
+  };
+  await act(async () => root.render(React.createElement(Dock)));
+  return dock;
+}
+
+test('an early prompt the core shows again changes once, in its place, and the rewind picker offers it once', async (t) => {
+  const core = connection();
+  const { store, rows } = shownLane(core);
+  const items = agentSession();
+  core.follow('t1', items);
+  // Frames go on arriving for a long while before the amendment.
+  for (let n = 0; n < 40; n += 1) land(core, replyRow(`late-${n}`, `late ${n}`));
+  const before = rows();
+  const at = before.findIndex((row) => row.id === 'p0');
+  // A bot reacts to the first prompt, or a turn records the skills applied to it (handle.rs `amend_shown`).
+  land(core, { ...items[0], content: [{ type: 'text', text: 'prompt 0 (amended)' }] });
+  const after = rows();
+  assert.equal(after.length, before.length, 'no row is added');
+  assert.equal(after[at].text, 'prompt 0 (amended)');
+  assert.deepEqual(
+    after.flatMap((row, index) => (row === before[index] ? [] : [index])),
+    [at],
+    'the amended prompt is the only row that changed'
+  );
+  assert.equal(after.filter((row) => row.id === 'p0').length, 1);
+  const dock = await mountedSelector(t, store);
+  assert.deepEqual(
+    dock.selector.messages.map((message) => [message.id, message.text]),
+    [
+      ['p0', 'prompt 0 (amended)'],
+      ['p1', 'prompt 1'],
+      ['p2', 'prompt 2'],
+    ]
+  );
+  // The frames after it are carried on as before.
+  land(core, replyRow('after', 'after'));
+  const next = rows();
+  assert.equal(next.length, after.length + 1);
+  after.forEach((row, index) => assert.equal(next[index], row));
+});
+
+test('a frame leaves a reader above the tail and its selection where they are, while another pane follows', async (t) => {
+  const core = connection();
+  const { store, rows } = shownLane(core);
+  const items = agentSession();
+  core.follow('t1', items);
+  const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
+  const root = createRoot(document.getElementById('root'));
+  // The store tells a pane of a frame on the next animation frame.
+  const painted = [];
+  const priorFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => painted.push(callback);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    globalThis.requestAnimationFrame = priorFrame;
+    restore();
+  });
+  // Two panes of the session: each renders the lane's rows, keyed as the transcript keys them.
+  const Pane = ({ name }) => {
+    const snapshot = useSessionLane('t1', store);
+    return React.createElement(
+      'section',
+      { id: name },
+      (snapshot?.items ?? []).map((row) =>
+        React.createElement('p', { key: row.id, 'data-row': row.id }, row.text ?? row.kind)
+      )
+    );
+  };
+  await act(async () =>
+    root.render(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Pane, { name: 'following' }),
+        React.createElement(Pane, { name: 'reading' })
+      )
+    )
+  );
+  const reading = document.getElementById('reading');
+  const shown = () => [...reading.children];
+  // The reader selects from the first prompt down into the second turn.
+  const held = shown();
+  const first = held.find((node) => node.dataset.row === 'p0');
+  const last = held.find((node) => node.dataset.row === 'a1-1');
+  const range = document.createRange();
+  range.setStart(first.firstChild, 0);
+  range.setEnd(last.firstChild, last.firstChild.length);
+  const selection = window.getSelection();
+  selection.addRange(range);
+  const copied = selection.toString();
+  assert.ok(copied.startsWith('prompt 0') && copied.endsWith('reply 1-1'));
+  const settled = () =>
+    act(async () => {
+      for (const callback of painted.splice(0)) callback(0);
+    });
+  const unmoved = (message) => {
+    const now = shown();
+    held.forEach((node, index) => assert.equal(now[index], node, message));
+    assert.equal(selection.toString(), copied, message);
+    assert.equal(document.getElementById('following').children.length, now.length);
+  };
+  // Frames of a session that goes on.
+  for (let n = 0; n < 8; n += 1) land(core, replyRow(`late-${n}`, `late ${n}`));
+  await settled();
+  assert.equal(shown().length, held.length + 8);
+  unmoved('rows that land below leave every row above as the node it was');
+  // The connection is followed again from a shorter tail window.
+  const grown = [...items, ...Array.from({ length: 8 }, (_, n) => replyRow(`late-${n}`, `late ${n}`))];
+  core.follow('t1', grown.slice(-32), true);
+  land(core, replyRow('resumed', 'resumed'));
+  await settled();
+  assert.equal(rows().at(-1).id, 'resumed');
+  assert.equal(shown().length, held.length + 9);
+  unmoved('a shorter window keeps the rows the reader is among');
+});
+
+test('a tool run that goes on in the next frame stays one card, and the rows before it are the rows held', () => {
+  const core = connection();
+  const { rows } = shownLane(core);
+  const read = (n) => toolRow(`r${n}`, 'read', { file_path: `file-${n}.ts` });
+  core.follow('t1', [...agentSession(), userRow('p-last', 'read them'), read(0), read(1)]);
+  const before = rows();
+  const card = before.at(-1);
+  assert.deepEqual([card.aggregate, card.count], [true, 2]);
+  land(core, read(2));
+  land(core, read(3));
+  const after = rows();
+  assert.equal(after.length, before.length, 'the run is one card across the frames');
+  assert.deepEqual([after.at(-1).aggregate, after.at(-1).count], [true, 4]);
+  before.slice(0, -1).forEach((row, index) => assert.equal(after[index], row));
+  // A row that is no tool ends the run: the next reads are another card.
+  land(core, replyRow('done', 'done'));
+  land(core, read(4));
+  land(core, read(5));
+  const next = rows();
+  assert.deepEqual(
+    next.slice(-3).map((row) => [row.kind, row.count ?? null]),
+    [
+      ['tool', 4],
+      ['assistant', null],
+      ['tool', 2],
+    ]
+  );
+  after.slice(0, -1).forEach((row, index) => assert.equal(next[index], row));
+});
+
+test('a narrower replay keeps the rows above it; a rewind the core states takes the rows it rewound', () => {
+  const core = connection();
+  const { rows } = shownLane(core);
+  const items = agentSession();
+  core.follow('t1', items);
+  const whole = rows();
+  // A replay of the last rows alone: the lane holds what it showed above them.
+  core.follow('t1', items.slice(-32), true);
+  assert.deepEqual(
+    rows().map((row) => row.id),
+    whole.map((row) => row.id)
+  );
+  whole.forEach((row, index) => assert.equal(rows()[index], row));
+  land(core, replyRow('next', 'next'));
+  assert.equal(rows().length, whole.length + 1);
+  whole.forEach((row, index) => assert.equal(rows()[index], row));
+  // The core rewinds to a prompt of the window it holds: the rows after it are gone, here as there.
+  core.follow('t1', [...items, replyRow('next', 'next')]);
+  core.notify('t1', 'thread/historyReset', { fromItemId: 'p1', hasOlder: false });
+  core.notify('t1', 'thread/frame', { structureChanged: true });
+  const kept = whole.slice(0, whole.findIndex((row) => row.id === 'p1') + 1);
+  assert.deepEqual(
+    rows().map((row) => row.id),
+    kept.map((row) => row.id),
+    'no row the rewind took is kept above or below'
+  );
+  land(core, replyRow('again', 'again'));
+  assert.deepEqual(
+    rows().map((row) => row.id),
+    [...kept.map((row) => row.id), 'again']
+  );
+});
+
+test('Esc Esc offers nothing when the settled rows hold no prompt, and reads no history for one', async (t) => {
+  const core = connection();
+  const { store } = shownLane(core);
+  // The tail window of a session whose prompts all lie above it.
+  core.follow('t1', agentSession().filter((item) => item.type !== 'userMessage').slice(-32), true);
+  const dock = await mountedSelector(t, store);
+  assert.deepEqual(dock.selector.messages, []);
+  core.calls.length = 0;
+  act(() => dock.selector.openSelector());
+  await act(async () => new Promise((resolve) => setImmediate(resolve)));
+  assert.equal(dock.selector.open, false);
+  assert.equal(dock.notices.length, 1);
+  assert.deepEqual(core.calls, []);
 });
 
 test('a streamed reply is projected once per core frame: its deltas fold unpublished, the frame publishes all they appended', () => {

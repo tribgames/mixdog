@@ -1,5 +1,6 @@
 import { loginSiteLabel } from '../shared/login-site';
 import type { TranscriptItem } from './desktop-types';
+import { carriedLast } from './list-carry';
 import { t } from './i18n';
 import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
@@ -42,14 +43,13 @@ const askUserKey = (item: TranscriptItem): string => String(item.callId ?? item.
  *  card. Undefined when no card has a place. */
 export function askUserCardKey(items: readonly TranscriptItem[], callId: string): string | undefined {
   if (callId) return callId;
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const members = toolCallsOf(items[index]);
-    for (let at = members.length - 1; at >= 0; at -= 1) {
-      if (isWaitingAskUser(members[at])) return askUserKey(members[at]);
-    }
-  }
-  return undefined;
+  const index = lastWaitingAskUser(items);
+  const waiting = index < 0 ? undefined : toolCallsOf(items[index]).findLast(isWaitingAskUser);
+  return waiting && askUserKey(waiting);
 }
+
+/** Where a transcript's newest waiting question is, carried on from the list a frame made it from. */
+const lastWaitingAskUser = carriedLast<TranscriptItem>((item) => holdsWaitingAskUser(item));
 
 /** A tool row's items with its questions taken out (also from inside a
  *  roll-up): answered ones render as summaries after what is left, and a

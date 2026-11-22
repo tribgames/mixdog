@@ -1,91 +1,9 @@
-import { transcriptTurnKeys } from '../shared/core-src/runtime/shared/transcript-turn-keys.mjs';
+import { transcriptTurnKeys, turnKeysTakenOver } from '../shared/core-src/runtime/shared/transcript-turn-keys.mjs';
 
-export { transcriptTurnKeys };
-
-function stableItemKey(item, index) {
-  if (item?.id !== undefined && item?.id !== null) return String(item.id);
-  return `${item?.kind || 'item'}:${item?.text || item?.label || item?.status || ''}:${index}`;
-}
-
-export function turnReviewScope(items) {
-  const transcript = Array.isArray(items) ? items : [];
-  let activeStart = -1;
-  let latestStart = -1;
-  for (let index = 0; index < transcript.length; index += 1) {
-    const item = transcript[index];
-    if (item?.kind === 'user' && activeStart < 0) {
-      activeStart = index;
-      latestStart = index;
-    }
-    if (item?.kind === 'turndone') activeStart = -1;
-  }
-  const startIndex = activeStart >= 0 ? activeStart : latestStart;
-  let hasActivity = false;
-  for (let index = startIndex + 1; index < transcript.length; index += 1) {
-    const item = transcript[index];
-    if (item && item.kind !== 'user') {
-      hasActivity = true;
-      break;
-    }
-  }
-  return {
-    startIndex,
-    key: startIndex >= 0 ? stableItemKey(transcript[startIndex], startIndex) : 'none',
-    hasActivity,
-    // Rows without the prompt that opened their turn: the daemon's
-    // byte-budgeted transcript tail cut it off, so every row left still
-    // belongs to that turn.
-    truncated: startIndex < 0 && transcript.length > 0,
-  };
-}
+export { transcriptTurnKeys, turnKeysTakenOver };
 
 export function shouldShowFastControl(routeFastCapable, selectedModelFastCapable) {
   return routeFastCapable === true || selectedModelFastCapable === true;
-}
-
-function explicitTranscriptFailure(item) {
-  const kind = String(item?.kind || '').toLowerCase();
-  const status = String(item?.status || '').toLowerCase();
-  const tone = String(item?.tone || '').toLowerCase();
-  return kind === 'error' || status === 'error' || status === 'failed' || tone === 'error';
-}
-
-export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
-  const transcript = Array.isArray(items) ? items : [];
-  const turnKeys = transcriptTurnKeys(transcript);
-  const outcomes = new Map();
-  for (let index = 0; index < transcript.length; index += 1) {
-    const item = transcript[index];
-    const turnKey = turnKeys[index];
-    if (!turnKey) continue;
-    const outcome = outcomes.get(turnKey) || { explicitFailure: false, terminalStatus: '' };
-    if (item?.kind === 'turndone') {
-      outcome.terminalStatus = String(item.status || '').toLowerCase();
-      if (!outcome.terminalStatus && explicitTranscriptFailure(item)) outcome.explicitFailure = true;
-    } else if (explicitTranscriptFailure(item)) {
-      outcome.explicitFailure = true;
-    }
-    outcomes.set(turnKey, outcome);
-  }
-
-  const failed = [];
-  for (const [turnKey, outcome] of outcomes) {
-    if (outcome.terminalStatus === 'failed' || (!outcome.terminalStatus && outcome.explicitFailure))
-      failed.push(turnKey);
-  }
-
-  const current = {
-    failedTurnKeys: failed,
-    activeToastTurns: {},
-    turnKeys,
-  };
-  return {
-    scope,
-    ...current,
-    scopes: {
-      [scope]: current,
-    },
-  };
 }
 
 export function shouldNavigatePromptHistory({

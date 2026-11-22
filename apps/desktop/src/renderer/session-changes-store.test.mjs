@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import {
   adoptLastTurnReview,
+  completionDigest,
   nextLastTurnRequest,
   readSessionChangesSource,
   setSessionChangesSource,
@@ -1597,4 +1598,25 @@ test('the unstaged source carries the untracked files the status did not list; s
   setSessionChangesSource('staged');
   await drain();
   assert.equal(seen.untrackedOmitted, 0);
+});
+
+test('the completion digest tells two calls that traded places apart, next to each other and far apart', () => {
+  const call = (id) => ({ id, kind: 'tool', name: 'read', status: 'completed', completedAt: 1, result: 'ok' });
+  const first = call('call-1');
+  const second = call('call-953');
+  assert.notEqual(completionDigest([second, first]), completionDigest([first, second]));
+  // Places 13 and 318 of a long transcript, for two thousand pairs of calls: no trade leaves the digest as it was.
+  const base = Array.from({ length: 400 }, (_, index) => call(`held-${index}`));
+  let same = 0;
+  for (let pair = 0; pair < 2000; pair += 1) {
+    const left = call(`left-${pair}`);
+    const right = call(`right-${pair}`);
+    const placed = base.with(13, left).with(318, right);
+    const traded = base.with(13, right).with(318, left);
+    if (completionDigest(placed) === completionDigest(traded)) same += 1;
+    assert.notEqual(completionDigest(base.with(13, left)), completionDigest(base), 'a call in another one\'s place');
+  }
+  assert.equal(same, 0);
+  // A list carried on from another gives the digest of the list read whole.
+  assert.equal(completionDigest(base.slice()), completionDigest(base));
 });

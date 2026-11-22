@@ -7,53 +7,17 @@ export type DiffData = {
   renderable: boolean;
   status: string;
 };
-export type TurnFailureModel = {
-  scope: string;
-  failedTurnKeys: string[];
-  activeToastTurns: Record<string, string>;
-  turnKeys: string[];
-  scopes?: Record<
-    string,
-    {
-      failedTurnKeys: string[];
-      activeToastTurns: Record<string, string>;
-      turnKeys: string[];
-    }
-  >;
-};
-
-export function transcriptTurnKeys<T>(items: T[] | undefined): string[];
-export function turnReviewScope<
-  T extends {
-    id?: string | number;
-    kind?: string;
-  },
->(
-  items: T[] | undefined
-): {
-  startIndex: number;
-  key: string;
-  hasActivity: boolean;
-  truncated: boolean;
-};
+/** `held`: the keys of a list that holds the same items before index `kept`; they are carried on. */
+export function transcriptTurnKeys<T>(
+  items: readonly T[] | undefined,
+  held?: { keys: readonly string[]; kept: number }
+): string[];
+/** The leading keys a list took over from the one it was carried on from. */
+export function turnKeysTakenOver(keys: readonly string[]): number;
 export function shouldShowFastControl(
   routeFastCapable: boolean,
   selectedModelFastCapable: boolean | undefined
 ): boolean;
-export function reconcileTurnFailures<
-  T extends {
-    id?: string | number;
-    kind?: string;
-    text?: string;
-    message?: string;
-    tone?: string;
-  },
->(
-  previous: TurnFailureModel | undefined,
-  items: T[] | undefined,
-  toasts: T[] | undefined,
-  scope?: string
-): TurnFailureModel;
 export function shouldNavigatePromptHistory(input?: {
   key?: string;
   value?: string;

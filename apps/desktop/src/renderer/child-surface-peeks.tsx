@@ -2,6 +2,7 @@ import { CircleX, SquareTerminal } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import { BrowserPeekLine } from './browser-peek-line';
 import { t } from './i18n';
+import { carriedFrom } from './list-carry';
 import { revealSessionTerminalTab } from './terminal-command-request';
 import { timeMs } from './transcript-primitives';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -127,24 +128,41 @@ function rowTime(row: TranscriptRowModel): number {
   return 'item' in row && row.item ? timeMs(row.item.at ?? row.item.startedAt) : 0;
 }
 
-const placementCache = new WeakMap<readonly TranscriptRowModel[], Map<number, number>>();
+/** Per row list, the first row recorded after each reveal time asked of it (-1: none). */
+const laterRows = new WeakMap<readonly TranscriptRowModel[], Map<number, number>>();
+
+/** The first row recorded after `at`. Rows carried on from ones already asked (list-carry.ts) are read from the first
+ *  that changed: the rows left in place hold the row found before, or none after `at`. */
+function firstRowAfter(rows: readonly TranscriptRowModel[], at: number): number {
+  let found = laterRows.get(rows);
+  if (!found) {
+    found = new Map();
+    laterRows.set(rows, found);
+  }
+  let later = found.get(at);
+  if (later !== undefined) return later;
+  const made = carriedFrom(rows);
+  const before = made ? laterRows.get(made.prior as readonly TranscriptRowModel[])?.get(at) : undefined;
+  if (made && before !== undefined && before >= 0 && before < made.kept) later = before;
+  else {
+    later = -1;
+    for (let index = made && before !== undefined ? made.kept : 0; index < rows.length; index += 1) {
+      if (rowTime(rows[index]) <= at) continue;
+      later = index;
+      break;
+    }
+  }
+  found.set(at, later);
+  return later;
+}
 
 /** The row a line revealed at `at` follows: the last row recorded before it
  *  (ahead of the gap that opens the next turn), else the transcript's last. */
 function childSurfacePeekRow(rows: readonly TranscriptRowModel[], at: number): number {
-  let cache = placementCache.get(rows);
-  if (!cache) {
-    cache = new Map();
-    placementCache.set(rows, cache);
-  }
-  const cached = cache.get(at);
-  if (cached !== undefined) return cached;
-  const later = rows.findIndex((row) => rowTime(row) > at);
+  const later = firstRowAfter(rows, at);
   let index = later < 0 ? rows.length - 1 : later - 1;
   if (index > 0 && rows[index]?._tag === 'TurnGap') index -= 1;
-  const placed = Math.max(0, index);
-  cache.set(at, placed);
-  return placed;
+  return Math.max(0, index);
 }
 
 /** The lines `rows[index]` carries below itself. */
