@@ -1,6 +1,7 @@
 import { t } from './i18n';
 import { findPatch, PATCH_CACHE_LIMIT } from './transcript-diff';
 import type { TranscriptItem } from './desktop-types';
+import { carriedSum, placedHash, textHash } from './list-carry';
 import { analyzePatchFiles, type parseUnifiedDiff } from './renderer-logic.mjs';
 import { toolRowRevision, uiDiffDigest, type UiDiffSummary } from './transcript-tool-core';
 import {
@@ -303,28 +304,36 @@ function toolMayChangeFiles(item: TranscriptItem): boolean {
 
 /** What can change the worktree's review within a transcript: a finished
  *  call of a tool that may write files, and a turn's end. Text, reasoning,
- *  read-only tools, running tools and sub-agent progress leave it alone. */
+ *  read-only tools, running tools and sub-agent progress leave it alone. The
+ *  key is of which calls finished and which turns ended, not of their order:
+ *  the same ones in another order finished nothing new. */
 export function fileChangeKey(items: readonly TranscriptItem[] | undefined): string {
   if (!Array.isArray(items)) return '';
-  let hash = 0x811c9dc5;
-  let count = 0;
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    let state: string;
-    if (item?.kind === 'turndone' || item?.kind === 'statusdone') state = `e${item.id ?? index}`;
-    else if (item?.kind === 'tool' && toolMayChangeFiles(item)) {
-      const status = String(item.status || '');
-      const done =
-        item.completedAt || item.completedCount || item.result !== undefined || (status !== '' && status !== 'running');
-      if (item.streaming || status === 'running' || !done) continue;
-      state = `t${item.id ?? index}:${item.completedAt ?? item.completedCount ?? ''}`;
-    } else continue;
-    count += 1;
-    for (let at = 0; at < state.length; at += 1) hash = Math.imul(hash ^ state.charCodeAt(at), 0x01000193);
-    hash = Math.imul(hash ^ 0x7c, 0x01000193);
-  }
-  return `${count}:${(hash >>> 0).toString(36)}`;
+  const { count, sum } = fileChanges(items as readonly TranscriptItem[]);
+  return `${count}:${(sum >>> 0).toString(36)}`;
 }
+
+/** What an item with an id says of the worktree (null: nothing), read once per item object. */
+const fileChangeStates = new WeakMap<TranscriptItem, number | null>();
+/** Summed per list, and carried on from the list a frame made it from: a frame's unchanged items are not read again. */
+const fileChanges = carriedSum((item: TranscriptItem, index: number) => {
+  const known = item ? fileChangeStates.get(item) : undefined;
+  if (known !== undefined) return known ?? undefined;
+  let state: string | null = null;
+  if (item?.kind === 'turndone' || item?.kind === 'statusdone') state = `e${item.id ?? index}`;
+  else if (item?.kind === 'tool' && toolMayChangeFiles(item)) {
+    const status = String(item.status || '');
+    const done =
+      item.completedAt || item.completedCount || item.result !== undefined || (status !== '' && status !== 'running');
+    if (!item.streaming && status !== 'running' && done) {
+      state = `t${item.id ?? index}:${item.completedAt ?? item.completedCount ?? ''}`;
+    }
+  }
+  const hash = state === null ? null : textHash(state);
+  // A row without an id is told apart by its place, which another list may not give it.
+  if (item && item.id !== undefined && item.id !== null) fileChangeStates.set(item, hash);
+  return hash ?? undefined;
+});
 
 export function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: number) {
   let additions = 0;
@@ -375,19 +384,46 @@ function writeToolPatch(item: TranscriptItem): string | null {
   return `diff --git a/${target} b/${target}\n${created ? 'new file mode 100644\n--- /dev/null\n' : `--- a/${target}\n`}+++ b/${target}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line: string) => `+${line}`).join('\n')}\n`;
 }
 
+/** How a tool item's diff is read for the session's review: its patch card, a `write` call's content, or not at all. */
+function diffSource(item: TranscriptItem | undefined): 'patch' | 'written' | null {
+  if (item?.kind !== 'tool') return null;
+  const patchCard =
+    toolPublishesPatch(item) ||
+    (item.aggregate === true && Object.keys(item.categories || {}).some((key) => key.startsWith('Patch|')));
+  const written = !patchCard && !item.aggregate && String(item.name || '').toLowerCase() === 'write';
+  if (!patchCard && !written) return null;
+  const count = Math.max(1, Number(item.count || 1));
+  if (item.isError === true || Number(item.errorCount || 0) >= count) return null;
+  if (parseToolArgs(item.args)?.dry_run === true) return null;
+  return written ? 'written' : 'patch';
+}
+
+/** A number of its own for each item a session's review reads a diff from (null: it reads none), by the item. */
+const diffItems = new WeakMap<TranscriptItem, number | null>();
+/** Those numbers summed per list, each with its place, carried on from the list a frame made it from. */
+const diffItemsOf = carriedSum((item: TranscriptItem, index: number) => {
+  let own = item ? diffItems.get(item) : undefined;
+  if (own === undefined) {
+    own = diffSource(item) === null ? null : (Math.random() * 0x100000000) | 0;
+    if (item) diffItems.set(item, own);
+  }
+  return own === null ? undefined : placedHash(own, index);
+});
+
+/** Stands for the items `summarizeSessionTranscriptReview` reads (`diffSource`: the tool calls that publish a patch and
+ *  the `write` calls, less the failed and the dry runs) and their places: the same for two lists that hold the same ones
+ *  in the same places, so a frame that changed and moved none of them leaves the review as it was. */
+export function transcriptReviewKey(items: readonly TranscriptItem[]): string {
+  const { count, sum } = diffItemsOf(items);
+  return `${count}:${sum}`;
+}
+
 function transcriptDiffSegments(items: TranscriptItem[]): TurnReviewDiffSegment[] {
   const segments: TurnReviewDiffSegment[] = [];
   for (const item of items) {
-    if (item?.kind !== 'tool') continue;
-    const patchCard =
-      toolPublishesPatch(item) ||
-      (item.aggregate === true && Object.keys(item.categories || {}).some((key) => key.startsWith('Patch|')));
-    const written = !patchCard && !item.aggregate && String(item.name || '').toLowerCase() === 'write';
-    if (!patchCard && !written) continue;
-    const count = Math.max(1, Number(item.count || 1));
-    if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
-    if (parseToolArgs(item.args)?.dry_run === true) continue;
-    if (written) {
+    const source = diffSource(item);
+    if (source === null) continue;
+    if (source === 'written') {
       const patch = writeToolPatch(item);
       if (patch) segments.push(patch);
       continue;

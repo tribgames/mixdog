@@ -2,7 +2,7 @@ export * from './api.ts';
 export { ClientFailure, connect, ladderDelay, uuidv7 } from './client.ts';
 export { MockConn, MockNetwork } from './mock.ts';
 export { DEFAULT_FIRST_CONNECT_DEADLINE_MS, DEFAULT_REQUEST_TIMEOUT_MS } from './request-limits.ts';
-export { historyPositionOf, mergeToolRows, rowOf, rowsOf } from './rows.ts';
+export { historyPositionOf, mergeToolRows, rowOf, rowsHeldFrom, rowsOf } from './rows.ts';
 export {
   approvalSurface,
   desktopSessionState,

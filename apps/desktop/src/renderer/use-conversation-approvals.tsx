@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
+import { isOtherDevice } from '../shared/session-devices';
 import type { ToolApprovalDecision } from '../shared/contract';
 import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
 import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
@@ -8,7 +8,8 @@ import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
 import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
-import type { Snapshot } from './desktop-types';
+import type { Snapshot, TranscriptItem } from './desktop-types';
+import { CarriedFacts, carriedFold } from './list-carry';
 import { t } from './i18n';
 import { approvalInstanceKey } from './renderer-logic.mjs';
 import { RETIRED_APPROVAL_MS, type RetiredApproval, useRetiredApproval } from './use-retired-approval';
@@ -18,6 +19,22 @@ import { useViewerDevice } from './use-viewer-device';
 /** A refusal the core did not confirm as a decision: the card clears its resolving state and can be answered again. */
 export const UNCONFIRMED = 'unconfirmed';
 type AnsweredElsewhere = { id: string; device: string };
+
+const NO_ITEMS: readonly TranscriptItem[] = [];
+/** Whether a transcript's prompts name more than one device (shared/session-devices.ts `sessionUsesMultipleDevices`):
+ *  each device's first prompt is noted with its place, so a list carried on is read from the rows it did not keep. */
+const usesMultipleDevices = carriedFold<TranscriptItem, CarriedFacts<string, number>, boolean>({
+  make: () => new CarriedFacts(),
+  rewind: (devices, from) => devices.rewind(from),
+  read(devices, items, from) {
+    for (let index = from; index < items.length; index += 1) {
+      const item = items[index];
+      if (item?.kind !== 'user' || typeof item.device !== 'string' || !item.device) continue;
+      if (!devices.has(item.device)) devices.set(index, item.device, index);
+    }
+  },
+  result: (devices) => devices.size > 1,
+});
 
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
@@ -78,13 +95,13 @@ export function useConversationApprovals(
       : null);
   // The approval this device tried to answer after another device already had.
   const [answeredElsewhere, setAnsweredElsewhere] = useState<AnsweredElsewhere | null>(null);
-  const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
+  const multiDevice = useMemo(() => usesMultipleDevices(snapshot.items ?? NO_ITEMS), [snapshot.items]);
   const viewerDevice = useViewerDevice();
   // Agent mode (agent-chat-mode.ts) narrows both cards to the bubble column together.
   const agentMode = useAgentChatSession(decidedSessionId);
   // Held requests in an agent's home thread fold away once their settling row arrives.
   useLayoutEffect(() => {
-    if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? []);
+    if (isAgentHomeSessionId(decidedSessionId)) publishHeldSettlements(decidedSessionId, snapshot.items ?? NO_ITEMS);
   }, [decidedSessionId, snapshot.items]);
 
   const browserPrompts = useBrowserApprovals(docked ? decidedSessionId : '');

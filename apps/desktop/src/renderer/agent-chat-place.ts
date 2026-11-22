@@ -1,5 +1,7 @@
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { splitAskUser, toolCallsOf } from './ask-user-record';
+import { turnOf } from './conversation-turn-index';
+import { carriedFold, carriedLatest } from './list-carry';
 import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
 import { toolActivityResultValue } from './transcript-tool-result';
@@ -94,7 +96,13 @@ export function taskReportIsQuiet(routine: unknown): boolean {
   return record?.kind === 'task' && !TASK_REPORT_SHOWN.has(String(record.status ?? ''));
 }
 
-const roomSpeechCache = new WeakMap<readonly TranscriptRowModel[], Map<string, number>>();
+/** Where each member of a group room last spoke, by row, carried on from the rows a frame made them from. */
+const newestSpeech = carriedLatest((row: TranscriptRowModel, at: number) => {
+  const item = 'item' in row ? (row.item as TranscriptItem | undefined) : undefined;
+  return item?.kind === 'notice' && item.room?.kind === 'speech' && item.room.speaker
+    ? ([item.room.speaker, at] as const)
+    : undefined;
+});
 
 /** The members of `asking` whose handed-off question cards `rows[index]` of a
  *  group room carries (agent-task-line.tsx RoomHandoffQuestions): each under
@@ -105,18 +113,7 @@ export function roomQuestionSeatsAt(
   asking: readonly string[]
 ): string[] {
   if (!asking.length) return [];
-  let newest = roomSpeechCache.get(rows);
-  if (!newest) {
-    newest = new Map();
-    rows.forEach((row, at) => {
-      const item = 'item' in row ? (row.item as TranscriptItem | undefined) : undefined;
-      if (item?.kind === 'notice' && item.room?.kind === 'speech' && item.room.speaker) {
-        newest?.set(item.room.speaker, at);
-      }
-    });
-    roomSpeechCache.set(rows, newest);
-  }
-  const seats = newest;
+  const seats = newestSpeech(rows);
   return asking.filter((speaker) => (seats.get(speaker) ?? rows.length - 1) === index);
 }
 
@@ -252,44 +249,45 @@ type HandoffIndex = {
   waits: Map<number, string>;
 };
 
-const handoffIndexCache = new WeakMap<readonly TranscriptRowModel[], HandoffIndex>();
 const NO_HANDOFFS: Handoff[] = [];
+const NO_HANDOFF_INDEX: HandoffIndex = { lines: new Map(), hiddenReports: new Set(), waits: new Map() };
 
-function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
-  const cached = handoffIndexCache.get(rows);
-  if (cached) return cached;
-  const liveReplies = new Map<string | undefined, number>();
-  const bands = new Map<string | undefined, number>();
-  const replies = new Map<string | undefined, number>();
+/** A row a hand-off index is made of: a tool round that handed work off, a task report. */
+function handsOffOrReports(row: TranscriptRowModel): boolean {
+  if (row._tag === 'ToolActivity') return handoffsOf(row.items).length > 0;
+  return row._tag === 'AssistantPart' && row.item.kind === 'notice' && asRecord(row.item.routine)?.kind === 'task';
+}
+
+/** What the hand-off rounds and task reports of a row list leave open. */
+type HandoffWalk = Pick<HandoffIndex, 'hiddenReports' | 'waits'> & {
+  /** Per turn, its rounds with open hand-offs, oldest first: the row and its hand-offs. */
+  rounds: Map<string, [number, Handoff[]][]>;
+};
+
+/** `places`: the rows that hand work off or report on a task, oldest first. No other row is read. */
+function walkHandoffs(rows: readonly TranscriptRowModel[], places: readonly number[]): HandoffWalk {
+  const taskReport = (row: TranscriptRowModel) =>
+    row._tag === 'AssistantPart' ? asRecord(row.item.routine) : null;
   const answered = new Map<string, SessionEnds>();
-  rows.forEach((row, at) => {
-    if (row._tag === 'Thinking') bands.set(row.turnKey, at);
-    if (row._tag !== 'AssistantPart') return;
-    if (row.item.kind === 'assistant' && row.live) liveReplies.set(row.turnKey, at);
-    else if (
-      row.item.kind === 'assistant' &&
-      !agentReplyUnfinished(row.live, row.item) &&
-      !routineReplyIsQuiet(row.item)
-    ) {
-      replies.set(row.turnKey, at);
-    }
-    const ends = row.item.kind === 'notice' ? reportEnds(asRecord(row.item.routine)) : null;
+  for (const at of places) {
+    const ends = reportEnds(taskReport(rows[at]));
     if (ends?.sendIds.length) noteEnds(answered, ends.sessionId, ends.sendIds);
-  });
+  }
   // Walking back: the terminal reports after each row, and each turn's
   // rounds with open handoffs, newest first.
   const after = new Map<string, SessionEnds>();
-  const turns = new Map<string | undefined, [number, Handoff[]][]>();
+  const rounds = new Map<string, [number, Handoff[]][]>();
   const lineSessions = new Set<string>();
   const waits = new Map<number, string>();
   const waited = new Set<string>();
   const hiddenReports = new Set<number>();
   // Per session, the latest progress update after the row the walk is at.
   const progress = new Map<string, string>();
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
+  for (let place = places.length - 1; place >= 0; place -= 1) {
+    const at = places[place];
     const row = rows[at];
     if (row._tag === 'AssistantPart') {
-      const record = row.item.kind === 'notice' ? asRecord(row.item.routine) : null;
+      const record = taskReport(row);
       if (record?.kind !== 'task') continue;
       const sessionId = typeof record.sessionId === 'string' ? record.sessionId : '';
       const line = record.status === 'working' ? progressLineOf(record) : '';
@@ -318,30 +316,151 @@ function handoffIndexOf(rows: readonly TranscriptRowModel[]): HandoffIndex {
       lineSessions.add(open[i].sessionId);
       open[i] = { ...open[i], prompt: true };
     }
-    const turn = turns.get(row.turnKey) ?? [];
+    const turn = rounds.get(row.turnKey) ?? [];
     turn.push([at, open]);
-    turns.set(row.turnKey, turn);
+    rounds.set(row.turnKey, turn);
   }
   for (const [at, sessionId] of waits) {
     if (!lineSessions.has(sessionId)) continue;
     waits.delete(at);
     hiddenReports.add(at);
   }
-  const lines = new Map<number, Handoff[]>();
-  for (const [turnKey, rounds] of turns) {
-    rounds.reverse();
-    const anchor = liveReplies.get(turnKey) ?? bands.get(turnKey) ?? replies.get(turnKey);
-    if (anchor === undefined) for (const [at, open] of rounds) lines.set(at, open);
-    else
-      lines.set(
-        anchor,
-        rounds.flatMap(([, open]) => open)
-      );
-  }
-  const built = { lines, hiddenReports, waits };
-  handoffIndexCache.set(rows, built);
-  return built;
+  for (const turn of rounds.values()) turn.reverse();
+  return { rounds, hiddenReports, waits };
 }
+
+/** The row a turn's hand-off lines sit at: its live reply, else its live band, else its last finished reply that paints;
+ *  undefined when it has none. Read from the turn index, which holds the turn's rows of each kind. */
+function handoffAnchor(rows: readonly TranscriptRowModel[], turnKey: string): number | undefined {
+  const turn = turnOf(rows, turnKey);
+  if (!turn) return undefined;
+  let band: number | undefined;
+  for (let place = turn.liveRows.length - 1; place >= 0; place -= 1) {
+    const at = turn.liveRows[place];
+    const row = rows[at];
+    if (row._tag === 'Thinking') band ??= at;
+    else if (row._tag === 'AssistantPart' && row.item.kind === 'assistant') return at;
+  }
+  if (band !== undefined) return band;
+  for (let place = turn.replyRows.length - 1; place >= 0; place -= 1) {
+    const at = turn.replyRows[place];
+    const row = rows[at];
+    if (row._tag !== 'AssistantPart' || row.live) continue;
+    if (!agentReplyUnfinished(row.live, row.item) && !routineReplyIsQuiet(row.item)) return at;
+  }
+  return undefined;
+}
+
+/** What a hand-off index is carried on with. */
+interface HandoffCarry {
+  /** The rows last read. */
+  rows: readonly TranscriptRowModel[];
+  /** The rows that hand work off or report on a task, oldest first; `changed`: one came, went or changed since the walk. */
+  places: number[];
+  changed: boolean;
+  walk: HandoffWalk | null;
+  /** The turns a row of which came, went or changed since the lines were placed. */
+  touched: Set<string>;
+  /** Per turn with open hand-offs: the row its lines sit at (undefined: each round carries its own), and the rows that
+   *  carry them. */
+  anchors: Map<string, number | undefined>;
+  placed: Map<string, number[]>;
+}
+
+/** Places a turn's open hand-offs in `lines`: all at its anchor, or each round's at the round. */
+function placeHandoffs(
+  state: HandoffCarry,
+  lines: Map<number, Handoff[]>,
+  turnKey: string,
+  rounds: readonly [number, Handoff[]][],
+  anchor: number | undefined
+): void {
+  state.anchors.set(turnKey, anchor);
+  if (anchor === undefined) {
+    for (const [at, open] of rounds) lines.set(at, open);
+    state.placed.set(
+      turnKey,
+      rounds.map(([at]) => at)
+    );
+    return;
+  }
+  lines.set(
+    anchor,
+    rounds.flatMap(([, open]) => open)
+  );
+  state.placed.set(turnKey, [anchor]);
+}
+
+/** The hand-off index of a row list. Rows carried on from ones already indexed (list-carry.ts) are read from the first
+ *  that changed. The hand-off rounds and task reports are walked again only when one of them came, went or changed; a
+ *  turn's lines are placed again only when one of its rows did, and its anchor is read only then. A frame that moves no
+ *  line is given the index made before. */
+const handoffIndexOf = carriedFold<TranscriptRowModel, HandoffCarry, HandoffIndex>({
+  make: () => ({
+    rows: [],
+    places: [],
+    changed: false,
+    walk: null,
+    touched: new Set(),
+    anchors: new Map(),
+    placed: new Map(),
+  }),
+  rewind(state, from) {
+    for (let at = from; at < state.rows.length; at += 1) state.touched.add(state.rows[at].turnKey);
+    while (state.places.length > 0 && (state.places.at(-1) as number) >= from) {
+      state.places.pop();
+      state.changed = true;
+    }
+  },
+  read(state, rows, from) {
+    for (let at = from; at < rows.length; at += 1) {
+      const row = rows[at];
+      state.touched.add(row.turnKey);
+      if (!handsOffOrReports(row)) continue;
+      state.places.push(at);
+      state.changed = true;
+    }
+    state.rows = rows;
+  },
+  result(state, rows, held) {
+    const touched = [...state.touched];
+    state.touched.clear();
+    if (state.places.length === 0) {
+      state.walk = null;
+      state.anchors.clear();
+      state.placed.clear();
+      return NO_HANDOFF_INDEX;
+    }
+    if (state.changed || !state.walk || !held) {
+      // The rounds were walked again: every open turn's lines are placed, at the anchor known for it unless one of its
+      // rows changed.
+      state.walk = walkHandoffs(rows, state.places);
+      state.changed = false;
+      for (const turnKey of touched) state.anchors.delete(turnKey);
+      const anchors = state.anchors;
+      state.anchors = new Map();
+      state.placed = new Map();
+      const lines = new Map<number, Handoff[]>();
+      for (const [turnKey, rounds] of state.walk.rounds) {
+        const anchor = anchors.has(turnKey) ? anchors.get(turnKey) : handoffAnchor(rows, turnKey);
+        placeHandoffs(state, lines, turnKey, rounds, anchor);
+      }
+      return { lines, hiddenReports: state.walk.hiddenReports, waits: state.walk.waits };
+    }
+    // The same rounds: only a turn one of whose rows changed can have moved its anchor.
+    let lines: Map<number, Handoff[]> | null = null;
+    for (const turnKey of touched) {
+      const rounds = state.walk.rounds.get(turnKey);
+      if (!rounds) continue;
+      const anchor = handoffAnchor(rows, turnKey);
+      if (anchor === state.anchors.get(turnKey)) continue;
+      lines ??= new Map(held.lines);
+      for (const at of state.placed.get(turnKey) ?? []) lines.delete(at);
+      placeHandoffs(state, lines, turnKey, rounds, anchor);
+    }
+    return lines ? { lines, hiddenReports: held.hiddenReports, waits: held.waits } : held;
+  },
+});
 
 /** The hand-off lines `rows[index]` paints (handoffIndexOf): a turn's live
  *  reply, live band or last reply, or a round of a turn with no reply. */
@@ -505,36 +624,6 @@ export function routineGroupOf(rows: readonly TranscriptRowModel[], index: numbe
     }
   }
   return members.sort((a, b) => a - b);
-}
-
-/** Whether `rows[index]` is the last row of its turn (the live band aside)
- *  and that turn no longer runs (no live band or streaming reply part). */
-export function isEndedTurnLastRow(rows: readonly TranscriptRowModel[], index: number): boolean {
-  const row = rows[index];
-  if (!row || row._tag === 'Thinking') return false;
-  const { turnKey } = row;
-  if (
-    rows.some(
-      (other) =>
-        other.turnKey === turnKey && (other._tag === 'Thinking' || (other._tag === 'AssistantPart' && other.live))
-    )
-  ) {
-    return false;
-  }
-  return !rows.slice(index + 1).some((next) => next.turnKey === turnKey && next._tag !== 'Thinking');
-}
-
-/** At a turn's last row (the live band aside), the items of every tool round
- *  of that turn, oldest first: its artifacts' cards close the turn, under its
- *  reply. null at any other row, for a turn with no tool round, and while the
- *  turn runs (its live band or a streaming reply part is still in the rows). */
-export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: number): TranscriptItem[] | null {
-  if (!isEndedTurnLastRow(rows, index)) return null;
-  const { turnKey } = rows[index];
-  const items = rows
-    .slice(0, index + 1)
-    .flatMap((earlier) => (earlier._tag === 'ToolActivity' && earlier.turnKey === turnKey ? earlier.items : []));
-  return items.length ? items : null;
 }
 
 /** The chat place of `rows[index]`; null for a row outside the grouping. */

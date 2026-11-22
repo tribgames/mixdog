@@ -4,6 +4,7 @@ import { revealBrowserPane, browserPageRequestsAvailable } from './browser-page-
 import { showBrowserPage } from './browser-page-view';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
+import { carriedLatest } from './list-carry';
 import { linkOpenTarget } from './link-open-target';
 import { desktopToolActivitySurface, flattenedToolActivityItems } from './transcript-tool-core';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -75,11 +76,24 @@ export function browserOpenedPage(items: readonly TranscriptItem[]): BrowserOpen
 /** Agent mode keeps one line per turn: at the turn's last round that opened a page. */
 export function lastBrowserRoundOfTurn(rows: readonly TranscriptRowModel[], index: number): boolean {
   const row = rows[index];
-  if (row?._tag !== 'ToolActivity' || !browserOpenedPage(row.items)) return false;
-  return !rows
-    .slice(index + 1)
-    .some((next) => next._tag === 'ToolActivity' && next.turnKey === row.turnKey && browserOpenedPage(next.items));
+  return row?._tag === 'ToolActivity' && lastPageRounds(rows).get(row.turnKey) === index;
 }
+
+/** Whether a tool round opened a page, read once per round. */
+const pageRounds = new WeakMap<readonly TranscriptItem[], boolean>();
+function opensPage(items: readonly TranscriptItem[]): boolean {
+  let opens = pageRounds.get(items);
+  if (opens === undefined) {
+    opens = browserOpenedPage(items) !== null;
+    pageRounds.set(items, opens);
+  }
+  return opens;
+}
+
+/** Each turn's last round that opened a page, by row, carried on from the rows a frame made them from (list-carry.ts). */
+const lastPageRounds = carriedLatest((row: TranscriptRowModel, at: number) =>
+  row._tag === 'ToolActivity' && opensPage(row.items) ? ([row.turnKey, at] as const) : undefined
+);
 
 // The host's reply line after a saved-login sign-in (main/browser/auto-sign-in.ts).
 const SAVED_SIGN_IN = /Saved sign-in: signed in to ([^\s"\\]+) with its saved login/g;

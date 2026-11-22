@@ -303,28 +303,45 @@ function itemId(item: unknown): unknown {
  *  older-history page grows the list at its head, a window cut drops it).
  *  That identity is exactly what the delta encoders and the row renderers read
  *  to mean "the receiver already holds this". */
-export function reconcileTranscriptItems(before: readonly unknown[], after: readonly unknown[]): readonly unknown[] {
+export function reconcileTranscriptItems(
+  before: readonly unknown[],
+  after: readonly unknown[],
+  heldRows?: HeldRows
+): readonly unknown[] {
   if (before === after) return before;
+  // The caller knows the leading rows are the held ones, in place: they are neither indexed nor compared.
+  const from = heldRows ? Math.min(heldRows.count, before.length, after.length) : 0;
   const held = new Map<unknown, unknown>();
-  for (const item of before) {
-    const id = itemId(item);
-    if (id != null) held.set(id, item);
+  for (let index = from; index < before.length; index += 1) {
+    const id = itemId(before[index]);
+    if (id != null) held.set(id, before[index]);
   }
   let reusedAll = before.length === after.length;
-  let reusedAny = false;
-  const items = after.map((item, index) => {
+  // The list that holds a reused row in place of the one brought: made at the first such row, and never when the rows
+  // brought are the held ones (`after` then stands as it is).
+  let items: unknown[] | null = from > 0 && heldRows?.same !== true ? before.slice(0, from) : null;
+  for (let index = from; index < after.length; index += 1) {
+    const item = after[index];
     const id = itemId(item);
     const prior = id != null ? held.get(id) : before[index];
     if (prior !== undefined && sameSnapshotField(prior, item)) {
       if (prior !== before[index]) reusedAll = false;
-      if (prior !== item) reusedAny = true;
-      return prior;
+      if (prior !== item) items ??= after.slice(0, index);
+      items?.push(prior);
+    } else {
+      reusedAll = false;
+      items?.push(item);
     }
-    reusedAll = false;
-    return item;
-  });
+  }
   if (reusedAll) return before;
-  return reusedAny ? items : after;
+  return items ?? after;
+}
+
+/** What a caller already knows of the items a projection brings: its first `count` items are the held projection's items in
+ *  the same places; `same`: they are the very objects (the list brought can then stand for the held one). */
+export interface HeldRows {
+  count: number;
+  same: boolean;
 }
 
 /** Fold a freshly read stored projection onto the one already held.
@@ -338,7 +355,7 @@ export function reconcileTranscriptItems(before: readonly unknown[], after: read
  *  Returns the previous snapshot itself when nothing differs, so the caller can
  *  compare by reference and publish nothing at all, and the next one itself
  *  when it holds nothing of the previous one. */
-export function reconcileSessionProjection<T>(previous: T, next: T): T {
+export function reconcileSessionProjection<T>(previous: T, next: T, heldRows?: HeldRows): T {
   if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
   if (Array.isArray(previous) || Array.isArray(next)) return next;
   const before = previous as Record<string, unknown>;
@@ -348,7 +365,7 @@ export function reconcileSessionProjection<T>(previous: T, next: T): T {
   let reused = false;
   for (const [key, value] of Object.entries(after)) {
     if (key === 'items' && Array.isArray(value) && Array.isArray(before.items)) {
-      const items = reconcileTranscriptItems(before.items, value);
+      const items = reconcileTranscriptItems(before.items, value, heldRows);
       merged.items = items;
       if (items !== before.items) identical = false;
       if (items !== value) reused = true;

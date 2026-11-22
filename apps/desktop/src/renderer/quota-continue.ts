@@ -1,5 +1,6 @@
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
+import { carriedLast } from './list-carry';
 import { clockText } from './time-format-preference';
 
 /** Provider kinds the composer banner speaks to; only the first can be resumed at a reset. */
@@ -11,38 +12,39 @@ export type QuotaFailure = {
   quota: { provider: string; model: string; resetAt: number | null };
 };
 
+/** Where a transcript's last prompt or turn's end is, carried on from the list a frame made it from. */
+const lastTurnEdge = carriedLast<TranscriptItem>((item) => item?.kind === 'user' || item?.kind === 'turndone');
+
 const finiteTime = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 /** The failed turndone that ended the transcript on an exhausted provider
  *  quota, when no later turn has begun. */
 export function latestQuotaFailure(items: readonly TranscriptItem[], turnKeys: readonly string[]): QuotaFailure | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item?.kind === 'user') return null;
-    if (item?.kind !== 'turndone') continue;
-    const quota = item.quota as { provider?: unknown; model?: unknown; resetAt?: unknown } | null | undefined;
-    if (String(item.status || '').toLowerCase() !== 'failed' || !quota || typeof quota.provider !== 'string') {
-      return null;
-    }
-    const turnKey = turnKeys[index] || '';
-    if (!turnKey) return null;
-    // The persisted provider-kind descriptor decides; items without one
-    // (older transcripts) are quota stops by their quota metadata alone.
-    const descriptor = item.errorKind as { kind?: unknown; resetAt?: unknown } | null | undefined;
-    const kind = descriptor && typeof descriptor.kind === 'string' ? descriptor.kind : 'quota_exhausted';
-    if (kind !== 'quota_exhausted' && kind !== 'entitlement' && kind !== 'billing') return null;
-    return {
-      turnKey,
-      kind,
-      quota: {
-        provider: quota.provider,
-        model: typeof quota.model === 'string' ? quota.model : '',
-        resetAt: finiteTime(quota.resetAt) ?? finiteTime(descriptor?.resetAt),
-      },
-    };
+  // The last prompt or turn's end decides: a prompt after the failure began a later turn.
+  const index = lastTurnEdge(items);
+  const item = items[index];
+  if (item?.kind !== 'turndone') return null;
+  const quota = item.quota as { provider?: unknown; model?: unknown; resetAt?: unknown } | null | undefined;
+  if (String(item.status || '').toLowerCase() !== 'failed' || !quota || typeof quota.provider !== 'string') {
+    return null;
   }
-  return null;
+  const turnKey = turnKeys[index] || '';
+  if (!turnKey) return null;
+  // The persisted provider-kind descriptor decides; items without one
+  // (older transcripts) are quota stops by their quota metadata alone.
+  const descriptor = item.errorKind as { kind?: unknown; resetAt?: unknown } | null | undefined;
+  const kind = descriptor && typeof descriptor.kind === 'string' ? descriptor.kind : 'quota_exhausted';
+  if (kind !== 'quota_exhausted' && kind !== 'entitlement' && kind !== 'billing') return null;
+  return {
+    turnKey,
+    kind,
+    quota: {
+      provider: quota.provider,
+      model: typeof quota.model === 'string' ? quota.model : '',
+      resetAt: finiteTime(quota.resetAt) ?? finiteTime(descriptor?.resetAt),
+    },
+  };
 }
 
 // Shared by every consumer in the window, so two panes on one session announce

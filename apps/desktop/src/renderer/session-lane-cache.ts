@@ -9,6 +9,12 @@ interface SessionLaneEntry {
   revision: number | null;
   /** The lane's own snapshot object this entry was made from: handed on again, it is the same state at a later position. */
   incoming?: WeakRef<object>;
+  /** That snapshot's item list, as the lane handed it over: the rows the entry shows from `rawOffset` on were made from it,
+   *  one for one (the rows before are those of an earlier window the lane kept above). */
+  rawItems?: WeakRef<readonly unknown[]>;
+  rawOffset?: number | undefined;
+  /** The rows shown from `rawOffset` on are `windowAnchored` (transcript-alignment); unset: not read yet. */
+  anchored?: boolean | undefined;
 }
 
 export class SessionLaneCache {

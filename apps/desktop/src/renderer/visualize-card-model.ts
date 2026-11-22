@@ -147,7 +147,19 @@ function inlineContentOf(input: Record<string, unknown>): VisualizeInlineContent
 /** A group's `visualize` opens of files or inline content (web URLs live in
  *  the browser panel and get no card), one card per panel tab (its latest
  *  open), in call order. Failed calls get none. */
-export function visualizeCardCalls(items: readonly TranscriptItem[]): VisualizeCardCall[] {
+export function visualizeCardCalls(items: readonly TranscriptItem[]): readonly VisualizeCardCall[] {
+  let calls = cardCalls.get(items);
+  if (!calls) {
+    calls = readVisualizeCardCalls(items);
+    cardCalls.set(items, calls);
+  }
+  return calls;
+}
+
+/** A list of tool items' cards, by the list: read once (a turn's rounds are the same list while they are the same). */
+const cardCalls = new WeakMap<readonly TranscriptItem[], readonly VisualizeCardCall[]>();
+
+function readVisualizeCardCalls(items: readonly TranscriptItem[]): VisualizeCardCall[] {
   const calls: VisualizeCardCall[] = [];
   for (const [index, item] of flattenedToolActivityItems(items).entries()) {
     if (item.isError) continue;

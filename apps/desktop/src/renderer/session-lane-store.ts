@@ -12,9 +12,10 @@ import { reportSessionReadFrame } from './session-read-diagnostics';
 import { sharedTranscriptSnapshotDecorator, type TranscriptSnapshotDecorator } from './snapshot-transcript-decoration';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { noteStreamLaneFrame, noteStreamPublish } from './transcript-stream-metrics';
-import { transcriptWindowAlignment } from './transcript-alignment';
+import { heldWindowGoesOn, transcriptWindowAlignment, windowAnchored } from './transcript-alignment';
 import { reconcileSessionProjection } from '../main/state-delta';
-import { streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
+import { noteCarried } from './list-carry';
+import { rowsHeldFrom, streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
@@ -287,6 +288,30 @@ function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snapshot): 
   return mergedLaneFrame(prior, next, [...priorItems.slice(0, offset), ...nextItems], false);
 }
 
+/** `laneFrameRetainingSettledRows` for a frame shown to align with the rows the lane shows below its first `head` (the
+ *  rows of an earlier window it kept above), and nowhere else: the same result, with nothing aligned. That holds for the
+ *  list the lane was handed last, handed again (every row of it is matched, so no other alignment ranks above), and for a
+ *  list merged on from it whose rows after the held ones show it (`heldWindowGoesOn`); the caller passes no other frame.
+ *  The frame's first `held` rows are the rows shown there, so the list is made once, of the shown rows and then the
+ *  frame's others. */
+function laneFrameUnderRetainedRows(prior: Snapshot | null, next: Snapshot, head: number, held: number): Snapshot {
+  if (!prior || !sameLaneSession(prior, next)) return next;
+  const priorItems = laneTranscript(prior);
+  const nextItems = laneTranscript(next);
+  if (!priorItems || !nextItems) return next;
+  // A frame that changed no row stands on the rows shown, and keeps with them what the lane kept above a shorter window.
+  if (held === nextItems.length && priorItems.length === head + held) {
+    if (head > 0) return mergedLaneFrame(prior, next, priorItems, false);
+    return nextItems === priorItems ? next : { ...next, items: priorItems };
+  }
+  if (head === 0) return next;
+  const items = new Array<TranscriptItem>(head + nextItems.length);
+  const shown = head + held;
+  for (let at = 0; at < shown; at += 1) items[at] = priorItems[at] as TranscriptItem;
+  for (let at = held; at < nextItems.length; at += 1) items[head + at] = nextItems[at] as TranscriptItem;
+  return mergedLaneFrame(prior, next, items, false);
+}
+
 /** Host metadata travelling with one keyed lane frame. */
 interface SessionLaneFrameProvenance {
   frameSource: 'live' | 'replay';
@@ -327,7 +352,11 @@ function decideSessionLaneFrame(
   prior: Snapshot | null,
   priorRevision: number | null,
   next: Snapshot,
-  provenance: SessionLaneFrameProvenance
+  provenance: SessionLaneFrameProvenance,
+  /** For a frame shown to align with the rows the lane shows below the rows it kept `above`, and nowhere else
+   *  (`laneFrameUnderRetainedRows`): how many of the frame's leading rows are `held` there as they are. null for any
+   *  other frame, which is aligned against the lane. */
+  goesOn: { above: number; held: number } | null
 ): SessionLaneFrameDecision {
   const revision = typeof provenance.contentRevision === 'number' ? provenance.contentRevision : null;
   // Host-only read-outs and the unresolved context denominator are restored
@@ -367,7 +396,10 @@ function decideSessionLaneFrame(
       };
     }
   }
-  const snapshot = laneFrameRetainingSettledRows(prior, frame);
+  const snapshot =
+    goesOn === null
+      ? laneFrameRetainingSettledRows(prior, frame)
+      : laneFrameUnderRetainedRows(prior, frame, goesOn.above, goesOn.held);
   const reason = snapshot === frame ? 'adopted' : 'aligned';
   return {
     accept: true,
@@ -546,23 +578,74 @@ export function createSessionLaneStore({
       ended.add(sessionId);
     }
     if (update.snapshot) {
-      const incoming = decorator.decorate(update.snapshot);
       // A stored preview may predate a rewind. Reuse equal row objects below, but never retain its rows or fields over a real frame.
+      const baseline = priorSnapshot?.transcriptPreview ? null : priorSnapshot;
+      const raw = laneTranscript(update.snapshot as Snapshot);
+      const shownRaw = baseline ? prior?.rawItems?.deref() : undefined;
+      const shownItems = laneTranscript(baseline);
+      // The rows the lane shows above the ones made from its last list (rows of an earlier window it kept).
+      const above = prior?.rawOffset ?? 0;
+      // How many leading rows of the frame are the rows it brought last, in place (the client merges a list on from the one
+      // before): those rows are the ones shown below the rows kept above. That alone says nothing of where the frame
+      // aligns with the rows shown, which is ranked over every row the two overlap; see `goesOn` below.
+      const sameList = raw !== null && raw === shownRaw;
+      const heldCount =
+        raw && shownRaw && shownItems && shownItems.length === above + shownRaw.length
+          ? (rowsHeldFrom(raw, shownRaw) ?? 0)
+          : 0;
+      const decorated = decorator.decorate(
+        update.snapshot,
+        shownRaw && heldCount > 0 ? { held: { rows: shownRaw, count: heldCount } } : undefined
+      );
+      // The same list again: the frame changed no row since the last one. Whether the rows shown stand is still the
+      // decision's: a newer generation is shown as published, without what an earlier window kept above its rows, so the
+      // frame is handed over as it came and only the retention it reaches (`laneFrameUnderRetainedRows`) stands on them.
+      const unchangedRows = sameList && heldCount > 0 && shownItems !== null && decorated.items === raw;
+      // A list merged on from the last one aligns with the rows shown where that one did only if the rows it did not
+      // leave in place say so: the window shown is anchored by its first row's id, and the frame's other rows match the
+      // rows they overlap by id (`heldWindowGoesOn`). A frame shown under adopted ids, or one whose other rows moved,
+      // appeared or left in the middle, is aligned against the lane whole, like a frame of which nothing is known.
+      const anchored =
+        !sameList && heldCount > 0 && shownItems !== null && decorated.items === raw
+          ? (prior?.anchored ?? windowAnchored(shownItems, above))
+          : undefined;
+      const mergedOn =
+        anchored === true && raw !== null && shownItems !== null && heldWindowGoesOn(shownItems, raw, above, heldCount);
       const decision = decideSessionLaneFrame(
-        priorSnapshot?.transcriptPreview ? null : priorSnapshot,
+        baseline,
         prior?.revision ?? null,
-        incoming,
-        provenance
+        decorated,
+        provenance,
+        unchangedRows || mergedOn ? { above, held: heldCount } : null
       );
       reportLaneDecision(sessionId, provenance, decision);
-      const accepted = decision.accept ? decision.snapshot : (priorSnapshot ?? incoming);
+      const accepted = decision.accept ? decision.snapshot : (priorSnapshot ?? decorated);
+      // The decision left the rows shown standing under a list that changed none of them.
+      const stood = unchangedRows && decision.accept && accepted.items === shownItems;
+      // How many rows the lane shows above the frame's own (`under`); -1 when it does not show the frame's rows (a frame
+      // refused, or one of the generation already painted, whose rows stand).
+      const under =
+        decision.accept && decision.reason !== 'same-generation' && accepted.items && decorated.items
+          ? accepted.items.length - decorated.items.length
+          : -1;
+      // The rows the lane shows after this frame that are the rows it showed, in place: true of any frame shown under its
+      // own ids below the same rows kept above, however it was aligned. They are the very objects when the lane made the
+      // list of the rows shown (`laneFrameUnderRetainedRows`) or shows the list it was handed.
+      const heldRows =
+        !stood && heldCount > 0 && decorated.items === raw && under === above
+          ? { count: above + heldCount, same: (mergedOn && above > 0) || (above === 0 && shownItems === shownRaw) }
+          : undefined;
       // A row (or field) that did not change keeps the object the pane holds, whatever lane delivered the frame: the core
       // publishes whole states, a snapshot or a read is a new object graph, and the row renderers treat a new object as a
       // changed row.
       const snapshot =
         priorSnapshot && sameLaneSession(priorSnapshot, accepted)
-          ? reconcileSessionProjection(priorSnapshot, accepted)
+          ? reconcileSessionProjection(priorSnapshot, accepted, heldRows)
           : accepted;
+      // What the panes derive from the rows is carried on from the rows left in place.
+      if (heldRows && priorSnapshot?.items && snapshot.items && snapshot.items !== priorSnapshot.items) {
+        noteCarried(snapshot.items, priorSnapshot.items, heldRows.count);
+      }
       const now = Date.now();
       const subscribed = (listeners.get(sessionId)?.size || 0) > 0;
       const refreshEstimate = !prior || (!subscribed && now - prior.estimatedAt >= SESSION_LANE_ESTIMATE_INTERVAL_MS);
@@ -573,6 +656,24 @@ export function createSessionLaneStore({
         estimatedAt: refreshEstimate ? now : prior.estimatedAt,
         revision: decision.accept ? decision.revision : (prior?.revision ?? null),
         incoming: decision.accept ? new WeakRef(update.snapshot) : prior?.incoming,
+        // What the next frame is carried on from: the list handed over, only when the rows shown from `rawOffset` on are
+        // its rows one for one under their own ids. A generation's own rows are not, and neither are rows shown under
+        // other ids (`decorated.items !== raw`): which rows adopt which ids is decided over the whole of both lists and
+        // is not carried, so the frame after is reconciled whole.
+        ...(!decision.accept
+          ? { rawItems: prior?.rawItems, rawOffset: prior?.rawOffset }
+          : raw && stood
+            ? { rawItems: new WeakRef(raw), rawOffset: above }
+            : raw && under >= 0 && decorated.items === raw
+              ? { rawItems: new WeakRef(raw), rawOffset: under }
+              : {}),
+        // Whether the window shown is anchored (`windowAnchored`): a frame decided from its held rows leaves it so, the
+        // same rows again leave it as it was read, and after any other frame it is read when next asked.
+        ...(!decision.accept || stood || (unchangedRows && under === above)
+          ? { anchored: prior?.anchored }
+          : mergedOn && under === above
+            ? { anchored: true }
+            : {}),
       });
       if (decision.accept && update.streamPosition) notifiedAt.set(sessionId, update.streamPosition);
     }

@@ -509,17 +509,22 @@ function desktopToolDescribeResult(
 }
 
 /** Canonical surface name and arguments after the desktop aliases (`write` → `edit`). */
-export function desktopToolActivitySurface(
-  name: unknown,
-  args: unknown
-): { normalizedName: string; args: Record<string, unknown> } {
+export function desktopToolActivitySurface(name: unknown, args: unknown): ToolActivitySurface {
+  const held = args !== null && typeof args === 'object' ? toolSurfaces.get(args) : undefined;
+  if (held && held.name === name) return held.surface;
   const identity = desktopToolDisplayIdentity(name, args);
-  const surface = formatToolSurface(desktopToolActivityModeledName(identity.name, identity.args), identity.args);
-  return {
-    normalizedName: String(surface.normalizedName),
-    args: asRecord(surface.args) ?? asRecord(identity.args) ?? {},
+  const formatted = formatToolSurface(desktopToolActivityModeledName(identity.name, identity.args), identity.args);
+  const surface = {
+    normalizedName: String(formatted.normalizedName),
+    args: asRecord(formatted.args) ?? asRecord(identity.args) ?? {},
   };
+  if (args !== null && typeof args === 'object') toolSurfaces.set(args, { name, surface });
+  return surface;
 }
+
+type ToolActivitySurface = { normalizedName: string; args: Record<string, unknown> };
+/** A call's surface, by its arguments object: read once, and for as long as the call's row holds those arguments. */
+const toolSurfaces = new WeakMap<object, { name: unknown; surface: ToolActivitySurface }>();
 
 export function desktopToolActivityCategory(rawName: unknown, rawArgs: unknown): string {
   const { name, args } = desktopToolDisplayIdentity(rawName, rawArgs);

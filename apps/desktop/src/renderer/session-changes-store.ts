@@ -3,6 +3,7 @@ import type { DesktopGitFile } from '../shared/contract';
 import { SESSION_CHANGES_SOURCE_KEY, type Snapshot, type TranscriptItem } from './desktop-types';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
+import { carriedSum, placedHash, textHash } from './list-carry';
 import { RendererLruCache } from './renderer-lru-cache';
 import {
   fetchOmittedSessionDiffFilePatch,
@@ -32,6 +33,7 @@ import {
   resolveSessionRows,
   summarizeSessionDiffRows,
   fileChangeKey,
+  transcriptReviewKey,
   TURN_REVIEW_CAPABILITY,
   type TurnReviewCapabilityValue,
 } from './turn-review-model';
@@ -48,7 +50,8 @@ import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-
  *  whole session), then — after a separator — Git's sources. */
 export const SESSION_CHANGES_SOURCES = ['last-turn', 'session', 'branch', 'uncommitted', 'unstaged', 'staged'] as const;
 export type SessionChangesSource = (typeof SESSION_CHANGES_SOURCES)[number];
-const DEFAULT_SOURCE: SessionChangesSource = 'uncommitted';
+export const DEFAULT_SESSION_CHANGES_SOURCE: SessionChangesSource = 'uncommitted';
+const DEFAULT_SOURCE = DEFAULT_SESSION_CHANGES_SOURCE;
 
 /** The runtime's own-edit reviews: one per session, not per repository root. */
 function sessionScopedSource(source: SessionChangesSource): boolean {
@@ -1124,31 +1127,29 @@ export function useSessionChangePatches({
 
 // ── The hook ─────────────────────────────────────────────────────────────
 
-/** A digest of every transcript item's completion state, so a tool finishing
- *  anywhere in the transcript (not only at the last item) moves the key when
- *  the lane carries no publication revision (remote / mobile lanes). */
-const digests = new WeakMap<readonly TranscriptItem[], string>();
-function completionDigest(items: readonly TranscriptItem[]): string {
-  const known = digests.get(items);
-  if (known !== undefined) return known;
-  const digest = scanCompletionDigest(items);
-  digests.set(items, digest);
-  return digest;
+/** A digest of every transcript item's completion state and place, so a tool finishing anywhere in the transcript (not
+ *  only at the last item) moves the key when the lane carries no publication revision (remote / mobile lanes), and so
+ *  does a row that comes, goes or changes place. */
+export function completionDigest(items: readonly TranscriptItem[]): string {
+  return (completionStates(items).sum >>> 0).toString(36);
 }
 
-function scanCompletionDigest(items: readonly TranscriptItem[]): string {
-  let hash = 0x811c9dc5;
-  for (const item of items) {
-    const state = `${item?.id ?? ''}|${item?.completedAt ?? ''}|${item?.completedCount ?? ''}|${item?.status ?? ''}|${
-      item?.streaming ? 1 : 0
-    }|${item?.isError ? 1 : 0}|${item?.result === undefined ? 0 : 1}`;
-    for (let index = 0; index < state.length; index += 1) {
-      hash = Math.imul(hash ^ state.charCodeAt(index), 0x01000193);
-    }
-    hash = Math.imul(hash ^ 0x7c, 0x01000193);
+/** An item's completion state, read once per item object. */
+const completionHashes = new WeakMap<TranscriptItem, number>();
+/** Summed per list, each with its place, and carried on from the list a frame made it from: a frame's unchanged items are
+ *  not read again. */
+const completionStates = carriedSum((item: TranscriptItem, index: number) => {
+  let hash = item ? completionHashes.get(item) : undefined;
+  if (hash === undefined) {
+    hash = textHash(
+      `${item?.id ?? ''}|${item?.completedAt ?? ''}|${item?.completedCount ?? ''}|${item?.status ?? ''}|${
+        item?.streaming ? 1 : 0
+      }|${item?.isError ? 1 : 0}|${item?.result === undefined ? 0 : 1}`
+    );
+    if (item) completionHashes.set(item, hash);
   }
-  return (hash >>> 0).toString(36);
-}
+  return placedHash(hash, index);
+});
 
 /** `revision` is the lane's authoritative content revision (publication
  *  envelope); the transcript fields alone miss a tool completing before the
@@ -1200,17 +1201,17 @@ function prepareRowList(rows: readonly SessionDiffRow[]): void {
   rowListIndex(rows);
   rowsSummary(rows);
 }
-const resolvedRows = new WeakMap<
-  SessionDiffResult,
-  { items: readonly TranscriptItem[]; project: string; rows: SessionDiffRow[] }
->();
+const resolvedRows = new WeakMap<SessionDiffResult, { review: string; project: string; rows: SessionDiffRow[] }>();
 function resolvedSessionRows(result: SessionDiffResult | null, items: TranscriptItem[], project: string) {
   if (!result) return resolveSessionRows(result, items, project);
   const known = resolvedRows.get(result);
-  if (known && known.items === items && known.project === project) return known.rows;
+  // The transcript completes the rows from the items its review reads, in their order: a frame that changed none of
+  // them, and moved none, resolves nothing.
+  const review = transcriptReviewKey(items);
+  if (known && known.review === review && known.project === project) return known.rows;
   const rows = resolveSessionRows(result, items, project);
   prepareRowList(rows);
-  resolvedRows.set(result, { items, project, rows });
+  resolvedRows.set(result, { review, project, rows });
   return rows;
 }
 

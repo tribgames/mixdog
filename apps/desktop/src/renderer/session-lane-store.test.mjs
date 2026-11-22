@@ -605,6 +605,180 @@ test('a snapshot that replaces the fold mid-turn keeps every unchanged row and t
   store.clear();
 });
 
+test('the lane keeps the rows held when a reconnect brings a shorter window', () => {
+  const sessionId = 'reader-in-tail';
+  const row = (id) => ({ id, kind: 'user', text: `prompt ${id}` });
+  const store = createSessionLaneStore();
+  const apply = (items) => store.apply({ sessionId, frameSource: 'live', snapshot: { sessionId, items } });
+  try {
+    apply([row('a'), row('b'), row('c'), row('d')]);
+    const held = store.get(sessionId).items;
+    apply([row('c'), row('d'), row('e')]);
+    assert.deepEqual(
+      store.get(sessionId).items.map((item) => item.id),
+      ['a', 'b', 'c', 'd', 'e']
+    );
+    store.get(sessionId).items.slice(0, 4).forEach((item, index) => {
+      assert.equal(item, held[index]);
+    });
+  } finally {
+    store.clear();
+  }
+});
+
+test('a frame merged on from the one before is applied to the rows it changed, the rest untouched', () => {
+  const sessionId = 'applied-by-row';
+  const thread = { id: sessionId };
+  const user = (id) => ({ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { at: 1 } });
+  const reply = (id, text) => ({ type: 'agentMessage', id, text, meta: { status: 'completed', at: 2 } });
+  const history = Array.from({ length: 40 }, (_, index) => (index % 2 ? reply(`a${index}`, 'ok') : user(`u${index}`)));
+  // The rows a frame hands over are compared only where the client says they may differ: every row read is counted.
+  let compared = 0;
+  const counting = (item) =>
+    new Proxy(item, {
+      ownKeys(target) {
+        compared += 1;
+        return Reflect.ownKeys(target);
+      },
+    });
+  const store = createSessionLaneStore();
+  let fold = sessionReducer.initial({ thread, items: history, state: {}, hasOlder: false });
+  const publish = () => store.apply({ sessionId, frameSource: 'live', snapshot: desktopSessionState(fold, []) });
+  publish();
+  // A reconnect's snapshot: the same rows as new objects, which the lane compares once and keeps as the rows it holds.
+  fold = sessionReducer.initial({ thread, items: history, state: {}, hasOlder: false });
+  publish();
+  const shown = store.get(sessionId).items;
+  // The list the lane was handed, its rows now watched: the next frame is merged on from it.
+  const handed = desktopSessionState(fold, []).items;
+  for (let index = 0; index < handed.length; index += 1) handed[index] = counting(handed[index]);
+  compared = 0;
+  fold = sessionReducer.apply(fold, {
+    jsonrpc: '2.0',
+    method: 'item/completed',
+    params: { threadId: sessionId, item: user('u-new') },
+  });
+  publish();
+  const next = store.get(sessionId).items;
+  assert.equal(next.length, shown.length + 1);
+  next.slice(0, shown.length).forEach((item, index) => {
+    assert.equal(item, shown[index], 'a row that did not change is the row held');
+  });
+  assert.equal(next.at(-1).id, 'u-new');
+  assert.equal(compared, 0, 'no row before the one that landed was read');
+  store.clear();
+});
+
+test('a frame merged on under rows kept above a shorter window reads none of the rows before the one that landed', () => {
+  const sessionId = 'applied-under-kept-rows';
+  const thread = { id: sessionId };
+  const user = (id) => ({ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { at: 1 } });
+  const history = Array.from({ length: 40 }, (_, index) => user(`u${index}`));
+  let compared = 0;
+  const counting = (item) =>
+    new Proxy(item, {
+      ownKeys(target) {
+        compared += 1;
+        return Reflect.ownKeys(target);
+      },
+    });
+  const store = createSessionLaneStore();
+  let fold = sessionReducer.initial({ thread, items: history, state: {}, hasOlder: false });
+  const publish = () => store.apply({ sessionId, frameSource: 'live', snapshot: desktopSessionState(fold, []) });
+  publish();
+  // The thread is followed again from its last ten rows: the lane keeps the thirty above them.
+  fold = sessionReducer.initial({ thread, items: history.slice(-10), state: {}, hasOlder: true });
+  publish();
+  const shown = store.get(sessionId).items;
+  assert.equal(shown.length, 40);
+  const handed = desktopSessionState(fold, []).items;
+  for (let index = 0; index < handed.length; index += 1) handed[index] = counting(handed[index]);
+  for (const id of ['u-new', 'u-newer']) {
+    compared = 0;
+    const before = store.get(sessionId).items;
+    fold = sessionReducer.apply(fold, {
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: { threadId: sessionId, item: user(id) },
+    });
+    publish();
+    const next = store.get(sessionId).items;
+    assert.equal(next.length, before.length + 1);
+    before.forEach((item, index) => assert.equal(next[index], item, 'a row that did not change is the row held'));
+    assert.equal(next.at(-1).id, id);
+    assert.equal(compared, 0, 'no row before the one that landed was read');
+  }
+  assert.deepEqual(
+    store.get(sessionId).items.map((item) => item.id),
+    [...history.map((item) => item.id), 'u-new', 'u-newer']
+  );
+  store.clear();
+});
+
+test('a reply that arrives after a reconnect showed another under its id is added, not taken for the one shown', () => {
+  const sessionId = 'renamed-then-real';
+  const thread = { id: sessionId };
+  const user = (id) => ({ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { at: 1 } });
+  const reply = (id) => ({ type: 'agentMessage', id, text: 'the same words', meta: { status: 'completed', at: 2 } });
+  const store = createSessionLaneStore();
+  const ids = () => store.get(sessionId).items.map((item) => item.id);
+  let fold = sessionReducer.initial({ thread, items: [user('prompt'), reply('A')], state: {}, hasOlder: false });
+  const publish = () => store.apply({ sessionId, frameSource: 'live', snapshot: desktopSessionState(fold, []) });
+  try {
+    publish();
+    assert.deepEqual(ids(), ['prompt', 'A']);
+    // A reconnect brings the reply as another row with the same words: it is shown under the id the pane holds.
+    fold = sessionReducer.initial({ thread, items: [user('prompt'), reply('B')], state: {}, hasOlder: false });
+    publish();
+    assert.deepEqual(ids(), ['prompt', 'A']);
+    // The next frame goes on from that list and brings the real `A` after it: two replies, each under one id.
+    fold = sessionReducer.apply(fold, {
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: { threadId: sessionId, item: reply('A') },
+    });
+    publish();
+    assert.deepEqual(ids(), ['prompt', 'B', 'A']);
+    fold = sessionReducer.apply(fold, {
+      jsonrpc: '2.0',
+      method: 'item/completed',
+      params: { threadId: sessionId, item: user('next') },
+    });
+    publish();
+    assert.deepEqual(ids(), ['prompt', 'B', 'A', 'next']);
+  } finally {
+    store.clear();
+  }
+});
+
+test('a streaming update after a reconnect to a shorter window keeps the rows, the project and the stats it retained', () => {
+  const sessionId = 'tail-under-retained';
+  const row = (id) => ({ id, kind: 'user', text: `prompt ${id}` });
+  const stats = { turns: 4 };
+  const store = createSessionLaneStore();
+  const apply = (snapshot) => store.apply({ sessionId, frameSource: 'live', snapshot: { sessionId, ...snapshot } });
+  const shown = () => {
+    const state = store.get(sessionId);
+    return { ids: state.items.map((item) => item.id), cwd: state.cwd, stats: state.stats };
+  };
+  try {
+    apply({ items: [row('a'), row('b'), row('c'), row('d')], cwd: '/work/project', stats });
+    // A reconnect to the last two rows, without revision, project or stats: the lane keeps what it held.
+    const narrow = [row('c'), row('d')];
+    apply({ items: narrow });
+    const retained = { ids: ['a', 'b', 'c', 'd'], cwd: '/work/project', stats };
+    assert.deepEqual(shown(), retained);
+    // The reply streams: each update hands over the same list of rows.
+    for (const text of ['Wor', 'Working', 'Working on it']) {
+      apply({ items: narrow, streamingTail: { id: 'live', kind: 'assistant', text, streaming: true } });
+      assert.deepEqual(shown(), retained, `after "${text}"`);
+      assert.equal(store.get(sessionId).streamingTail.text, text);
+    }
+  } finally {
+    store.clear();
+  }
+});
+
 test('unsubscribing releases a lane notification key', () => {
   const store = createSessionLaneStore({ decorator });
   const unsubscribe = store.subscribe('session', () => {});

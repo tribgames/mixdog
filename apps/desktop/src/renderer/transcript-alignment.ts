@@ -111,6 +111,66 @@ export function transcriptWindowAlignment(previous: readonly TranscriptItem[], i
   return { inWindow, prepend, found };
 }
 
+/** Whether `transcriptWindowAlignment` of a list against the rows of `previous` can be decided from the rows a frame did
+ *  not leave in place (`heldWindowGoesOn`), for a window that begins at `previous[at]` under rows kept above it:
+ *   - the window's first row has an id no other row of `previous` has. An incoming list that begins with that row can
+ *     then align at no other offset: every other offset sets a row of another id against it, and content never bridges
+ *     an id both lists hold;
+ *   - every row of the window has an id, and none has the id of `previous[0]`: no incoming window that begins inside the
+ *     rows kept above can then set a window row against that first row.
+ *  Read once for a window (every id, no other field); a frame decided by `heldWindowGoesOn` leaves both standing. */
+export function windowAnchored(previous: readonly RowIdentity[], at: number): boolean {
+  const anchor = previous[at];
+  if (!anchor || !hasOwnId(anchor)) return false;
+  const anchorId = String(anchor.id);
+  const first = at > 0 && hasOwnId(previous[0]!) ? String(previous[0]!.id) : null;
+  for (let index = 0; index < at; index += 1) {
+    const row = previous[index]!;
+    if (hasOwnId(row) && String(row.id) === anchorId) return false;
+  }
+  for (let index = at + 1; index < previous.length; index += 1) {
+    const row = previous[index]!;
+    if (!hasOwnId(row)) return false;
+    const id = String(row.id);
+    if (id === anchorId || id === first) return false;
+  }
+  return true;
+}
+
+/** Whether `transcriptWindowAlignment(previous, incoming)` is the in-window alignment at `at` with every overlapping row
+ *  matched by id and no prepend, read from the rows after the first `held` alone. The caller knows: `previous` from `at`
+ *  on is `windowAnchored`, and `incoming`'s first `held` (>= 1) rows are the rows `previous` holds from `at` on, under
+ *  the same ids. What the rows after them must then show, since the alignment is ranked over the whole overlap:
+ *   - each row that overlaps a row of `previous` has that row's id (the candidate at `at` is valid, by ids alone);
+ *   - each has an id, and not the first row's (the window stays anchored, and no prepend can cross the first row);
+ *   - none has the id of one of the first rows kept above, as many as there are rows after the held ones (a prepend that
+ *     ends before the window can only set those rows against these).
+ *  false is "not known": the caller aligns whole. */
+export function heldWindowGoesOn(
+  previous: readonly RowIdentity[],
+  incoming: readonly RowIdentity[],
+  at: number,
+  held: number
+): boolean {
+  const anchor = previous[at];
+  if (held < 1 || held > incoming.length || at + held > previous.length || !anchor || !hasOwnId(anchor)) return false;
+  const anchorId = String(anchor.id);
+  const overlap = Math.min(previous.length - at, incoming.length);
+  const above = Math.min(at, incoming.length - held);
+  for (let index = held; index < incoming.length; index += 1) {
+    const row = incoming[index]!;
+    if (!hasOwnId(row)) return false;
+    const id = String(row.id);
+    if (id === anchorId) return false;
+    if (index < overlap && !sameRowId(previous[at + index]!, row)) return false;
+    for (let head = 0; head < above; head += 1) {
+      const kept = previous[head]!;
+      if (hasOwnId(kept) && String(kept.id) === id) return false;
+    }
+  }
+  return true;
+}
+
 function sameRowContent(a: TranscriptItem, b: TranscriptItem): boolean {
   return a.kind === b.kind && sameText(a, b) && String(a.name ?? '') === String(b.name ?? '');
 }

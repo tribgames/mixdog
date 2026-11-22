@@ -35,6 +35,7 @@ import {
   noteApprovalDecision,
 } from './approval-prompt';
 import { PixelIcon, type PixelIconName } from './pixel-icon';
+import { carriedLatest } from './list-carry';
 import { asRecord } from './text-format';
 import {
   type CardRow,
@@ -1166,7 +1167,7 @@ export function approvalRecordLabel(approval: Approval): string {
 // Held requests: which pending home-thread rows already settled. The row that
 // settles one arrives later in the same thread; the conversation publishes the
 // settled ids per session so the earlier row's card can fold away.
-const heldSettled = new Map<string, Map<string, string>>();
+const heldSettled = new Map<string, ReadonlyMap<string, string>>();
 const heldListeners = new Set<() => void>();
 const subscribeHeld = (listener: () => void) => {
   heldListeners.add(listener);
@@ -1175,17 +1176,23 @@ const subscribeHeld = (listener: () => void) => {
 
 /** Record the settled held requests of `sessionId`'s transcript (`status|device`). */
 export function publishHeldSettlements(sessionId: string, items: readonly TranscriptItem[]): void {
-  const next = new Map<string, string>();
-  for (const item of items) {
-    const held = asRecord(item.heldRequest);
-    if (held?.id && held.status !== 'pending') next.set(String(held.id), `${held.status}|${String(held.device || '')}`);
-  }
-  const previous = heldSettled.get(sessionId);
-  if (previous && previous.size === next.size && [...next].every(([key, value]) => previous.get(key) === value)) return;
+  const next = heldSettlementsOf(items);
+  const previous = heldSettled.get(sessionId) ?? NO_SETTLEMENTS;
+  if (previous === next) return;
+  if (previous.size === next.size && [...next].every(([key, value]) => previous.get(key) === value)) return;
   if (next.size) heldSettled.set(sessionId, next);
   else heldSettled.delete(sessionId);
   for (const listener of heldListeners) listener();
 }
+
+const NO_SETTLEMENTS: ReadonlyMap<string, string> = new Map();
+/** The settled held requests of a transcript, each as its newest row states it (`status|device`), carried on from the
+ *  list a frame made it from (list-carry.ts). */
+const heldSettlementsOf = carriedLatest((item: TranscriptItem) => {
+  const held = asRecord(item?.heldRequest);
+  if (!held?.id || held.status === 'pending') return undefined;
+  return [String(held.id), `${held.status}|${String(held.device || '')}`] as const;
+});
 
 function heldApproval(held: Record<string, unknown>): Approval {
   const action = String(held.action || '');

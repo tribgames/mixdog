@@ -1,6 +1,6 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptItem } from './desktop-types';
-import { turnReviewScope } from './renderer-logic.mjs';
+import { turnReviewScope } from './turn-review-scope';
 import { useTurnChangesEpoch } from './turn-changes-model';
 import { nextLastTurnRequest } from './session-changes-store';
 import {

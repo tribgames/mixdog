@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { turnReviewScope } from './renderer-logic.mjs';
+import { turnReviewScope } from './turn-review-scope.ts';
 
 test('turn review scope survives steering rows until the outer turn completes', () => {
   const initial = [

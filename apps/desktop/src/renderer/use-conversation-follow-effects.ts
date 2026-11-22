@@ -1,15 +1,17 @@
 import { useLayoutEffect, useRef } from 'react';
 import { isRoomTypingItem } from './agent-chat-place';
 import type { TranscriptItem } from './desktop-types';
+import { carriedSum } from './list-carry';
 
 /** The settled rows that count toward a shrink: a group room's typing row is a
  *  transient overlay that comes and goes at every turn boundary, so it is
  *  neither history nor a removal. */
 export function settledRowCount(items: readonly TranscriptItem[]): number {
-  let count = 0;
-  for (const item of items) if (!isRoomTypingItem(item)) count += 1;
-  return count;
+  return settledRows(items).count;
 }
+
+/** Counted per list, and carried on from the list a frame made it from. */
+const settledRows = carriedSum((item: TranscriptItem) => (isRoomTypingItem(item) ? undefined : 0));
 
 /** Follow re-arming around session entry, transcript shrink and no-overflow
  *  commits. Returns whether the virtual timeline should anchor to the bottom. */

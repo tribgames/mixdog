@@ -1,5 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
-import { turnReviewScope } from './renderer-logic.mjs';
+import { turnReviewScope } from './turn-review-scope';
 import { adoptLastTurnReview, nextLastTurnRequest } from './session-changes-store';
 import { leadReviewSnapshotKindCache, rememberAgentReviews, reviewTagCache } from './turn-review-cache';
 import {
@@ -84,7 +84,7 @@ export function recordTurnReviewAnswer(
  *  is about to open rather than after its island mounts. The mounted island
  *  then finds the answer cached and paints its bar in the first commit. */
 export function prefetchTurnReview(sessionId: string, items: readonly TranscriptItem[]): void {
-  const scope = turnReviewScope(items as TranscriptItem[]);
+  const scope = turnReviewScope(items);
   const scopeKey = `${sessionId}:${scope.key}`;
   const api = window.mixdogDesktop as
     | {
