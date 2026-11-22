@@ -78,6 +78,8 @@ export async function openDirectClient(o: OpenDirectClientOptions): Promise<Prot
     },
     capabilities: { approvalsInbox: true },
     threadReducer: sessionReducer,
+    // The window holds a window of each transcript the core keeps for it, not the conversation.
+    positionedTranscripts: true,
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
     // A first connection that fails (the core still starting, its port late) is tried again on the client's own ladder.

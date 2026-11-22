@@ -312,6 +312,11 @@ const validFeed = (f: unknown): boolean =>
     (f.from === undefined || (typeof f.from === 'number' && f.from <= f.seq)));
 /** The first position a frame stands for: a coalesced frame (`feed.from`, announced with `feedRanges`) covers `from..=seq`. */
 const firstOf = (f: FeedStamp): number => f.from ?? f.seq;
+/** A frame of a positioned subscription stamped with the feed position it stands at (`thread/window/changed`, and
+ *  `thread/transcript/changed` that carries a unit), which it does not advance. */
+const standsAtFeed = (n: JsonRpcNotification): boolean =>
+  n.method === 'thread/window/changed' ||
+  (n.method === 'thread/transcript/changed' && isObj(n.params) && n.params.change !== undefined);
 const validErrorBody = (e: unknown): boolean => isObj(e) && typeof e.code === 'number' && typeof e.message === 'string';
 /** Delivers `value` to every listener: one that throws is reported and the others still hear it (a listener owns its failure). */
 function isolated<T>(listeners: ReadonlySet<(value: T) => void>, value: T): void {
@@ -1176,10 +1181,12 @@ class Engine implements ProtocolClient<Json> {
     const tracked = f.id === WIRE.appFeedId ? this.appSubscribed : this.subs.has(f.id);
     if (!tracked && !this.held.has(f.id)) return;
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
-    if (snapshot) this.repeated.delete(f.id);
-    else if (this.repeats(f)) return;
     const cur = this.recv.get(f.id);
-    if (!snapshot && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
+    // A positioned window's change stands at the position the feed has reached and takes no seq of its own.
+    const fenced = !snapshot && cur?.epoch === f.epoch && f.seq === cur.seq && f.from === undefined && standsAtFeed(n);
+    if (snapshot) this.repeated.delete(f.id);
+    else if (!fenced && this.repeats(f)) return;
+    if (!snapshot && !fenced && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       this.feedGap(n, f, f.id === WIRE.appFeedId ? 'app' : tracked ? 'thread' : 'control');
       return;
     }
@@ -1429,7 +1436,13 @@ class Engine implements ProtocolClient<Json> {
       prev && prevWindow && !this.cursorReset.has(threadId)
         ? { epoch: prev.feed.epoch, seq: prev.feed.seq, window: prevWindow }
         : undefined;
-    return { threadId, window, ...(resumeFrom ? { resumeFrom } : {}) } as unknown as Json;
+    const positioned = this.o.positionedTranscripts === true && isObj(window) && 'lastItems' in window;
+    return {
+      threadId,
+      window,
+      ...(resumeFrom ? { resumeFrom } : {}),
+      ...(positioned ? { positionedWindow: true } : {}),
+    } as unknown as Json;
   }
   private appParams(): Json {
     const a = this.cursorReset.has(WIRE.appFeedId) ? undefined : this.store.app;
@@ -1827,6 +1840,7 @@ class Engine implements ProtocolClient<Json> {
       replayPending: this.replayThrough.has(threadId),
       restoresStarted: this.restoreStarts,
       connection: this.generation,
+      ...(this.subId.has(threadId) ? { subscriptionId: this.subId.get(threadId) } : {}),
     };
   }
   async unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void> {

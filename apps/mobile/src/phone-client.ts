@@ -214,6 +214,8 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         // `feedRanges`: the protocol client folds a coalesced text append (`feed.from`), so the core batches this phone's appends.
         capabilities: { optOutNotificationMethods: [], experimentalApi: false, feedRanges: true },
         threadReducer: options.threadReducer ?? sessionReducer,
+        // The phone holds a window of each transcript the core keeps for it, not the conversation.
+        positionedTranscripts: true,
         clock: { sleep },
         random,
         ladder: DEFAULT_LADDER,

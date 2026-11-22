@@ -328,6 +328,8 @@ export interface ThreadSubscription {
   readonly restoresStarted: number;
   /** Generation of the client's current transport connection. */
   readonly connection: number;
+  /** The core's id of the subscription the thread is delivered on, once an attach named one (`thread/window/set` names it). */
+  readonly subscriptionId?: string;
 }
 
 export interface ProtocolClient<S = Json> {
@@ -419,6 +421,9 @@ export interface ConnectOptions<S = Json> {
   readonly capabilities: InitializeCapabilities;
   /** Required to fold thread feeds; without it `ThreadFold.state` is the raw snapshot params. */
   readonly threadReducer?: ThreadReducer<S>;
+  /** Every thread resumed with a `lastItems` window is resumed positioned (`positionedWindow`): the core holds the ranges of
+   *  its transcript this client asks for (`thread/window/set`) and sends their rows, not every row of the conversation. */
+  readonly positionedTranscripts?: boolean;
   readonly clock: Clock;
   /** Uniform in [0, 1) for ladder jitter. */
   readonly random: () => number;

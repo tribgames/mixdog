@@ -16,6 +16,7 @@ import {
   type SessionSearchRow,
 } from './session-search';
 import { emptyStateHost } from './empty-state-host';
+import { requestTranscriptJump } from './transcript-jump';
 
 interface SessionSearchProps {
   sessions: readonly DesktopSessionSummary[];
@@ -144,6 +145,7 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
   const openRow = (row: SessionSearchRow | undefined) => {
     if (!row) return;
     onClose();
+    if (row.position) requestTranscriptJump(row.session.id, row.position);
     onOpenSession(row.session.id);
   };
 

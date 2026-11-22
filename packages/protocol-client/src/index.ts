@@ -11,4 +11,14 @@ export {
   subscribeFramedSessionStates,
 } from './session-state.ts';
 export type { DesktopSessionState, SessionFold } from './session-state.ts';
+export {
+  moveTranscriptWindow,
+  windowWant,
+  WINDOW_PAGE_ROWS,
+  WINDOW_TAIL_MAX_ROWS,
+  WINDOW_VIEW_MAX_ROWS,
+} from './transcript-window.ts';
+export type { TranscriptMove, WindowWant } from './transcript-window.ts';
+export { tailRun, viewRun, windowRuns } from './positioned.ts';
+export type { HeldWindow, WindowRun } from './positioned.ts';
 export { DEFAULT_HEALTH_INTERVAL_MS, DEFAULT_HEALTH_WINDOW_MS, SCHEDULING_GAP_MS } from './health.ts';

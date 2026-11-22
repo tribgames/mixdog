@@ -1,7 +1,7 @@
 import { EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from './desktop-types';
 import { useStreamingTail } from './use-conversation-rows';
 import { useConversationTranscriptIdentity } from './use-conversation-transcript-identity';
-import { transcriptHistoryOf, useTranscriptWindow } from './use-transcript-history';
+import { positionedFactsOf, transcriptHistoryOf, useTranscriptWindow } from './use-transcript-history';
 
 export type ConversationTranscriptSource = ReturnType<typeof useConversationTranscriptSource>;
 
@@ -35,7 +35,8 @@ export function useConversationTranscriptSource({
     stated === 'unknown' ? undefined : stated === 'older',
     following,
     typeof snapshot.transcriptWindowStart === 'string' ? snapshot.transcriptWindowStart : undefined,
-    typeof snapshot.transcriptGeneration === 'number' ? snapshot.transcriptGeneration : undefined
+    typeof snapshot.transcriptGeneration === 'number' ? snapshot.transcriptGeneration : undefined,
+    historySessionId ? positionedFactsOf<TranscriptItem>(snapshot as Record<string, unknown>) : undefined
   );
   // A history window shows past rows only: the live streaming line stays
   // with the live tail.
