@@ -1,7 +1,7 @@
 // The session panel's body: the session's state and actions as categories,
 // each a sheet of its own in the order the user arranged, drawn into the
 // pane's card (SessionRailCard) from the conversation.
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type ReactNode, useRef } from 'react';
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { ComposerIslandFlash } from './ComposerIsland';
@@ -21,6 +21,7 @@ import {
 import { GoalSection, TodoSection } from './session-rail-goal';
 import { ContextSection, InfoSection, type RailModelProps } from './session-rail-info';
 import { AgentsSection, ShellsSection } from './session-rail-jobs';
+import { useSessionRailMotion } from './session-rail-motion';
 import { sessionRailDragging } from './session-rail-parts';
 import { WorktreesSection } from './session-rail-worktrees';
 import { useSessionGoal } from './SessionGoalIsland';
@@ -169,9 +170,12 @@ function SessionRailCategories(props: SessionRailProps) {
 
 /** The panel's categories, in order, each absent when it has nothing. */
 export default function SessionRail(props: SessionRailProps) {
+  const content = useRef<HTMLDivElement>(null);
+  useSessionRailMotion(content, props.reviewSessionId || props.sessionId);
   return (
     // A card let go between two cards is still a drop: the order it was dragged to stays.
     <div
+      ref={content}
       className="session-rail-content"
       onDragOver={(event) => {
         if (sessionRailDragging()) event.preventDefault();
