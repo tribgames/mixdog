@@ -238,11 +238,11 @@ async fn whole(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, 
     let rows = tokens
         .cpu_interactive
         .submit(&token, move |lane| {
-            records
-                .iter()
-                .enumerate()
-                .flat_map(|(at, record)| super::reads::decorated(transcript.rows(lane, record), decor.get(at)))
-                .collect::<Vec<(ThreadItem, usize)>>()
+            let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
+            for (at, record) in records.iter().enumerate() {
+                super::reads::decorate(&mut rows, transcript.rows(lane, record), decor.get(at));
+            }
+            rows
         })
         .expect("lane")
         .await

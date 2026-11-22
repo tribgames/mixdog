@@ -816,9 +816,12 @@ impl ImageIdentities for MediaLowering {
         if let Content::Parts(parts) = &message.message.content {
             for part in parts {
                 match part {
-                    ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
-                        out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type))))
-                    }
+                    // The size its tool reported, as `part` prices it: the two readings of one image agree.
+                    ContentPart::Image(ImageSource::Base64 { data, mime_type, width, height }) => out.push(ImageDescriptor {
+                        width: width.map(f64::from).filter(|w| *w > 0.0),
+                        height: height.map(f64::from).filter(|h| *h > 0.0),
+                        ..plain(image_identity("inline", data, &clean_image_mime(mime_type)))
+                    }),
                     ContentPart::Image(ImageSource::Url(url)) => out.push(plain(image_identity("url", url, ""))),
                     ContentPart::Image(ImageSource::FileId(id)) => out.push(plain(image_identity("file-id", id, ""))),
                     _ => {
@@ -918,6 +921,17 @@ mod tests {
         assert_eq!(l.part(&image(Some(50), Some(30))).tokens, 2);
         assert_eq!(l.part(&image(Some(1280), Some(720))).tokens, 1_229);
         assert_eq!(l.part(&image(None, None)).tokens, 1_568);
+    }
+
+    /// The image's descriptor carries the same size, so a message never lists an image at more than the message is priced at.
+    #[test]
+    fn an_inline_images_descriptor_carries_its_reported_size() {
+        let l = lowering(false);
+        let sized = ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/jpeg".into(), width: Some(50), height: Some(30) });
+        let mut message = AgentMessage::user("");
+        message.message.content = Content::Parts(vec![sized]);
+        let images = l.images(&message);
+        assert_eq!(images.iter().map(|i| (i.width, i.height)).collect::<Vec<_>>(), vec![(Some(50.0), Some(30.0))]);
     }
 
     fn lowering(no_documents: bool) -> MediaLowering {

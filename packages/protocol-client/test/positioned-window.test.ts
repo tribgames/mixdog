@@ -276,6 +276,36 @@ test('a positioned client resumes with positionedWindow, takes window frames at 
   await client.close();
 });
 
+test('a held record sent again with a compaction divider shows the divider after it, before the rows of the running turn', () => {
+  let s = snapshot(['r1', 'r2']);
+  s = at(s, 'item/started', { turnId: 'x', item: { type: 'agentMessage', id: 'live', text: '', meta: { status: 'inProgress' } } });
+  s = at(s, 'item/agentMessage/delta', { itemId: 'live', delta: 'working' });
+  // The divider's own event reaches a positioned subscription with no row.
+  s = at(s, 'thread/transcript/changed', { lineage: 1 });
+  const divided = {
+    ...reply('r2'),
+    meta: { ext: { historyPosition: pos('r2'), dividersAfter: [{ type: 'contextCompaction', id: 'divider:c1', meta: {} }] } },
+  };
+  s = at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: { position: pos('r2'), items: [divided] } } });
+  assert.deepEqual(ids(s.items), ['r1', 'r2', 'divider:c1']);
+  assert.equal(s.live?.id, 'live', 'the reply still streams under it');
+  // A snapshot taken then carries the divider twice: on the record it follows and as the core's live row. It is shown once.
+  const again = sessionReducer.initial({
+    thread: { id: 't' },
+    state: {},
+    items: [{ type: 'contextCompaction', id: 'divider:c1', meta: {} }],
+    hasOlder: false,
+    window: {
+      windowVersion: 11,
+      lineage: 1,
+      ranges: [{ id: 'tail', older: end, newer: end }],
+      added: [{ range: 'tail', units: [unit(user('r1')), { position: pos('r2'), items: [divided] }] }],
+      followTail: true,
+    },
+  } as unknown as Json);
+  assert.deepEqual(ids(again.items), ['r1', 'r2', 'divider:c1']);
+});
+
 test('a row no record ever holds stays where it arrived, before the records stored after it', () => {
   const shown = (id: string, type = 'userMessage') =>
     ({ item: { type, id, ...(type === 'userMessage' ? { content: [{ type: 'text', text: id }] } : { text: id }), meta: {} } });
