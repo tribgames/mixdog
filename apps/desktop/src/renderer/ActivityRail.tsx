@@ -35,48 +35,91 @@ const WHEEL_NOTCH_PIXELS = 100;
 
 const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => undefined);
 
-function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'], loading: boolean) {
+type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
+
+/** Rings (radius, stroke) and danger centre in the 26-unit meter box: one
+ *  ring, or the short window outside and the long one inside. */
+const SINGLE_RING = { rings: [{ r: 11.75, width: 2.5 }], core: 10.5 };
+const NESTED_RINGS = {
+  rings: [
+    { r: 12, width: 2 },
+    { r: 9, width: 2 },
+  ],
+  core: 7,
+};
+
+/** The slot's meter: a track per drawn window with its own toned arc, and a
+ *  filled centre once the slot's usage reaches danger. */
+function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
+  const { rings, core } = entry.bars.length > 1 ? NESTED_RINGS : SINGLE_RING;
+  const danger = !entry.pending && usageToneClass(entry.percent) === ' tone-danger';
+  return (
+    <svg className="rail-usage-pin-meter" viewBox="0 0 26 26" aria-hidden="true" focusable="false">
+      {danger && <circle className="rail-usage-pin-core" cx="13" cy="13" r={core} />}
+      {entry.bars.map((bar, index) => {
+        const { r, width } = rings[index];
+        const percent = entry.pending ? 0 : (displayUsagePercent(bar.percent) ?? 0);
+        return (
+          <g key={bar.label} data-usage-window={bar.label}>
+            <circle className="rail-usage-pin-track" cx="13" cy="13" r={r} strokeWidth={width} />
+            {percent > 0 && (
+              <circle
+                className={`rail-usage-pin-fill${usageToneClass(bar.percent)}`}
+                cx="13"
+                cy="13"
+                r={r}
+                strokeWidth={width}
+                // Butt caps paint exactly the dash: round caps add a stroke
+                // width, closing the ring before 100 and swelling 1%.
+                strokeLinecap="butt"
+                pathLength={100}
+                strokeDasharray={`${percent} 100`}
+                transform="rotate(-90 13 13)"
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
   if (rows.length) {
     return (
       <span className="rail-usage-pin-stack">
-        {rows.map((entry) => {
-          const percent = displayUsagePercent(entry.percent) ?? 0;
-          // Glanceable readout: icon, then the flyout's meter grammar in
-          // miniature, then the number — the highest of all quota windows;
-          // in short + long mode the bar holding it takes the tone.
-          const tone = usageToneClass(entry.percent);
-          return (
-            <span
-              className={`rail-usage-pin-brand${tone}`}
-              key={entry.key}
-              data-usage-pin={entry.key}
-              aria-busy={entry.pending || undefined}
-              data-tooltip={entry.tooltip}
-            >
-              {entry.accountIndex === undefined ? (
-                <ProviderIcon provider={entry.provider} />
-              ) : (
-                <span className="rail-usage-pin-mark">
-                  <ProviderIcon provider={entry.provider} />
-                  <sup className={entry.accountSelected ? 'is-selected' : undefined}>{entry.accountIndex}</sup>
-                </span>
+        {rows.map((entry) => (
+          // No figure: the ring and its tone carry the reading; the exact
+          // values live in the tooltip, the button's description and the flyout.
+          <span
+            className="rail-usage-pin-brand"
+            key={entry.key}
+            data-usage-pin={entry.key}
+            aria-busy={entry.pending || undefined}
+            data-tooltip={entry.tooltip}
+          >
+            <span className={`rail-usage-pin-ring${entry.bars.length > 1 ? ' is-nested' : ''}`}>
+              <UsagePinMeter entry={entry} />
+              <ProviderIcon provider={entry.provider} />
+              {entry.accountIndex !== undefined && (
+                <sup className={entry.accountSelected ? 'is-selected' : undefined}>{entry.accountIndex}</sup>
               )}
-              {entry.bars.map((bar, index) => (
-                <i key={bar.label} className={entry.bars.length > 1 && index !== entry.hot ? 'is-cool' : undefined}>
-                  <i style={{ width: `${displayUsagePercent(bar.percent) ?? 0}%` }} />
-                </i>
-              ))}
-              <small>
-                <span className="rail-usage-pin-value">{entry.pending ? '–' : `${percent}%`}</span>
-              </small>
             </span>
-          );
-        })}
+          </span>
+        ))}
       </span>
     );
   }
   if (loading) return <InitialSurface variant="icon" />;
   return <span className="codicon codicon-pie-chart" aria-hidden="true" />;
+}
+
+/** The Usage button's accessible description: every drawn slot in order, as
+ *  provider (and account), every window its tooltip names with its usage, and
+ *  "Loading…" while its quota is pending. */
+function usagePinDescription(rows: readonly UsagePinRow[]): string | undefined {
+  if (!rows.length) return undefined;
+  return rows.map((entry) => (entry.pending ? `${entry.name} · ${t('Loading…')}` : entry.name)).join('; ');
 }
 
 /** The usage button's slot stack steps by wheel notch or by its step buttons. */
@@ -319,6 +362,7 @@ export const ActivityRail = memo(function ActivityRail({
           onWheel={stepOnWheel}
           className={`sidebar-usage-toggle ${usageOpen ? 'is-active' : ''}${usagePinRows.length ? ' is-pinned' : ''}`}
           aria-label={t('Usage')}
+          aria-description={usagePinDescription(usagePinRows)}
           aria-expanded={usageOpen}
           aria-haspopup="dialog"
           data-tooltip={t('Usage')}

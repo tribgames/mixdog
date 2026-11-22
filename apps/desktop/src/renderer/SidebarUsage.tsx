@@ -245,7 +245,7 @@ export function SidebarUsage({
    *  per-brand icon + % stack. */
   pinned?: boolean;
   onTogglePin?(): void;
-  /** Which bars the pinned rail draws per brand. */
+  /** Which windows the pinned rail draws as rings per brand. */
   railBars?: UsageRailBars;
   onRailBarsChange?(next: UsageRailBars): void;
   /** Lists every account of a multi-account provider, here and on the rail. */

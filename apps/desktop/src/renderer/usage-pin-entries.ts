@@ -54,7 +54,7 @@ export function usedPercent(window: UsageRecord): number | null {
   return value === null ? null : Math.max(0, Math.min(100, value));
 }
 
-/** Which quota bars a pinned brand draws on the rail. */
+/** Which quota windows a pinned brand draws as rings on the rail. */
 export type UsageRailBars = 'long' | 'short-long';
 
 /** How many slots the rail shows at most when accounts are expanded. */
@@ -70,19 +70,20 @@ interface UsagePinEntry {
   key: string;
   label: string;
   provider: string;
-  /** The figure shown under the bars: the long window's usage in long-only
-   *  mode, the highest of all the quota windows in short + long mode. */
+  /** The slot's usage, which picks its tone: the long window's usage in
+   *  long-only mode, the highest of all the quota windows in short + long mode. */
   percent: number;
-  /** Drawn bars, short window first. */
+  /** Drawn rings, short window first (the outer ring). */
   bars: UsagePinWindow[];
   /** Every window the tooltip names (short window first when there is one). */
   windows: UsagePinWindow[];
-  /** Index in `bars` of the bar holding the figure (the tone follows it). */
-  hot: number;
   /** Rail hover text naming the provider and every window. */
   tooltip: string;
-  /** Known-connected provider whose quota has not arrived: the row keeps its
-   *  final size and the figure fills in place. */
+  /** The slot's part of the Usage button's accessible description: the
+   *  provider (and account) and every window the tooltip names, with its usage. */
+  name: string;
+  /** Known-connected provider whose quota has not arrived: the slot keeps its
+   *  final shape and the ring fills in place. */
   pending?: boolean;
   /** Expanded accounts: the 1-based account index in the provider's roster
    *  (the badge on the rail icon) and whether it is the account in use. */
@@ -90,7 +91,7 @@ interface UsagePinEntry {
   accountSelected?: boolean;
 }
 
-/** A connected subscription provider and how many bars its row draws in
+/** A connected subscription provider and how many rings its slot draws in
  *  short + long mode (a provider without a short window draws one). */
 export interface UsagePinRosterEntry {
   key: string;
@@ -118,8 +119,8 @@ export function usagePinRosterFromSetup(setup: unknown): UsagePinRosterEntry[] {
   }));
 }
 
-/** Real entries, plus a neutral same-size row for every roster provider whose
- *  quota is not known yet, in subscription order. */
+/** Real entries, plus a neutral slot of the same shape for every roster
+ *  provider whose quota is not known yet, in subscription order. */
 export function usagePinEntriesWithRoster(
   real: readonly UsagePinEntry[],
   roster: readonly UsagePinRosterEntry[],
@@ -144,8 +145,8 @@ export function usagePinEntriesWithRoster(
         percent: 0,
         bars,
         windows: bars,
-        hot: 0,
         tooltip: subscription.label,
+        name: subscription.label,
         pending: true,
       },
     ];
@@ -203,7 +204,7 @@ function pinWindows(
       shortHours = hours;
     }
   }
-  // The drawn pair, thick bar first. A second window without a duration
+  // The drawn pair, short window first. A second window without a duration
   // (Cursor API) still draws, after the long one.
   let pair = short ? [short, long] : [long];
   if (!short) {
@@ -218,45 +219,32 @@ function pinTooltipWindows(picked: NonNullable<ReturnType<typeof pinWindows>>): 
   return [...picked.pair, ...picked.all.filter((window) => !picked.pair.includes(window))];
 }
 
-/** The figure under a brand's bars: the long window alone in long-only mode,
- *  the highest window in short + long mode. */
-function pinFigure(picked: NonNullable<ReturnType<typeof pinWindows>>, mode: UsageRailBars): number {
+/** A slot's usage: the long window alone in long-only mode, the highest
+ *  window in short + long mode. */
+function pinPercent(picked: NonNullable<ReturnType<typeof pinWindows>>, mode: UsageRailBars): number {
   return mode === 'short-long' ? picked.peak : picked.long.percent;
-}
-
-/** Index of the drawn bar holding the figure (the last one on a tie); when the
- *  highest window is not drawn, the highest drawn bar. */
-function hotBar(bars: readonly UsagePinWindow[], peak: number): number {
-  let hot = 0;
-  let holder = -1;
-  bars.forEach((bar, index) => {
-    if (bar.percent >= bars[hot].percent) hot = index;
-    if (bar.percent === peak) holder = index;
-  });
-  return holder >= 0 ? holder : hot;
 }
 
 /** One rail pin entry per brand with quota data: the longest-period window
  *  (monthly, weekly, then daily/hourly; unknown falls back to the provider's
- *  final entry). `short-long` adds the shortest window as a second bar, with
- *  figure and tone following the highest window. */
+ *  final entry). `short-long` adds the shortest window as an outer ring, and
+ *  the slot's usage follows the highest window. */
 export function usagePinEntries(dashboard: unknown, mode: UsageRailBars = 'long'): UsagePinEntry[] {
   return SUBSCRIPTIONS.flatMap((subscription) => {
     const picked = pinWindows(quotaWindows(subscriptionRow(dashboard, subscription)), subscription.provider);
     if (!picked) return [];
     const windows = picked.pair;
-    const bars = mode === 'short-long' ? windows : [picked.long];
-    const percent = pinFigure(picked, mode);
+    const listed = pinTooltipWindows(picked);
     return [
       {
         key: subscription.key,
         label: subscription.label,
         provider: subscription.provider,
-        percent,
-        bars,
+        percent: pinPercent(picked, mode),
+        bars: mode === 'short-long' ? windows : [picked.long],
         windows,
-        hot: hotBar(bars, percent),
-        tooltip: usagePinTooltip(subscription.label, pinTooltipWindows(picked)),
+        tooltip: usagePinTooltip(subscription.label, listed),
+        name: usagePinName(subscription.label, listed),
       },
     ];
   });
@@ -286,16 +274,16 @@ export function usagePinAccountEntries(
       else if (mode === 'short-long') bars = windows;
       else bars = [picked.long];
       const title = `${entry.label} · ${index + 1} ${usageAccountName(account)}`;
-      const percent = picked ? pinFigure(picked, mode) : 0;
+      const listed = picked ? pinTooltipWindows(picked) : [];
       return {
         key: `${entry.key}:${account.id}`,
         label: entry.label,
         provider: entry.provider,
-        percent,
+        percent: picked ? pinPercent(picked, mode) : 0,
         bars,
         windows,
-        hot: picked ? hotBar(bars, percent) : 0,
-        tooltip: picked ? usagePinTooltip(title, pinTooltipWindows(picked)) : title,
+        tooltip: picked ? usagePinTooltip(title, listed) : title,
+        name: usagePinName(title, listed),
         pending: picked ? undefined : true,
         accountIndex: index + 1,
         accountSelected: account.id === selectedId,
@@ -314,12 +302,22 @@ function pinWindowName(label: string): string {
   return label;
 }
 
+function pinWindowUsage(window: UsagePinWindow): string {
+  return `${pinWindowName(window.label)} ${displayUsagePercent(window.percent)}%`;
+}
+
 /** Rail hover text: the provider plus every window's usage and reset time. */
 function usagePinTooltip(label: string, windows: UsagePinWindow[]): string {
   const parts = windows.map((window) => {
     const schedule = resetSchedule(window.resetAt);
     const reset = schedule.state === 'in' ? ` (${t('resets in {{time}}', { time: schedule.time })})` : '';
-    return `${pinWindowName(window.label)} ${displayUsagePercent(window.percent)}%${reset}`;
+    return `${pinWindowUsage(window)}${reset}`;
   });
   return [label, ...parts].join(' · ');
+}
+
+/** A slot's spoken text: the provider plus every window its tooltip names,
+ *  without the reset times. */
+function usagePinName(label: string, windows: readonly UsagePinWindow[]): string {
+  return [label, ...windows.map(pinWindowUsage)].join(' · ');
 }

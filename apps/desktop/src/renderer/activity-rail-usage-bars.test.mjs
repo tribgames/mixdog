@@ -25,7 +25,7 @@ const dashboard = {
   ],
 };
 
-async function mountRail(t) {
+async function mountRail(t, { shortLong = false, usage = dashboard } = {}) {
   const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node', 'Element'], rootId: 'root' });
   // jsdom has no layout: give the rail room for the pinned stack.
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 2000 });
@@ -33,7 +33,7 @@ async function mountRail(t) {
     observe() {}
     disconnect() {}
   };
-  const stored = { usagePinned: true, usageRailShortLong: false };
+  const stored = { usagePinned: true, usageRailShortLong: shortLong };
   window.mixdogDesktop = {
     readActivityRailPins: async () => null,
     subscribeActivityRailPins: () => () => {},
@@ -43,7 +43,7 @@ async function mountRail(t) {
       return { ...stored };
     },
   };
-  publishUsageDashboard(dashboard);
+  publishUsageDashboard(usage);
   const props = {
     settingsOpen: false,
     onOpenSettings() {},
@@ -57,12 +57,19 @@ async function mountRail(t) {
     onSelectNavigation() {},
   };
   await act(async () => root.render(React.createElement(ActivityRail, props)));
-  await waitFor(() => document.querySelector('[data-usage-pin="claude"]'));
+  await waitFor(() => document.querySelector('[data-usage-pin]'));
   return { root, props, stored };
 }
 
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
-const meters = (key) => [...brand(key).querySelectorAll(':scope > i')];
+const tracks = (key) => [...brand(key).querySelectorAll('.rail-usage-pin-track')];
+// Each drawn ring's arc as [class, dash], outer ring first.
+const arcs = (key) =>
+  [...brand(key).querySelectorAll('.rail-usage-pin-fill')].map((arc) => [
+    arc.getAttribute('class'),
+    arc.getAttribute('stroke-dasharray'),
+  ]);
+const core = (key) => brand(key).querySelector('.rail-usage-pin-core');
 
 // The flyout body loads asynchronously: open it and wait for its menu.
 async function openFlyout() {
@@ -105,36 +112,43 @@ test('the usage flyout closes on Escape and on a press outside it, not on a pres
   assert.equal(popup(), null, 'Escape closes it');
 });
 
-test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
+test('the rail draws one ring per brand by default and saves the chosen two-ring mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
-  assert.equal(meters('claude').length, 1);
-  // One bar is the long window, and the figure under it is that window's own
-  // usage (4af1cd7f1); the highest-window figure belongs to two-bar mode.
-  assert.equal(meters('claude')[0].firstElementChild.style.width, '41%');
-  assert.equal(brand('claude').querySelector('small').textContent, '41%');
-  assert.equal(meters('claude')[0].classList.contains('is-cool'), false);
+  // One ring for the long window, no figure under it; the values live in the
+  // tooltip and in the Usage button's description, slot by slot, which names
+  // every window the tooltip does, drawn or not.
+  assert.deepEqual(arcs('claude'), [['rail-usage-pin-fill', '41 100']]);
+  assert.equal(brand('claude').querySelector('small'), null);
+  assert.equal(brand('claude').getAttribute('role'), null);
+  const toggle = () => document.querySelector('.sidebar-usage-toggle');
+  assert.equal(toggle().getAttribute('aria-label'), 'Usage');
+  assert.equal(
+    toggle().getAttribute('aria-description'),
+    'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
+  );
+  assert.equal(core('claude'), null);
+  assert.equal(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'), null);
 
   await press(await openFlyout());
   await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
   assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
   await waitFor(() => stored.usageRailShortLong === true);
 
-  // Two stacked meters, short window first; one figure = the higher; the tone
-  // colors only the bar that drives it.
-  const claudeBars = meters('claude');
-  assert.equal(claudeBars.length, 2);
-  assert.deepEqual(
-    claudeBars.map((bar) => bar.firstElementChild.style.width),
-    ['99%', '41%']
+  // Two concentric rings, the short window outside; the slot's danger usage
+  // fills the centre.
+  await waitFor(() => tracks('claude').length === 2);
+  assert.deepEqual(arcs('claude'), [
+    ['rail-usage-pin-fill tone-danger', '99 100'],
+    ['rail-usage-pin-fill', '41 100'],
+  ]);
+  assert.ok(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'));
+  assert.ok(core('claude'));
+  assert.equal(
+    toggle().getAttribute('aria-description'),
+    'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
   );
-  assert.deepEqual(
-    claudeBars.map((bar) => bar.classList.contains('is-cool')),
-    [false, true]
-  );
-  assert.ok(brand('claude').className.includes('tone-danger'));
-  assert.equal(brand('claude').querySelector('small').textContent, '99%');
-  // A single-window provider never gets a placeholder bar.
-  assert.equal(meters('opencode-go-oauth').length, 1);
+  // A single-window provider never gets a placeholder ring.
+  assert.equal(tracks('opencode-go-oauth').length, 1);
   assert.match(brand('claude').getAttribute('data-tooltip'), /^Claude · 5-hour 99% · weekly 41%$/);
 
   // A fresh mount restores the stored mode.
@@ -142,8 +156,38 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
   const host = document.body.appendChild(document.createElement('div'));
   const second = createRoot(host);
   await act(async () => second.render(React.createElement(ActivityRail, props)));
-  await waitFor(() => brand('claude') && meters('claude').length === 2);
+  await waitFor(() => brand('claude') && tracks('claude').length === 2);
   await act(async () => second.unmount());
+});
+
+test('a two-window provider draws two rings, each in the tone of its own window', async (t) => {
+  await mountRail(t, {
+    shortLong: true,
+    usage: {
+      rows: [
+        {
+          id: 'openai-oauth',
+          group: 'oauth',
+          windows: [
+            { label: '5H', usedPct: 75 },
+            { label: 'W', usedPct: 95 },
+          ],
+        },
+        { id: 'anthropic-oauth', group: 'oauth', windows: [{ label: 'W', usedPct: 0 }] },
+      ],
+    },
+  });
+  await waitFor(() => brand('codex') && tracks('codex').length === 2);
+  assert.deepEqual(arcs('codex'), [
+    ['rail-usage-pin-fill tone-warning', '75 100'],
+    ['rail-usage-pin-fill tone-danger', '95 100'],
+  ]);
+  assert.ok(core('codex'), 'the weekly 95% drives the danger centre');
+  // 0% is a solid empty track: no arc, no centre, not busy.
+  assert.equal(tracks('claude').length, 1);
+  assert.deepEqual(arcs('claude'), []);
+  assert.equal(core('claude'), null);
+  assert.equal(brand('claude').getAttribute('aria-busy'), null);
 });
 
 test('the pin switch in the portaled menu survives a real pointer press and saves the pin', async (t) => {

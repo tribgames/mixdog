@@ -321,7 +321,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       assert.deepEqual(colors, [sidebar, workspace]);
     }
   });
-  await t.test('icons and all usage meter states keep contrast in the rail and popup', async () => {
+  await t.test('icons and all usage meter states keep contrast in the rail and popup', async (st) => {
     await page.evaluate(() => {
       document.body.insertAdjacentHTML(
         'beforeend',
@@ -335,7 +335,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           .getElementById('contrast-rail')
           .insertAdjacentHTML(
             'beforeend',
-            `<div class="rail-usage-pin-brand ${tone}"><i><i></i></i><small>71%</small></div>`
+            `<span class="rail-usage-pin-brand"><span class="rail-usage-pin-ring"><svg class="rail-usage-pin-meter"><circle class="rail-usage-pin-track"></circle><circle class="rail-usage-pin-fill ${tone}"></circle></svg></span></span>`
           );
         document
           .getElementById('contrast-popup')
@@ -348,7 +348,10 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         const root = getComputedStyle(document.documentElement);
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = 1;
-        const context = canvas.getContext('2d');
+        // A software canvas from the first read: an accelerated one rounded the
+        // first composite a level apart from later ones (divider #2d2d30 against
+        // the same colour's track #2c2c2f).
+        const context = canvas.getContext('2d', { willReadFrequently: true });
         // Composite nested alpha fills over their track, not directly over
         // the page. A meter's track remains underneath its filled segment.
         const composite = (color, background) => {
@@ -366,6 +369,8 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         };
         const frame = root.getPropertyValue('--mx-window-band').trim();
         const popup = root.getPropertyValue('--mx-bg-base').trim();
+        // The rail's own divider is the floor an empty usage ring must reach.
+        const divider = composite(getComputedStyle(document.getElementById('contrast-rail')).borderRightColor, frame);
         const icon = document.getElementById('contrast-icon');
         const idle = composite(getComputedStyle(icon).color, frame);
         icon.classList.add('is-active');
@@ -375,20 +380,36 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         const meters = [
           ...document.querySelectorAll('#contrast-rail .rail-usage-pin-brand, #contrast-popup .sidebar-usage-meter'),
         ].map((element) => {
-          const surface = element.closest('#contrast-rail') ? frame : popup;
-          const track = composite(getComputedStyle(element.querySelector(':scope > i')).backgroundColor, surface);
+          // The rail draws a ring with no figure; the popup meter keeps its bar and figure.
+          if (element.closest('#contrast-rail')) {
+            const track = composite(getComputedStyle(element.querySelector('.rail-usage-pin-track')).stroke, frame);
+            const arc = element.querySelector('.rail-usage-pin-fill');
+            const fill = composite(getComputedStyle(arc).stroke, track);
+            return { name: arc.getAttribute('class'), surface: frame, track, fill, text: null };
+          }
+          const track = composite(getComputedStyle(element.querySelector(':scope > i')).backgroundColor, popup);
           const fill = composite(getComputedStyle(element.querySelector('i > i')).backgroundColor, track);
-          const text = composite(getComputedStyle(element.querySelector('small, b')).color, surface);
-          return { name: element.className, surface, track, fill, text };
+          const text = composite(getComputedStyle(element.querySelector('b')).color, popup);
+          return { name: element.className, surface: popup, track, fill, text };
         });
-        return { frame, idle, tile, selected, meters };
+        return { frame, divider, idle, tile, selected, meters };
       }, theme);
       assert.ok(contrast(colors.idle, colors.frame) >= 3, `${theme}: idle icon`);
       assert.ok(contrast(colors.selected, colors.tile) >= 3, `${theme}: selected icon`);
       assert.notEqual(colors.idle, colors.selected);
+      const dividerFloor = contrast(colors.divider, colors.frame);
+      assert.ok(dividerFloor > 1, `${theme}: the rail divider is visible`);
       for (const meter of colors.meters) {
-        assert.ok(contrast(meter.fill, meter.track) >= 3, `${theme}: ${meter.name} fill`);
-        assert.ok(contrast(meter.text, meter.surface) >= 4.5, `${theme}: ${meter.name} text`);
+        const fill = `${meter.fill} on ${meter.track} = ${contrast(meter.fill, meter.track).toFixed(2)}`;
+        assert.ok(contrast(meter.fill, meter.track) >= 3, `${theme}: ${meter.name} fill ${fill}`);
+        if (meter.text) assert.ok(contrast(meter.text, meter.surface) >= 4.5, `${theme}: ${meter.name} text`);
+        else {
+          // A ring has no figure: its empty track must read on the rail at
+          // least as well as the rail's own divider does.
+          const track = `${meter.track} on ${meter.surface} = ${contrast(meter.track, meter.surface).toFixed(2)}`;
+          st.diagnostic(`${theme} ${meter.name}: arc ${fill}; track ${track}; divider ${dividerFloor.toFixed(2)}`);
+          assert.ok(contrast(meter.track, meter.surface) >= dividerFloor, `${theme}: ${meter.name} track ${track}`);
+        }
       }
     }
   });

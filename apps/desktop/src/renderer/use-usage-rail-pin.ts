@@ -178,7 +178,7 @@ function useRailPrefs(enabled: boolean) {
     setUsagePinned(next);
     saveSetting('usagePinned', next);
   };
-  // The bar mode is persisted beside the pin choice and applies at once.
+  // The ring mode is persisted beside the pin choice and applies at once.
   const setRailBars = (next: UsageRailBars) => {
     revision.current += 1;
     setSettingsReady(true);
@@ -287,7 +287,6 @@ export function useUsageRailPin(
     writeRailRoster(drawnRoster);
     setRemembered(drawnRoster);
   }, [liveResult, drawnSignature]);
-  const doubleBarCount = wanted.filter((entry) => entry.bars.length > 1).length;
   // How many slots the rail has room for (unmeasured: all of them).
   const [pinRoom, setPinRoom] = useState(Number.POSITIVE_INFINITY);
   const [scrollStart, setScrollStart] = useState(0);
@@ -303,7 +302,6 @@ export function useUsageRailPin(
           settingsHeight: (settings.current?.offsetHeight ?? 0) + extraHeight,
           total: wanted.length,
           limit: slotLimit,
-          doubleBarCount,
         })
       );
     // Measure before paint, not after a provisional tall stack was visible.
@@ -311,7 +309,7 @@ export function useUsageRailPin(
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [nav, rail, settings, wanted.length, doubleBarCount, extraHeight, slotLimit]);
+  }, [nav, rail, settings, wanted.length, extraHeight, slotLimit]);
   // Without accounts expanded the stack is all or nothing, as before; with a
   // slot limit it shows a window of slots that the chevrons and wheel move.
   const room = Math.min(wanted.length, slotLimit, pinRoom);

@@ -1,19 +1,12 @@
-/** Layout constants of .rail-usage-pin-brand / .is-pinned in 09-sidebar-chrome.css. */
-const PIN_ROW_HEIGHT = 16 + 2 + 3 + 2 + 11;
-const PIN_ROW_GAP = 10;
+/** Layout constants of .rail-usage-pin-ring / -stack / .is-pinned in
+ *  09-sidebar-chrome.css: one 26px ring per slot, two rings included. */
+const PIN_ROW_HEIGHT = 26;
+const PIN_ROW_GAP = 6;
 const PIN_STACK_PADDING = 9 + 8;
 
-/** A second 3px meter plus its 2px gap. */
-const PIN_EXTRA_BAR_HEIGHT = 3 + 2;
-
-export function usagePinStackHeight(rowCount: number, doubleBarCount = 0): number {
+export function usagePinStackHeight(rowCount: number): number {
   if (rowCount <= 0) return 0;
-  return (
-    PIN_STACK_PADDING +
-    rowCount * PIN_ROW_HEIGHT +
-    (rowCount - 1) * PIN_ROW_GAP +
-    Math.min(doubleBarCount, rowCount) * PIN_EXTRA_BAR_HEIGHT
-  );
+  return PIN_STACK_PADDING + rowCount * PIN_ROW_HEIGHT + (rowCount - 1) * PIN_ROW_GAP;
 }
 
 /** Layout height of one scroll chevron above or below the slots. */
@@ -25,17 +18,12 @@ export function usagePinStackFits(input: {
   navHeight: number;
   settingsHeight: number;
   rowCount: number;
-  /** Rows drawing two meters (short + long mode). */
-  doubleBarCount?: number;
   /** Height of the scroll chevrons, when the stack scrolls. */
   chevronHeight?: number;
 }): boolean {
   if (input.rowCount <= 0) return true;
   const needed =
-    input.navHeight +
-    usagePinStackHeight(input.rowCount, input.doubleBarCount) +
-    (input.chevronHeight ?? 0) +
-    input.settingsHeight;
+    input.navHeight + usagePinStackHeight(input.rowCount) + (input.chevronHeight ?? 0) + input.settingsHeight;
   return input.railHeight >= needed;
 }
 
