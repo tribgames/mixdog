@@ -68,8 +68,8 @@ interface ComposerDockProps {
   /** A message sent behind the running turn waits to be read: the branch
    *  segment cannot switch. */
   pendingInput?: boolean;
-  /** The session panel is a column beside the pane and shows the session's
-   *  state: no island, unless for a live approval card. */
+  /** The session panel shows the session's state, or session info is set to
+   *  Hidden: no island, unless for a live approval card. */
   islandHidden?: boolean;
   children: ReactNode;
 }

@@ -235,8 +235,7 @@ export function TodoSection({
   const { todo, progress } = model;
   if (!todo) return null;
   const groups = railTodoGroups(todo);
-  // The done group starts folded, every other one open.
-  const groupOpen = (group: TodoGroup) => folds.groupOpen(group.key, group.key !== 'done');
+  const groupOpen = (group: TodoGroup) => folds.groupOpen(group.key);
   const setAll = (value: boolean) => folds.setGroups(Object.fromEntries(groups.map((group) => [group.key, value])));
   const current = groups.flatMap((group) => group.items).find(({ task }) => task.status === 'in_progress');
   return (
@@ -268,12 +267,12 @@ export function TodoSection({
               onClick={() => folds.setGroups({ [group.key]: !shown })}
             >
               <span>{group.name}</span>
-              <span>{group.items.length}</span>
               {shown ? (
                 <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
               ) : (
                 <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
               )}
+              <span>{group.items.length}</span>
             </button>
             {shown &&
               group.items.map(({ task }, index) => {

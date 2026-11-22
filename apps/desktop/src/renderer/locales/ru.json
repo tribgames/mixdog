@@ -6694,5 +6694,9 @@
   "No changes": "Нет изменений",
   "{{count}} commits not pushed": "Неотправленных коммитов: {{count}}",
   "Resize session panel": "Изменить размер панели сеанса",
-  "{{width}} pixels": "{{width}} пикс."
+  "{{width}} pixels": "{{width}} пикс.",
+  "Session info": "Сведения о сеансе",
+  "Automatic": "Автоматически",
+  "Island": "Остров",
+  "Session info: Hidden": "Не показывать"
 }

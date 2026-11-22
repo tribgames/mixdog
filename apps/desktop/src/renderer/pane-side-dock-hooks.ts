@@ -14,9 +14,12 @@ import {
 import { flushSync } from 'react-dom';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import {
+  getSessionInfoDisplay,
   getSidePanelPosition,
   resolveSidePanelPlacement,
+  subscribeSessionInfoDisplay,
   subscribeSidePanelPosition,
+  type SessionInfoDisplay,
   type SidePanelPlacement,
 } from './side-panel-preferences';
 import { expandedDockRect } from './surface-slots';
@@ -370,6 +373,11 @@ function sidePanelPlacementSnapshot(): SidePanelPlacement {
  *  following the window shape (re-renders only when the answer flips). */
 export function useSidePanelPlacement(): SidePanelPlacement {
   return useSyncExternalStore(subscribeSidePanelPlacement, sidePanelPlacementSnapshot, () => 'right');
+}
+
+/** The desktop session info display (Settings → Windows and panels). */
+export function useSessionInfoDisplay(): SessionInfoDisplay {
+  return useSyncExternalStore(subscribeSessionInfoDisplay, getSessionInfoDisplay, () => 'auto');
 }
 
 /** The cell rows that share the chat's column and never yield to the dock:

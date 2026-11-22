@@ -3,11 +3,13 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import {
+  PANE_READING_COLUMN_MAX,
   publishSessionRailSlot,
   SESSION_RAIL_DEFAULT_WIDTH,
+  SESSION_RAIL_GAP,
   SESSION_RAIL_MIN_WIDTH,
-  sessionRailComposerMode,
   sessionRailFit,
+  sessionRailHost,
   sessionRailSlot,
 } from './session-rail-layout.ts';
 import {
@@ -15,58 +17,43 @@ import {
   PANE_SIDE_DOCK_SHEET_FRAME_WIDTH,
   SESSION_RAIL_WIDTH_KEY,
 } from './pane-side-dock-model.ts';
-import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout.ts';
 import { sessionProjectMove } from './session-project-move.ts';
 import { islandAgentRows } from './agent-activity-model.ts';
 import { requestOpenModelPicker, OPEN_MODEL_PICKER_EVENT } from './model-picker-event.ts';
 
 const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
-const FLOOR = DESKTOP_WORKSPACE_MIN_WIDTH;
 
-test('the panel fits beside a dock that keeps its own width: it yields to its minimum, then is not shown', () => {
+// The pane width whose margin beside the centred reading column holds cards `width` wide.
+const paneFor = (width) => PANE_READING_COLUMN_MAX + 2 * (width + SESSION_RAIL_GAP);
+
+test('the panel takes the margin beside the reading column at its widest: it yields to its minimum, then is not shown', () => {
+  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
+  assert.equal(fit(paneFor(400)), 400);
+  assert.equal(fit(paneFor(400) + 500), 400, 'no wider than its preferred width');
+  assert.equal(fit(paneFor(400) - 2), 399, 'a narrower margin: the panel gives up width, the conversation none');
+  assert.equal(fit(paneFor(300)), 300);
+  assert.equal(fit(paneFor(300) - 1), 0, 'the composer at its widest would not fit beside it: the island instead');
+});
+
+test('a dock beside the conversation keeps its width; the panel fits in what is left', () => {
   const dock = PANE_SIDE_DOCK_DEFAULT_WIDTH;
   const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: dock, railPref: SESSION_RAIL_DEFAULT_WIDTH });
-  // Everything at its preferred width.
-  const roomy = FLOOR + FRAME + dock + FRAME + SESSION_RAIL_DEFAULT_WIDTH;
-  assert.deepEqual(fit(roomy), { mode: 'column', width: 400, dockRoom: dock });
-  // Narrower: the panel gives up width, the dock keeps its own.
-  assert.deepEqual(fit(roomy - 1), { mode: 'column', width: 399, dockRoom: dock });
-  const panelAtMinimum = FLOOR + FRAME + dock + FRAME + SESSION_RAIL_MIN_WIDTH;
-  assert.deepEqual(fit(panelAtMinimum), { mode: 'column', width: 300, dockRoom: dock });
-  // Still less: the dock is the pane's side panel, with the room it has without the session panel.
-  assert.deepEqual(fit(panelAtMinimum - 1), { mode: 'off', width: 0, dockRoom: panelAtMinimum - 1 - FLOOR - FRAME });
+  assert.equal(fit(paneFor(400) + FRAME + dock), 400);
+  assert.equal(fit(paneFor(300) + FRAME + dock), 300);
+  assert.equal(fit(paneFor(300) + FRAME + dock - 1), 0);
 });
 
-test('with no dock the panel is a column down to its minimum beside the conversation, then raised over it', () => {
-  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
-  assert.equal(fit(FLOOR + FRAME + 400).width, 400);
-  assert.deepEqual(fit(FLOOR + FRAME + 300), { mode: 'column', width: 300, dockRoom: FLOOR + FRAME + 300 - FLOOR - FRAME - 300 - FRAME });
-  assert.equal(fit(FLOOR + FRAME + 299).mode, 'raised');
-});
-
-test('the composer is bare only while its session shows the panel as a column', () => {
+test('the panel belongs to the session the pane shows: a draft, a retained or another conversation keeps its composer', () => {
   const element = { nodeType: 1 };
-  const shown = { sessionId: 'a', onScreen: true };
-  const mode = (conversation = shown) => sessionRailComposerMode(sessionRailSlot('leaf'), conversation);
+  const host = (conversation) => sessionRailHost(sessionRailSlot('leaf'), conversation);
   publishSessionRailSlot('leaf', null);
-  assert.equal(mode(), 'off', 'panel off');
-  publishSessionRailSlot('leaf', { element, mode: 'column', sessionId: 'a' });
-  assert.equal(mode(), 'column');
-  assert.equal(mode({ sessionId: '', onScreen: true }), 'off', 'a draft keeps its composer');
-  publishSessionRailSlot('leaf', { element, mode: 'raised', sessionId: 'a' });
-  assert.equal(mode(), 'raised');
-  publishSessionRailSlot('leaf', null);
-  assert.equal(mode(), 'off');
-});
-
-test('the panel belongs to the session the pane shows: a retained or another conversation keeps its composer', () => {
-  const element = { nodeType: 1 };
-  publishSessionRailSlot('leaf', { element, mode: 'column', sessionId: 'b' });
-  const mode = (conversation) => sessionRailComposerMode(sessionRailSlot('leaf'), conversation);
-  assert.equal(mode({ sessionId: 'b', onScreen: true }), 'column', 'the shown session draws the panel');
-  assert.equal(mode({ sessionId: 'a', onScreen: false }), 'off', 'session A, retained behind B');
-  assert.equal(mode({ sessionId: 'a', onScreen: true }), 'off', 'another session on screen (a dock conversation)');
-  assert.equal(mode({ sessionId: 'b', onScreen: false }), 'off', 'the same session parked off screen');
+  assert.equal(host({ sessionId: 'b', onScreen: true }), null, 'no panel');
+  publishSessionRailSlot('leaf', { element, sessionId: 'b' });
+  assert.equal(host({ sessionId: 'b', onScreen: true }), element, 'the shown session draws the panel');
+  assert.equal(host({ sessionId: '', onScreen: true }), null, 'a draft keeps its composer');
+  assert.equal(host({ sessionId: 'a', onScreen: false }), null, 'session A, retained behind B');
+  assert.equal(host({ sessionId: 'a', onScreen: true }), null, 'another session on screen (a dock conversation)');
+  assert.equal(host({ sessionId: 'b', onScreen: false }), null, 'the same session parked off screen');
   publishSessionRailSlot('leaf', null);
 });
 
@@ -84,29 +71,26 @@ test('one calculation places the dock and the panel from the pane cell', async (
   };
   const layout = (cellWidth, bottom = false) =>
     paneDockRailLayout({ cellWidth, bottom, sheetFrame: FRAME, rail: 400, dock: pair });
-  // A file diff beside the dock needs its two columns: at 1,100 px the panel has no room beside them, so it is not
-  // shown (the composer keeps its controls) and the dock decides alone.
+  // A file diff beside the dock needs its two columns: at 1,100 px the conversation has no margin for the panel beside
+  // them, so it is not shown (the composer keeps its controls).
   const narrow = layout(1100);
-  assert.equal(narrow.rail, null);
+  assert.equal(narrow.rail, 0);
   assert.equal(narrow.dock.pairShowing, true);
-  // With room for the pair, the panel and the conversation's floor, all three are inline.
-  const wide = layout(FLOOR + FRAME + 800 + FRAME + 400);
-  assert.equal(wide.rail.mode, 'column');
-  assert.equal(wide.rail.width, 400);
+  // With room for the pair and a margin beside the reading column, the panel is shown and the dock keeps its width.
+  const wide = layout(paneFor(400) + FRAME + 800);
+  assert.equal(wide.rail, 400);
   assert.equal(wide.dock.overlay, false);
   assert.equal(wide.dock.pairShowing, true);
   assert.equal(wide.dock.baseAsideWidth + wide.dock.diffWidth, 800);
-  // A dock below the chat takes none of the conversation's width: the panel stays a column.
-  const below = layout(1100, true);
-  assert.equal(below.rail.mode, 'column');
-  assert.equal(below.rail.width, 400);
+  // A dock below the chat takes none of the conversation's width.
+  assert.equal(layout(paneFor(400), true).rail, 400);
   // Off: the dock alone.
-  assert.equal(paneDockRailLayout({ cellWidth: 1100, bottom: false, sheetFrame: FRAME, rail: null, dock: pair }).rail, null);
+  assert.equal(paneDockRailLayout({ cellWidth: 3000, bottom: false, sheetFrame: FRAME, rail: null, dock: pair }).rail, 0);
 });
 
 test('one panel width, live in every pane; the resize edge takes keys', async (t) => {
   const { useSessionRailWidth, setSessionRailWidth, resetSessionRailWidth } = await import('./session-rail-layout.ts');
-  const { sessionRailWidthForKey } = await import('./SessionRailColumn.tsx');
+  const { sessionRailWidthForKey } = await import('./SessionRailCard.tsx');
   const widths = {};
   function Pane({ id }) {
     widths[id] = useSessionRailWidth();
@@ -132,8 +116,8 @@ test('one panel width, live in every pane; the resize edge takes keys', async (t
   assert.equal(sessionRailWidthForKey('a', 400), null);
 });
 
-async function railColumn(t, props) {
-  const { SessionRailColumn } = await import('./SessionRailColumn.tsx');
+async function railCard(t, props) {
+  const { SessionRailCard } = await import('./SessionRailCard.tsx');
   const { document, root } = await mount(t, null);
   const proto = window.HTMLElement.prototype;
   const captured = new Set();
@@ -144,45 +128,15 @@ async function railColumn(t, props) {
     captured.delete(id);
   };
   proto.hasPointerCapture ??= (id) => captured.has(id);
-  let closed = 0;
   const element = (next = {}) =>
-    React.createElement(SessionRailColumn, {
-      leafId: 'leaf-rail',
-      sessionId: LEAD,
-      mode: 'column',
-      width: 400,
-      onClose: () => closed++,
-      ...props,
-      ...next,
-    });
+    React.createElement(SessionRailCard, { leafId: 'leaf-rail', sessionId: LEAD, width: 400, ...props, ...next });
   await act(async () => root.render(element()));
-  return { document, root, element, closed: () => closed };
+  return { document, root, element };
 }
-
-test('a press or Escape in a layer stacked above the raised panel does not close it; the surface under it does', async (t) => {
-  const view = await railColumn(t, { mode: 'raised' });
-  const { document } = view;
-  const confirmation = document.createElement('div');
-  confirmation.innerHTML = '<button>Cancel</button>';
-  document.body.append(confirmation);
-  const button = confirmation.querySelector('button');
-  const press = (target) => target.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true }));
-  await act(async () => press(button));
-  button.focus();
-  await act(async () => button.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-  assert.equal(view.closed(), 0, "a confirmation's press and Escape are its own");
-  await act(async () => press(document.querySelector('.session-rail-body')));
-  assert.equal(view.closed(), 0, 'a press in the panel');
-  const surface = document.createElement('div');
-  document.getElementById('root').append(surface);
-  await act(async () => press(surface));
-  assert.equal(view.closed(), 1, 'a press on the surface under the panel closes it');
-  confirmation.remove();
-});
 
 test("a press on the panel's frame selects its pane, so what is typed next goes to that pane", async (t) => {
   let selected = 0;
-  const view = await railColumn(t, { onFocusPane: () => selected++ });
+  const view = await railCard(t, { onFocusPane: () => selected++ });
   const press = (target, button = 0) =>
     target.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button }));
   await act(async () => press(view.document.querySelector('.session-rail-body'), 2));
@@ -200,7 +154,7 @@ test("a press on the panel's frame selects its pane, so what is typed next goes 
 test('the remembered width is only what a drag or a key chose: a still press or a cancelled drag leaves it', async (t) => {
   const { resetSessionRailWidth, setSessionRailWidth, useSessionRailWidth } = await import('./session-rail-layout.ts');
   // A roomy pane chose 500; this pane's cell fits the panel at 336.
-  const view = await railColumn(t, { width: 336 });
+  const view = await railCard(t, { width: 336 });
   const { document } = view;
   window.localStorage.removeItem(SESSION_RAIL_WIDTH_KEY);
   resetSessionRailWidth();
@@ -404,31 +358,29 @@ test("the Worktrees foot's Clean up follows the cleanup preview", async (t) => {
 });
 
 test('folds are remembered per session', async (t) => {
-  const { useSessionRailFolds, SESSION_RAIL_FIRST_OPEN } = await import('./session-rail-folds.ts');
+  const { useSessionRailFolds, SESSION_RAIL_CATEGORIES } = await import('./session-rail-folds.ts');
   let folds;
   function Probe({ sessionId }) {
     folds = useSessionRailFolds(sessionId);
     return null;
   }
   const { root } = await mount(t, React.createElement(Probe, { sessionId: 'one' }));
-  for (const category of ['goal', 'todo', 'agents', 'shells', 'changes']) assert.equal(folds.isOpen(category), true);
-  assert.equal(folds.isOpen('info'), false);
-  assert.equal(folds.isOpen('worktrees'), false);
-  assert.deepEqual([...SESSION_RAIL_FIRST_OPEN].sort(), ['agents', 'changes', 'goal', 'shells', 'todo']);
-  await act(async () => folds.toggle('info'));
+  // Nothing is folded until the user folds it.
+  for (const category of SESSION_RAIL_CATEGORIES) assert.equal(folds.isOpen(category), true, category);
+  assert.equal(folds.groupOpen('done'), true);
   await act(async () => folds.toggle('agents'));
-  await act(async () => folds.setGroups({ done: true }));
+  await act(async () => folds.setGroups({ done: false }));
   await act(async () => root.render(React.createElement(Probe, { sessionId: 'two' })));
-  assert.equal(folds.isOpen('info'), false, 'another session starts from the first state');
-  assert.equal(folds.isOpen('agents'), true);
+  assert.equal(folds.isOpen('agents'), true, 'another session starts with everything open');
+  assert.equal(folds.groupOpen('done'), true);
   // A fresh mount reads them back.
   await act(async () => root.render(React.createElement(Probe, { key: 'again', sessionId: 'one' })));
-  assert.equal(folds.isOpen('info'), true);
   assert.equal(folds.isOpen('agents'), false);
-  assert.equal(folds.groupOpen('done', false), true);
+  assert.equal(folds.isOpen('info'), true);
+  assert.equal(folds.groupOpen('done'), false);
 });
 
-test('a model picker request while the panel is a column is answered by its Model row, Info unfolding for it', async (t) => {
+test('a model picker request while the panel is shown is answered by its Model row, Info unfolding for it', async (t) => {
   const { useFoldedModelPickerRequest } = await import('./session-rail-folds.ts');
   const opened = [];
   // Stands in for the Model row: it listens only while mounted (Info open), as RouteEditor does.
@@ -444,18 +396,18 @@ test('a model picker request while the panel is a column is answered by its Mode
     }, []);
     return null;
   }
-  function Panel({ column }) {
+  function Panel({ answers }) {
     const [infoOpen, setInfoOpen] = React.useState(false);
-    useFoldedModelPickerRequest(column, infoOpen, () => setInfoOpen(true));
+    useFoldedModelPickerRequest(answers, infoOpen, () => setInfoOpen(true));
     return infoOpen ? React.createElement(ModelRow) : null;
   }
-  const { root } = await mount(t, React.createElement(Panel, { column: false }));
+  const { root } = await mount(t, React.createElement(Panel, { answers: false }));
   let answered;
   await act(async () => {
     answered = requestOpenModelPicker();
   });
-  assert.equal(answered, false, 'raised or off: the composer pill answers, not the panel');
-  await act(async () => root.render(React.createElement(Panel, { column: true })));
+  assert.equal(answered, false, 'a room or a conversation not shown: the composer pill answers, not the panel');
+  await act(async () => root.render(React.createElement(Panel, { answers: true })));
   await act(async () => {
     answered = requestOpenModelPicker();
   });
@@ -467,7 +419,7 @@ test('a model picker request while the panel is a column is answered by its Mode
   assert.deepEqual(opened, ['model row', 'model row'], 'with Info open the row answers at once');
 });
 
-test('the island is not drawn beside a column, the composer is', async (t) => {
+test('the island is not drawn while the panel is shown, the composer is', async (t) => {
   const { ComposerDock } = await import('./ComposerDock.tsx');
   const element = (islandHidden) =>
     React.createElement(
@@ -487,13 +439,13 @@ test('the island is not drawn beside a column, the composer is', async (t) => {
       React.createElement('form', { className: 'composer' })
     );
   const { document, root } = await mount(t, element(false));
-  assert.ok(document.querySelector('.probe-goal'), 'rail off or raised: the island carries the goal');
+  assert.ok(document.querySelector('.probe-goal'), 'no panel: the island carries the goal');
   await act(async () => root.render(element(true)));
-  assert.equal(document.querySelector('.probe-goal'), null, 'column: no island');
+  assert.equal(document.querySelector('.probe-goal'), null, 'panel shown: no island');
   assert.ok(document.querySelector('form.composer'));
   assert.equal(document.querySelector('.composer-island'), null);
 
-  // Beside a column the island still holds what the panel has no place for.
+  // Under the panel the island still holds what the panel has no place for.
   const withIsland = (extra) =>
     React.cloneElement(element(true), extra, React.createElement('form', { className: 'composer' }));
   let cancelled = 0;
@@ -558,7 +510,7 @@ test("the goal's stop confirmation takes focus, and Cancel hands it back to Stop
   assert.equal(document.activeElement, stop());
 });
 
-test("a task group's count follows its name; the chevron ends the head", async (t) => {
+test("a fold's chevron follows its name, as in the left rail; the count comes after", async (t) => {
   const todo = {
     phases: [{ name: 'Fix', tasks: [{ content: 'one', status: 'pending' }, { content: 'two', status: 'completed' }] }],
     completed: 1,
@@ -566,15 +518,14 @@ test("a task group's count follows its name; the chevron ends the head", async (
     total: 2,
   };
   const { document } = await goalSection(t, goalSnapshot(goalOf('active'), todo));
-  const heads = [...document.querySelectorAll('[data-category="todo"] .session-rail-gh')];
-  assert.ok(heads.length > 0);
+  // The category's own head and each task group's.
+  const heads = [...document.querySelectorAll('[data-category="todo"] :is(.session-rail-tg, .session-rail-gh)')];
+  assert.ok(heads.length > 1);
   for (const head of heads) {
     const kids = [...head.children];
-    assert.match(kids[1]?.textContent ?? '', /^\d+$/, `count right after the name in "${head.textContent}"`);
-    assert.ok(kids.at(-1).classList.contains('session-rail-cv'));
+    assert.ok(kids[1].classList.contains('session-rail-cv'), `chevron right after the name in "${head.textContent}"`);
+    assert.match(kids[2]?.textContent ?? '', /^\d+(\/\d+)?$/);
   }
-  const title = document.querySelector('[data-category="todo"] .session-rail-tt');
-  assert.match(title.textContent, /1\/2$/, 'the category reads how far the plan is');
 });
 
 test("Info's usage row opens usage; a bot's home thread or a room reads its routines, and a room shows no model", async (t) => {
@@ -642,7 +593,7 @@ test('Context is a category of its own: the share, a bar and the two actions; ab
   const reading = { currentContextTokens: 80000, currentContextSource: 'last_api_request' };
   await act(async () => root.render(element({ sessionId: LEAD, contextTokens: 200000, stats: reading })));
   const section = document.querySelector('[data-category="context"]');
-  assert.match(section.querySelector('.session-rail-tt').textContent, /40%$/);
+  assert.equal(section.querySelector('.session-rail-ct').textContent, '40%');
   assert.equal(section.querySelector('[role="meter"]').getAttribute('aria-valuenow'), '40');
   const buttons = [...section.querySelectorAll('.session-rail-ft button')];
   assert.equal(buttons.length, 2, 'Compact and the details');

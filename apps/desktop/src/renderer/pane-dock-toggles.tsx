@@ -1,9 +1,8 @@
 import { startTransition, useEffect, useState } from 'react';
-import { FolderTree, LayoutDashboard } from 'lucide-react';
+import { FolderTree } from 'lucide-react';
 import { t } from './i18n';
 import { useDockVisibilityMenu } from './dock-icon-visibility';
-import { isMobileRemoteSurface, useMobileRemoteSurface } from './mobile-surface';
-import { markSessionRailPress } from './session-rail-layout';
+import { isMobileRemoteSurface } from './mobile-surface';
 import type {
   WorkbenchSideViewDescriptor,
   WorkbenchSideViewGroup,
@@ -53,7 +52,6 @@ export function PaneDockToggles({
   activeRoot,
   sessionBound,
   files,
-  sessionRail,
   onSelect,
   onClose,
 }: {
@@ -64,12 +62,9 @@ export function PaneDockToggles({
   sessionBound: boolean;
   /** The project Files tree child (the phone sheet header). Absent, no toggle. */
   files?: { active: boolean; onOpen(): void };
-  /** The pane's session panel switch, after the dock toggles; none on the phone. */
-  sessionRail?: { open: boolean; onToggle(): void };
   onSelect(id: WorkbenchSideViewId): void;
   onClose(): void;
 }) {
-  const mobile = useMobileRemoteSurface();
   const toggles = groups.flatMap((group) => {
     const root = group[0];
     const descriptor = root === undefined ? undefined : descriptors.get(root);
@@ -145,25 +140,6 @@ export function PaneDockToggles({
             </button>
           );
         })}
-      {sessionRail && !mobile && (
-        <button
-          type="button"
-          className="pane-dock-toggle"
-          data-view="session-rail"
-          aria-pressed={sessionRail.open}
-          aria-label={t('Session panel')}
-          data-tooltip={
-            sessionRail.open
-              ? t('Close {{label}}', { label: t('Session panel') })
-              : t('Open {{label}}', { label: t('Session panel') })
-          }
-          // A raised panel closes on presses outside it; this one toggles it instead.
-          onPointerDownCapture={(event) => markSessionRailPress(event.nativeEvent)}
-          onClick={sessionRail.onToggle}
-        >
-          <LayoutDashboard size={15} aria-hidden="true" />
-        </button>
-      )}
       {menu}
     </div>
   );

@@ -6497,5 +6497,9 @@
   "No changes": "변경 없음",
   "{{count}} commits not pushed": "푸시되지 않은 커밋 {{count}}개",
   "Resize session panel": "세션 패널 크기 조절",
-  "{{width}} pixels": "{{width}}픽셀"
+  "{{width}} pixels": "{{width}}픽셀",
+  "Session info": "세션 정보 표기",
+  "Automatic": "자동",
+  "Island": "아일랜드",
+  "Session info: Hidden": "표기 없음"
 }

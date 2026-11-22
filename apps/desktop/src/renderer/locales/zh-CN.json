@@ -6496,5 +6496,9 @@
   "No changes": "无更改",
   "{{count}} commits not pushed": "{{count}} 个提交未推送",
   "Resize session panel": "调整会话面板大小",
-  "{{width}} pixels": "{{width}} 像素"
+  "{{width}} pixels": "{{width}} 像素",
+  "Session info": "会话信息显示",
+  "Automatic": "自动",
+  "Island": "灵动岛",
+  "Session info: Hidden": "不显示"
 }

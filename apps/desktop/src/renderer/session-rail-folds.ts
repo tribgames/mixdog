@@ -1,5 +1,6 @@
-// The session panel's folds, remembered per session: which categories are
-// open and which of the to-do groups.
+// The session panel's folds, remembered per session (which categories and
+// to-do groups the user folded; all are open until then), and the order of
+// its categories.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OPEN_MODEL_PICKER_EVENT, requestOpenModelPicker } from './model-picker-event';
 
@@ -16,9 +17,6 @@ export const SESSION_RAIL_CATEGORIES = [
   'git',
 ] as const;
 export type SessionRailCategory = (typeof SESSION_RAIL_CATEGORIES)[number];
-
-/** A session the panel has not shown yet opens these. */
-export const SESSION_RAIL_FIRST_OPEN: readonly SessionRailCategory[] = ['goal', 'todo', 'agents', 'shells', 'changes'];
 
 export const SESSION_RAIL_ORDER_KEY = 'mixdog.desktop.session-rail-order.v1';
 
@@ -60,9 +58,18 @@ function currentOrder(): SessionRailCategory[] {
   return railOrder;
 }
 
+/** The arrangement now (what a cancelled drag puts back). */
+export function sessionRailOrderNow(): readonly SessionRailCategory[] {
+  return currentOrder();
+}
+
 export function moveSessionRailCategory(moved: SessionRailCategory, target: SessionRailCategory, after: boolean): void {
-  const next = movedSessionRailOrder(currentOrder(), moved, target, after);
-  if (next.every((id, index) => id === railOrder?.[index])) return;
+  setSessionRailOrder(movedSessionRailOrder(currentOrder(), moved, target, after));
+}
+
+export function setSessionRailOrder(order: readonly SessionRailCategory[]): void {
+  const next = sessionRailOrder(order);
+  if (next.every((id, index) => id === currentOrder()[index])) return;
   railOrder = next;
   try {
     window.localStorage.setItem(SESSION_RAIL_ORDER_KEY, JSON.stringify(next));
@@ -83,11 +90,12 @@ export function useSessionRailOrder(): readonly SessionRailCategory[] {
   );
 }
 
-export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v1';
+export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v2';
 /** Sessions remembered, the most recently changed kept. */
 const REMEMBERED_SESSIONS = 200;
 
-type SessionFolds = { open: SessionRailCategory[]; groups: Record<string, boolean> };
+/** Everything is open until the user folds it: the categories folded, and each to-do group's fold once it was set. */
+type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean> };
 
 function readAll(): Record<string, SessionFolds> {
   try {
@@ -101,7 +109,7 @@ function readAll(): Record<string, SessionFolds> {
 function readFolds(sessionId: string): SessionFolds {
   const stored = readAll()[sessionId];
   return {
-    open: Array.isArray(stored?.open) ? stored.open : [...SESSION_RAIL_FIRST_OPEN],
+    closed: Array.isArray(stored?.closed) ? stored.closed : [],
     groups: stored?.groups && typeof stored.groups === 'object' ? stored.groups : {},
   };
 }
@@ -160,9 +168,9 @@ export function useSessionRailFolds(sessionId: string) {
     (category: SessionRailCategory) =>
       update((current) => ({
         ...current,
-        open: current.open.includes(category)
-          ? current.open.filter((id) => id !== category)
-          : [...current.open, category],
+        closed: current.closed.includes(category)
+          ? current.closed.filter((id) => id !== category)
+          : [...current.closed, category],
       })),
     [update]
   );
@@ -171,10 +179,10 @@ export function useSessionRailFolds(sessionId: string) {
     [update]
   );
   return {
-    isOpen: (category: SessionRailCategory) => folds.open.includes(category),
+    isOpen: (category: SessionRailCategory) => !folds.closed.includes(category),
     toggle,
-    /** A to-do group's fold; `fallback` before the user folded it. */
-    groupOpen: (key: string, fallback: boolean) => folds.groups[key] ?? fallback,
+    /** A to-do group's fold. */
+    groupOpen: (key: string) => folds.groups[key] ?? true,
     setGroups,
   };
 }

@@ -106,7 +106,7 @@ const HARNESS = `
     const folds = useSessionRailFolds(SESSION);
     const goal = useSessionGoal(snapshot);
     const fold = () => ({ open: true, onToggle: noop });
-    return <aside className="session-rail" data-mode="column" style={{ width: 400, height: 3000 }}>
+    return <aside className="session-rail" style={{ width: 400 }}>
       <div className="session-rail-body">
         <div className="session-rail-content">
           <InfoSection {...fold()} snapshot={snapshot} sessionId={SESSION} workspace={workspace}

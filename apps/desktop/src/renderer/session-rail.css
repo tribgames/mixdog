@@ -1,26 +1,22 @@
 /* ── Session panel ──
-   A sheet of its own at the pane cell's far right (after the dock), as the
-   dock is (pane-layout.css "The dock: a separate floating sheet"), or raised
-   over the cell's right edge when the pane has no room for it
-   (session-rail-layout.ts sessionRailFit). */
-.pane-cell:has(> .session-rail[data-mode="column"]) {
-  grid-template-columns: minmax(min(360px, 100%), 1fr) auto auto;
-}
-/* The conversation's own frame closes on the side the panel's sheet stands
-   on, whatever the cell's place in a split or its dock's (--open-right is 0
-   there by rules far more specific than a panel's can be). */
-:root:not([data-mixdog-mobile-tabs]) .pane-cell:has(> .session-rail[data-mode="column"]) {
-  --open-right: 1 !important;
-}
-/* Every row, the dock's own row below the chat included. */
+   The session's categories as cards in the top right of the pane's
+   conversation, under the tab strip, shown while the margin beside the
+   reading column holds them (session-rail-layout.ts sessionRailFit): the
+   conversation never moves for them. The column has no frame of its own; it
+   hugs its cards and scrolls past the conversation's height. The 8px at its
+   right (SESSION_RAIL_GAP) is the transcript scrollbar's lane. */
 .pane-cell > .session-rail {
-  grid-column: 3;
-  grid-row: 1 / -1;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: end;
+  align-self: start;
+  max-height: 100%;
+  margin-right: 8px;
 }
 /* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
    items 14, supporting figures 13 and 12. */
 .session-rail {
-  --session-rail-row: 30px;
+  --session-rail-row: 32px;
   --session-rail-inset: 14px;
   /* A scrolling list shows about five two-line rows before it scrolls. */
   --session-rail-list-max: 248px;
@@ -29,55 +25,24 @@
   --composer-island-wash: var(--mx-hover);
   --composer-island-rule: var(--mx-border-muted);
   position: relative;
-  z-index: 2;
+  /* Over the conversation's layers (pane-layout.css .pane-surface-handoff-layer). */
+  z-index: 3;
   box-sizing: border-box;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-sheet-radius, 10px);
-  background: var(--mx-sheet-surface, var(--mx-window-band));
   color: var(--mx-text);
   font-size: var(--mx-font-item);
   line-height: var(--mx-line-ui);
 }
-/* The dock's plates: the solid panel plate under Mica, a skin's panel tone
-   as a column and its one opaque floating tone when raised. */
-html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
-  background: var(--mx-mica-panel-solid);
-}
-html[data-mixdog-skin] .session-rail[data-mode="column"] {
-  background: var(--mx-skin-panel);
-}
-html[data-mixdog-skin] .session-rail[data-mode="raised"] {
-  background: var(--mx-popup-bg);
-}
-/* Column: the sheet gap from the sheet before it, and 1px more for the side
-   of that sheet's frame (the conversation's, or the dock reaching into the
-   ring); on the cell's outer edges it reaches into the ring itself, and
-   before a neighbour pane it keeps the sheet gap. */
-.session-rail[data-mode="column"] {
-  margin: calc(-1px * var(--frame, 0) * var(--edge-top, 0))
-    calc(var(--mx-sheet-gap, 2px) * (1 - var(--edge-right, 1)) - 1px * var(--frame, 0) * var(--edge-right, 0))
-    calc(-1px * var(--frame, 0) * var(--edge-bottom, 0)) calc(var(--mx-sheet-gap, 2px) + 1px * var(--frame, 0));
-}
-/* Raised: inset in the pane as an overlay dock is, with its shadow. */
-.session-rail[data-mode="raised"] {
-  position: absolute;
-  z-index: 31;
-  top: 0;
-  bottom: var(--mx-sheet-gap, 2px);
-  right: var(--mx-sheet-gap, 2px);
-  box-shadow: var(--mx-overlay);
-}
-/* The resize edge: a hit area over the sheet gap, its accent in the gap. */
+/* The resize edge: a hit area in the gutter left of the cards. */
 .session-rail-resize {
   position: absolute;
   z-index: 3;
-  top: 0;
-  bottom: 0;
-  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
   width: 8px;
   cursor: col-resize;
   touch-action: none;
@@ -97,14 +62,14 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   pointer-events: none;
 }
 /* The body scrolls the categories as one column, with the app's scrollbar in
-   a gutter on both edges so the sheets keep the same inset either side. */
+   a gutter on both edges: the cards keep the same inset either side, with
+   room for their shadow. */
 .session-rail-body {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-height: 0;
   overflow: hidden auto;
   scrollbar-gutter: stable both-edges;
   padding-block: 8px;
-  border-radius: calc(var(--mx-sheet-radius, 10px) - 1px);
 }
 .session-rail-content {
   display: flex;
@@ -112,22 +77,29 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   gap: 8px;
 }
 
-/* A category: a sheet of its own in the island panels' grammar: a head (name
-   by weight, count, what it holds, chevron), a body and a foot of actions,
-   parted by spacing alone. Its place in the column is the user's (order). */
+/* A category: a card of its own. Its head folds it as the left rail's groups
+   fold (the rail's label, its chevron, then the count and what it holds); the
+   body and the foot of actions follow the island panels, parted by spacing
+   alone. Its place in the column is the user's. */
 .session-rail-sec {
   min-width: 0;
-  border: 1px solid var(--mx-border-muted);
   border-radius: 12px;
-  background: var(--mx-workspace-sheet);
+  /* The island's frame: the same plate, hairline and raised shadow. */
+  background: var(--mx-island-frame);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
 }
 .session-rail-sec[data-dragging] {
   opacity: var(--mx-op-dim);
 }
+/* The head's press area is a row inset in the card, as the left rail's rows
+   are in the rail: its hover wash never meets the card's own edge. */
 .session-rail-hd {
   display: flex;
   align-items: center;
-  padding-right: 4px;
+  gap: 2px;
+  padding: 4px;
 }
 .session-rail-hd > .dock-header-more {
   flex: none;
@@ -135,13 +107,13 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
 .session-rail-tg {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 42px;
+  min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 10px 0 var(--session-rail-inset);
+  gap: 4px;
+  padding: 0 6px 0 calc(var(--session-rail-inset) - 4px);
   border: 0;
-  border-radius: 11px;
+  border-radius: var(--mx-radius-md);
   background: none;
   color: inherit;
   font: inherit;
@@ -151,15 +123,16 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
 .session-rail-tg:hover {
   background: var(--mx-hover);
 }
+/* The left rail's group label (--mx-rail-label-*, 01-tokens.css). */
 .session-rail-tt {
   flex: none;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: var(--mx-font-item);
-  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-rail-label-ink);
+  font-size: var(--mx-rail-label-size);
+  font-weight: var(--mx-rail-label-weight);
 }
 .session-rail-ct {
+  flex: none;
+  margin-left: 4px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: 400;
@@ -202,8 +175,9 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
 .session-rail-ft {
   min-height: 38px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   padding: 0 8px 8px var(--session-rail-inset);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-micro);
@@ -269,7 +243,7 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--mx-radius-md);
+  border-radius: var(--mx-radius-lg);
   background: none;
   color: inherit;
   font: inherit;
@@ -476,8 +450,12 @@ button.session-rail-row:not(:disabled):hover,
   align-items: center;
   gap: 4px;
 }
-.session-rail-model > :first-child {
+/* The route editor hugs its trigger elsewhere; here the trigger is a row of
+   the card's width, pressed anywhere along it like every other row. */
+.session-rail-model > .route-editor {
   flex: 1 1 auto;
+  display: block;
+  width: auto;
   min-width: 0;
 }
 .session-rail-model > .composer-server-account {

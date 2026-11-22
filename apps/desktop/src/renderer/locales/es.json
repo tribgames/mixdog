@@ -6626,5 +6626,9 @@
   "No changes": "Sin cambios",
   "{{count}} commits not pushed": "{{count}} commits sin enviar",
   "Resize session panel": "Cambiar el tamaño del panel de sesión",
-  "{{width}} pixels": "{{width}} píxeles"
+  "{{width}} pixels": "{{width}} píxeles",
+  "Session info": "Información de la sesión",
+  "Automatic": "Automático",
+  "Island": "Isla",
+  "Session info: Hidden": "Sin mostrar"
 }

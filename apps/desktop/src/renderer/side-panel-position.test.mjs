@@ -8,6 +8,7 @@ import {
   getSidePanelPosition,
   normalizeSidePanelPosition,
   resolveSidePanelPlacement,
+  setSessionInfoDisplay,
   setSidePanelPosition,
   SIDE_PANEL_AUTO_BOTTOM_MAX_WIDTH,
   subscribeSidePanelPosition,
@@ -17,11 +18,13 @@ import {
   PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR,
   PANE_SIDE_DOCK_MIN_HEIGHT,
   paneDockResizeAxis,
+  useSessionInfoDisplay,
 } from './pane-side-dock-hooks.ts';
 import { PaneSideDock } from './pane-side-dock.tsx';
 
 const POSITION_KEY = 'mixdog.desktop.side-panel-position.v1';
 const HEIGHT_KEY = 'mixdog.desktop.pane-side-dock-height.v1';
+const SESSION_INFO_KEY = 'mixdog.desktop.session-info-display.v1';
 
 function dom() {
   return installTestDom(null, {
@@ -54,6 +57,33 @@ test('side panel position persists and unknown values normalize to right', () =>
     assert.equal(jsdom.window.localStorage.getItem(POSITION_KEY), 'right');
     assert.equal(changes, 2);
   } finally {
+    restore();
+  }
+});
+
+test('session info display defaults to auto and a change reaches the hook', async () => {
+  const { dom: jsdom, restore } = dom();
+  const seen = [];
+  function Probe() {
+    seen.push(useSessionInfoDisplay());
+    return null;
+  }
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    assert.equal(seen.at(-1), 'auto');
+    await act(async () => {
+      assert.equal(setSessionInfoDisplay('island'), true);
+    });
+    assert.equal(seen.at(-1), 'island');
+    assert.equal(jsdom.window.localStorage.getItem(SESSION_INFO_KEY), 'island');
+    await act(async () => {
+      jsdom.window.localStorage.setItem(SESSION_INFO_KEY, 'none');
+      jsdom.window.dispatchEvent(new jsdom.window.StorageEvent('storage', { key: SESSION_INFO_KEY }));
+    });
+    assert.equal(seen.at(-1), 'none', 'another window changing the choice reaches the hook');
+  } finally {
+    await act(async () => root.unmount());
     restore();
   }
 });

@@ -1,17 +1,29 @@
-// The session panel's building block: a category as a sheet of its own in the
-// island panels' grammar: a head (name, count, what it holds, chevron), a body
-// and a foot of actions. Its head drags the sheet to another place in the panel.
+// The session panel's building block: a category as a card of its own: a head
+// that folds it as the left rail's groups fold (name, chevron, then its count
+// and what it holds), a body and a foot of actions in the island panels'
+// grammar. Its head drags the card to another place in the panel.
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { type DockAction, DockOverflowMenu } from './pane-dock-chrome';
 import { t } from './i18n';
 import { TidyButton } from './IslandPanelFoot';
-import { moveSessionRailCategory, type SessionRailCategory, useSessionRailOrder } from './session-rail-folds';
+import {
+  moveSessionRailCategory,
+  type SessionRailCategory,
+  sessionRailOrderNow,
+  setSessionRailOrder,
+} from './session-rail-folds';
 
 export type RailTidy = { kind: string; description: string; disabled: boolean; onClick(): void };
 
-/** The category whose head is being dragged; drops are taken from it alone. */
-let dragged: SessionRailCategory | null = null;
+/** The category whose head is being dragged (drops are taken from it alone),
+ *  and the arrangement it was picked up from. */
+let dragged: { category: SessionRailCategory; from: readonly SessionRailCategory[] } | null = null;
+
+/** A category is being dragged to another place. */
+export function sessionRailDragging(): boolean {
+  return dragged !== null;
+}
 
 export function RailSection({
   category,
@@ -50,27 +62,27 @@ export function RailSection({
   scroll?: boolean;
   children: ReactNode;
 }) {
-  const order = useSessionRailOrder();
   const Chevron = open ? ChevronDown : ChevronRight;
   const end = meta ?? (open ? null : summary);
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
-    const shown = [
-      ...(event.currentTarget.closest('.session-rail-content')?.querySelectorAll<HTMLElement>('.session-rail-sec') ?? []),
-    ]
-      .map((node) => node.dataset.category as SessionRailCategory)
-      .sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const head = event.currentTarget;
+    const shown = [...(head.closest('.session-rail-content')?.querySelectorAll<HTMLElement>('.session-rail-sec') ?? [])].map(
+      (node) => node.dataset.category as SessionRailCategory
+    );
     const down = event.key === 'ArrowDown';
     const neighbour = shown[shown.indexOf(category) + (down ? 1 : -1)];
     if (!neighbour) return;
     event.preventDefault();
     moveSessionRailCategory(category, neighbour, down);
+    // The card moved in the document, which drops focus: the head keeps it.
+    requestAnimationFrame(() => head.focus());
   };
   const onDragOver = (event: DragEvent<HTMLElement>) => {
-    if (!dragged || dragged === category) return;
+    if (!dragged || dragged.category === category) return;
     event.preventDefault();
     const box = event.currentTarget.getBoundingClientRect();
-    moveSessionRailCategory(dragged, category, event.clientY > box.top + box.height / 2);
+    moveSessionRailCategory(dragged.category, category, event.clientY > box.top + box.height / 2);
   };
   return (
     <section
@@ -78,11 +90,7 @@ export function RailSection({
       data-category={category}
       data-open={open || undefined}
       aria-label={title}
-      style={{ order: order.indexOf(category) }}
       onDragOver={onDragOver}
-      onDrop={(event) => {
-        if (dragged) event.preventDefault();
-      }}
     >
       <div className="session-rail-hd">
         <button
@@ -94,22 +102,28 @@ export function RailSection({
           onClick={onToggle}
           onKeyDown={onKeyDown}
           onDragStart={(event) => {
-            dragged = category;
+            dragged = { category, from: sessionRailOrderNow() };
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', title);
-            event.currentTarget.closest<HTMLElement>('.session-rail-sec')?.setAttribute('data-dragging', 'true');
+            // What is carried is the whole card, held where it was pressed.
+            const card = event.currentTarget.closest<HTMLElement>('.session-rail-sec');
+            if (!card) return;
+            const box = card.getBoundingClientRect();
+            event.dataTransfer.setDragImage(card, event.clientX - box.left, event.clientY - box.top);
+            // After the browser has taken the card's picture: its place in the column dims.
+            requestAnimationFrame(() => card.setAttribute('data-dragging', 'true'));
           }}
           onDragEnd={(event) => {
+            // Let go outside the panel or cancelled with Escape: the order it was picked up from.
+            if (dragged && event.dataTransfer.dropEffect === 'none') setSessionRailOrder(dragged.from);
             dragged = null;
             event.currentTarget.closest<HTMLElement>('.session-rail-sec')?.removeAttribute('data-dragging');
           }}
         >
-          <span className="session-rail-tt">
-            {title}
-            {count != null && <span className="session-rail-ct">{count}</span>}
-          </span>
-          <span className="session-rail-sm">{end}</span>
+          <span className="session-rail-tt">{title}</span>
           <Chevron size={12} className="session-rail-cv" aria-hidden="true" />
+          {count != null && <span className="session-rail-ct">{count}</span>}
+          <span className="session-rail-sm">{end}</span>
         </button>
         {open && menu.length > 0 && <DockOverflowMenu items={menu} />}
       </div>

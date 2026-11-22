@@ -95,6 +95,60 @@ export function subscribeSidePanelPosition(listener: () => void): () => void {
   return () => window.removeEventListener(POSITION_CHANGE_EVENT, onChange);
 }
 
+/** How a session's info shows on desktop: chosen automatically, in the
+ *  island, or not at all. */
+export type SessionInfoDisplay = 'auto' | 'island' | 'none';
+
+const SESSION_INFO_DISPLAY_KEY = 'mixdog.desktop.session-info-display.v1';
+const SESSION_INFO_DISPLAY_CHANGE_EVENT = 'mixdog:session-info-display-changed';
+const DEFAULT_SESSION_INFO_DISPLAY: SessionInfoDisplay = 'auto';
+let fallbackSessionInfoDisplay: SessionInfoDisplay = DEFAULT_SESSION_INFO_DISPLAY;
+
+/** Unknown or missing stored values fall back to Automatic. */
+export function normalizeSessionInfoDisplay(value: unknown): SessionInfoDisplay {
+  return value === 'auto' || value === 'island' || value === 'none' ? value : DEFAULT_SESSION_INFO_DISPLAY;
+}
+
+export function getSessionInfoDisplay(): SessionInfoDisplay {
+  try {
+    fallbackSessionInfoDisplay = normalizeSessionInfoDisplay(window.localStorage.getItem(SESSION_INFO_DISPLAY_KEY));
+  } catch {
+    // Desktop-local layout preferences degrade to the in-memory value.
+  }
+  return fallbackSessionInfoDisplay;
+}
+
+export function setSessionInfoDisplay(display: SessionInfoDisplay): boolean {
+  fallbackSessionInfoDisplay = normalizeSessionInfoDisplay(display);
+  let persisted = false;
+  try {
+    window.localStorage.setItem(SESSION_INFO_DISPLAY_KEY, fallbackSessionInfoDisplay);
+    persisted = true;
+  } catch {
+    // The current renderer still applies the in-memory preference.
+  }
+  try {
+    window.dispatchEvent(new window.Event(SESSION_INFO_DISPLAY_CHANGE_EVENT));
+  } catch {
+    // Non-browser imports keep the in-memory preference only.
+  }
+  return persisted;
+}
+
+export function subscribeSessionInfoDisplay(listener: () => void): () => void {
+  const onChange = () => listener();
+  // Another window of the app changed the choice.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === SESSION_INFO_DISPLAY_KEY || event.key === null) listener();
+  };
+  window.addEventListener(SESSION_INFO_DISPLAY_CHANGE_EVENT, onChange);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(SESSION_INFO_DISPLAY_CHANGE_EVENT, onChange);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
 /** The placement a position resolves to in a window of this size. */
 export function resolveSidePanelPlacement(
   position: SidePanelPosition,

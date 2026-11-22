@@ -1,30 +1,28 @@
-// The session panel's column beside a pane: how it fits next to the dock and
-// the conversation, and the slot its body is drawn into.
+// The session panel: cards in the margin right of a pane's conversation. How
+// wide they may be there, and the slot their body is drawn into.
 import { useSyncExternalStore } from 'react';
-import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { PANE_SIDE_DOCK_SHEET_FRAME_WIDTH, SESSION_RAIL_WIDTH_KEY } from './pane-side-dock-model';
 
 export const SESSION_RAIL_DEFAULT_WIDTH = 400;
 export const SESSION_RAIL_MIN_WIDTH = 300;
 export const SESSION_RAIL_MAX_WIDTH = 560;
-
-/** `column`: a sheet of its own at the pane's right edge; `raised`: shown
- *  over the right edge of the pane (too little room for a column); `off`:
- *  not shown. */
-export type SessionRailMode = 'off' | 'column' | 'raised';
+/** The transcript scrollbar's lane, right of the cards (session-rail.css). */
+export const SESSION_RAIL_GAP = 8;
+/** The conversation's reading column and composer at their widest
+ *  (--pane-column's cap in 12-transcript.css). */
+export const PANE_READING_COLUMN_MAX = 848;
 
 export function clampSessionRailWidth(width: number): number {
   const value = Number.isFinite(width) ? width : SESSION_RAIL_DEFAULT_WIDTH;
   return Math.round(Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, value)));
 }
 
-/** Where the panel goes in a pane cell `cellWidth` wide (the cell's width,
- *  not the window's). The conversation keeps its floor and a dock beside it
- *  the width it has without the panel (`dockWidth`): the panel is a column
- *  in the room they leave, down to its own minimum. With less room it is
- *  `off` beside a dock (the dock is the pane's side panel then, and the
- *  composer keeps its controls) and raised over the pane with no dock.
- *  `dockRoom` is the width the dock may take beside the conversation. */
+/** The cards' width in a pane cell `cellWidth` wide (the cell's width, not
+ *  the window's), 0 when they have no room. Nothing gives way to them: a dock
+ *  beside the conversation keeps its width (`dockWidth`), and the reading
+ *  column and composer stay centred at their widest. The cards take the
+ *  margin that leaves on the right, down to their own minimum; with less they
+ *  are not shown, and the composer keeps its island and controls. */
 export function sessionRailFit({
   cellWidth,
   dockWidth,
@@ -34,18 +32,11 @@ export function sessionRailFit({
   /** 0 when no dock is open beside the conversation (none, or one below it). */
   dockWidth: number;
   railPref: number;
-}): { mode: SessionRailMode; width: number; dockRoom: number } {
-  const frame = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
-  const preferred = clampSessionRailWidth(railPref);
-  const dockReserve = dockWidth > 0 ? frame + dockWidth : 0;
-  const room = cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - dockReserve - frame;
-  const withoutRail = cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - frame;
-  if (room < SESSION_RAIL_MIN_WIDTH) {
-    if (dockWidth > 0) return { mode: 'off', width: 0, dockRoom: withoutRail };
-    return { mode: 'raised', width: Math.max(0, Math.min(preferred, cellWidth - 2 * frame)), dockRoom: withoutRail };
-  }
-  const width = Math.min(preferred, room);
-  return { mode: 'column', width, dockRoom: withoutRail - width - frame };
+}): number {
+  const dockReserve = dockWidth > 0 ? PANE_SIDE_DOCK_SHEET_FRAME_WIDTH + dockWidth : 0;
+  const margin = Math.floor((cellWidth - dockReserve - PANE_READING_COLUMN_MAX) / 2);
+  const room = margin - SESSION_RAIL_GAP;
+  return room < SESSION_RAIL_MIN_WIDTH ? 0 : Math.min(clampSessionRailWidth(railPref), room);
 }
 
 // ── The one width every pane's panel takes, live ─────────────────────────
@@ -97,20 +88,20 @@ export function useSessionRailWidth(): number {
   );
 }
 
-// ── The slot each pane's column offers its conversation ──────────────────
+// ── The slot each pane's card offers its conversation ────────────────────
 
 /** `sessionId`: the session the pane shows, the only one the panel draws. */
-export type SessionRailSlot = { element: HTMLElement | null; mode: SessionRailMode; sessionId: string };
+export type SessionRailSlot = { element: HTMLElement | null; sessionId: string };
 
-const CLOSED_SLOT: SessionRailSlot = { element: null, mode: 'off', sessionId: '' };
+const CLOSED_SLOT: SessionRailSlot = { element: null, sessionId: '' };
 const slots = new Map<string, SessionRailSlot>();
 const listeners = new Set<() => void>();
 
-/** The column (or raised panel) of pane `leafId`, or null when it is gone. */
+/** The card of pane `leafId`, or null when it is gone. */
 export function publishSessionRailSlot(leafId: string, slot: SessionRailSlot | null): void {
   const current = slots.get(leafId) ?? CLOSED_SLOT;
   const next = slot ?? CLOSED_SLOT;
-  if (current.element === next.element && current.mode === next.mode && current.sessionId === next.sessionId) return;
+  if (current.element === next.element && current.sessionId === next.sessionId) return;
   if (slot) slots.set(leafId, slot);
   else slots.delete(leafId);
   for (const listener of [...listeners]) listener();
@@ -125,17 +116,17 @@ export function sessionRailSlot(leafId: string): SessionRailSlot {
   return slots.get(leafId) ?? CLOSED_SLOT;
 }
 
-/** What the panel is to one conversation: only the pane's own, on-screen
- *  conversation of the session the pane shows owns it (a retained one, a
- *  parked one or a sub-agent's in the dock is `off`). As a `column` it takes
- *  that conversation's island and the controls under its composer; `raised`
- *  or `off`, the composer keeps them. */
-export function sessionRailComposerMode(
+/** The element one conversation draws the panel into, or null: only the
+ *  pane's own, on-screen conversation of the session the pane shows owns the
+ *  card (not a retained one, a parked one or a sub-agent's in the dock). The
+ *  card takes that conversation's island and the controls under its composer;
+ *  without it the composer keeps them. */
+export function sessionRailHost(
   slot: SessionRailSlot,
   conversation: { sessionId: string; onScreen: boolean }
-): SessionRailMode {
+): HTMLElement | null {
   const owner = conversation.onScreen && Boolean(conversation.sessionId) && conversation.sessionId === slot.sessionId;
-  return owner && slot.element ? slot.mode : 'off';
+  return owner ? slot.element : null;
 }
 
 /** The session panel of the pane the caller is drawn in. */
@@ -145,19 +136,4 @@ export function useSessionRailSlot(leafId: string): SessionRailSlot {
     () => sessionRailSlot(leafId),
     () => CLOSED_SLOT
   );
-}
-
-// ── Presses inside the panel ─────────────────────────────────────────────
-
-/** A raised panel closes on a press outside it. Its body is drawn from the
- *  conversation and its menus are portalled to the body, so "inside" is
- *  what any of them marked on its way through React, not the DOM. */
-const insidePresses = new WeakSet<Event>();
-
-export function markSessionRailPress(event: Event): void {
-  insidePresses.add(event);
-}
-
-export function sessionRailPress(event: Event): boolean {
-  return insidePresses.has(event);
 }

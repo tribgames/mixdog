@@ -115,7 +115,8 @@ export function WorktreesSection({
     menuOpen: open,
     load,
     setNotice: notify,
-    close: () => {},
+    // What the panel has to close after an action is the branch name dialog.
+    close: () => setNamingBranch(false),
     reopen: () => {},
     trigger,
   });
