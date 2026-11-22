@@ -384,7 +384,10 @@ async fn a_refused_login_is_the_fixed_sentence_and_the_password_never_appears() 
     let answer = server.answer(&url, "POST", Some(EMAIL), &body).await.unwrap().body.unwrap();
     assert_eq!(answer["result"]["isError"], true);
     let text = answer["result"]["content"][0]["text"].as_str().unwrap();
-    assert_eq!(text, "GMAIL_APP_PASSWORD_REJECTED: Google did not accept this address and app password.");
+    assert_eq!(
+        text,
+        "GMAIL_APP_PASSWORD_REJECTED: Google did not accept this address and app password. (Google replied: 3 NO [AUTHENTICATIONFAILED] Invalid credentials (Failure))"
+    );
     assert!(!text.contains(SECRET));
 }
 

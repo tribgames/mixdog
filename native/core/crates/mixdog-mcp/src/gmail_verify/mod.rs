@@ -1,8 +1,8 @@
 //! `GmailVerifier` as `src/runtime/connectors/gmail-app-password.mjs` verifies an app password:
 //! one IMAP session on imap.gmail.com:993 and one SMTP check on smtp.gmail.com:465, both over
 //! TLS from the first byte, each with a 20 s connection, 15 s greeting and 60 s socket timeout.
-//! A failure becomes one fixed sentence per cause (`GMAIL_APP_PASSWORD_<CODE>: …`) and the
-//! password never appears in it.
+//! A failure becomes one fixed sentence per cause (`GMAIL_APP_PASSWORD_<CODE>: …`), followed by the
+//! server's reply when it gave one; the password never appears in it.
 //!
 //! The server certificate is checked against Mozilla's bundled roots (Node's own list) and the
 //! system's, so a machine whose store lacks a root still verifies and a company root still does.
@@ -75,7 +75,28 @@ static UNAVAILABLE: LazyLock<Regex> = LazyLock::new(|| {
 static REJECTED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)AUTHENTICATIONFAILED|Invalid credentials|Username and Password not accepted|5\.7\.8").expect("a fixed pattern"));
 
+// The status of an SMTP reply line (`534-5.7.14 `): a multiline reply is one text.
+static REPLY_STATUS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{3}[ -](?:\d\.\d{1,3}\.\d{1,3}(?:\s+|$))?").expect("a fixed pattern"));
+// The query of a URL in a reply: a sign-in link's carries a continuation token, which Gmail wraps across lines inside
+// the brackets; a bracketed link ends at its `>`.
+static BRACKETED_QUERY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<(https?://[^\s?#<>]*)[?#][^>]*(>|$)").expect("a fixed pattern"));
+static URL_QUERY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(https?://[^\s?#<>"']*)[?#][^\s<>"')\]]*"#).expect("a fixed pattern"));
+
 const DETAIL_CHARS: usize = 200;
+
+/// Server text as the error shows it: one text without the continuation lines' statuses, URLs without their queries,
+/// clipped.
+fn shown(text: &str) -> String {
+    let mut lines = text.split('\n').map(|line| line.trim_end_matches('\r'));
+    let first = lines.next().unwrap_or_default().to_owned();
+    let one = lines.fold(first, |mut out, line| {
+        out.push(' ');
+        out.push_str(REPLY_STATUS.find(line).map_or(line, |status| &line[status.end()..]));
+        out
+    });
+    let bracketed = BRACKETED_QUERY.replace_all(&one, "<${1}${2}");
+    clip(&collapse(&URL_QUERY.replace_all(&bracketed, "$1")))
+}
 
 /// `gmailError(error, password)` rendered as the error's message.
 pub(crate) fn describe(failure: &Failure, password: &str) -> String {
@@ -85,7 +106,8 @@ pub(crate) fn describe(failure: &Failure, password: &str) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    let detail = if password.is_empty() { joined } else { joined.replace(password, "[redacted]") };
+    let redact = |text: &str| if password.is_empty() { text.to_owned() } else { text.replace(password, "[redacted]") };
+    let detail = redact(&joined);
     let code = if UNAVAILABLE.is_match(&detail) || failure.response_code == Some(534) {
         "UNAVAILABLE"
     } else if failure.authentication_failed || failure.code == "EAUTH" || failure.response_code == Some(535) || REJECTED.is_match(&detail) {
@@ -95,12 +117,28 @@ pub(crate) fn describe(failure: &Failure, password: &str) -> String {
     } else {
         "FAILED"
     };
-    let suffix = if code == "FAILED" { clip(&collapse(&detail)) } else { String::new() };
+    // A refusal has several causes with different remedies that only the server's own words tell apart.
+    let reply = || {
+        let said = [failure.response.as_deref(), failure.response_text.as_deref()].into_iter().flatten().find(|part| !part.is_empty())?;
+        Some(format!("Google replied: {}", shown(&redact(said))))
+    };
+    let suffix = match code {
+        "FAILED" => shown(&detail),
+        "REJECTED" | "UNAVAILABLE" => reply().unwrap_or_default(),
+        _ => String::new(),
+    };
     if suffix.is_empty() {
         format!("GMAIL_APP_PASSWORD_{code}: {}", sentence(code))
     } else {
         format!("GMAIL_APP_PASSWORD_{code}: {} ({suffix})", sentence(code))
     }
+}
+
+/// [`describe`], also written to the daemon log.
+pub(crate) fn report(failure: &Failure, password: &str) -> String {
+    let text = describe(failure, password);
+    crate::config::daemon_line(&format!("[gmail-app-password] {text}"));
+    text
 }
 
 /// `.replace(/\s+/g, ' ').trim()`.
@@ -193,7 +231,7 @@ impl GmailAppPassword {
             Ok(()) => smtp::verify(&smtp, &self.hello, email, password).await,
             Err(failure) => Err(failure),
         };
-        outcome.map_err(|failure| describe(&failure, password))
+        outcome.map_err(|failure| report(&failure, password))
     }
 }
 
