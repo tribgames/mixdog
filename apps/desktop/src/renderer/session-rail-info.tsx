@@ -1,55 +1,31 @@
 // The session panel's Info category (project, branch, model, workflow,
 // delegation and usage, each row opening the product's own picker under it)
 // and its Context category.
-import {
-  Activity,
-  CalendarClock,
-  Folder,
-  FoldVertical,
-  GitBranch,
-  ListTree,
-  Users,
-  Workflow,
-  X,
-} from 'lucide-react';
-import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, CalendarClock, Folder, FoldVertical, GitBranch, ListTree, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { ServerAccountBadge, useAgentChatRouteApplied } from './ComposerFooter';
-import { ComposerRouteChoices } from './composer-route-choices';
+import { useAgentChatRouteApplied } from './ComposerFooter';
 import { ComposerRoutineReadout } from './composer-routine-readout';
 import { compactTokens, contextMix } from './ContextBody';
 import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
-import { BranchChip, type BranchChipProps } from './BranchChip';
-import { type ProjectContextProps, projectContextChoice } from './composer-support';
-import {
-  ModelSelector,
-  type OrchestrationModePickProps,
-  useOrchestrationModeChoice,
-  useWorkflowChoice,
-  type WorkflowPickProps,
-} from './model-controls';
 import { showDesktopToast } from './notifications';
 import { projectIdentity } from './project-catalog-cache';
 import { RendererLruCache } from './renderer-lru-cache';
 import type { RouteSessionChoice } from './route-editor-panes';
 import { ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { openOnArrow, RailPickMark, RailSection } from './session-rail-parts';
+import { ChoiceRow, ModelRow, type RailModelProps } from './session-rail-rows';
 import { projectMoveItems } from './session-sidebar-menus';
 import { groupProjectSessions } from './session-sidebar-sections';
 import { sessionProjectMove } from './session-project-move';
 import { useContextUsage } from './transcript-status';
 import { BranchIslandSegment } from './WorktreeIslandSegment';
 import type { ComposerIslandFlash } from './ComposerIsland';
-
-export type RailModelProps = Omit<
-  ComponentProps<typeof ModelSelector>,
-  'answersModelPickerRequests' | 'sheetAlign' | 'sheetPlacement' | 'sessionChoices' | 'triggerRowLabel'
->;
 
 /** The Project row: the session menu's move, always pressable. A move the
  *  core keeps for the end of a turn shows as pending (and can be cancelled);
@@ -150,124 +126,6 @@ function ProjectRow({
       )}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} anchorRef={row} />
     </>
-  );
-}
-
-const CHOICE_ICONS: Record<string, typeof Workflow> = { 'orchestration-mode': Users, project: Folder };
-
-/** A Workflow or Delegation row (a New Task's Project too): the route label's own choices, under the row. */
-function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
-  const row = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const Icon = CHOICE_ICONS[choice.id] ?? Workflow;
-  return (
-    <>
-      <button
-        ref={row}
-        type="button"
-        className="session-rail-row session-rail-pick"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-disabled={choice.disabled || undefined}
-        title={choice.label}
-        onKeyDown={(event) => openOnArrow(event, open, () => !choice.disabled && setOpen(true))}
-        onClick={() => {
-          if (!choice.disabled) setOpen(!open);
-        }}
-      >
-        <Icon size={14} className="session-rail-ic" aria-hidden="true" />
-        <span className="sr-only">{choice.label}</span>
-        <span className="session-rail-cut">{choice.valueLabel}</span>
-        <RailPickMark />
-      </button>
-      {open && (
-        <ComposerRouteChoices
-          anchor={row}
-          choices={[choice]}
-          side="below"
-          align="start"
-          onClose={(restoreFocus) => {
-            setOpen(false);
-            if (restoreFocus) row.current?.focus({ preventScroll: true });
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function ModelRow({ model, answersModelPickerRequests }: { model: RailModelProps; answersModelPickerRequests: boolean }) {
-  return (
-    <div className="session-rail-model">
-      <ModelSelector
-        {...model}
-        answersModelPickerRequests={answersModelPickerRequests}
-        sheetAlign="start"
-        sheetPlacement="below"
-        triggerRowLabel={t('Model')}
-      />
-      <ServerAccountBadge />
-    </div>
-  );
-}
-
-/** What a New Task's context chips act on, handed to its panel's Info rows. */
-export type DraftRailContext = {
-  project: ProjectContextProps;
-  workflow: WorkflowPickProps;
-  delegation: OrchestrationModePickProps;
-  branch: BranchChipProps;
-};
-
-/** A New Task's Info category: the context chips under its composer (project,
- *  branch, workflow, delegation) and its model, as the session's Info rows. */
-export function DraftInfoSection({
-  open,
-  onToggle,
-  draft,
-  model,
-  answersModelPickerRequests,
-}: {
-  open: boolean;
-  onToggle(): void;
-  draft: DraftRailContext;
-  model: RailModelProps;
-  answersModelPickerRequests: boolean;
-}) {
-  const project = projectContextChoice(draft.project);
-  const projectLabel = draft.project.activePath ? project.valueLabel : t('No project');
-  const { choice: workflow } = useWorkflowChoice(draft.workflow);
-  const delegation = useOrchestrationModeChoice(draft.delegation);
-  return (
-    <RailSection
-      category="info"
-      title={t('Info')}
-      open={open}
-      onToggle={onToggle}
-      summary={<span className="session-rail-cut">{projectLabel}</span>}
-    >
-      <ChoiceRow choice={{ ...project, valueLabel: projectLabel }} />
-      <BranchChip
-        {...draft.branch}
-        renderTrigger={(button, view) => (
-          <button
-            {...button}
-            type="button"
-            className="session-rail-row session-rail-pick"
-            title={t('Branch')}
-            onKeyDown={(event) => openOnArrow(event, Boolean(button['aria-expanded']), view.toggle)}
-          >
-            {view.icon('session-rail-ic')}
-            <span className="sr-only">{t('Branch')}</span>
-            <span className="session-rail-cut">{view.label}</span>
-            <RailPickMark />
-          </button>
-        )}
-      />
-      <ModelRow model={model} answersModelPickerRequests={answersModelPickerRequests} />
-      {workflow && <ChoiceRow choice={workflow} />}
-      {delegation && <ChoiceRow choice={delegation} />}
-    </RailSection>
   );
 }
 

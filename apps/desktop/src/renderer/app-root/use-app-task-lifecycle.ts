@@ -115,7 +115,7 @@ export interface UseAppTaskLifecycleOptions {
   openSessionRef: React.MutableRefObject<(sessionId: string, force?: boolean) => Promise<void>>;
   openProjects: () => void;
   refreshProjects: () => Promise<unknown>;
-  stageNewTaskProject: (path: string) => void;
+  stageNewTaskProject: (path: string, draftKey?: string) => void;
   sessions: ReturnType<typeof useSessionCatalog>['sessions'];
   refreshSessions: ReturnType<typeof useSessionCatalog>['refreshSessions'];
   applySnapshot: ReturnType<typeof useDesktopState>['applySnapshot'];
@@ -401,7 +401,7 @@ export function useAppTaskLifecycle({
 
   const conversationNewTask = useStableEvent(() => startTask());
   const conversationClearToNewTask = useStableEvent(clearSessionToNewTask);
-  const conversationClearProject = useStableEvent(() => stageNewTaskProject(''));
+  const conversationClearProject = useStableEvent((draftKey?: string) => stageNewTaskProject('', draftKey));
   const conversationResumeSession = useStableEvent((sessionId: string) => {
     void openSessionRef.current(sessionId);
   });
@@ -410,8 +410,8 @@ export function useAppTaskLifecycle({
     openProjects();
     void refreshProjects().catch(() => undefined);
   });
-  const conversationSelectProject = useStableEvent((path: string) => {
-    stageNewTaskProject(path);
+  const conversationSelectProject = useStableEvent((path: string, draftKey?: string) => {
+    stageNewTaskProject(path, draftKey);
   });
 
   const replaceWithInheritedSession = useStableEvent(
