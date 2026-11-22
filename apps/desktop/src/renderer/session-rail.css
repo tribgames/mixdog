@@ -1,10 +1,10 @@
 /* ── Session panel ──
    The session's categories as cards in the top right of the pane's
-   conversation, under the tab strip, shown while the margin beside the
-   reading column holds them (session-rail-layout.ts sessionRailFit): the
-   conversation never moves for them. The column has no frame of its own; it
-   hugs its cards and scrolls past the conversation's height. The 8px at its
-   right (SESSION_RAIL_GAP) is the transcript scrollbar's lane. */
+   conversation, under the tab strip, shown while the margins beside the
+   reading column hold them (session-rail-layout.ts sessionRailFit). The
+   column has no frame of its own; it hugs its cards and scrolls past the
+   conversation's height. The 8px at its right (SESSION_RAIL_GAP) is the
+   transcript scrollbar's lane while the conversation keeps its full width. */
 .pane-cell > .session-rail {
   grid-column: 1;
   grid-row: 2;
@@ -12,6 +12,14 @@
   align-self: start;
   max-height: 100%;
   margin-right: 8px;
+}
+/* When the right margin alone is too narrow, the conversation re-centres
+   left of the cards (--session-rail-reserve, set on the cell by
+   SessionRailCard): its pane container narrows, so the transcript, its
+   scrollbar and the composer keep one right edge and every width rule inside
+   follows. */
+.pane-conversation-slot > .conversation-persistent-surface {
+  padding-right: var(--session-rail-reserve, 0px);
 }
 /* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
    items 14, supporting figures 13 and 12. */

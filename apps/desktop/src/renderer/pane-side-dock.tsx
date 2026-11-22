@@ -231,9 +231,10 @@ type DockLayoutInput = Omit<Parameters<typeof resolveDockLayout>[0], 'room' | 'c
 
 /** The dock and the session panel decided together, from the pane cell's
  *  width: the dock as it lays out alone (resolveDockLayout), and the panel's
- *  card at the width the conversation beside that dock has room for
- *  (sessionRailFit; 0: not shown, the composer keeps its controls). Before
- *  the first measure the card has its preferred width. */
+ *  cards at the width the conversation beside that dock has room for, with
+ *  what it gives up for them (sessionRailFit; width 0: not shown, the
+ *  composer keeps its controls). Before the first measure the cards have
+ *  their preferred width. */
 export function paneDockRailLayout({
   cellWidth,
   bottom,
@@ -253,8 +254,8 @@ export function paneDockRailLayout({
     return bottom ? cell - 2 : cell - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame;
   };
   const alone = resolveDockLayout({ ...dock, cellWidth, room: roomFor(cellWidth) });
-  if (rail === null) return { dock: alone, rail: 0 };
-  if (cellWidth <= 0) return { dock: alone, rail: clampSessionRailWidth(rail) };
+  if (rail === null) return { dock: alone, rail: { width: 0, reserve: 0 } };
+  if (cellWidth <= 0) return { dock: alone, rail: { width: clampSessionRailWidth(rail), reserve: 0 } };
   // A dock floating over a narrow pane has no room of its own beside the conversation, so the panel has none either.
   const inline = alone.overlay ? cellWidth : alone.baseAsideWidth + alone.diffWidth;
   return { dock: alone, rail: sessionRailFit({ cellWidth, dockWidth: dock.openNow && !bottom ? inline : 0, railPref: rail }) };
@@ -929,7 +930,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
       diffPref,
     },
   });
-  const railWidth = layout.rail;
+  const { width: railWidth, reserve: railReserve } = layout.rail;
   const { diffDesired, twoDepth, pairShowing, overlay: sideOverlay, baseAsideWidth, diffWidth } = layout.dock;
   const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
@@ -937,7 +938,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   inlineDock.current = openNow && !overlay && !dockExpanded;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railWidth}`;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railReserve}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,
@@ -1031,6 +1032,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
           leafId={leafId}
           sessionId={sessionId}
           width={railWidth}
+          reserve={railReserve}
           onFocusPane={focused ? undefined : onFocusPane}
         />
       )}
