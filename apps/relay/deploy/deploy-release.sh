@@ -79,6 +79,9 @@ cleanup_stale_releases() {
 		/opt/mixdog-relay.next-*
 }
 
+# Host tuning reports its own gaps; it never holds back a release.
+bash "$SRC_DIR/deploy/conntrack.sh" apply || echo "[conntrack] warning: conntrack.sh exited $?; the release continues" >&2
+
 test -d "$INSTALL_DIR"
 test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 rm -rf "$NEXT_DIR" "$BACKUP_DIR"
