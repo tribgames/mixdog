@@ -151,8 +151,9 @@ impl Setup {
 /// Of the run's time, what reading a stuck child's threads may take.
 const THREADS_SHARE: u64 = 25;
 
-/// Of a sampler's output, what is kept and printed (of each of its two streams); the rest is read and dropped.
-const THREADS_EXCERPT: usize = 96 * 1024;
+/// Of a sampler's output, what is kept and printed (of each of its two streams); the rest is read and dropped. A composed core's
+/// sample ran to 165 KiB on the macOS runner (release gate run 44959677392), and the threads cut off were the ones started last.
+const THREADS_EXCERPT: usize = 512 * 1024;
 
 /// What a reader has of one stream so far.
 #[derive(Default)]
@@ -189,7 +190,8 @@ fn excerpt(stream: Option<impl std::io::Read + Send + 'static>) -> std::sync::Ar
 
 /// What `program` says, each stream cut to its excerpt. Everything ends at `deadline`: a sampler still running is sent its kill and not
 /// waited for, a stream still open (a process the sampler started may hold it) is left to its reader, and what was read by then is
-/// returned with a note that it is not all. Used on a child the runner supervises, never on the process that waits for it here.
+/// returned with a note that it is not all. Used on a child the runner supervises, and by a process on itself from a thread of its
+/// own ([`threads_of_self`]): the sampler is another process, and what it stops of this one it stops only while it reads the stacks.
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test harness: runs the system's own sampler on a child of the runner")]
 fn sampled(program: &str, args: &[&str], deadline: Instant) -> String {
     let mut command = std::process::Command::new(program);
@@ -235,6 +237,16 @@ fn threads_of_child(pid: u32, deadline: Instant) -> Option<String> {
     let mut text = thread_summary(pid)?;
     text.push_str(&sampled("gdb", &["-batch", "-p", id.as_str(), "-ex", "thread apply all bt 40"], deadline));
     Some(text)
+}
+
+/// What the threads of this process are doing, read by itself: on macOS the call stacks `sample` reads over two seconds, on Linux
+/// the summary of [`thread_summary`] (nothing is attached to a process by its own child). `None` on Windows. Until `deadline`.
+fn threads_of_self(deadline: Instant) -> Option<String> {
+    let pid = std::process::id();
+    if cfg!(target_os = "macos") {
+        return Some(sampled("/usr/bin/sample", &[pid.to_string().as_str(), "2", "-mayDie"], deadline));
+    }
+    thread_summary(pid)
 }
 
 /// Linux: each thread of the process `pid` by name, state and the number of the system call it is in (`/proc/<pid>/task`), like ones
@@ -402,13 +414,30 @@ where
 
 /// Runs `body` on `runtime`, then ends the runtime, and says each end on stderr. A runtime's end waits for every blocking task that has
 /// started and for its workers to drop what the tasks held: of a test that does not end, the two lines tell a body that did not end from
-/// a runtime that did not.
+/// a runtime that did not. A runtime that has not ended [`RUNTIME_END`] after the body has the process's threads written to stderr
+/// ([`threads_of_self`]): on the macOS runners four such tests ended their bodies and then never ended, with nothing said of what
+/// the runtime waited for (release gate run 44959677392).
+#[allow(clippy::disallowed_methods, reason = "test harness: a thread of its own, which the runtime's end it reports on cannot hold")]
 fn end_marked(runtime: tokio::runtime::Runtime, body: impl std::future::Future<Output = ()>) {
     runtime.block_on(body);
     eprintln!("[composed-test] the test's body ended; its runtime ends next");
+    let (ended, late) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        if late.recv_timeout(RUNTIME_END) != Err(RecvTimeoutError::Timeout) {
+            return;
+        }
+        match threads_of_self(Instant::now() + Duration::from_secs(THREADS_SHARE)) {
+            Some(threads) => eprintln!("[stuck-diag] the runtime has not ended {RUNTIME_END:?} after the test's body; the process's threads:\n{threads}"),
+            None => eprintln!("[stuck-diag] the runtime has not ended {RUNTIME_END:?} after the test's body (this system has no reader of its threads)"),
+        }
+    });
     drop(runtime);
+    drop(ended);
     eprintln!("[composed-test] the runtime ended");
 }
+
+/// What a runtime's end may take before the threads of the process are read.
+const RUNTIME_END: Duration = Duration::from_secs(20);
 
 /// A composed test outside the runner, on the runtime `#[tokio::test(flavor = "multi_thread")]` would give it, its two ends said
 /// ([`end_marked`]): such tests ended every stop step on the macOS runners and then did not end.

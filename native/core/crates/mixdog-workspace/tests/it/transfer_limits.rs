@@ -130,10 +130,14 @@ fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
     // one rounding step. Memory kept per range shows here only once it makes the process touch pages it had not.
     let later = peak.saturating_sub(settled);
     assert!(later <= OS_PAGE, "peak working set grew {later} bytes over the {} pages read after it had settled", pages - SETTLING);
-    // And small: two pages of bytes plus their base64 text, each buffer whole, and the one rounding step for what else the process
-    // touched while it settled.
+    // And small: two pages of bytes plus their base64 text, each buffer whole, and no third page. The peak is the whole process's,
+    // so what else it touched while it settled (its allocator's own pages, a stack that grew, code first run) is counted with the
+    // buffers and cannot be told from them below the size of one: on the Apple silicon runner it came to 234 838 bytes beside the two
+    // pages' 19 573 418 (release gate run 44959677392), where one rounding step had been allowed for it. What the peak
+    // decides is whether a further buffer was held, and the smallest is a page of bytes.
     let growth = peak.saturating_sub(baseline);
-    let bound = 2 * (whole(RANGE_MAX_BYTES) + whole(RANGE_MAX_BYTES * 4 / 3)) + OS_PAGE;
-    assert!(growth <= bound, "peak working set grew {growth} bytes over {pages} pages (bound {bound})");
-    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (bound {bound}), {later} of them after page {SETTLING}");
+    let two_pages = 2 * (whole(RANGE_MAX_BYTES) + whole(RANGE_MAX_BYTES * 4 / 3));
+    let bound = two_pages + whole(RANGE_MAX_BYTES);
+    assert!(growth < bound, "peak working set grew {growth} bytes over {pages} pages: two pages are {two_pages}, a third would make it {bound}");
+    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (two pages: {two_pages}), {later} of them after page {SETTLING}");
 }

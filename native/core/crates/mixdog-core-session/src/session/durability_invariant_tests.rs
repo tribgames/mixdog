@@ -82,6 +82,11 @@ fn draft_hook(step: DraftStep, _: &str, _: Option<&Value>) -> std::io::Result<()
 fn install_hooks() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
+        // The oracle reads the session's files back from the running OS, and a write fails here by its hook: no flush to the
+        // device changes what is read. Every write of the 64 sequences waited for one: in the 120 s the Windows runner gave the test
+        // it was still advancing, the sessions of its printed lines 27 ids apart, where Linux and macOS ended all 64 in under 30 s
+        // (release gate run 44959677392).
+        mixdog_store::fsio::elide_syncs();
         mixdog_store::fsio::set_append_hook(append_hook);
         mixdog_store::draft_file::set_draft_hook(draft_hook);
     });
@@ -302,8 +307,11 @@ async fn generated_failure_schedules_keep_the_accepted_units_in_order_and_no_mar
     let _serial = SERIAL.lock().await;
     install_hooks();
     let mut failures = Vec::new();
+    let began = std::time::Instant::now();
     for seed in 1..=SEEDS {
         failures.extend(World::new(seed, false).await.run().await);
+        // Of a run that is ended for its time, how far it had come and how fast.
+        eprintln!("[schedules] seed {seed} of {SEEDS} ended {:?} after the first began", began.elapsed());
     }
     assert!(failures.is_empty(), "{} failing sequences:\n{}", failures.len(), failures.join("\n"));
 }

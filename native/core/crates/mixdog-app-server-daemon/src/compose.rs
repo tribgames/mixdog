@@ -140,6 +140,26 @@ impl StopSteps {
     }
 }
 
+/// A test's wish, with [`StopSteps::said`]: the parts of a stop step on stderr ([`stop_part`]).
+#[cfg(test)]
+pub(crate) static STOP_PARTS_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One part of a stop step. For a test that asked, its start and its end go to stderr, so of a step that does not end the part it
+/// waits in is named.
+pub(crate) async fn stop_part<T>(what: &'static str, part: impl std::future::Future<Output = T>) -> T {
+    #[cfg(test)]
+    if STOP_PARTS_SAID.load(std::sync::atomic::Ordering::SeqCst) {
+        let began = std::time::Instant::now();
+        eprintln!("[stop-part] {what}: begins");
+        let done = part.await;
+        eprintln!("[stop-part] {what}: ended in {:?}", began.elapsed());
+        return done;
+    }
+    #[cfg(not(test))]
+    let _ = what;
+    part.await
+}
+
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
     use mixdog_rt::LaneToken;

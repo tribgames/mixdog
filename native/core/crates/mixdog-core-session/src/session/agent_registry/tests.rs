@@ -3043,6 +3043,11 @@ async fn put_stored(core: &Core, id: &str, header: Row) {
     core.index.upsert(stored_head(id, header), mixdog_store::sqlite::DirtyMark::Clear).await.expect("the index takes the row");
 }
 async fn crowd_rig() -> Crowd {
+    // What is counted is the work of a signal, read back from the running OS: no flush to the device changes a count, and the
+    // 800 index rows of the data set and the 1,000 single-row writes each waited for one (over 120 s on the Windows runner, where
+    // the same test took 31 s on Linux; release gate run 44959677392).
+    mixdog_store::fsio::elide_syncs();
+    let began = std::time::Instant::now();
     let dir = tempfile::tempdir().unwrap();
     let core = Core::up(dir.path()).await;
     let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
@@ -3086,6 +3091,7 @@ async fn crowd_rig() -> Crowd {
         put_stored(&core, &id, header).await;
     }
     core.written().await;
+    eprintln!("[crowd] the data set was written in {:?}", began.elapsed());
     Crowd { core, _dir: dir, scopes, running }
 }
 /// A status signal as the product runs it (`AgentActivity::everyone`): every loaded thread re-reads its status at once
@@ -3143,7 +3149,12 @@ async fn a_status_signal_after_a_single_row_write_costs_what_the_write_changed()
 
     let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
     let before = rows::work::counts();
+    let began = std::time::Instant::now();
     for n in 1..=1000 {
+        // Of a run that is ended for its time, how far it had come and how fast.
+        if n % 100 == 0 {
+            eprintln!("[crowd] write {n} of 1000 begins {:?} after the first", began.elapsed());
+        }
         let (session, tag) = &crowd.running[n % crowd.running.len()];
         let stage = if n % 2 == 0 { "streaming" } else { "tool_running" };
         crowd.core.registry.upsert_worker_row(session, tag, &obj(json!({ "status": "running", "stage": stage })));

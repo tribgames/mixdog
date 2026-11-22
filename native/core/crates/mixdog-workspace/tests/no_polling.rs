@@ -128,10 +128,20 @@ async fn idle_run(idle: Duration) {
         }
         mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
-    // Where a late push waited: the service's own watcher heard of the written file from the OS this long after the write.
-    let heard = mixdog_workspace::watcher::backend_told().map(|at| at.saturating_duration_since(started));
-    assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}; the service's watcher heard of the write from the OS after {heard:?}");
-    eprintln!("idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?} (heard from the OS after {heard:?})");
+    // Where a late push waited, each instant counted from the write: the service's own watcher heard of the written file from the
+    // OS, its worker thread took that event from its queue (the 250 ms batching window starts there), the worker handed the batch
+    // to the sink, and this loop found the frame. On the macOS runner a push of 407 ms was heard from the OS after 39 ms (release
+    // gate run 44959677392), which left 118 ms beside the window in one of the three steps that follow.
+    let since = |at: Option<Instant>| at.map(|at| at.saturating_duration_since(started));
+    let heard = since(mixdog_workspace::watcher::backend_told());
+    let (taken, pushed) = (since(mixdog_workspace::watcher::worker_took()), since(mixdog_workspace::watcher::batch_pushed()));
+    assert!(
+        latency <= Duration::from_millis(400),
+        "fs/changed took {latency:?}; the service's watcher heard of the write from the OS after {heard:?}, its worker took the event after {taken:?} and pushed the batch after {pushed:?}"
+    );
+    eprintln!(
+        "idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?} (heard from the OS after {heard:?}, taken by the worker after {taken:?}, batch pushed after {pushed:?})"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

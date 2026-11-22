@@ -94,12 +94,38 @@ impl Drop for QueuedChange {
 #[cfg(feature = "count-jobs")]
 static BACKEND_TOLD: Mutex<Option<(PathBuf, Option<Instant>)>> = Mutex::new(None);
 
+/// When the worker thread took the awaited event from its queue, and when it handed a batch naming the path to the sink
+/// ([`worker_took`], [`batch_pushed`]).
+#[cfg(feature = "count-jobs")]
+static WORKER_STEPS: Mutex<(Option<Instant>, Option<Instant>)> = Mutex::new((None, None));
+
 /// From now on, the first backend callback of a watcher of this process that names `path` in a change (no access event, no error, no
 /// pathless rescan) is timed ([`backend_told`]). A test places a late push with it: before that callback the wait is the OS's, after it
-/// the service's.
+/// the service's, which [`worker_took`] and [`batch_pushed`] divide: the event's wait in the worker's queue, the batching window, and
+/// what follows the push.
 #[cfg(feature = "count-jobs")]
 pub fn await_backend_event(path: &Path) {
     *BACKEND_TOLD.lock().unwrap_or_else(PoisonError::into_inner) = Some((path.to_path_buf(), None));
+    *WORKER_STEPS.lock().unwrap_or_else(PoisonError::into_inner) = (None, None);
+}
+
+/// When the worker thread first took from its queue an event naming the path of [`await_backend_event`]: its batching window starts
+/// no later. `None` while it has not.
+#[cfg(feature = "count-jobs")]
+pub fn worker_took() -> Option<Instant> {
+    WORKER_STEPS.lock().unwrap_or_else(PoisonError::into_inner).0
+}
+
+/// When the worker thread first handed the sink a batch naming the path of [`await_backend_event`]; `None` while it has not.
+#[cfg(feature = "count-jobs")]
+pub fn batch_pushed() -> Option<Instant> {
+    WORKER_STEPS.lock().unwrap_or_else(PoisonError::into_inner).1
+}
+
+/// Whether `named` is the path a test awaits ([`await_backend_event`]).
+#[cfg(feature = "count-jobs")]
+fn awaited(named: &Path) -> bool {
+    BACKEND_TOLD.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|(path, _)| comparable(named) == comparable(path))
 }
 
 /// When the event awaited by [`await_backend_event`] first came; `None` while none has.
@@ -707,6 +733,13 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
         match message {
             Some(Message::Stop) => return,
             Some(Message::Event(event, queued)) => {
+                #[cfg(feature = "count-jobs")]
+                if let Ok(event) = &event
+                    && !matches!(event.kind, EventKind::Access(_))
+                    && event.paths.iter().any(|named| awaited(named))
+                {
+                    WORKER_STEPS.lock().unwrap_or_else(PoisonError::into_inner).0.get_or_insert(now);
+                }
                 let mut state = state.lock().expect("watcher state");
                 match event {
                     Ok(event) => batcher.event(&mut state, &event, now),
@@ -718,6 +751,10 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
         }
         if batcher.deadline().is_some_and(|deadline| deadline <= now) {
             for ((id, kind), paths) in batcher.flush(now) {
+                #[cfg(feature = "count-jobs")]
+                if paths.iter().any(|named| awaited(Path::new(named))) {
+                    WORKER_STEPS.lock().unwrap_or_else(PoisonError::into_inner).1.get_or_insert_with(Instant::now);
+                }
                 sink.changed(&id, paths.into_iter().collect(), kind);
             }
         }
