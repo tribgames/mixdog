@@ -132,15 +132,27 @@ is `LICENSES/MIT.txt`.
 
 Statement of changes (listed in `native/core/vendor/regress/MIXDOG.md` and
 marked `mixdog` in the sources): with the `utf16` feature, a start-anchored
-regex is tried at the one position it can match at instead of at every
-position (`src/classicalbacktrack.rs`); the crate's tests are not vendored.
+regex, a start-anchored alternation included, is tried at the one position it
+can match at instead of at every position (`src/classicalbacktrack.rs`,
+`src/startpredicate.rs`); a case-insensitive pattern outside Unicode mode
+follows ECMAScript's `Canonicalize` as V8 does (`src/unicode.rs`,
+`src/parse.rs`, `src/api.rs`); the crate's tests are not vendored.
 
 ### ast-grep-core 0.45.3 — Copyright (c) 2022 Herrington Darkholme
 
-The vendored copy in `native/core/vendor/ast-grep-core/` is ast-grep 0.45.3
-with a change to its composite matchers (`native/core/vendor/ast-grep-core/MIXDOG.md`).
-Its `LICENSE` is `LICENSES/ast-grep-MIT.txt`; see ast-grep under Tidy engines
-for the other ast-grep crates.
+<https://github.com/ast-grep/ast-grep>
+
+The crate is vendored and compiled into the Rust core (its `mixdog-graph`
+crate), where it runs the code graph's structural matches. Its `LICENSE` is kept
+beside the vendored tree and is `LICENSES/ast-grep-MIT.txt`; see ast-grep under
+Tidy engines for the other ast-grep crates.
+
+- `native/core/vendor/ast-grep-core/`
+
+Statement of changes (listed in `native/core/vendor/ast-grep-core/MIXDOG.md` and
+marked `mixdog` in the sources): the composite matchers put a capture
+environment back only when an arm changed it, instead of copying an unchanged
+one (`src/ops.rs`); the crate's tests are not vendored.
 
 ### marked 14.1.4 — Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher Jeffrey
 
@@ -376,9 +388,13 @@ Rust core for `localeCompare` ordering; its data crate `icu_collator_data`
 `native/core/vendor/icu_collator/LICENSE` (Unicode License v3, the same text as
 `LICENSES/icu-ICU.txt` apart from the copyright years).
 
-Statement of changes (`native/core/vendor/icu_collator/MIXDOG.md` and
-`MIXDOG-PROVENANCE.json`): the comparison accepts raw UTF-16 code units,
-including unpaired surrogates, as JavaScript strings do.
+- `native/core/vendor/icu_collator/`
+
+Statement of changes (listed in `native/core/vendor/icu_collator/MIXDOG.md`, with
+the hashes of the original files in `MIXDOG-PROVENANCE.json`): the comparison
+accepts raw UTF-16 code units, including unpaired surrogates, as JavaScript
+strings do (`CollatorBorrowed::compare_raw_utf16`; `src/elements.rs`,
+`src/comparison.rs`); the manifest is unchanged.
 
 ## Rust crates
 
