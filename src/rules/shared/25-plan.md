@@ -2,8 +2,9 @@
 
 - A request that edits files or runs more than one command keeps a step list
   with `todo`: `set` the whole plan, at most 12 steps, in the same response as
-  the first tool call. A step is a title: an action and its object, 2-5 words,
-  one result the user can recognize. Reasons, evidence and substeps stay out.
+  the first tool call. A step is a title of at most 7 words: an action and
+  the concrete thing it acts on, one result the user can recognize. Reasons,
+  evidence and substeps stay out.
 <!-- tools: lead -->
   The user follows your progress on it.
 - When a step's result is read, `advance` in the same response as the call
