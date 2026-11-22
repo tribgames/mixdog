@@ -99,12 +99,7 @@ export function useSessionRailWidth(): number {
 
 // ── The slot each pane's card offers its conversation ────────────────────
 
-/** The panel owner a New Task pane publishes before it has a session ('' for no draft). */
-export function draftRailOwner(draftId: string): string {
-  return draftId ? `draft:${draftId}` : '';
-}
-
-/** `sessionId`: the session the pane shows (or its New Task's draftRailOwner), the only one the panel draws. */
+/** `sessionId`: the session the pane shows, the only one the panel draws. */
 export type SessionRailSlot = { element: HTMLElement | null; sessionId: string };
 
 const CLOSED_SLOT: SessionRailSlot = { element: null, sessionId: '' };

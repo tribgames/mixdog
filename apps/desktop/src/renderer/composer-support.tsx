@@ -14,7 +14,6 @@ import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
 import { t } from './i18n';
 import { OpenSelect } from './OpenSelect';
 import { contentLocalStorage } from './remote-conversation-privacy';
-import type { RouteSessionChoice } from './route-editor-panes';
 import { asRecord, displayProject } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { formatPastedTextRef, pastedTextLineCount } from '../../../../src/tui/paste-text-policy.mjs';
@@ -152,44 +151,21 @@ export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[
   contentLocalStorage().setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
 }
 
-export type ProjectContextProps = {
-  projects: DesktopProjectSummary[];
-  activePath: string;
-  activeLabel: string;
-  disabled: boolean;
-  onClear(): void;
-  onSelect(path: string): void;
-};
-
-export function ProjectContextSelector(props: ProjectContextProps) {
-  const choice = projectContextChoice(props);
-  return (
-    <div className="composer-project-context">
-      <Folder size={14} />
-      <OpenSelect
-        className="context-pill-select project-context-select"
-        ariaLabel={t('Project context')}
-        tooltip={t('Select project')}
-        value={choice.value}
-        displayValue={choice.valueLabel}
-        disabled={choice.disabled}
-        options={choice.options}
-        onChange={choice.onSelect}
-      />
-    </div>
-  );
-}
-
-/** A New Task's project pick as a route choice (the context chip and the
- *  session panel's draft row share it). */
-export function projectContextChoice({
+export function ProjectContextSelector({
   projects,
   activePath,
   activeLabel,
   disabled,
   onClear,
   onSelect,
-}: ProjectContextProps): RouteSessionChoice {
+}: {
+  projects: DesktopProjectSummary[];
+  activePath: string;
+  activeLabel: string;
+  disabled: boolean;
+  onClear(): void;
+  onSelect(path: string): void;
+}) {
   const normalized = activePath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
   const activeProject = projects.find(
     (project) => project.path.replace(/[\\/]+/g, '/').toLocaleLowerCase() === normalized
@@ -203,17 +179,24 @@ export function projectContextChoice({
       label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || t('Project'),
     })),
   ];
-  return {
-    id: 'project',
-    label: t('Project'),
-    value: activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL,
-    valueLabel: activeProject ? activeLabel || t('Project') : fallbackActiveLabel || t('Project'),
-    options,
-    disabled,
-    onSelect: (next) => {
-      if (next === PROJECT_CONTEXT_LOCAL) {
-        if (activePath) onClear();
-      } else if (next !== activeProject?.path) onSelect(next);
-    },
-  };
+  const value = activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL;
+  return (
+    <div className="composer-project-context">
+      <Folder size={14} />
+      <OpenSelect
+        className="context-pill-select project-context-select"
+        ariaLabel={t('Project context')}
+        tooltip={t('Select project')}
+        value={value}
+        displayValue={activeProject ? activeLabel || t('Project') : fallbackActiveLabel || t('Project')}
+        disabled={disabled}
+        options={options}
+        onChange={(next) => {
+          if (next === PROJECT_CONTEXT_LOCAL) {
+            if (activePath) onClear();
+          } else if (next !== activeProject?.path) onSelect(next);
+        }}
+      />
+    </div>
+  );
 }

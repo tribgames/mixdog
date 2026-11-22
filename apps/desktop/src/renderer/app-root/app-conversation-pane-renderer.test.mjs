@@ -306,24 +306,17 @@ test("a draft pane's pickers stage its own draft whether or not the pane has foc
   ]);
 });
 
-test("a draft pane's panel holds its pickers in the commit that shows it, and the composer drops its line", async () => {
+test("a draft pane draws nothing into its pane's session panel and keeps its pickers under the composer", async () => {
   const { dom, root, renderer } = setupPaneRenderer();
-  const { publishSessionRailSlot, draftRailOwner } = await import('../session-rail-layout.ts');
+  const { publishSessionRailSlot } = await import('../session-rail-layout.ts');
   const slot = dom.window.document.createElement('div');
   dom.window.document.body.append(slot);
-  publishSessionRailSlot('leaf-1', { element: slot, sessionId: draftRailOwner('default') });
+  // The slot the pane's last session left behind.
+  publishSessionRailSlot('leaf-1', { element: slot, sessionId: 'session-123' });
   try {
-    act(() => root.render(renderer({ kind: 'new' }, true, () => {}, 'leaf-1')));
-    assert.ok(slot.querySelector('[data-category="info"] button[title="Project"]'), 'the Project picker, at once');
-    assert.equal(dom.window.document.querySelector('.composer-model-line-context'), null, 'no chips under the composer');
-    // The draft's panel loads the session's cards; the first message's session draws them in its commit.
-    await act(async () => {
-      await import('../SessionRail.tsx');
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    publishSessionRailSlot('leaf-1', { element: slot, sessionId: 'session-123' });
-    act(() => root.render(renderer({ kind: 'session', id: 'session-123' }, true, () => {}, 'leaf-1')));
-    assert.ok(slot.querySelector('.session-rail-content [data-category="info"]'), "the session's Info, at once");
+    await act(async () => root.render(renderer({ kind: 'new' }, true, () => {}, 'leaf-1')));
+    assert.equal(slot.childElementCount, 0, 'no card of the draft in the panel');
+    assert.ok(dom.window.document.querySelector('.composer-model-line-context'), 'the pickers line under the composer');
   } finally {
     await act(async () => root.unmount());
     publishSessionRailSlot('leaf-1', null);

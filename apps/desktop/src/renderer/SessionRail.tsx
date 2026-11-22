@@ -19,8 +19,7 @@ import {
   useSessionRailOrder,
 } from './session-rail-folds';
 import { GoalSection, TodoSection } from './session-rail-goal';
-import { ContextSection, InfoSection } from './session-rail-info';
-import type { RailModelProps } from './session-rail-rows';
+import { ContextSection, InfoSection, type RailModelProps } from './session-rail-info';
 import { AgentsSection, ShellsSection } from './session-rail-jobs';
 import { useSessionRailMotion } from './session-rail-motion';
 import { sessionRailDragging } from './session-rail-parts';

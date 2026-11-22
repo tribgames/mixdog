@@ -1,14 +1,5 @@
 import { ChevronDown, GitBranch, GitFork, TriangleAlert } from 'lucide-react';
-import {
-  type ComponentProps,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-  type RefObject,
-  useId,
-  useRef,
-  useState,
-} from 'react';
+import { useId, useRef, useState } from 'react';
 
 import { BranchMenuLayer, useBranchMenuActions, useBranchMenuData, useBranchMenuOverlay } from './branch-menu';
 import { t } from './i18n';
@@ -16,7 +7,13 @@ import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immedia
 import { ProgressSpinner } from './ProgressSpinner';
 import { branchChipState, branchRows, getBranchIntent, useWorktreeIntent } from './worktree-branch-model';
 
-export type BranchChipProps = {
+export function BranchChip({
+  sessionId,
+  draftId = '',
+  projectPath,
+  disabled = false,
+  refreshKey = '',
+}: {
   /** The pane's session; '' for a New Task draft. */
   sessionId: string;
   draftId?: string;
@@ -24,22 +21,6 @@ export type BranchChipProps = {
   disabled?: boolean;
   /** Changes whenever the session may have moved (turn start/end): re-reads the menu. */
   refreshKey?: string;
-};
-
-export function BranchChip({
-  sessionId,
-  draftId = '',
-  projectPath,
-  disabled = false,
-  refreshKey = '',
-  renderTrigger,
-}: BranchChipProps & {
-  /** Another host's trigger (the session panel's Branch row): `button`
-   *  carries the chip's own wiring; the menu opens from it. */
-  renderTrigger?: (
-    button: ComponentProps<'button'> & { ref: RefObject<HTMLButtonElement | null> },
-    view: { label: string; icon: (className?: string) => ReactNode; toggle: () => void }
-  ) => ReactNode;
 }) {
   const draft = !sessionId;
   const intentKey = draftId || 'default';
@@ -101,52 +82,42 @@ export function BranchChip({
   const forked = state.kind !== 'branch';
   const draftBranch = draft ? getBranchIntent(intentKey)?.branch : null;
   const label = recovery ? t('Worktree missing') : draftBranch || state.label;
-  const button = {
-    ref: trigger,
-    'aria-haspopup': 'dialog' as const,
-    'aria-expanded': visible,
-    'aria-controls': visible ? panelId : undefined,
-    'aria-label': t('Branch and worktree'),
-    disabled,
-    onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return;
-      clickGuard.markPointerActivation();
-      toggle();
-    },
-    onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
-      if (clickGuard.consumePointerClick()) return;
-      if (event.detail !== 0) return;
-      toggle();
-    },
-    onPointerCancel: clickGuard.clearPointerActivation,
-  };
-  const icon = (className?: string) => (
-    <ChipIcon recovery={recovery} forked={forked} pending={Boolean(actions.pending)} className={className} />
-  );
   return (
     <div
-      className={renderTrigger ? 'session-rail-branch' : 'composer-branch-context'}
+      className="composer-branch-context"
       ref={(node) => {
         root.current = node;
       }}
       data-state={state.kind}
       data-recovery={recovery || undefined}
     >
-      {renderTrigger ? (
-        renderTrigger(button, { label, icon, toggle })
-      ) : (
-        <button
-          type="button"
-          {...button}
-          className="branch-chip-trigger"
-          data-tooltip={t('Select branch')}
-          data-tooltip-side="top"
-        >
-          {icon()}
-          <span className="branch-chip-label">{label}</span>
-          <ChevronDown size={12} aria-hidden="true" />
-        </button>
-      )}
+      <button
+        type="button"
+        ref={trigger}
+        className="branch-chip-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={visible}
+        aria-controls={visible ? panelId : undefined}
+        aria-label={t('Branch and worktree')}
+        data-tooltip={t('Select branch')}
+        data-tooltip-side="top"
+        disabled={disabled}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          clickGuard.markPointerActivation();
+          toggle();
+        }}
+        onClick={(event) => {
+          if (clickGuard.consumePointerClick()) return;
+          if (event.detail !== 0) return;
+          toggle();
+        }}
+        onPointerCancel={clickGuard.clearPointerActivation}
+      >
+        <ChipIcon recovery={recovery} forked={forked} pending={Boolean(actions.pending)} />
+        <span className="branch-chip-label">{label}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
       <BranchMenuLayer
         visible={visible}
         namingBranch={namingBranch}
@@ -170,20 +141,9 @@ export function BranchChip({
   );
 }
 
-function ChipIcon({
-  recovery,
-  forked,
-  pending,
-  className,
-}: {
-  recovery: boolean;
-  forked: boolean;
-  pending: boolean;
-  className?: string;
-}) {
-  if (pending) return <ProgressSpinner size={14} className={className} aria-hidden="true" />;
-  if (recovery) return <TriangleAlert size={14} className={className} aria-hidden="true" />;
-  if (forked)
-    return <GitFork size={14} className={className ? `${className} branch-chip-fork` : 'branch-chip-fork'} aria-hidden="true" />;
-  return <GitBranch size={14} className={className} aria-hidden="true" />;
+function ChipIcon({ recovery, forked, pending }: { recovery: boolean; forked: boolean; pending: boolean }) {
+  if (pending) return <ProgressSpinner size={14} aria-hidden="true" />;
+  if (recovery) return <TriangleAlert size={14} aria-hidden="true" />;
+  if (forked) return <GitFork size={14} className="branch-chip-fork" aria-hidden="true" />;
+  return <GitBranch size={14} aria-hidden="true" />;
 }
