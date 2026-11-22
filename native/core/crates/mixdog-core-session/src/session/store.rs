@@ -1323,11 +1323,9 @@ impl Rewrites {
     }
 }
 impl Redaction {
-    /// As `StoreThreads::wait`: a lane thread is no runtime thread; an inline lane (tests) runs on a runtime worker.
-    #[allow(clippy::disallowed_methods, reason = "runs inside the io-durability job (lane proof argument)")]
+    /// As `StoreThreads::wait`, inside the io-durability job ([`super::job_wait::wait_in_job`]).
     fn wait<T>(&self, future: impl std::future::Future<Output = T>) -> T {
-        let block = || self.runtime.block_on(future);
-        if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() }
+        super::job_wait::wait_in_job(&self.runtime, future)
     }
 
     /// Steps 3-8 of `log_rewrite` from wherever this log's rewrite stands, with every reader out: the writer's handle is
@@ -1867,9 +1865,7 @@ impl StoreThreads {
                 // The rebuilt rows stay withheld: the session is released apart, once settled ([`MarkRewrites::settle_one`]).
                 let mut index_step = || {
                     let rewrite = mixdog_store::sqlite::Rewritten { data: data.clone(), session: session.clone(), dirty: DirtyMark::Set };
-                    let block = || runtime.block_on(index.reproject(rewrite));
-                    let result = if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() };
-                    result.map_err(|e| e.to_string())
+                    super::job_wait::wait_in_job(&runtime, index.reproject(rewrite)).map_err(|e| e.to_string())
                 };
                 let mut settle =
                     || mixdog_store::log_rewrite::settle(lane, &data, &session, &*deps.io, &deps.blobs, &mut index_step).map_err(|e| e.to_string());
@@ -1974,16 +1970,9 @@ impl StoreThreads {
         Ok(Self::new(data, blobs, index, writer, maintenance))
     }
 
-    /// An index write from inside a lane job (`_lane` is the proof). Lane threads are not runtime
-    /// threads; an inline lane (tests) runs on a runtime worker, which must hand off its tasks
-    /// first.
-    #[allow(clippy::disallowed_methods, reason = "runs inside a lane job (lane proof argument)")]
+    /// An index write from inside a lane job (`_lane` is the proof): [`super::job_wait::wait_in_job`].
     fn wait<L, F: std::future::Future>(&self, _lane: &InLane<L>, future: F) -> F::Output {
-        if tokio::runtime::Handle::try_current().is_ok() {
-            tokio::task::block_in_place(|| self.runtime.block_on(future))
-        } else {
-            self.runtime.block_on(future)
-        }
+        super::job_wait::wait_in_job(&self.runtime, future)
     }
 
     fn dir(&self, session: &str) -> PathBuf {

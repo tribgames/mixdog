@@ -402,10 +402,13 @@ static SHUTDOWN_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 #[cfg(any(test, feature = "test-support"))]
 const LATE_ACTOR: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Each stage with the time since the first one said: a thread the shutdown never stopped is unloaded by its idle clock
+/// minutes later, and its lines then read as that, not as the shutdown's work.
 fn shutdown_stage(what: std::fmt::Arguments<'_>) {
     #[cfg(any(test, feature = "test-support"))]
     if SHUTDOWN_SAID.load(std::sync::atomic::Ordering::SeqCst) {
-        eprintln!("[directory-stop] {what}");
+        static FIRST: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        eprintln!("[directory-stop] {what} (+{:.3?})", FIRST.get_or_init(std::time::Instant::now).elapsed());
     }
     #[cfg(not(any(test, feature = "test-support")))]
     let _ = what;
@@ -2814,7 +2817,10 @@ impl SessionDirectory {
         // own session is closed with the stop's reason before the runtime stops.
         if let Some(hook) = self.inner.exit_close.get() {
             futures::future::join_all(self.loaded_ids().into_iter().map(|owner| async move {
-                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                shutdown_stage(format_args!("`{}`: its close at exit begins", owner.as_str()));
+                let closed = mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await;
+                shutdown_stage(format_args!("`{}`: its close at exit ended (in time: {})", owner.as_str(), closed.is_ok()));
+                if closed.is_err() {
                     tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }))
