@@ -417,8 +417,8 @@ export function renderPaneDockStripTrailing(
           activeRoot={paneDockActiveRoot(entry)}
           sessionBound={Boolean(sessionId)}
           sessionRail={{
-            // A New Task has no panel to show: the switch reads off there.
-            open: Boolean(sessionId) && paneSideDocks.railOpen(leaf.id),
+            // The pane's switch, also on a New Task: its panel shows once the first message binds a session.
+            open: paneSideDocks.railOpen(leaf.id),
             onToggle: () => {
               focusLeaf(leaf.id);
               paneSideDocks.toggleRail(leaf.id);

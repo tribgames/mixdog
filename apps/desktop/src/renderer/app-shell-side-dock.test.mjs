@@ -54,9 +54,9 @@ test('renderPaneDockStripTrailing uses activeKey rather than first tab, returnin
   assert.equal(trailingWhenSessionActive.props.children(descriptors).props.sessionBound, true);
   assert.equal(trailingWhenSessionActive.props.children(descriptors).props.sessionRail.open, true);
 
-  // A New Task has no session panel: its switch reads off though the pane's panel is on.
+  // A New Task shows the pane's switch as it is set, so the panel opens with the first message.
   const newTask = renderPaneDockStripTrailing({ id: 'leaf-1', activeKey: 'new:default', tabs: [{ kind: 'new' }] }, baseProps);
-  assert.equal(newTask.props.children(descriptors).props.sessionRail.open, false);
+  assert.equal(newTask.props.children(descriptors).props.sessionRail.open, true);
 });
 
 test("a session pane's Terminal toggle prefetch also warms that session's terminal, through one stable map per live pane", async (t) => {

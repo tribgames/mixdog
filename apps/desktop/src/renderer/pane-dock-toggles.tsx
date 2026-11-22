@@ -151,7 +151,6 @@ export function PaneDockToggles({
           className="pane-dock-toggle"
           data-view="session-rail"
           aria-pressed={sessionRail.open}
-          aria-disabled={!sessionBound || undefined}
           aria-label={t('Session panel')}
           data-tooltip={
             sessionRail.open
@@ -160,9 +159,7 @@ export function PaneDockToggles({
           }
           // A raised panel closes on presses outside it; this one toggles it instead.
           onPointerDownCapture={(event) => markSessionRailPress(event.nativeEvent)}
-          onClick={() => {
-            if (sessionBound) sessionRail.onToggle();
-          }}
+          onClick={sessionRail.onToggle}
         >
           <LayoutDashboard size={15} aria-hidden="true" />
         </button>
