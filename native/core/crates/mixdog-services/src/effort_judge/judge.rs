@@ -274,8 +274,9 @@ pub struct EffortJudgeModel {
     timing: JudgeTiming,
     /// The clock of every wait: cold, queue, answer and the watchdog's.
     alarm: Arc<dyn Alarm>,
-    /// An install or repair is replacing the files: judgments answer at once.
-    installing: AtomicBool,
+    /// Twice the installs and repairs started, plus one while one is replacing the files (judgments then answer at
+    /// once): one word, so a refresh claims the files only if no install started since it was queued.
+    installs: AtomicU64,
     last_error: std::sync::Mutex<String>,
     /// When the remembered load failure happened (`lastLoadErrorAt`).
     failed_at: std::sync::Mutex<Option<std::time::Instant>>,
@@ -293,6 +294,24 @@ pub struct EffortJudgeModel {
     script: Option<Script>,
     #[cfg(test)]
     host: Option<HostLaunch>,
+    #[cfg(test)]
+    refresh_hold: std::sync::Mutex<Option<RefreshHeld>>,
+}
+
+/// The refresh's side of [`RefreshHold`].
+#[cfg(test)]
+struct RefreshHeld {
+    reached: oneshot::Sender<()>,
+    release: oneshot::Receiver<()>,
+    ended: oneshot::Sender<Result<(), InstallError>>,
+}
+
+/// A refresh held before its install, for tests: `reached` once it waits, `release` lets it go, `ended` has its outcome.
+#[cfg(test)]
+pub(crate) struct RefreshHold {
+    pub(crate) reached: oneshot::Receiver<()>,
+    pub(crate) release: oneshot::Sender<()>,
+    pub(crate) ended: oneshot::Receiver<Result<(), InstallError>>,
 }
 
 impl EffortJudgeModel {
@@ -358,6 +377,16 @@ impl EffortJudgeModel {
         &self.worker
     }
 
+    /// Holds the next refresh before its install, for tests.
+    #[cfg(test)]
+    pub(crate) fn hold_refresh(&self) -> RefreshHold {
+        let (reached_tx, reached) = oneshot::channel();
+        let (release, release_rx) = oneshot::channel();
+        let (ended_tx, ended) = oneshot::channel();
+        *self.refresh_hold.lock().expect("the hold") = Some(RefreshHeld { reached: reached_tx, release: release_rx, ended: ended_tx });
+        RefreshHold { reached, release, ended }
+    }
+
     fn create(config: ModelConfig, lanes: JudgeLanes, options: JudgeOptions, alarm: Arc<dyn Alarm>) -> Result<Self, InstallError> {
         let manifest = match options.manifest {
             Some(manifest) => manifest,
@@ -373,7 +402,7 @@ impl EffortJudgeModel {
             model: std::sync::Mutex::new(None),
             timing: options.timing,
             alarm,
-            installing: AtomicBool::new(false),
+            installs: AtomicU64::new(0),
             last_error: std::sync::Mutex::new(String::new()),
             failed_at: std::sync::Mutex::new(None),
             tick: options.tick,
@@ -387,6 +416,8 @@ impl EffortJudgeModel {
             script: None,
             #[cfg(test)]
             host: options.host,
+            #[cfg(test)]
+            refresh_hold: std::sync::Mutex::new(None),
         })
     }
 
@@ -396,7 +427,7 @@ impl EffortJudgeModel {
 
     /// `effortJudgeInstalling()`.
     pub fn is_installing(&self) -> bool {
-        self.installing.load(Ordering::Acquire)
+        self.installs.load(Ordering::Acquire) & 1 == 1
     }
 
     /// `effortJudgeAvailable()`: the platform has a binding, the files hold
@@ -647,7 +678,7 @@ impl EffortJudgeModel {
         if !self.config.runtime_supported() {
             return Err(JudgeError::Unsupported.into());
         }
-        // Before the refresh: a refresh taken during an install would start once that install ends, a cancelled one included.
+        // Before the refresh: one asked during an install is refused its claim, and this instance's one refresh is spent.
         if self.is_installing() {
             return Err(JudgeError::Installing.into());
         }
@@ -801,6 +832,9 @@ impl EffortJudgeModel {
         if self.config.explicit {
             return;
         }
+        // An install that starts after this point installs the current release itself, or was cancelled by its caller:
+        // the refresh does not act after it.
+        let queued_at = self.installs.load(Ordering::Acquire);
         let this = self.clone();
         mixdog_rt::spawn("services.effort-judge.refresh", TaskClass::Work, async move {
             // Read on the lane, off the step's path.
@@ -818,8 +852,30 @@ impl EffortJudgeModel {
                     return;
                 }
             }
-            if let Err(error) = this.install(&this.manifest, this.progress.as_ref(), &this.cancel).await {
+            #[cfg(test)]
+            let held = this.refresh_hold.lock().expect("the hold").take();
+            #[cfg(test)]
+            let held = match held {
+                Some(RefreshHeld { reached, release, ended }) => {
+                    let _ = reached.send(());
+                    drop(release.await);
+                    Some(ended)
+                }
+                None => None,
+            };
+            let installed = this
+                .replacing_files(
+                    Some(queued_at),
+                    &this.cancel,
+                    install::ensure_installed(&this.config, &this.manifest, this.lanes.bulk, this.progress.as_ref(), &this.cancel),
+                )
+                .await;
+            if let Err(error) = &installed {
                 tracing::warn!(%error, "effort judge: model update failed");
+            }
+            #[cfg(test)]
+            if let Some(ended) = held {
+                drop(ended.send(installed));
             }
         });
     }
@@ -855,21 +911,23 @@ impl EffortJudgeModel {
     }
 
     /// Runs `work` with no model loaded and judgments answering `Installing`,
-    /// then lets the next judgment load whatever the files now hold.
-    async fn replacing_files<T, F>(&self, cancel: &CancellationToken, work: F) -> Result<T, InstallError>
+    /// then lets the next judgment load whatever the files now hold. With `queued_at` (a refresh's [`Self::installs`]
+    /// when it was queued) the files are claimed only if no install started since; otherwise `Busy`.
+    async fn replacing_files<T, F>(&self, queued_at: Option<u64>, cancel: &CancellationToken, work: F) -> Result<T, InstallError>
     where
         F: std::future::Future<Output = Result<T, InstallError>>,
     {
-        if self.installing.swap(true, Ordering::AcqRel) {
+        let claim = |installs: u64| (installs & 1 == 0 && queued_at.is_none_or(|at| at == installs)).then_some(installs + 3);
+        if self.installs.try_update(Ordering::AcqRel, Ordering::Acquire, claim).is_err() {
             return Err(InstallError::Busy);
         }
-        struct Done<'a>(&'a AtomicBool);
+        struct Done<'a>(&'a AtomicU64);
         impl Drop for Done<'_> {
             fn drop(&mut self) {
-                self.0.store(false, Ordering::Release);
+                self.0.fetch_and(!1, Ordering::Release);
             }
         }
-        let _done = Done(&self.installing);
+        let _done = Done(&self.installs);
         // The loaded session maps the file the install is about to replace: wait out the judgment
         // that uses it (judgments now answer `Installing`), but only as long as `cancel` allows.
         {
@@ -883,14 +941,14 @@ impl EffortJudgeModel {
             // The files were replaced: an earlier load failure no longer describes them.
             self.last_error.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         }
-        self.installing.store(false, Ordering::Release);
+        self.installs.fetch_and(!1, Ordering::Release);
         self.tick.bump();
         outcome
     }
 
     /// Installs or updates the model unless it is already the current release.
     pub async fn install(&self, manifest: &Manifest, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
-        self.replacing_files(cancel, install::ensure_installed(&self.config, manifest, self.lanes.bulk, progress, cancel)).await
+        self.replacing_files(None, cancel, install::ensure_installed(&self.config, manifest, self.lanes.bulk, progress, cancel)).await
     }
 
     /// Re-verifies the files against the manifest and fetches only the damaged
@@ -901,7 +959,7 @@ impl EffortJudgeModel {
         }
         let bad = install::invalidate_damaged(&self.config.dir, manifest, self.lanes.bulk).await?;
         if !bad.is_empty() {
-            self.replacing_files(cancel, install::install_model(&self.config.dir, manifest, self.lanes.bulk, progress, cancel)).await?;
+            self.replacing_files(None, cancel, install::install_model(&self.config.dir, manifest, self.lanes.bulk, progress, cancel)).await?;
         }
         Ok(bad)
     }

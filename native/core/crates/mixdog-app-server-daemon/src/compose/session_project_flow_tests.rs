@@ -61,10 +61,14 @@ async fn stage<T>(what: &str, step: impl Future<Output = T>) -> T {
 }
 
 /// The core's own stop, each of its steps said on stderr as it begins and ends (`StopSteps::said`). The lines place a stop that does not
-/// end only as far as this: with no step said, it is before the steps (the final barriers or the extension host's close); with every
-/// step ended, it is after them (the managed processes' drain or the log's flush).
+/// end: with no step said, it is before the steps (the final barriers or the extension host's close); with every step ended, it is
+/// after them (the managed processes' drain or the log's flush). The session directory's step, where two of these tests stopped on
+/// the macOS runner with every sampled thread idle, also says its parts (`[stop-part]`), the stages of the directory's shutdown and,
+/// of each thread it stops, the end of its actor and of its journal writer (`[directory-stop]`).
 async fn stop(core: &ComposedCore) {
     core.stop_steps.said.store(true, std::sync::atomic::Ordering::SeqCst);
+    STOP_PARTS_SAID.store(true, std::sync::atomic::Ordering::SeqCst);
+    mixdog_core_session::session::SessionDirectory::say_shutdown_stages();
     stage("the stop", core.stop("test")).await;
 }
 

@@ -356,12 +356,58 @@ struct Journal {
 }
 impl Journal {
     /// Once the actor has ended: the writer finishes what it accepted, closes, and the catalog settles its row.
-    async fn retire(self, thread: ThreadId) {
-        let _ = self.actor_ended.await;
-        if let super::durability::Retired::Kept(why) = self.retirer.retire().await {
+    async fn retire(mut self, thread: ThreadId) {
+        self.actor_ended(&thread).await;
+        shutdown_stage(format_args!("`{}`: its actor ended", thread.as_str()));
+        let retired = self.retirer.retire().await;
+        shutdown_stage(format_args!("`{}`: its writer retired: {retired:?}", thread.as_str()));
+        if let super::durability::Retired::Kept(why) = retired {
             tracing::warn!(thread = thread.as_str(), "the session's journal writer was not retired clean; its log is read again at the next start: {why}");
         }
     }
+
+    /// The actor's end. With the shutdown's stages said, an actor that has not ended after [`LATE_ACTOR`] is described first: one
+    /// with a control message it has not taken is inside a step it awaits, one that took them all runs on and does not leave.
+    #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables, reason = "named only where the stages are said"))]
+    async fn actor_ended(&mut self, thread: &ThreadId) {
+        #[cfg(any(test, feature = "test-support"))]
+        if SHUTDOWN_SAID.load(std::sync::atomic::Ordering::SeqCst) {
+            use std::sync::atomic::Ordering::SeqCst;
+            if mixdog_rt::time::timeout(LATE_ACTOR, &mut self.actor_ended).await.is_ok() {
+                return;
+            }
+            let cell = &self.cell;
+            eprintln!(
+                "[directory-stop] `{}`: its actor has not ended after {LATE_ACTOR:?} (closed: {}, control messages not taken: {}, records unacknowledged: {}, handed: {}, turn busy: {}, recovered: {})",
+                thread.as_str(),
+                cell.closed.load(SeqCst),
+                cell.ctl_tx.max_capacity() - cell.ctl_tx.capacity(),
+                cell.unacked.load(SeqCst),
+                cell.handed.load(SeqCst),
+                cell.busy.load(SeqCst),
+                cell.recovered.load(SeqCst),
+            );
+        }
+        let _ = (&mut self.actor_ended).await;
+    }
+}
+
+/// A test's wish: the stages of [`SessionDirectory::shutdown_for`] on stderr as each is reached, so of a shutdown that does not
+/// end the last stage said is the one it waits in ([`SessionDirectory::say_shutdown_stages`]).
+#[cfg(any(test, feature = "test-support"))]
+static SHUTDOWN_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// With the stages said, how long a stopped thread's actor may take to end before it is described.
+#[cfg(any(test, feature = "test-support"))]
+const LATE_ACTOR: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn shutdown_stage(what: std::fmt::Arguments<'_>) {
+    #[cfg(any(test, feature = "test-support"))]
+    if SHUTDOWN_SAID.load(std::sync::atomic::Ordering::SeqCst) {
+        eprintln!("[directory-stop] {what}");
+    }
+    #[cfg(not(any(test, feature = "test-support")))]
+    let _ = what;
 }
 impl Drop for SlotLease {
     fn drop(&mut self) {
@@ -2661,10 +2707,12 @@ impl SessionDirectory {
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
     /// all of them together bounded at 2500 ms. Before all of it, the new-task attempts in flight are cut ([`super::new_task::NewTaskReceipts::shutdown`]).
     pub async fn shutdown_for(&self, reason: &str) {
+        shutdown_stage(format_args!("begins: the new-task attempts"));
         if let Err(overrun) = self.inner.deps.new_tasks.shutdown(NEW_TASK_SHUTDOWN_BOUND).await {
             tracing::error!(%overrun, "the new-task receipts did not shut down in time");
         }
         self.begin_close();
+        shutdown_stage(format_args!("the agents' teardown and the sessions' own close"));
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()
         {
@@ -2693,6 +2741,7 @@ impl SessionDirectory {
         // write still queued is answered refused and one at its put indeterminate, both there and then, so a session
         // whose put never returns holds no receipt of its own or of another session; the kept and the Lead table are
         // written until the row writer itself is shut down, after the directory.
+        shutdown_stage(format_args!("the row writes' drain"));
         if let Some(writes) = self.inner.row_writes.get() {
             if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, writes.drain()).await.is_err() {
                 tracing::warn!("the worker rows were not all put before the sessions stopped");
@@ -2705,6 +2754,7 @@ impl SessionDirectory {
         // owns the journal until then, and one that reaches it later is not applied (`SessionActor::stored_patch`).
         self.inner.sealed.store(true, std::sync::atomic::Ordering::SeqCst);
         let handles = self.drain_slots();
+        shutdown_stage(format_args!("the stop of the {} loaded thread(s)", handles.len()));
         let retired = self.stop_loaded(handles).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
@@ -2712,7 +2762,15 @@ impl SessionDirectory {
         // Last, and bounded only by what bounds this shutdown (the stop step's budget): each stopped thread's journal
         // writer retires once its actor has ended. One cut off there is safe: its session stays marked, and the next
         // start reads its log again.
+        shutdown_stage(format_args!("the retirement of the journal writers"));
         retired.await;
+        shutdown_stage(format_args!("ended"));
+    }
+
+    /// From now on every directory of this process says the stages of its shutdown on stderr (`[directory-stop]`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn say_shutdown_stages() {
+        SHUTDOWN_SAID.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn drain_slots(&self) -> Vec<Arc<SessionHandle>> {
@@ -2746,6 +2804,11 @@ impl SessionDirectory {
         // its projector are still there. Taken before the actors are told, so none ends with its journal still here; no
         // thread is opened from here (`sealed`), so no session is marked again behind a retirement.
         let journals: Vec<(ThreadId, Journal)> = lock(&self.inner.journals).drain().collect();
+        shutdown_stage(format_args!(
+            "journals taken: {:?}; threads told to stop: {:?}",
+            journals.iter().map(|(thread, _)| thread.as_str()).collect::<Vec<_>>(),
+            handles.iter().map(|handle| handle.id.as_str()).collect::<Vec<_>>()
+        ));
         let mut ingests = Vec::new();
         for handle in handles {
             let (done, ingest) = tokio::sync::oneshot::channel();
@@ -2753,6 +2816,7 @@ impl SessionDirectory {
                 ingests.push(ingest);
             }
         }
+        shutdown_stage(format_args!("every loaded thread was told; the ingests and the unloaded threads' close work"));
         // A task of its own: a shutdown that is cut off (the stop's budget) does not cancel a retirement under way, which
         // then ends with the index, its session still marked.
         // With them, the writers of the runtimes that were already unloading: their retirement is waited for here too,

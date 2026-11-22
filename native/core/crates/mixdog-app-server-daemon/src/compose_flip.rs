@@ -988,10 +988,11 @@ impl Real {
             worktrees.cancel(); // the maintenance stops before the directory it reads is shut down
             maintenance.cancel();
             // The owed rewrites end after the session in hand, before the index and the logs they write are closed.
-            mark_rewrites_end.await;
+            use crate::compose::stop_part;
+            stop_part("the owed mark rewrites", mark_rewrites_end).await;
             // The schedule ends before the directory shuts down: a running cleanup tick reads the directory.
             if let Some(schedule_end) = schedule_end {
-                let _ = schedule_end.await;
+                let _ = stop_part("the maintenance schedule", schedule_end).await;
             }
             // The hidden-role runs end while the sessions they run on still exist, then their provider connections close.
             // Node aborts each run with the daemon's stop reason: `agent-dispatch.mjs:60` `abortAll(reason)` is `controller.abort(new Error(reason))`, and `reason` is
@@ -1001,12 +1002,13 @@ impl Real {
             dispatch.abort_all(reason);
             host.close();
             // `shutdown_for(reason)` (flip-agent-worlds-11): only a process-exit reason closes every session's agents first (`teardown.mjs:226-237`).
-            directory.shutdown_for(reason).await;
-            if let Err(error) = graph_cache.drain(maintenance_io, &tokio_util::sync::CancellationToken::new()).await {
+            stop_part("the directory's shutdown", directory.shutdown_for(reason)).await;
+            if let Err(error) = stop_part("the code graph cache's drain", graph_cache.drain(maintenance_io, &tokio_util::sync::CancellationToken::new())).await
+            {
                 tracing::warn!(%error, "[code_graph] the cache could not be written at stop");
             }
             // Node's `process.once('exit', drainShellSnapshots)` (shell-snapshot.mjs): the sessions' shells are gone, so the snapshots they sourced go too.
-            exec.drain_snapshots(&tokio_util::sync::CancellationToken::new()).await;
+            stop_part("the shell snapshots' drain", exec.drain_snapshots(&tokio_util::sync::CancellationToken::new())).await;
         }
     }
 }

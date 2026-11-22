@@ -55,9 +55,30 @@ impl Steps<'_> {
     }
 }
 
+/// The `mixdogd` the interactive scenarios start (`MIXDOGD_BIN`, else the one beside `mixdog`), laid out as an install: a core
+/// resolves its JS runtime from the `js-runtime.json` beside its own binary at boot and ends without one (exit code 2, "the install
+/// has no JS runtime manifest"), which the bare binary of the release gate's `core-entry` job did in both scenarios.
+fn daemon_install() -> std::path::PathBuf {
+    let name = if cfg!(windows) { "mixdogd.exe" } else { "mixdogd" };
+    let built = std::env::var_os("MIXDOGD_BIN")
+        .filter(|bin| !bin.is_empty())
+        .map_or_else(|| std::path::PathBuf::from(OsString::from(mixdog_testkit::bin_exe!("mixdog"))).with_file_name(name), std::path::PathBuf::from);
+    let node = host_node().expect("node on the host's PATH: the install's js-runtime.json names its interpreter, which these scenarios never start");
+    let dir = mixdog_testkit::target_tmpdir!().join(format!("node-free-daemon-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join(name);
+    std::fs::hard_link(&built, &exe)
+        .or_else(|_| std::fs::copy(&built, &exe).map(drop))
+        .unwrap_or_else(|error| panic!("laying out {}: {error}", built.display()));
+    std::fs::write(dir.join("js-runtime.json"), runtime_manifest(&node)).unwrap();
+    exe
+}
+
 /// Starts `mixdog args` in a pseudo-terminal.
 fn interactive(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> pty::Pty {
     let mut env = sandbox.env();
+    env.retain(|(name, _)| name != "MIXDOGD_BIN");
+    env.push(("MIXDOGD_BIN".into(), daemon_install().into_os_string()));
     env.extend(stand_in.pin().into_iter().map(|(name, value)| (OsString::from(name), OsString::from(value))));
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
     pty::Pty::spawn(&OsString::from(mixdog_testkit::bin_exe!("mixdog")), &args, &sandbox.work(), &env)
@@ -110,15 +131,23 @@ fn run(sandbox: &Sandbox, stand_in: &StandIn, args: &[&str]) -> (Option<i32>, St
     let output = child.wait_with_output().unwrap();
     (output.status.code(), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned(), watch.finish())
 }
-fn install() -> Option<std::path::PathBuf> {
+/// The host's own `node`, by its full path: the runs' search path names none.
+fn host_node() -> Option<std::path::PathBuf> {
     let name = if cfg!(windows) { "node.exe" } else { "node" };
-    let node = std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())?;
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())
+}
+/// An install's `js-runtime.json` over `node` and this checkout's package.
+fn runtime_manifest(node: &std::path::Path) -> String {
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
+    serde_json::json!({ "program": node, "packageRoot": package }).to_string()
+}
+fn install() -> Option<std::path::PathBuf> {
+    let node = host_node()?;
     let dir = mixdog_testkit::target_tmpdir!().join(format!("node-free-install-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let exe = dir.join("mixdog.exe");
     std::fs::hard_link(mixdog_testkit::bin_exe!("mixdog"), &exe).unwrap();
-    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
-    std::fs::write(dir.join("js-runtime.json"), serde_json::json!({ "program": node, "packageRoot": package }).to_string()).unwrap();
+    std::fs::write(dir.join("js-runtime.json"), runtime_manifest(&node)).unwrap();
     Some(exe)
 }
 #[test]

@@ -253,6 +253,41 @@ async fn a_judgment_is_refused_while_installing_when_not_installed_and_after_a_l
     assert!(!broken.status().ready);
 }
 #[tokio::test(flavor = "multi_thread")]
+async fn a_refresh_queued_before_an_install_does_not_start_after_that_install_is_cancelled() {
+    let files = Files::new();
+    let tick = StateTick::default();
+    let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
+    let release = files.manifest(&stalled, "r1");
+    let dir = tempfile::tempdir().expect("dir");
+    let model = judge(dir.path(), &release, &tick, false);
+    let hold = model.hold_refresh();
+
+    // The judgment finds no install running and queues the refresh, held before its install.
+    assert!(matches!(model.probs(step()).await, Err(JudgeError::NotInstalled(_))));
+    hold.reached.await.expect("the refresh is queued");
+
+    // An install starts and is cancelled while the refresh waits.
+    let cancel = CancellationToken::new();
+    let running = tokio::spawn({
+        let (model, release, cancel) = (model.clone(), release.clone(), cancel.clone());
+        async move { model.install(&release, None, &cancel).await }
+    });
+    until(&tick, || model.is_installing()).await;
+    cancel.cancel();
+    assert!(running.await.expect("joins").is_err(), "a cancelled install fails");
+    assert!(!model.is_installing());
+    let downloads = stalled.hits("/model.onnx");
+
+    hold.release.send(()).expect("the refresh waits");
+    let ended = tokio::select! {
+        ended = hold.ended => ended.expect("the refresh ends"),
+        () = until(&tick, || model.is_installing()) => panic!("the refresh started an install after the cancelled one"),
+    };
+    assert!(matches!(ended, Err(InstallError::Busy)), "{ended:?}");
+    assert!(!model.is_installing());
+    assert_eq!(stalled.hits("/model.onnx"), downloads, "the refresh downloads nothing");
+}
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]
 async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
     let dir = PathBuf::from(std::env::var_os("MIXDOG_EFFORT_JUDGE_DIR").expect("MIXDOG_EFFORT_JUDGE_DIR"));
