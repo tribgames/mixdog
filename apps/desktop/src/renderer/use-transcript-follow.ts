@@ -26,7 +26,7 @@ import { useJumpButtonState, useJumpPin } from './use-follow-jump';
 import { useProgrammaticWrites } from './use-follow-programmatic';
 import { useFollowScrollJudge, useScrollBaselines } from './use-follow-scroll';
 import { useFollowSignals } from './use-follow-signals';
-import { useFollowTouch } from './use-follow-touch';
+import { type TouchContacts, useFollowTouch } from './use-follow-touch';
 export {
   registerTranscriptScrollGeometry,
   transcriptScrollExtent,
@@ -66,9 +66,10 @@ interface TranscriptFollow {
   handlePointerDown(event: PointerLike): void;
   handlePointerUp(): void;
   handleSelectionAutoScroll(delta: number): void;
-  handleTouchStart(event: TouchLike): void;
+  handleTouchStart(event: TouchLike & TouchContacts): void;
   handleTouchMove(event: TouchLike): void;
-  handleTouchEnd(): void;
+  /** A touchend or touchcancel: the touch ends with the last contact that started on the transcript. */
+  handleTouchEnd(event: TouchContacts): void;
   handleInteraction(): void;
   handleKeyDown(event: { key: string }): void;
   pause(): void;

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 
+/** The end of the touch the helpers below start (contact 0). */
+const lift = () => ({ touches: [], changedTouches: [{ identifier: 0 }] });
+
 const IPHONE = {
   userAgent:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
@@ -155,12 +158,17 @@ test('on iOS WebKit a touch scroll holds corrections through its fling and lands
       markProgrammaticScroll: (top, intended) => follow.markProgrammaticScroll(top, intended),
     });
     await React.act(async () => follow.handleScroll());
-    const touch = (clientY) => ({ target: space, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: space,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     follow.handleTouchStart(touch(100));
     follow.handleTouchMove(touch(160));
     assert.equal(follow.holdsScrollCorrections(), true, 'the drag holds corrections off the native offset');
     assert.equal(deviation.hold(native + 30), true);
-    follow.handleTouchEnd();
+    follow.handleTouchEnd(lift());
     // Momentum: scroll events keep arriving after the finger lifts.
     for (let step = 0; step < 5; step += 1) {
       now += 100;
@@ -252,11 +260,16 @@ test('on iOS WebKit a held page is not landed under the momentum that reaches th
       await frame();
     };
     await React.act(async () => follow.handleScroll());
-    const touch = (clientY) => ({ target: space, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: space,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     follow.handleTouchStart(touch(100));
     follow.handleTouchMove(touch(160));
     await momentum(-60);
-    follow.handleTouchEnd();
+    follow.handleTouchEnd(lift());
     assert.equal(deviation.hold(native + 5_000), true, 'the page landing mid-fling is held');
     while (native > 0) await momentum(-80);
     // The momentum is still delivering at the edge (the bounce it starts).
