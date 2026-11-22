@@ -118,6 +118,8 @@ export function windowChanged(held: HeldWindow | undefined, params: unknown, own
  *  for them until the record was stored give way to it). Null when it changes nothing this window holds. */
 export interface Changed {
   readonly window: HeldWindow;
+  /** The record's position. */
+  readonly position: string;
   readonly items: readonly string[];
   readonly rows: readonly Obj[];
 }
@@ -134,7 +136,7 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
     );
     const units = new Map(held.units);
     units.delete(c.position);
-    return { window: { ...held, ranges, units }, items: gone.items, rows: gone.rows };
+    return { window: { ...held, ranges, units }, position: c.position, items: gone.items, rows: gone.rows };
   }
   const read = unitOf(c.unit, own);
   if (!read) return null;
@@ -143,7 +145,7 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
     if (!held.units.has(position)) return null;
     const units = new Map(held.units);
     units.set(position, unit);
-    return { window: { ...held, units }, items: unit.items, rows: unit.rows };
+    return { window: { ...held, units }, position, items: unit.items, rows: unit.rows };
   }
   if (c.op !== 'insert') return null;
   const units = new Map(held.units);
@@ -166,7 +168,7 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
       positions: tail.positions.includes(position) ? tail.positions : [...tail.positions, position],
     };
   }
-  return { window: { ...held, ranges, units }, items: unit.items, rows: unit.rows };
+  return { window: { ...held, ranges, units }, position, items: unit.items, rows: unit.rows };
 }
 
 /** `a` and `b`, two stretches of one sequence that share a position, as the one stretch they make; null when they share
