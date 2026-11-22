@@ -3,7 +3,8 @@
 //! import edges resolved over the indexed file set.
 #![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher as _;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,7 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use mixdog_graph::calls::CallInfo;
 use mixdog_graph::lang::{lang_for, lang_static};
-use mixdog_graph::outline::{self, SymbolInfo};
+use mixdog_graph::outline;
 use mixdog_graph::resolve::{ImportRecord, ObservedInput, extract_top_level_types, resolve_and_link_observing};
 use mixdog_graph::scan_lang::{ScanLang, scan_lang_for_path};
 use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files};
@@ -22,6 +23,7 @@ use sha2::{Digest, Sha256};
 use super::cache::GraphFiles;
 use super::cache::{CachedFile, GraphCache, Ledger, Receipts};
 use super::roots::{identity_key, path_key};
+use super::symbols::{Sym, Symbols};
 
 // File versions. A file's *discovery* fingerprint is `(size, mtime_ns)`: a file whose fingerprint equals the one a record
 // was made at is not read again (nobody hashes unchanged files). A rewrite from outside that preserves both size and
@@ -58,7 +60,7 @@ pub(super) struct Record {
     /// Why the file is in the graph unindexed (`parseError`): empty for an indexed file. The
     /// only failure is a source that does not decode (the native build's `decode_source_text`).
     pub parse_error: String,
-    pub symbols: Vec<SymbolInfo>,
+    pub symbols: Symbols,
     pub raw_imports: Vec<String>,
     /// java/kotlin `package` (`packageName`): the import index's package members and the prefix of its FQCNs.
     pub package_name: String,
@@ -96,7 +98,9 @@ impl Drop for Record {
 impl Record {
     fn weigh(mut self) -> Self {
         let strings = |items: &[String]| items.iter().map(|s| 24 + s.len() as u64).sum::<u64>();
-        let symbols: u64 = self.symbols.iter().map(|s| (std::mem::size_of::<SymbolInfo>() + s.name.len() + s.sig.len() + s.parent.len()) as u64).sum();
+        self.raw_imports.shrink_to_fit();
+        self.top_level_types.shrink_to_fit();
+        let symbols = self.symbols.heap_bytes();
         self.weight = (std::mem::size_of::<Record>()
             + self.rel.len()
             + self.parse_error.len()
@@ -149,47 +153,128 @@ pub(super) struct Origin {
 }
 
 /// Every distinct token in use once, with how many records hold it; a record's tokens are ids into it. A token no record
-/// holds any more is removed and its id reused, so the table follows what is live, not what ever was.
+/// holds any more is removed and its id reused, so the table follows what is live, not what ever was. The texts sit in
+/// one string, which is compacted once most of it is texts no longer held; the lookup table holds ids only.
 #[derive(Default)]
 struct Words {
-    ids: HashMap<Arc<str>, u32>,
-    list: Vec<Option<Arc<str>>>,
+    text: String,
+    /// Where each id's text sits in `text`; empty for a free id.
+    spans: Vec<(u32, u32)>,
     refs: Vec<u32>,
     free: Vec<u32>,
+    ids: hashbrown::HashTable<u32>,
+    hasher: hashbrown::DefaultHashBuilder,
+    /// Bytes of `text` no id points at.
+    dead: usize,
+}
+
+fn word_in<'a>(text: &'a str, spans: &[(u32, u32)], id: u32) -> &'a str {
+    let (at, len) = spans[id as usize];
+    &text[at as usize..(at + len) as usize]
 }
 
 impl Words {
-    fn acquire(&mut self, token: String) -> u32 {
-        if let Some(id) = self.ids.get(token.as_str()).copied() {
+    fn word(&self, id: u32) -> &str {
+        word_in(&self.text, &self.spans, id)
+    }
+
+    fn id_of(&self, token: &str) -> Option<u32> {
+        self.ids.find(self.hasher.hash_one(token), |&id| self.word(id) == token).copied()
+    }
+
+    fn acquire(&mut self, token: &str) -> u32 {
+        let hash = self.hasher.hash_one(token);
+        if let Some(&id) = self.ids.find(hash, |&id| word_in(&self.text, &self.spans, id) == token) {
             self.refs[id as usize] += 1;
             return id;
         }
-        let word: Arc<str> = Arc::from(token);
+        let span = (self.text.len() as u32, token.len() as u32);
+        self.text.push_str(token);
         let id = match self.free.pop() {
             Some(id) => {
-                self.list[id as usize] = Some(word.clone());
+                self.spans[id as usize] = span;
                 self.refs[id as usize] = 1;
                 id
             }
             None => {
-                self.list.push(Some(word.clone()));
+                self.spans.push(span);
                 self.refs.push(1);
-                (self.list.len() - 1) as u32
+                (self.spans.len() - 1) as u32
             }
         };
-        self.ids.insert(word, id);
+        let Self { text, spans, ids, hasher, .. } = self;
+        ids.insert_unique(hash, id, |&id| hasher.hash_one(word_in(text, spans, id)));
         id
     }
 
     fn release(&mut self, id: u32) {
         let refs = &mut self.refs[id as usize];
-        *refs = refs.saturating_sub(1);
-        if *refs == 0
-            && let Some(word) = self.list[id as usize].take()
-        {
-            self.ids.remove(&*word);
-            self.free.push(id);
+        if *refs == 0 {
+            return;
         }
+        *refs -= 1;
+        if *refs > 0 {
+            return;
+        }
+        let hash = self.hasher.hash_one(self.word(id));
+        if let Ok(entry) = self.ids.find_entry(hash, |&held| held == id) {
+            entry.remove();
+        }
+        self.dead += self.spans[id as usize].1 as usize;
+        self.spans[id as usize] = (0, 0);
+        self.free.push(id);
+        if self.dead > 64 * 1024 && self.dead * 2 > self.text.len() {
+            self.compact();
+        }
+    }
+
+    /// Drops the texts no id holds; ids, and so the lookup table, stay as they are.
+    fn compact(&mut self) {
+        let mut text = String::with_capacity(self.text.len() - self.dead);
+        for span in &mut self.spans {
+            if span.1 > 0 {
+                let at = text.len() as u32;
+                text.push_str(&self.text[span.0 as usize..(span.0 + span.1) as usize]);
+                *span = (at, span.1);
+            }
+        }
+        self.text = text;
+        self.dead = 0;
+    }
+
+    /// Gives back the room the buffers grew into: a generation's records are all interned by now.
+    fn settle(&mut self) {
+        self.text.shrink_to_fit();
+        self.spans.shrink_to_fit();
+        self.refs.shrink_to_fit();
+        self.free.shrink_to_fit();
+    }
+
+    /// Heap held: the texts, the per-id spans and counts, and the lookup table's id slots and control bytes.
+    fn heap_bytes(&self) -> u64 {
+        (self.text.capacity() + 8 * self.spans.capacity() + 4 * (self.refs.capacity() + self.free.capacity()) + self.ids.allocation_size()) as u64
+    }
+}
+
+/// The graph's words as they were when it was taken, by token id: a token no record holds reads as empty.
+pub(super) struct WordTable {
+    text: String,
+    spans: Vec<(u32, u32)>,
+}
+
+impl WordTable {
+    pub fn get(&self, id: u32) -> &str {
+        word_in(&self.text, &self.spans, id)
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    #[cfg(test)]
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        (0..self.spans.len() as u32).map(|id| self.get(id))
     }
 }
 
@@ -224,7 +309,8 @@ impl Origin {
     }
 
     /// The ids of `tokens`, sorted; each token is held once for the record that asks.
-    fn intern(&self, mut tokens: Vec<String>) -> Box<[u32]> {
+    fn intern(&self, tokens: &[String]) -> Box<[u32]> {
+        let mut tokens: Vec<&str> = tokens.iter().map(String::as_str).collect();
         tokens.sort_unstable();
         tokens.dedup();
         let mut words = self.words();
@@ -252,19 +338,12 @@ impl Source {
     pub fn lines(&self) -> &[String] {
         self.lines.get_or_init(|| split_lines(&self.text))
     }
-
-    /// Heap held while cached: the text, and room for its lines (a `String` header and allocator slack for every
-    /// line, however short: a file of blank lines costs most in its line headers).
-    fn cost(&self) -> u64 {
-        const PER_LINE: u64 = 24 + 16;
-        let lines = self.text.bytes().filter(|b| *b == b'\n').count() as u64 + 1;
-        2 * self.text.len() as u64 + PER_LINE * lines + 64
-    }
 }
 
 /// What was derived from files recently, across every graph and bounded in bytes (`MIXDOG_CODE_GRAPH_SOURCE_CACHE_MB`,
-/// default 8, for each of the two caches below): least recently used first. An entry is keyed by the file's path and the
-/// version it was derived from (the content digest; for call sites also the extraction language and schema).
+/// default 8): least recently used first. An entry is keyed by the file's path and the version it was derived from (the
+/// content digest, the extraction language and schema). Source text has no such cache: every read verifies the file's
+/// bytes against its digest, so a cached text would only have saved decoding them.
 struct Lru<T> {
     entries: Vec<(PathBuf, String, Arc<T>, u64)>,
     bytes: u64,
@@ -297,15 +376,7 @@ impl<T> Lru<T> {
     }
 }
 
-static SOURCES: Mutex<Lru<Source>> = Mutex::new(Lru::new());
 static CALL_SITES: Mutex<Lru<Vec<CallInfo>>> = Mutex::new(Lru::new());
-
-/// Bytes and entry count of the source cache.
-#[cfg(test)]
-pub(super) fn source_cache_state() -> (u64, usize) {
-    let cache = SOURCES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    (cache.bytes, cache.entries.len())
-}
 
 /// Bytes and entry count of the call-site cache.
 #[cfg(test)]
@@ -407,9 +478,9 @@ fn field(key: &str, value: u64) -> u64 {
 
 /// `js_value` of a symbol as it serializes (an object of its set members), counted off the symbol itself: a value tree
 /// built per symbol only to be measured was most of what indexing a tree allocated.
-fn symbol_bytes(symbol: &SymbolInfo) -> u64 {
+fn symbol_bytes(symbol: &Sym<'_>) -> u64 {
     let mut bytes = 48
-        + field("name", js_str(&symbol.name))
+        + field("name", js_str(symbol.name))
         + field("kind", js_str(symbol.kind))
         + field("startLine", 8)
         + field("endLine", 8)
@@ -419,10 +490,10 @@ fn symbol_bytes(symbol: &SymbolInfo) -> u64 {
         bytes += field("exported", 4);
     }
     if !symbol.sig.is_empty() {
-        bytes += field("sig", js_str(&symbol.sig));
+        bytes += field("sig", js_str(symbol.sig));
     }
     if !symbol.parent.is_empty() {
-        bytes += field("parent", js_str(&symbol.parent));
+        bytes += field("parent", js_str(symbol.parent));
     }
     bytes
 }
@@ -440,7 +511,7 @@ mod measured_tests {
     #[test]
     fn a_symbol_and_a_call_measure_as_their_serialized_values() {
         let of = |value: serde_json::Value| js_value(&value);
-        let mut symbol = SymbolInfo {
+        let mut symbol = mixdog_graph::outline::SymbolInfo {
             name: "읽기".into(),
             kind: "function",
             start_line: 3,
@@ -451,11 +522,11 @@ mod measured_tests {
             sig: String::new(),
             parent: String::new(),
         };
-        assert_eq!(symbol_bytes(&symbol), of(serde_json::to_value(&symbol).unwrap()));
+        assert_eq!(symbol_bytes(&Sym::from(&symbol)), of(serde_json::to_value(&symbol).unwrap()));
         symbol.exported = true;
         symbol.sig = "pub fn 읽기(path: &Path) -> io::Result<String>".into();
         symbol.parent = "Store".into();
-        assert_eq!(symbol_bytes(&symbol), of(serde_json::to_value(&symbol).unwrap()));
+        assert_eq!(symbol_bytes(&Sym::from(&symbol)), of(serde_json::to_value(&symbol).unwrap()));
         for (recv, in_symbol, kind) in [("", "", "call"), ("self.store", "Store", "method"), ("", "main", "new")] {
             let call = CallInfo { name: "open😀".into(), line: 12, col: 4, end_col: 9, kind, recv: recv.into(), in_symbol: in_symbol.into() };
             assert_eq!(call_bytes(&call), of(serde_json::to_value(&call).unwrap()));
@@ -485,9 +556,11 @@ const SCHEMA_VERSION: &str = "sym-record-v2-unified-kinds";
 
 pub(super) struct Graph {
     pub nodes: Vec<Node>,
-    index: HashMap<String, usize>,
-    /// rel -> sorted rels of the files that import it.
-    reverse: HashMap<String, BTreeSet<String>>,
+    /// Node positions, found by their rel.
+    index: hashbrown::HashTable<u32>,
+    hasher: hashbrown::DefaultHashBuilder,
+    /// By node position: the positions of the other files that import it, in the order of their rels.
+    reverse: Vec<Box<[u32]>>,
     /// Eligible files that could not be verified in this generation (their bytes changed while they were read): they are
     /// not in the graph, no earlier record of them stands in for them, and the next query reconsiders them.
     pub unverified: Vec<String>,
@@ -557,13 +630,13 @@ fn record_from_cache(file: CachedFile, digest: [u8; 32], path: &Path, lang: &'st
         lang,
         scan_lang: scan_lang_for_path(path),
         parse_error: file.parse_error,
-        symbols: file.symbols.into_iter().map(super::cache::CachedSymbol::into_symbol).collect(),
+        symbols: Symbols::pack(file.symbols.iter().map(super::cache::CachedSymbol::view)),
         raw_imports: file.raw_imports,
         package_name: file.package_name,
         namespace_name: file.namespace_name,
         go_package_name: file.go_package_name,
         top_level_types: file.top_level_types,
-        tokens: origin.intern(file.tokens),
+        tokens: origin.intern(&file.tokens),
         calls_bytes: file.calls_bytes,
         fingerprint: Some((file.size, file.mtime_ns)),
         digest,
@@ -637,11 +710,27 @@ thread_local! {
 mod bound_tests {
     use super::*;
 
-    /// Splitting two million blank lines allocates two million `String` headers, whatever the text weighs.
+    /// Released words leave the table and the text; the words still held keep their ids through a compaction.
     #[test]
-    fn a_source_of_blank_lines_is_charged_its_line_allocations() {
-        let source = Source::new("\n".repeat(2_000_000));
-        assert!(source.cost() >= 2_000_000 * 24, "{}", source.cost());
+    fn the_word_table_keeps_held_words_through_compaction() {
+        let mut words = Words::default();
+        let ids: Vec<u32> = (0..20_000).map(|n| words.acquire(&format!("token_{n:06}"))).collect();
+        assert_eq!(words.acquire("token_000007"), ids[7], "a held word is found, not added");
+        for (n, id) in ids.iter().enumerate().filter(|(n, _)| n % 4 != 0) {
+            words.release(*id);
+            if n == 7 {
+                words.release(*id);
+            }
+        }
+        assert!(words.text.len() <= 20_000 * 12 / 2, "compacted: {} bytes", words.text.len());
+        for (n, id) in ids.iter().enumerate() {
+            let held = n % 4 == 0;
+            assert_eq!(words.id_of(&format!("token_{n:06}")), held.then_some(*id));
+            assert_eq!(words.word(*id), if held { format!("token_{n:06}") } else { String::new() });
+        }
+        let again = words.acquire("fresh");
+        assert!(ids.contains(&again), "a freed id is reused");
+        assert_eq!((words.word(again), words.id_of("fresh")), ("fresh", Some(again)));
     }
 
     #[test]
@@ -707,7 +796,7 @@ fn source_cache_cap() -> u64 {
     })
 }
 impl Node {
-    /// The file's source, read for an answer: from the bounded source cache or from disk. The file must still be as
+    /// The file's source, read from disk for an answer. The file must still be as
     /// the graph was built from it; when it is not, the graph is marked stale (the caller builds again) and the read
     /// is empty.
     pub fn read(&self) -> Arc<Source> {
@@ -737,6 +826,10 @@ impl Node {
 
     fn verify_source_into(&self, bytes: &mut Vec<u8>, for_body: bool) -> bool {
         bytes.clear();
+        // The size the record was parsed at: a read into a growing buffer would hold up to twice the text.
+        if let Some((size, _)) = self.fingerprint {
+            bytes.reserve_exact(size.min(MAX_FILE_BYTES) as usize);
+        }
         let mut read = || -> Option<bool> {
             let (file, path) = open_source(&self.origin.root, Path::new(&self.rel))?;
             (&file).take(MAX_FILE_BYTES + 1).read_to_end(bytes).ok()?;
@@ -751,17 +844,7 @@ impl Node {
     }
 
     fn source_from_verified(&self, bytes: Vec<u8>) -> Arc<Source> {
-        let path = self.origin.root.join(&self.rel);
-        let version = digest_hex(&self.digest);
-        if let Some(source) = SOURCES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&path, &version) {
-            return source;
-        }
-        let Ok(text) = String::from_utf8(bytes) else {
-            return Arc::new(Source::new(String::new()));
-        };
-        let source = Arc::new(Source::new(text));
-        SOURCES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).put(path, version, source.clone(), source.cost(), source_cache_cap());
-        source
+        Arc::new(Source::new(String::from_utf8(bytes).unwrap_or_default()))
     }
 
     /// The call sites of the file (`None`: no call extraction ran for it), extracted from its source now and kept
@@ -806,7 +889,7 @@ impl Node {
     }
 
     pub fn has_token(&self, name: &str) -> bool {
-        let id = self.origin.words().ids.get(name).copied();
+        let id = self.origin.words().id_of(name);
         id.is_some_and(|id| self.tokens.binary_search(&id).is_ok())
     }
 }
@@ -814,7 +897,7 @@ impl Graph {
     /// The tokens still held by some record, as text.
     #[cfg(test)]
     pub(super) fn live_words(&self) -> Vec<String> {
-        self.word_table().iter().filter(|w| !w.is_empty()).map(|w| w.to_string()).collect()
+        self.word_table().iter().filter(|w| !w.is_empty()).map(str::to_owned).collect()
     }
 
     /// The project root the graph was built over.
@@ -822,12 +905,16 @@ impl Graph {
         &self.origin.root
     }
 
+    fn position(&self, rel: &str) -> Option<usize> {
+        self.index.find(self.hasher.hash_one(rel), |&at| self.nodes[at as usize].rel == rel).map(|&at| at as usize)
+    }
+
     pub fn node(&self, rel: &str) -> Option<&Node> {
-        self.index.get(rel).map(|i| &self.nodes[*i])
+        self.position(rel).map(|at| &self.nodes[at])
     }
 
     pub fn dependents(&self, rel: &str) -> Vec<String> {
-        self.reverse.get(rel).map(|set| set.iter().cloned().collect()).unwrap_or_default()
+        self.position(rel).map(|at| self.reverse[at].iter().map(|&from| self.nodes[from as usize].rel.clone()).collect()).unwrap_or_default()
     }
 
     /// Candidate files of a name: the ones whose tokens contain it.
@@ -1001,6 +1088,7 @@ impl Graph {
         });
         // Cached files that no longer match are not needed past here.
         drop(previous);
+        origin.words().settle();
         let kept = nodes.len();
         let receipts = processed_hints(hints, &nodes, entries);
         let started = std::time::Instant::now();
@@ -1083,10 +1171,10 @@ impl Graph {
         current
     }
 
-    /// The graph's words, indexed by token id (shared strings: cloning them copies pointers).
-    pub fn word_table(&self) -> Vec<Arc<str>> {
-        let gone: Arc<str> = Arc::from("");
-        self.origin.words().list.iter().map(|w| w.clone().unwrap_or_else(|| gone.clone())).collect()
+    /// The graph's words, by token id: a copy of the table's two buffers, read without holding its lock.
+    pub fn word_table(&self) -> WordTable {
+        let words = self.origin.words();
+        WordTable { text: words.text.clone(), spans: words.spans.clone() }
     }
 
     /// A query read a source file that no longer matches the graph.
@@ -1097,10 +1185,9 @@ impl Graph {
     /// Heap bytes of the graph's parsed data; source text is read on demand and not part of it.
     pub fn base_heap_bytes(&self) -> u64 {
         self.nodes.iter().map(Node::heap_bytes).sum::<u64>()
-            // One shared allocation per word, its slot in the list and its entry in the lookup table.
-            + self.origin.words().list.iter().flatten().map(|w| 16 + w.len() as u64 + 16 + 28).sum::<u64>()
-            + self.index.keys().map(|k| 48 + k.len() as u64).sum::<u64>()
-            + self.reverse.iter().map(|(k, set)| 48 + k.len() as u64 + set.iter().map(|s| 48 + s.len() as u64).sum::<u64>()).sum::<u64>()
+            + self.origin.words().heap_bytes()
+            + self.index.allocation_size() as u64
+            + self.reverse.iter().map(|importers| 16 + 4 * importers.len() as u64).sum::<u64>()
     }
 
     /// graph-model.mjs:167 `_estimateGraphBaseBytes` of the graph Node holds for this file set: the object
@@ -1128,12 +1215,12 @@ impl Graph {
         let words = self.word_table();
         let mut nodes = 48 + 24 * self.nodes.len() as u64;
         for node in &self.nodes {
-            let symbols = 24 + node.symbols.iter().map(|s| 8 + symbol_bytes(s)).sum::<u64>();
+            let symbols = 24 + node.symbols.iter().map(|s| 8 + symbol_bytes(&s)).sum::<u64>();
             let calls = match (node.calls_bytes, from_disk) {
                 (Some(bytes), false) => bytes,
                 _ => 0,
             };
-            let tokens = if from_disk && node.tokens.is_empty() { 0 } else { js_strings(node.tokens.iter().map(|id| words[*id as usize].as_ref())) };
+            let tokens = if from_disk && node.tokens.is_empty() { 0 } else { js_strings(node.tokens.iter().map(|id| words.get(*id))) };
             let resolved = node.resolved_imports.iter().map(|r| 8 + abs(r)).sum::<u64>() + 24;
             let object = 48
                 + field("abs", abs(&node.rel))
@@ -1180,7 +1267,7 @@ impl Graph {
         let mut bytes = 48 + 2 * 24;
         for node in &self.nodes {
             for id in node.tokens.iter() {
-                let token: &str = &words[*id as usize];
+                let token: &str = words.get(*id);
                 let seen = files.entry(token).or_insert(0);
                 bytes += match *seen {
                     0 => 24 + js_str(token) + 8,
@@ -1211,18 +1298,34 @@ impl Graph {
     }
 
     fn assemble(nodes: Vec<Node>, origin: Arc<Origin>) -> Graph {
-        let index = nodes.iter().enumerate().map(|(i, n)| (n.rel.clone(), i)).collect();
-        let mut reverse: HashMap<String, BTreeSet<String>> = HashMap::new();
-        for node in &nodes {
+        let hasher = hashbrown::DefaultHashBuilder::default();
+        let mut index = hashbrown::HashTable::with_capacity(nodes.len());
+        for (at, node) in nodes.iter().enumerate() {
+            index.insert_unique(hasher.hash_one(node.rel.as_str()), at as u32, |&at| hasher.hash_one(nodes[at as usize].rel.as_str()));
+        }
+        let position = |rel: &str| index.find(hasher.hash_one(rel), |&at| nodes[at as usize].rel == rel).copied();
+        let mut importers: Vec<Vec<u32>> = vec![Vec::new(); nodes.len()];
+        for (from, node) in nodes.iter().enumerate() {
             for target in &node.resolved_imports {
-                if *target != node.rel {
-                    reverse.entry(target.clone()).or_default().insert(node.rel.clone());
+                if *target != node.rel
+                    && let Some(to) = position(target)
+                {
+                    importers[to as usize].push(from as u32);
                 }
             }
         }
+        let reverse = importers
+            .into_iter()
+            .map(|mut from| {
+                from.sort_unstable_by(|a, b| nodes[*a as usize].rel.cmp(&nodes[*b as usize].rel));
+                from.dedup();
+                from.into_boxed_slice()
+            })
+            .collect();
         Graph {
             nodes,
             index,
+            hasher,
             reverse,
             unverified: Vec::new(),
             receipts: Receipts::new(),
@@ -1301,13 +1404,13 @@ fn parse_record(root: &Path, path: &Path, lang: &'static str, origin: &Origin) -
             lang,
             scan_lang,
             parse_error,
-            symbols: extraction.symbols,
+            symbols: Symbols::from(extraction.symbols),
             raw_imports: extraction.imports,
             package_name: extraction.package_name,
             namespace_name: extraction.namespace_name,
             go_package_name: extraction.go_package_name,
             top_level_types,
-            tokens: origin.intern(extraction.tokens),
+            tokens: origin.intern(&extraction.tokens),
             calls_bytes: calls.as_ref().map(|calls| 24 + calls.iter().map(|c| 8 + call_bytes(c)).sum::<u64>()),
             fingerprint: Some(fingerprint),
             digest,
@@ -1330,6 +1433,7 @@ fn link_stable(root: &Path, nodes: &mut [Node]) -> Result<Vec<ObservedInput>, St
         });
         inputs.sort();
         inputs.dedup();
+        inputs.shrink_to_fit();
         if inputs.iter().all(ObservedInput::is_current) {
             return Ok(inputs);
         }

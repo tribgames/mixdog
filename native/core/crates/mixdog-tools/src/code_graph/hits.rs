@@ -4,10 +4,11 @@
 
 use std::cmp::Ordering;
 
-use mixdog_graph::outline::{SymbolInfo, identifier_hits};
+use mixdog_graph::outline::identifier_hits;
 
 use super::graph::{Graph, Node};
 use super::outline::{parent_index, symbol_path};
+use super::symbols::Sym;
 use super::util::{head_chars, name_cmp};
 
 #[derive(Clone, Debug)]
@@ -27,7 +28,7 @@ pub(super) struct Hit {
 }
 
 impl Hit {
-    fn apply_facts(&mut self, sym: &SymbolInfo) {
+    fn apply_facts(&mut self, sym: &Sym<'_>) {
         self.kind = Some(if sym.kind.is_empty() { "symbol" } else { sym.kind });
         let sig = sym.sig.trim();
         self.sig = (!sig.is_empty()).then(|| sig.to_string());
@@ -102,7 +103,7 @@ pub(super) fn compare_hits(a: &Hit, b: &Hit) -> Ordering {
 
 /// A native hit has fixed declaration and occurrence ranks. Rank its location before copying
 /// paths and signatures into rendered hits.
-pub(super) fn compare_native_declarations((a, a_sym): (&Node, &SymbolInfo), (b, b_sym): (&Node, &SymbolInfo)) -> Ordering {
+pub(super) fn compare_native_declarations((a, a_sym): (&Node, Sym<'_>), (b, b_sym): (&Node, Sym<'_>)) -> Ordering {
     compare_rel_rank(&a.rel, &b.rel).then_with(|| name_cmp(&a.rel, &b.rel)).then(a_sym.start_line.cmp(&b_sym.start_line))
 }
 
@@ -128,7 +129,7 @@ fn native_end_line(node: &Node, name: &str, decl_line: u32) -> Option<u32> {
     exact.or(if nearest_dist <= 2 { nearest } else { None })
 }
 
-pub(super) fn native_hit(node: &Node, sym: &SymbolInfo) -> Option<Hit> {
+pub(super) fn native_hit(node: &Node, sym: &Sym<'_>) -> Option<Hit> {
     if sym.start_line < 1 {
         return None;
     }
@@ -161,7 +162,7 @@ pub(super) fn occurrences(node: &Node, name: &str) -> Vec<(u32, u32)> {
 }
 
 fn hits_on_node(node: &Node, name: &str, out: &mut Vec<Hit>) {
-    let natives: Vec<&SymbolInfo> = node.symbols.iter().filter(|s| s.name == name).collect();
+    let natives: Vec<Sym<'_>> = node.symbols.iter().filter(|s| s.name == name).collect();
     let spots = occurrences(node, name);
     if spots.is_empty() {
         out.extend(natives.iter().filter_map(|s| native_hit(node, s)));
@@ -172,7 +173,7 @@ fn hits_on_node(node: &Node, name: &str, out: &mut Vec<Hit>) {
     let line_text = |l: u32| lines.get(l as usize - 1).map_or("", |s| s.trim());
     let decl_symbol = |line: u32| natives.iter().find(|s| s.start_line == line).copied();
     let mut declaration_like = false;
-    let mut decl: Option<(u32, u32, &SymbolInfo)> = None;
+    let mut decl: Option<(u32, u32, Sym<'_>)> = None;
     for (line, col) in &spots {
         if let Some(sym) = decl_symbol(*line) {
             declaration_like = true;
@@ -199,7 +200,7 @@ fn hits_on_node(node: &Node, name: &str, out: &mut Vec<Hit>) {
         exported: false,
     };
     if let Some((_, _, sym)) = decl {
-        hit.apply_facts(sym);
+        hit.apply_facts(&sym);
     }
     out.push(hit);
 }
@@ -222,7 +223,7 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
                 if path != name_path && (absolute || !path.ends_with(&format!("/{name_path}"))) {
                     continue;
                 }
-                if let Some(mut hit) = native_hit(node, sym) {
+                if let Some(mut hit) = native_hit(node, &sym) {
                     hit.content = node.read().lines().get(sym.start_line as usize - 1).map_or("", |s| s.trim()).to_string();
                     hit.name_path = Some(path);
                     hits.push(hit);
@@ -335,8 +336,8 @@ pub(super) fn declaration_outside_scope(graph: &Graph, symbol: &str, language: O
                 continue;
             };
             if let Some(sym) = known.symbols.iter().find(|s| s.name == symbol) {
-                let mut hit = native_hit(known, sym)?;
-                hit.apply_facts(sym);
+                let mut hit = native_hit(known, &sym)?;
+                hit.apply_facts(&sym);
                 return Some(Outside { rel: known.rel.clone(), line: sym.start_line, lang: known.lang.to_string(), facts: hit.facts() });
             }
         }

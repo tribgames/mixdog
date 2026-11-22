@@ -26,12 +26,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use mixdog_graph::outline::SymbolInfo;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::graph::{Graph, Node, inventory_signature};
+use super::graph::{Graph, Node, WordTable, inventory_signature};
 use super::roots::{identity_key, path_key};
+use super::symbols::Sym;
 
 const FORMAT_VERSION: u32 = 5;
 /// `CODE_GRAPH_DISK_MAX_ENTRIES`.
@@ -69,31 +69,31 @@ pub(super) struct CachedSymbol {
 }
 
 impl CachedSymbol {
-    fn of(symbol: &SymbolInfo) -> Self {
+    fn of(symbol: Sym<'_>) -> Self {
         Self {
-            name: symbol.name.clone(),
+            name: symbol.name.to_owned(),
             kind: symbol.kind.to_owned(),
             start_line: symbol.start_line,
             end_line: symbol.end_line,
             start_col: symbol.start_col,
             end_col: symbol.end_col,
             exported: symbol.exported,
-            sig: symbol.sig.clone(),
-            parent: symbol.parent.clone(),
+            sig: symbol.sig.to_owned(),
+            parent: symbol.parent.to_owned(),
         }
     }
 
-    pub(super) fn into_symbol(self) -> SymbolInfo {
-        SymbolInfo {
-            name: self.name,
+    pub(super) fn view(&self) -> Sym<'_> {
+        Sym {
+            name: &self.name,
             kind: intern(&self.kind),
             start_line: self.start_line,
             end_line: self.end_line,
             start_col: self.start_col,
             end_col: self.end_col,
             exported: self.exported,
-            sig: self.sig,
-            parent: self.parent,
+            sig: &self.sig,
+            parent: &self.parent,
         }
     }
 }
@@ -142,7 +142,7 @@ struct FileRef<'a> {
 
 impl<'a> FileRef<'a> {
     /// `None` for a node with no signature (it was never read from a file).
-    fn of(node: &'a Node, words: &'a [Arc<str>]) -> Option<Self> {
+    fn of(node: &'a Node, words: &'a WordTable) -> Option<Self> {
         let (size, mtime_ns) = node.fingerprint?;
         Some(Self {
             rel: &node.rel,
@@ -155,7 +155,7 @@ impl<'a> FileRef<'a> {
             namespace_name: &node.namespace_name,
             go_package_name: &node.go_package_name,
             top_level_types: &node.top_level_types,
-            tokens: node.tokens.iter().map(|id| &*words[*id as usize]).collect(),
+            tokens: node.tokens.iter().map(|id| words.get(*id)).collect(),
             calls_bytes: node.calls_bytes,
             digest: super::graph::digest_hex(&node.digest),
         })
@@ -210,8 +210,9 @@ struct Staged {
 }
 
 /// The bound on the heap of all held graphs. Node's `CODE_GRAPH_MEMORY_MAX_BYTES` is 48 MiB of its own estimate and it
-/// keeps the newest graph past it; this bound is hard. Measured on this repository's tree (10,000 indexed files) a graph
-/// weighs about 70 MiB (~7 KiB a file), so the whole tree of ~11,200 files needs ~80 and 160 holds one of up to ~22,000.
+/// keeps the newest graph past it; this bound is hard. Measured on this repository's tree (10,282 indexed files) a graph
+/// weighs about 58 MiB of live heap (~5.7 KiB a file), so the whole tree of ~11,200 files needs ~64 and 160 holds one of
+/// up to ~28,000.
 const DEFAULT_GRAPH_HEAP_MB: f64 = 160.0;
 /// A held generation no call used for this long is released: the next call of its root starts from the disk cache.
 const GRAPH_IDLE: Duration = Duration::from_secs(10 * 60);

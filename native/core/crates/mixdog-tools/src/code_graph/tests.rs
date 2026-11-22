@@ -59,7 +59,7 @@ fn run_with(input: Value, cwd: &Path) -> super::dispatch::Answer {
 fn a_build_reuses_cached_files_only_while_their_signature_matches() {
     let (_tmp, root) = project_with_sentinel();
     let (cache_dir, cache) = no_cache();
-    let symbol_of = |graph: &super::graph::Graph| graph.node("src/a.mjs").unwrap().symbols[0].name.clone();
+    let symbol_of = |graph: &super::graph::Graph| graph.node("src/a.mjs").unwrap().symbols.get(0).name.to_owned();
     let first = super::graph::Graph::build(&root, &[], &cache).unwrap();
     assert_eq!(symbol_of(&first), "a");
     cache.flush().unwrap();
@@ -95,7 +95,7 @@ fn answers(graph: &super::graph::Graph) -> Vec<(String, Vec<String>, Vec<String>
     let mut rows: Vec<_> = graph
         .nodes
         .iter()
-        .map(|node| (node.rel.clone(), node.symbols.iter().map(|s| s.name.clone()).collect(), node.resolved_imports.clone(), graph.dependents(&node.rel)))
+        .map(|node| (node.rel.clone(), node.symbols.iter().map(|s| s.name.to_owned()).collect(), node.resolved_imports.clone(), graph.dependents(&node.rel)))
         .collect();
     rows.sort();
     rows
@@ -284,7 +284,7 @@ fn a_source_that_changes_under_both_attempts_fails_the_call() {
     let retried = run_with(input.clone(), &root);
     assert!(retried.text.contains("src/b.mjs"), "one changed read is answered by the retry: {}", retried.text);
     assert_eq!(super::graph::FORCED_MISMATCHES.with(std::cell::Cell::get), 0, "the references mode reads sources");
-    // Another project: the first one's sources are in the read cache now, and a cached read never reaches the disk.
+    // Another project, every read of which finds its file changed: no retry can verify it.
     let (_other, root) = project_with_sentinel();
     super::graph::FORCED_MISMATCHES.with(|n| n.set(1000));
     let (_dir, cache) = no_cache();
@@ -373,26 +373,6 @@ fn imports_recheck_same_stamp_sources_and_manifests_before_serving_cached_edges(
     assert_eq!(ask(&cache, &root, input.clone()).text.lines().next(), Some("src/b/x.ts"));
     same_size_rewrite(&root.join("src/use.ts"), "import { x } from '@lib/y';");
     assert_eq!(ask(&cache, &root, input).text.lines().next(), Some("src/b/y.ts"));
-}
-
-/// Source text is read from disk only as queries need it, through a cache bounded in bytes.
-#[test]
-fn the_source_cache_stays_within_its_byte_bound() {
-    let tmp = tempfile::tempdir().unwrap();
-    let root = tmp.path().join("proj");
-    fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("package.json"), "{}").unwrap();
-    let body = format!("export const x = 1;\n// {}\n", "p".repeat(1_900_000));
-    for n in 0..6 {
-        fs::write(root.join(format!("f{n}.mjs")), &body).unwrap();
-    }
-    let (_dir, cache) = no_cache();
-    let graph = cache.graph(&root, &[]).unwrap();
-    for n in 0..6 {
-        assert_eq!(graph.node(&format!("f{n}.mjs")).unwrap().read().text(), body);
-    }
-    let (bytes, entries) = super::graph::source_cache_state();
-    assert!(bytes <= 8 * 1024 * 1024 || entries == 1, "{bytes} bytes in {entries} entries");
 }
 
 #[test]
@@ -696,11 +676,11 @@ fn calls_project() -> (tempfile::TempDir, std::path::PathBuf) {
 /// What a node says of its file, three ways: the outline, the body and the call sites. They must always agree.
 fn view(graph: &super::graph::Graph) -> (Vec<String>, String, Vec<String>) {
     let node = graph.node("src/c.mjs").unwrap();
-    (node.symbols.iter().map(|s| s.name.clone()).collect(), node.read().text().to_owned(), node.calls().unwrap().iter().map(|c| c.name.clone()).collect())
+    (node.symbols.iter().map(|s| s.name.to_owned()).collect(), node.read().text().to_owned(), node.calls().unwrap().iter().map(|c| c.name.clone()).collect())
 }
 
-/// A hinted edit that leaves size and mtime as they were, with the source and call-site caches populated: symbols, bodies
-/// and calls all show the new bytes.
+/// A hinted edit that leaves size and mtime as they were, with the call-site cache populated: symbols, bodies and calls
+/// all show the new bytes.
 #[test]
 fn a_hinted_same_stamp_edit_is_seen_by_symbols_bodies_and_calls() {
     let (_tmp, root) = calls_project();
@@ -993,7 +973,7 @@ fn told(path: &Path) -> String {
 }
 
 fn symbols_of(graph: &super::graph::Graph, rel: &str) -> Vec<String> {
-    graph.node(rel).unwrap().symbols.iter().map(|s| s.name.clone()).collect()
+    graph.node(rel).unwrap().symbols.iter().map(|s| s.name.to_owned()).collect()
 }
 
 fn revision_of(cache: &super::GraphCache, root: &Path, rel: &str) -> Option<u64> {
@@ -1306,7 +1286,7 @@ fn alias_of(root: &Path) -> std::path::PathBuf {
     alias
 }
 
-/// A graph with its source cache filled: the old record and the old source are both present when the file is rewritten.
+/// A graph whose every source a query has read: the old record and its reads are both present when the file is rewritten.
 fn warm(cache: &super::GraphCache, root: &Path) {
     let graph = cache.graph(root, &[]).unwrap();
     for node in &graph.nodes {
@@ -1731,15 +1711,14 @@ fn measure_the_heap_of_this_repositorys_graph() {
     let now = graph.base_heap_bytes();
     let words = graph.word_table();
     // What the tokens weighed as a `Vec<String>` per node (the representation before the word table).
-    let tokens: u64 = graph.nodes.iter().map(|n| n.tokens.iter().map(|id| 24 + words[*id as usize].len() as u64).sum::<u64>()).sum();
+    let tokens: u64 = graph.nodes.iter().map(|n| n.tokens.iter().map(|id| 24 + words.get(*id).len() as u64).sum::<u64>()).sum();
     // What the call sites would weigh if every node kept them (they are extracted on demand now).
     let (calls, call_bytes) = graph.nodes.iter().filter_map(|n| n.calls()).fold((0usize, 0u64), |(count, bytes), calls| {
         let weight: u64 = calls.iter().map(|c| (std::mem::size_of_val(c) + c.name.len() + c.recv.len() + c.in_symbol.len()) as u64).sum();
         (count + calls.len(), bytes + weight)
     });
     let symbols: usize = graph.nodes.iter().map(|n| n.symbols.len()).sum();
-    let symbol_bytes: u64 =
-        graph.nodes.iter().flat_map(|n| n.symbols.iter()).map(|s| (std::mem::size_of_val(s) + s.name.len() + s.sig.len() + s.parent.len()) as u64).sum();
+    let symbol_bytes: u64 = graph.nodes.iter().map(|n| n.symbols.heap_bytes()).sum();
     let token_count: usize = graph.nodes.iter().map(|n| n.tokens.len()).sum();
     println!(
         "calls={calls} ({:.1}MiB if kept) symbols={symbols} ({:.1}MiB) tokens={token_count} unique_tokens={} (unique text {:.1}MiB) call_cache={:?}",

@@ -127,10 +127,10 @@ fn enclosing_symbol(node: &Node, line: u32, col: Option<u32>) -> Option<usize> {
         .map(|(i, _)| i)
         .collect();
     candidates.sort_by(|a, b| {
-        let (a, b) = (&node.symbols[*a], &node.symbols[*b]);
+        let (a, b) = (node.symbols.get(*a), node.symbols.get(*b));
         b.start_line.cmp(&a.start_line).then(b.start_col.cmp(&a.start_col))
     });
-    candidates.iter().copied().find(|i| FUNCTION_LIKE_KINDS.contains(&node.symbols[*i].kind.to_lowercase().as_str())).or(candidates.first().copied())
+    candidates.iter().copied().find(|i| FUNCTION_LIKE_KINDS.contains(&node.symbols.get(*i).kind.to_lowercase().as_str())).or(candidates.first().copied())
 }
 
 fn position_path(node: &Node, line: u32, col: Option<u32>) -> String {
@@ -189,7 +189,7 @@ fn call_caller_path(node: &Node, call: &CallInfo) -> String {
         .collect();
     let mut innermost: Option<usize> = None;
     for i in covering {
-        if innermost.is_none_or(|b| node.symbols[i].start_line > node.symbols[b].start_line) {
+        if innermost.is_none_or(|b| node.symbols.get(i).start_line > node.symbols.get(b).start_line) {
             innermost = Some(i);
         }
     }
@@ -479,11 +479,11 @@ fn callee_sites(node: &Node, symbol: &str) -> Option<Vec<CallInfo>> {
     if !containers.is_empty() {
         let parents = parent_index(&node.symbols);
         for (i, s) in node.symbols.iter().enumerate() {
-            if s.name.is_empty() || owned.contains(s.name.as_str()) {
+            if s.name.is_empty() || owned.contains(s.name) {
                 continue;
             }
             if super::outline::ancestors(&parents, i).iter().any(|a| containers.contains(a)) {
-                owned.insert(s.name.as_str());
+                owned.insert(s.name);
             }
         }
     }

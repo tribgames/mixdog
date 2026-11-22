@@ -55,6 +55,7 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rus
 # native/mixdog-graph's sources (its own lockfile and release profile stay untouched).
 mixdog-rt = { workspace = true }
 mixdog-graph = { workspace = true }
+hashbrown = { workspace = true }
 # exec (WP-TOOLS-EXEC): the shell and task tools register their tasks in WP-PROC's TaskRegistry.
 # `core-test` (the test seams: scripted terminals, mixdog-rt's test-support, mixdog-core-api's mock) is asked for
 # under [dev-dependencies] only: named here it reached the shipped binary.
