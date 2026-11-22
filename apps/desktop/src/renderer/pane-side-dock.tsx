@@ -80,7 +80,7 @@ import { t } from './i18n';
 import { syncTranscriptWidths } from './transcript-list-resize-patch';
 import type { PaneSideDockFile } from './side-file-tabs';
 import { SessionRailCard } from './SessionRailCard';
-import { clampSessionRailWidth, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
+import { clampSessionRailWidth, draftRailOwner, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -381,6 +381,8 @@ type PaneSideDockProps = {
   focused: boolean;
   /** The session this pane shows; its browser/terminal X closes this dock. */
   sessionId?: string;
+  /** The New Task draft this pane shows, when it shows one. */
+  draftId?: string;
   /** Hidden-mount only the focused pane's panel shell after boot. */
   prewarm?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
@@ -803,6 +805,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     groups,
     focused,
     sessionId = '',
+    draftId = '',
     terminalSessionId = '',
     prewarm = false,
     onClose,
@@ -834,8 +837,11 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   const bodyProps = closing ? { ...props, entry: lastOpenEntry.current } : props;
   const bodyOpen = openNow || closing;
   const bodyShowing = paneDockShowing(bodyProps.entry, bodyOpen);
-  // Settings → Session info: Automatic shows a session's panel while the conversation has room, never on the phone.
-  const railWanted = useSessionInfoDisplay() === 'auto' && Boolean(sessionId) && !mobileSheet;
+  // Settings → Session info: Automatic shows a session's panel while the
+  // conversation has room, never on the phone. A New Task shows it too, so
+  // the composer stays put when its first message makes the session.
+  const railOwner = sessionId || draftRailOwner(draftId);
+  const railWanted = useSessionInfoDisplay() === 'auto' && Boolean(railOwner) && !mobileSheet;
   const railPref = useSessionRailWidth();
   const cellWidth = useDockCellWidth(hostRef, openNow || railWanted);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
@@ -1030,7 +1036,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
       {railWidth > 0 && (
         <SessionRailCard
           leafId={leafId}
-          sessionId={sessionId}
+          sessionId={railOwner}
           width={railWidth}
           reserve={railReserve}
           onFocusPane={focused ? undefined : onFocusPane}

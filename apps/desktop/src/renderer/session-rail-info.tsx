@@ -24,7 +24,15 @@ import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
-import { ModelSelector } from './model-controls';
+import { BranchChip, type BranchChipProps } from './BranchChip';
+import { type ProjectContextProps, projectContextChoice } from './composer-support';
+import {
+  ModelSelector,
+  type OrchestrationModePickProps,
+  useOrchestrationModeChoice,
+  useWorkflowChoice,
+  type WorkflowPickProps,
+} from './model-controls';
 import { showDesktopToast } from './notifications';
 import { projectIdentity } from './project-catalog-cache';
 import { RendererLruCache } from './renderer-lru-cache';
@@ -145,11 +153,13 @@ function ProjectRow({
   );
 }
 
-/** A Workflow or Delegation row: the route label's own choices, under the row. */
+const CHOICE_ICONS: Record<string, typeof Workflow> = { 'orchestration-mode': Users, project: Folder };
+
+/** A Workflow or Delegation row (a New Task's Project too): the route label's own choices, under the row. */
 function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
   const row = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const Icon = choice.id === 'orchestration-mode' ? Users : Workflow;
+  const Icon = CHOICE_ICONS[choice.id] ?? Workflow;
   return (
     <>
       <button
@@ -183,6 +193,81 @@ function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
         />
       )}
     </>
+  );
+}
+
+function ModelRow({ model, answersModelPickerRequests }: { model: RailModelProps; answersModelPickerRequests: boolean }) {
+  return (
+    <div className="session-rail-model">
+      <ModelSelector
+        {...model}
+        answersModelPickerRequests={answersModelPickerRequests}
+        sheetAlign="start"
+        sheetPlacement="below"
+        triggerRowLabel={t('Model')}
+      />
+      <ServerAccountBadge />
+    </div>
+  );
+}
+
+/** What a New Task's context chips act on, handed to its panel's Info rows. */
+export type DraftRailContext = {
+  project: ProjectContextProps;
+  workflow: WorkflowPickProps;
+  delegation: OrchestrationModePickProps;
+  branch: BranchChipProps;
+};
+
+/** A New Task's Info category: the context chips under its composer (project,
+ *  branch, workflow, delegation) and its model, as the session's Info rows. */
+export function DraftInfoSection({
+  open,
+  onToggle,
+  draft,
+  model,
+  answersModelPickerRequests,
+}: {
+  open: boolean;
+  onToggle(): void;
+  draft: DraftRailContext;
+  model: RailModelProps;
+  answersModelPickerRequests: boolean;
+}) {
+  const project = projectContextChoice(draft.project);
+  const projectLabel = draft.project.activePath ? project.valueLabel : t('No project');
+  const { choice: workflow } = useWorkflowChoice(draft.workflow);
+  const delegation = useOrchestrationModeChoice(draft.delegation);
+  return (
+    <RailSection
+      category="info"
+      title={t('Info')}
+      open={open}
+      onToggle={onToggle}
+      summary={<span className="session-rail-cut">{projectLabel}</span>}
+    >
+      <ChoiceRow choice={{ ...project, valueLabel: projectLabel }} />
+      <BranchChip
+        {...draft.branch}
+        renderTrigger={(button, view) => (
+          <button
+            {...button}
+            type="button"
+            className="session-rail-row session-rail-pick"
+            title={t('Branch')}
+            onKeyDown={(event) => openOnArrow(event, Boolean(button['aria-expanded']), view.toggle)}
+          >
+            {view.icon('session-rail-ic')}
+            <span className="sr-only">{t('Branch')}</span>
+            <span className="session-rail-cut">{view.label}</span>
+            <RailPickMark />
+          </button>
+        )}
+      />
+      <ModelRow model={model} answersModelPickerRequests={answersModelPickerRequests} />
+      {workflow && <ChoiceRow choice={workflow} />}
+      {delegation && <ChoiceRow choice={delegation} />}
+    </RailSection>
   );
 }
 
@@ -275,17 +360,10 @@ export function InfoSection({
         />
       )}
       {!room && (
-        <div className="session-rail-model">
-          <ModelSelector
-            {...model}
-            onRoutePreferenceApplied={routeApplied}
-            answersModelPickerRequests={answersModelPickerRequests}
-            sheetAlign="start"
-            sheetPlacement="below"
-            triggerRowLabel={t('Model')}
-          />
-          <ServerAccountBadge />
-        </div>
+        <ModelRow
+          model={{ ...model, onRoutePreferenceApplied: routeApplied }}
+          answersModelPickerRequests={answersModelPickerRequests}
+        />
       )}
       {sessionChoices.map((choice) => (
         <ChoiceRow key={choice.id} choice={choice} />

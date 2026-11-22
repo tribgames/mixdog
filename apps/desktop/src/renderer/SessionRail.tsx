@@ -19,7 +19,13 @@ import {
   useSessionRailOrder,
 } from './session-rail-folds';
 import { GoalSection, TodoSection } from './session-rail-goal';
-import { ContextSection, InfoSection, type RailModelProps } from './session-rail-info';
+import {
+  ContextSection,
+  DraftInfoSection,
+  type DraftRailContext,
+  InfoSection,
+  type RailModelProps,
+} from './session-rail-info';
 import { AgentsSection, ShellsSection } from './session-rail-jobs';
 import { useSessionRailMotion } from './session-rail-motion';
 import { sessionRailDragging } from './session-rail-parts';
@@ -51,6 +57,8 @@ export type SessionRailProps = {
   onMoveSessionToProject?: (sessionId: string, projectPath: string) => Promise<void>;
   onAddProject?: (onAdded?: (projectPath: string) => void) => void;
   onOpenCommandSurface(surface: 'context' | 'stats'): void;
+  /** A New Task: no session yet, only Info with the draft's own pickers. */
+  draft?: DraftRailContext;
 };
 
 const flashToast = (flash: ComposerIslandFlash) => showDesktopToast(flash.text, 'info');
@@ -168,6 +176,21 @@ function SessionRailCategories(props: SessionRailProps) {
   return order.map((category) => <Fragment key={category}>{sections[category]}</Fragment>);
 }
 
+/** A New Task's panel: its Info card alone, until the first message makes the session. */
+function DraftRailCategories({ draft, model, reviewActive }: SessionRailProps & { draft: DraftRailContext }) {
+  const folds = useSessionRailFolds('');
+  useFoldedModelPickerRequest(reviewActive, folds.isOpen('info'), () => folds.toggle('info'));
+  return (
+    <DraftInfoSection
+      open={folds.isOpen('info')}
+      onToggle={() => folds.toggle('info')}
+      draft={draft}
+      model={model}
+      answersModelPickerRequests={reviewActive}
+    />
+  );
+}
+
 /** The panel's categories, in order, each absent when it has nothing. */
 export default function SessionRail(props: SessionRailProps) {
   const content = useRef<HTMLDivElement>(null);
@@ -184,9 +207,13 @@ export default function SessionRail(props: SessionRailProps) {
         if (sessionRailDragging()) event.preventDefault();
       }}
     >
-      <SessionGoalHost submissionId={props.goalSubmissionId}>
-        <SessionRailCategories {...props} />
-      </SessionGoalHost>
+      {props.draft ? (
+        <DraftRailCategories {...props} draft={props.draft} />
+      ) : (
+        <SessionGoalHost submissionId={props.goalSubmissionId}>
+          <SessionRailCategories {...props} />
+        </SessionGoalHost>
+      )}
     </div>
   );
 }

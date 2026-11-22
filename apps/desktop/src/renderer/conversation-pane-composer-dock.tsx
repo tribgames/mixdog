@@ -12,7 +12,8 @@ import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
 import { useSessionInfoDisplay } from './pane-side-dock-hooks';
-import { sessionRailHost, useSessionRailSlot } from './session-rail-layout';
+import { draftRailOwner, sessionRailHost, useSessionRailSlot } from './session-rail-layout';
+import type { DraftRailContext } from './session-rail-info';
 import { useSurfaceActive } from './surface-activity';
 
 // The panel's categories load with the first panel shown, as the island's Goal does.
@@ -74,8 +75,9 @@ function routeContextTokens(routeSnapshot: Snapshot): number | undefined {
   return tokens > 0 ? tokens : undefined;
 }
 
-/** The New Task context bar: project, workflow, delegation and branch. */
-function conversationContextBar({
+/** What the New Task context bar's pickers act on: project, workflow,
+ *  delegation and branch. The session panel's draft Info rows take the same. */
+function conversationDraftContext({
   snapshot,
   routeSnapshot,
   draftMode,
@@ -92,54 +94,55 @@ function conversationContextBar({
   draftOrchestrationMode,
   onDraftOrchestrationMode,
   submission: { actions },
-}: ConversationComposerDockProps) {
+}: ConversationComposerDockProps): DraftRailContext {
   const routeBusy = !draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy);
-  // Branch/worktree is picked in a New Task's context bar only.
-  const branchChip = (
-    <BranchChip
-      sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
-      draftId={draftId}
-      projectPath={draftMode ? activeProjectPath : routeProject}
-      disabled={transitioning || routeBusy}
-      refreshKey={[
+  return {
+    project: {
+      projects,
+      activePath: activeProjectPath,
+      activeLabel: activeProjectLabel,
+      disabled: transitioning || Boolean(snapshot.busy),
+      onClear: onClearProject,
+      onSelect: onSelectProject,
+    },
+    workflow: {
+      workflow: (draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null,
+      disabled: transitioning || routeBusy,
+      invokeResult: actions.composerInvokeResult,
+      applySnapshot: actions.composerApplySnapshot,
+      onDraftChange: onDraftWorkflow,
+    },
+    delegation: {
+      mode: draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode),
+      disabled: transitioning || routeBusy,
+      invokeResult: actions.composerInvokeResult,
+      applySnapshot: actions.composerApplySnapshot,
+      onDraftChange: onDraftOrchestrationMode,
+    },
+    // Branch/worktree is picked in a New Task's context bar only.
+    branch: {
+      sessionId: draftMode ? '' : String(routeSnapshot.sessionId || ''),
+      draftId,
+      projectPath: draftMode ? activeProjectPath : routeProject,
+      disabled: transitioning || routeBusy,
+      refreshKey: [
         Boolean(routeSnapshot.busy),
         Boolean(routeSnapshot.commandBusy),
         routeSnapshot.workspace?.revision ?? '',
         routeSnapshot.workspace?.cwd ?? '',
-      ].join(':')}
-    />
-  );
+      ].join(':'),
+    },
+  };
+}
+
+/** The New Task context bar: project, workflow, delegation and branch. */
+function conversationContextBar(context: DraftRailContext) {
   return (
     <ComposerContextChips
-      project={
-        <ProjectContextSelector
-          projects={projects}
-          activePath={activeProjectPath}
-          activeLabel={activeProjectLabel}
-          disabled={transitioning || Boolean(snapshot.busy)}
-          onClear={onClearProject}
-          onSelect={onSelectProject}
-        />
-      }
-      workflow={
-        <WorkflowSelect
-          workflow={(draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null}
-          disabled={transitioning || routeBusy}
-          invokeResult={actions.composerInvokeResult}
-          applySnapshot={actions.composerApplySnapshot}
-          onDraftChange={onDraftWorkflow}
-        />
-      }
-      delegation={
-        <OrchestrationModeSelect
-          mode={draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode)}
-          disabled={transitioning || routeBusy}
-          invokeResult={actions.composerInvokeResult}
-          applySnapshot={actions.composerApplySnapshot}
-          onDraftChange={onDraftOrchestrationMode}
-        />
-      }
-      branch={branchChip}
+      project={<ProjectContextSelector {...context.project} />}
+      workflow={<WorkflowSelect {...context.workflow} />}
+      delegation={<OrchestrationModeSelect {...context.delegation} />}
+      branch={<BranchChip {...context.branch} />}
     />
   );
 }
@@ -215,7 +218,13 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   // conversation's island and the controls under its composer.
   const railSlot = useSessionRailSlot(props.paneLeafId ?? '');
   const onScreen = useSurfaceActive();
-  const railHost = sessionRailHost(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
+  // A New Task's panel carries the pickers of its context bar instead.
+  const contextPickers = showProjectSelector && !agentMode;
+  const draftContext = contextPickers ? conversationDraftContext(props) : null;
+  const railHost = sessionRailHost(railSlot, {
+    sessionId: draftMode ? (contextPickers ? draftRailOwner(draftId) : '') : reviewSessionId,
+    onScreen,
+  });
   const railShown = Boolean(railHost);
   // Settings → Session info: Hidden draws neither the panel nor the island.
   const islandOff = useSessionInfoDisplay() === 'none';
@@ -254,6 +263,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
               onMoveSessionToProject={props.onMoveSessionToProject}
               onAddProject={props.onAddProject}
               onOpenCommandSurface={actions.composerOnOpenCommandSurface}
+              draft={draftMode && draftContext ? draftContext : undefined}
             />
           </Suspense>,
           railHost
@@ -301,8 +311,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         sessionChoices={sessionChoices}
         // Before the first message the pickers stand in for the readout.
         contextBar={
-          showProjectSelector && !agentMode ? (
-            <div className="composer-model-line-context">{conversationContextBar(props)}</div>
+          draftContext && !railShown ? (
+            <div className="composer-model-line-context">{conversationContextBar(draftContext)}</div>
           ) : undefined
         }
         usageReadout={draftMode ? undefined : usageReadout}
