@@ -71,6 +71,34 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
 }
 
+/** Resolves once `client` has folded thread `threadId` up to feed position `seq`. */
+function foldedThrough(client: ProtocolClient<SessionFold>, threadId: string, seq: number): Promise<void> {
+  return new Promise((resolve) => {
+    const reached = () => (client.store.thread(threadId)?.feed.seq ?? -1) >= seq;
+    if (reached()) return resolve();
+    const off = client.store.subscribe(() => {
+      if (!reached()) return;
+      off();
+      resolve();
+    });
+  });
+}
+
+/** `hear` passed as a callback; `happened` resolves at its first call whose arguments pass `test`. */
+function signal<A extends unknown[]>(test: (...args: A) => boolean = () => true) {
+  let resolve!: () => void;
+  const happened = new Promise<void>((r) => (resolve = r));
+  return {
+    happened,
+    hear: (...args: A) => {
+      if (test(...args)) resolve();
+    },
+  };
+}
+
+/** The `closed` code with which a ready session parks its socket on `desktop-gone` (relay-session.ts). */
+const DESKTOP_LEG_GONE = 1012;
+
 type Identity = Awaited<ReturnType<typeof generateRelayE2EEServerIdentity>>;
 
 /** A relay socket whose far end is the desktop leg: it challenges, verifies the hello, sends `e2ee-ready`. With `transport` it
@@ -88,6 +116,7 @@ function relayPair(identity: Identity, transport: boolean) {
   const assembler = new RemoteTransportMessageAssembler(new RemoteTransportAssemblyPool());
   let fragment = 0;
   const closes: Array<[number, string]> = [];
+  const firstClose = signal();
   const hellos: any[] = [];
   const push = (value: any) => {
     if (waiter) {
@@ -136,7 +165,10 @@ function relayPair(identity: Identity, transport: boolean) {
     onclose: null,
     onerror: null,
     send: (data) => void fromPhone(data),
-    close: (code = 1000, reason = '') => closes.push([code, reason]),
+    close: (code = 1000, reason = '') => {
+      closes.push([code, reason]);
+      firstClose.hear();
+    },
   };
   const start = () =>
     queueMicrotask(() => {
@@ -147,6 +179,8 @@ function relayPair(identity: Identity, transport: boolean) {
     ws,
     start,
     closes,
+    /** The phone's first close of this socket. */
+    closed: firstClose.happened,
     hellos,
     next: () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise<any>((r) => (waiter = r))),
     send: toPhone,
@@ -174,7 +208,7 @@ async function referenceState(): Promise<{ client: ProtocolClient<SessionFold>; 
   const resumed = client.resumeThread('t1', { lastItems: 50 });
   await served;
   await resumed;
-  await settle();
+  await foldedThrough(client, 't1', 12);
   return { client, state: sessionStateOf(client, 't1') };
 }
 
@@ -205,7 +239,8 @@ for (const transport of [false, true]) {
     const resumed = phone.client.resumeThread('t1', { lastItems: 50 });
     await served;
     await resumed;
-    await settle();
+    // `served` resolves once the last frame is handed to the socket; the phone still decrypts it on the crypto thread pool.
+    await foldedThrough(phone.client, 't1', 12);
 
     assert.equal(far.hellos[0].transportWebrtc, transport ? 1 : undefined);
     const state = sessionStateOf(phone.client, 't1') as { items: unknown[] };
@@ -275,6 +310,7 @@ test('a close 4002 is the relay saying the PC is offline: reconnecting, never a 
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);
   const states: PhoneConnection[] = [];
+  const reconnecting = signal((c: PhoneConnection) => c.state === 'reconnecting');
   const served = serve(far.next, far.send);
   far.start();
   const phone = await connectPhone({
@@ -284,13 +320,16 @@ test('a close 4002 is the relay saying the PC is offline: reconnecting, never a 
     socketUrl: () => 'wss://relay.invalid/d/dev',
     createSocket: () => far.ws,
     random: () => 0.5,
-    onConnection: (c) => states.push(c),
+    onConnection: (c) => {
+      states.push(c);
+      reconnecting.hear(c);
+    },
   });
   const resumed = phone.client.resumeThread('t1', { lastItems: 50 });
   await served;
   await resumed;
   far.ws.onclose!({ code: 4002, reason: 'version' });
-  await settle();
+  await reconnecting.happened;
   assert.deepEqual(
     states.map((s) => s.state),
     ['connecting', 'connected', 'reconnecting']
@@ -433,6 +472,7 @@ test('a hidden page does not redial; the wake that brings it back does', async (
   let visible = false;
   let made = 0;
   let link: { wake(): boolean } | undefined;
+  const dialed = signal();
   const identity = await generateRelayE2EEServerIdentity();
   const controller = new AbortController();
   const pending = connectPhone({
@@ -442,6 +482,7 @@ test('a hidden page does not redial; the wake that brings it back does', async (
     socketUrl: () => 'wss://relay.invalid/d/dev',
     createSocket: () => {
       made++;
+      dialed.hear();
       return refusedSocket();
     },
     visible: () => visible,
@@ -459,7 +500,7 @@ test('a hidden page does not redial; the wake that brings it back does', async (
   assert.equal(made, 0);
   visible = true;
   link!.wake();
-  await settle();
+  await dialed.happened;
   assert.ok(made >= 1, 'the foreground wake dials');
   controller.abort();
   visible = false;
@@ -541,6 +582,7 @@ test('a redial timer that fires after the page was hidden waits for the wake', a
   const identity = await generateRelayE2EEServerIdentity();
   let visible = true;
   let made = 0;
+  let redialed = signal();
   let link: { wake(): boolean } | undefined;
   const controller = new AbortController();
   const pending = connectPhone({
@@ -550,6 +592,7 @@ test('a redial timer that fires after the page was hidden waits for the wake', a
     socketUrl: () => 'wss://relay.invalid/d/dev',
     createSocket: () => {
       made++;
+      redialed.hear();
       return refusedSocket();
     },
     visible: () => visible,
@@ -568,9 +611,10 @@ test('a redial timer that fires after the page was hidden waits for the wake', a
   await new Promise((r) => setTimeout(r, 1_700));
   assert.equal(made, dialed, 'the armed backoff fired while hidden and dialed nothing');
   const parkedAt = made;
+  redialed = signal();
   visible = true;
   link!.wake();
-  await settle();
+  await redialed.happened;
   assert.ok(made > parkedAt, 'the wake dials');
   controller.abort();
 });
@@ -609,13 +653,17 @@ test('a wake does not probe a socket that is still opening', async () => {
     close: (...a: unknown[]) => void closed.push(a),
   };
   let link: { wake(): boolean } | undefined;
+  const opening = signal();
   const controller = new AbortController();
   const pending = connectPhone({
     deviceId: 'dev',
     version: options.clientInfo.version,
     pairing: () => relayE2EEPairingMaterial(identity),
     socketUrl: () => 'wss://relay.invalid/d/dev',
-    createSocket: () => ws,
+    createSocket: () => {
+      opening.hear();
+      return ws;
+    },
     signal: controller.signal,
     onConnection: () => undefined,
     linked: (l) => {
@@ -623,7 +671,7 @@ test('a wake does not probe a socket that is still opening', async () => {
     },
   });
   pending.catch(() => undefined);
-  await settle();
+  await opening.happened;
   assert.equal(link!.wake(), false, 'nothing to probe yet');
   assert.deepEqual(sent, []);
   assert.deepEqual(closed, []);
@@ -634,6 +682,7 @@ test('a wake does not probe a socket that is still opening', async () => {
 test('a socket parked on desktop-gone is closed by a suspension', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);
+  const parked = signal((code: number) => code === DESKTOP_LEG_GONE);
   const served = serve(far.next, far.send);
   far.start();
   const phone = await connectPhone({
@@ -644,12 +693,13 @@ test('a socket parked on desktop-gone is closed by a suspension', async () => {
     createSocket: () => far.ws,
     random: () => 0.5,
     onConnection: () => undefined,
+    onClose: parked.hear,
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  // The word queues behind frames still decrypting on the crypto thread pool: the park is its signal.
   far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
-  await settle();
+  await parked.happened;
   phone.link.suspend();
-  await settle();
   assert.deepEqual(far.closes.at(-1), [1000, 'background']);
   await phone.client.close();
 });
@@ -670,7 +720,7 @@ test('a socket this page ends for a reason of its own tells the relay that reaso
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   far.ws.onmessage!({ data: 'not a frame' });
-  await settle();
+  await far.closed;
   assert.deepEqual(far.closes.at(0), [4000, 'frame failed']);
   await phone.client.close();
 });
@@ -692,7 +742,7 @@ test('the relay reads only the category of a close, never the feed or the error 
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   // Seq 20 after 12: a feed gap, which the library names with the feed's id.
   await far.send(message(20, 'a2', 'agentMessage', { text: 'later' }));
-  await settle();
+  await far.closed;
   assert.deepEqual(far.closes.at(0), [4000, 'feed gap']);
   await phone.client.close();
 });
@@ -725,6 +775,7 @@ test('the late close of a parked socket the connector no longer owns reports not
   const served = serve(far.next, far.send);
   far.start();
   const closes: number[] = [];
+  const parked = signal((code: number) => code === DESKTOP_LEG_GONE);
   const phone = await connectPhone({
     deviceId: 'dev',
     version: options.clientInfo.version,
@@ -733,16 +784,19 @@ test('the late close of a parked socket the connector no longer owns reports not
     createSocket: () => far.ws,
     random: () => 0.5,
     onConnection: () => undefined,
-    onClose: (code) => void closes.push(code),
+    onClose: (code) => {
+      closes.push(code);
+      parked.hear(code);
+    },
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
-  await settle();
+  await parked.happened;
   const before = closes.length;
   phone.link.suspend();
-  await settle();
   const afterSuspend = closes.length;
   far.ws.onclose!({ code: 1006, reason: 'late' });
+  // Absence: nothing signals that the late close was ignored, so a later report would show here.
   await settle();
   assert.equal(closes.length, afterSuspend, 'a socket no longer owned is silent');
   assert.ok(afterSuspend >= before);
@@ -755,6 +809,7 @@ test('an abort closes a socket parked on desktop-gone', async () => {
   const served = serve(far.next, far.send);
   far.start();
   const controller = new AbortController();
+  const parked = signal((code: number) => code === DESKTOP_LEG_GONE);
   const phone = await connectPhone({
     deviceId: 'dev',
     version: options.clientInfo.version,
@@ -764,12 +819,12 @@ test('an abort closes a socket parked on desktop-gone', async () => {
     random: () => 0.5,
     signal: controller.signal,
     onConnection: () => undefined,
+    onClose: parked.hear,
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
-  await settle();
+  await parked.happened;
   const before = far.closes.length;
   controller.abort();
-  await settle();
   assert.equal(far.closes.length, before + 1, 'the parked socket was closed');
 });
