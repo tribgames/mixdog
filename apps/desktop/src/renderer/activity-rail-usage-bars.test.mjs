@@ -69,7 +69,6 @@ const arcs = (key) =>
     arc.getAttribute('class'),
     arc.getAttribute('stroke-dasharray'),
   ]);
-const core = (key) => brand(key).querySelector('.rail-usage-pin-core');
 
 // The flyout body loads asynchronously: open it and wait for its menu.
 async function openFlyout() {
@@ -126,7 +125,6 @@ test('the rail draws one ring per brand by default and saves the chosen two-ring
     toggle().getAttribute('aria-description'),
     'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
   );
-  assert.equal(core('claude'), null);
   assert.equal(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'), null);
 
   await press(await openFlyout());
@@ -134,15 +132,18 @@ test('the rail draws one ring per brand by default and saves the chosen two-ring
   assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
   await waitFor(() => stored.usageRailShortLong === true);
 
-  // Two concentric rings, the short window outside; the slot's danger usage
-  // fills the centre.
+  // Two concentric rings, the short window outside.
   await waitFor(() => tracks('claude').length === 2);
   assert.deepEqual(arcs('claude'), [
     ['rail-usage-pin-fill tone-danger', '99 100'],
     ['rail-usage-pin-fill', '41 100'],
   ]);
   assert.ok(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'));
-  assert.ok(core('claude'));
+  // The arc is the reading: the track under it is thinner.
+  for (const track of tracks('claude')) {
+    const arc = track.parentElement.querySelector('.rail-usage-pin-fill');
+    assert.ok(Number(track.getAttribute('stroke-width')) < Number(arc.getAttribute('stroke-width')));
+  }
   assert.equal(
     toggle().getAttribute('aria-description'),
     'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
@@ -182,11 +183,9 @@ test('a two-window provider draws two rings, each in the tone of its own window'
     ['rail-usage-pin-fill tone-warning', '75 100'],
     ['rail-usage-pin-fill tone-danger', '95 100'],
   ]);
-  assert.ok(core('codex'), 'the weekly 95% drives the danger centre');
-  // 0% is a solid empty track: no arc, no centre, not busy.
+  // 0% is a solid empty track: no arc, not busy.
   assert.equal(tracks('claude').length, 1);
   assert.deepEqual(arcs('claude'), []);
-  assert.equal(core('claude'), null);
   assert.equal(brand('claude').getAttribute('aria-busy'), null);
 });
 

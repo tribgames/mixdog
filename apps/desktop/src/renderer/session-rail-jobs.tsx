@@ -58,6 +58,7 @@ function RailAgentRow({
       setSize={total}
       ownerSessionId={ownerSessionId}
       describedBy={statusId}
+      className="session-rail-row"
       onOpenSession={onOpenSession}
     >
       <AgentProviderMark agent={node.agent} size={14} />
@@ -115,7 +116,7 @@ export function AgentsSection({
       <RailList
         budget={RAIL_AGENT_ROWS}
         list={(shown) => (
-          <div className="session-rail-list agent-pool-list" role="tree" aria-label={t('Agents')}>
+          <div className="session-rail-list" role="tree" aria-label={t('Agents')}>
             {shown}
           </div>
         )}

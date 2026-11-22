@@ -48,7 +48,8 @@
 }
 /* The track is the rail's own divider ink, not the meter track: with no figure
    an empty ring is the only sign of a meter at zero, and it must read on the
-   rail in every theme. */
+   rail in every theme. It is thinner than the arc (TRACK_WIDTH), so it never
+   reads as a button's outline around the mark. */
 .rail-usage-pin-track {
   stroke: var(--mx-border-structure);
 }
@@ -64,11 +65,6 @@
 }
 .rail-usage-pin-fill.tone-danger {
   stroke: var(--mx-danger);
-}
-/* Danger fills the centre, so the slot that needs attention stands out
-   without a figure. */
-.rail-usage-pin-meter .rail-usage-pin-core {
-  fill: color-mix(in srgb, var(--mx-danger) 24%, transparent);
 }
 /* Loading: a dashed track under a dimmed mark, never mistaken for the solid
    empty track of a 0% slot. */

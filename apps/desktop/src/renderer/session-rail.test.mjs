@@ -12,7 +12,6 @@ import {
 } from './session-rail-layout.ts';
 import {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
-  PANE_SIDE_DOCK_MIN_WIDTH,
   PANE_SIDE_DOCK_SHEET_FRAME_WIDTH,
   SESSION_RAIL_WIDTH_KEY,
 } from './pane-side-dock-model.ts';
@@ -24,29 +23,22 @@ import { requestOpenModelPicker, OPEN_MODEL_PICKER_EVENT } from './model-picker-
 const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
 const FLOOR = DESKTOP_WORKSPACE_MIN_WIDTH;
 
-test('the panel fits beside a dock: the dock yields to its minimum first, then the panel, then the panel is raised', () => {
-  const fit = (cellWidth, dockOpen = true) =>
-    sessionRailFit({ cellWidth, dockFloor: dockOpen ? PANE_SIDE_DOCK_MIN_WIDTH : 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
+test('the panel fits beside a dock that keeps its own width: it yields to its minimum, then is not shown', () => {
+  const dock = PANE_SIDE_DOCK_DEFAULT_WIDTH;
+  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: dock, railPref: SESSION_RAIL_DEFAULT_WIDTH });
   // Everything at its preferred width.
-  const roomy = FLOOR + FRAME + PANE_SIDE_DOCK_DEFAULT_WIDTH + FRAME + SESSION_RAIL_DEFAULT_WIDTH;
-  assert.deepEqual(fit(roomy), { mode: 'column', width: 400, dockRoom: PANE_SIDE_DOCK_DEFAULT_WIDTH });
-  // Narrower: the dock gives up width, the panel keeps its own.
-  assert.deepEqual(fit(roomy - 1), { mode: 'column', width: 400, dockRoom: PANE_SIDE_DOCK_DEFAULT_WIDTH - 1 });
-  const dockAtMinimum = FLOOR + FRAME + PANE_SIDE_DOCK_MIN_WIDTH + FRAME + SESSION_RAIL_DEFAULT_WIDTH;
-  assert.deepEqual(fit(dockAtMinimum), { mode: 'column', width: 400, dockRoom: PANE_SIDE_DOCK_MIN_WIDTH });
-  // Then the panel gives up width, the dock stays at its minimum.
-  assert.deepEqual(fit(dockAtMinimum - 1), { mode: 'column', width: 399, dockRoom: PANE_SIDE_DOCK_MIN_WIDTH });
-  const bothAtMinimum = FLOOR + FRAME + PANE_SIDE_DOCK_MIN_WIDTH + FRAME + SESSION_RAIL_MIN_WIDTH;
-  assert.deepEqual(fit(bothAtMinimum), { mode: 'column', width: 300, dockRoom: PANE_SIDE_DOCK_MIN_WIDTH });
-  // Still less: the panel is raised over the dock's right edge, which keeps the room it has without it.
-  const raised = fit(bothAtMinimum - 1);
-  assert.equal(raised.mode, 'raised');
-  assert.equal(raised.width, 400);
-  assert.equal(raised.dockRoom, bothAtMinimum - 1 - FLOOR - FRAME);
+  const roomy = FLOOR + FRAME + dock + FRAME + SESSION_RAIL_DEFAULT_WIDTH;
+  assert.deepEqual(fit(roomy), { mode: 'column', width: 400, dockRoom: dock });
+  // Narrower: the panel gives up width, the dock keeps its own.
+  assert.deepEqual(fit(roomy - 1), { mode: 'column', width: 399, dockRoom: dock });
+  const panelAtMinimum = FLOOR + FRAME + dock + FRAME + SESSION_RAIL_MIN_WIDTH;
+  assert.deepEqual(fit(panelAtMinimum), { mode: 'column', width: 300, dockRoom: dock });
+  // Still less: the dock is the pane's side panel, with the room it has without the session panel.
+  assert.deepEqual(fit(panelAtMinimum - 1), { mode: 'off', width: 0, dockRoom: panelAtMinimum - 1 - FLOOR - FRAME });
 });
 
 test('with no dock the panel is a column down to its minimum beside the conversation, then raised over it', () => {
-  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockFloor: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
+  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
   assert.equal(fit(FLOOR + FRAME + 400).width, 400);
   assert.deepEqual(fit(FLOOR + FRAME + 300), { mode: 'column', width: 300, dockRoom: FLOOR + FRAME + 300 - FLOOR - FRAME - 300 - FRAME });
   assert.equal(fit(FLOOR + FRAME + 299).mode, 'raised');
@@ -92,10 +84,11 @@ test('one calculation places the dock and the panel from the pane cell', async (
   };
   const layout = (cellWidth, bottom = false) =>
     paneDockRailLayout({ cellWidth, bottom, sheetFrame: FRAME, rail: 400, dock: pair });
-  // A file diff beside the dock needs its two columns: at 1,100 px both do not fit, so the panel is raised
-  // (the composer keeps its controls) and the dock decides alone.
+  // A file diff beside the dock needs its two columns: at 1,100 px the panel has no room beside them, so it is not
+  // shown (the composer keeps its controls) and the dock decides alone.
   const narrow = layout(1100);
-  assert.equal(narrow.rail.mode, 'raised');
+  assert.equal(narrow.rail, null);
+  assert.equal(narrow.dock.pairShowing, true);
   // With room for the pair, the panel and the conversation's floor, all three are inline.
   const wide = layout(FLOOR + FRAME + 800 + FRAME + 400);
   assert.equal(wide.rail.mode, 'column');

@@ -37,31 +37,28 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Rings (radius, stroke) and danger centre in the 26-unit meter box: one
- *  ring, or the short window outside and the long one inside. */
-const SINGLE_RING = { rings: [{ r: 11.75, width: 2.5 }], core: 10.5 };
-const NESTED_RINGS = {
-  rings: [
-    { r: 12, width: 2 },
-    { r: 9, width: 2 },
-  ],
-  core: 7,
-};
+/** Rings (radius, arc stroke) in the 26-unit meter box: one ring, or the
+ *  short window outside and the long one inside. */
+const SINGLE_RING = [{ r: 11.75, width: 2.5 }];
+const NESTED_RINGS = [
+  { r: 12, width: 2 },
+  { r: 8.5, width: 2 },
+];
+/** The track under an arc: thinner than the arc, so the ring reads as a gauge
+ *  around the mark and the arc alone carries the reading. */
+const TRACK_WIDTH = 1.25;
 
-/** The slot's meter: a track per drawn window with its own toned arc, and a
- *  filled centre once the slot's usage reaches danger. */
+/** The slot's meter: a hairline track per drawn window with its own toned arc. */
 function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
-  const { rings, core } = entry.bars.length > 1 ? NESTED_RINGS : SINGLE_RING;
-  const danger = !entry.pending && usageToneClass(entry.percent) === ' tone-danger';
+  const rings = entry.bars.length > 1 ? NESTED_RINGS : SINGLE_RING;
   return (
     <svg className="rail-usage-pin-meter" viewBox="0 0 26 26" aria-hidden="true" focusable="false">
-      {danger && <circle className="rail-usage-pin-core" cx="13" cy="13" r={core} />}
       {entry.bars.map((bar, index) => {
         const { r, width } = rings[index];
         const percent = entry.pending ? 0 : (displayUsagePercent(bar.percent) ?? 0);
         return (
           <g key={bar.label} data-usage-window={bar.label}>
-            <circle className="rail-usage-pin-track" cx="13" cy="13" r={r} strokeWidth={width} />
+            <circle className="rail-usage-pin-track" cx="13" cy="13" r={r} strokeWidth={TRACK_WIDTH} />
             {percent > 0 && (
               <circle
                 className={`rail-usage-pin-fill${usageToneClass(bar.percent)}`}

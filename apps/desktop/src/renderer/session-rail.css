@@ -1,18 +1,28 @@
 /* ── Session panel ──
-   A column of its own at the pane cell's far right (after the dock), or
-   raised over the cell's right edge when the three do not fit
+   A sheet of its own at the pane cell's far right (after the dock), as the
+   dock is (pane-layout.css "The dock: a separate floating sheet"), or raised
+   over the cell's right edge when the pane has no room for it
    (session-rail-layout.ts sessionRailFit). */
 .pane-cell:has(> .session-rail[data-mode="column"]) {
   grid-template-columns: minmax(min(360px, 100%), 1fr) auto auto;
+}
+/* The conversation's own frame closes on the side the panel's sheet stands
+   on, whatever the cell's place in a split or its dock's (--open-right is 0
+   there by rules far more specific than a panel's can be). */
+:root:not([data-mixdog-mobile-tabs]) .pane-cell:has(> .session-rail[data-mode="column"]) {
+  --open-right: 1 !important;
 }
 /* Every row, the dock's own row below the chat included. */
 .pane-cell > .session-rail {
   grid-column: 3;
   grid-row: 1 / -1;
 }
+/* The left rail's type ramp and rhythm (30-dialogs.css "Rail type ramp"):
+   title 16, group label and item 14, supporting figures 13; text on the 16px
+   line, sections 12px apart with no rule between them. */
 .session-rail {
-  --session-rail-row: 30px;
-  --session-rail-head: 36px;
+  --session-rail-row: 32px;
+  --session-rail-head: 28px;
   --session-rail-inset: 16px;
   position: relative;
   z-index: 2;
@@ -21,29 +31,49 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--mx-border-structure);
-  background: var(--mx-window-band);
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-sheet-radius, 10px);
+  background: var(--mx-sheet-surface, var(--mx-window-band));
   color: var(--mx-text);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: var(--mx-font-item);
+  line-height: var(--mx-line-ui);
 }
+/* The dock's plates: the solid panel plate under Mica, a skin's panel tone
+   as a column and its one opaque floating tone when raised. */
 html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   background: var(--mx-mica-panel-solid);
 }
+html[data-mixdog-skin] .session-rail[data-mode="column"] {
+  background: var(--mx-skin-panel);
+}
+html[data-mixdog-skin] .session-rail[data-mode="raised"] {
+  background: var(--mx-popup-bg);
+}
+/* Column: the sheet gap from the sheet before it, and 1px more for the side
+   of that sheet's frame (the conversation's, or the dock reaching into the
+   ring); on the cell's outer edges it reaches into the ring itself, and
+   before a neighbour pane it keeps the sheet gap. */
+.session-rail[data-mode="column"] {
+  margin: calc(-1px * var(--frame, 0) * var(--edge-top, 0))
+    calc(var(--mx-sheet-gap, 2px) * (1 - var(--edge-right, 1)) - 1px * var(--frame, 0) * var(--edge-right, 0))
+    calc(-1px * var(--frame, 0) * var(--edge-bottom, 0)) calc(var(--mx-sheet-gap, 2px) + 1px * var(--frame, 0));
+}
+/* Raised: inset in the pane as an overlay dock is, with its shadow. */
 .session-rail[data-mode="raised"] {
   position: absolute;
   z-index: 31;
   top: 0;
-  bottom: 0;
-  right: calc(1px * var(--frame, 0) * var(--edge-right, 0));
+  bottom: var(--mx-sheet-gap, 2px);
+  right: var(--mx-sheet-gap, 2px);
   box-shadow: var(--mx-overlay);
 }
+/* The resize edge: a hit area over the sheet gap, its accent in the gap. */
 .session-rail-resize {
   position: absolute;
   z-index: 3;
   top: 0;
   bottom: 0;
-  left: -5px;
+  left: -6px;
   width: 8px;
   cursor: col-resize;
   touch-action: none;
@@ -58,7 +88,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   top: 0;
   bottom: 0;
   left: 3px;
-  width: 3px;
+  width: 2px;
   background: var(--mx-focus);
   pointer-events: none;
 }
@@ -71,16 +101,13 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   min-height: 0;
   overflow: hidden auto;
   scrollbar-width: thin;
+  padding-block: var(--mx-rail-panel-content-top) 12px;
+  border-radius: 0 0 calc(var(--mx-sheet-radius, 10px) - 1px) calc(var(--mx-sheet-radius, 10px) - 1px);
 }
 
 /* A category: name, chevron, summary while closed, buttons while open. */
 .session-rail-sec {
-  padding: 4px 0;
-  border-bottom: 1px solid var(--mx-border-muted);
-}
-.session-rail-sec-host:last-child > .session-rail-sec,
-.session-rail-sec:last-child {
-  border-bottom: 0;
+  margin-bottom: 12px;
 }
 .session-rail-hd {
   height: var(--session-rail-head);
@@ -92,13 +119,13 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
 .session-rail-tg {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
+  height: var(--session-rail-head);
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-md);
   background: none;
   color: inherit;
   font: inherit;
@@ -108,10 +135,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
 .session-rail-tg:hover {
   background: var(--mx-hover);
 }
+/* The rail's group label (--mx-rail-label-*, 01-tokens.css). */
 .session-rail-tt {
   flex: none;
-  font-size: 14px;
-  font-weight: 500;
+  color: var(--mx-rail-label-ink);
+  font-size: var(--mx-rail-label-size);
+  font-weight: var(--mx-rail-label-weight);
 }
 .session-rail-cv {
   flex: none;
@@ -126,6 +155,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   gap: 6px;
   overflow: hidden;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -140,11 +170,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   gap: 5px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-md);
   background: none;
   color: var(--mx-text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-meta);
   cursor: pointer;
 }
 .session-rail-tidy:hover {
@@ -158,12 +188,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   cursor: default;
 }
 .session-rail-bd {
-  padding: 0 var(--session-rail-inset) 6px;
+  padding: 2px var(--session-rail-inset) 0;
 }
 
-/* A row: 30px, content from the name's line. */
-.session-rail-row,
-.session-rail .agent-pool-row {
+/* A row: one line, content from the name's line, the left rail's row wash. */
+.session-rail-row {
   position: relative;
   box-sizing: border-box;
   width: calc(100% + 16px);
@@ -175,7 +204,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-lg);
   background: none;
   color: inherit;
   font: inherit;
@@ -183,12 +212,10 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-rail {
   text-align: left;
   list-style: none;
 }
-.session-rail-row > *,
-.session-rail .agent-pool-row > * {
+.session-rail-row > * {
   min-width: 0;
 }
-button.session-rail-row,
-.session-rail .agent-pool-row {
+button.session-rail-row {
   cursor: pointer;
 }
 button.session-rail-row:disabled,
@@ -196,14 +223,16 @@ button.session-rail-row[aria-disabled="true"] {
   cursor: default;
 }
 button.session-rail-row:not(:disabled):hover,
-.session-rail .agent-pool-row:not(:disabled):hover,
 .session-rail-hover:hover,
 .session-rail-row[aria-expanded="true"] {
   background: var(--mx-hover);
 }
 .session-rail-key {
   flex: none;
-  width: 76px;
+  width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--mx-text-muted);
 }
 .session-rail-pk {
@@ -237,6 +266,7 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-num {
   flex: none;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -248,6 +278,7 @@ button.session-rail-row:not(:disabled):hover,
   min-width: 64px;
   text-align: right;
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -308,11 +339,11 @@ button.session-rail-row:not(:disabled):hover,
   height: 24px;
   padding: 0 8px;
   border: 1px solid var(--mx-border-muted);
-  border-radius: 6px;
+  border-radius: var(--mx-radius-md);
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-meta);
   cursor: pointer;
 }
 .session-rail-text-button:not(:disabled):hover {
@@ -337,18 +368,18 @@ button.session-rail-row:not(:disabled):hover,
 }
 .session-rail-more,
 .session-rail-gh {
-  height: 26px;
+  height: 28px;
   display: flex;
   align-items: center;
   gap: 5px;
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-lg);
   background: none;
   color: var(--mx-text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-meta);
   cursor: pointer;
 }
 .session-rail-more:hover,
@@ -386,7 +417,7 @@ button.session-rail-row:not(:disabled):hover,
   height: var(--session-rail-row);
   display: flex;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--mx-radius-lg);
   color: inherit;
 }
 .session-rail .session-context-indicator > button.session-rail-row:hover {
@@ -415,31 +446,36 @@ button.session-rail-row:not(:disabled):hover,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.session-rail .session-context-indicator > .session-rail-row > svg {
+/* Context is its figures alone; the percentage takes the gauge's tone. */
+.session-rail-context-percent {
   flex: none;
-  width: 14px;
-  height: 14px;
+  font-variant-numeric: tabular-nums;
 }
-.session-rail .session-rail-context-summary {
-  width: auto;
-  height: auto;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.session-rail-context-percent[data-tone="warning"],
+.session-context-indicator[data-tone="warning"] .session-rail-context-percent {
+  color: var(--mx-warning);
 }
-.session-rail-context-summary > svg {
-  width: 14px;
-  height: 14px;
+.session-rail-context-percent[data-tone="danger"],
+.session-context-indicator[data-tone="danger"] .session-rail-context-percent {
+  color: var(--mx-danger);
 }
-.session-rail-usage > .session-rail-num {
+/* Usage: the footer readout's items on its own 8px gap (ITEM_GAP in
+   composer-usage-readout.tsx), in the value ink of the rows above. */
+.session-rail-usage > .composer-usage-readout:not([hidden]) {
   flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   overflow: hidden;
+  color: var(--mx-text);
+  font-size: inherit;
+}
+.session-rail-usage .composer-readout-sep {
+  color: var(--mx-text-muted);
 }
 
 /* Goal */
 .session-rail-goal-title {
-  font-size: 14px;
   gap: 4px;
 }
 .session-rail-goal-text {
@@ -479,15 +515,14 @@ button.session-rail-row:not(:disabled):hover,
   color: var(--mx-text-muted);
 }
 
-/* Agents: the Agents window's row frame, one line. */
-.session-rail .agent-pool-list {
-  display: block;
+/* Agents: the agent row's button (AgentRowFrame) in the panel's own row box. */
+.session-rail-row[data-dragging="true"] {
+  opacity: var(--mx-op-dim);
 }
-.session-rail .agent-pool-row .agent-todo-mark {
+.session-rail-row > .agent-todo-mark {
   flex: none;
 }
-.session-rail .agent-pool-row .session-rail-el [data-state="running"],
-.session-rail .agent-pool-row .session-rail-el .agent-activity-elapsed[data-state="running"] {
+.session-rail-el [data-state="running"] {
   color: var(--mx-accent);
 }
 
