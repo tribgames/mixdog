@@ -320,12 +320,18 @@ consumes it (the test runs the selection over a table of paths).
   the full gate; the format check is its own job, `rustfmt`, selected by the files it formats on every event and run in every
   full run (the other lanes' selection turns them all on for a push). The source inventory runs on
   every run; the reconciliation against it only in the full gate. A push selects against the last commit the gate passed on for
-  its branch (a newer push cancels an older one's run), both sides of a rename. Core-real builds the shipping profile in every
-  full run.
+  its branch (a newer push cancels an older one's run), both sides of a rename; the Rust core's crates against the last commit
+  its jobs passed on (`scripts/ci/core-base.mjs`: the newest completed push run, not cancelled, whose `changes`, core jobs and
+  dev daemons all passed or were not selected, so a run that failed only in another lane counts), falling back to the gate's
+  base when no run qualifies or the query fails. Core-real builds the shipping profile in every full run.
   The legs of `core-tests-linux`, `core-tests-macos` and `core-tests-windows` each need their own system's archive alone: they
-  download it and run `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at
-  most four; three on macOS, whose five concurrent jobs per account the legs share with `core-pg-macos` and `core-real`; on
-  Windows, whose partitions run about twice as long as Linux's, one per 3,000 tests and at most six). The
+  download it and run `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: on Linux one leg per 3,000
+  tests, at most six; on macOS one per 4,000 tests, at most three, whose five concurrent jobs per account the legs share with
+  `core-pg-macos` and `core-real`; on Windows, whose partitions run about twice as long as Linux's, one per 3,000 tests and at
+  most six). The listings of each archive (the unfiltered list and one per profile that runs ignored tests, with their binding,
+  and on Linux the lane-filter check) are a job of their own per system, `core-list-linux`, `core-list-macos` and
+  `core-list-windows` (list legs `<os>/core-list/1of1` in `plan.json` `listLegs`), beside the legs rather than on the first of
+  them. The
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
   `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
   request and a push archive the changed crates and their reverse dependencies (the whole workspace for a core input outside

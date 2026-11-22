@@ -97,6 +97,10 @@ function makePlan(extra = {}) {
         slots: [slot('root', 'nextest')],
       },
     ],
+    listLegs: [
+      { id: 'linux/core-list/1of1', os: 'linux', workflow: 'release-gate.yml', job: 'core-list' },
+      { id: 'windows/core-list/1of1', os: 'windows', workflow: 'release-gate.yml', job: 'core-list-win' },
+    ],
     joinLegs: [
       {
         id: 'windows/package/1of1',
@@ -139,14 +143,14 @@ function makePlan(extra = {}) {
         {
           name: 'linux',
           os: 'linux',
-          listLeg: 'linux/core/1of2',
+          listLeg: 'linux/core-list/1of1',
           testLegs: ['linux/core/1of2', 'linux/core/2of2'],
           profileLegs: { pg: ['linux/core-pg/pg'] },
         },
         {
           name: 'windows',
           os: 'windows',
-          listLeg: 'windows/core/1of1',
+          listLeg: 'windows/core-list/1of1',
           testLegs: ['windows/core/1of1'],
           profileLegs: {},
         },
@@ -2050,7 +2054,7 @@ test('the listings of a gate call are read from the layout the download leaves, 
     };
     for (const variant of plan.rust.variants) {
       put(variant, 'all.json', listOf({ p: [['t']] }));
-      put(variant, 'binding.json', { leg: variant.listLeg.split('#')[0], sha: call.sha });
+      put(variant, 'binding.json', { leg: variant.listLeg, sha: call.sha });
       for (const profile of Object.keys(variant.profileLegs))
         put(variant, `${profile}.json`, listOf({ p: [['t', true]] }));
     }
@@ -2070,8 +2074,18 @@ test('the listings of a gate call are read from the layout the download leaves, 
       /variant linux .* holds .*the plan names .*entry\.json/
     );
     writeFileSync(join(linux, 'entry.json'), JSON.stringify(listOf({ p: [['t', true]] })));
-    writeFileSync(join(linux, 'binding.json'), JSON.stringify({ leg: 'linux/core-tests/2of4', sha: call.sha }));
-    assert.match(loadRustLists(dir, plan, call).problems.join('\n'), /was made by linux\/core-tests\/2of4/);
+    writeFileSync(join(linux, 'binding.json'), JSON.stringify({ leg: 'linux/core-tests/1of6', sha: call.sha }));
+    assert.match(
+      loadRustLists(dir, plan, call).problems.join('\n'),
+      /was made by linux\/core-tests\/1of6 .*the plan's list leg is linux\/core-list\/1of1/
+    );
+    // a variant's list leg is a list leg of its own system, never a test leg
+    const onTestLeg = structuredClone(plan);
+    onTestLeg.rust.variants[0].listLeg = 'linux/core-tests/1of6#ci';
+    assert.match(planProblems(onTestLeg).join('\n'), /rust variant linux names the list leg linux\/core-tests\/1of6#ci/);
+    const otherSystem = structuredClone(plan);
+    otherSystem.rust.variants[0].listLeg = 'windows/core-list/1of1';
+    assert.match(planProblems(otherSystem).join('\n'), /which no list leg of linux is/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2080,10 +2094,14 @@ test('the listings of a gate call are read from the layout the download leaves, 
 test("the workflows spell the gate's artifact names: the rust-lists upload and the evidence action", () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const gate = loadWorkflows(root)['release-gate.yml'];
-  const upload = gate.jobs['core-tests-linux'].steps.find(
+  const upload = gate.jobs['core-list-linux'].steps.find(
     (step) => /upload-artifact/.test(step.uses ?? '') && /rust-lists/.test(step.with.name)
   );
   assert.equal(upload.with.name, artifactTemplate('rust-lists', '${{ matrix.os }}'));
+  // the listing names the list leg the plan gives its variant
+  const binding = gate.jobs['core-list-linux'].steps.find((step) => step.id === 'ignored-audit').run;
+  assert.match(binding, /printf '\{"leg":"%s","sha":"%s"\}\\n' "\$\{OS\}\/core-list\/1of1"/);
+  for (const variant of loadPlan().rust.variants) assert.equal(variant.listLeg, `${variant.os}/core-list/1of1`);
   assert.match(
     readFileSync(join(root, '.github/actions/upload-evidence/action.yml'), 'utf8'),
     new RegExp(`name: ${artifactTemplate('evidence', '${{ inputs.name }}').replace(/[$.{}()|*+?[\]\\]/g, '\\$&')}`)

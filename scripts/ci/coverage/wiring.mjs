@@ -180,6 +180,29 @@ function gateJobProblems(workflows, plan, fail) {
       if (!needsOf(gate.jobs.complete).includes(name))
         fail(`release-gate.yml complete does not need ${name}, a job of declared legs`);
     }
+    // a list leg is one invocation of a job of its own, which `complete` waits for before it reads the listings
+    for (const leg of (plan.listLegs ?? []).filter((entry) => entry.workflow === 'release-gate.yml')) {
+      const job = gate.jobs[leg.job];
+      if (!job) {
+        fail(`plan list leg ${leg.id} names the job ${leg.job}, which release-gate.yml does not have`);
+        continue;
+      }
+      let size;
+      try {
+        size = matrixSize(job);
+      } catch (error) {
+        fail(`job ${leg.job}: ${error.message}; use axes alone or an include list alone`);
+      }
+      if (size !== 1) fail(`job ${leg.job} of the list leg ${leg.id} expands to ${size} matrix entries, not one`);
+      if (job['continue-on-error']) fail(`job ${leg.job} tolerates its own failure`);
+      for (const step of job.steps ?? [])
+        if (step['continue-on-error'])
+          fail(`job ${leg.job} step ${JSON.stringify(step.name ?? step.uses)} tolerates its own failure`);
+      if (!(job.steps ?? []).some((step) => /^rust-lists-/.test(step.with?.name ?? '') && /upload-artifact@/.test(step.uses ?? '')))
+        fail(`job ${leg.job} of the list leg ${leg.id} uploads no rust-lists artifact`);
+      if (!needsOf(gate.jobs.complete).includes(leg.job))
+        fail(`release-gate.yml complete does not need ${leg.job}, the job of a list leg`);
+    }
     for (const [name, job] of Object.entries(gate.jobs)) {
       if (typeof job.strategy?.matrix === 'string' && !(plan.dynamicMatrixJobs ?? []).includes(name))
         fail(

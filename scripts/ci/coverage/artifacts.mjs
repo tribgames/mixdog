@@ -49,9 +49,10 @@ export function loadRustLists(dir, plan, call) {
         throw new Error(`holds ${found.join(', ') || 'nothing'}, the plan names ${wanted.join(', ')}`);
       const read = (name) => JSON.parse(readFileSync(join(folder, name), 'utf8'));
       const binding = read('binding.json');
-      const leg = variant.listLeg.split('#')[0];
-      if (binding.leg !== leg || binding.sha !== call.sha)
-        throw new Error(`was made by ${binding.leg} at ${binding.sha}, the plan's list leg is ${leg} at ${call.sha}`);
+      if (binding.leg !== variant.listLeg || binding.sha !== call.sha)
+        throw new Error(
+          `was made by ${binding.leg} at ${binding.sha}, the plan's list leg is ${variant.listLeg} at ${call.sha}`
+        );
       lists[variant.name] = {
         all: read('all.json'),
         profiles: Object.fromEntries(
