@@ -12,6 +12,9 @@ import {
 } from './transcript-selection-drag.ts';
 import { boundaryGestureReached, touchScrollLatchOpen } from './use-transcript-follow.ts';
 
+/** The end of the touch the helpers below start (contact 0). */
+const lift = () => ({ touches: [], changedTouches: [{ identifier: 0 }] });
+
 test('transcript history grows in bounded pages only at a full window', () => {
   assert.equal(nextTranscriptHistoryLimit(120, 512), null);
   assert.equal(nextTranscriptHistoryLimit(512, 512), 1024);
@@ -161,11 +164,16 @@ test('a finger on the glass holds the end pin off and its upward scroll releases
     clock.now += 1_000;
     assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the tail');
     assert.equal(mount.follow.hasScrollGesture(), false, 'no reader owns the idle tail');
-    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     mount.follow.handleTouchStart(touch(100));
     assert.equal(mount.follow.hasScrollGesture(), true, 'a resting finger holds the end pin off');
     assert.equal(mount.follow.followingRef.current, true, 'resting is not a leave');
-    mount.follow.handleTouchEnd();
+    mount.follow.handleTouchEnd(lift());
     assert.equal(mount.follow.hasScrollGesture(), false, 'a tap that never scrolled hands the tail back');
     mount.follow.handleTouchStart(touch(100));
     native = 1960;
@@ -182,7 +190,12 @@ test('a touch whose row is virtualized away stops owning the transcript once its
   const mount = await mountFollowHook({ sessionKey: 'touch', clock });
   const { viewport, leaf: row } = mount;
   try {
-    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     mount.follow.handleTouchStart(touch(100));
     mount.follow.handleTouchMove(touch(160));
     clock.now += 5_000;
@@ -200,6 +213,7 @@ test('a drag whose pressed word left the document still releases follow and owns
   const touchEvent = (type, clientY) => {
     const event = new window.Event(type, { bubbles: true });
     Object.defineProperty(event, 'touches', { value: clientY === undefined ? [] : [{ clientY }] });
+    Object.defineProperty(event, 'changedTouches', { value: [{ identifier: 0, clientY }] });
     return event;
   };
   let native = 2000;
@@ -213,7 +227,12 @@ test('a drag whose pressed word left the document still releases follow and owns
     });
     await React.act(async () => mount.follow.handleScroll());
     assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the followed tail');
-    mount.follow.handleTouchStart({ target: word, currentTarget: viewport, touches: [{ clientY: 100 }] });
+    mount.follow.handleTouchStart({
+      target: word,
+      currentTarget: viewport,
+      touches: [{ clientY: 100 }],
+      changedTouches: [{ identifier: 0, clientY: 100 }],
+    });
     word.remove();
     await React.act(async () => word.dispatchEvent(touchEvent('touchmove', 140)));
     assert.equal(mount.follow.hasTouchScroll(), true, 'the drag owns the transcript');
@@ -245,7 +264,12 @@ test('a held touch correction growing between scroll events is not read as a ret
     });
     await React.act(async () => mount.follow.handleScroll());
     assert.equal(mount.follow.followingRef.current, true, 'the reader starts at the tail');
-    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     mount.follow.handleTouchStart(touch(100));
     await React.act(async () => mount.follow.handleTouchMove(touch(140)));
     native = 1990;
@@ -405,13 +429,23 @@ async function mountReturningReader() {
   const touch = {
     start: (clientY) =>
       React.act(async () =>
-        rig.follow.handleTouchStart({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
+        rig.follow.handleTouchStart({
+          target: viewport,
+          currentTarget: viewport,
+          touches: [{ clientY }],
+          changedTouches: [{ identifier: 0, clientY }],
+        })
       ),
     move: (clientY) =>
       React.act(async () =>
-        rig.follow.handleTouchMove({ target: viewport, currentTarget: viewport, touches: [{ clientY }] })
+        rig.follow.handleTouchMove({
+          target: viewport,
+          currentTarget: viewport,
+          touches: [{ clientY }],
+          changedTouches: [{ identifier: 0, clientY }],
+        })
       ),
-    end: () => React.act(async () => rig.follow.handleTouchEnd()),
+    end: () => React.act(async () => rig.follow.handleTouchEnd(lift())),
     scrollend: () => React.act(async () => viewport.dispatchEvent(new window.Event('scrollend'))),
   };
   /** Time passes with no input: the reader's scroll is over. */
@@ -582,7 +616,12 @@ test('a touch scroll owns the transcript from its drag until scrollend ends the 
   const mount = await mountFollowHook({ sessionKey: 'touch-latch' });
   const { viewport, leaf: row } = mount;
   try {
-    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     mount.follow.handleTouchStart(touch(100));
     assert.equal(mount.follow.hasTouchScroll(), false, 'a tap alone owns nothing');
     mount.follow.handleTouchMove(touch(160));
@@ -592,11 +631,94 @@ test('a touch scroll owns the transcript from its drag until scrollend ends the 
     // offset, so the scroll range always includes history landed above.
     assert.equal(mount.follow.holdsScrollCorrections(), false, 'the drag holds no corrections');
     assert.equal(mount.follow.touchHoldsCorrections(), false, 'no touch hold');
-    mount.follow.handleTouchEnd();
+    mount.follow.handleTouchEnd(lift());
     assert.equal(mount.follow.hasTouchScroll(), true, 'the fling keeps it after the finger lifts');
     assert.equal(mount.follow.holdsScrollCorrections(), false, 'and its fling holds nothing either');
     viewport.dispatchEvent(new window.Event('scrollend'));
     assert.equal(mount.follow.hasTouchScroll(), false, 'scrollend ends it');
+  } finally {
+    await mount.dispose();
+  }
+});
+
+test('a tap after a drag that got no scrollend owns the transcript only while the finger is down', async () => {
+  const clock = { now: 100_000 };
+  const mount = await mountFollowHook({ sessionKey: 'touch-edge-drag', clock });
+  const { viewport, leaf: row } = mount;
+  try {
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
+    // A drag against the tail: nothing scrolls, so no scrollend ever closes it.
+    mount.follow.handleTouchStart(touch(300));
+    mount.follow.handleTouchMove(touch(200));
+    mount.follow.handleTouchEnd(lift());
+    clock.now += 2_000;
+    assert.equal(mount.follow.hasScrollGesture(), false, 'the drag has idled out');
+    // A tap on an expander: the fold it starts must reach the end pin at once.
+    mount.follow.handleTouchStart(touch(300));
+    assert.equal(mount.follow.hasScrollGesture(), true, 'the finger on the glass owns the transcript');
+    mount.follow.handleTouchEnd(lift());
+    clock.now += 16;
+    assert.equal(mount.follow.hasScrollGesture(), false, 'the lift hands the tail back');
+  } finally {
+    await mount.dispose();
+  }
+});
+
+/** A touch event on the transcript: `touches` lists every contact on the page,
+ *  `changedTouches` the ones this event started or ended. */
+const contactEvent = (target, viewport, touches, changed) => ({
+  target,
+  currentTarget: viewport,
+  touches: touches.map(([identifier, clientY]) => ({ identifier, clientY })),
+  changedTouches: changed.map(([identifier, clientY]) => ({ identifier, clientY })),
+});
+
+test('a transcript finger lifted while a composer finger stays down ends the reader gesture', async () => {
+  const clock = { now: 100_000 };
+  const mount = await mountFollowHook({ sessionKey: 'touch-composer-finger', clock });
+  const { viewport, leaf: row } = mount;
+  try {
+    mount.follow.handleTouchStart(contactEvent(row, viewport, [[0, 300]], [[0, 300]]));
+    // The composer finger (1) lands outside the transcript: none of its events reach it.
+    assert.equal(mount.follow.hasScrollGesture(), true, 'the transcript finger owns the transcript');
+    mount.follow.handleTouchEnd(contactEvent(row, viewport, [[1, 800]], [[0, 300]]));
+    clock.now += 16;
+    assert.equal(mount.follow.hasScrollGesture(), false, "the transcript's own last lift ends it");
+  } finally {
+    await mount.dispose();
+  }
+});
+
+test('two transcript fingers on different rows: one lifted keeps the reader gesture, the second ends it', async () => {
+  const clock = { now: 100_000 };
+  const mount = await mountFollowHook({ sessionKey: 'touch-two-rows', clock });
+  const { viewport, leaf: row } = mount;
+  const other = row.ownerDocument.createElement('p');
+  row.parentElement.append(other);
+  try {
+    mount.follow.handleTouchStart(contactEvent(row, viewport, [[0, 300]], [[0, 300]]));
+    mount.follow.handleTouchStart(
+      contactEvent(
+        other,
+        viewport,
+        [
+          [0, 300],
+          [1, 400],
+        ],
+        [[1, 400]]
+      )
+    );
+    mount.follow.handleTouchEnd(contactEvent(row, viewport, [[1, 400]], [[0, 300]]));
+    clock.now += 2_000;
+    assert.equal(mount.follow.hasScrollGesture(), true, 'the finger still on the transcript owns it');
+    mount.follow.handleTouchEnd(contactEvent(other, viewport, [], [[1, 400]]));
+    clock.now += 16;
+    assert.equal(mount.follow.hasScrollGesture(), false, 'the second lift ends it');
   } finally {
     await mount.dispose();
   }
@@ -647,7 +769,12 @@ async function touchHoldHarness(sessionKey, startTop, navigator) {
     scrollTop: () => state.native,
     deviation: () => deviation.amount(),
   });
-  const touch = (clientY) => ({ target: space, currentTarget: viewport, touches: [{ clientY }] });
+  const touch = (clientY) => ({
+    target: space,
+    currentTarget: viewport,
+    touches: [{ clientY }],
+    changedTouches: [{ identifier: 0, clientY }],
+  });
   /** One momentum frame: the native offset moves, its scroll event runs
    *  (the list's offset observer lands an edge hold first), a frame passes. */
   const scroll = async (delta) => {
@@ -671,7 +798,7 @@ async function touchHoldHarness(sessionKey, startTop, navigator) {
         state.follow.handleTouchMove(touch(160));
       });
       await scroll(-60);
-      state.follow.handleTouchEnd();
+      state.follow.handleTouchEnd(lift());
     },
     touchStart: () => React.act(async () => state.follow.handleTouchStart(touch(300))),
     async dispose() {
@@ -723,7 +850,7 @@ test('a touch after the fling stopped keeps a pending hold until the finger has 
     state.now += 2_000;
     await harness.frame();
     assert.deepEqual(state.writes, [], 'a resting finger keeps holding');
-    state.follow.handleTouchEnd();
+    state.follow.handleTouchEnd(lift());
     await harness.frame();
     assert.deepEqual(state.writes, [], 'a finger lifted a moment ago keeps holding');
     assert.equal(space.style.transform, 'translateY(-30px)');
@@ -1051,13 +1178,18 @@ test('a finger lifted above the end vouches for the momentum scrolls after it', 
   const harness = await tailHarness('touch-momentum');
   const { state, row, viewport } = harness;
   try {
-    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    const touch = (clientY) => ({
+      target: row,
+      currentTarget: viewport,
+      touches: [{ clientY }],
+      changedTouches: [{ identifier: 0, clientY }],
+    });
     state.hook.handleTouchStart(touch(100));
     // The timeline wrote while the finger was down, and the finger travelled
     // less than a tap: the lift has no scroll of its own to judge.
     state.hook.markProgrammaticScroll(1700);
     state.native = 1700;
-    await harness.act(async () => state.hook.handleTouchEnd());
+    await harness.act(async () => state.hook.handleTouchEnd(lift()));
     assert.equal(state.hook.followingRef.current, true, 'the lift alone leaves nothing');
     state.now += 300;
     await harness.mutate();

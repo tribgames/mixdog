@@ -334,7 +334,9 @@ export function useVirtualizerResizePatch({
         measured &&
         !anchoredAbove &&
         shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current()) &&
-        measured.start + size <= visibleTop(virtualizer)
+        // Above the reader at both sizes: a row whose old box still reached
+        // into view is folding on screen and lands now, its top edge kept.
+        Math.max(measured.end, measured.start + size) <= visibleTop(virtualizer)
       ) {
         pendingResizes.current.set(measured.key, { index, size });
         scheduleResizeFlush();

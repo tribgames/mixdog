@@ -15,13 +15,16 @@ import type { FollowSignals } from './use-follow-signals';
  *  latches meanwhile, and a tap that only stopped a fling lands after it. */
 const TOUCH_RELEASE_SETTLE_MS = 150;
 
+/** The contacts a touch event started or ended (`changedTouches`). */
+export type TouchContacts = { changedTouches: ArrayLike<{ identifier: number }> };
+
 /** A touch keeps targeting its start element after it leaves the document, so
  *  its moves and end no longer bubble to the viewport; the target's own
  *  listeners forward them. */
 function followDetachedTouch(
   event: TouchLike,
   onMove: (event: TouchLike) => void,
-  onEnd: () => void
+  onEnd: (event: TouchContacts) => void
 ): (() => void) | null {
   const target = event.target as (EventTarget & { isConnected?: boolean }) | null;
   const root = event.currentTarget;
@@ -30,8 +33,8 @@ function followDetachedTouch(
     if (target.isConnected !== false) return;
     onMove({ target, currentTarget: root, touches: (native as TouchEvent).touches });
   };
-  const end = () => {
-    if (target.isConnected === false) onEnd();
+  const end = (native: Event) => {
+    if (target.isConnected === false) onEnd({ changedTouches: (native as TouchEvent).changedTouches });
   };
   target.addEventListener('touchmove', move, { passive: true });
   target.addEventListener('touchend', end, { passive: true });
@@ -65,18 +68,20 @@ export function useFollowTouch({
 }) {
   const touchGesture = useRef<number | undefined>(undefined);
   const touchLatched = useRef(false);
-  const touchDown = useRef(false);
+  // The identifiers of the contacts that started on the transcript: the page's
+  // `touches` also lists fingers elsewhere (the composer), whose ends never
+  // reach the transcript.
+  const contacts = useRef(new Set<number>());
   const touchTarget = useRef<{ isConnected?: boolean } | null>(null);
-  const releaseTouchTarget = useRef<(() => void) | null>(null);
-  const touchScrollAt = useRef(0);
-  const fingerOnGlass = useCallback(() => {
-    if (!touchDown.current) return false;
-    if (touchTarget.current?.isConnected === false) {
-      touchDown.current = false;
-      return false;
-    }
-    return true;
+  const detachedListeners = useRef(new Map<EventTarget, () => void>());
+  const releaseDetached = useCallback(() => {
+    for (const release of detachedListeners.current.values()) release();
+    detachedListeners.current.clear();
   }, []);
+  const touchScrollAt = useRef(0);
+  // A touch whose row left the document stops owning the transcript even if
+  // its end is lost; the next touch starts afresh.
+  const fingerOnGlass = useCallback(() => contacts.current.size > 0 && touchTarget.current?.isConnected !== false, []);
   const hasTouchScroll = useCallback(
     () =>
       touchScrollLatchOpen({
@@ -120,10 +125,11 @@ export function useFollowTouch({
   const reset = useCallback(() => {
     touchGesture.current = undefined;
     touchLatched.current = false;
-    touchDown.current = false;
+    contacts.current.clear();
+    releaseDetached();
     touchScrollAt.current = 0;
     touchEndedAt.current = 0;
-  }, []);
+  }, [releaseDetached]);
 
   const handleTouchMove = useCallback(
     (event: TouchLike) => {
@@ -147,23 +153,35 @@ export function useFollowTouch({
     [markGesture, signals]
   );
 
-  const handleTouchEnd = useCallback(() => {
-    releaseTouchTarget.current?.();
-    releaseTouchTarget.current = null;
-    touchGesture.current = undefined;
-    touchDown.current = false;
-    // The fling outlives the finger. The latch stays open; scrollend or the
-    // idle fallback is what closes it.
-    touchScrollAt.current = Date.now();
-    touchEndedAt.current = touchScrollAt.current;
-    onLift();
-  }, [onLift]);
+  const handleTouchEnd = useCallback(
+    (event: TouchContacts) => {
+      let removed = false;
+      for (const touch of Array.from(event.changedTouches)) {
+        removed = contacts.current.delete(touch.identifier) || removed;
+      }
+      if (!removed) return;
+      // The next move is measured afresh, never from the finger that lifted.
+      touchGesture.current = undefined;
+      // A transcript finger still down keeps owning it: the lift is judged
+      // when the last one leaves.
+      if (contacts.current.size > 0) return;
+      releaseDetached();
+      // The fling outlives the finger. The latch stays open; scrollend or the
+      // idle fallback is what closes it.
+      touchScrollAt.current = Date.now();
+      touchEndedAt.current = touchScrollAt.current;
+      onLift();
+    },
+    [onLift, releaseDetached]
+  );
 
   const handleTouchStart = useCallback(
-    (event: TouchLike) => {
+    (event: TouchLike & TouchContacts) => {
       touchGesture.current = event.touches[0]?.clientY;
       const state = signals.current;
-      if (!touchDown.current) {
+      if (!fingerOnGlass()) {
+        contacts.current.clear();
+        releaseDetached();
         // The first finger down: what the lift is judged against.
         const root = viewport.current;
         state.touchStartTop = root ? scrollMetrics(root).top : 0;
@@ -173,22 +191,23 @@ export function useFollowTouch({
         state.touchScrolled = false;
         state.touchEndUpAt = 0;
         state.mutationAt = Number.NEGATIVE_INFINITY;
+        // A new touch stops any fling. A drag that could not move the
+        // transcript (at an edge) gets no scrollend, so its latch would
+        // otherwise reopen with every later tap's lift.
+        touchLatched.current = false;
       }
-      touchDown.current = true;
+      for (const touch of Array.from(event.changedTouches)) contacts.current.add(touch.identifier);
       touchTarget.current = event.target as { isConnected?: boolean } | null;
       touchScrollAt.current = Date.now();
-      releaseTouchTarget.current?.();
-      releaseTouchTarget.current = followDetachedTouch(event, handleTouchMove, handleTouchEnd);
+      const target = event.target;
+      if (target && !detachedListeners.current.has(target)) {
+        const release = followDetachedTouch(event, handleTouchMove, handleTouchEnd);
+        if (release) detachedListeners.current.set(target, release);
+      }
     },
-    [handleTouchEnd, handleTouchMove, lastWriteAt, signals, viewport]
+    [fingerOnGlass, handleTouchEnd, handleTouchMove, lastWriteAt, releaseDetached, signals, viewport]
   );
-  useEffect(
-    () => () => {
-      releaseTouchTarget.current?.();
-      releaseTouchTarget.current = null;
-    },
-    []
-  );
+  useEffect(() => releaseDetached, [releaseDetached]);
 
   // Chromium reports the true end of a touch scroll, momentum included, with scrollend.
   useEffect(() => {
