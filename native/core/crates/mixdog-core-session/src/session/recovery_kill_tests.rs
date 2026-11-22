@@ -112,13 +112,20 @@ fn only_a_transient_compacting_stage_is_normalized() {
 }
 
 /// The child half: a no-op in a normal run. `seed` leaves a thread whose process died with a tool call unanswered; `recover`
-/// opens it with the commit hook that holds at the point `POINT` names; `verify` opens it plainly and checks the conversation.
+/// opens it with the commit hook that holds at the point `POINT` names; `verify` opens it plainly and checks the conversation;
+/// `linger` reports a result and stays.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods, reason = "the child reads the variables the parent set")]
 async fn recovery_kill_child() {
     let Ok(stage) = std::env::var(STAGE) else {
         return;
     };
+    if stage == "linger" {
+        say("DONE");
+        loop {
+            std::thread::park();
+        }
+    }
     let dir = PathBuf::from(std::env::var(DIR).expect("the data dir"));
     let rig = Rig::new();
     let committed = Arc::new(tokio::sync::Notify::new());
@@ -236,15 +243,11 @@ fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>
             at = phase.to_owned();
         }
         if report == "DONE" {
-            // Its output ends when it has exited: a child that finished and does not leave is silent too.
-            loop {
-                match lines.recv_timeout(CHILD_SILENCE) {
-                    Ok(_) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
-                    Err(RecvTimeoutError::Timeout) => silent(&mut child, stage, point, "its exit, after DONE"),
-                }
-            }
-            assert!(child.wait().expect("the child ended").success(), "the {stage} child failed");
+            // It says DONE after its last check, so its result is in. Its exit is not waited for: the runtime's drop joins every
+            // worker and blocking thread with no bound, whatever the session's tasks still run, and a kill here is one more
+            // boundary the next open has to take. It may have left by itself already.
+            let _ = child.kill();
+            child.wait().expect("the child is gone");
             return Ended::Done;
         }
     }
@@ -353,30 +356,74 @@ fn a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open() {
     }
     panic!("the recovery never ended within 64 points");
 }
+/// A child that reported its result and then never leaves (`linger`: its test thread stays, as a runtime whose drop waits for a
+/// thread that does not end) does not hold the parent: the parent ends it.
 #[test]
-fn a_second_kill_during_the_recovery_leaves_each_row_once() {
+fn a_child_that_does_not_leave_after_its_result_is_ended_by_the_parent() {
+    let dir = tempfile::tempdir().expect("data dir");
+    assert!(matches!(run_child(dir.path(), "linger", None, None), Ended::Done));
+}
+/// A recovery killed at point `first`, then the recovery of that killed again at each of its own points, each pair on a thread
+/// seeded anew: the open after the second kill finishes the recovery with each row once. How many second kills cut a write;
+/// `None` when the first recovery has no point `first` (it ended before it).
+fn second_kills_after(first: usize) -> Option<usize> {
     let mut pairs = 0;
-    for first in 0..64 {
-        let mut finished_first = false;
-        for second in 0..64 {
-            let dir = tempfile::tempdir().expect("data dir");
-            let Ended::Held(thread) = run_child(dir.path(), "seed", None, None) else { panic!("the seed holds") };
-            if !matches!(run_child(dir.path(), "recover", Some(first), Some(&thread)), Ended::Held(_)) {
-                finished_first = true;
-                break;
-            }
-            let again = run_child(dir.path(), "recover", Some(second), Some(&thread));
-            pairs += usize::from(matches!(again, Ended::Held(_)));
-            assert!(matches!(run_child(dir.path(), "verify", None, Some(&thread)), Ended::Done));
-            if matches!(again, Ended::Done) {
-                break;
-            }
+    for second in 0..64 {
+        let dir = tempfile::tempdir().expect("data dir");
+        let Ended::Held(thread) = run_child(dir.path(), "seed", None, None) else { panic!("the seed holds") };
+        if !matches!(run_child(dir.path(), "recover", Some(first), Some(&thread)), Ended::Held(_)) {
+            return None;
         }
-        if finished_first {
+        let again = run_child(dir.path(), "recover", Some(second), Some(&thread));
+        pairs += usize::from(matches!(again, Ended::Held(_)));
+        assert!(matches!(run_child(dir.path(), "verify", None, Some(&thread)), Ended::Done));
+        if matches!(again, Ended::Done) {
             break;
         }
     }
-    assert!(pairs >= 2, "the second recovery wrote nothing to cut: {pairs}");
+    Some(pairs)
+}
+
+/// Every pair of a first and a second kill, one test per first kill point: each is a row of the matrix, of the size of
+/// `a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open`, so the matrix is not one test whose length is the
+/// square of the recovery's writes. `past_the_last_point` fails when the recovery has a point no test here starts from.
+mod a_second_kill_during_the_recovery_leaves_each_row_once {
+    use super::second_kills_after;
+
+    /// The first point no test below starts from.
+    const PAST_THE_LAST: usize = 7;
+
+    #[test]
+    fn after_a_first_kill_at_point_0() {
+        let pairs = second_kills_after(0).expect("the recovery wrote nothing to cut");
+        assert!(pairs >= 2, "the second recovery wrote nothing to cut: {pairs}");
+    }
+
+    macro_rules! after_a_first_kill_at {
+        ($($name:ident: $first:literal),* $(,)?) => {
+            $(
+                #[test]
+                fn $name() {
+                    const { assert!($first < PAST_THE_LAST) };
+                    let _ = second_kills_after($first);
+                }
+            )*
+        };
+    }
+
+    after_a_first_kill_at! {
+        after_a_first_kill_at_point_1: 1,
+        after_a_first_kill_at_point_2: 2,
+        after_a_first_kill_at_point_3: 3,
+        after_a_first_kill_at_point_4: 4,
+        after_a_first_kill_at_point_5: 5,
+        after_a_first_kill_at_point_6: 6,
+    }
+
+    #[test]
+    fn past_the_last_point() {
+        assert_eq!(second_kills_after(PAST_THE_LAST), None, "the recovery has a point {PAST_THE_LAST}: add its test and move the bound");
+    }
 }
 /// A process that died while a compaction ran left `lastStage: 'compacting'` in the header: the next open of the session writes
 /// `interrupted` over it, before any turn.
