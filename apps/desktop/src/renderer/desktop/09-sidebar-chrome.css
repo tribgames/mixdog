@@ -29,14 +29,16 @@
   width: 100%;
   height: 44px;
 }
-/* A 24px box inks about 18px: with the capsule under it the unit weighs what
-   the 22px Settings gear does. */
+/* A 25px box inks about 18px: with the capsule under it the unit weighs what
+   the 22px Settings gear does. Odd, like the 17px capsule: an even box in the
+   47px rail stands on a half pixel and is painted half a pixel to the right
+   of the capsule under it. */
 .rail-usage-pin-mark {
   position: absolute;
   top: 7px;
-  left: calc(50% - 12px);
-  width: 24px;
-  height: 24px;
+  left: calc(50% - 12.5px);
+  width: 25px;
+  height: 25px;
 }
 /* 17px wide so the capsules start on a whole pixel of the 47px rail. */
 .rail-usage-pin-meter {
@@ -81,15 +83,15 @@
   position: absolute;
   inset: 0;
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 25px;
+  height: 25px;
 }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
 .rail-usage-pin-mark > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
   inset: -2px;
-  width: 28px;
-  height: 28px;
+  width: 29px;
+  height: 29px;
 }
 /* Expanded accounts: the account index sits on the mark's bottom-right
    corner, clear of the bar, bright for the account in use, muted for the
