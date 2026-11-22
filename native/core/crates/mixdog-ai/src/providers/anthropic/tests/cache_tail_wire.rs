@@ -206,7 +206,7 @@ async fn a_credential_replay_is_admitted_on_its_own_account_and_rotation_back_re
     rig.turn(rig.request(2)).await.expect("sent on A");
     assert_eq!(rig.sent().last(), Some(&("key-a".to_owned(), T0 + 10_000)));
     let book = rig.gate.as_ref().unwrap().0.snapshot().expect("the proof changed the book");
-    let routes: std::collections::BTreeSet<&str> = book["receipts"].as_array().unwrap().iter().map(|r| r["route"].as_str().unwrap()).collect();
+    let routes: std::collections::BTreeSet<&str> = book["receipts"].as_object().unwrap().keys().map(String::as_str).collect();
     assert_eq!(routes.len(), 2, "each account's proof is its own: {routes:?}");
 }
 

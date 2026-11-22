@@ -146,6 +146,7 @@ impl Builder<'_> {
             approvals: Vec::new(),
             queue: self.queue.clone(),
             header: self.header.clone(),
+            header_blobs: Default::default(),
         };
         let (state, _) = slot(self.cx, state)?;
         Ok(serde_json::to_vec(&Record::Checkpoint(CheckpointRecord { state })).expect("records encode"))
@@ -307,7 +308,7 @@ impl Builder<'_> {
 
     fn metas(&mut self, metas: &[Header]) -> R<()> {
         for set in metas {
-            let (change, _) = slot(self.cx, HeaderChange { set: set.clone(), unset: Vec::new() })?;
+            let (change, _) = slot(self.cx, HeaderChange { set: set.clone(), unset: Vec::new(), patch: Default::default() })?;
             self.push(&Record::Meta(MetaRecord { op: None, change }))?;
             for (k, v) in set {
                 self.header.insert(k.clone(), v.clone());

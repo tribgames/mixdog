@@ -38,6 +38,13 @@ pub enum Delivery {
 /// extended. `None` when the text is no card at all (it then shows as a user or
 /// synthetic row); `now` is the arrival time in milliseconds.
 pub fn agent_response(completion: &Completion<'_>, id: &str, previous: Option<&ThreadItem>, now: i64) -> Option<Delivery> {
+    let (row, extends) = agent_response_row(completion, id, previous, now)?;
+    Some(if extends { Delivery::Patch(item(row)) } else { Delivery::Push(item(row)) })
+}
+
+/// [`agent_response`] as the row the transcript stores: the card's row, and whether it is `previous` extended (the row
+/// then keeps that item's id).
+pub fn agent_response_row(completion: &Completion<'_>, id: &str, previous: Option<&ThreadItem>, now: i64) -> Option<(Row, bool)> {
     let text = js_trim(completion.content);
     let meta = completion.meta;
     let text_field = |key: &str| js_trim(&or_str(meta.get(key), "")).to_owned();
@@ -57,9 +64,9 @@ pub fn agent_response(completion: &Completion<'_>, id: &str, previous: Option<&T
     {
         let mut merged = previous;
         merged.extend(patch);
-        return Some(Delivery::Patch(item(merged)));
+        return Some((merged, true));
     }
-    Some(Delivery::Push(item(row)))
+    Some((row, false))
 }
 
 fn item(row: Row) -> ThreadItem {

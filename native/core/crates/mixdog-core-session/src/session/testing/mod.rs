@@ -729,7 +729,15 @@ impl ThreadStore for MemStore {
                     }
                 }
                 let landed = |iid: &str| records.iter().any(|(_, record)| matches!(record, Record::Item(item) if item.iid.as_str() == iid));
-                draft.apply_file(&bodies, landed);
+                // A tool row of the run in the log answers its call (`StoreThreads::run_draft`).
+                let answered = |call: &str| {
+                    records.iter().any(|(_, record)| {
+                        matches!(record, Record::Item(item) if item.turn.as_ref().is_some_and(|t| t.as_str() == rid)
+                            && item.role.as_ref().is_some_and(|r| r.as_str() == "tool")
+                            && matches!(&item.body, Slot::Inline(body) if body.get("toolCallId").and_then(Value::as_str) == Some(call)))
+                    })
+                };
+                draft.apply_file(&bodies, landed, answered);
                 (rid, draft)
             })
             .collect();
@@ -1002,6 +1010,42 @@ impl ThreadStore for MemStore {
         Ok(self.live_row(id, iid))
     }
 
+    /// The live prompts of the log, as the real store's index lists them.
+    fn rewind_targets(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError> {
+        let (rev, rows) = live_history(self.records(id));
+        let targets =
+            rows.iter().rev().filter(|(ordinal, _)| before.is_none_or(|before| *ordinal < before)).filter_map(|(ordinal, row)| prompt_target(*ordinal, row));
+        Ok((rev, targets.take(limit).collect()))
+    }
+
+    /// The prompt an id names, as the real store resolves it: the oldest live prompt that shows it as its submission id,
+    /// else the oldest whose record it names; with what the log holds from it on.
+    fn rewind_target(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<super::seams::StoredRewind>, CoreError> {
+        let (rev, rows) = live_history(self.records(id));
+        let exact = super::reads::history_cursor_iid(shown);
+        let ids: Vec<&str> = match exact {
+            Some(iid) => vec![iid],
+            None => std::iter::once(shown).chain(shown.match_indices(':').filter(|(at, _)| *at > 0).map(|(at, _)| &shown[..at])).collect(),
+        };
+        let submitted = |row: &ItemRecord| matches!(&row.body, Slot::Inline(body) if body.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str) == Some(shown));
+        let prompts = || rows.iter().filter_map(|(ordinal, row)| prompt_target(*ordinal, row).map(|target| (row, target)));
+        let by_alias = prompts().find(|(row, _)| exact.is_none() && submitted(row));
+        let Some((_, target)) = by_alias.or_else(|| prompts().find(|(row, _)| ids.contains(&row.iid.as_str()))) else { return Ok(None) };
+        let from = rows.iter().filter(|(ordinal, _)| *ordinal >= target.ordinal);
+        let cut = mixdog_store::sqlite::rewind::RewindCut {
+            removed: from.clone().filter(|(_, row)| row.visible).count() as u64,
+            messages: from.filter(|(_, row)| row.model).count() as u64,
+        };
+        let previous = rows.iter().rev().find(|(ordinal, row)| *ordinal < target.ordinal && row.visible).map(|(_, row)| row.clone());
+        Ok(Some(super::seams::StoredRewind { rev, target, cut, previous }))
+    }
+
     /// The newest compaction a rewind left live with the entry inline, as the real reader.
     fn compaction_entry(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let mut frames: Vec<mixdog_store::sqlite::CompactionEntry> = Vec::new();
@@ -1107,6 +1151,8 @@ impl ThreadStore for CallCounted {
         fn submission(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError>;
         fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError>;
         fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError>;
+        fn rewind_targets(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, before: Option<u64>, limit: usize) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError>;
+        fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<super::seams::StoredRewind>, CoreError>;
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError>;
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError>;
@@ -1114,6 +1160,7 @@ impl ThreadStore for CallCounted {
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn rewritten(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, ()>;
         fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
@@ -1229,6 +1276,30 @@ fn model_rows(records: Vec<(u64, Record)>) -> Vec<(ItemId, Value)> {
     out.into_iter().map(|(_, iid, body)| (iid, body)).collect()
 }
 
+/// The live item records of a log with their ordinals, amended, and the history revision its rewinds make.
+fn live_history(records: Vec<(u64, Record)>) -> (u64, Vec<(u64, ItemRecord)>) {
+    let mut rows: Vec<(u64, ItemRecord)> = Vec::new();
+    let mut rev = 0;
+    for (ordinal, record) in records {
+        match record {
+            Record::Item(item) => rows.push((ordinal, item)),
+            Record::Amend(amend) => amend_row(&mut rows, &amend),
+            Record::Rewind(rewind) => {
+                rev += 1;
+                rows.retain(|(o, _)| *o < rewind.to_ordinal);
+            }
+            _ => {}
+        }
+    }
+    (rev, rows)
+}
+
+/// A record a rewind can name: one that shows rows and keeps its prompt's text.
+fn prompt_target(ordinal: u64, row: &ItemRecord) -> Option<mixdog_store::sqlite::rewind::RewindTarget> {
+    let Some(Slot::Inline(text)) = row.prompt.as_ref().filter(|_| row.visible) else { return None };
+    Some(mixdog_store::sqlite::rewind::RewindTarget { level: 0, ordinal, iid: row.iid.as_str().to_owned(), text: text.clone() })
+}
+
 /// An amend replaces the body (and blob refs) of its live row, as the real store's readers see it.
 fn amend_row(rows: &mut [(u64, ItemRecord)], amend: &mixdog_store::schema::record::AmendRecord) {
     if let Some((_, row)) = rows.iter_mut().find(|(_, row)| row.iid.as_str() == amend.iid.as_str()) {
@@ -1298,6 +1369,10 @@ impl Transcript for TextTranscript {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
+        // A display record is the row it shows, as with [`RecordTranscript`].
+        if record.form == mixdog_store::schema::record::Form::Display {
+            return super::transcript::display_item(record, body).filter(|_| record.visible).map(Shown::Item).into_iter().collect();
+        }
         // A Goal entry's prompt is listed but shows no row of its own, as with [`RecordTranscript`]: its text is the runtime's, so
         // it has no prompt text. One that got prompt text shows as a user row here too, so the tests catch it.
         if record.prompt.is_none() && super::goal_lane::is_goal_prompt(body) {
@@ -1990,14 +2065,14 @@ impl super::route_session::RouteChange for ResetRouteChange {
         _: bool,
         _: &super::route_session::RouteLookups,
     ) -> mixdog_store::schema::record::HeaderChange {
-        mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }
+        mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() }
     }
 
     fn environment_reset(&self, _: &Header) -> mixdog_store::schema::record::HeaderChange {
         let mut set = serde_json::Map::new();
         set.insert("promptEnv".into(), json!("tail"));
         set.insert("sessionStartMetaInjected".into(), json!(false));
-        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
     }
 }
 
@@ -2563,6 +2638,7 @@ impl Rig {
             warm: self.warms.clone(),
             builtin_skills: self.builtin_skills.clone(),
             archive: self.archive.clone(),
+            completion_holders: Arc::default(),
         }
     }
 }

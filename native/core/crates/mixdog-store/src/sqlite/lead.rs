@@ -161,11 +161,10 @@ impl SqliteStore {
     /// session is deleted, unknown or not lead-visible. It names its session: a repair owed at open is waited for, and
     /// one that failed is the answer.
     pub async fn lead_row(&self, session: &str) -> Result<Option<LeadRow>, DbError> {
-        let recovered = self.shared.gate.recovered(&[session]);
+        let need = super::Need::of(&[session]);
         let session = session.to_owned();
         let archive = self.archive_snapshot();
-        recovered.await?;
-        self.read(move |c| {
+        self.read(need, move |c| {
             let found: Option<(String, bool, bool)> = c
                 .prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE id = ?1 AND deleted = 0", super::WITHHELD_COL))?
                 .query_row(params![session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
@@ -183,9 +182,10 @@ impl SqliteStore {
 
     /// Every stored session's list row with its resolved archived flag, lead-visible or not, in one read: an agent's
     /// session carries its own archive mark (a hidden session is archived on that session alone) and no listing shows it.
+    /// A listing of every session: an error while one owed its rows is not projected, never part of them.
     pub async fn marked_rows(&self) -> Result<Vec<LeadRow>, DbError> {
         let archive = self.archive_snapshot();
-        self.read(move |c| {
+        self.read(super::Need::All, move |c| {
             let mut stmt = c.prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE deleted = 0", super::WITHHELD_COL))?;
             let found: Vec<(String, bool, bool)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
             found
@@ -204,12 +204,14 @@ impl SqliteStore {
     }
 
     /// `limit` lead-visible rows that pass `filter`, after `after` (`listAfter`; from the top when
-    /// `None`), and whether more follow.
+    /// `None`), and whether more follow. A page of the whole catalog: it waits for every session owed its rows, and a
+    /// failed one fails it, so a page is never short of a session not yet projected.
     pub async fn lead_page(&self, after: Option<CatalogCursor>, filter: LeadFilter, limit: usize) -> Result<LeadPage, DbError> {
         let archive = self.archive_snapshot();
-        self.read(move |c| {
+        self.read(super::Need::All, move |c| {
             // One snapshot for every batch of the scan: a session whose activity changes meanwhile is neither missed nor listed twice.
-            let snapshot = c.unchecked_transaction()?;
+            let own = super::read_snapshot(c)?;
+            let snapshot: &rusqlite::Connection = own.as_deref().unwrap_or(c);
             let mut stmt = snapshot.prepare_cached(SCAN_SQL)?;
             let mut position = after;
             let mut rows = Vec::new();

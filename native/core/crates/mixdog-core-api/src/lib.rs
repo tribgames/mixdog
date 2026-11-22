@@ -31,6 +31,7 @@ pub mod thread;
 pub mod turn_review;
 
 pub use call::AfterAnswer;
+pub use call::AnswerQueued;
 pub use call::CallContext;
 pub use call::Caller;
 pub use call::CoreRequest;

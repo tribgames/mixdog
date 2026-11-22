@@ -177,6 +177,27 @@ impl AgentRegistry {
     /// `recoverStaleWorkerRows({ deadOnly })`: settles what is stale and writes the changed rows;
     /// `Ok(false)` when nothing was stale.
     pub async fn recover_stale_worker_rows(&self, dead_only: bool, live: &Liveness<'_>) -> Result<bool, String> {
+        self.worker_rows_open().await?;
+        self.settle_stale_rows(dead_only, live).await
+    }
+
+    /// The restart's settlement of a start that held the worker rows ([`Self::hold_worker_rows`]): the rows read whole
+    /// from the store (which answers once every session that could hold one is projected, or with the failure of one that
+    /// was not), [`Self::recover_stale_worker_rows`] over exactly those, and its writes awaited. Only then is a view of the
+    /// rows published: every reader that waited reads. A settlement that fails publishes none: its failure is that of every
+    /// reader that awaited it, and of every read of this start after it.
+    pub async fn recover_held_worker_rows(&self, dead_only: bool, live: &Liveness<'_>) -> Result<bool, String> {
+        let settled = self.settle_stale_rows(dead_only, live).await;
+        let stored = self.store.settled().await;
+        let outcome = settled.and_then(|any| stored.map(|()| any));
+        self.rows_held.send_replace(match &outcome {
+            Ok(_) => super::Settlement::Open,
+            Err(why) => super::Settlement::Failed(format!("the stored worker rows could not be settled after the index rebuild: {why}")),
+        });
+        outcome
+    }
+
+    async fn settle_stale_rows(&self, dead_only: bool, live: &Liveness<'_>) -> Result<bool, String> {
         let rows = Self::pool_rows(self.store.worker_maps().await?);
         let (changed, any) = settle_rows(&rows, dead_only, live);
         for (session, row) in changed {
@@ -190,13 +211,25 @@ impl AgentRegistry {
     /// [`Self::recover_stale_worker_rows`] just settled are listed, a row an earlier pass stamped is not. A write the store
     /// refused is reported by its writer; the read then answers what is stored.
     pub async fn pending_restart_failures(&self) -> Result<Vec<(String, Row)>, String> {
+        self.worker_rows_open().await?;
         let _ = self.store.settled().await;
         Ok(Self::pool_rows(self.store.worker_maps().await?).into_iter().filter(|(_, row)| is_unnotified_restart_failure(row)).collect())
+    }
+
+    /// The executions a completion for `owner` can still name from the stored rows: the task of every row of its agents
+    /// whose restart notice is not stamped, under its own id and under its restart notice's. A row a restart has not
+    /// settled yet is among them, whatever its status says.
+    pub async fn held_notices(&self, owner: &str) -> Result<Vec<String>, String> {
+        self.store.settled().await?;
+        let rows = Self::pool_rows(self.store.worker_maps().await?);
+        let owed = rows.iter().filter(|(_, row)| clean(row.get("ownerSessionId")) == owner && !truthy(row.get("restartNotified")));
+        Ok(owed.flat_map(|(_, row)| [clean(row.get("task_id")), restart_notification_id(row)]).filter(|id| !id.is_empty()).collect())
     }
 
     /// `markRestartNotified(rows)`: stamp them, once their notification is durably queued; a row that
     /// changed meanwhile is left alone.
     pub async fn mark_restart_notified(&self, sessions: &[String], stamp: &str) -> Result<(), String> {
+        self.worker_rows_open().await?;
         let rows = Self::pool_rows(self.store.worker_maps().await?);
         for (session, row) in rows {
             if sessions.contains(&session) && is_unnotified_restart_failure(&row) {

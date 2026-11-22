@@ -64,7 +64,9 @@ impl AgentRegistry {
         loop {
             let tag = format!("{base}{n}");
             let taken = self.resolve(&mut st, &tag, scope, ResolveOptions { scan_sessions: false, exclude_terminal_traces: false, skip_released: false });
-            if !matches!(taken, Ok(Some(_))) {
+            // A tag a spawn admitted before holds and has not bound yet is taken too.
+            let claimed = self.claimed.lock().unwrap_or_else(|p| p.into_inner()).contains(&tag);
+            if !matches!(taken, Ok(Some(_))) && !claimed {
                 return tag;
             }
             n += 1.0;
@@ -167,8 +169,8 @@ mod tests {
         async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
             Ok(Vec::new())
         }
-        async fn header(&self, _: &str) -> Option<Row> {
-            None
+        async fn header(&self, _: &str) -> Result<Option<Row>, String> {
+            Ok(None)
         }
         async fn is_directory(&self, _: &str) -> bool {
             false

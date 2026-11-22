@@ -320,7 +320,10 @@ pub const ACTION_NAMESPACES: &[(&str, &[&str])] = &[
     ("update", &["getUpdateStatus", "checkForUpdate", "runUpdateNow"]),
     ("voice", &["getVoiceStatus", "toggleVoice", "transcribeAudio", "prepareTranscription"]),
     ("tidy", &["getTidyEngineStatus", "getTidyInstallStatus"]),
-    ("skills", &["skillsStatus", "skillContent", "getDisabledSkills", "addSkill", "saveSkill", "removeSkill", "reloadSkills", "setDisabledSkills", "setSkillEnabled"]),
+    (
+        "skills",
+        &["skillsStatus", "skillContent", "getDisabledSkills", "addSkill", "saveSkill", "removeSkill", "reloadSkills", "setDisabledSkills", "setSkillEnabled"],
+    ),
     ("plugins", &["pluginsStatus", "addPlugin", "updatePlugin", "setPluginEnabled", "removePlugin", "reloadPlugins"]),
     ("hooks", &["hooksStatus", "addHookRule", "deleteHookRule", "setHookRuleEnabled"]),
     ("tools", &["toolsStatus"]),

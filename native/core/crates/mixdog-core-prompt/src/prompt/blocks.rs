@@ -90,7 +90,7 @@ impl SystemBlocks {
 
     /// The header change that turns the blocks `previous` into these (one `thread/header/patch`).
     pub fn change_from(&self, previous: &Self) -> HeaderChange {
-        let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+        let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
         for ((key, text), (_, before)) in self.slots().into_iter().zip(previous.slots()) {
             if text == before {
                 continue;

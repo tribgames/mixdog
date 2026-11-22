@@ -58,9 +58,10 @@ impl AgentRegistry {
     /// The list's rows for `scope` (`views.list({ scanSessions: false, context, memoryOnly: true })`):
     /// the index refreshed first, then every tag-bound worker session of the scope whose row is
     /// active, each with its `rowState`. Order is the registry's.
-    pub async fn worker_states(&self, scope: &Scope) -> Vec<WorkerState> {
-        self.refresh_tags_from_sessions(false, scope).await;
-        self.session_entries(false, scope)
+    pub async fn worker_states(&self, scope: &Scope) -> Result<Vec<WorkerState>, String> {
+        self.refresh_tags_from_sessions(false, scope).await?;
+        Ok(self
+            .session_entries(false, scope)
             .into_iter()
             .filter_map(|(_, session)| {
                 let id = clean(session.get("id"));
@@ -78,11 +79,12 @@ impl AgentRegistry {
                 });
                 is_active_worker_row(&status, &stage).then_some(WorkerState { session_id: id, status, stage })
             })
-            .collect()
+            .collect())
     }
 
-    /// `assertLeadIdle`'s `busyWorkers`: the listed workers whose `status` or `stage` is busy.
-    pub async fn busy_worker_count(&self, scope: &Scope) -> u64 {
-        self.worker_states(scope).await.iter().filter(|w| is_busy_worker_state(&w.status) || is_busy_worker_state(&w.stage)).count() as u64
+    /// `assertLeadIdle`'s `busyWorkers`: the listed workers whose `status` or `stage` is busy. `Err` when the worker rows
+    /// could not be read whole: "none is busy" is not known.
+    pub async fn busy_worker_count(&self, scope: &Scope) -> Result<u64, String> {
+        Ok(self.worker_states(scope).await?.iter().filter(|w| is_busy_worker_state(&w.status) || is_busy_worker_state(&w.stage)).count() as u64)
     }
 }

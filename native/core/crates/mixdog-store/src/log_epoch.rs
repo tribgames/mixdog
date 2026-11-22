@@ -32,6 +32,8 @@ struct State {
     /// The version of the history's shape, and the operations running that may change it.
     shape: u64,
     reshaping: u32,
+    /// Told each time the last such operation ends ([`shape_past`]).
+    reshaped: Arc<tokio::sync::Notify>,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -100,6 +102,30 @@ impl Drop for Writing {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.writing -= 1;
         state.reshaping -= u32::from(self.reshapes);
+        if self.reshapes && state.reshaping == 0 {
+            state.reshaped.notify_waiters();
+        }
+    }
+}
+
+/// Resolves once no operation that may change the shape of `session`'s history runs and the shape's version is not
+/// `seen`: with `None`, once the log is at rest; with the version a reader took, once an operation that may have changed
+/// what it read has ended, whether it succeeded or rolled back. What a reader folds while such an operation runs may be
+/// frames that are never acknowledged (written and not yet synced, then cut): it reads again after this.
+pub async fn shape_past(session: &str, seen: Option<u64>) {
+    let state = of(session);
+    let reshaped = state.lock().unwrap_or_else(PoisonError::into_inner).reshaped.clone();
+    loop {
+        let told = reshaped.notified();
+        tokio::pin!(told);
+        told.as_mut().enable();
+        {
+            let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.reshaping == 0 && Some(state.shape) != seen {
+                return;
+            }
+        }
+        told.await;
     }
 }
 
@@ -160,5 +186,29 @@ mod tests {
         assert_eq!(shape_settled(session), Some(shape + 1));
         drop(writing(session));
         assert_eq!(shape_settled(session), Some(shape + 2));
+    }
+
+    /// A wait for the shape ends when the operation that may change it does, not before, and at once when the shape is
+    /// already another one than the reader's; an append that leaves the shape alone ends no wait.
+    #[tokio::test]
+    async fn a_wait_for_the_shape_ends_with_the_operation_that_may_change_it() {
+        let session = "log-epoch-test-wait";
+        let shape = shape_settled(session).expect("nothing writes");
+        shape_past(session, None).await;
+        let mut same = std::pin::pin!(shape_past(session, Some(shape)));
+        assert!(futures_pending(same.as_mut()).await, "nothing changed the shape");
+        drop(appending(session));
+        assert!(futures_pending(same.as_mut()).await, "an append that reshapes nothing ended");
+        let rewind = writing(session);
+        let mut rest = std::pin::pin!(shape_past(session, None));
+        assert!(futures_pending(rest.as_mut()).await, "the operation still runs");
+        assert!(futures_pending(same.as_mut()).await, "the operation still runs");
+        drop(rewind);
+        rest.await;
+        same.await;
+    }
+
+    async fn futures_pending(mut wait: std::pin::Pin<&mut impl Future<Output = ()>>) -> bool {
+        std::future::poll_fn(|cx| std::task::Poll::Ready(wait.as_mut().poll(cx).is_pending())).await
     }
 }

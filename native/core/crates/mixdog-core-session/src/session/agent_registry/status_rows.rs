@@ -374,7 +374,12 @@ impl AgentStatus for AgentToolStatus {
         let session = mixdog_core_ports::ports::route::header_names_session(&handle.cell.header.load()).then(|| thread.as_str().to_owned());
         let scope = Scope { caller_session_id: session.clone(), host_pid: Some(pid) };
         let now = self.clock.now_ms();
-        self.registry.refresh_tags_from_index(&scope).await;
+        // Worker rows that could not be read whole are not a status: the section is left without its workers and scope,
+        // as for a thread that has none to show, and the next status signal reads again.
+        if let Err(error) = self.registry.refresh_tags_from_index(&scope).await {
+            tracing::warn!(thread = %thread.as_str(), "[agent] the agent status was not read: {error}");
+            return ThreadAgents { agent_workers: Vec::new(), agent_jobs: Vec::new(), agent_scope: None };
+        }
         let mut pending = Vec::new();
         let workers = self.worker_rows(&scope, now, &mut pending).await;
         let jobs = self.job_rows(&scope, now, &mut pending);

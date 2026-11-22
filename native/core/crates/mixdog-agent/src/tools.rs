@@ -2036,7 +2036,7 @@ impl Run {
         self.last_tool_batch_ended_ms = Some(tools_ended_ms);
         self.last_batch_later = calls.iter().any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
-        self.note_tool_batch_completed(&calls, results_from).await?;
+        self.note_tool_batch_completed(&calls, &response.content, results_from).await?;
         self.mark_step_effort(&calls, results_from);
         // The batch completes after its results are shown: a result reaches the thread through the sink's own queue and this
         // event through the observer's, so only a result already on disk (and with it accepted, in order) is ahead of the

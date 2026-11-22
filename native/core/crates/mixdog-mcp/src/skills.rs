@@ -323,7 +323,9 @@ pub enum SkillState {
     InUse,
     Off,
     /// Another source's skill of the name, at this index of the list, is in use instead.
-    Hidden { by: usize },
+    Hidden {
+        by: usize,
+    },
 }
 
 /// What decides whether a skill is offered.

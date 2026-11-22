@@ -2138,6 +2138,34 @@ async fn a_background_job_a_gone_runtime_left_running_ends_as_failed_and_its_own
     rig.runtime.reconcile_lost_jobs(&alive).await;
     assert_eq!(told.0.lock().unwrap().len(), 1, "an ended job is told once");
 }
+
+/// A session lets go of a completion's receipt once no producer holds the execution, and the shell runtime lists what it
+/// holds only when no record an earlier runtime left can still be told: a record that could not be read may be of a
+/// running job, and the next start tells its owner. Listed regardless, the owner dropped the receipt of a completion
+/// that start delivers again.
+#[tokio::test]
+async fn the_jobs_held_are_not_listed_while_a_record_an_earlier_runtime_left_could_not_be_read() {
+    let rig = rig_full(Arc::new(OsPromptElevation), Some(Arc::new(Told::default())));
+    let owner = ThreadId::from("t");
+    let asked = {
+        let (runtime, owner) = (rig.runtime.clone(), owner.clone());
+        tokio::spawn(async move { runtime.held_by(&owner).await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!asked.is_finished(), "asked before the start's pass ended, the answer waits for it");
+    // A record that is there and cannot be read as a file; and one a kill cut short, which is read and is no record.
+    let unreadable = rig.dir.path().join("l").join("task-unreadable.owner.json");
+    std::fs::create_dir_all(&unreadable).unwrap();
+    std::fs::write(rig.dir.path().join("l").join("task-cut.owner.json"), r#"{"pid": 7, "state": "runn"#).unwrap();
+    let alive = |_: u32| false;
+    rig.runtime.reconcile_lost_jobs(&alive).await;
+    assert_eq!(asked.await.unwrap(), None, "a record was not read: this runtime does not list what it holds");
+    assert_eq!(rig.runtime.held_by(&owner).await, None, "and answers so at once from then on");
+
+    std::fs::remove_dir(&unreadable).unwrap();
+    rig.runtime.reconcile_lost_jobs(&alive).await;
+    assert_eq!(rig.runtime.held_by(&owner).await, Some(Vec::new()), "every record read and settled; the cut one is none");
+}
 #[async_trait::async_trait]
 impl crate::exec::AgentTasks for FakeAgentTasks {
     fn list(&self, owner: &ThreadId) -> Vec<crate::exec::AgentTaskRow> {

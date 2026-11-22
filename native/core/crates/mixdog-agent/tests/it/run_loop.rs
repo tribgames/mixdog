@@ -380,10 +380,22 @@ struct Observer {
     requesting: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Holds a permit once an early notice has arrived since the last wait.
     early_arrived: tokio::sync::Notify,
+    /// The calls whose settlement was told as that of a run the batch does not take the result of.
+    superseded: Mutex<Vec<String>>,
+    /// What the batch said of the result to keep for a call it ran again: the call and the result's text.
+    replaced: Mutex<Vec<(String, Option<String>)>>,
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
-        Arc::new(Self { events: Mutex::new(Vec::new()), retract, reset_channel: true, requesting: Mutex::new(None), early_arrived: tokio::sync::Notify::new() })
+        Arc::new(Self {
+            events: Mutex::new(Vec::new()),
+            retract,
+            reset_channel: true,
+            requesting: Mutex::new(None),
+            early_arrived: tokio::sync::Notify::new(),
+            superseded: Mutex::default(),
+            replaced: Mutex::default(),
+        })
     }
     /// Resolves when the observer is given its first `requesting` stage.
     fn on_requesting(&self) -> tokio::sync::oneshot::Receiver<()> {
@@ -407,6 +419,13 @@ impl RunObserver for Observer {
         if early {
             self.early_arrived.notify_one();
         }
+    }
+    fn early_result_superseded(&self, _generation: u64, message: AgentMessage) {
+        self.superseded.lock().unwrap().extend(message.tool_call_id().map(str::to_owned));
+        self.event(RunEvent::EarlyResult(message));
+    }
+    fn early_result_replaced(&self, _generation: u64, call_id: &str, result: Option<AgentMessage>) {
+        self.replaced.lock().unwrap().push((call_id.to_owned(), result.map(|message| message.text())));
     }
     fn can_retract(&self) -> bool {
         self.reset_channel
@@ -909,6 +928,91 @@ async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry()
     let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
     assert_eq!(runs, want);
     assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// A read whose first run waits to be released and whose later runs answer at once; it counts the runs started and ended.
+struct HeldOnce {
+    spec: ToolSpec,
+    started: tokio::sync::watch::Sender<usize>,
+    ended: tokio::sync::watch::Sender<usize>,
+    release: tokio::sync::Notify,
+}
+
+impl HeldOnce {
+    fn new() -> Arc<Self> {
+        let spec = ToolSpec {
+            name: "peek".into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "peek".into(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        Arc::new(Self { spec, started: tokio::sync::watch::Sender::new(0), ended: tokio::sync::watch::Sender::new(0), release: tokio::sync::Notify::new() })
+    }
+}
+
+#[async_trait]
+impl Tool for HeldOnce {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+        let mut run = 0;
+        self.started.send_modify(|n| {
+            *n += 1;
+            run = *n;
+        });
+        if run == 1 {
+            self.release.notified().await;
+        }
+        self.ended.send_modify(|n| *n += 1);
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("peeked {run}"))], ..ToolOutput::default() })
+    }
+}
+
+/// A read streamed behind an edit starts as it streams and is run again once the edit is in; the batch takes the second
+/// run's result and lets the first go on. The result to keep for the call is the one of its last run: the batch takes
+/// back what the first run may have told as the second starts and tells the second's as it ends, and the first run's
+/// end, whenever it comes, is told as that of a run whose result is not taken.
+#[tokio::test]
+async fn a_read_run_again_behind_an_edit_keeps_the_result_of_its_last_run() {
+    let file = AnchoredFile::new("same\n");
+    let peek = HeldOnce::new();
+    let h = Harness::new(vec![
+        turn(vec![
+            call("e1", "edit", json!({ "file_path": "a.txt", "old_string": "same", "new_string": "one" })),
+            call("r1", "peek", json!({})),
+            Step::Until(peek.started.subscribe(), 1, "the streamed read to start"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let out = finish(h.run(config(), vec![file.clone(), peek.clone()], vec![AgentMessage::user("go")])).await;
+    let rows = dump(&out.transcript);
+    assert!(rows.iter().any(|row| row == "tool#r1(Normal):peeked 2"), "the batch took the second run's result: {rows:?}");
+    assert_eq!(
+        *h.observer.replaced.lock().unwrap(),
+        [("r1".to_owned(), None), ("r1".to_owned(), Some("peeked 2".to_owned()))],
+        "the first run's result is taken back, then the second's is the one kept"
+    );
+    assert!(h.observer.superseded.lock().unwrap().is_empty(), "the first run has not ended");
+    peek.release.notify_one();
+    let mut ended = peek.ended.subscribe();
+    tokio::time::timeout(Duration::from_secs(30), ended.wait_for(|n| *n >= 2)).await.expect("the first run ends once released").expect("the tool lives");
+    let told = || h.observer.superseded.lock().unwrap().clone();
+    for _ in 0..200 {
+        if !told().is_empty() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(told(), ["r1"], "the first run's end is told as a run whose result is not the call's");
+    assert_eq!(h.observer.replaced.lock().unwrap().len(), 2, "and replaces nothing");
 }
 
 /// Releases the held edits, then ends once `id` reached the settle gate.

@@ -167,7 +167,7 @@ impl SectionFeedState {
         bytes.extend_from_slice(params.to_json_string().as_bytes());
         bytes.push(b',');
         self.stamp.close(&mut bytes, seq);
-        let frame = FeedFrame { seq, bytes: Bytes::from(bytes) };
+        let frame = FeedFrame::new(seq, Bytes::from(bytes));
         if self.feed.publish(&[frame], None).is_ok() {
             inner.seq = seq;
         }
@@ -196,7 +196,7 @@ impl StatePublisher for SectionFeedState {
         } else {
             Arc::new(SectionsView { stamp: self.stamp.clone(), entries: entries.clone() })
         };
-        let frame = FeedFrame { seq, bytes: Bytes::from(bytes) };
+        let frame = FeedFrame::new(seq, Bytes::from(bytes));
         // This state is the feed's only producer, so the seq cannot gap.
         if self.feed.publish(&[frame], Some(view)).is_ok() {
             inner.seq = seq;

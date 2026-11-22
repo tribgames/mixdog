@@ -1,5 +1,6 @@
 //! `thread/search` (`session-host.ts` `searchSessionContent`): the best-matching message of each
-//! session for a query, strongest first, at most 50.
+//! session for a query, strongest first, at most 50. A hit names the history position of its message's record
+//! (`position`), where the transcript opens at it; a row stored before positions were has none.
 
 use std::sync::Arc;
 
@@ -45,7 +46,7 @@ impl ThreadSearchService {
         Arc::new(Self { search, hidden: Some(hidden) })
     }
 
-    /// `requiredSessionContentQuery` then the search: `[{ sessionId, snippet, rank }]`.
+    /// `requiredSessionContentQuery` then the search: `[{ sessionId, snippet, rank, position? }]`.
     pub async fn run(&self, query: &str) -> Result<Value, CoreError> {
         let text = mixdog_js::js_trim(query);
         if text.is_empty() || mixdog_js::utf16_len(text) > MAX_QUERY_UNITS {
@@ -65,7 +66,11 @@ impl ThreadSearchService {
             // parses as f64, so a failure is a defect surfaced as an error.
             let shortest: f64 = (hit.rank as f32).to_string().parse().map_err(|e| failed(DOMAIN, format!("session search rank is not a number: {e}")))?;
             let rank = if shortest.fract() == 0.0 { json!(shortest as i64) } else { json!(shortest) };
-            out.push(json!({ "sessionId": hit.session_id, "snippet": hit.snippet, "rank": rank }));
+            let mut found = json!({ "sessionId": hit.session_id, "snippet": hit.snippet, "rank": rank });
+            if let Some(position) = hit.position {
+                found["position"] = Value::String(position);
+            }
+            out.push(found);
         }
         Ok(Value::Array(out))
     }

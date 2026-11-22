@@ -26,6 +26,28 @@ pub fn record<H: HeaderMap + ?Sized>(header: &mut H, qid: &str) {
     }
 }
 
+pub fn count<H: HeaderMap + ?Sized>(header: &H) -> usize {
+    header.value(RECEIPTS).and_then(Value::as_object).map_or(0, serde_json::Map::len)
+}
+
+/// The receipt ids `header` holds.
+pub fn ids<H: HeaderMap + ?Sized>(header: &H) -> impl Iterator<Item = &str> {
+    header.value(RECEIPTS).and_then(Value::as_object).into_iter().flat_map(|receipts| receipts.keys().map(String::as_str))
+}
+
+/// A receipt answers one question: was this execution's result already consumed here. Only the execution's producer asks
+/// it, by delivering the result again, so a receipt whose producer no longer holds the execution answers nobody. This is the
+/// header change that lets go of `gone`: a removal of those receipts and nothing else, so it says the same on whatever
+/// receipts the log holds where it lands (a receipt the session projected for a row that never reached the log is not
+/// written by it, and one recorded meanwhile is not removed).
+pub fn shed(gone: Vec<String>) -> crate::schema::record::HeaderChange {
+    use crate::schema::record::HeaderChange;
+    let removal = HeaderChange { unset: gone, ..HeaderChange::default() };
+    HeaderChange { patch: [(RECEIPTS.to_owned(), removal)].into(), ..HeaderChange::default() }
+}
+
+pub const KEY: &str = RECEIPTS;
+
 /// Only the task tool's terminal read/wait carries this fact. Output text and running reads
 /// cannot acknowledge a result that the model has not received.
 pub fn tool_receipt(body: &Value) -> Option<String> {

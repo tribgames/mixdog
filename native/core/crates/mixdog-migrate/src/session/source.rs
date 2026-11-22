@@ -106,12 +106,18 @@ fn count_of(v: Option<&Value>) -> Option<u64> {
 // ── 1.4.5 json ───────────────────────────────────────────────────────────────
 
 /// Header and messages of a 1.4.5 `<id>.json`, strict on syntax and `id`/`messages`.
-fn read_json(id: &str, bytes: &[u8], replaced: &mut u64) -> R<(Header, Vec<Value>)> {
-    let value = parse(bytes, QuarantineCode::ParseError, "session json", replaced)?;
+fn read_json(id: &str, bytes: &[u8], replaced: &mut u64, messages_as: Messages<'_>) -> R<(Header, Vec<Value>)> {
+    let value = match messages_as.parse(bytes) {
+        Ok(parsed) => {
+            *replaced += parsed.replaced_surrogates;
+            parsed.value
+        }
+        Err(e) => return q(QuarantineCode::ParseError, format!("session json: {e}")),
+    };
     let Value::Object(mut map) = value else {
         return q(QuarantineCode::SchemaViolation, "session json is not an object");
     };
-    if json::repeats_a_top_level_key(bytes) {
+    if json::object_repeats_a_top_level_key(bytes) {
         return q(QuarantineCode::ParseError, "session json repeats a top-level key");
     }
     let messages = match map.shift_remove("messages") {
@@ -782,6 +788,9 @@ impl Candidate {
         &self.id
     }
 
+    /// The header fields [`Self::of`] reads.
+    const FIELDS: [&'static str; 5] = ["agentTag", "clientHostPid", "parentSessionId", "ownerSessionId", "createdAt"];
+
     fn of(id: &str, header: &Header) -> Self {
         let field = |key: &str| header.get(key).filter(|v| json::js_truthy(Some(v)));
         let created = header.get("createdAt").map_or(f64::NAN, to_number);
@@ -1167,6 +1176,29 @@ fn chained_length(record: &Map<String, Value>, expected: usize, t: &str, length:
 }
 
 pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
+    fold_log_as(id, log, replaced, Messages::Whole)
+}
+
+/// What a read keeps of each message.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Messages<'a> {
+    Whole,
+    /// A `null` in the place of each, and of the header only the fields named: the count and those fields are the
+    /// read's, at a fraction of the memory and the time (a stored header carries the session's whole context, and every
+    /// change of it is a line of the log).
+    Narrowed(&'a [&'a str]),
+}
+
+impl Messages<'_> {
+    fn parse(self, text: &[u8]) -> std::result::Result<json::Parsed, String> {
+        match self {
+            Messages::Whole => json::parse_source(text),
+            Messages::Narrowed(keep) => json::parse_source_narrowed(text, keep),
+        }
+    }
+}
+
+fn fold_log_as(id: &str, log: &mut durable::OpenFile, replaced: &mut u64, messages_as: Messages<'_>) -> R<LogFold> {
     let mut line = Vec::new();
     // Lines accepted so far, which is also the sequence number the next one must carry.
     let mut accepted = 0usize;
@@ -1183,7 +1215,7 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
             break;
         }
         let text = String::from_utf8_lossy(&line);
-        let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
+        let Ok(parsed) = messages_as.parse(text.as_bytes()) else { continue };
         let value = parsed.value;
         let Some(record) = decode_record(&value) else { continue };
         let t = record["t"].as_str().unwrap_or("").to_owned();
@@ -1386,13 +1418,30 @@ pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<
         None
     }
 }
+/// A session's file by its path under `<D>`: a journaled source, or the bare path the plan lists.
+pub trait DataPath {
+    fn data_path(&self) -> &str;
+}
+
+impl DataPath for SourceFile {
+    fn data_path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl DataPath for String {
+    fn data_path(&self) -> &str {
+        self
+    }
+}
+
 /// Every migrating session as a `Candidate`; one whose header does not read is none.
-pub fn session_candidates<'a>(
-    sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
+pub fn session_candidates<'a, F: DataPath + 'a>(
+    sessions: impl IntoIterator<Item = (&'a str, &'a [F])>,
     // A session whose header the caller already read: its record is not read again.
     known: impl Fn(&str) -> Option<Header>,
-    mut read: impl FnMut(&str, &SourceFile) -> crate::error::Result<Vec<u8>>,
-    mut open: impl FnMut(&str, &SourceFile) -> crate::error::Result<durable::OpenFile>,
+    mut read: impl FnMut(&str, &F) -> crate::error::Result<Vec<u8>>,
+    mut open: impl FnMut(&str, &F) -> crate::error::Result<durable::OpenFile>,
 ) -> crate::error::Result<Vec<Candidate>> {
     let mut out = Vec::new();
     for (id, sources) in sessions {
@@ -1402,7 +1451,7 @@ pub fn session_candidates<'a>(
         }
         let find = |suffix: &str| {
             let rel = format!("sessions/{id}{suffix}");
-            sources.iter().find(|s| s.path == rel)
+            sources.iter().find(|s| s.data_path() == rel)
         };
         let json = find(JSON_SUFFIX).map(|f| read(id, f)).transpose()?;
         let log = find(LOG_SUFFIX).map(|f| open(id, f)).transpose()?;
@@ -1472,9 +1521,17 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
                     continue;
                 }
                 if all.is_none() {
-                    let sessions = cx.manifest.items.iter().filter(|i| i.kind == ItemKind::Session);
+                    // A session no converter has reached yet has its sources journaled here, and is converted from them later.
+                    let sessions: Vec<_> = cx
+                        .manifest
+                        .items
+                        .iter()
+                        .filter(|i| i.kind == ItemKind::Session)
+                        .filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, cx.sources_of(i))))
+                        .map(|(id, sources)| sources.map(|sources| (id, sources)))
+                        .collect::<crate::error::Result<_>>()?;
                     all = Some(session_candidates(
-                        sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
+                        sessions.iter().map(|(id, sources)| (*id, sources.as_slice())),
                         |_| None,
                         |_, file| cx.read_source(file),
                         |_, file| cx.open_source(file),
@@ -1512,12 +1569,27 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
     set.insert("worker".into(), Value::Object(worker_map(row, tombstone, released)));
     Ok(Some(set))
 }
+/// The `worker` header set of `session/<id>` as its conversion installs it, `header` being what was read of its header.
+pub(super) fn worker_of(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile]) -> R<Option<Header>> {
+    worker(cx, id, header, shared, &mut 0)
+}
 /// Header and messages of a session: its log's when the log wins over its json (`log_wins`).
 pub(crate) fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<durable::OpenFile>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
+    header_and_messages_as(id, json, log, replaced, Messages::Whole)
+}
+
+/// [`header_and_messages`] with the messages kept as `messages_as` says.
+fn header_and_messages_as(
+    id: &str,
+    json: Option<&[u8]>,
+    log: Option<durable::OpenFile>,
+    replaced: &mut u64,
+    messages_as: Messages<'_>,
+) -> R<(Header, Vec<Value>)> {
     match log {
         Some(mut log) => {
             let mut log_replaced = 0;
-            let folded = fold_log(id, &mut log, &mut log_replaced);
+            let folded = fold_log_as(id, &mut log, &mut log_replaced, messages_as);
             // A log that is not the manifest's is no source, whatever it folded to.
             log.verify()?;
             let fold = folded?;
@@ -1525,11 +1597,35 @@ pub(crate) fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<dur
                 *replaced += log_replaced;
                 Ok((fold.header, fold.messages))
             } else {
-                read_json(id, json.unwrap_or_default(), replaced)
+                read_json(id, json.unwrap_or_default(), replaced, messages_as)
             }
         }
-        None => read_json(id, json.unwrap_or_default(), replaced),
+        None => read_json(id, json.unwrap_or_default(), replaced, messages_as),
     }
+}
+
+/// What a retention verdict reads of `session/<id>` before it is converted: the `fields` of the header its conversion
+/// folds, with the parent link its conversion takes from the worker index, and how many messages it holds
+/// ([`Messages::Narrowed`]). The header also carries what the worker index is matched to a session by
+/// ([`Candidate::FIELDS`]), so [`worker_of`] over it finds the map the conversion would install: a tombstone that names
+/// no session reaches its one owner by them.
+pub fn skim(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, fields: &[&str]) -> R<(Header, u64)> {
+    let fields: Vec<&str> = fields.iter().copied().chain(Candidate::FIELDS.into_iter().filter(|field| !fields.contains(field))).collect();
+    let fields = fields.as_slice();
+    let json = match source(item, &format!("sessions/{id}{JSON_SUFFIX}")) {
+        Some(file) => Some(cx.read_source(file)?),
+        None => None,
+    };
+    let log = match source(item, &format!("sessions/{id}{LOG_SUFFIX}")) {
+        Some(file) => Some(cx.open_source(file)?),
+        None => None,
+    };
+    let (mut header, messages) = header_and_messages_as(id, json.as_deref(), log, &mut 0, Messages::Narrowed(fields))?;
+    let shared = cx.shared_for(&format!("session/{id}"));
+    if let Some(link) = parent_link(cx, id, &header, &shared, &mut 0)? {
+        header.extend(link);
+    }
+    Ok((header, messages.len() as u64))
 }
 /// Reads every source of `session/<id>` into the model the frames are written from; `office`
 /// extracts office documents a recovered turn's context signatures read.

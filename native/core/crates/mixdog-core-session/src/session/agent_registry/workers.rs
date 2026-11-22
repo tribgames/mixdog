@@ -129,19 +129,23 @@ fn is_result(message: &Value) -> bool {
         }
 }
 
-/// `workerResultText`: the last non-empty assistant message, else the last handoff, else a
-/// placeholder.
+/// The last turn's result the record keeps, when it has text.
+fn kept_result(session: &Row) -> Option<&str> {
+    session.get("lastHandoff").and_then(Value::as_str).filter(|handoff| !mixdog_js::js_trim(handoff).is_empty())
+}
+
+/// `workerResultText`: the last turn's result the record keeps, else the last non-empty
+/// assistant message, else a placeholder.
 fn worker_result_text(session: &Row, messages: &[Value]) -> String {
-    let last = messages.iter().rev().find(|m| is_result(m));
-    if let Some(message) = last {
-        return match &message["content"] {
+    if let Some(handoff) = kept_result(session) {
+        return handoff.to_owned();
+    }
+    match messages.iter().rev().find(|m| is_result(m)) {
+        Some(message) => match &message["content"] {
             Value::String(text) => text.clone(),
             other => mixdog_js::json_stringify(other),
-        };
-    }
-    match session.get("lastHandoff") {
-        Some(Value::String(handoff)) if !mixdog_js::js_trim(handoff).is_empty() => handoff.clone(),
-        _ => NO_OUTPUT.to_owned(),
+        },
+        None => NO_OUTPUT.to_owned(),
     }
 }
 
@@ -175,8 +179,11 @@ impl Workers for AgentWorkers {
     async fn session(&self, session_id: &str) -> Option<WorkerFacts> {
         let thread = ThreadId::from(session_id);
         let header = self.record(&thread).await?;
-        // The result is the newest assistant message: only the context's tail that holds it is read.
-        let messages = self.directory.model_context(&thread).read_tail_until(is_result).await.unwrap_or_default();
+        // Without a kept result it is the newest assistant message: only the context's tail that holds it is read.
+        let messages = match kept_result(&header) {
+            Some(_) => Vec::new(),
+            None => self.directory.model_context(&thread).read_tail_until(is_result).await.unwrap_or_default(),
+        };
         let result = worker_result_text(&header, &messages);
         Some(self.facts(session_id, &header, result))
     }
@@ -234,8 +241,8 @@ mod tests {
             json!({ "role": "assistant", "content": "   " }),
             json!({ "role": "user", "content": "q" }),
         ];
-        assert_eq!(worker_result_text(&session, &messages), "[{\"type\":\"text\",\"text\":\"parts\"}]");
-        assert_eq!(worker_result_text(&session, &[]), "handed");
+        assert_eq!(worker_result_text(&session, &messages), "handed");
+        assert_eq!(worker_result_text(&row(json!({ "lastHandoff": " " })), &messages), "[{\"type\":\"text\",\"text\":\"parts\"}]");
         assert_eq!(worker_result_text(&row(json!({ "lastHandoff": " " })), &[]), NO_OUTPUT);
         let facts = facts_of("sess_w", &session, true, "r".into());
         assert_eq!((facts.preset.as_deref(), facts.effort.as_deref(), facts.fast, facts.auto_effort_off), (Some("p"), None, true, true));

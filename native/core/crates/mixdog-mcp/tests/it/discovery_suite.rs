@@ -58,7 +58,11 @@ async fn skills_are_collected_in_precedence_with_folder_rules() {
     assert_eq!(found[0].tool_dependencies.manifest_names(), ["mcp:github", "read"]);
     assert_eq!(found[0].tool_dependencies.source, mixdog_mcp::skill_deps::DependencySource::Declaration);
     let in_use = skills::SkillGate::default().in_use(&found);
-    assert_eq!(in_use.iter().map(|s| (s.name.as_str(), s.description.as_str())).collect::<Vec<_>>()[0], ("alpha", "alpha description"), "the global skill shadows the bundled one");
+    assert_eq!(
+        in_use.iter().map(|s| (s.name.as_str(), s.description.as_str())).collect::<Vec<_>>()[0],
+        ("alpha", "alpha description"),
+        "the global skill shadows the bundled one"
+    );
     assert_eq!(in_use.len(), 3);
     assert_eq!(found[2].plugin.as_deref(), Some("plug"));
 }

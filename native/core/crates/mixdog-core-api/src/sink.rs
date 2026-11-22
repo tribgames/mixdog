@@ -78,6 +78,11 @@ pub trait ConnectionSink: Send + Sync {
 pub trait Lane: Send + Sync {
     fn sub(&self) -> SubscriptionId;
 
+    /// The connection the lane writes to; `None` for a lane that names none.
+    fn connection(&self) -> Option<ConnectionId> {
+        None
+    }
+
     /// Reserves bytes for frames: from the connection's shared event budget, or for an ordered
     /// lane from the ordered event room.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull>;

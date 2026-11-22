@@ -331,8 +331,7 @@ fn sources(own: &[(&str, &str)], plugin: &[(&str, &str)], builtin: &[(&str, &str
     }
     let config = Arc::new(Config { agent: Mutex::default() });
     let host = Arc::new(Host { log: Mutex::default(), cwd: cwd.clone() });
-    let settings: Arc<dyn SkillSettingsSource> =
-        Arc::new(ConfigGate { config: config.clone(), features: features.iter().map(|f| (*f).to_owned()).collect() });
+    let settings: Arc<dyn SkillSettingsSource> = Arc::new(ConfigGate { config: config.clone(), features: features.iter().map(|f| (*f).to_owned()).collect() });
     let roots = vec![
         SkillRoot { dir: data.join("skills"), source: SkillSource::Global, plugin: None },
         SkillRoot { dir: plugin_root, source: SkillSource::Plugin, plugin: Some("acme".to_owned()) },
@@ -429,7 +428,10 @@ async fn a_skills_content_asked_by_its_key_is_that_sources() {
     let s = sources(&[("setup", "mine")], &[("setup", "the plugin")], &[("setup", "the builtin")], None, &[]);
     let content = |name: &'static str| call(&s.service, "skills/skillContent", json!({"name": name}));
     let read = |value: Value| (value["content"].as_str().unwrap().trim().to_owned(), value["name"].clone(), value["key"].clone(), value["source"].clone());
-    assert_eq!(read(content(" plugin:acme:setup ").await.unwrap()), ("Body of the plugin".to_owned(), json!("setup"), json!("plugin:acme:setup"), json!("plugin")));
+    assert_eq!(
+        read(content(" plugin:acme:setup ").await.unwrap()),
+        ("Body of the plugin".to_owned(), json!("setup"), json!("plugin:acme:setup"), json!("plugin"))
+    );
     assert_eq!(read(content("builtin:setup").await.unwrap()).0, "Body of the builtin");
     assert_eq!(read(content("setup").await.unwrap()), ("Body of mine".to_owned(), json!("setup"), json!("global:setup"), json!("global")));
     assert_eq!(content("plugin:other:setup").await.unwrap_err(), "skill not found: plugin:other:setup");
@@ -518,9 +520,10 @@ async fn an_own_skill_off_behind_a_plugins_saves_and_renames_past_other_sources(
         call(&s.service, "skills/saveSkill", json!({"input": {"originalName": "demo", "name": name, "description": "Edited.", "instructions": "Step."}}))
     };
     save("demo").await.unwrap();
-    let renamed = call(&s.service, "skills/saveSkill", json!({"input": {"originalName": "demo", "name": "other", "description": "Edited.", "instructions": "Step."}}))
-        .await
-        .unwrap();
+    let renamed =
+        call(&s.service, "skills/saveSkill", json!({"input": {"originalName": "demo", "name": "other", "description": "Edited.", "instructions": "Step."}}))
+            .await
+            .unwrap();
     assert_eq!(renamed["skill"]["name"], "other");
     assert_eq!(s.rows("other").await[0], row("global:other", "off", None, Some("source"), false));
 }

@@ -82,6 +82,25 @@ pub(crate) struct Settle {
     ambiguous: bool,
     /// The retry's place at the lock, once it reached it.
     turn: Option<crate::barriers::EditTurn>,
+    /// Whether this run's result is the one to keep for the call ([`Standing`]).
+    standing: Standing,
+    /// The result this run told while its standing was undecided, held for the batch's decision.
+    held: Option<AgentMessage>,
+}
+
+/// Whether a streamed run's result is the one a host keeps for its call until the call's row commits (it recovers the
+/// call by it): a read from before a change must not be recovered as the read after it. The batch decides it, where it
+/// decides whether it takes the run's result or runs the call again (`kept` in [`Run::process_tool_batch`]), from the
+/// calls before it that run. A call the stream handed over behind a call that may change what it reads is undecided
+/// until then: whether that call runs at all is the batch's to say.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// The call's result: told as its early result.
+    Kept,
+    /// Not known yet: told as settled, and held.
+    Undecided,
+    /// The batch runs the call again: told as settled, and nothing more.
+    Superseded,
 }
 
 pub(crate) type SettleSlot = Arc<Mutex<Settle>>;
@@ -339,6 +358,7 @@ impl Run {
     /// caller read for this start: the calls one start takes together are prepared in order from one
     /// read, so a sibling's Project switch landing meanwhile moves none of them.
     pub(crate) async fn try_eager(&mut self, call: &ToolCall, cwd: &AbsPath) {
+        let behind = self.behind_a_change(call);
         let Some(exec) = self.admit_eager(call, cwd).await else { return };
         let name = exec.name.clone();
         let mut env = self.call_env();
@@ -358,7 +378,15 @@ impl Run {
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
         let locks = self.barriers.locks.clone();
-        let slot: SettleSlot = Arc::new(Mutex::new(Settle { key: key.clone(), locks: locks.clone(), retry_due: false, ambiguous: false, turn: None }));
+        let slot: SettleSlot = Arc::new(Mutex::new(Settle {
+            key: key.clone(),
+            locks: locks.clone(),
+            retry_due: false,
+            ambiguous: false,
+            turn: None,
+            standing: if behind { Standing::Undecided } else { Standing::Kept },
+            held: None,
+        }));
         self.eager_settles.insert(id.clone(), Arc::clone(&slot));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
@@ -397,7 +425,18 @@ impl Run {
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             mixdog_rt::turn_trace!("[turn] {identity} phase=tool-finished call={early_id} failed={} tool_ms={}", executed.failed, executed.tool_ms);
             if executed.cache_hit.is_none() {
-                observer.early_result_of(generation, early_result(&early_id, &executed));
+                // Held across the notice: the batch decides the run's standing, and acts on what this run told, in one
+                // step, so a notice is told under the standing it has.
+                let mut slot = settler.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let result = early_result(&early_id, &executed);
+                match slot.standing {
+                    Standing::Kept => observer.early_result_of(generation, result),
+                    Standing::Undecided => {
+                        slot.held = Some(result.clone());
+                        observer.early_result_superseded(generation, result);
+                    }
+                    Standing::Superseded => observer.early_result_superseded(generation, result),
+                }
             }
             settler.ambiguous = executed.conflict;
             drop(settler);
@@ -405,6 +444,25 @@ impl Run {
         });
         self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
         self.eager.insert(id, handle);
+    }
+
+    /// Whether `call` is a read the stream handed over behind a call of this turn that would change what it reads, if
+    /// that call runs. Whether it runs is the batch's to say (a call the session's surface denies does not), and with
+    /// it whether this read is run again: until then the read's streamed run is undecided ([`Standing`]). Answered the
+    /// first time the call is seen, in the order the calls were handed over.
+    fn behind_a_change(&mut self, call: &ToolCall) -> bool {
+        if let Some(behind) = self.streamed_behind.get(&call.id) {
+            return *behind;
+        }
+        let (exec, _, _) = self.execution_view(std::slice::from_ref(call));
+        let exec = &exec[0];
+        let (mutation, invalidator) = self.streamed_changes;
+        let behind = if uses_result_cache(&exec.name) { invalidator } else { mutation && self.tools.read_only(&exec.name) };
+        self.streamed_changes = (mutation || is_mutation(&exec.name, &exec.arguments), invalidator || invalidates_reuse(&exec.name, &exec.arguments));
+        if !call.id.is_empty() {
+            self.streamed_behind.insert(call.id.clone(), behind);
+        }
+        behind
     }
 
     /// Eager results of a dead attempt are dropped before the next attempt. A read is wound down; a write that started
@@ -422,6 +480,8 @@ impl Run {
         self.barriers.clear();
         self.eager_single.clear();
         self.streamed_ids.clear();
+        self.streamed_changes = (false, false);
+        self.streamed_behind.clear();
     }
 
     /// The batch is over, or its turn was cancelled. A started call no listed call consumed (the provider ran a
@@ -436,6 +496,8 @@ impl Run {
         self.barriers.clear();
         self.eager_single.clear();
         self.streamed_ids.clear();
+        self.streamed_changes = (false, false);
+        self.streamed_behind.clear();
     }
 
     /// Whether the stream of the request in flight handed this complete call over, admitted for an eager run or not.
@@ -681,6 +743,23 @@ impl Run {
                         }
                 });
                 let kept = self.eager.contains_key(&call.id) && (!(read_only || reuse_candidate) || !intervening);
+                // The one place a streamed run's standing is decided, from the same answer the rerun is: every call before
+                // this one has been decided by now, so `intervening` counts those that run.
+                if self.eager.contains_key(&call.id)
+                    && let Some(slot) = self.eager_settles.get(&call.id)
+                {
+                    let mut first = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let standing = if kept { Standing::Kept } else { Standing::Superseded };
+                    if first.standing != standing {
+                        first.standing = standing;
+                        let (generation, held) = (self.env.observer.send_generation(), first.held.take());
+                        // Taken: what the run told meanwhile is the call's result after all. Run again: the run that
+                        // starts is the call's last, and nothing the first one told is its result.
+                        if !kept || held.is_some() {
+                            self.env.observer.early_result_replaced(generation, &call.id, held.filter(|_| kept));
+                        }
+                    }
+                }
                 if !kept && !(0..j).all(|i| finished[i]) {
                     continue;
                 }
@@ -731,6 +810,8 @@ impl Run {
                         if announce && executed.cache_hit.is_none() {
                             mixdog_rt::turn_trace!("[turn] {identity} phase=tool-finished call={id} failed={} tool_ms={}", executed.failed, executed.tool_ms);
                             observer.early_result_of(generation, early_result(&id, &executed));
+                        } else if rerun && executed.cache_hit.is_none() {
+                            observer.early_result_replaced(generation, &id, Some(early_result(&id, &executed)));
                         }
                         executed
                     });

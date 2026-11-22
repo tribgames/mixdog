@@ -495,7 +495,7 @@ impl Work {
 }
 
 fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
-    Migrator::new(roots.clone(), vec![Arc::new(DesktopProfileDriver::new())], MigrateOptions { workers: 1, fault, verified: None })
+    Migrator::new(roots.clone(), vec![Arc::new(DesktopProfileDriver::new())], MigrateOptions { workers: 1, fault, verified: None, retention: None })
 }
 
 /// The final state: every file of both trees by path and hash (the journal and the
@@ -638,6 +638,7 @@ impl Run {
             workers: 1,
             blobs: &self.blobs,
             states: &self.states,
+            recorded: None,
         }
     }
 

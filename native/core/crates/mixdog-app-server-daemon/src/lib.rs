@@ -17,6 +17,7 @@ pub mod boot;
 pub mod boot_coordinator;
 pub mod browser_engine_service;
 pub mod catalog;
+pub mod catalog_index_section;
 pub mod channel_router;
 pub mod code_graph_trust;
 pub mod compat;
@@ -288,10 +289,24 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
                 tracing::error!(error, "the sessions still to convert could not be bound to the directory");
             }
         }
-        // The migration is complete: a row still listing a session to convert lists none.
+        // The migration is complete: a row still listing a session to convert lists none. The rows to withdraw are read
+        // once every session owed its index rows is projected: with none owed that is now, before the first client reads
+        // the list; while the index is recovering it is behind the serving core, so the start does not wait for it (a
+        // listing waits for the same sessions). A read that fails withdraws nothing, and the next start tries again.
         None => {
-            if let Err(error) = boot::withdraw_pending(&core.catalog_index(), &sweep_dir).await {
-                tracing::warn!(%error, "the rows of sessions the migration set aside could not be withdrawn");
+            let index = core.catalog_index();
+            let withdraw = {
+                let (index, dir) = (index.clone(), sweep_dir.to_path_buf());
+                async move {
+                    if let Err(error) = boot::withdraw_pending(&index, &dir).await {
+                        tracing::warn!(%error, "the rows of sessions the migration set aside could not be withdrawn");
+                    }
+                }
+            };
+            if index.owes_projection() {
+                drop(mixdog_rt::spawn("migration-pending-withdraw", mixdog_rt::TaskClass::Work, withdraw));
+            } else {
+                withdraw.await;
             }
         }
     }
@@ -364,7 +379,11 @@ fn start_after_ready_tasks(
         session_sweep::run(started.clone(), core.sweep_store(sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()),
     );
     // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
-    core.start_sub_agent_retention();
+    // While the earlier version's sessions convert it would judge a tree by the members converted so far (an old parent before its recently used child): it starts when
+    // the conversion has run to its completion marker, and a conversion that ends early leaves it to the start that resumes it.
+    if behind.is_none() {
+        core.start_sub_agent_retention();
+    }
     // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.
     core.start_heartbeat();
     // The boot line, then the 30 s memory and work line, the lag probe and the lag sampler.
@@ -375,10 +394,19 @@ fn start_after_ready_tasks(
     core.restore_remote_intent();
     // The sessions of the earlier version convert from here, behind the serving core: each is listed once it is verified, and a conversion the stop cuts is resumed by the next start.
     if let Some(behind) = behind
-        && let Err(error) = behind.run(core.catalog_index(), stop.clone(), {
-            let log = ready_log.clone();
-            move |line| log.log(line)
-        })
+        && let Err(error) = behind.run(
+            core.catalog_index(),
+            core.session_directory(),
+            stop.clone(),
+            {
+                let log = ready_log.clone();
+                move |line| log.log(line)
+            },
+            {
+                let core = core.clone();
+                move || core.start_sub_agent_retention()
+            },
+        )
     {
         tracing::error!(%error, "the thread that converts the earlier version's sessions could not start; the next start tries again");
     }

@@ -25,6 +25,7 @@ mod leak_tests;
 pub mod listing_row;
 pub mod local;
 pub mod openai;
+pub(crate) mod own_call_ids;
 pub(crate) mod rejections;
 #[cfg(test)]
 mod served_model_wire_tests;

@@ -105,6 +105,13 @@ pub struct Turn {
     /// the headless result treats as an error); on a completed turn only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub termination_reason: Option<String>,
+    /// The history position of the turn's oldest stored row: a `thread/items/list` cursor, read on from it or back
+    /// from it. Absent when none of the turn's rows is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_position: Option<String>,
+    /// The history position of the turn's newest stored row, as `start_position`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_position: Option<String>,
     /// Present only when the read asked for items (`itemsView`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<crate::ThreadItem>>,

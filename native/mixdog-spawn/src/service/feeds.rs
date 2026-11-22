@@ -113,7 +113,7 @@ impl FramePublisher {
         let _one_producer = self.producer.lock().unwrap_or_else(|e| e.into_inner());
         let position = self.feed.position();
         let seq = position.seq + 1;
-        let frame = FeedFrame { seq, bytes: encode(method, params, FeedStamp { id: self.id.clone(), epoch: position.epoch, seq, from: None }) };
+        let frame = FeedFrame::new(seq, encode(method, params, FeedStamp { id: self.id.clone(), epoch: position.epoch, seq, from: None }));
         let view = Arc::new(StateView { id: self.id.clone(), state });
         // The only failure is a seq gap, impossible under the producer lock.
         let _ = self.feed.publish(&[frame], Some(view));

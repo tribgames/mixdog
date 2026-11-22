@@ -52,6 +52,43 @@ pub fn slot_within<T: Serialize>(value: T, budget: usize) -> Result<(Slot<T>, Op
     Ok((slot, Some(blob), 0))
 }
 
+/// A checkpoint state as it is written: every header value of `HEADER_BLOB_MIN` encoded bytes or more out of line
+/// (`CheckpointState::header_blobs`), with the bytes to publish for them. A checkpoint used to hold the whole header each
+/// time: 324 KB of tool definitions that never changed in each of one session's 578 checkpoints.
+pub fn checkpoint_out_of_line(
+    mut state: crate::schema::checkpoint::CheckpointState,
+) -> Result<(crate::schema::checkpoint::CheckpointState, Vec<PendingBlob>), EncodeError> {
+    let mut blobs = Vec::new();
+    for (key, value) in state.header.iter_mut() {
+        if value.is_null() || state.header_blobs.contains_key(key) {
+            continue;
+        }
+        let encoded = serde_json::to_vec(value)?;
+        if encoded.len() < crate::schema::checkpoint::HEADER_BLOB_MIN {
+            continue;
+        }
+        let (slot, blob) = out_of_line::<serde_json::Value>(encoded)?;
+        if let Slot::Blob(held) = slot {
+            state.header_blobs.insert(key.clone(), held);
+            *value = serde_json::Value::Null;
+            blobs.push(blob);
+        }
+    }
+    Ok((state, blobs))
+}
+
+/// The state a checkpoint holds, its out-of-line header values read back into their places.
+pub fn checkpoint_in_line(
+    mut state: crate::schema::checkpoint::CheckpointState,
+    resolve: &mut crate::fold::ResolveBody<'_>,
+) -> Result<crate::schema::checkpoint::CheckpointState, String> {
+    for (key, blob) in std::mem::take(&mut state.header_blobs) {
+        let value = serde_json::from_slice(&resolve(&blob)?).map_err(|e| format!("header value {key} of a checkpoint: {e}"))?;
+        state.header.insert(key, value);
+    }
+    Ok(state)
+}
+
 /// The blob slot of an encoding that does not stay inline, and the bytes to publish for it.
 fn out_of_line<T>(encoded: Vec<u8>) -> Result<(Slot<T>, PendingBlob), EncodeError> {
     if encoded.len() as u64 > MAX_BLOB_BYTES {
@@ -93,7 +130,14 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
         Record::Approval(r) => reslot_opt(&mut r.body, &mut blobs)?,
         Record::Queue(r) => reslot_opt(&mut r.entry, &mut blobs)?,
         Record::Op(r) => reslot_opt(&mut r.detail, &mut blobs)?,
-        Record::Checkpoint(r) => drop(reslot(&mut r.state, &mut blobs)?),
+        Record::Checkpoint(r) => {
+            if let Slot::Inline(state) = &mut r.state {
+                let (kept, large) = checkpoint_out_of_line(state.clone())?;
+                *state = kept;
+                blobs.extend(large);
+            }
+            drop(reslot(&mut r.state, &mut blobs)?);
+        }
         Record::ModelSwitch(r) => drop(reslot(&mut r.entry, &mut blobs)?),
         Record::Draft(r) => drop(reslot(&mut r.body, &mut blobs)?),
         Record::WorkStop(r) => reslot_opt(&mut r.body, &mut blobs)?,

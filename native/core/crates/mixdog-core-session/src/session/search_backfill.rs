@@ -148,8 +148,24 @@ impl StoredSessions for StoredSearchSessions {
         let messages = read_context(&store, &self.lanes, &id).await.ok()?;
         // The context reader can restart between pages; neither a restarted context
         // nor a changed fork base can be paired with an earlier header.
-        shape.is_current().then(|| search_session(&id, &header, messages.into_iter().map(|(_, body)| body).collect()))
+        shape.is_current().then(|| search_session(&id, &header, search_messages(messages)))
     }
+}
+
+/// The model context as the search copy takes it: each message names its record's history position, so a hit opens
+/// the transcript at it (`thread/search`).
+pub(crate) fn search_messages(rows: Vec<(mixdog_core_api::ids::ItemId, serde_json::Value)>) -> Vec<serde_json::Value> {
+    rows.into_iter()
+        .map(|(iid, mut body)| {
+            if let Some(fields) = body.as_object_mut().filter(|_| !iid.as_str().is_empty()) {
+                fields.insert(
+                    mixdog_services::memory::session_search::db::MESSAGE_POSITION.into(),
+                    serde_json::Value::String(super::reads::record_position(iid.as_str())),
+                );
+            }
+            body
+        })
+        .collect()
 }
 
 #[cfg(test)]

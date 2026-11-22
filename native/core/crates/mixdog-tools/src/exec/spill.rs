@@ -87,40 +87,70 @@ pub async fn read_records(
     dir: &Path,
     within: Option<std::time::Duration>,
 ) -> Vec<(String, serde_json::Map<String, serde_json::Value>)> {
+    scan_records(lane, cancel, dir, within).await.0
+}
+
+/// [`read_records`], and whether that is every record of `dir`: false when the directory or one of its records could not
+/// be read (a record read but not a JSON object is no record). A directory that is not there holds none.
+pub async fn scan_records(
+    lane: impl LaneToken,
+    cancel: &CancellationToken,
+    dir: &Path,
+    within: Option<std::time::Duration>,
+) -> (Vec<(String, serde_json::Map<String, serde_json::Value>)>, bool) {
     let dir = dir.to_owned();
     let Ok(job) = lane.submit(cancel, move |_| {
         let since = within.and_then(|within| std::time::SystemTime::now().checked_sub(within));
-        let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
-        let mut names: Vec<String> = entries.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) => return (Vec::new(), error.kind() == std::io::ErrorKind::NotFound),
+        };
+        let mut whole = true;
+        let mut names = Vec::new();
+        for entry in entries {
+            match entry {
+                Ok(entry) => names.extend(entry.file_name().into_string().ok()),
+                Err(_) => whole = false,
+            }
+        }
         names.sort();
-        names
-            .into_iter()
-            .filter_map(|name| {
-                let id = name.strip_suffix(OWNER_SUFFIX).filter(|id| job_file_id(id))?;
-                let path = dir.join(&name);
-                let fresh = since.is_none_or(|since| std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|at| at >= since));
-                if !fresh {
-                    return None;
+        let mut records = Vec::new();
+        for name in names {
+            let Some(id) = name.strip_suffix(OWNER_SUFFIX).filter(|id| job_file_id(id)) else { continue };
+            let path = dir.join(&name);
+            let fresh = since.is_none_or(|since| std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|at| at >= since));
+            if !fresh {
+                continue;
+            }
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    if let Ok(serde_json::Value::Object(record)) = serde_json::from_slice(&bytes) {
+                        records.push((id.to_owned(), record));
+                    }
                 }
-                Some((id.to_owned(), parse_record(&path)?))
-            })
-            .collect()
+                // Removed since the listing: no record.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => whole = false,
+            }
+        }
+        (records, whole)
     }) else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
     job.await.unwrap_or_default()
 }
 
 /// Writes job `id`'s ownership record in `dir` as `record` (`completeShellJobRecord` of a job a runtime that is gone left
-/// running). Best effort, as Node's.
-pub async fn write_record(lane: impl LaneToken, cancel: &CancellationToken, dir: &Path, id: &str, record: serde_json::Map<String, serde_json::Value>) {
+/// running). Best effort, as Node's; whether it was written.
+pub async fn write_record(lane: impl LaneToken, cancel: &CancellationToken, dir: &Path, id: &str, record: serde_json::Map<String, serde_json::Value>) -> bool {
     if !job_file_id(id) {
-        return;
+        return false;
     }
     let path = dir.join(format!("{id}{OWNER_SUFFIX}"));
     let body = serde_json::Value::Object(record).to_string();
-    if let Ok(job) = lane.submit(cancel, move |_| std::fs::write(&path, body)) {
-        let _ = job.await;
+    match lane.submit(cancel, move |_| std::fs::write(&path, body)) {
+        Ok(job) => matches!(job.await, Ok(Ok(()))),
+        Err(_) => false,
     }
 }
 

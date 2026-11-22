@@ -216,7 +216,11 @@ impl HostRuntime for LiveHostRuntime {
         owners.dedup();
         LeadActivity {
             turn_running: LiveSessions::running(&*self.directory, id),
-            busy_workers: self.registry.busy_worker_count(&scope).await, // wp-agent-11 (STAGED), 697-case golden
+            // Worker rows that cannot be read are not "no busy worker": the Lead counts as busy, and no transition starts.
+            busy_workers: self.registry.busy_worker_count(&scope).await.unwrap_or_else(|error| {
+                tracing::warn!("[agent] the worker rows could not be read; the Lead counts as busy: {error}");
+                1
+            }), // wp-agent-11 (STAGED), 697-case golden
             busy_jobs: self.board.busy_count(&scope, &|worker: &str| self.client_host_pid(worker)), // wp-agent-11, 67-op golden; `running_count(id)` is the same count with no process
             shell_jobs: self.shell_job_count(&owners).await,
         }

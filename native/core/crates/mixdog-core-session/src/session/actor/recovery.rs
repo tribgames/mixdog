@@ -148,7 +148,7 @@ impl SessionActor {
             if let Some(tokens) = left.context_tokens {
                 set.insert("lastContextTokens".into(), json!(tokens));
             }
-            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
             let end = self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             self.remove_draft_when_durable(&rid, Some(end));
         }
@@ -180,5 +180,6 @@ impl SessionActor {
             self.refresh_goal();
             self.schedule_goal_continuation();
         }
+        self.receipts_due();
     }
 }

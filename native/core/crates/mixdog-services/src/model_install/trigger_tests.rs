@@ -8,7 +8,7 @@ use super::tests::{Route, Server, big, config, embed_config_with, manifest, real
 use crate::effort_judge::EffortJudgeModel;
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::install::{self, Manifest};
-use crate::effort_judge::judge::JudgeOptions;
+use crate::effort_judge::judge::{Hold, HoldAt, JudgeOptions};
 use crate::memory::embed::config::DEFAULT_MODEL_ID;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::recall::QueryEmbedder;
@@ -260,7 +260,7 @@ async fn a_refresh_queued_before_an_install_does_not_start_after_that_install_is
     let release = files.manifest(&stalled, "r1");
     let dir = tempfile::tempdir().expect("dir");
     let model = judge(dir.path(), &release, &tick, false);
-    let hold = model.hold_refresh();
+    let hold = model.hold(HoldAt::Refresh);
 
     // The judgment finds no install running and queues the refresh, held before its install.
     assert!(matches!(model.probs(step()).await, Err(JudgeError::NotInstalled(_))));
@@ -286,6 +286,136 @@ async fn a_refresh_queued_before_an_install_does_not_start_after_that_install_is
     assert!(matches!(ended, Err(InstallError::Busy)), "{ended:?}");
     assert!(!model.is_installing());
     assert_eq!(stalled.hits("/model.onnx"), downloads, "the refresh downloads nothing");
+}
+/// An install of `release` that comes to own the files and is then cancelled by its caller.
+async fn install_cancelled(model: &Arc<EffortJudgeModel>, release: &Manifest, tick: &StateTick) {
+    let cancel = CancellationToken::new();
+    let running = tokio::spawn({
+        let (model, release, cancel) = (model.clone(), release.clone(), cancel.clone());
+        async move { model.install(&release, None, &cancel).await }
+    });
+    until(tick, || model.is_installing()).await;
+    cancel.cancel();
+    assert!(running.await.expect("joins").is_err(), "a cancelled install fails");
+    assert!(!model.is_installing());
+}
+/// Lets a held refresh or repair go and answers its outcome; it must not come to own the files.
+async fn outcome_of(
+    release: tokio::sync::oneshot::Sender<()>,
+    ended: tokio::sync::oneshot::Receiver<Result<(), InstallError>>,
+    model: &EffortJudgeModel,
+    tick: &StateTick,
+) -> Result<(), InstallError> {
+    release.send(()).expect("the action waits");
+    tokio::select! {
+        ended = ended => ended.expect("the action ends"),
+        () = until(tick, || model.is_installing()) => panic!("the action came to own the files after the cancelled install"),
+    }
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refresh_decided_before_an_install_does_not_start_after_that_install_is_cancelled() {
+    let files = Files::new();
+    let tick = StateTick::default();
+    let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
+    let release = files.manifest(&stalled, "r1");
+    let dir = tempfile::tempdir().expect("dir");
+    let model = judge(dir.path(), &release, &tick, false);
+    let decided = model.hold(HoldAt::RefreshDecided);
+    let Hold { reached: queued, release: go, ended } = model.hold(HoldAt::Refresh);
+
+    // The judgment has found no install running and has not yet asked for its refresh.
+    let asking = tokio::spawn({
+        let model = model.clone();
+        async move { model.probs(step()).await }
+    });
+    decided.reached.await.expect("the judgment found no install running");
+
+    install_cancelled(&model, &release, &tick).await;
+    let downloads = stalled.hits("/model.onnx");
+
+    decided.release.send(()).expect("the judgment waits");
+    assert!(matches!(asking.await.expect("joins"), Err(JudgeError::NotInstalled(_))));
+    queued.await.expect("the refresh is queued");
+    let ended = outcome_of(go, ended, &model, &tick).await;
+    assert!(matches!(ended, Err(InstallError::Busy)), "{ended:?}");
+    assert!(!model.is_installing());
+    assert_eq!(stalled.hits("/model.onnx"), downloads, "the refresh downloads nothing");
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repair_decided_before_an_install_changes_nothing_after_that_install_is_cancelled() {
+    let files = Files::new();
+    let server = files.serve().await;
+    let release = files.manifest(&server, "r1");
+    let dir = tempfile::tempdir().expect("dir");
+    judge(dir.path(), &release, &StateTick::default(), false).install(&release, None, &CancellationToken::new()).await.expect("installs");
+    let mut damaged = files.model.clone();
+    let len = damaged.len();
+    damaged[len - 64..].fill(0);
+    let on_disk = || std::fs::read(dir.path().join("model.onnx")).expect("the model file");
+    std::fs::write(dir.path().join("model.onnx"), &damaged).expect("damage");
+
+    // The load fails with no install running and starts the repair, held before it looks at the files.
+    let tick = StateTick::default();
+    let model = judge(dir.path(), &release, &tick, false);
+    let Hold { reached, release: go, ended } = model.hold(HoldAt::Repair);
+    let first = model.probs(step()).await;
+    assert!(matches!(first, Err(JudgeError::Load(_))), "{first:?}");
+    reached.await.expect("the repair is started");
+
+    // An install of another release stalls on the damaged file and is cancelled.
+    let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
+    install_cancelled(&model, &files.manifest(&stalled, "r2"), &tick).await;
+    assert!(install::install_current(dir.path(), &release), "the cancelled install replaced nothing");
+
+    let ended = outcome_of(go, ended, &model, &tick).await;
+    assert!(matches!(ended, Err(InstallError::Busy)), "{ended:?}");
+    assert!(install::install_current(dir.path(), &release), "the repair leaves the stamp");
+    assert_eq!(server.hits("/model.onnx"), 1, "the repair downloads nothing");
+    assert!(on_disk() == damaged, "the repair leaves the files");
+
+    // A repair that is asked for is not held to an earlier moment.
+    let repaired = model.repair(&release, None, &CancellationToken::new()).await.expect("repairs");
+    assert_eq!(repaired, ["model.onnx"]);
+    assert!(on_disk() == files.model && install::install_current(dir.path(), &release));
+    assert!(!model.is_installing());
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn an_install_that_has_released_the_files_does_not_release_them_for_the_next_owner() {
+    let files = Files::new();
+    let server = files.serve().await;
+    let release = files.manifest(&server, "r1");
+    let dir = tempfile::tempdir().expect("dir");
+    let tick = StateTick::default();
+    let model = judge(dir.path(), &release, &tick, false);
+
+    // The first install has released the files and has not yet returned.
+    let hold = model.hold(HoldAt::Released);
+    let first = tokio::spawn({
+        let (model, release) = (model.clone(), release.clone());
+        async move { model.install(&release, None, &CancellationToken::new()).await }
+    });
+    hold.reached.await.expect("the first install released the files");
+    assert!(!model.is_installing());
+
+    // A second one owns them, stalled on its download.
+    let stalled = Server::start(vec![("/model.onnx", Route::Stall), ("/tokenizer.json", Route::Body(files.tokenizer.clone()))]).await;
+    let other = big(3, 300_000);
+    let next = manifest(&stalled, "r2", &[("model.onnx", &other), ("tokenizer.json", &files.tokenizer)]);
+    let cancel = CancellationToken::new();
+    let second = tokio::spawn({
+        let (model, next, cancel) = (model.clone(), next.clone(), cancel.clone());
+        async move { model.install(&next, None, &cancel).await }
+    });
+    until(&tick, || model.is_installing()).await;
+
+    hold.release.send(()).expect("the first install waits");
+    first.await.expect("joins").expect("the first install succeeded");
+    assert!(model.is_installing(), "the second install still owns the files");
+    assert!(matches!(model.install(&release, None, &CancellationToken::new()).await, Err(InstallError::Busy)), "a third install is refused");
+
+    cancel.cancel();
+    assert!(second.await.expect("joins").is_err(), "a cancelled install fails");
+    assert!(!model.is_installing());
 }
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: loads the real judge; needs MIXDOG_EFFORT_JUDGE_DIR and the staged ONNX Runtime (MIXDOG_ORT_LIBRARY)"]

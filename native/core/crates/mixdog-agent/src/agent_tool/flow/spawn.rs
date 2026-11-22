@@ -39,6 +39,7 @@ use crate::agent_tool::host::ResolveOptions;
 use crate::agent_tool::host::Sessions;
 use crate::agent_tool::host::SpawnFlow;
 use crate::agent_tool::host::SpawnOptions;
+use crate::agent_tool::host::TagClaim;
 use crate::agent_tool::resume::resolve_prompt;
 use crate::agent_tool::scope::Caller;
 use crate::agent_tool::scope::Scope;
@@ -112,6 +113,8 @@ pub struct SpawnPlan {
     pub preset_name: Value,
     pub preset: Value,
     pub tag: String,
+    /// The registry's reservation of `tag`, held until the spawn has bound it or given up.
+    pub claim: Arc<TagClaim>,
     pub worker_cwd: String,
     pub prompt: String,
 }
@@ -237,18 +240,17 @@ impl SpawnFlowImpl {
         let candidates = world.route_candidates(&config, &agent).await?;
         let SpawnPreset { preset_name, preset } = resolve_agent_spawn_preset(&config, args, &candidates)?;
         let explicit = clean(args.get("tag"));
-        let tag = if explicit.is_empty() { world.next_tag(&agent, context) } else { explicit };
-        // Any resolved same-tag binding in this terminal (live or lingering trace) blocks a
-        // fresh spawn; live reuse is routed before a spawn is prepared.
-        let scan = wants_session_scan(args);
-        let existing =
-            self.registry.resolve_tag(&tag, &context.scope(), ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: true })?;
-        if existing.is_some() {
-            return Err(format!("agent spawn: tag \"{tag}\" already exists"));
-        }
+        // The tag is taken under the registry's admission, against the stored worker rows read whole for this spawn: a
+        // read that fails ends the spawn here, before a tag is chosen, an explicit one is judged free, or a child is
+        // made, whatever tags the registry holds in memory. Any resolved same-tag binding in this terminal (live or
+        // lingering trace) blocks a fresh spawn; live reuse is routed before a spawn is prepared. The tag stays reserved
+        // until the spawn binds it, so a spawn admitted next is not given it.
+        let options = ResolveOptions { scan_sessions: wants_session_scan(args), exclude_terminal_traces: false, skip_released: true };
+        let claim = self.registry.claim_tag(&explicit, &context.scope(), options, &|| world.next_tag(&agent, context)).await?;
+        let tag = claim.tag.clone();
         let worker_cwd = self.worker_cwd(args, caller_cwd, context);
         let prompt = resolve_prompt(args, &worker_cwd, &*self.env).await?;
-        Ok(SpawnPlan { config, agent, agent_perm, preset_name, preset, tag, worker_cwd, prompt })
+        Ok(SpawnPlan { config, agent, agent_perm, preset_name, preset, tag, claim: Arc::new(claim), worker_cwd, prompt })
     }
 
     /// Workers share their Lead's execution root. While the Lead runs in its worktree that
@@ -343,7 +345,7 @@ impl SpawnFlowImpl {
 
     /// `prepareSpawnInProcess` after `refreshTagsFromSessions`.
     pub async fn prepare_spawn(&self, args: &Value, caller_cwd: Option<&str>, context: &SpawnContext) -> Result<PreparedSpawn, String> {
-        self.registry.refresh_tags_from_sessions(false, &context.scope()).await;
+        self.registry.refresh_tags_from_sessions(false, &context.scope()).await?;
         // Shared admission with Lead workspace transitions: no spawn is prepared while the
         // Lead's workspace changes, no transition starts mid-spawn.
         let _leave = self.admission.enter_worker_spawn(&[context.owner_id(), context.caller_id()])?;
@@ -358,6 +360,8 @@ impl SpawnFlowImpl {
         descriptor.insert("status".into(), "idle".into());
         descriptor.insert("stage".into(), "idle".into());
         self.world.bind_tag(&plan.tag, &session, &descriptor);
+        // Bound: the registry shows the tag as taken from here, and the reservation ends.
+        drop(plan.claim);
         drop(_leave);
         if !self.world.canonical_surface() {
             self.world.prewarm_transport(&clean(plan.preset.get("provider")), &session);

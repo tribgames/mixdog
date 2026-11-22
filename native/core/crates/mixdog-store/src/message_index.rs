@@ -178,12 +178,31 @@ pub(crate) fn add_item(tx: &Transaction<'_>, session: &str, ordinal: i64, loc: F
 /// A `compacted` frame at `loc`: a new epoch whose rows are the replacement; its totals
 /// count from it.
 pub(crate) fn add_compaction(tx: &Transaction<'_>, session: &str, ordinal: i64, loc: FrameLoc, rows: &[(String, MessageRow)]) -> rusqlite::Result<()> {
-    let (mut count, mut real) = (0, 0);
-    for (idx, (iid, row)) in rows.iter().enumerate() {
-        count += i64::from(row.counted);
-        real += i64::from(row.real);
-        put_version(tx, session, (ordinal, idx as i64, ordinal), loc, iid, row, count)?;
+    for idx in 0..rows.len() {
+        add_compaction_row(tx, session, ordinal, loc, rows, idx)?;
     }
+    add_compaction_epoch(tx, session, ordinal, rows)
+}
+
+/// Row `idx` of the replacement of the `compacted` frame at `ordinal`, as [`add_compaction`] writes it: its place counts
+/// the rows before it. Written again, it is the same row.
+pub(crate) fn add_compaction_row(
+    tx: &Transaction<'_>,
+    session: &str,
+    ordinal: i64,
+    loc: FrameLoc,
+    rows: &[(String, MessageRow)],
+    idx: usize,
+) -> rusqlite::Result<()> {
+    let place: i64 = rows[..=idx].iter().map(|(_, row)| i64::from(row.counted)).sum();
+    let (iid, row) = &rows[idx];
+    put_version(tx, session, (ordinal, idx as i64, ordinal), loc, iid, row, place)
+}
+
+/// The epoch the `compacted` frame at `ordinal` opens, once its replacement rows are in.
+pub(crate) fn add_compaction_epoch(tx: &Transaction<'_>, session: &str, ordinal: i64, rows: &[(String, MessageRow)]) -> rusqlite::Result<()> {
+    let count: i64 = rows.iter().map(|(_, row)| i64::from(row.counted)).sum();
+    let real: i64 = rows.iter().map(|(_, row)| i64::from(row.real)).sum();
     tx.prepare_cached("INSERT OR REPLACE INTO message_epochs (session, start, count, real, superseded_rev) VALUES (?1, ?2, ?3, ?4, NULL)")?
         .execute(params![session, ordinal, count, real])?;
     Ok(())

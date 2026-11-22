@@ -23,6 +23,7 @@ use std::time::Instant;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::PdfIntake;
+use mixdog_core_session::session::sub_agent_retention;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::index::IndexProjector;
 use mixdog_migrate::index::ServingIndex;
@@ -135,7 +136,9 @@ fn split(point: &str) -> (String, String) {
     let (body, edge) = point.rsplit_once(':').filter(|(_, e)| matches!(*e, "before" | "after")).unwrap_or((point, ""));
     let (verb, key) = if let Some(rest) = body.strip_prefix("journal:") {
         rest.split_once(':').map_or((format!("journal:{rest}"), String::new()), |(v, k)| (format!("journal:{v}"), k.to_owned()))
-    } else if let Some((verb, key)) = body.split_once(':').filter(|(v, _)| matches!(*v, "publish" | "delete" | "reason" | "move" | "delete-shared" | "adopt")) {
+    } else if let Some((verb, key)) =
+        body.split_once(':').filter(|(v, _)| matches!(*v, "publish" | "delete" | "purge" | "reason" | "move" | "delete-shared" | "adopt"))
+    {
         (verb.to_owned(), key.to_owned())
     } else {
         (body.to_owned(), String::new())
@@ -152,6 +155,7 @@ fn label(point: &str) -> (String, String) {
     let (step, key) = split(point);
     let what = match step.as_str() {
         s if s.starts_with("journal:") && s.ends_with(":after") => format!("journal append+sync ({})", &s["journal:".len()..s.len() - ":after".len()]),
+        "journal:sources:before" => "hash its sources".into(),
         "journal:staged:before" => "stage (read, fold, write the stage)".into(),
         "journal:verified:before" => "verify (read the target back)".into(),
         "journal:disposed:before" => "dispose (remove sources)".into(),
@@ -162,7 +166,7 @@ fn label(point: &str) -> (String, String) {
         "adopt:after" => "adopt into the serving index".into(),
         "adopt:before" => "after the verified journal".into(),
         "delete:before" => "dispose (rehash before delete)".into(),
-        "manifest:before" => "plan (list and hash every source)".into(),
+        "manifest:before" => "plan (list every source, hash all but the sessions' own)".into(),
         other => other.into(),
     };
     let kind = if key.is_empty() { String::new() } else { kind(&key).to_owned() };
@@ -208,7 +212,20 @@ fn main() {
             mark(&format!("adopt:session/{session}:after"));
         }) as mixdog_migrate::run::VerifiedHook
     });
-    let options = MigrateOptions { workers, fault: Some(fault), verified };
+    // `MIGRATION_RETENTION_NOW=<epoch ms>|now`: the sessions retention deletes at that time are removed unconverted.
+    let retention = std::env::var("MIGRATION_RETENTION_NOW").ok().filter(|_| serving).map(|at| {
+        let now = if at == "now" {
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+        } else {
+            at.parse().expect("epoch ms")
+        };
+        // `MIGRATION_EXPIRED_OUT=<file>`: each session removed unconverted, with the header it was judged by, one a line.
+        let removed = std::env::var_os("MIGRATION_EXPIRED_OUT").map(|path| Mutex::new(std::fs::File::create(path).expect("the list of the sessions removed")));
+        Arc::new(ProductRule { now, archive: std::sync::OnceLock::new(), removed })
+    });
+    let rule = retention.clone();
+    let retention = retention.map(|rule| rule as Arc<dyn mixdog_migrate::framework::Retention>);
+    let options = MigrateOptions { workers, fault: Some(fault), verified, retention };
     let migrator = Migrator::new(roots.clone(), product_drivers(projector.clone(), office), options);
 
     if std::env::args().any(|arg| arg == "--plan") {
@@ -267,6 +284,26 @@ fn main() {
                 let index = Arc::new(index);
                 let _ = projector.index.set(index.clone());
                 mark("core-index-open:end");
+                // The archive authority as the core composes it (`compose.rs` `open_core_state`): the state database the front
+                // left, set aside and marked lost when it is not usable.
+                if let Some(rule) = &rule {
+                    let state_dir = roots.data.join("state");
+                    std::fs::create_dir_all(&state_dir).expect("the state dir");
+                    let existed = state_dir.join("core.sqlite").is_file();
+                    let (state, _, set_aside) =
+                        mixdog_store::state::CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
+                            .expect("the core's state");
+                    if set_aside.file.is_some() {
+                        runtime.block_on(mixdog_store::archive_state::ArchiveStates::mark_lost(&state)).expect("the lost mark");
+                    }
+                    let archive = runtime.block_on(mixdog_store::archive_state::ArchiveStates::open(state)).expect("the archive authority");
+                    eprintln!(
+                        "archive authority: state/core.sqlite existed after the front: {existed}; set aside: {:?}; entries lost: {}",
+                        set_aside.file.as_ref().map(|(kept, why)| format!("{} ({why})", kept.display())),
+                        archive.snapshot().lost()
+                    );
+                    let _ = rule.archive.set(archive);
+                }
                 // `Behind::list` (boot.rs): every session still to convert listed by the row the earlier version kept of it.
                 let waiting: std::collections::BTreeSet<String> = back.waiting().pending().into_iter().collect();
                 let rows: Vec<_> = listed.into_iter().filter(|(session, _)| waiting.contains(session)).collect();
@@ -316,7 +353,7 @@ fn main() {
         if first { found.next() } else { found.last() }
     };
     let session = |p: &str| split(p).1.starts_with("session/") && !p.starts_with("journal:disposed") && !p.starts_with("delete:");
-    let timeline: [(&str, Option<f64>); 14] = [
+    let timeline: [(&str, Option<f64>); 15] = [
         (
             "blob import done (first supplement/plan point)",
             at(&|p| p.starts_with("supplement:") || p == "manifest:before" || p.starts_with("journal:plan"), true),
@@ -328,6 +365,7 @@ fn main() {
         ("serving index opened", at(&|p| p == "core-index-open:end", true)),
         ("pending rows listed", at(&|p| p == "pending-rows-listed:end", true)),
         ("first session point", at(&session, true)),
+        ("retention verdicts journaled", at(&|p| p.starts_with("journal:expired"), false)),
         ("last session point", at(&session, false)),
         ("index done", at(&|p| p.starts_with("journal:verified:index"), false)),
         ("counts written", at(&|p| p == "counts:after", true)),
@@ -353,6 +391,70 @@ fn main() {
     }
     let outcome = complete.map_or_else(|| "refused after the front".to_owned(), |complete| serde_json::to_string(&complete.kinds).unwrap());
     println!("office parts asked: {}; complete: {outcome}", docs.0.load(Ordering::Relaxed));
+}
+
+/// The product's sub-agent retention as the core asks it (`boot.rs` `ProductRetention`): the rule's own functions
+/// (`mixdog-core-session` `sub_agent_retention`) over the product's archive authority. It removes nothing but the sources:
+/// no row is listed for the sessions it expires and nothing is purged.
+struct ProductRule {
+    now: u64,
+    /// The product's archive authority over the migrated data dir, bound once the driver has opened it as the core does.
+    archive: std::sync::OnceLock<Arc<mixdog_store::archive_state::ArchiveStates>>,
+    /// Where the sessions removed unconverted are listed, for the measurement of their delete over the composed core.
+    removed: Option<Mutex<std::fs::File>>,
+}
+
+impl mixdog_migrate::framework::Retention for ProductRule {
+    fn now_ms(&self) -> u64 {
+        self.now
+    }
+
+    fn fields(&self) -> Vec<String> {
+        sub_agent_retention::judged_fields().into_iter().map(str::to_owned).collect()
+    }
+
+    fn candidate(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> bool {
+        sub_agent_retention::member(session, header).is_some()
+    }
+
+    fn expired(
+        &self,
+        sessions: &BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+        held: &std::collections::BTreeSet<String>,
+        now_ms: u64,
+    ) -> std::collections::BTreeSet<String> {
+        // As `ProductRetention::expired`: with no authority bound nothing is trusted.
+        let archive = |id: &str, header: &serde_json::Map<String, serde_json::Value>| match self.archive.get() {
+            Some(archive) => (
+                mixdog_core_session::session::archive_trees::resolved_header(archive, id, header).into_owned(),
+                archive.resolve(id, header.get("archivedAt")).trusted(),
+            ),
+            None => (header.clone(), false),
+        };
+        let members: Vec<&String> = sessions.iter().filter(|(id, header)| sub_agent_retention::member(id, header).is_some()).map(|(id, _)| id).collect();
+        let trusted = members.iter().filter(|id| archive(id, &sessions[**id]).1).count();
+        let indexed = members.iter().filter(|id| sessions[**id].contains_key("worker")).count();
+        let expired = sub_agent_retention::deleted_before_conversion(sessions, held, &archive, now_ms as f64);
+        eprintln!(
+            "the product's rule over {} sessions read, {} held: {} sub-agent members, trusted {trusted}, with a worker map {indexed}; deletes {}",
+            sessions.len(),
+            held.len(),
+            members.len(),
+            expired.len()
+        );
+        expired
+    }
+
+    fn unlisted(&self, _sessions: &[String]) {}
+
+    fn purge(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+        if let Some(removed) = &self.removed {
+            use std::io::Write as _;
+            let line = serde_json::json!({ "id": session, "header": header });
+            writeln!(removed.lock().unwrap(), "{line}").map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
 }
 
 /// `boot.rs` `pending_row`: the pending row of a session the earlier version listed by `row`.

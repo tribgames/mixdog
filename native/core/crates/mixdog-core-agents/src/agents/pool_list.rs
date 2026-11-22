@@ -104,11 +104,18 @@ pub trait PoolStore: Send + Sync {
     async fn agent_index(&self) -> Option<Value>;
     async fn lead_index(&self) -> Option<Value>;
     /// Both indexes of one read: a store that builds them from one load answers both at once, so a listing loads once.
-    async fn indexes(&self) -> (Option<Value>, Option<Value>) {
-        (self.agent_index().await, self.lead_index().await)
+    /// `Err` when the store cannot answer with every worker row (a session that could hold one is not read): the listing
+    /// fails with it, and is never one short of a worker.
+    async fn indexes(&self) -> Result<(Option<Value>, Option<Value>), String> {
+        Ok((self.agent_index().await, self.lead_index().await))
     }
     /// One answer per id, in order.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>>;
+    /// [`headers`](Self::headers) for the listing: `Err` when a header could not be read, which is not a session without
+    /// a record.
+    async fn listed_headers(&self, session_ids: &[String]) -> Result<Vec<Option<Row>>, String> {
+        Ok(self.headers(session_ids).await)
+    }
     /// One answer per fix, in order: the settle identity the stored row holds for its `fix.turns`-th turn, fixed and
     /// persisted from `fix.candidate` when it holds none; null when the stored row has started another turn since. An
     /// identity once fixed is never changed by a later write of the same turn, and a later turn's is always later.
@@ -711,7 +718,7 @@ impl AgentPool {
 
     /// `listStoredAgentWorkersAsync` laid over by the daemon's live state, rows in Node's order.
     pub async fn list(&self) -> Result<Vec<Value>, PoolError> {
-        let (agent_index, lead_index) = self.store.indexes().await;
+        let (agent_index, lead_index) = self.store.indexes().await.map_err(PoolError)?;
         let child_rows = worker_rows(agent_index.as_ref());
         let mut ids: Vec<String> = Vec::new();
         // Order kept by the Vec, membership by the set: a pool of a thousand rows is not scanned once per row.
@@ -731,7 +738,7 @@ impl AgentPool {
             }
         }
         let mut headers = Headers::new();
-        for (id, header) in ids.iter().zip(self.store.headers(&ids).await) {
+        for (id, header) in ids.iter().zip(self.store.listed_headers(&ids).await.map_err(PoolError)?) {
             headers.insert(id.clone(), header);
         }
         let mut owners: Vec<String> = Vec::new();
@@ -743,7 +750,7 @@ impl AgentPool {
             }
         }
         owners.retain(|owner| !headers.contains_key(owner));
-        for (id, header) in owners.iter().zip(self.store.headers(&owners).await) {
+        for (id, header) in owners.iter().zip(self.store.listed_headers(&owners).await.map_err(PoolError)?) {
             headers.insert(id.clone(), header);
         }
         let running = self.live.running();

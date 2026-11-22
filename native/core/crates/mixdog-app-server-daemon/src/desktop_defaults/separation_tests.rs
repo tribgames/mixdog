@@ -44,7 +44,7 @@ async fn a_failed_separation_leaves_the_config_reports_the_failure_and_retries_n
     // The backup folder cannot be made: a file stands where it goes.
     std::fs::write(data.join("backups"), "not a directory").unwrap();
     let (log, log_path) = log_in(root.path(), &tokens);
-    let outcome = separate(&config, AT_MS).await;
+    let outcome = separate(&config, AT_MS, AT_MS).await;
 
     assert!(!outcome.ok, "the failure is reported");
     assert!(outcome.message.as_deref().is_some_and(|message| !message.is_empty()), "with its message: {outcome:?}");
@@ -70,7 +70,7 @@ async fn a_separation_that_succeeds_reports_ok_and_logs_nothing() {
     std::fs::write(data.join("mixdog-config.json"), INPUT).unwrap();
     let config = open(&data, &tokens).await;
     let (log, log_path) = log_in(root.path(), &tokens);
-    let outcome = separate(&config, AT_MS).await;
+    let outcome = separate(&config, AT_MS, AT_MS).await;
     log.flush().await;
     assert_eq!(serde_json::to_value(&outcome).unwrap(), serde_json::json!({ "ok": true }));
     assert!(!log_path.exists());

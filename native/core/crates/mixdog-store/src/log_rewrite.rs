@@ -215,7 +215,14 @@ fn inline(record: &Record, blobs: &BlobStore) -> Result<Record, String> {
         }
         Record::Amend(r) => own(&mut r.body, Some(&mut r.refs), &mut resolve)?,
         Record::Compacted(r) => own(&mut r.replacement, None, &mut resolve)?,
-        Record::Checkpoint(r) => own(&mut r.state, None, &mut resolve)?,
+        Record::Checkpoint(r) => {
+            own(&mut r.state, None, &mut resolve)?;
+            // The header values the state keeps out of line are its content too: a value marked sensitive is replaced in
+            // them, and the record is written again with what changed (`encode_record`).
+            if let Slot::Inline(state) = &mut r.state {
+                *state = crate::encode::checkpoint_in_line(state.clone(), &mut resolve)?;
+            }
+        }
         Record::Run(r) => {
             if let Some(detail) = &mut r.detail {
                 own(detail, None, &mut resolve)?;

@@ -517,7 +517,7 @@ impl SessionActor {
         // The originals the acceptance found missing (`SessionHandle::turn_start`): a message built now drops them; a queued
         // entry keeps the submission as it was sent and records them beside it.
         let missing = super::super::staged_originals::missing_of(&req.params);
-        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 {
+        if !self.turn_busy() && !self.compaction_held() && self.compactions == 0 && self.clear_holds == 0 && !self.move_held() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -659,7 +659,8 @@ impl SessionActor {
     /// One `meta` record setting the keys of `set` that differ from the header, or `None` when all agree.
     fn header_set_change(&self, set: serde_json::Map<String, Value>) -> Option<Record> {
         let set: serde_json::Map<String, Value> = set.into_iter().filter(|(key, value)| self.projected.header.get(key) != Some(value)).collect();
-        (!set.is_empty()).then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) }))
+        (!set.is_empty())
+            .then(|| Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) }))
     }
 
     /// `stampTurnHop` / `raiseTurnHop` set `session.turnHop` and `session.turnBotChain`, which the session's
@@ -681,7 +682,7 @@ impl SessionActor {
         if self.projected.header.get(PROVIDER_STATE) == state.as_ref() {
             return None;
         }
-        let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+        let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() };
         match state {
             Some(state) => {
                 change.set.insert(PROVIDER_STATE.into(), state);
@@ -709,7 +710,7 @@ impl SessionActor {
     }
 
     pub(super) fn history_revision(&self, idle: bool) -> Result<HistoryRevision, CoreError> {
-        if idle && (self.run.is_some() || self.starting) {
+        if idle && (self.run.is_some() || self.starting || self.carrying()) {
             return Err(CoreError::PreconditionFailed {
                 precondition: mixdog_core_api::error::Precondition::Revision { expected: "idle".into(), actual: "running".into() },
             });
@@ -723,24 +724,6 @@ impl SessionActor {
         Ok(HistoryRevision { log_id: self.log_id.clone(), end: self.acked_end, revision: self.acked.history_rev })
     }
 
-    fn rewind_target(&self, item: &mixdog_core_api::ids::ItemId) -> Result<(usize, u64, String), CoreError> {
-        let not_found = || CoreError::ItemNotFound { thread_id: self.id.clone(), item_id: item.clone() };
-        let window = &self.acked.window;
-        // The client holds the displayed id (a user row shows its submission id); Node resolves it first (`rewind.mjs:19`).
-        let index = super::super::transcript::position_of_id(window.iter().map(|row| row.item.as_ref()), item.as_str()).ok_or_else(not_found)?;
-        let target = &window[index];
-        let (Some(ordinal), Some(text)) = (target.ordinal, target.prompt.clone()) else {
-            return Err(not_found());
-        };
-        Ok((index, ordinal, text))
-    }
-
-    pub(super) fn rewind_preview(&self, item: &mixdog_core_api::ids::ItemId) -> Result<RewindPreview, CoreError> {
-        let revision = self.history_revision(true)?;
-        let (index, _, text) = self.rewind_target(item)?;
-        Ok(RewindPreview { revision, item: self.acked.window[index].item.id().clone(), text })
-    }
-
     pub(super) fn before_rewind(&self, cut: usize) -> Option<mixdog_core_api::ids::ItemId> {
         let previous = self.acked.window.get(cut.checked_sub(1)?)?;
         Some(match previous.item.as_ref() {
@@ -750,15 +733,19 @@ impl SessionActor {
     }
 
     pub(super) fn rewind(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
-        let params: ThreadRewindParams = parse(&req.params, "ThreadRewindParams")?;
+        let _: ThreadRewindParams = parse(&req.params, "ThreadRewindParams")?;
         self.history_revision(true)?;
-        let (index, ordinal, text) = self.rewind_target(&params.item_id)?;
-        let window = &self.acked.window;
-        let cut = window.iter().position(|row| row.ordinal.is_some_and(|o| o >= ordinal)).unwrap_or(index);
-        let previous = self.before_rewind(cut);
-        // `messages`: the model-history messages dropped (`rewindSessionMessagesTo`'s `removed`), beside the rows (`rewind.mjs`).
-        let messages: u32 = window.iter().skip(cut).map(|row| row.messages).sum();
-        let value = json!({ "text": text, "removed": window.len() - cut, "messages": messages });
+        // The target as the stored history resolved it (the handle's read, however old the prompt), valid for the
+        // revision it was read at.
+        let target = req.params.get("target").filter(|target| target.is_object()).ok_or_else(|| invalid("target", "a stored rewind target"))?;
+        if target.get("revision").and_then(Value::as_u64) != Some(self.acked.history_rev) {
+            return Err(history_conflict());
+        }
+        let ordinal = target.get("ordinal").and_then(Value::as_u64).ok_or_else(|| invalid("target", "a stored rewind target"))?;
+        let text = target.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let previous = target.get("previous").and_then(Value::as_str).map(mixdog_core_api::ids::ItemId::from);
+        // What the whole lineage loses, not what of it is in view.
+        let value = json!({ "text": text, "removed": target.get("removed"), "messages": target.get("messages") });
         let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: self.op_ref(req, Some(&value))? });
         self.transcript_rewritten = true;
         // The saved request carried the truncated transcript (`session-crud.mjs:475`).
@@ -853,7 +840,10 @@ impl SessionActor {
         set.insert("titleLocked".into(), Value::Bool(true));
         set.insert("titleSource".into(), Value::String("user".to_owned()));
         set.insert("titleUpdatedAt".into(), json!(self.deps.clock.now_ms()));
-        let record = Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        let record = Record::Meta(MetaRecord {
+            op: self.op_ref(req, Some(&value))?,
+            change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }),
+        });
         Ok(Plan { kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()), value, after: None, prompt: None })
     }
 
@@ -905,7 +895,8 @@ impl SessionActor {
             Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
         };
         let value = json!({});
-        let record = Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, unset }) });
+        let record =
+            Record::Meta(MetaRecord { op: self.op_ref(req, Some(&value))?, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
         Ok(Plan { kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], Vec::new()), value, after: None, prompt: None })
     }
 
@@ -964,6 +955,8 @@ impl SessionActor {
         }
         let items: Vec<ThreadItem> = serde_json::from_value(field("items")).map_err(|_| invalid("items", "the row's thread items"))?;
         let turn = TurnId::from(req.params.get("turn").and_then(Value::as_str).unwrap_or_default());
+        // A positioned subscription that holds the record is sent it as its page reads once the amend is stored
+        // (`units.rs`): these notes carry it no row.
         let notes = items
             .iter()
             .map(|item| {
@@ -987,8 +980,14 @@ impl SessionActor {
         // Each row as the handle read its facts: `{body, visible, prompt}`.
         let rows = req.params.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
         let mut records = Vec::with_capacity(rows.len() + 1);
+        // The highest count a call among the rows entered its own session at ([`Self::calls_copied`]).
+        let mut copied_epoch = 0;
         for mut row in rows {
             let body = row.get_mut("body").map(Value::take).unwrap_or(Value::Null);
+            for call in body.get("toolCalls").and_then(Value::as_array).into_iter().flatten() {
+                let id = call.get("id").and_then(Value::as_str).unwrap_or_default();
+                copied_epoch = copied_epoch.max(mixdog_protocol::tool_call_ids::epoch_of(id));
+            }
             let role = body.get("role").and_then(Value::as_str).map(|role| text(role, "role")).transpose()?;
             let prompt = row.get("prompt").and_then(Value::as_str).map(|prompt| Slot::Inline(prompt.to_owned()));
             let row = ItemRecord {
@@ -1014,13 +1013,16 @@ impl SessionActor {
             _ => serde_json::Map::new(),
         };
         set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
+        if let Some(epoch) = self.calls_copied(copied_epoch) {
+            set.insert(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY.into(), json!(epoch));
+        }
         // And the keys the same save drops (an inheritance's copy-in-progress marks: the heir stops inheriting with the
         // write that gives it the rows).
         let unset: Vec<String> = match req.params.get("unset") {
             None | Some(Value::Null) => Vec::new(),
             Some(value) => serde_json::from_value(value.clone()).map_err(|_| invalid("unset", "a list of header keys"))?,
         };
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset }) });
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
         records.push((meta, Class::Normal, Display::None, Vec::new()));
         // The room's activity as it stands with these rows rides the same plan: released behind the last of them, so the
         // pass publishes them as one revision (`fold_room_view`).

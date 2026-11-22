@@ -402,7 +402,8 @@ pub(super) async fn drive_turn(
         input_body = carried;
     }
     if rebind_owed {
-        let spent = mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["thinkingRebindPending".into()] };
+        let spent =
+            mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["thinkingRebindPending".into()], patch: Default::default() };
         if port.save_header(spent).await.is_err() {
             return failed("the session's thinking rebind could not be recorded", Value::Null);
         }
@@ -615,7 +616,18 @@ pub(super) async fn drive_turn(
         if let Some(check) = guard_state.saved() {
             set.insert("todoCheck".into(), check);
         }
-        let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await;
+        // The turn's result as its owner gets it, whether or not its last reply has text: what the stored readers return.
+        // A turn that did not finish leaves none, so they fall back to its rows.
+        let mut unset = Vec::new();
+        match &result {
+            Ok(output) if !cancel.is_cancelled() => {
+                let report = output.response.report_content.as_deref().unwrap_or(&output.response.content);
+                set.insert("lastHandoff".into(), Value::String(context.redact_text(report)));
+                set.insert("lastHandoffTurn".into(), Value::String(turn.as_str().to_owned()));
+            }
+            _ => unset.extend(["lastHandoff".to_owned(), "lastHandoffTurn".to_owned()]),
+        }
+        let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset, patch: Default::default() }).await;
         let kept = match &result {
             Ok(output) if !cancel.is_cancelled() => output.carry.prefix_guard.clone(),
             _ => None,

@@ -138,6 +138,137 @@ pub enum Window {
     LastTurns(u16),
     /// Header and runtime sections only (wire `{none: true}`).
     HeaderOnly,
+    /// The positioned projection of a thread's transcript: the subscription holds a [`Grant`], first the newest
+    /// stored records up to n rows ([`FeedView::first_grant`]). A frame that tells a record's rows reaches it with no
+    /// row ([`FeedFrame::for_grant`]); the rows of a stored record reach it as that record's unit, when its grant
+    /// holds the record ([`Feed::deliver`]). Never replayed into a new lane: only the lane that holds the grant
+    /// carries on.
+    Positioned(u16),
+}
+
+/// The name of the range a followed tail makes: the newest records a snapshot carried, and every record delivered
+/// after them.
+pub const TAIL_RANGE: &str = "tail";
+
+/// How a grant holds a record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// In a range the subscription was sent: the record's unit replaces the one it has.
+    Range,
+    /// Beyond everything it was sent, under a followed tail: the unit is new to it, and joins the tail's range.
+    Tail,
+}
+
+/// The records a positioned subscription holds: ranges of record ordinals of one lineage, and whether it follows
+/// the tail.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grant {
+    /// Names exactly these ranges on this subscription; it grows with every change of them.
+    pub version: u64,
+    pub lineage: u64,
+    /// Ascending by their first ordinal.
+    pub ranges: Vec<GrantRange>,
+    /// Every record from this ordinal on is held as it arrives.
+    pub tail_from: Option<u64>,
+}
+
+/// One range of a grant: the records `first..=last`, with what its owner tells the subscription about it. The feed
+/// reads only the ordinals; the identity and the edges are its producer's, kept here so that whoever changes the
+/// grant next (a demand change, a lineage change) finds them with the ranges they belong to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantRange {
+    /// Names the range for as long as the subscription holds it.
+    pub id: Arc<str>,
+    pub first: u64,
+    pub last: u64,
+    /// The position that continues the range toward older rows; `None` when the transcript starts here.
+    pub older: Option<Arc<str>>,
+    /// The same toward newer rows; `None` when the transcript ends here.
+    pub newer: Option<Arc<str>>,
+    /// The position of the record `first`: where a read of the range starts.
+    pub from: Arc<str>,
+    /// The position of the record `last`.
+    pub to: Arc<str>,
+}
+
+impl GrantRange {
+    /// A range with no edges and no positions told, named by its first ordinal.
+    pub fn of(first: u64, last: u64) -> Self {
+        Self { id: Arc::from(format!("r{first}")), first, last, older: None, newer: None, from: Arc::from(""), to: Arc::from("") }
+    }
+}
+
+impl Grant {
+    /// How the grant holds the record `ordinal` of `lineage`: by a range it was sent, else by the tail it follows.
+    pub fn held(&self, lineage: u64, ordinal: u64) -> Option<Held> {
+        if lineage != self.lineage {
+            return None;
+        }
+        if self.ranges.iter().any(|range| (range.first..=range.last).contains(&ordinal)) {
+            return Some(Held::Range);
+        }
+        self.tail_from.is_some_and(|from| ordinal >= from).then_some(Held::Tail)
+    }
+
+    /// The record `ordinal` at `position`, new under the followed tail, joins the tail's range; `after` is the
+    /// position of the stored record before it, when there is one.
+    pub fn extend_tail(&mut self, ordinal: u64, position: &str, after: Option<&str>) {
+        match self.ranges.iter_mut().find(|range| &*range.id == TAIL_RANGE) {
+            Some(tail) => {
+                tail.last = ordinal;
+                tail.to = Arc::from(position);
+            }
+            None => {
+                let position: Arc<str> = Arc::from(position);
+                let older = after.map(|_| position.clone());
+                self.ranges.push(GrantRange {
+                    id: Arc::from(TAIL_RANGE),
+                    first: ordinal,
+                    last: ordinal,
+                    older,
+                    newer: None,
+                    from: position.clone(),
+                    to: position,
+                });
+                self.ranges.sort_by_key(|range| (range.first, range.last));
+            }
+        }
+        self.tail_from = Some(ordinal + 1);
+    }
+
+    /// The ordinals of each range.
+    pub fn spans(&self) -> Vec<(u64, u64)> {
+        self.ranges.iter().map(|range| (range.first, range.last)).collect()
+    }
+}
+
+/// The ranges a grant is changed to ([`FeedSource::regrant`], [`Feed::rebase`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantAsk {
+    pub lineage: u64,
+    /// In any order; an empty one (`first > last`) is dropped. Ranges are kept as given: the asker decides which
+    /// are one.
+    pub ranges: Vec<GrantRange>,
+    pub tail_from: Option<u64>,
+}
+
+impl GrantAsk {
+    /// The grant of `version` these ranges make.
+    pub fn granted(mut self, version: u64) -> Grant {
+        self.ranges.retain(|range| range.first <= range.last);
+        self.ranges.sort_by_key(|range| (range.first, range.last));
+        Grant { version, lineage: self.lineage, ranges: self.ranges, tail_from: self.tail_from }
+    }
+}
+
+/// A grant changed at a fence ([`FeedSource::regrant`]): the old grant accounted for every frame through `at`, every
+/// later frame is delivered by the new one, and `slot` holds the place between them in the subscription's lane for the
+/// message that tells the change and carries what the subscription newly holds, as of `at`.
+#[must_use]
+pub struct GrantFence {
+    pub at: FeedPosition,
+    pub version: u64,
+    pub slot: crate::sink::SnapshotSlot,
 }
 
 /// The client's last position and the window its state was built for.
@@ -206,6 +337,30 @@ pub struct Attached {
 pub struct FeedFrame {
     pub seq: u64,
     pub bytes: Bytes,
+    /// The frame as a positioned subscription gets it, when it tells a record's rows: the same event with no row.
+    /// `bytes` is then what every other subscription gets.
+    pub positioned: Option<Bytes>,
+}
+
+impl FeedFrame {
+    /// A frame every subscription gets as it is.
+    pub fn new(seq: u64, bytes: Bytes) -> Self {
+        Self { seq, bytes, positioned: None }
+    }
+
+    /// The encoded bytes the frame holds in all its forms: what a ring that keeps it accounts for.
+    pub fn held_bytes(&self) -> usize {
+        self.bytes.len() + self.positioned.as_ref().map_or(0, Bytes::len)
+    }
+
+    /// The frame as a subscription holding `grant` gets it (`None`: one that is not positioned). Always a frame of
+    /// this seq: a positioned subscription is told the progress, never skipped, and never a row by this frame.
+    pub fn for_grant(&self, grant: Option<&Grant>) -> &Bytes {
+        match (&self.positioned, grant) {
+            (Some(positioned), Some(_)) => positioned,
+            _ => &self.bytes,
+        }
+    }
 }
 
 /// The feed's current read model, swapped by pointer on publish (persistent structure).
@@ -219,6 +374,19 @@ pub trait FeedView: Send + Sync + 'static {
     /// and never by encoding it again. The default delivers the frame as it is.
     fn at_delivery(&self, frame: Bytes) -> Bytes {
         frame
+    }
+
+    /// The encoded snapshot of a [`Window::Positioned`] window as the subscription whose grant takes `version` gets
+    /// it: the shared encoding states the feed seq, and a subscription's window version never repeats, so a snapshot
+    /// that recovers a lane states the version its grant took. The default delivers the frame as it is.
+    fn at_window_version(&self, frame: Bytes, _version: u64) -> Bytes {
+        frame
+    }
+
+    /// The ranges the snapshot of a [`Window::Positioned`] `window` carries: the grant a subscription starts with.
+    /// Read under the feed lock, so it only reads what the view holds. `None`: the view shows no positioned rows.
+    fn first_grant(&self, _window: &Window) -> Option<GrantAsk> {
+        None
     }
 }
 
@@ -250,6 +418,33 @@ pub trait FeedSource: Send + Sync {
     /// `remote-relay-catalog.ts:79-90`). Merged, droppable state feeds answer `false`.
     fn ordered(&self) -> bool {
         false
+    }
+
+    /// The grant `sub` holds now; `None` for a subscription that is not positioned or not registered.
+    fn grant(&self, _sub: &SubscriptionId) -> Option<Grant> {
+        None
+    }
+
+    /// Changes the grant of the positioned subscription `sub` to `ask`, at the feed's position now (the fence), when
+    /// `base_version` names the grant it holds. Under the feed lock it only swaps the grant and pushes the
+    /// [`GrantFence`]'s slot into the lane; what the slot is filled with is read and encoded after return, and
+    /// every frame published meanwhile waits behind it. Fails, changing nothing, with `connectionClosed` (the
+    /// subscription is gone), `invalidParams` (it is not positioned) or `preconditionFailed` (another grant stands:
+    /// the ask was made of ranges the subscription no longer holds; or its lane is being recovered, and the
+    /// recovery's snapshot installs the grant it then holds).
+    fn regrant(&self, _sub: &SubscriptionId, _base_version: u64, _ask: GrantAsk) -> Result<GrantFence, CoreError> {
+        Err(CoreError::ConnectionClosed)
+    }
+
+    /// The connection whose lane `sub` is; `None` for a subscription that is not registered, or a lane that names none.
+    fn owner(&self, _sub: &SubscriptionId) -> Option<crate::ids::ConnectionId> {
+        None
+    }
+
+    /// The most bytes one frame pushed into a subscription's lane may have and still be delivered (the reservation of
+    /// a snapshot slot).
+    fn frame_budget(&self) -> usize {
+        usize::MAX
     }
 }
 
@@ -313,6 +508,35 @@ pub trait Feed: FeedSource {
     /// The producer has published nothing for a while and expects to stay so: the feed lets go of the frames its view already
     /// describes. A client that resumes from before them is served the view instead of a replay.
     fn rest(&self) {}
+
+    /// After a frame that changed the lineage (a rewind, a clear, a compaction): every positioned subscription's grant
+    /// is asked of `rebase`, given the grant, the version its change would take and the feed's position, and
+    /// answering the ranges that survive with the encoded message that tells the subscription, pushed into its lane
+    /// at once; `None` keeps the grant. Called by the producer right after it published the lineage change, so no
+    /// frame of the new lineage is delivered by an old grant.
+    fn rebase(&self, _rebase: &mut dyn FnMut(&SubscriptionId, &Grant, u64, &FeedPosition) -> Option<(GrantAsk, Bytes)>) {}
+
+    /// The stored record `ordinal` of `lineage`, at `position`, as it reads now: each positioned subscription whose
+    /// grant holds it is sent `frame` of how it holds it, at the feed's position, in its lane at once; one that
+    /// follows the tail then holds the record in the tail's range (`after`: the position of the stored record before
+    /// it). `view`, when given, becomes the feed's view under the same lock, so a snapshot attached after this call
+    /// carries the record and one attached before is sent it here. Called by the producer in the order the records
+    /// were stored and read.
+    fn deliver(
+        &self,
+        _lineage: u64,
+        _ordinal: u64,
+        _position: &str,
+        _after: Option<&str>,
+        _view: Option<Arc<dyn FeedView>>,
+        _frame: &mut dyn FnMut(Held, &FeedPosition) -> Bytes,
+    ) {
+    }
+
+    /// Every range a positioned subscription holds in `lineage`.
+    fn held(&self, _lineage: u64) -> Vec<GrantRange> {
+        Vec::new()
+    }
 }
 
 /// A scoped feed (`fs:<watchId>`, `search:<sessionId>`, …; DS §2.1), created through

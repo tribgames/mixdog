@@ -66,6 +66,7 @@ use mixdog_agent::agent_tool::host::Released;
 use mixdog_agent::agent_tool::host::ResolveOptions;
 use mixdog_agent::agent_tool::host::Resumable;
 use mixdog_agent::agent_tool::host::Spared;
+use mixdog_agent::agent_tool::host::TagClaim;
 use mixdog_agent::agent_tool::host::TerminalTrace;
 use mixdog_agent::agent_tool::host::Topology;
 use mixdog_agent::agent_tool::host::TurnMark;
@@ -150,8 +151,18 @@ pub trait WorkerStore: Send + Sync {
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String>;
     /// The agent-only sessions' list rows, closed ones included.
     async fn agent_sessions(&self) -> Result<Vec<Row>, String>;
-    /// A stored session's header; `None` when it is not stored.
-    async fn header(&self, session: &str) -> Option<Row>;
+    /// The worker sessions held for a sensitive rewrite: the store answers their maps without their content, so a
+    /// listing of the workers waits for each ([`Self::rewrite_settled`]). A store that never rewrites has none.
+    async fn held_workers(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    /// Resolves once `session`'s sensitive rewrite ended; `Err` when it failed.
+    async fn rewrite_settled(&self, _session: &str) -> Result<(), String> {
+        Ok(())
+    }
+    /// A stored session's header; `Ok(None)` when it is not stored, `Err` when it could not be read, which says
+    /// nothing of whether it is.
+    async fn header(&self, session: &str) -> Result<Option<Row>, String>;
     /// Whether `path` is an existing directory.
     async fn is_directory(&self, path: &str) -> bool;
     /// Replaces the session's `worker` map (`None` removes it). One session's writes apply in
@@ -267,6 +278,13 @@ pub struct AgentRegistry {
     cancelled: Mutex<HashSet<String>>,
     /// `sweepRestartFailures`, run by the maintenance pass ([`Self::keep_deadlines`]); unbound, the pass has no such step.
     sweeper: std::sync::OnceLock<Arc<dyn restart::RestartSweep>>,
+    /// Where the restart's settlement of the stored worker rows stands ([`Self::hold_worker_rows`]): every read of them
+    /// awaits it, and takes its failure as its own.
+    rows_held: tokio::sync::watch::Sender<Settlement>,
+    /// The tags reserved for spawns admitted and not yet bound ([`Registry::claim_tag`]).
+    claimed: Arc<Mutex<HashSet<String>>>,
+    /// One spawn takes its tag at a time.
+    spawn_admission: tokio::sync::Mutex<()>,
     /// The listings of every agent session made ([`Self::list_sessions`]).
     #[cfg(test)]
     walks: std::sync::atomic::AtomicUsize,
@@ -301,6 +319,30 @@ impl Drop for LoadTurn<'_> {
         for waiter in loads.waiting.drain(..) {
             let _ = waiter.send(());
         }
+    }
+}
+
+/// Where the restart's settlement of the stored worker rows stands, for a start that held them
+/// ([`AgentRegistry::hold_worker_rows`]).
+#[derive(Clone, PartialEq)]
+enum Settlement {
+    /// Nothing holds the rows: each read takes the store's verdict.
+    Open,
+    /// The settlement has not ended: every read awaits it.
+    Held,
+    /// It failed, with this: so does every read of this start.
+    Failed(String),
+}
+
+/// A tag reserved for a spawn ([`Registry::claim_tag`]), until dropped.
+struct Claimed {
+    claimed: Arc<Mutex<HashSet<String>>>,
+    tag: String,
+}
+
+impl Drop for Claimed {
+    fn drop(&mut self) {
+        self.claimed.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.tag);
     }
 }
 
@@ -468,17 +510,39 @@ impl State {
 
     /// The session's row as readers see it.
     fn row(&self, session: &str, map: &Row, now: f64) -> Option<Row> {
-        if clean(map.get("sessionId")).is_empty() {
-            return None;
-        }
-        let mut row = map.clone();
-        row.insert("sessionId".into(), Value::String(session.to_owned()));
-        let mut row = normalize_row(&row)?;
-        if released_at(map, now) {
-            row.insert("released".into(), Value::Bool(true));
-        }
-        Some(row)
+        read_map(session, map, now).0
     }
+}
+
+/// What the index reads of `map`, the worker map of `session`, at `now`: its worker row as readers see it, and its
+/// tombstone while that is in its lifetime.
+fn read_map(session: &str, map: &Row, now: f64) -> (Option<Row>, Option<Row>) {
+    let row = (!clean(map.get("sessionId")).is_empty())
+        .then(|| {
+            let mut row = map.clone();
+            row.insert("sessionId".into(), Value::String(session.to_owned()));
+            let mut row = normalize_row(&row)?;
+            if released_at(map, now) {
+                row.insert("released".into(), Value::Bool(true));
+            }
+            Some(row)
+        })
+        .flatten();
+    (row, map.get("tombstone").and_then(Value::as_object).and_then(|t| normalize_tombstone(t, session, now)))
+}
+
+/// Whether the index reads anything of `map`, the worker map of `session`, at `now` ([`read_map`]): a worker row, settled
+/// or not, a Lead's own row, or a tombstone still in its lifetime. A tombstone past its lifetime and a release mark with
+/// no row behind it are nothing to the index, and nothing a delete of the session would act on.
+pub fn map_is_live(session: &str, map: &Row, now: f64) -> bool {
+    let (row, tombstone) = read_map(session, map, now);
+    row.is_some() || tombstone.is_some() || lead_row::is_lead_map(map)
+}
+
+/// Whether a session's delete leaves its worker `row` in place ([`AgentRegistry::forget_deleted_session`]): a row that is
+/// not settled, or one whose restart failure its owner has not been told of.
+fn outlives_delete(row: &Row) -> bool {
+    is_lead_pool_agent(row.get("agent")) || !is_terminal_row(row) || is_unnotified_restart_failure(row)
 }
 
 /// The first stored session of each id (`sessions.find(s => clean(s.id) === id)`).
@@ -586,8 +650,30 @@ impl AgentRegistry {
             parked: Mutex::default(),
             cancelled: Mutex::default(),
             sweeper: std::sync::OnceLock::new(),
+            rows_held: tokio::sync::watch::Sender::new(Settlement::Open),
+            claimed: Arc::default(),
+            spawn_admission: tokio::sync::Mutex::new(()),
             #[cfg(test)]
             walks: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// From now on every read of the store's worker rows waits, until [`Self::recover_held_worker_rows`] has settled them: a start
+    /// whose index is being rebuilt holds them while the rebuild projects them, so no reader (the pool, a spawn's tags, the
+    /// maintenance pass, the restart notices) sees a worker before the restart's settlement of it, or the rows of part of the index.
+    pub fn hold_worker_rows(&self) {
+        self.rows_held.send_replace(Settlement::Held);
+    }
+
+    /// Resolves once the restart's settlement of the held worker rows ended ([`Self::recover_held_worker_rows`]), with
+    /// its result: a settlement that failed is the failure of every read that awaited it, and of every later one in this
+    /// start. Its success opens the rows and says nothing of a later read, which takes the store's own verdict.
+    async fn worker_rows_open(&self) -> Result<(), String> {
+        let mut held = self.rows_held.subscribe();
+        let settled = held.wait_for(|held| *held != Settlement::Held).await.map_err(|_| "the agent registry stopped".to_owned())?;
+        match &*settled {
+            Settlement::Failed(why) => Err(why.clone()),
+            _ => Ok(()),
         }
     }
 
@@ -659,7 +745,10 @@ impl AgentRegistry {
                 if let Some(sweeper) = this.sweeper.get().cloned() {
                     sweeper.sweep().await;
                 }
-                this.refresh_tags_from_sessions(false, &Scope::default()).await;
+                // A pass whose rows could not be read reaps nothing: the next one reads them again.
+                if let Err(error) = this.refresh_tags_from_sessions(false, &Scope::default()).await {
+                    tracing::warn!("[agent] the maintenance pass could not read the worker rows: {error}");
+                }
                 continue;
             }
             let sweeper = this.sweeper.get().cloned();
@@ -696,13 +785,15 @@ impl AgentRegistry {
     /// Reloads the index; this process's writes it does not show yet stay applied. A caller that arrives while a load is
     /// under way waits for the next one and shares it with the others that wait, when that load read the store after the
     /// caller arrived and completed, so the threads one status signal wakes load the index once or twice, not once each.
-    async fn reload(&self) {
+    /// `Err` when the index could not be read whole: what the registry holds in memory is then no account of the stored
+    /// rows, and a caller that would decide from a row it does not show reports this instead.
+    async fn reload(&self) -> Result<(), String> {
         let arrived = self.loads().started;
         let number = loop {
             let ended = {
                 let mut loads = self.loads();
                 if loads.completed > arrived {
-                    return;
+                    return Ok(());
                 }
                 if !loads.running {
                     loads.running = true;
@@ -717,7 +808,9 @@ impl AgentRegistry {
             let _ = ended.await;
         };
         let mut turn = LoadTurn { loads: &self.loads, number, completed: false };
-        turn.completed = self.load().await;
+        let loaded = self.load().await;
+        turn.completed = loaded.is_ok();
+        loaded
     }
 
     fn loads(&self) -> MutexGuard<'_, Loads> {
@@ -741,13 +834,13 @@ impl AgentRegistry {
         st.leads_loaded = true;
     }
 
-    /// Whether the index was read and applied.
-    async fn load(&self) -> bool {
+    /// The index read and applied: after the restart's settlement of a start that held the rows, whose failure is this
+    /// read's, and from the store's read of every session that could hold a worker row, whose failure is this read's too.
+    async fn load(&self) -> Result<(), String> {
+        self.worker_rows_open().await?;
         self.leads_loaded().await;
         let since = self.lock().revision;
-        let Ok(index) = self.store.index_since(since).await else {
-            return false;
-        };
+        let index = self.store.index_since(since).await?;
         #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.reloads += 1);
         let mut guard = self.lock();
@@ -765,7 +858,7 @@ impl AgentRegistry {
                 st.revision = revision;
             }
         }
-        true
+        Ok(())
     }
 
     /// Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every listing
@@ -1152,7 +1245,11 @@ impl AgentRegistry {
         if id.is_empty() {
             return false;
         }
-        self.reload().await;
+        // Rows that could not be read are not forgotten from memory alone: the row stays for a later forget.
+        if let Err(error) = self.reload().await {
+            tracing::warn!(thread = %id, "[agent] a deleted session's worker row is not forgotten yet: {error}");
+            return false;
+        }
         let now = self.now();
         let mut st = self.lock();
         let indexed = st.lead_rows.get(&id).is_some_and(Option::is_some);
@@ -1163,7 +1260,7 @@ impl AgentRegistry {
         let Some(row) = st.map(&id).cloned().and_then(|map| st.row(&id, &map, now)) else {
             return false;
         };
-        if clean(row.get("sessionId")) != id || is_lead_pool_agent(row.get("agent")) || !is_terminal_row(&row) || is_unnotified_restart_failure(&row) {
+        if clean(row.get("sessionId")) != id || outlives_delete(&row) {
             return false;
         }
         self.tombstone_rows(&mut st, &[row]);
@@ -1469,13 +1566,14 @@ impl AgentRegistry {
 
     /// `refreshTagsFromSessions({ memoryOnly: true })` (the status pulse, tag-refresh.mjs:19-22): the index is read and its rows bind
     /// their tags; nothing is reaped, unbound or scanned, which the maintenance pass and the tool calls do.
-    pub async fn refresh_tags_from_index(&self, scope: &Scope) {
-        self.reload().await;
+    pub async fn refresh_tags_from_index(&self, scope: &Scope) -> Result<(), String> {
+        self.reload().await?;
         let mut st = self.lock();
         let now = self.now();
         for row in st.rows(scope, now) {
             st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
+        Ok(())
     }
 
     /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
@@ -1843,16 +1941,43 @@ impl Registry for AgentRegistry {
         self.resolve_owners(&mut st);
     }
 
-    async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) {
-        self.reload().await;
+    async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) -> Result<(), String> {
+        self.reload().await?;
         let mut st = self.lock();
         self.refresh(&mut st, scan_sessions, scope);
+        Ok(())
+    }
+
+    /// The registry's admission of a spawn: one at a time, the index read whole for it (a failed read ends it), the tag
+    /// judged against that view and the tags reserved by spawns not yet bound, and reserved in turn.
+    async fn claim_tag(&self, explicit: &str, scope: &Scope, options: ResolveOptions, next: &(dyn Fn() -> String + Sync)) -> Result<TagClaim, String> {
+        let _admitted = self.spawn_admission.lock().await;
+        self.reload().await?;
+        {
+            let mut st = self.lock();
+            self.refresh(&mut st, false, scope);
+        }
+        // A tag another path bound since `next` named it is passed over; an explicit one is refused.
+        for _ in 0..8 {
+            let tag = if explicit.is_empty() { next() } else { explicit.to_owned() };
+            let mut st = self.lock();
+            let bound = self.resolve(&mut st, &tag, scope, options)?.is_some();
+            let mut claimed = self.claimed.lock().unwrap_or_else(|p| p.into_inner());
+            if !bound && claimed.insert(tag.clone()) {
+                let held = Claimed { claimed: self.claimed.clone(), tag: tag.clone() };
+                return Ok(TagClaim::new(tag, Some(Box::new(held))));
+            }
+            if !explicit.is_empty() {
+                return Err(format!("agent spawn: tag \"{tag}\" already exists"));
+            }
+        }
+        Err("agent spawn: no free tag could be taken".to_owned())
     }
 
     /// The refresh and the cleanup's reading from one listing of the sessions: its scan reads the open ones of it. The
     /// signals of every session it writes (a stale row's tombstone, a recovered row) are held in what it answers.
-    async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> (Topology, Recovered) {
-        self.reload().await;
+    async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> Result<(Topology, Recovered), String> {
+        self.reload().await?;
         let mut st = self.lock();
         st.holding = Some(Holding::default());
         self.refresh(&mut st, false, scope);
@@ -1861,7 +1986,7 @@ impl Registry for AgentRegistry {
             let open = listed.iter().filter(|session| session.get("closed") != Some(&Value::Bool(true)));
             self.scan_listed(&mut st, open, scope);
         }
-        (Self::topology_of(&listed), st.holding.take().unwrap_or_default().recovered)
+        Ok((Self::topology_of(&listed), st.holding.take().unwrap_or_default().recovered))
     }
 
     /// The count `pool_docs` keeps on the worker map of each turn started on it, and the id of the last it counted.
@@ -2089,37 +2214,45 @@ impl Registry for AgentRegistry {
         newest.map(|s| tag_record(&s, "agentTag", "id"))
     }
 
-    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Option<Resumable> {
+    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Result<Option<Resumable>, String> {
         let value = clean_str(tag);
         let id = clean_str(session_id);
         if value.is_empty() || id.is_empty() {
-            return None;
+            return Ok(None);
         }
         {
             let st = self.lock();
             if st.map(&id).is_some_and(|m| released_at(m, self.now())) {
-                return None;
+                return Ok(None);
             }
         }
+        // A header that could not be read is not a session that cannot be resumed: the caller would start a fresh one
+        // under the tag of a session that is there.
         let mut record = match self.loaded_session(&id) {
             Some(header) => header,
-            None => self.store.header(&id).await?,
+            None => match self.store.header(&id).await? {
+                Some(header) => header,
+                None => return Ok(None),
+            },
         };
         record.insert("id".into(), Value::String(id.clone()));
         let closed = record.get("closed") == Some(&Value::Bool(true)) || record.get("status").and_then(Value::as_str) == Some("closed");
         if closed || !resumable_after_reap(&record) || !Self::owned_tag_session(&record, &value, scope) {
-            return None;
+            return Ok(None);
         }
         let session = {
             let st = self.lock();
-            self.live_session_row(&st, &id).map(|s| session_facts(&s))?
+            match self.live_session_row(&st, &id).map(|s| session_facts(&s)) {
+                Some(session) => session,
+                None => return Ok(None),
+            }
         };
         let cwd = clean(record.get("cwd"));
-        if self.store.is_directory(&cwd).await {
-            Some(Resumable { session: Some(session), missing_cwd: None })
+        Ok(Some(if self.store.is_directory(&cwd).await {
+            Resumable { session: Some(session), missing_cwd: None }
         } else {
-            Some(Resumable { session: None, missing_cwd: Some(cwd) })
-        }
+            Resumable { session: None, missing_cwd: Some(cwd) }
+        }))
     }
 }
 
@@ -3341,8 +3474,20 @@ impl WorkerStore for StoreWorkers {
         Ok(rows.iter().filter_map(|summary| serde_json::from_str::<Row>(summary).ok()).collect())
     }
 
-    async fn header(&self, session: &str) -> Option<Row> {
-        self.threads.header(&ThreadId::from(session)).await.ok()
+    async fn held_workers(&self) -> Result<Vec<String>, String> {
+        self.index.withheld_workers().await.map_err(|e| e.to_string())
+    }
+
+    async fn rewrite_settled(&self, session: &str) -> Result<(), String> {
+        self.index.rewrite_settled(session).await.map_err(|e| e.to_string())
+    }
+
+    async fn header(&self, session: &str) -> Result<Option<Row>, String> {
+        match self.threads.header(&ThreadId::from(session)).await {
+            Ok(header) => Ok(Some(header)),
+            Err(mixdog_tools::orch::util::PortError::NotFound { .. }) => Ok(None),
+            Err(error) => Err(format!("the header of session {session} could not be read: {error:?}")),
+        }
     }
 
     async fn is_directory(&self, path: &str) -> bool {

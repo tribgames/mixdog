@@ -3,6 +3,7 @@ type EncodedBundle = (EncodedRecord, Vec<Shown>, Option<Record>);
 type ActorAgentCompletion = (Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>);
 type DraftQueueEntry = (super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>);
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
@@ -99,7 +100,6 @@ use super::control::Ctl;
 use super::durability::FromDurability;
 use super::durability::ToDurability;
 use super::frames::Note;
-use super::frames::frame;
 use super::new_id;
 use super::ops;
 use super::ops::Admit;
@@ -165,6 +165,7 @@ mod lifecycle;
 mod mutation;
 mod offload_prune;
 mod producer;
+mod project_move;
 #[cfg(test)]
 mod prompt_start_tests;
 mod prompts;
@@ -177,6 +178,7 @@ mod status;
 #[cfg(test)]
 mod step_publication_tests;
 mod turn_ops;
+mod units;
 mod work_stop;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
@@ -229,8 +231,11 @@ fn fold_room_view(notes: &mut Vec<Note>) {
             at += 1;
             continue;
         };
-        item["roomView"] = value;
-        notes[row] = Note::new("item/completed", &item);
+        let positioned = notes[row].positioned.clone();
+        item["roomView"] = value.clone();
+        let mut told = Note { positioned, ..Note::new("item/completed", &item) };
+        told.with_room_view(&value);
+        notes[row] = told;
         notes.remove(at);
     }
 }
@@ -243,6 +248,9 @@ fn archives_rows(change: &Change, ordinal: Option<u64>) -> bool {
     let Record::Compacted(compacted) = &**record else { return false };
     compacted.dropped.is_some() || compacted.dropped_count != Some(0)
 }
+
+/// Where a completion's stored row names the card that stands for it.
+const CARD_ID: &str = "/meta/transcript/cardId";
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -273,6 +281,8 @@ struct HeaderMoves {
     cwd: bool,
     route: bool,
     choice: bool,
+    /// The record's Project move or its failure: the workspace the state shows carries them.
+    project_move: bool,
 }
 
 impl HeaderMoves {
@@ -293,6 +303,7 @@ impl HeaderMoves {
             cwd,
             route: moved(&["provider", "model", "effort", "autoEffort", "fast", "modelParameters", "selectedContextWindow"]) || cwd || held,
             choice: moved(&["contextPercent", "contextTokens"]),
+            project_move: moved(&[super::thread_settings::PENDING_PROJECT_MOVE, super::thread_settings::PROJECT_MOVE_FAILED]),
         }
     }
 }
@@ -871,6 +882,8 @@ fn turn_of(run: &RunRecord) -> Option<Turn> {
         error,
         stop_reason: None,
         termination_reason: None,
+        start_position: None,
+        end_position: None,
         items: None,
     })
 }
@@ -933,7 +946,7 @@ pub(crate) fn stale_compacting_change(header: &mixdog_store::schema::record::Hea
     next.insert("lastCheckedAt".into(), json!(now));
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), Value::Object(next));
-    Some(HeaderChange { set, unset: Vec::new() })
+    Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() })
 }
 
 /// A request routed to the actor.
@@ -980,6 +993,10 @@ pub(crate) enum Inbox {
     AgentActivity {
         named: bool,
     },
+    /// The receipts of the executions a producer still holds for this session ([`SessionActor::receipts_due`]). It
+    /// arrives here, behind every [`Inbox::TaskNotification`] sent before the producers were asked: a completion a
+    /// producer no longer lists was either taken in by then or is listed as on its way.
+    CompletionsHeld(super::completion_holders::Holding<std::collections::HashSet<String>>),
     /// A value marked in a session whose text this thread holds reached it (`SensitiveMarks::carry`): what the thread
     /// stored goes as for a mark of its own, whether a turn runs or not.
     SensitiveCarried,
@@ -1004,14 +1021,25 @@ pub(crate) enum Inbox {
     WritesLanded {
         tx: oneshot::Sender<Result<(), RunError>>,
     },
+    /// `thread/window/set`: read in the line of unit reads and installed at the feed's position then (`units.rs`).
+    WindowDemand {
+        params: mixdog_app_protocol::v2::thread::ThreadWindowSetParams,
+        cancel: CancellationToken,
+        tx: Waiter,
+    },
+    /// Answered once the stored records read for the positioned subscriptions so far are read: a positioned snapshot
+    /// attached from then on carries them.
+    TailReady {
+        tx: oneshot::Sender<()>,
+    },
     /// An acknowledged source for fork, or the idle history a clear must protect.
     ForkPlan {
         idle: bool,
         tx: oneshot::Sender<Result<ForkSource, CoreError>>,
     },
-    RewindPreview {
-        item: mixdog_core_api::ids::ItemId,
-        tx: oneshot::Sender<Result<RewindPreview, CoreError>>,
+    /// The revision an idle history stands at, for a rewind whose target the stored history resolved.
+    RewindRevision {
+        tx: oneshot::Sender<Result<HistoryRevision, CoreError>>,
     },
     /// The handle finished the outside reads/writes; decide against that same history.
     CheckedHistory {
@@ -1057,6 +1085,13 @@ pub(crate) enum Inbox {
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader {
         update: mixdog_core_ports::ports::threads::HeaderUpdate,
+        tx: Waiter,
+    },
+    /// `setSessionProject`: the session is wanted in the registered Project `target` (`None`: the task workspace), among the
+    /// registered Projects' identities `projects`. What it means for the session is decided here ([`project_move`]).
+    ProjectMove {
+        target: Option<String>,
+        projects: Vec<String>,
         tx: Waiter,
     },
     /// [`Inbox::UpdateHeader`] whose change awaits an outside read (a route change's skill listing): the actor awaits
@@ -1105,7 +1140,7 @@ enum MoveApply {
 /// Whether `msg` writes the thread's header: such a message waits behind a pending route move.
 fn writes_header(msg: &Inbox) -> bool {
     match msg {
-        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } | Inbox::StoredPatch { .. } => true,
+        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } | Inbox::StoredPatch { .. } | Inbox::ProjectMove { .. } => true,
         Inbox::Request { req, .. } => req.method.as_str() == "thread/header/patch",
         _ => false,
     }
@@ -1132,6 +1167,8 @@ impl Drop for DecisionEnd {
 pub(crate) enum JobDone {
     /// A clear whose plan the gate held has ended ([`ClearHold`]): turns may start again.
     ClearSettled,
+    /// The carry of a Project move the actor began ended ([`project_move`]).
+    ProjectMoved(Result<(), CoreError>),
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
     Recovered(Vec<(String, super::seams::CrashedRows)>),
     /// A send of submission `id` got its answer ([`Submissions::admit`]): `answer` when it succeeded, its receipt.
@@ -1171,6 +1208,8 @@ pub(crate) enum JobDone {
     PromptPersisted(Vec<String>),
     /// The records whose rows a durable compaction took out of the context ([`SessionActor::mark_archived`]).
     Archived(Vec<u64>),
+    /// A read of the line of unit reads ended (`units.rs`).
+    UnitsRead(Box<units::UnitsRead>),
     /// The recovery's records are durable (or failed): requests are served again.
     RecoveryDone(Result<(), RunError>),
     /// A prompt-history append job ended: the list as the writer saw it, and the appends that did
@@ -1462,6 +1501,12 @@ impl Submissions {
 /// `pushToast`'s default `ttlMs` (`notice-surface.mjs:10`).
 const TOAST_TTL: std::time::Duration = std::time::Duration::from_millis(3000);
 
+/// An opened session asks its producers what they still hold when it carries this many completion receipts
+/// ([`SessionActor::receipts_due`]); fewer are not worth the listing.
+const RECEIPTS_SHED_MIN: usize = 64;
+/// A loaded session asks again after this many more.
+const RECEIPTS_SHED_EVERY: usize = 256;
+
 /// `saveSession`'s debounce (`store.mjs`: "debounced (150 ms) unless `opts.immediate`").
 const USAGE_SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
 
@@ -1474,6 +1519,9 @@ const DRAFT_RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(300)
 pub(crate) struct ActorChannels {
     pub ctl_rx: mpsc::Receiver<Ctl>,
     pub inbox_rx: mpsc::Receiver<Inbox>,
+    /// The inbox's sending side, for what must be read in the order of the completions that arrive in it; weak, so the
+    /// inbox closes with its handle.
+    pub inbox: mpsc::WeakSender<Inbox>,
     pub prod_tx: mpsc::Sender<ProducerMsg>,
     pub prod_rx: mpsc::Receiver<ProducerMsg>,
     pub dur_tx: mpsc::Sender<ToDurability>,
@@ -1552,6 +1600,20 @@ pub(crate) struct SessionActor {
     /// [`Inbox::WritesLanded`] waiters, each with the last entry accepted before it: answered once every record up to that
     /// entry is stored, or with the next failed barrier.
     writes_landed: Vec<(u64, oneshot::Sender<Result<(), RunError>>)>,
+    /// The line of unit reads (`units.rs`), and whether one is being read.
+    unit_jobs: std::collections::VecDeque<units::UnitJob>,
+    unit_reading: bool,
+    /// The newest stored records as a page of them reads, oldest first: what a positioned snapshot carries. `tail_older`:
+    /// records older than them are stored. `tail_next`: one past the newest record the line has read; a subscription
+    /// that follows the tail holds every record from there on.
+    tail: Vec<Arc<super::reads::StoredUnit>>,
+    tail_older: bool,
+    tail_next: u64,
+    /// The record that made each call whose result is not stored yet: the result's record changes how that one reads.
+    call_records: HashMap<String, String>,
+    /// The lowest ordinal a rewind or a clear released since the last publish removed from: the positioned grants are
+    /// rebased below it once the history change is published.
+    rebase_cut: Option<u64>,
     /// The cause of the last failed barrier, which the next turn's refusal names.
     save_failure: Arc<str>,
     /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
@@ -1563,6 +1625,14 @@ pub(crate) struct SessionActor {
     /// Clears the gate released whose copy-and-clear is under way ([`Waiting::Plan`]): no turn starts meanwhile, so a prompt
     /// queued behind the clear runs after it ([`Inbox::ClearSettled`]).
     pub(super) clear_holds: usize,
+    /// The Project move being carried out ([`project_move`]): it holds the session as a running turn does.
+    carry: Option<project_move::Carry>,
+    /// The registered Projects' identities as the last Project move request named them: what the session's own Project is
+    /// read against.
+    projects: Option<Vec<String>>,
+    /// While a Project move is recorded or under way: the prompts that were queued when that began. What queued since is
+    /// released through the queue's gate when it ends ([`Self::follow_move_hold`]).
+    move_base: Option<Vec<String>>,
     /// The idle auto-clear has run for the start about to be taken again: it is decided once, never twice for one start.
     idle_cleared: bool,
     /// The admitted start that already attempted a pre-switch compaction.
@@ -1624,8 +1694,9 @@ pub(crate) struct SessionActor {
     route_moves: u64,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
-    /// Executions the session's listener took: their queued copy is `suppressDisplay`.
-    listened: std::collections::HashSet<String>,
+    /// Executions the session's listener took: their queued copy is `suppressDisplay`, and names the card that stands
+    /// for it (none when an earlier card does).
+    listened: std::collections::HashMap<String, Option<String>>,
     /// Executions whose queued copy a turn took in: its input row shows no row live.
     suppressed: std::collections::HashSet<String>,
     /// The work of the start being read (its provenance or its input row): what a Stop then freezes. A deferred start holds its
@@ -1686,6 +1757,14 @@ pub(crate) struct SessionActor {
     rest_at: Option<tokio::time::Instant>,
     /// Loaded by an open (a read, a status pass, a carried mark), and no turn has run since: what a sidebar's read loads.
     only_read: bool,
+    /// The completion receipts held when the producers were last asked what they still hold, while their answer is awaited:
+    /// a receipt recorded after the question is not theirs to let go.
+    receipts_asked: Option<std::collections::HashSet<String>>,
+    /// How many it held when the last answer was taken; the next question is due a step past it.
+    receipts_shed_at: Option<usize>,
+    /// The producers never list what they hold in this process ([`super::completion_holders::Holding::Never`]): they
+    /// are not asked again.
+    receipts_unlistable: bool,
     /// The releases waiting for the idle decision they asked for ([`Inbox::IdleRelease`]): answered once the thread stays, or has
     /// left the directory; dropped with the actor.
     idle_acks: Vec<oneshot::Sender<()>>,
@@ -1717,10 +1796,17 @@ pub(crate) struct SessionActor {
     draft_stopped: std::collections::HashSet<String>,
     /// Ended runs whose drafts wait for the held records (their end records among them) to land.
     drafts_after_save: Vec<String>,
-    /// The tool-result rows accepted and not yet on disk, by outbox entry: the run and the drafted result each took as its own. A result leaves
-    /// its run's draft only when its own row's write is acknowledged ([`Self::durability_acked`]), on a retry or after the
-    /// run ended as well: until then the draft is the one place a rewrite or a recovery finds it.
-    draft_results: std::collections::HashMap<u64, (String, u64)>,
+    /// The tool rows accepted and not yet on disk whose call has a result in its run's draft, by outbox entry: the run and
+    /// the call's id. A result leaves its run's draft only when the write of its call's row is acknowledged
+    /// ([`Self::durability_acked`]), on a retry or after the run ended as well: until then the draft is the one place a
+    /// rewrite or a recovery finds it.
+    draft_results: std::collections::HashMap<u64, (String, String)>,
+    /// How many times calls have left the session's model context (`mixdog_protocol::tool_call_ids::distinct_id`), shared
+    /// with the runs' ports: a run tells its own count before the rewrite that takes calls out, and the header keeps
+    /// the count each such record leaves.
+    call_epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// A call may have entered at the count the header keeps: the next record that takes rows out of the context counts.
+    calls_entered: bool,
     /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
     /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
     ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
@@ -2024,14 +2110,32 @@ impl SessionActor {
             lineage,
             log_id,
             acked_end,
+            // A session is born with its count (`SessionDirectory::create`). One without it was written by an earlier build
+            // or a migration: its calls carry their providers' ids, those that left its context and those of rows it has
+            // since cleared too, so every call from here on enters past them, whatever rows it holds now.
+            call_epoch: Arc::new(std::sync::atomic::AtomicU64::new(
+                state.header.get(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY).and_then(Value::as_u64).unwrap_or(1),
+            )),
+            calls_entered: !state.header.contains_key(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY) || !state.window.is_empty() || state.has_older,
             projected: state.clone(),
             acked: state,
             retry_due: false,
             writes_landed: Vec::new(),
+            unit_jobs: std::collections::VecDeque::from([units::UnitJob::Tail]),
+            unit_reading: false,
+            tail: Vec::new(),
+            // Every record stored before the actor began is older than this, and is the first read's to carry.
+            tail_older: acked_end > 0,
+            tail_next: acked_end,
+            call_records: HashMap::new(),
+            rebase_cut: None,
             save_failure: Arc::from(""),
             deferred_start: None,
             idle_clearing: false,
             clear_holds: 0,
+            carry: None,
+            projects: None,
+            move_base: None,
             idle_cleared: false,
             pre_switch_compacted: None,
             admitted_pick: None,
@@ -2087,6 +2191,9 @@ impl SessionActor {
             idle_evict_at: None,
             rest_at: None,
             only_read: false,
+            receipts_asked: None,
+            receipts_shed_at: None,
+            receipts_unlistable: false,
             idle_acks: Vec::new(),
             unload_stopped: None,
             retention_seen: None,
@@ -2339,6 +2446,14 @@ impl SessionActor {
     /// ([`Self::accept_view_after`]).
     fn accept_record_entry(&mut self, record: Record, class: Class, display: Display, notes: Vec<Note>, effects: Vec<Effect>) -> u64 {
         let record = Arc::new(record);
+        // Rows leave the model context with a compaction or a rewind; a call enters it with the assistant row that makes it.
+        let rows_leave = matches!(&*record, Record::Compacted(_) | Record::Rewind(_));
+        if let Record::Item(item) = &*record
+            && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant")
+            && matches!(&item.body, Slot::Inline(body) if body.get("toolCalls").and_then(Value::as_array).is_some_and(|calls| !calls.is_empty()))
+        {
+            self.calls_entered = true;
+        }
         let shown = !matches!(display, Display::Suppressed);
         let moves = HeaderMoves::of(&record, &self.projected.header);
         let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
@@ -2353,7 +2468,92 @@ impl SessionActor {
         }
         self.submit_encode(entry, record, shown);
         self.follow_header_moves(entry, &moves, &window_before);
+        self.receipts_due();
+        if rows_leave {
+            self.calls_left(class);
+        }
         entry
+    }
+
+    /// Rows of another session are copied into this one (a fork, an inherited conversation, a kept copy), and their calls
+    /// keep the ids they entered that session under, the highest at the count `epoch`. This session counts no lower from
+    /// here on, whatever its own header carried, so a call that enters it after those rows left its context equals none
+    /// of them. `Some`: the count to store with the rows, when the header keeps a lower one.
+    fn calls_copied(&mut self, epoch: u64) -> Option<u64> {
+        let held = self.projected.header.get(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY).and_then(Value::as_u64).unwrap_or(0);
+        let count = self.call_epoch.fetch_max(epoch, SeqCst).max(epoch);
+        (count > held).then_some(count)
+    }
+
+    /// Rows left the model context, the calls among them: the header keeps a count no lower than the one any of them
+    /// entered at, so a call that enters after the next start is told apart from them as one that enters now is. The
+    /// count moves when a call may have entered at the one kept, and to what a run told ([`RunPort::call_epoch`]).
+    fn calls_left(&mut self, class: Class) {
+        use mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY;
+        let epoch = if std::mem::take(&mut self.calls_entered) { self.call_epoch.fetch_add(1, SeqCst) + 1 } else { self.call_epoch.load(SeqCst) };
+        if self.projected.header.get(CALL_EPOCH_KEY).and_then(Value::as_u64).unwrap_or(0) >= epoch {
+            return;
+        }
+        let mut set = serde_json::Map::new();
+        set.insert(CALL_EPOCH_KEY.into(), json!(epoch));
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
+        self.accept_record(meta, class, Display::None, Vec::new(), Vec::new());
+    }
+
+    /// Asks the producers what they still hold once the session's completion receipts have grown by a step: at its open
+    /// when it carries [`RECEIPTS_SHED_MIN`], and after every [`RECEIPTS_SHED_EVERY`] more, so a session that stays loaded for
+    /// days sheds too. One question is out at a time, every answer puts the next a step further (one that let go of
+    /// nothing too), and producers that never list in this process are asked once: no record a session accepts repeats a
+    /// question whose answer cannot have changed.
+    fn receipts_due(&mut self) {
+        if self.receipts_asked.is_some() || self.receipts_unlistable || self.recovering || self.deleting || self.tombstoned || self.uncreated {
+            return;
+        }
+        let held = mixdog_store::completion_receipts::count(&self.projected.header);
+        let due = self.receipts_shed_at.map_or(RECEIPTS_SHED_MIN, |at| at + RECEIPTS_SHED_EVERY);
+        if held < due {
+            return;
+        }
+        let Some(holders) = self.deps.completion_holders.bound() else { return };
+        self.receipts_asked = Some(mixdog_store::completion_receipts::ids(&self.projected.header).map(str::to_owned).collect());
+        let (inbox, id) = (self.ch.inbox.clone(), self.id.clone());
+        drop(tokio::spawn(async move {
+            let held = super::completion_holders::held_receipts(&*holders, &id).await;
+            if let Some(inbox) = inbox.upgrade() {
+                let _ = inbox.send(Inbox::CompletionsHeld(held)).await;
+            }
+        }));
+    }
+
+    /// The producers' answer: every receipt they were asked about and no longer hold leaves the header, as one header
+    /// change. A receipt recorded since the question stays, and so does that of a completion a user Stop made terminal
+    /// (`stoppedWork` consumes its redelivery through it).
+    fn receipts_listed(&mut self, held: super::completion_holders::Holding<std::collections::HashSet<String>>) {
+        use super::completion_holders::Holding;
+        let Some(asked) = self.receipts_asked.take() else { return };
+        let held = match held {
+            Holding::Held(held) if !(self.recovering || self.deleting || self.tombstoned) => held,
+            Holding::Never => {
+                self.receipts_unlistable = true;
+                return;
+            }
+            // Not listed this time: asked again once the receipts have grown by a step, not by the next record.
+            Holding::Held(_) | Holding::Later => {
+                self.receipts_shed_at = Some(mixdog_store::completion_receipts::count(&self.projected.header));
+                return;
+            }
+        };
+        let header = &self.projected.header;
+        let stopped = |qid: &str| mixdog_store::work_stops::stopped(&**header, &mixdog_store::work_stops::queued(qid)).is_some();
+        let gone: Vec<String> = mixdog_store::completion_receipts::ids(&**header)
+            .filter(|qid| asked.contains(*qid) && !held.contains(*qid) && !stopped(qid))
+            .map(str::to_owned)
+            .collect();
+        if !gone.is_empty() {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(mixdog_store::completion_receipts::shed(gone)) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
+        self.receipts_shed_at = Some(mixdog_store::completion_receipts::count(&self.projected.header));
     }
 
     fn follow_header_moves(&mut self, entry: u64, moves: &HeaderMoves, window_before: &(Option<Value>, Option<Value>)) {
@@ -2382,6 +2582,12 @@ impl SessionActor {
             }
             self.read_agent_status(false);
         }
+        // The workspace is shown again behind the record that moved the Project move: it shows the move only once that record
+        // is released, and nothing when its save fails.
+        if moves.project_move {
+            let workspace = self.projected.sections.workspace.clone();
+            self.accept_view_after(Some(entry), Change::Section(Section::Workspace(workspace)), Vec::new(), Vec::new());
+        }
         if moves.todo {
             let todo = mixdog_core_ports::ports::todo_list::snapshot_of(&self.projected.header);
             if self.projected.sections.todo != todo {
@@ -2404,7 +2610,7 @@ impl SessionActor {
         let Some(change) = change else { return };
         let meta = Arc::new(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change.clone()) }));
         self.projected.apply(&Change::Record { record: meta, display: Display::None }, None);
-        let unsaved = self.usage_unsaved.get_or_insert_with(|| HeaderChange { set: Default::default(), unset: Vec::new() });
+        let unsaved = self.usage_unsaved.get_or_insert_with(|| HeaderChange { set: Default::default(), unset: Vec::new(), patch: Default::default() });
         for key in change.unset {
             unsaved.set.shift_remove(&key);
             if !unsaved.unset.contains(&key) {
@@ -2463,8 +2669,16 @@ impl SessionActor {
     }
 
     /// [`Self::accept_view_with`] for a view that stands on the record `needs` accepted before it: it is released
-    /// after that record and dropped, failed, with it when the record cannot be encoded.
+    /// after that record and dropped, failed, with it when the record cannot be encoded. A workspace carries the header's
+    /// Project move as each state holds it: the projected header's here, the released header's when it is released
+    /// ([`Self::release`]).
     fn accept_view_after(&mut self, needs: Option<u64>, change: Change, notes: Vec<Note>, effects: Vec<Effect>) {
+        let change = match change {
+            Change::Section(Section::Workspace(workspace)) => {
+                Change::Section(Section::Workspace(super::thread_settings::with_project_move(workspace, &self.projected.header)))
+            }
+            change => change,
+        };
         self.projected.apply(&change, None);
         match needs {
             Some(needs) => self.outbox.push_after(needs, change, notes, effects),
@@ -2479,8 +2693,9 @@ impl SessionActor {
         let thread = self.id.clone();
         // The open turn's `completionVerb`, which its live rows carry.
         let verb = self.run.as_ref().map(|slot| slot.verb);
-        // What recovery commits of a crashed turn shows as a reopened history shows it, not as a live turn.
-        let live = !self.recovering;
+        // What recovery commits of a crashed turn shows as a reopened history shows it, not as a live turn; so does a
+        // display record, which is the row it shows.
+        let live = !self.recovering && !matches!(&*record, Record::Item(row) if row.form == Form::Display);
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let abort_ended = self.abort_ended.clone();
         let at = self.deps.clock.now_ms();
@@ -2566,6 +2781,7 @@ impl SessionActor {
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
             }
             JobDone::Archived(ordinals) => self.show_archived(ordinals),
+            JobDone::UnitsRead(read) => self.units_read(*read),
             JobDone::PromptFlushed { list, unwritten } => {
                 if let Some(list) = list {
                     let list = self.redacted_prompts(&list);
@@ -2677,6 +2893,7 @@ impl SessionActor {
                 self.try_unload();
             }
             JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
+            JobDone::ProjectMoved(result) => self.project_moved(result),
             JobDone::ClearSettled => {
                 self.clear_holds = self.clear_holds.saturating_sub(1);
                 if self.clear_holds == 0 && !self.deleting {
@@ -2694,13 +2911,13 @@ impl SessionActor {
             JobDone::PruneOffloads(told) => self.prune_offloads(told),
             JobDone::PruneListed(..) => unreachable!("the run loop awaits it"),
             JobDone::QuotaUnresumable(turn) => {
-                let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
-                self.show_live(turn, item, None);
+                self.notice(Some(&turn), super::quota_lane::UNRESUMABLE, "warn");
             }
             JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
             JobDone::ContextStatus(pass, status) => self.context_display(pass, &status),
             JobDone::RouteStatus { seq, status } => self.route_status_read(seq, status),
             JobDone::LiveWorkspace(read, workspace) => {
+                let workspace = super::thread_settings::with_project_move(workspace, &self.projected.header);
                 if read == self.live_workspace_reads && !self.tombstoned && !self.cell.closed.load(SeqCst) && self.projected.sections.workspace != workspace {
                     self.accept_view(Change::Section(Section::Workspace(workspace)), Vec::new());
                 }
@@ -2870,6 +3087,8 @@ impl SessionActor {
         }
         let (notes, header_moved) = self.release_ready();
         self.publish_released(notes, header_moved);
+        self.begin_due_move();
+        self.follow_move_hold();
         if !self.starts_gated() {
             if let Some(start) = self.deferred_start.take() {
                 self.start_run_with(start);
@@ -2913,6 +3132,12 @@ impl SessionActor {
                 Ready::Release(entry, ordinal) => header_moved |= self.release(entry, ordinal, &mut notes),
                 Ready::Show(entry) => header_moved |= self.release(entry, None, &mut notes),
                 Ready::Settle(entry, ordinal) => self.settle(entry, ordinal),
+            }
+            // A history change is out, and the grants rebased ([`Self::publish_notes`]), before anything released after
+            // it: no frame of the new lineage is delivered by a grant of the old one.
+            if self.rebase_cut.is_some() {
+                fold_room_view(&mut notes);
+                self.publish(std::mem::take(&mut notes));
             }
         }
         self.releasing = false;
@@ -2959,6 +3184,9 @@ impl SessionActor {
         if entry.shown && archives_rows(&entry.change, ordinal) {
             self.mark_archived();
         }
+        if ordinal.is_some() {
+            self.stored(&entry.change);
+        }
         for effect in entry.effects {
             self.effect_done(effect);
         }
@@ -2995,7 +3223,13 @@ impl SessionActor {
     /// Applies a released entry to the acked state; `true` when it changed the stored header. The view (`thread/read`, a
     /// snapshot's summary) is published then even when no note carries the change: Node's rows read the live session
     /// (`session-catalog.mjs`), as after a compaction that shows nothing live.
-    fn release(&mut self, entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) -> bool {
+    fn release(&mut self, mut entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) -> bool {
+        let first_note = notes.len();
+        // The workspace shown carries the Project move of the header as released, whatever was accepted since it was read: a
+        // move whose record is not released, or whose save failed, is never shown.
+        if let Change::Section(Section::Workspace(workspace)) = &mut entry.change {
+            *workspace = super::thread_settings::with_project_move(workspace.take(), &self.acked.header);
+        }
         let title = self.acked.sections.title.clone();
         let prompts = self.acked.prompt_history.clone();
         let queue_rows = self.acked.queued_rows();
@@ -3009,6 +3243,14 @@ impl SessionActor {
                 "item/completed",
                 &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: item.clone(), room_view: None },
             ));
+        }
+        let header_before = self.acked.header.clone();
+        if let Change::Record { record, .. } = &entry.change
+            && let Record::Rewind(rewind) = &**record
+        {
+            self.rebase_cut = Some(self.rebase_cut.map_or(rewind.to_ordinal, |cut| cut.min(rewind.to_ordinal)));
+            // The stored tail a positioned snapshot carries ends where the history now ends.
+            self.tail.retain(|unit| unit.ordinal < rewind.to_ordinal);
         }
         self.acked.apply(&entry.change, ordinal);
         // A room member's handed-off questions moved: its room is published again once this view
@@ -3037,9 +3279,24 @@ impl SessionActor {
             self.refresh_surface();
             // `sessionRecords.onChange`: this session's stored record changed.
             self.deps.agent_signals.session_record(self.id.as_str());
+        } else if !Arc::ptr_eq(&header_before, &self.acked.header) {
+            // A fold of its own changed the header (a completion's receipt, a Stop's `stoppedWork` and `owedStops`): the cell
+            // is the acked header for its readers, and would otherwise keep the map from before for good.
+            self.publish_live_header();
         }
         notes.extend(entry.notes);
         self.tell_visible_items(&entry.change, notes);
+        // A note that tells a record's rows is, for a positioned subscription, the feed moving on and no row: the record
+        // reaches it as the unit a page of it reads, once stored and by its grant alone ([`Self::stored`]).
+        if matches!(&entry.change, Change::Record { .. } | Change::EarlyResult { .. } | Change::Archived(_) | Change::Detail { .. } | Change::Card(_)) {
+            let lineage = self.acked.history_rev;
+            for note in notes[first_note..].iter_mut().filter(|note| note.method == "item/completed") {
+                *note = note.clone().of_record(lineage, &self.id, &TurnId::from(""));
+            }
+        }
+        if ordinal.is_some() {
+            self.stored(&entry.change);
+        }
         self.derived_notes(&entry.change, &title, &queue_rows, notes);
         // The list is replaced whole when an entry moves it: the same list is no change, with nothing compared.
         if !Arc::ptr_eq(&prompts, &self.acked.prompt_history)
@@ -3280,6 +3537,7 @@ impl SessionActor {
         for change in self.outbox.changes() {
             projected.apply(change, None);
         }
+        projected.sections.workspace = super::thread_settings::with_project_move(projected.sections.workspace.take(), &projected.header);
         self.projected = projected;
     }
 
@@ -3359,7 +3617,7 @@ impl SessionActor {
             .enumerate()
             .map(|(i, note)| {
                 let seq = start + i as u64;
-                FeedFrame { seq, bytes: frame(note, &self.feed_id, &self.epoch, seq) }
+                super::frames::feed_frame(note, &self.feed_id, &self.epoch, seq)
             })
             .collect();
         self.seq += frames.len() as u64;
@@ -3380,6 +3638,10 @@ impl SessionActor {
             self.cell.view.store(view);
             self.deferred_frames = 0;
             self.view_built_ms = now;
+            // The history change is out: no frame of the new lineage is delivered by a grant of the old one.
+            if let Some(cut) = self.rebase_cut.take() {
+                self.rebase_grants(cut);
+            }
         }
         let resolved = std::mem::take(&mut self.room_approvals_resolved);
         let moved = std::mem::take(&mut self.room_questions_moved);
@@ -3393,6 +3655,49 @@ impl SessionActor {
         }
     }
 
+    /// After a rewind or a clear that removed the records from `cut` on: each positioned subscription keeps what it held
+    /// below `cut` in the new lineage. A range cut through ends where the transcript now ends; one wholly removed is
+    /// retired; a followed tail follows on from `cut`, the removed rows' surviving predecessor or the new start.
+    fn rebase_grants(&self, cut: u64) {
+        let lineage = self.acked.history_rev;
+        self.feed.rebase(&mut |sub, held, version, at| {
+            if held.lineage == lineage {
+                return None;
+            }
+            let mut removed = Vec::new();
+            let mut ranges = Vec::new();
+            for range in &held.ranges {
+                if range.first >= cut {
+                    removed.push(range.id.to_string());
+                    continue;
+                }
+                let mut kept = range.clone();
+                if kept.last >= cut {
+                    kept.last = cut - 1;
+                    kept.newer = None;
+                    // The record the range now ends at is not known here: a read of it starts over from its first.
+                    kept.to = kept.from.clone();
+                }
+                ranges.push(kept);
+            }
+            let tail_from = held.tail_from.map(|from| from.min(cut));
+            let params = mixdog_app_protocol::v2::thread::ThreadWindowChangedParams {
+                thread_id: self.id.clone(),
+                subscription_id: mixdog_protocol::SubscriptionId::from(sub.as_str()),
+                request_id: None,
+                window_version: version,
+                lineage,
+                at_feed_position: mixdog_app_protocol::v2::feed::FeedPosition { epoch: at.epoch.clone(), seq: at.seq },
+                ranges: super::window::wire_ranges(&ranges),
+                removed,
+                added: Vec::new(),
+                follow_tail: tail_from.is_some(),
+            };
+            let told = super::frames::frame(&Note::new(super::window::WINDOW_CHANGED, &params), &self.feed_id, &at.epoch, at.seq);
+            Some((mixdog_core_api::feed::GrantAsk { lineage, ranges, tail_from }, told))
+        });
+    }
+
     fn view(&self) -> SessionView {
         let mut view = SessionView::build(
             self.feed_id.clone(),
@@ -3401,6 +3706,8 @@ impl SessionActor {
             self.storage(),
             None,
         );
+        view.tail =
+            super::view::StoredTail { units: self.tail.as_slice().into(), older: self.tail_older, next: self.tail_next, budget: self.feed.frame_budget() };
         if self.runtime_held.load(SeqCst)
             && let Some(runtime) = view.state.runtime.as_mut()
         {
@@ -3466,13 +3773,13 @@ impl SessionActor {
         self.save_risk.acked(&ordinals);
         for &(id, ordinal) in &ordinals {
             self.outbox.acked(id, ordinal);
-            if let Some((rid, result)) = self.draft_results.remove(&id) {
+            if let Some((rid, call)) = self.draft_results.remove(&id) {
                 let journal = match self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
                     Some(run) => Some(&mut run.journal),
                     None => self.ended_drafts.get_mut(&rid).map(|(journal, _)| journal),
                 };
                 if let Some(journal) = journal {
-                    journal.result_landed(result);
+                    journal.result_landed(&call);
                 }
             }
         }
@@ -3773,6 +4080,10 @@ impl SessionActor {
     /// to a busy lane; `done(Err)` names the lane when the job can never run.
     fn with_facts(&self, body: Value, done: impl FnOnce(Result<(Value, RowFacts), CoreError>) -> JobDone + Send + 'static) {
         let (store, jobs) = (self.deps.attachments.clone(), self.jobs_tx.clone());
+        // The card a completion's row names stands for it while its record is in the history. One in view is; one that
+        // left the view is looked for among the stored records, and a row whose card is gone shows itself.
+        let card = body.pointer(CARD_ID).and_then(Value::as_str).filter(|card| !self.projected.window.iter().any(|row| row.item.id().as_str() == *card));
+        let unseen = card.map(|card| (card.to_owned(), self.deps.store.clone(), self.id.clone()));
         mixdog_core_base::support::lane_job(
             self.deps.lanes.io,
             "row-facts",
@@ -3781,6 +4092,13 @@ impl SessionActor {
             move |lane| {
                 let mut body = body;
                 let facts = store.facts(lane, &mut body);
+                if let Some((card, records, thread)) = unseen
+                    && !matches!(records.history_row(lane, &thread, &card), Ok(Some(_)))
+                    && let Some(transcript) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut)
+                {
+                    transcript.shift_remove("cardId");
+                    transcript.insert("cardCut".into(), Value::Bool(true));
+                }
                 (body, facts)
             },
             move |read| drop(jobs.send(done(read))),
@@ -3816,7 +4134,13 @@ impl SessionActor {
         {
             active.unsaved_messages.fetch_add(1, SeqCst);
         }
-        let answers = (item.role.as_deref() == Some("tool")).then(|| item.body.get("toolCallId").and_then(Value::as_str).map(str::to_owned)).flatten();
+        // The row of a call whose result the draft holds, whoever commits it (the call-order commit, a rerun that settled
+        // first, a stopped turn's finalization): the draft gives the result up once this row is on disk.
+        let drafted = (item.role.as_deref() == Some("tool"))
+            .then(|| item.body.get("toolCallId").and_then(Value::as_str))
+            .flatten()
+            .filter(|call| self.run.as_ref().is_some_and(|run| run.turn.as_str() == turn.as_str() && run.journal.holds_result(call)))
+            .map(str::to_owned);
         match self.item_record(&turn, item, facts, None) {
             Ok(record) => {
                 if let (Record::Item(row), Some(run)) = (&record, self.run.as_mut())
@@ -3825,10 +4149,8 @@ impl SessionActor {
                     run.last_model = Some(row.clone());
                 }
                 let entry = self.accept_record_entry(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
-                if let Some(call) = answers
-                    && let Some(result) = self.run.as_mut().filter(|run| run.turn.as_str() == turn.as_str()).and_then(|run| run.journal.claim_result(&call))
-                {
-                    self.draft_results.insert(entry, (turn.as_str().to_owned(), result));
+                if let Some(call) = drafted {
+                    self.draft_results.insert(entry, (turn.as_str().to_owned(), call));
                 }
             }
             Err(_) => {
@@ -3843,13 +4165,16 @@ impl SessionActor {
         self.turn_held() || self.turn_pending()
     }
 
+    /// A Project move being carried out holds an admitted start; one only recorded does not: the move waits for the start
+    /// ([`Self::begin_due_move`]), and a prompt sent while it is recorded queues ([`Self::drain_gated`]).
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0
+        self.turn_unsettled() || self.compaction_held() || self.idle_clearing || self.clear_holds > 0 || self.carrying()
     }
 
     fn drain_gated(&self) -> bool {
         // A manual compaction holds the queue too (`commandBusy`, `drain.mjs` `mayStartDrain`); a turn already admitted goes on.
-        self.starts_gated() || self.compactions > 0 || self.core_hold() != StartHold::Open
+        // So does a Project move, recorded or under way: what queued behind it runs where the session is wanted.
+        self.starts_gated() || self.move_held() || self.compactions > 0 || self.core_hold() != StartHold::Open
     }
 
     /// The core's hold on new turn starts as it reads now.
@@ -3857,16 +4182,17 @@ impl SessionActor {
         *self.start_hold.borrow()
     }
 
-    /// A turn runs, is starting or is settling: what Node's ask lock is held for.
+    /// A turn runs, is starting or is settling: what Node's ask lock is held for. A Project move being carried out holds the
+    /// session the same way: a prompt sent meanwhile queues behind it.
     fn turn_held(&self) -> bool {
-        self.run.is_some() || self.starting || self.settling || self.deferred_start.is_some()
+        self.run.is_some() || self.starting || self.settling || self.deferred_start.is_some() || self.carrying()
     }
 
     /// What Node's ask lock is held for: [`Self::turn_held`] but for a completion wake, which Node
     /// runs only for its current session (`notification-bus.mjs:50`); the idle delete still
     /// refuses such a run as `busy` from the run itself.
     fn ask_lock_held(&self) -> bool {
-        self.run.as_ref().is_some_and(|run| !run.wake) || self.starting || self.settling
+        self.run.as_ref().is_some_and(|run| !run.wake) || self.starting || self.settling || self.carrying()
     }
 
     /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
@@ -3876,9 +4202,10 @@ impl SessionActor {
     }
 
     /// Node's `state.busy`: set when `runTurn` begins, cleared when the turn closes, before its
-    /// Goal settlement (`publishTurnClose`).
+    /// Goal settlement (`publishTurnClose`). A Project move being carried out counts as one: what a running turn refuses or
+    /// puts off (a compaction, a rewind, a clear) it does too.
     fn ui_busy(&self) -> bool {
-        self.run.is_some() || self.starting || self.ask_marked()
+        self.run.is_some() || self.starting || self.carrying() || self.ask_marked()
     }
 
     #[cfg(test)]
@@ -3906,7 +4233,7 @@ impl SessionActor {
             set.insert("providerCacheOpts".into(), opts);
         }
         if !set.is_empty() {
-            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }));
+            self.accept_header(Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
         }
     }
 
@@ -4147,7 +4474,7 @@ impl SessionActor {
         self.accept_view(Change::Section(Section::Context(context)), Vec::new());
     }
 
-    /// A run's live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
+    /// A run's notice, live-only line or notification (`RunPort::notice`, `usage`, `compact_event`).
     fn run_shown(&mut self, turn: TurnId, shown: RunShown) {
         match shown {
             RunShown::Notice { text, tone } => {
@@ -4155,8 +4482,7 @@ impl SessionActor {
                 if text.is_empty() {
                     return;
                 }
-                let item = super::transcript::notice_item(&new_id(), turn.as_str(), &text, tone.as_str());
-                self.show_live(turn, item, None);
+                self.notice(Some(&turn), &text, tone.as_str());
             }
             RunShown::Reasoning(item) => self.show_live(turn, item, None),
             RunShown::TextSettled(item) => {
@@ -4415,7 +4741,9 @@ impl SessionActor {
         if let Some(execution) = body.pointer("/meta/execution/id").and_then(Value::as_str)
             && self.suppressed.remove(execution)
         {
-            return Display::Suppressed;
+            // A card the history no longer holds stands for nothing: the row shows.
+            let cut = body.pointer("/meta/transcript/cardCut") == Some(&Value::Bool(true));
+            return if cut { Display::None } else { Display::Suppressed };
         }
         // The queue ids a steered row took in: it shows nothing when every one was queued for the
         // model alone.
@@ -4427,7 +4755,7 @@ impl SessionActor {
     /// The row of a run's commit. `facts`: the classification migration writes too, read from the
     /// body ([`Self::with_facts`]).
     fn item_record(&self, turn: &TurnId, mut item: ItemCommit, facts: RowFacts, op: Option<OpRef>) -> Result<Record, CoreError> {
-        let (visible, prompt) = (item.visible && facts.visible, item.prompt.take().or(facts.prompt));
+        let (visible, prompt) = (item.visible && facts.visible && !self.card_stands(&item.body), item.prompt.take().or(facts.prompt));
         Ok(Record::Item(ItemRecord {
             iid: text(item.iid.as_str(), "itemId")?,
             turn: Some(text(turn.as_str(), "turnId")?),
@@ -4529,6 +4857,7 @@ impl SessionActor {
                 self.task_notification(&surface, task_id, status, text, origin, hop, live, durable)
             }
             Inbox::AgentActivity { named } => self.agent_activity(named),
+            Inbox::CompletionsHeld(held) => self.receipts_listed(held),
             Inbox::SensitiveCarried => {
                 self.redact_prompts();
                 // The log now (a queued batch rewrites it before it appends anyway); the search rows once what is
@@ -4559,8 +4888,8 @@ impl SessionActor {
                     let _ = tx.send(self.fork_plan(idle));
                 }
             }
-            Inbox::RewindPreview { item, tx } => {
-                let _ = tx.send(self.rewind_preview(&item));
+            Inbox::RewindRevision { tx } => {
+                let _ = tx.send(self.history_revision(true));
             }
             Inbox::CheckedHistory { req, revision, tx } => {
                 let checked = self.history_revision(true).and_then(|actual| if actual == revision { Ok(()) } else { Err(history_conflict()) });
@@ -4595,6 +4924,8 @@ impl SessionActor {
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
             }
+            Inbox::WindowDemand { params, cancel, tx } => self.unit_job(units::UnitJob::Demand(Box::new(units::WindowAsk { params, cancel, tx }))),
+            Inbox::TailReady { tx } => self.tail_ready(tx),
             Inbox::QuotaCancelled { tx } => {
                 self.quota_cancel_now();
                 let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
@@ -4609,6 +4940,7 @@ impl SessionActor {
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
+            Inbox::ProjectMove { target, projects, tx } => self.project_move(target, projects, tx),
             // Awaited by the run loop, which handles it before this match.
             Inbox::UpdateHeaderAwaiting { .. } => unreachable!("the run loop awaits it"),
             #[cfg(any(test, feature = "test-support"))]
@@ -4661,32 +4993,79 @@ impl SessionActor {
         }
     }
 
-    /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the
-    /// completion's live card, a new item or the last inbound agent card extended. The card is
-    /// view state: no record, so a reopen shows the completion where its turn took it in.
+    /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the completion's card, a new row or
+    /// the last inbound agent card extended. The card is a record of its own from the moment it shows (a display record,
+    /// amended when a later completion extends it), so it is one occurrence where it showed, live and reopened; the
+    /// completion's queued copy names it, and the row its turn stores shows nothing beside it.
     fn completion_card(&mut self, content: &str, meta: &Value) {
         let Some(card) = self.cards.admit(content, meta) else { return };
+        let shown = if card { self.store_card(content, meta) } else { None };
         // The listener queues this completion's model copy itself, with no row of its own
         // (`suppressDisplay`): its card (or the earlier one it would duplicate) stands for it.
         if let Some(execution) = meta.get("execution_id").and_then(Value::as_str).filter(|e| !e.is_empty()) {
-            self.listened.insert(execution.to_owned());
+            self.listened.insert(execution.to_owned(), shown);
         }
-        if !card {
-            return;
-        }
+    }
+
+    /// The card of a completion, stored: its id.
+    fn store_card(&mut self, content: &str, meta: &Value) -> Option<String> {
         let previous = match self.projected.live.last() {
             Some(live) => Some(live.item.clone()),
             None => self.projected.window.back().map(|row| (*row.item).clone()),
         };
         let completion = super::transcript::Completion { content, meta };
         let id = new_id();
-        let Some(delivery) = super::transcript::agent_response(&completion, &id, previous.as_ref(), self.deps.clock.now_ms()) else {
-            return;
-        };
-        let (super::transcript::Delivery::Push(card) | super::transcript::Delivery::Patch(card)) = delivery;
+        let (row, extends) = super::transcript::agent_response_row(&completion, &id, previous.as_ref(), self.deps.clock.now_ms())?;
+        if !extends {
+            self.show_stored(None, &id, Value::Object(row))?;
+            return Some(id);
+        }
+        // The card extended is a record: its body is amended, and the row in view is replaced where it stands.
+        let id = row.get("id").and_then(Value::as_str)?.to_owned();
+        let iid = text(&id, "itemId").ok()?;
+        let mut card = super::transcript::row_item(row.clone(), &super::transcript::RowCtx { turn: None, message: None, counts_prompt: false, source: None });
+        super::reads::mark_history_position(&mut card, &id, 0);
         let note =
             Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: TurnId::from(""), item: card.clone(), room_view: None });
-        self.accept_view(Change::Card(card), vec![note]);
+        let amend = Record::Amend(AmendRecord { iid, op: None, refs: Vec::new().try_into().expect("empty list fits"), body: Slot::Inline(Value::Object(row)) });
+        let entry = self.accept_record_entry(amend, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.accept_view_after(Some(entry), Change::Card(card), vec![note], Vec::new());
+        Some(id)
+    }
+
+    /// A row the transcript keeps that is no message of the conversation (a notice, a completion's card): a display
+    /// record of its own, shown as it is stored, which a reopen reads back where it stands. Its outbox entry.
+    fn show_stored(&mut self, turn: Option<&TurnId>, id: &str, row: Value) -> Option<u64> {
+        let record = ItemRecord {
+            iid: text(id, "itemId").ok()?,
+            turn: turn.map(|turn| text(turn.as_str(), "turnId")).transpose().ok()?,
+            role: None,
+            form: Form::Display,
+            model: false,
+            visible: true,
+            archive: None,
+            op: None,
+            prompt: None,
+            refs: Vec::new().try_into().expect("empty list fits"),
+            body: Slot::Inline(row),
+        };
+        let Slot::Inline(body) = &record.body else { return None };
+        let shown = super::transcript::display_item(&record, body).map(Shown::Item).into_iter().collect();
+        Some(self.accept_record_entry(Record::Item(record), Class::Normal, Display::Items(shown), Vec::new(), Vec::new()))
+    }
+
+    /// A notice the user reads in the transcript (`pushNotice(text, tone, {transcript: true})`): `{kind: 'notice', id,
+    /// text, tone}`, stored, of `turn` when a turn says it; `text` is already polished. Its row's id.
+    fn notice(&mut self, turn: Option<&TurnId>, text: &str, tone: &str) -> Option<String> {
+        let id = new_id();
+        self.show_stored(turn, &id, json!({ "kind": "notice", "id": id, "text": text, "tone": tone }))?;
+        Some(id)
+    }
+
+    /// Whether a card stands for the completion's row `body`: the row then shows nothing. The row names the card for as
+    /// long as its record is in the history ([`Self::with_facts`]).
+    fn card_stands(&self, body: &Value) -> bool {
+        body.pointer(CARD_ID).is_some_and(Value::is_string)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4725,15 +5104,21 @@ impl SessionActor {
         };
         let acks = |durable: Option<oneshot::Sender<Result<(), RunError>>>| durable.map(Effect::ItemAck).into_iter().collect::<Vec<_>>();
         // Queued by the listener that showed it (`execution-delivery.mjs` `suppressDisplay`).
-        if self.listened.remove(&task_id) {
+        if let Some(card) = self.listened.remove(&task_id) {
             entry["suppressDisplay"] = Value::Bool(true);
+            if let Some(card) = card {
+                entry["cardId"] = Value::String(card);
+            }
         }
         // A receipt can be projected by a result released unsaved. A durable marker must
         // follow that result: unlike a view barrier it cannot pass held records, and its
         // MarkAck fails rather than reporting an unsaved receipt as consumed.
         if mixdog_store::completion_receipts::contains(&self.projected.header, &qid) {
             if let Some(durable) = durable {
-                let marker = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set: Default::default(), unset: Vec::new() }) });
+                let marker = Record::Meta(MetaRecord {
+                    op: None,
+                    change: Slot::Inline(HeaderChange { set: Default::default(), unset: Vec::new(), patch: Default::default() }),
+                });
                 self.accept_record(marker, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(durable)]);
             }
             return;
@@ -4995,7 +5380,7 @@ impl SessionActor {
             self.transcript_rewritten = false;
             let mut set = serde_json::Map::new();
             set.insert("transcriptEpoch".into(), json!(new_id()));
-            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
     }
@@ -5107,7 +5492,8 @@ impl SessionActor {
         };
         let (row_effects, answer): (Vec<Effect>, _) = if hidden { (answer.into_iter().collect(), None) } else { (Vec::new(), answer) };
         let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
-        let input_row = input_row((&input_iid, &turn), op_ref, body, facts, &input, submitter.is_some(), hidden);
+        let mut input_row = input_row((&input_iid, &turn), op_ref, body, facts, &input, submitter.is_some(), hidden);
+        input_row.visible &= !self.card_stands(&input_body);
         let last_model = Some(input_row.clone());
         // `applyTurnContextMeta`: the turn starts with the window figures the live provider's rows give the model now.
         let window = self.deps.route_change.turn_window(&self.projected.header);
@@ -5253,6 +5639,7 @@ impl SessionActor {
             cancel: token.clone(),
             ctl: self.cell.ctl_tx.clone(),
             provider: self.acked.header.get(PROVIDER_STATE).and_then(|state| serde_json::from_value(state.clone()).ok()),
+            call_epoch: self.call_epoch.clone(),
             meters: self.deps.compaction.clone(),
             meters_provider: {
                 let cell = self.cell.clone();

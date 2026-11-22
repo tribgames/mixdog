@@ -1,16 +1,16 @@
--- index/store.sqlite, user_version 19: catalog + history projection + submission receipts.
--- Bump user_version with every change to this file. An index of another version is rebuilt from the logs today.
--- 19 is the first released version, so the change that makes 20 must ship with a delta that brings a version 19
--- index to it in place (as state_v2_delta.sql does for the core state): a rebuild reads every log and holds the
--- start for as long. A rebuild then stays for an index no delta reaches (a dev build's, a damaged one, a change
--- whose rows must be derived again).
+-- index/store.sqlite, user_version 20: catalog + history projection + submission receipts.
+-- Bump user_version with every change to this file. 18 is the first released version, and every step from it ships
+-- with its own in-place step (18 to 19: `sqlite.rs` `upgrade_from_18`; 19 to 20: `upgrade_from_19`, the
+-- `history_turn` index) unless it changes what the logs are projected
+-- into: a rebuild reads every log, and on a long-used data directory it took minutes. A rebuild stays for an index no
+-- step reaches (a dev build's, a damaged one, a change whose rows must be derived again).
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
 -- Connection settings (not stored here): journal_mode=WAL, synchronous=FULL,
 -- wal_autocheckpoint=0, busy_timeout=0, foreign_keys=OFF.
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 19;
+PRAGMA user_version = 20;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -212,6 +212,9 @@ CREATE TABLE history (
 CREATE INDEX history_iid ON history(session, iid);
 CREATE INDEX history_page ON history(session, ordinal) WHERE visible = 1 AND superseded_rev IS NULL;
 CREATE INDEX history_model ON history(session, ordinal) WHERE model = 1 AND superseded_rev IS NULL;
+-- The model messages of one turn, wherever in the log they lie: a page that shows a turn's end without all of its
+-- messages asks for them by the turn (`sqlite.rs` `turn_messages_on`). The same index as `HISTORY_TURN_INDEX` there.
+CREATE INDEX history_turn ON history(session, turn, ordinal) WHERE model = 1;
 
 -- The ids besides `iid` by which a client names a row of the item at `ordinal`: a user row's submission id, a display row's
 -- own id. A cursor names a row by such an id, so finding it is a lookup, not a scan of the history. Whether the row is live

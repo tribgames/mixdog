@@ -26,7 +26,7 @@ pub trait RouteFacts: Send + Sync {
     /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected for the header on the session's actor, before the
     /// change ran. Nothing by default (facts that rebuild no surface).
     fn surface_change(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> HeaderChange {
-        HeaderChange { set: Map::new(), unset: Vec::new() }
+        HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
     }
 
     /// The skill list the surface is resolved from, collected now (Node collects it inside the call):
@@ -265,7 +265,7 @@ impl RouteChange for RunHostRouteChange {
     }
 
     fn turn_window(&self, header: &Header) -> HeaderChange {
-        let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+        let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
         let (provider, model) = (text(header.get("provider")), text(header.get("model")));
         // The window is derived only while the route names a model the facts know; no row keeps what the session holds.
         if provider.is_empty() || model.is_empty() || self.facts.context_meta(provider, model, &Value::Null).is_none() {
@@ -293,7 +293,7 @@ impl RouteChange for RunHostRouteChange {
         let none: SurfaceLookup = None;
         let lookup = lookups.downcast_ref::<SurfaceLookup>().unwrap_or(&none);
         let route_changed = route_changed(route, previous);
-        let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+        let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
         self.context_window(header, route, route_changed, &mut change);
         if route_changed {
             self.reset(header, previous, lookup, &mut change);

@@ -9,6 +9,7 @@ use mixdog_protocol::PromptContent;
 use mixdog_protocol::QueuedId;
 use mixdog_protocol::QuotaResume;
 use mixdog_protocol::SubmitOptions;
+use mixdog_protocol::SubscriptionId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ThreadItem;
 use mixdog_protocol::ThreadStatus;
@@ -19,6 +20,7 @@ use mixdog_protocol::TurnId;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::feed::FeedPosition;
 use super::feed::ResumeWindow;
 use super::feed::Subscription;
 use super::feed::ThreadResumePosition;
@@ -265,6 +267,11 @@ pub struct ThreadResumeParams {
     pub window: ResumeWindow,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_from: Option<ThreadResumePosition>,
+    /// `true`: the positioned projection. The subscription holds ranges of the transcript, first the newest rows
+    /// `window` asks for with what the running turn depends on, changed with `thread/window/set`; transcript events
+    /// reach it as `thread/transcript/changed`. Absent or `false`: the feed as it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub positioned_window: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -837,6 +844,37 @@ pub struct ThreadSnapshotParams {
     pub state: ThreadState,
     pub items: Vec<ThreadItem>,
     pub has_older: bool,
+    /// On the snapshot of a positioned subscription: the ranges it holds from this snapshot on. `items` are then the
+    /// rows no record holds (the running turn's in-progress items and live-only rows), every one of them whatever the
+    /// window asked for, and the stored records are in `window.added`. A record shown and not yet stored is in
+    /// neither: it arrives as its unit once it is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<SnapshotWindow>,
+}
+
+/// The grant a positioned snapshot installs. Its `windowVersion` is at least the snapshot's feed seq and above every
+/// version the subscription held before: a subscription's window version never repeats.
+///
+/// It is the whole truth from the snapshot on, on a first attach, a reconnect and a lag recovery alike: every range
+/// id from before is void and every row held under one is dropped, whatever the subscription had asked for. The
+/// core keeps no demand across a snapshot; a client that still wants an older range asks again with
+/// `thread/window/set` from this `windowVersion`, and until `thread/window/changed` grants it no change in that range
+/// reaches it.
+///
+/// `ranges` names `tail` when the snapshot carries stored records, and `added` holds exactly those: the newest stored
+/// records, whole, as a page of them reads. With `followTail` and no range, the first record the subscription is sent
+/// makes the range `tail`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotWindow {
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub window_version: u64,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub lineage: u64,
+    pub ranges: Vec<WindowRange>,
+    pub added: Vec<WindowAdded>,
+    pub follow_tail: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -918,6 +956,223 @@ pub struct ItemNotificationParams {
 /// A field that is present, `null` included, reads as `Some(..)`: with `default`, only an absent one reads `None`.
 fn present_or_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Option<T>, D::Error> {
     T::deserialize(deserializer).map(Some)
+}
+
+/// One stored record's rows in the positioned projection, as a page of the record reads: they travel together, oldest
+/// first, with the results of the calls they opened, the archived mark, and the dividers that follow the record on its
+/// last row (`meta.ext.dividersAfter`). Wherever a unit is sent (a snapshot, a range, a change) it is this one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptUnit {
+    /// The occurrence: opaque, of one lineage of this thread, the one position its record has, and a
+    /// `thread/items/list` cursor in either direction.
+    pub position: String,
+    pub items: Vec<ThreadItem>,
+}
+
+/// What a positioned transcript change does to the rows a subscription holds. There is no "replace, or append when
+/// missing": a subscription that does not hold `position` is sent no change at all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum TranscriptChange {
+    /// A record new to the followed tail: it joins the range `tail` at its newer end. `after` is the position of the
+    /// stored record before it (absent: none is known).
+    #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "codegen", ts(optional_fields))]
+    Insert {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+        unit: TranscriptUnit,
+    },
+    /// The occurrence `unit.position`, whole, as it reads now.
+    Replace {
+        unit: TranscriptUnit,
+    },
+    Remove {
+        position: String,
+    },
+}
+
+/// `thread/transcript/changed`: a transcript event of the positioned projection, in one of two forms.
+///
+/// Without `change` it is a feed frame with a seq of its own: the place of a frame that tells every other
+/// subscription a record's rows, with whatever that frame carries beside the transcript. It never carries a row.
+///
+/// With `change` it is a stored record's unit, sent to the subscriptions whose grants hold the record and to no
+/// other, once the record is stored and whenever it then reads differently. It takes no seq of its own: it stands at
+/// `atFeedPosition`, as `thread/window/changed` does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadTranscriptChangedParams {
+    pub thread_id: ThreadId,
+    /// The lineage the change belongs to; ranges of another one do not hold it.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub lineage: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<TranscriptChange>,
+    /// Present with `change`: the feed position the change stands at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_feed_position: Option<crate::v2::feed::FeedPosition>,
+    /// As on `item/completed`.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present_or_null")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "ThreadRoomView | null"))]
+    pub room_view: Option<Option<ThreadRoomView>>,
+}
+
+/// One end of a granted range.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WindowEdge {
+    /// More rows lie beyond: `position` continues the range, read on from it or back from it.
+    Continuation { position: String },
+    /// The transcript ends here.
+    End,
+}
+
+/// A range of the transcript a subscription holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct WindowRange {
+    /// Names the range across window versions for as long as it is held.
+    pub id: String,
+    pub older: WindowEdge,
+    pub newer: WindowEdge,
+}
+
+/// A range the client wants held.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "at", rename_all = "camelCase")]
+pub enum WindowRangeWant {
+    /// A range it holds, kept as it is.
+    Retain { id: String },
+    /// `position`'s record and up to `rows` rows older than it.
+    Before { position: String, rows: u32 },
+    /// `position`'s record and up to `rows` rows newer than it.
+    After { position: String, rows: u32 },
+    /// `position`'s record with up to `before` rows older and `after` rows newer.
+    Around { position: String, before: u32, after: u32 },
+}
+
+/// What a subscription wants to hold: demand, which the core grants in `thread/window/changed`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct WindowWant {
+    #[serde(default)]
+    pub ranges: Vec<WindowRangeWant>,
+    /// Hold the newest rows and every row that arrives.
+    #[serde(default)]
+    pub follow_tail: bool,
+    /// Occurrences held wherever the ranges are (an open card, a prompt being edited).
+    #[serde(default)]
+    pub pinned: Vec<String>,
+}
+
+/// `thread/window/set`. A range held and not named in `want` is released. The call returning grants nothing and
+/// releases nothing: rows are dropped when `thread/window/changed` says so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadWindowSetParams {
+    pub thread_id: ThreadId,
+    pub subscription_id: SubscriptionId,
+    /// The `windowVersion` whose ranges `want` was made from; another version standing refuses the call.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub base_window_version: u64,
+    pub request_id: String,
+    pub want: WindowWant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadWindowSetResponse {
+    pub request_id: String,
+}
+
+/// The contents of a range newly held, or of the part of one newly held.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct WindowAdded {
+    /// The [`WindowRange::id`] the units belong to.
+    pub range: String,
+    /// Oldest first, as of `atFeedPosition`.
+    pub units: Vec<TranscriptUnit>,
+}
+
+/// `thread/window/changed`: the ranges a positioned subscription holds from `atFeedPosition` on. It sits in the
+/// subscription's lane at that position, as a snapshot does: every frame through it was delivered by the ranges
+/// before, every later one by these. Its feed stamp is `atFeedPosition`, which it does not advance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadWindowChangedParams {
+    pub thread_id: ThreadId,
+    pub subscription_id: SubscriptionId,
+    /// The `thread/window/set` this answers; absent when the core changed the ranges (a lineage change).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub window_version: u64,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub lineage: u64,
+    pub at_feed_position: FeedPosition,
+    /// Every range held now; one held before with the same `id` and not in `added` is unchanged.
+    pub ranges: Vec<WindowRange>,
+    /// The ids of ranges no longer held. Their rows may be dropped now; no row body is sent for them.
+    pub removed: Vec<String>,
+    pub added: Vec<WindowAdded>,
+    #[serde(default)]
+    pub follow_tail: bool,
+}
+
+/// `thread/rewindTargets/list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadRewindTargetsListParams {
+    pub thread_id: ThreadId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// A prompt the thread can be rewound to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RewindTarget {
+    /// The canonical target: `thread/rewind`'s `itemId` takes it, and it names one occurrence (the position the
+    /// prompt's row carries in `meta.ext.historyPosition`). A prompt a compaction took out of the model's context is
+    /// a target all the same. A rewind that names a position the history no longer holds is refused; one it still
+    /// holds is the prompt the reader chose, whatever else moved.
+    pub position: String,
+    /// The prompt's text, as a rewind to it hands back.
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadRewindTargetsListResponse {
+    /// Newest first.
+    pub data: Vec<RewindTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// Deltas are hints; `item/completed` is authoritative.

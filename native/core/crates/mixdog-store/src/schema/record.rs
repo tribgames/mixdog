@@ -150,12 +150,16 @@ pub struct MetaRecord {
     pub change: Slot<HeaderChange>,
 }
 
-/// Keys in `unset` are removed, then `set` is merged.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Keys in `unset` are removed, then `set` is merged, then each key of `patch` has its change applied inside the object
+/// that key holds (`crate::header_patch`): a change to one member of a map-valued key is written as that member, not as
+/// the whole map again. A change without `patch` is every change written before it existed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeaderChange {
     pub set: Header,
     pub unset: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub patch: std::collections::BTreeMap<String, HeaderChange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

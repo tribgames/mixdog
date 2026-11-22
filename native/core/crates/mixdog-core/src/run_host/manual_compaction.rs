@@ -123,7 +123,7 @@ fn usage_value(usage: &mixdog_core_api::domain::provider::Usage) -> Value {
 
 /// What changed between two headers, as a header change.
 pub(crate) fn header_change(before: &Header, after: &Header) -> HeaderChange {
-    let mut change = HeaderChange { set: Header::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: Header::new(), unset: Vec::new(), patch: Default::default() };
     for (key, value) in after {
         if before.get(key) != Some(value) {
             change.set.insert(key.clone(), value.clone());

@@ -630,7 +630,7 @@ fn tool_definitions(request: &ModelRequest, params: &ChatParams<'_>) -> Vec<Tool
 /// The `GetChatMessageRequest` for one turn.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn build_chat_request(request: &ModelRequest, params: &ChatParams<'_>) -> Result<ChatRequest, ProviderError> {
-    let all = &request.messages;
+    let all = crate::providers::own_call_ids::own_call_ids(&request.messages);
     let start = all.iter().take_while(|m| m.role == Role::System).count();
     let prompt = all[..start].iter().map(|m| plain_text(&m.content)).filter(|t| !t.trim().is_empty()).collect::<Vec<_>>().join("\n\n");
     let history = paired_transcript(wire_tool_call_ids(all[start..].to_vec(), params.provider, params.model));

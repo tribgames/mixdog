@@ -389,12 +389,28 @@ impl SessionHandle {
         Ok(reply)
     }
 
-    fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+    async fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadResumeParams = serde_json::from_value(req.params.clone())
             .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadResumeParams".into() })?;
-        let window = window_of(&params.window);
-        let resume_from =
-            params.resume_from.map(|from| ResumeFrom { position: FeedPosition { epoch: from.epoch, seq: from.seq }, window: window_of(&from.window) });
+        let wants_positioned = params.positioned_window == Some(true);
+        // The positioned projection is of rows: a client that asked for it is never handed the other one.
+        if wants_positioned && !matches!(params.window, ResumeWindow::LastItems { .. }) {
+            return Err(CoreError::InvalidParams { path: "positionedWindow".into(), expected: "a `lastItems` window".into() });
+        }
+        // A positioned snapshot carries the newest stored records as a page of them reads: it is attached once they are read.
+        if wants_positioned {
+            let (tx, rx) = oneshot::channel();
+            self.inbox.send(Inbox::TailReady { tx }).await.map_err(|_| self.closing())?;
+            rx.await.map_err(|_| self.closing())?;
+        }
+        let positioned = |window: Window| match window {
+            Window::LastItems(rows) if wants_positioned => Window::Positioned(rows),
+            window => window,
+        };
+        let window = positioned(window_of(&params.window));
+        let resume_from = params
+            .resume_from
+            .map(|from| ResumeFrom { position: FeedPosition { epoch: from.epoch, seq: from.seq }, window: positioned(window_of(&from.window)) });
         let view = self.cell.view.load_full();
         let feed: Arc<dyn FeedSource> = self.subscriptions.clone();
         // The resume's release drains what an earlier process left queued (`resume.mjs:72`) and restarts the idle clock, a full
@@ -469,8 +485,8 @@ impl SessionHandle {
                 }
                 None => (view.items.iter().map(|item| item.as_ref()).collect(), view.has_older),
             };
-            let mut read =
-                serde_json::to_value(SnapshotParams { thread: &view.summary, state: &view.state, items, has_older }).expect("protocol types serialize");
+            let mut read = serde_json::to_value(SnapshotParams { thread: &view.summary, state: &view.state, items, has_older, window: None })
+                .expect("protocol types serialize");
             // A retrying spinner shows the wait left at this read, from the deadline the view holds.
             if let Some(spinner) = read.pointer_mut("/state/runtime/spinner") {
                 super::spinner::project_retry(spinner, super::spinner::core_now_ms());
@@ -569,13 +585,16 @@ impl SessionHandle {
             move |lane| transcript.items(lane, &row)
         });
         // Only the user lines (the ones that carry reactions and skill chips) are re-shown; a row's other items are unchanged.
+        // A positioned subscription that holds the record is sent it as its page reads once the amend is stored, with
+        // whatever else the page shows of it.
         let items: Vec<mixdog_protocol::ThreadItem> = shown
             .await?
             .into_iter()
             .filter_map(|shown| match shown {
-                super::seams::Shown::Item(item @ (mixdog_protocol::ThreadItem::UserMessage { .. } | mixdog_protocol::ThreadItem::RoomRow { .. })) => Some(item),
-                _ => None,
+                super::seams::Shown::Item(item) => Some(item),
+                super::seams::Shown::Update(_) => None,
             })
+            .filter(|item| matches!(item, mixdog_protocol::ThreadItem::UserMessage { .. } | mixdog_protocol::ThreadItem::RoomRow { .. }))
             .collect();
         let apply = json!({
             "iid": iid,
@@ -971,7 +990,9 @@ fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
         header.shift_remove(key);
     }
     header.retain(|key, _| !key.starts_with("contextPressureBaseline"));
-    for key in ["providerState", "pendingRoute", "wireRoute", "activeTurnCheckpoint", "lastHeartbeatAt", "clientHostPid"] {
+    for key in
+        ["providerState", "pendingRoute", "wireRoute", "activeTurnCheckpoint", "lastHeartbeatAt", "clientHostPid", "pendingProjectMove", "projectMoveFailed"]
+    {
         header.shift_remove(key);
     }
     header.insert("closed".into(), json!(false));
@@ -1109,6 +1130,22 @@ impl FeedSource for SessionHandle {
     fn ordered(&self) -> bool {
         self.subscriptions.ordered()
     }
+
+    fn grant(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::feed::Grant> {
+        self.subscriptions.grant(sub)
+    }
+
+    fn regrant(&self, sub: &SubscriptionId, base_version: u64, ask: mixdog_core_api::feed::GrantAsk) -> Result<mixdog_core_api::feed::GrantFence, CoreError> {
+        self.subscriptions.regrant(sub, base_version, ask)
+    }
+
+    fn owner(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::ids::ConnectionId> {
+        self.subscriptions.owner(sub)
+    }
+
+    fn frame_budget(&self) -> usize {
+        self.subscriptions.frame_budget()
+    }
 }
 
 pub(crate) struct CountedFeed {
@@ -1176,6 +1213,22 @@ impl FeedSource for AdmittedFeed {
     fn ordered(&self) -> bool {
         self.feed.ordered()
     }
+
+    fn grant(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::feed::Grant> {
+        self.feed.grant(sub)
+    }
+
+    fn regrant(&self, sub: &SubscriptionId, base_version: u64, ask: mixdog_core_api::feed::GrantAsk) -> Result<mixdog_core_api::feed::GrantFence, CoreError> {
+        self.feed.regrant(sub, base_version, ask)
+    }
+
+    fn owner(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::ids::ConnectionId> {
+        self.feed.owner(sub)
+    }
+
+    fn frame_budget(&self) -> usize {
+        self.feed.frame_budget()
+    }
 }
 
 impl Drop for AdmittedFeed {
@@ -1219,6 +1272,22 @@ impl FeedSource for CountedFeed {
 
     fn ordered(&self) -> bool {
         self.feed.ordered()
+    }
+
+    fn grant(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::feed::Grant> {
+        self.feed.grant(sub)
+    }
+
+    fn regrant(&self, sub: &SubscriptionId, base_version: u64, ask: mixdog_core_api::feed::GrantAsk) -> Result<mixdog_core_api::feed::GrantFence, CoreError> {
+        self.feed.regrant(sub, base_version, ask)
+    }
+
+    fn owner(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::ids::ConnectionId> {
+        self.feed.owner(sub)
+    }
+
+    fn frame_budget(&self) -> usize {
+        self.feed.frame_budget()
     }
 }
 
@@ -1265,9 +1334,28 @@ impl SessionHandle {
     async fn rewind(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadRewindParams = serde_json::from_value(req.params.clone())
             .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadRewindParams".into() })?;
+        let mut req = req;
+        // Only the stored history's answer names a target to the actor.
+        if let Some(params) = req.params.as_object_mut() {
+            params.remove("target");
+        }
+        // Idle is asked first, as it always was: a running thread answers that, whatever the id names.
         let (tx, rx) = oneshot::channel();
-        self.inbox.send(Inbox::RewindPreview { item: params.item_id, tx }).await.map_err(|_| self.closing())?;
-        let preview = rx.await.map_err(|_| self.closing())??;
+        self.inbox.send(Inbox::RewindRevision { tx }).await.map_err(|_| self.closing())?;
+        let revision = rx.await.map_err(|_| self.closing())??;
+        let Some((stored, previous)) = self.stored_rewind(params.item_id.as_str(), &req.ctx.cancel).await? else {
+            return Err(CoreError::ItemNotFound { thread_id: self.id.clone(), item_id: params.item_id });
+        };
+        // The actor refuses a target read at another revision than the one the history stands at.
+        req.params["target"] = json!({
+            "revision": stored.rev,
+            "ordinal": stored.target.ordinal,
+            "text": stored.target.text,
+            "removed": stored.cut.removed,
+            "messages": stored.cut.messages,
+            "previous": previous,
+        });
+        let preview = RewindPreview { revision, item: mixdog_core_api::ids::ItemId::from(stored.target.iid), text: stored.target.text };
         // Nothing is committed yet: a cancelled request leaves the restore's reads where they wait.
         let restore = mixdog_rt::Scope::new()
             .cancel(&req.ctx.cancel)
@@ -1537,7 +1625,7 @@ impl SessionHandle {
 
     async fn request_inner(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
-            "thread/resume" => self.resume(&req),
+            "thread/resume" => self.resume(&req).await,
             "thread/read" => self.read(&req).await,
             "thread/clear" => self.clear(req).await,
             "thread/rewind" => self.rewind(req).await,
@@ -1549,6 +1637,8 @@ impl SessionHandle {
                 self.to_actor(req).await
             }
             "thread/delete" => self.delete(&req).await,
+            "thread/window/set" => self.window_set(&req).await,
+            "thread/rewindTargets/list" => self.rewind_targets_list(&req).await,
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,
             "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
@@ -1863,8 +1953,8 @@ mod recovery_history_tests {
         append(&source, json!([{ "role": "user", "content": "first" }])).await;
         let item = source.view_items()[0].id().clone();
         let (tx, rx) = oneshot::channel();
-        source.inbox.send(Inbox::RewindPreview { item: item.clone(), tx }).await.expect("preview request");
-        let preview = rx.await.unwrap().expect("preview");
+        source.inbox.send(Inbox::RewindRevision { tx }).await.expect("revision request");
+        let preview = RewindPreview { revision: rx.await.unwrap().expect("revision"), item: item.clone(), text: "first".into() };
         assert!(source.rewind_restore(&preview, true).await.expect("restore").is_none());
         append(&source, json!([{ "role": "user", "content": "second" }])).await;
         let req = request("thread/rewind", json!({ "threadId": source.id, "opId": "stale", "itemId": item }), "stale");

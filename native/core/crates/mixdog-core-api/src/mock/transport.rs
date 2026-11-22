@@ -303,6 +303,10 @@ impl Lane for MockLane {
         self.sub.clone()
     }
 
+    fn connection(&self) -> Option<ConnectionId> {
+        Some(self.shared.id)
+    }
+
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
         self.shared.reserve(bytes).ok_or(BudgetFull)
     }

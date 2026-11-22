@@ -519,7 +519,8 @@ fn tool_result_parts(
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits) -> Result<Vec<Value>, ProviderError> {
     let family = traits.is_gemini_family(&request.model);
-    let chat: Vec<&Message> = request.messages.iter().filter(|m| m.role != Role::System).collect();
+    let messages = crate::providers::own_call_ids::own_call_ids(&request.messages);
+    let chat: Vec<&Message> = messages.iter().filter(|m| m.role != Role::System).collect();
     let mut names: HashMap<String, String> = HashMap::new();
     let mut calls: HashMap<String, Value> = HashMap::new();
     let mut assistant: HashMap<usize, Option<Value>> = HashMap::new();

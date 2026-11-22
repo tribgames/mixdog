@@ -150,6 +150,38 @@ async fn a_finished_job_leaves_the_board_after_thirty_minutes_and_a_running_one_
     assert_eq!(left, ["running"]);
 }
 
+/// An owner that takes a completion only once it is let.
+struct SlowOwner {
+    arrived: tokio::sync::Notify,
+    take: tokio::sync::Notify,
+}
+#[async_trait]
+impl TaskNotifier for SlowOwner {
+    async fn finished(&self, _owner: &ThreadId, _surface: &str, _task_id: &str, _status: &str, _notification: String) {
+        self.arrived.notify_one();
+        self.take.notified().await;
+    }
+}
+
+/// A job's completion goes to its owner from a task of its own, so the job can be pruned first. Its owner keeps the
+/// completion's receipt for as long as the board lists the job as held: a completion still on its way is listed, and it
+/// is let go of once the owner has taken it. Not listed, the owner dropped the receipt and queued the same result again.
+#[tokio::test(start_paused = true)]
+async fn a_pruned_job_is_still_held_for_its_owner_while_its_completion_is_on_its_way() {
+    backend();
+    let owner = Arc::new(SlowOwner { arrived: tokio::sync::Notify::new(), take: tokio::sync::Notify::new() });
+    let board = JobBoard::new(Arc::new(TestClock(AtomicI64::new(START))), Some(owner.clone()), None);
+    register(&board, "job", Some("lead"), None, None);
+    board.complete("job", Completion::new("completed"));
+    owner.arrived.notified().await;
+    assert_eq!(board.cleanup_jobs(&Scope::default(), true), 1, "the row is gone");
+    assert_eq!(board.held_by("lead"), ["job"], "its completion has not reached the owner");
+    assert!(board.held_by("other").is_empty());
+    owner.take.notify_one();
+    settle().await;
+    assert!(board.held_by("lead").is_empty(), "taken by the owner, nothing of the job is left to deliver");
+}
+
 // ---- what a settled turn does to its job -----------------------------------------------------------
 
 #[derive(Default)]

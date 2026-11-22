@@ -334,17 +334,85 @@ pub struct RowDecor {
     pub dividers_after: Vec<WindowDivider>,
 }
 
-/// What [`ThreadStore::history_before`] read.
-pub struct HistoryBefore {
+/// Where in a thread's history a stored page is read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PageAt {
+    /// The newest records.
+    Newest,
+    /// The oldest records.
+    Oldest,
+    /// The record of the oldest row a client's id can name, then the records older than it.
+    Before(String),
+    /// That record, then the records newer than it.
+    After(String),
+}
+
+/// One stored page asked of [`ThreadStore::history_page`]: `records` records at `at` (beside the named record itself).
+#[derive(Clone, Debug)]
+pub struct PageAsk {
+    pub at: PageAt,
+    pub records: usize,
+}
+
+/// What a page read's job would have had to wait for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HeldBy {
+    /// A rewrite holds the logs.
+    Rewrite,
+    /// An operation that may change the shape of the history (a rewind's append, its rollback, a rewrite's swap) ran on
+    /// one of `logs` while they were read or began after: what they held then may be frames no one is ever told were
+    /// written. A page is of logs at rest: it is read again once these are.
+    Writer { logs: Vec<String> },
+    /// The index and the log were not at one history revision for the whole read. `behind`: the logs at rest hold a
+    /// write the index lacks; `None`: the history moved under the read, which is asked again as it is.
+    Index { behind: Option<Behind> },
+}
+
+/// What a page waits for when the logs hold a write the index lacks: whichever comes first of the two changes that make
+/// its answer another one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Behind {
+    /// The index answers a projection after this mark: the write is among those.
+    pub mark: u64,
+    /// One of these logs leaves the shape version the page read it at: the write was cut (a rollback run later) or
+    /// followed by another.
+    pub logs: Vec<(String, u64)>,
+}
+
+/// The records of a stored page, oldest first.
+pub struct PageRows {
     pub rev: u64,
-    /// Oldest first; the last is the record of the oldest row the id can name.
     pub records: Vec<ItemRecord>,
-    /// No row is older than `records`.
-    pub complete: bool,
-    /// How many rows the id can name (see `HistoryAnchor::named`).
-    pub named: u64,
     /// One per record, in the same order; empty for a store that marks none.
     pub decor: Vec<RowDecor>,
+    /// Each record's ordinal, in the same order; empty for a store that numbers none.
+    pub ordinals: Vec<u64>,
+    /// No row is older than `records`.
+    pub reaches_start: bool,
+    /// No row is newer than `records`.
+    pub reaches_end: bool,
+    /// How many rows the id can name (see `HistoryAnchor::named`); 1 for a page no id places.
+    pub named: u64,
+}
+
+/// What [`ThreadStore::rewind_target`] found.
+pub struct StoredRewind {
+    /// The history revision the rest was read at.
+    pub rev: u64,
+    pub target: mixdog_store::sqlite::rewind::RewindTarget,
+    pub cut: mixdog_store::sqlite::rewind::RewindCut,
+    /// The newest record that shows rows below the target: what the transcript ends with after the rewind.
+    pub previous: Option<ItemRecord>,
+}
+
+/// What [`ThreadStore::history_page`] answers.
+pub enum PageRead {
+    Rows(PageRows),
+    /// The store cannot place the page from its index: the caller decides it from the whole history.
+    Unplaced,
+    /// The job would have had to wait: it gave its worker back. The caller waits [`ThreadStore::page_held`] off the lane
+    /// and asks again.
+    Held(HeldBy),
 }
 
 /// Store-private continuation of a bounded turn-history scan.
@@ -478,11 +546,47 @@ pub trait ThreadStore: Send + Sync + 'static {
         Ok((rev, records, Vec::new(), complete))
     }
 
-    /// The records from the oldest row a client's id `anchor` can name, back to at most `rows` records older than it
-    /// (oldest first, the named record last): a page older than a cursor reads the rows it shows, not the history from the
-    /// newest row to the cursor. `None` when the store cannot place the id (the caller reads the history as a whole).
-    fn history_before(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _anchor: &str, _rows: usize) -> Result<Option<HistoryBefore>, CoreError> {
-        Ok(None)
+    /// One stored page of the transcript: the records `ask` names and no others, so a page costs what it shows whatever
+    /// the thread holds, read as one job that waits for nothing (it answers [`PageRead::Held`] instead), reports each
+    /// record to `ctl` and stops once `ctl` is cancelled. A store without an index of its rows gives its newest records
+    /// and leaves every other place to the whole history.
+    fn history_page(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, ask: &PageAsk, ctl: &super::read_trace::ReadCtl) -> Result<PageRead, CoreError> {
+        ctl.check()?;
+        if ask.at != PageAt::Newest {
+            return Ok(PageRead::Unplaced);
+        }
+        let (rev, records, decor, complete) = self.history_tail_decor(lane, id, ask.records)?;
+        Ok(PageRead::Rows(PageRows { rev, records, decor, ordinals: Vec::new(), reaches_start: complete, reaches_end: true, named: 1 }))
+    }
+
+    /// The thread's live prompts a rewind can name, older than the ordinal `before`, newest first, with the history
+    /// revision they were read at.
+    fn rewind_targets(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError>;
+
+    /// The prompt a client's id `shown` names in the stored history, however old, with what a rewind to it removes;
+    /// `None` when no live prompt is named. The one resolver of a rewind's target.
+    fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<StoredRewind>, CoreError>;
+
+    /// Resolves once a page read's job of thread `id` has nothing to wait for: no rewrite holds the logs, everything
+    /// sent to the index before this was asked has been through its writer, a hold on it released (with no bound: each
+    /// answer is the wait's progress, and its end is the last of them or the projector's), and the index is not
+    /// repairing the thread's rows.
+    fn page_ready(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    /// Resolves once what held a page read's job has changed, so that the page asked again is another answer: the logs of
+    /// a [`HeldBy::Writer`] at rest; for a [`Behind`], a projection answered after its mark or one of its logs moved.
+    /// At once for the others ([`page_ready`](Self::page_ready) waits for a rewrite). An error when the change can no
+    /// longer come: the index projector stopped.
+    fn page_held(&self, _by: &HeldBy) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        Box::pin(std::future::ready(Ok(())))
     }
 
     /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index
@@ -569,6 +673,14 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// Resolves once no sensitive rewrite holds the reads: a read awaits it before it takes an io-interactive thread, so
     /// reads issued during a rewrite wait off the lane instead of filling it. Stores that never rewrite resolve at once.
     fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(std::future::ready(()))
+    }
+
+    /// Resolves once `id` is no longer held for a sensitive rewrite this start still runs: it was released (its record
+    /// reads again), or its rewrite failed (its reads are refused as failed until the next start). A read refused as
+    /// `coreMigrating` of kind `sensitiveRewrite` was told to wait, not that it failed: a caller that must answer with
+    /// the record awaits this and reads again. Stores that never rewrite resolve at once.
+    fn rewritten(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, ()> {
         Box::pin(std::future::ready(()))
     }
 

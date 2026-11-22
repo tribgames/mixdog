@@ -2,6 +2,7 @@
 //! decision an agent faces after a tool batch, and the ladder that turns the
 //! rating into an effort. Runs on the same ONNX Runtime as the embeddings.
 
+mod claim;
 pub mod error;
 pub mod host;
 pub mod input;

@@ -18,6 +18,7 @@ use mixdog_store::schema::migration::Complete;
 use mixdog_store::schema::migration::CompleteKinds;
 use mixdog_store::schema::migration::Contract;
 use mixdog_store::schema::migration::Counts;
+use mixdog_store::schema::migration::ExpiredEntry;
 use mixdog_store::schema::migration::ItemKey;
 use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::migration::ItemState;
@@ -42,6 +43,7 @@ use mixdog_store::schema::migration::REASON_FILE;
 use mixdog_store::schema::migration::REASON_FORMAT;
 use mixdog_store::schema::migration::STAGE_DIR;
 use mixdog_store::schema::migration::SourceFile;
+use mixdog_store::schema::migration::SourcesEntry;
 use mixdog_store::schema::migration::StagedEntry;
 use mixdog_store::schema::migration::VerifiedEntry;
 
@@ -54,6 +56,7 @@ use crate::framework::FaultHook;
 use crate::framework::ItemContext;
 use crate::framework::ItemDriver;
 use crate::framework::MigrationRoots;
+use crate::framework::Retention;
 use crate::framework::Staged;
 use crate::framework::Verdict;
 use crate::framework::Wave;
@@ -78,11 +81,14 @@ pub struct MigrateOptions {
     /// Set by a core that serves while the sessions convert ([`Back`]): it takes each session into its open index here.
     /// With it the sessions convert newest first (the ones a person reaches for), not in key order.
     pub verified: Option<VerifiedHook>,
+    /// Set by a core that serves while the sessions convert: a session the product's retention deletes is settled
+    /// `expired` and its sources are removed without converting it.
+    pub retention: Option<Arc<dyn Retention>>,
 }
 
 impl Default for MigrateOptions {
     fn default() -> Self {
-        Self { workers: 4, fault: None, verified: None }
+        Self { workers: 4, fault: None, verified: None, retention: None }
     }
 }
 
@@ -117,6 +123,8 @@ pub struct Migrator {
 #[derive(Default)]
 pub struct Waiting {
     state: Mutex<WaitingState>,
+    /// Told when a session is asked for ([`Self::next_asked`]).
+    asked_for: std::sync::Condvar,
 }
 
 #[derive(Default)]
@@ -153,18 +161,82 @@ impl Waiting {
             state.asked.push_back(session.to_owned());
         }
         state.told.entry(session.to_owned()).or_default().push(then);
+        self.asked_for.notify_all();
         true
     }
 
-    /// The next session asked for that no converter is on, claimed.
-    fn asked(&self) -> Option<String> {
+    /// A session a converter claimed goes back to waiting its turn; it stays asked for.
+    fn defer(&self, session: &str) {
+        self.state().claimed.remove(session);
+    }
+
+    /// The sessions deferred are asked for again, ahead of the rest.
+    fn again(&self, sessions: Vec<String>) {
         let mut state = self.state();
+        for session in sessions.into_iter().rev() {
+            if state.open.contains(&session) && !state.claimed.contains(&session) && !state.asked.contains(&session) {
+                state.asked.push_front(session);
+            }
+        }
+        self.asked_for.notify_all();
+    }
+
+    fn awaited_in(state: &WaitingState) -> BTreeSet<String> {
+        state.told.keys().chain(&state.claimed).chain(&state.asked).cloned().collect()
+    }
+
+    /// The sessions someone waits for or a converter is on.
+    fn awaited(&self) -> BTreeSet<String> {
+        Self::awaited_in(&self.state())
+    }
+
+    /// Settles `expired` as never to be converted, in one step with the opens, when `still` holds of the sessions awaited
+    /// now: they stop being sessions still to settle before any other open is answered. An open therefore either was
+    /// seen by the verdict `still` stands for, or is told there is no such session. `false`, with nothing settled, when
+    /// `still` does not hold: the verdict is to be given again. The opens are held for `still` alone, not for a verdict.
+    fn expire(&self, expired: &BTreeSet<String>, still: impl FnOnce(&BTreeSet<String>) -> bool) -> bool {
+        let mut state = self.state();
+        if !still(&Self::awaited_in(&state)) {
+            return false;
+        }
+        for id in expired {
+            state.open.remove(id);
+        }
+        true
+    }
+
+    fn pop_asked(state: &mut WaitingState) -> Option<String> {
         while let Some(session) = state.asked.pop_front() {
             if state.open.contains(&session) && state.claimed.insert(session.clone()) {
                 return Some(session);
             }
         }
         None
+    }
+
+    /// The next session asked for that no converter is on, claimed.
+    fn asked(&self) -> Option<String> {
+        Self::pop_asked(&mut self.state())
+    }
+
+    /// [`Self::asked`], waiting for a session to be asked for until `stop` is set and [`Self::wake`] called.
+    fn next_asked(&self, stop: &std::sync::atomic::AtomicBool) -> Option<String> {
+        let mut state = self.state();
+        loop {
+            if let Some(session) = Self::pop_asked(&mut state) {
+                return Some(session);
+            }
+            if stop.load(Ordering::SeqCst) {
+                return None;
+            }
+            state = self.asked_for.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// Wakes every [`Self::next_asked`].
+    fn wake(&self) {
+        let _state = self.state();
+        self.asked_for.notify_all();
     }
 
     /// Claims `session` for the calling converter; `false` when another is on it or it is settled.
@@ -216,7 +288,13 @@ pub struct Back {
     blobs: BlobStatuses,
     quarantine_reasons: QuarantineReasons,
     waiting: Arc<Waiting>,
+    late: LateSources,
+    judged: Judged,
 }
+
+/// The header each session was judged by, as far as the retention reads it: the purge of one settled `expired` takes it
+/// from here, and a run that resumes at disposal reads it again.
+type Judged = Mutex<BTreeMap<String, serde_json::Map<String, serde_json::Value>>>;
 
 impl Back {
     fn shared(&self) -> Shared<'_> {
@@ -230,6 +308,8 @@ impl Back {
             quarantine_reasons: &self.quarantine_reasons,
             journal: &self.journal,
             waiting: Some(&self.waiting),
+            late: &self.late,
+            judged: &self.judged,
         }
     }
 
@@ -259,7 +339,12 @@ impl Back {
             }
             let Some(id) = k.strip_prefix("session/") else { continue };
             let agent = mixdog_store::agent_mode::agent_id_of_home_session(id);
-            if agent.is_empty() || item.sources.is_empty() {
+            if agent.is_empty() {
+                continue;
+            }
+            // Read by the sources its conversion will read: journaled here when no converter has reached it.
+            let item = shared.with_sources(item)?;
+            if item.sources.is_empty() {
                 continue;
             }
             let file = |suffix| {
@@ -373,6 +458,42 @@ struct Shared<'a> {
     quarantine_reasons: &'a QuarantineReasons,
     journal: &'a Mutex<Journal>,
     waiting: Option<&'a Waiting>,
+    late: &'a LateSources,
+    judged: &'a Judged,
+}
+
+/// The journaled sources of the items with `late_sources`, each behind a lock of its own: an item's files are hashed and
+/// journaled once, by whichever thread first needs them (its converter, or another session's that reads its header),
+/// while the others hash theirs.
+#[derive(Default)]
+struct LateSources(Mutex<BTreeMap<String, Arc<Mutex<Option<Arc<Vec<SourceFile>>>>>>>);
+
+impl crate::framework::SourceRecords for Shared<'_> {
+    fn sources_of(&self, item: &ManifestItem) -> Result<Arc<Vec<SourceFile>>> {
+        if item.late_sources.is_empty() {
+            return Ok(Arc::new(item.sources.clone()));
+        }
+        let k = item.key.as_str();
+        let cell = self.late.0.lock().expect("late sources").entry(k.to_owned()).or_default().clone();
+        let mut slot = cell.lock().expect("an item's sources");
+        if let Some(sources) = &*slot {
+            return Ok(sources.clone());
+        }
+        let journaled = self.journal.lock().expect("journal").progress(k).ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?.sources.clone();
+        let sources = match journaled {
+            Some(sources) => sources,
+            None => {
+                let mut sources = Vec::with_capacity(item.late_sources.len());
+                for file in &item.late_sources {
+                    let (size, sha256) = durable::hash_file(&self.roots.resolve(file.root, &file.path)?)?;
+                    sources.push(SourceFile { root: file.root, path: file.path.clone(), size, sha256, secret: false });
+                }
+                self.record(&format!("sources:{k}"), JournalRecord::Sources(SourcesEntry { key: key(item), sources: sources.clone() }))?;
+                sources
+            }
+        };
+        Ok(slot.insert(Arc::new(sources)).clone())
+    }
 }
 
 impl Shared<'_> {
@@ -385,7 +506,19 @@ impl Shared<'_> {
             workers: self.workers,
             blobs: self.blobs,
             states,
+            recorded: Some(self),
         }
+    }
+
+    /// `item` as its steps take it: an item with `late_sources` carries the journaled sources as its `sources` (hashed
+    /// and journaled here when they are not yet).
+    fn with_sources<'i>(&self, item: &'i ManifestItem) -> Result<std::borrow::Cow<'i, ManifestItem>> {
+        use crate::framework::SourceRecords as _;
+        if item.late_sources.is_empty() {
+            return Ok(std::borrow::Cow::Borrowed(item));
+        }
+        let sources = self.sources_of(item)?;
+        Ok(std::borrow::Cow::Owned(ManifestItem { sources: (*sources).clone(), ..item.clone() }))
     }
 
     fn fault(&self, point: &str) -> Result<()> {
@@ -505,6 +638,8 @@ impl Migrator {
             blobs: BlobStatuses::default(),
             quarantine_reasons,
             waiting: Arc::new(waiting),
+            late: LateSources::default(),
+            judged: Judged::default(),
         };
         back.migrator.convert(&back.shared(), Wave::before_serving)?;
         Ok(Front::Pending(back))
@@ -543,7 +678,7 @@ impl Migrator {
         let (journal, manifest_sha256) = (shared.journal, shared.manifest_sha256);
         self.convert(shared, |wave| !wave.before_serving())?;
         if !journal.lock().expect("journal").verified_all() {
-            shared.record("verified_all", JournalRecord::Phase(PhaseEntry { phase: Phase::VerifiedAll }))?;
+            shared.record("verified_all", JournalRecord::Phase(PhaseEntry { phase: Phase::VerifiedAll, at: None }))?;
         }
         // Counted before disposal (a dangling count may read a source disposal removes),
         // kept in the stage until `complete.json` carries it.
@@ -629,6 +764,7 @@ impl Migrator {
                     // A disposed item is reported by the outcome it was disposed with.
                     let state = match (p.state, &p.digest) {
                         (ItemState::Disposed, Some(_)) => ItemState::Verified,
+                        (ItemState::Disposed, None) if p.expired.is_some() => ItemState::Expired,
                         (ItemState::Disposed, None) => ItemState::Quarantined,
                         (state, _) => state,
                     };
@@ -658,8 +794,10 @@ impl Migrator {
 
     /// Orders session items by their newest source, newest first (a source that is gone sorts last; ties keep key order).
     fn newest_first(&self, shared: &Shared<'_>, items: &mut [&ManifestItem]) {
-        let newest =
-            |item: &ManifestItem| item.sources.iter().filter_map(|source| durable::modified(&shared.roots.resolve(source.root, &source.path).ok()?)).max();
+        let newest = |item: &ManifestItem| {
+            let named = item.sources.iter().map(|source| (source.root, &source.path)).chain(item.late_sources.iter().map(|source| (source.root, &source.path)));
+            named.filter_map(|(root, path)| durable::modified(&shared.roots.resolve(root, path).ok()?)).max()
+        };
         items.sort_by_cached_key(|item| std::cmp::Reverse(newest(item)));
     }
 
@@ -679,19 +817,193 @@ impl Migrator {
         Ok(())
     }
 
+    /// The next session asked for first that no converter is on, claimed.
+    fn asked<'i>(shared: &'i Shared<'_>, waiting: &Waiting) -> Option<&'i ManifestItem> {
+        while let Some(id) = waiting.asked() {
+            let key = format!("session/{id}");
+            match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
+                Ok(at) => return Some(&shared.manifest.items[at]),
+                Err(_) => waiting.settled(&id),
+            }
+        }
+        None
+    }
+
+    /// The retention judgement of the sessions, made once and before any of them converts: every session still planned
+    /// that the product's retention deletes ([`Retention`]) is journaled `expired`, then the `judged` phase closes the
+    /// judgement with its time, whatever the verdicts. Before the phase only a session that is opened and that no verdict
+    /// can delete converts ([`Retention::candidate`]). A run that finds the phase judges nothing, on whatever day it runs;
+    /// one cut before it judges again, at the time of the first verdict when there is one. Each session's header is read
+    /// once, by the sources its conversion would read. A session whose deletion is more than removing its own files
+    /// ([`RetentionFacts::bound`], or one a goal, a connector conversation or a worktree names) is never settled here: it
+    /// converts and is left to the product's retention. So is one a person has asked for: an open is either seen by the
+    /// verdict, which then keeps the session and its tree, or finds the session already gone ([`Waiting::expire`]).
+    /// Opens are served at every moment of it ([`Self::while_serving`]): one of a session no verdict can delete waits
+    /// for nothing here, neither the verdict nor the withdrawal of the expired sessions' rows; one of a candidate is
+    /// served as soon as the phase is journaled.
+    fn judge(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, items: &[&ManifestItem]) -> Result<()> {
+        let Some(retention) = &self.options.retention else { return Ok(()) };
+        let state = |item: &ManifestItem| shared.journal.lock().expect("journal").progress(item.key.as_str()).map(|p| p.state);
+        let of_state = |wanted: ItemState| -> Vec<String> {
+            items.iter().filter(|item| state(item) == Some(wanted)).filter_map(|item| item.key.as_str().strip_prefix("session/")).map(str::to_owned).collect()
+        };
+        let linked = crate::stores::linked_session_ids(cx)?;
+        let fields = retention.fields();
+        let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
+        let read: Mutex<BTreeMap<String, (serde_json::Map<String, serde_json::Value>, bool)>> = Mutex::default();
+        let next = AtomicUsize::new(0);
+        // The candidates asked for that wait for the judgement to close, in the order they were asked for; `None` once
+        // it is closed.
+        let judged = shared.journal.lock().expect("journal").judged().is_some();
+        let deferred: Mutex<Option<Vec<String>>> = Mutex::new((!judged).then(Vec::new));
+        let facts_of = |item: &ManifestItem, id: &str| -> Result<()> {
+            if read.lock().expect("retention facts").contains_key(id) || matches!(state(item), None | Some(ItemState::Quarantined | ItemState::Disposed)) {
+                return Ok(());
+            }
+            let item = shared.with_sources(item)?;
+            if let Some(facts) = self.driver(&item)?.retention_facts(cx, &item, &fields)? {
+                let bound = facts.bound || linked.contains(id);
+                read.lock().expect("retention facts").insert(id.to_owned(), (facts.header, bound));
+            }
+            Ok(())
+        };
+        // A session someone opens. One that no verdict can delete waits for nothing of the judgement; a candidate waits
+        // for it to close, and is kept by it.
+        let opened = |item: &ManifestItem| -> Result<()> {
+            let Some(id) = item.key.as_str().strip_prefix("session/") else { return Ok(()) };
+            if deferred.lock().expect("deferred opens").is_some() {
+                facts_of(item, id)?;
+                let candidate = read.lock().expect("retention facts").get(id).is_some_and(|(header, _)| retention.candidate(id, header));
+                if candidate && let Some(deferred) = deferred.lock().expect("deferred opens").as_mut() {
+                    deferred.push(id.to_owned());
+                    if let Some(waiting) = shared.waiting {
+                        waiting.defer(id);
+                    }
+                    return Ok(());
+                }
+            }
+            self.settle(shared, cx, item)
+        };
+        if judged {
+            return self.while_serving(shared, &opened, || {
+                retention.unlisted(&of_state(ItemState::Expired));
+                Ok(())
+            });
+        }
+        on_threads(
+            self.options.workers.max(1),
+            || match shared.waiting.and_then(|waiting| Self::asked(shared, waiting)) {
+                Some(item) => Some((item, true)),
+                None => items.get(next.fetch_add(1, Ordering::Relaxed)).map(|item| (*item, false)),
+            },
+            |(item, asked)| match item.key.as_str().strip_prefix("session/") {
+                Some(_) if asked => opened(item),
+                Some(id) => facts_of(item, id),
+                None => Ok(()),
+            },
+        )?;
+        // Every session is read: the verdict, its record and the withdrawal of the rows, while the opens are served.
+        self.while_serving(shared, &opened, || {
+            let facts = read.lock().expect("retention facts").clone();
+            let now = shared.journal.lock().expect("journal").judged_at().unwrap_or_else(|| retention.now_ms());
+            // Converted, or on the way, by a run of before the judgement existed: in use.
+            let converted: BTreeSet<String> =
+                [ItemState::Staged, ItemState::Published, ItemState::Verified].into_iter().flat_map(|wanted| of_state(wanted)).collect();
+            let planned: BTreeSet<String> = of_state(ItemState::Planned).into_iter().collect();
+            let headers: BTreeMap<String, serde_json::Map<String, serde_json::Value>> =
+                facts.iter().map(|(id, (header, _))| (id.clone(), header.clone())).collect();
+            let verdict = |awaited: &BTreeSet<String>| -> BTreeSet<String> {
+                let held: BTreeSet<String> = converted.union(awaited).cloned().collect();
+                let mut expired = retention.expired(&headers, &held, now);
+                expired.retain(|id| planned.contains(id) && !held.contains(id) && facts.get(id).is_some_and(|(_, bound)| !*bound));
+                expired
+            };
+            // Only a candidate asked for changes a verdict: the sessions no verdict reads come and go meanwhile.
+            let candidates = |awaited: &BTreeSet<String>| -> BTreeSet<String> {
+                awaited.iter().filter(|id| headers.get(*id).is_some_and(|header| retention.candidate(id, header))).cloned().collect()
+            };
+            let expired = match shared.waiting {
+                Some(waiting) => loop {
+                    let seen = waiting.awaited();
+                    let expired = verdict(&seen);
+                    if waiting.expire(&expired, |awaited| candidates(awaited) == candidates(&seen)) {
+                        break expired;
+                    }
+                },
+                None => verdict(&BTreeSet::new()),
+            };
+            for id in &expired {
+                let k = format!("session/{id}");
+                let Ok(at) = shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&k)) else { continue };
+                shared.record(&format!("expired:{k}"), JournalRecord::Expired(ExpiredEntry { key: key(&shared.manifest.items[at]), judged_at: now }))?;
+            }
+            shared.record("judged", JournalRecord::Phase(PhaseEntry { phase: Phase::Judged, at: Some(now) }))?;
+            // The judgement is closed: the candidates that waited for it are served now, ahead of the rows' withdrawal.
+            let waited = deferred.lock().expect("deferred opens").take().unwrap_or_default();
+            if let Some(waiting) = shared.waiting {
+                waiting.again(waited);
+            }
+            let settled = of_state(ItemState::Expired);
+            retention.unlisted(&settled);
+            let mut judged = shared.judged.lock().expect("judged headers");
+            for id in settled {
+                if let Some((header, _)) = facts.get(&id) {
+                    judged.insert(id, header.clone());
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Runs `work` while the sessions asked for are served by `opened` on the converters' threads: nobody who opens a
+    /// session waits for `work`. Without a serving core there is nobody to ask, and `work` runs alone.
+    fn while_serving(&self, shared: &Shared<'_>, opened: &(impl Fn(&ManifestItem) -> Result<()> + Sync), work: impl FnOnce() -> Result<()>) -> Result<()> {
+        let Some(waiting) = shared.waiting else { return work() };
+        struct Stop<'a>(&'a std::sync::atomic::AtomicBool, &'a Waiting);
+        impl Drop for Stop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+                self.1.wake();
+            }
+        }
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let failure: Mutex<Option<Blocked>> = Mutex::new(None);
+        let done = std::thread::scope(|scope| {
+            for _ in 0..self.options.workers.max(1) {
+                scope.spawn(|| {
+                    while let Some(id) = waiting.next_asked(&stop) {
+                        let key = format!("session/{id}");
+                        let served = match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
+                            Ok(at) => opened(&shared.manifest.items[at]),
+                            Err(_) => {
+                                waiting.settled(&id);
+                                Ok(())
+                            }
+                        };
+                        if let Err(error) = served {
+                            failure.lock().expect("failure").get_or_insert(error);
+                            let _stop = Stop(&stop, waiting);
+                            break;
+                        }
+                    }
+                });
+            }
+            let _stop = Stop(&stop, waiting);
+            work()
+        });
+        done?;
+        match failure.into_inner().expect("failure") {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
     /// The next item a converter of the session wave takes: a session asked for first, else the next of `items` in order
     /// that no other converter is on.
     fn take<'i>(&self, shared: &'i Shared<'_>, waiting: &Waiting, items: &[&'i ManifestItem], next: &AtomicUsize) -> Option<&'i ManifestItem> {
         loop {
-            if let Some(id) = waiting.asked() {
-                let key = format!("session/{id}");
-                match shared.manifest.items.binary_search_by(|item| item.key.as_str().cmp(&key)) {
-                    Ok(at) => return Some(&shared.manifest.items[at]),
-                    Err(_) => {
-                        waiting.settled(&id);
-                        continue;
-                    }
-                }
+            if let Some(item) = Self::asked(shared, waiting) {
+                return Some(item);
             }
             let item = *items.get(next.fetch_add(1, Ordering::Relaxed))?;
             match item.key.as_str().strip_prefix("session/") {
@@ -708,6 +1020,9 @@ impl Migrator {
         let cx = shared.cx(&states);
         let workers = if wave == Wave::Sessions { self.options.workers.max(1) } else { 1 };
         let waiting = shared.waiting.filter(|_| wave == Wave::Sessions);
+        if wave == Wave::Sessions {
+            self.judge(shared, &cx, items)?;
+        }
         let next = AtomicUsize::new(0);
         on_threads(
             workers,
@@ -764,6 +1079,10 @@ impl Migrator {
 
     fn drive(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
         let driver = self.driver(item)?;
+        // A session's files are hashed and journaled here, before its first step: every step below, of this run or of
+        // one that resumes it, reads the item by those sources.
+        let item = shared.with_sources(item)?;
+        let item = &*item;
         let k = item.key.as_str();
         loop {
             let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
@@ -773,7 +1092,7 @@ impl Migrator {
                 return self.finish_quarantine(shared, cx, item, code);
             }
             match (item.contract, progress.state) {
-                (_, ItemState::Verified | ItemState::Quarantined | ItemState::Disposed) => {
+                (_, ItemState::Verified | ItemState::Quarantined | ItemState::Expired | ItemState::Disposed) => {
                     return Ok(());
                 }
                 (Contract::Retire, ItemState::Planned) | (_, ItemState::Published) => match driver.verify(cx, item)? {
@@ -840,6 +1159,17 @@ impl Migrator {
     fn dispose(&self, shared: &Shared<'_>) -> Result<()> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
+        // Finishing a session settled `expired` is the product's deletion of it, which only the serving core can do: a
+        // run without it disposes of nothing, and the next start of the core finishes the migration.
+        if self.options.retention.is_none() {
+            let journal = shared.journal.lock().expect("journal");
+            let left = shared.manifest.items.iter().filter(|item| journal.progress(item.key.as_str()).is_some_and(|p| p.state == ItemState::Expired)).count();
+            if left > 0 {
+                return Err(Blocked::journal(format!(
+                    "{left} sessions were settled as expired by the serving core, which alone removes what it kept of them: start the core to finish the migration"
+                )));
+            }
+        }
         // A session item shares no source and no quarantine folder with any other item, so the sessions (the bulk of the
         // bytes hashed again here) are disposed of side by side; the rest, which includes the catalog database and its
         // journal files, one after another in key order.
@@ -853,6 +1183,8 @@ impl Migrator {
     }
 
     fn dispose_item(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
+        let item = shared.with_sources(item)?;
+        let item = &*item;
         let k = item.key.as_str();
         let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
         let driver = self.driver(item)?;
@@ -862,6 +1194,42 @@ impl Migrator {
                 if driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data) {
                     // The sources are the target, or a database that is not Mixdog's.
                 } else if self.core_serves() {
+                    for source in &item.sources {
+                        shared.fault(&format!("delete:{k}:before"))?;
+                        durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
+                    }
+                } else {
+                    for path in self.rehash(cx, item)? {
+                        shared.fault(&format!("delete:{k}:before"))?;
+                        durable::remove_file(&path)?;
+                    }
+                }
+            }
+            ItemState::Expired => {
+                // The product's deletion of what it keeps of the session outside these files goes first, and only while
+                // every source is there: a run cut after it began removing them has done this.
+                let retention =
+                    self.options.retention.as_ref().ok_or_else(|| Blocked::journal(format!("{k}: an expired session is disposed of by the serving core")))?;
+                let mut whole = true;
+                for source in &item.sources {
+                    whole &= durable::exists(&cx.source_path(source)?)?;
+                }
+                if whole {
+                    let id = k.strip_prefix("session/").unwrap_or(k);
+                    let judged = shared.judged.lock().expect("judged headers").get(id).cloned();
+                    let header = match judged {
+                        Some(header) => Some(header),
+                        None => {
+                            let fields = retention.fields();
+                            let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
+                            driver.retention_facts(cx, item, &fields)?.map(|facts| facts.header)
+                        }
+                    };
+                    let header = header.ok_or_else(|| Blocked::journal(format!("{k}: the header it was judged by no longer reads")))?;
+                    shared.fault(&format!("purge:{k}:before"))?;
+                    retention.purge(id, &header).map_err(|error| Blocked::journal(format!("{k}: {error}")))?;
+                }
+                if self.core_serves() {
                     for source in &item.sources {
                         shared.fault(&format!("delete:{k}:before"))?;
                         durable::remove_if_planned(&cx.source_path(source)?, source.size, &source.sha256)?;
@@ -999,7 +1367,7 @@ impl Migrator {
     fn counts(&self, shared: &Shared<'_>) -> Result<CompleteKinds> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
-        let zero = Counts { verified: 0, quarantined_expected: 0, quarantined_unexpected: 0, retired: 0, retained: 0, dangling: 0 };
+        let zero = Counts { verified: 0, quarantined_expected: 0, quarantined_unexpected: 0, retired: 0, retained: 0, dangling: 0, expired: 0 };
         let mut kinds = CompleteKinds { data: zero, desktop_profile: zero };
         // Counting a session's dangling references reads it whole, so the verified items are counted side by side first.
         let verified: Vec<&ManifestItem> = {
@@ -1008,7 +1376,9 @@ impl Migrator {
                 .manifest
                 .items
                 .iter()
-                .filter(|item| item.contract != Contract::Retire && journal.progress(item.key.as_str()).is_some_and(|p| p.quarantined.is_none()))
+                .filter(|item| {
+                    item.contract != Contract::Retire && journal.progress(item.key.as_str()).is_some_and(|p| p.quarantined.is_none() && p.expired.is_none())
+                })
                 .collect()
         };
         let dangling = map_on_threads(self.options.workers.max(1), &verified, |item| self.driver(item)?.dangling(&cx, item))?;
@@ -1020,6 +1390,10 @@ impl Migrator {
                 KindGroup::DesktopProfile => &mut kinds.desktop_profile,
             };
             let progress = journal.progress(item.key.as_str()).ok_or_else(|| Blocked::journal("item not journaled"))?;
+            if progress.expired.is_some() {
+                counts.expired += 1;
+                continue;
+            }
             match progress.quarantined {
                 Some(code) if !code.expected() => counts.quarantined_unexpected += 1,
                 Some(_) if item.contract == Contract::Retain => counts.retained += 1,
@@ -1038,6 +1412,8 @@ impl Migrator {
 pub mod cli;
 #[cfg(test)]
 mod registry_import_tests;
+#[cfg(test)]
+mod retention_tests;
 #[cfg(test)]
 #[path = "run/migration_tests.rs"]
 pub(crate) mod tests;

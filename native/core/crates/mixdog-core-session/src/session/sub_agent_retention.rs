@@ -561,3 +561,186 @@ impl RetentionHost for DirectoryRetention {
         self.write_kept().await;
     }
 }
+
+/// The header fields [`deleted_before_conversion`] and the purge of a session never stored read: [`KEPT_FIELDS`], the
+/// worker row the session is stored with, and the working folders its transcripts lie under (`knownSessionCwds`).
+pub fn judged_fields() -> Vec<&'static str> {
+    KEPT_FIELDS.into_iter().chain(["worker", "cwd", "workspace"]).collect()
+}
+
+/// What the archive authority says of a session by its header: the header with its archive mark resolved, and whether
+/// that state may be acted on ([`RetentionHost::trusted`]).
+pub type ArchiveView<'a> = &'a (dyn Fn(&str, &Header) -> (Header, bool) + Sync);
+
+/// The sessions of an earlier version, not stored yet, as a pass reads them: `headers` are their records, and one in
+/// `held` (stored already, or being opened) is in use here.
+struct Unconverted<'a> {
+    headers: &'a std::collections::BTreeMap<String, Header>,
+    held: &'a std::collections::BTreeSet<String>,
+    archive: ArchiveView<'a>,
+    /// The time of the pass, epoch ms.
+    now: f64,
+}
+
+#[async_trait]
+impl RetentionHost for Unconverted<'_> {
+    async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
+        Ok(self.headers.keys().cloned().collect())
+    }
+
+    async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
+        Ok(self.headers.get(id).map(|header| (self.archive)(id, header).0))
+    }
+
+    fn is_live(&self, id: &str) -> bool {
+        self.held.contains(id)
+    }
+
+    fn trusted(&self, id: &str, header: &Header) -> bool {
+        (self.archive)(id, header).1
+    }
+
+    async fn archive(&self, _id: &str) -> Result<(), CoreError> {
+        Ok(())
+    }
+
+    /// Refused where the worker index would read anything of the session's `worker` map, which is installed with the
+    /// session ([`super::agent_registry::map_is_live`], the index's own reading of a map). What a delete makes of a
+    /// live map is the index's to decide over the installed one
+    /// ([`super::agent_registry::AgentRegistry::forget_deleted_session`]): a settled row becomes the tombstone its
+    /// owner's next spawn of the tag inherits from, an unsettled or owed one stays, a tombstone in its lifetime
+    /// outlives the session. A session not stored has no map there, so it is stored.
+    async fn delete(&self, id: &str, _activity: f64, _peers: &[(String, f64)], _cancel: &CancellationToken) -> Result<bool, CoreError> {
+        Ok(match self.headers.get(id).and_then(|header| header.get("worker")) {
+            None => true,
+            Some(Value::Object(map)) => !super::agent_registry::map_is_live(id, map, self.now),
+            Some(_) => false,
+        })
+    }
+}
+
+/// The sessions a pass at `now` (epoch ms) deletes among `headers`, the records of an earlier version's sessions that are
+/// not stored yet: what [`members_of`] and [`apply_after`] decide over them with [`DELETE_AFTER_MS`], so a tree is judged
+/// whole by its newest activity, and one with a member of unknown age, of an archive state `archive` does not trust, or
+/// in `held` is left alone. A session whose worker map the index would read anything of at `now` is not among them. The
+/// migration converts none of the sessions returned, and finishes each as a delete does
+/// ([`SessionDirectory::purge_unconverted`]).
+pub fn deleted_before_conversion(
+    headers: &std::collections::BTreeMap<String, Header>,
+    held: &std::collections::BTreeSet<String>,
+    archive: ArchiveView<'_>,
+    now: f64,
+) -> std::collections::BTreeSet<String> {
+    let host = Unconverted { headers, held, archive, now };
+    // The host answers from memory: nothing here waits.
+    futures::executor::block_on(async {
+        let Ok(members) = members_of(&host).await else { return Default::default() };
+        apply_after(&host, &members, now, DELETE_AFTER_MS, &CancellationToken::new()).await.deleted.into_iter().collect()
+    })
+}
+
+#[cfg(test)]
+mod unconverted_tests {
+    use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    const NOW: f64 = 1_800_000_000_000.0;
+
+    fn worker(parent: &str, idle_days: f64) -> Header {
+        json!({ "agent": "worker", "visibility": "agent-only", "ownerSessionId": parent, "parentSessionId": parent, "lastUsedAt": NOW - idle_days * DAY_MS })
+            .as_object()
+            .cloned()
+            .expect("an object")
+    }
+
+    fn ids(found: BTreeSet<String>) -> Vec<String> {
+        found.into_iter().collect()
+    }
+
+    fn trusted(_: &str, header: &Header) -> (Header, bool) {
+        (header.clone(), true)
+    }
+
+    fn with_worker(mut header: Header, row: Value) -> Header {
+        header.insert("worker".into(), row);
+        header
+    }
+
+    /// An old worker whose map the worker index reads anything of is stored with it, whatever its row says: a delete
+    /// turns a settled row into the tombstone its owner's next spawn of the tag inherits from, and leaves an unsettled
+    /// or owed one and a tombstone in its lifetime in place. A worker the index holds nothing of is deleted, and so is
+    /// one whose map holds only what the index no longer reads: a tombstone past its lifetime, a release mark alone.
+    #[test]
+    fn a_worker_whose_map_the_index_reads_anything_of_is_not_deleted_before_conversion() {
+        let row = |status: &str, more: Value| {
+            let mut row = json!({ "sessionId": "x", "tag": "t", "ownerSessionId": "sess_lead", "status": status }).as_object().cloned().expect("an object");
+            row.extend(more.as_object().cloned().expect("an object"));
+            Value::Object(row)
+        };
+        let headers: BTreeMap<String, Header> = [
+            ("sess_settled".to_owned(), with_worker(worker("sess_lead", 8.0), row("idle", json!({})))),
+            ("sess_running".to_owned(), with_worker(worker("sess_lead", 8.0), row("running", json!({})))),
+            ("sess_owed".to_owned(), with_worker(worker("sess_lead", 8.0), row("failed", json!({ "failureReason": "process-restart" })))),
+            (
+                "sess_told".to_owned(),
+                with_worker(worker("sess_lead", 8.0), row("failed", json!({ "failureReason": "process-restart", "restartNotified": true }))),
+            ),
+            // `NOW` is 2027-01-15: reaped three days ago, and fourteen.
+            ("sess_reaped".to_owned(), with_worker(worker("sess_lead", 8.0), json!({ "tombstone": { "tag": "t", "reapedAt": "2027-01-12T00:00:00.000Z" } }))),
+            (
+                "sess_reaped_long_ago".to_owned(),
+                with_worker(worker("sess_lead", 8.0), json!({ "tombstone": { "tag": "t", "reapedAt": "2027-01-01T00:00:00.000Z" } })),
+            ),
+            ("sess_released".to_owned(), with_worker(worker("sess_lead", 8.0), json!({ "releasedAt": "2027-01-12T00:00:00.000Z" }))),
+            ("sess_rowless".to_owned(), worker("sess_lead", 8.0)),
+        ]
+        .into();
+        assert_eq!(ids(deleted_before_conversion(&headers, &BTreeSet::new(), &trusted, NOW)), ["sess_reaped_long_ago", "sess_released", "sess_rowless"]);
+    }
+
+    /// Where the archive authority does not trust a session's state (its entries were lost: the header's mark may hide a
+    /// restore the user made), the production pass leaves the tree alone, and so does the judgement before conversion.
+    #[test]
+    fn an_untrusted_archive_state_deletes_nothing_before_conversion() {
+        let headers: BTreeMap<String, Header> = [
+            ("sess_old".to_owned(), worker("sess_lead", 9.0)),
+            ("sess_old_child".to_owned(), worker("sess_old", 8.0)),
+            ("sess_alone".to_owned(), worker("sess_lead", 30.0)),
+        ]
+        .into();
+        let lost = |id: &str, header: &Header| (header.clone(), id == "sess_alone");
+        assert_eq!(ids(deleted_before_conversion(&headers, &BTreeSet::new(), &lost, NOW)), ["sess_alone"]);
+        let none = |_: &str, header: &Header| (header.clone(), false);
+        assert!(deleted_before_conversion(&headers, &BTreeSet::new(), &none, NOW).is_empty());
+    }
+
+    #[test]
+    fn a_tree_with_one_young_member_converts_whole_and_an_old_tree_is_deleted_whole() {
+        let headers: BTreeMap<String, Header> = [
+            // A tree whose child was used two days ago: nothing of it is deleted.
+            ("sess_top".to_owned(), worker("sess_lead", 20.0)),
+            ("sess_child".to_owned(), worker("sess_top", 2.0)),
+            // A tree idle eight days throughout.
+            ("sess_old".to_owned(), worker("sess_lead", 9.0)),
+            ("sess_old_child".to_owned(), worker("sess_old", 8.0)),
+            // A member of unknown age keeps its tree.
+            ("sess_dated".to_owned(), worker("sess_lead", 30.0)),
+            (
+                "sess_undated".to_owned(),
+                json!({ "agent": "worker", "visibility": "agent-only", "ownerSessionId": "sess_dated" }).as_object().cloned().expect("an object"),
+            ),
+            // The Lead they work for is no member, whatever its age.
+            ("sess_lead".to_owned(), json!({ "agent": "lead", "lastUsedAt": NOW - 40.0 * DAY_MS }).as_object().cloned().expect("an object")),
+        ]
+        .into();
+        assert_eq!(ids(deleted_before_conversion(&headers, &BTreeSet::new(), &trusted, NOW)), ["sess_old", "sess_old_child"]);
+        // A tree with a member already stored, or being opened, is in use.
+        let held = BTreeSet::from(["sess_old_child".to_owned()]);
+        assert!(deleted_before_conversion(&headers, &held, &trusted, NOW).is_empty());
+        // Six days and 23 hours idle is not seven.
+        let almost: BTreeMap<String, Header> = [("sess_almost".to_owned(), worker("sess_lead", 6.96))].into();
+        assert!(deleted_before_conversion(&almost, &BTreeSet::new(), &trusted, NOW).is_empty());
+    }
+}

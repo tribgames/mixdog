@@ -757,7 +757,7 @@ impl AgentRuntime {
         // A cleanup makes this refresh itself, from the one listing it plans over.
         let rehydrated = self.deps.sessions.rehydrate_agent_sessions().await;
         if rehydrated && kind != "cleanup" {
-            self.deps.registry.refresh_tags_from_sessions(true, &scope).await;
+            self.deps.registry.refresh_tags_from_sessions(true, &scope).await?;
         }
         let views = &self.deps.views;
         match kind.as_str() {
@@ -771,7 +771,7 @@ impl AgentRuntime {
                 // open for follow-ups; the roster counts them and lists a bounded tail.
                 let workers = views
                     .list(&scope, ListOptions { scan_sessions: wants_session_scan(args), include_idle: true, include_closed: true, include_terminal: false })
-                    .await;
+                    .await?;
                 Ok(AgentReply::Roster { workers, jobs: views.list_jobs(&scope).await })
             }
             "read" => self.read_job(args, &scope).await,
@@ -815,7 +815,7 @@ impl AgentRuntime {
     pub async fn close(&self, args: &Value, caller: &Caller, keep_row: bool) -> Result<ClosedView, String> {
         let scope = Scope::of(args, &caller.scope);
         let registry = &self.deps.registry;
-        registry.refresh_tags_from_sessions(wants_session_scan(args), &scope).await;
+        registry.refresh_tags_from_sessions(wants_session_scan(args), &scope).await?;
         let task_id = clean(args.get("task_id"));
         let task = if task_id.is_empty() { None } else { self.deps.tasks.get(&task_id, &caller.scope) };
         let task_session = task.as_ref().and_then(|t| t.session_id.clone());
@@ -860,7 +860,7 @@ impl AgentRuntime {
     /// `rehydrated`: the stored agent sessions were reloaded, so the refresh scans them as the call's preamble would.
     async fn cleanup(&self, args: &Value, scope: &Scope, rehydrated: bool, cancel: &CancellationToken) -> Result<AgentReply, String> {
         let registry = &self.deps.registry;
-        let listed = registry.refresh_topology(rehydrated || wants_session_scan(args), scope).await;
+        let listed = registry.refresh_topology(rehydrated || wants_session_scan(args), scope).await?;
         let cleaned = self.deps.tasks.cleanup(scope, args.get("force") == Some(&Value::Bool(true)));
         let parts = CleanupParts { registry: Arc::clone(registry), sessions: Arc::clone(&self.deps.sessions), tasks: Arc::clone(&self.deps.tasks) };
         let report = cleanup_idle(parts, scope, listed, cancel.clone()).await?;

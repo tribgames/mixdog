@@ -129,7 +129,7 @@ pub fn migrated(transcript: Value) -> (Header, Value) {
 pub fn header() -> CompactionHeader {
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
-    Box::new(move |_, _| HeaderChange { set, unset: Vec::new() })
+    Box::new(move |_, _| HeaderChange { set, unset: Vec::new(), patch: Default::default() })
 }
 
 impl World {

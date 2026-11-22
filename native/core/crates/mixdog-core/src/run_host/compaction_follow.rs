@@ -35,7 +35,7 @@ pub fn sync_change(header: &Header, saved: &Value) -> HeaderChange {
     if header.get("compaction") != Some(&synced) {
         set.insert("compaction".into(), synced);
     }
-    HeaderChange { set, unset: Vec::new() }
+    HeaderChange { set, unset: Vec::new(), patch: Default::default() }
 }
 
 /// The saved `autoClear` section, as the route change reads it (`route_surface`'s `auto_clear`): Null when none is stored.
@@ -50,7 +50,7 @@ pub fn cache_opts_change(header: &Header, auto_clear: &Value) -> HeaderChange {
     if let Some(opts) = super::session_cache_opts::refreshed_cache_opts(header, auto_clear) {
         set.insert("providerCacheOpts".into(), opts);
     }
-    HeaderChange { set, unset: Vec::new() }
+    HeaderChange { set, unset: Vec::new(), patch: Default::default() }
 }
 
 /// Re-derives every loaded thread's cache options from `auto_clear` (`refreshLiveSessionsProviderCacheOpts`).

@@ -92,15 +92,49 @@ pub struct Cleaned {
     pub removed: u64,
 }
 
+/// A tag taken for a spawn ([`Registry::claim_tag`]): no other spawn is given it while this is held. Dropped once the
+/// spawn bound the tag, or gave up.
+pub struct TagClaim {
+    pub tag: String,
+    _held: Option<Box<dyn Send + Sync>>,
+}
+
+impl TagClaim {
+    /// `tag`, reserved until `held` is dropped.
+    pub fn new(tag: String, held: Option<Box<dyn Send + Sync>>) -> Self {
+        Self { tag, _held: held }
+    }
+}
+
+impl std::fmt::Debug for TagClaim {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TagClaim").field("tag", &self.tag).finish()
+    }
+}
+
 #[async_trait]
 pub trait Registry: Send + Sync {
     fn resolve_tombstone_owners(&self);
-    async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope);
+    /// `Err` when the stored worker rows could not be read whole: the tags then held in memory are no account of them,
+    /// and nothing is to be decided from a tag they do not show.
+    async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) -> Result<(), String>;
     /// [`Self::refresh_tags_from_sessions`] and the agent sessions as the same listing holds them, for a cleanup. A
     /// surface that lists none answers an empty one.
-    async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> (Topology, Recovered) {
-        self.refresh_tags_from_sessions(scan_sessions, scope).await;
-        (Topology::default(), Recovered::default())
+    async fn refresh_topology(&self, scan_sessions: bool, scope: &Scope) -> Result<(Topology, Recovered), String> {
+        self.refresh_tags_from_sessions(scan_sessions, scope).await?;
+        Ok((Topology::default(), Recovered::default()))
+    }
+    /// The tag of a new worker, taken under the registry's admission of spawns: the stored worker rows are read whole
+    /// first (`Err` when they cannot be, whatever tags are held in memory), then `explicit` is refused when it is bound,
+    /// or, with none, `next` names the next free tag; the tag is reserved until the claim is dropped. Two spawns admitted
+    /// together are never both given a tag neither saw bound.
+    async fn claim_tag(&self, explicit: &str, scope: &Scope, options: ResolveOptions, next: &(dyn Fn() -> String + Sync)) -> Result<TagClaim, String> {
+        self.refresh_tags_from_sessions(false, scope).await?;
+        let tag = if explicit.is_empty() { next() } else { explicit.to_owned() };
+        if self.resolve_tag(&tag, scope, options)?.is_some() {
+            return Err(format!("agent spawn: tag \"{tag}\" already exists"));
+        }
+        Ok(TagClaim::new(tag, None))
     }
     /// The turn the session's worker map is at; `None` while it has no map. A surface that counts no turns answers
     /// `None` for every session.
@@ -169,7 +203,9 @@ pub trait Registry: Send + Sync {
     fn tag_tombstone_for_tag(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
     fn consume_tag_tombstone(&self, tombstone: &TagRecord);
     fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
-    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Option<Resumable>;
+    /// `Ok(None)`: the session cannot be resumed, and the caller starts a fresh one. `Err`: whether it can is not known
+    /// (its record could not be read), and nothing is started in its place.
+    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Result<Option<Resumable>, String>;
     /// `tags.values()`: every session a tag is bound to.
     fn bound_sessions(&self) -> Vec<String> {
         Vec::new()
@@ -512,7 +548,8 @@ pub trait Views: Send + Sync {
     /// A job by `task_id`, else the newest for `tag`/`sessionId`, else a synthetic job built
     /// from the worker session. `include_result`: `read` shows the result, `status` does not.
     async fn get_job_or_worker(&self, args: &Value, scope: &Scope, include_result: bool) -> Result<Job, String>;
-    async fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow>;
+    /// `Err` when the worker rows the listing is made from could not be read whole: never a list short of a worker.
+    async fn list(&self, scope: &Scope, options: ListOptions) -> Result<Vec<WorkerRow>, String>;
     async fn list_jobs(&self, scope: &Scope) -> Vec<JobRow>;
 }
 

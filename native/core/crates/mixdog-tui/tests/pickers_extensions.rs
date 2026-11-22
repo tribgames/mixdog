@@ -536,7 +536,12 @@ fn off_by(reason: &str) -> Value {
 
 /// `(value, label, marker, description)` of the Skills rows on screen.
 fn skill_rows(host: &Fake) -> Vec<(String, String, String, String)> {
-    host.live().expect("the Skills list").items.iter().map(|item| (item.value.clone(), item.label.clone(), item.marker.clone(), item.description.clone())).collect()
+    host.live()
+        .expect("the Skills list")
+        .items
+        .iter()
+        .map(|item| (item.value.clone(), item.label.clone(), item.marker.clone(), item.description.clone()))
+        .collect()
 }
 
 fn skill_row(value: &str, label: &str, marker: &str, description: &str) -> (String, String, String, String) {

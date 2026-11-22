@@ -38,6 +38,10 @@ use mixdog_core_api::feed::FeedFrame;
 use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::FeedView;
+use mixdog_core_api::feed::Grant;
+use mixdog_core_api::feed::GrantAsk;
+use mixdog_core_api::feed::GrantFence;
+use mixdog_core_api::feed::Held;
 use mixdog_core_api::feed::PublishError;
 use mixdog_core_api::feed::ResumeFrom;
 use mixdog_core_api::feed::Window;
@@ -105,6 +109,8 @@ struct Subscriber {
     /// The position its lane was attached at: what the lane carries is the replay or the snapshot of that attach, and
     /// every frame after this seq.
     since: u64,
+    /// What a positioned subscription holds: each transcript frame is delivered in the form this decides.
+    grant: Option<Grant>,
 }
 
 /// A snapshot slot to hand to its flight once the feed lock is released.
@@ -120,12 +126,18 @@ struct PendingSnapshot {
 struct Delivered {
     slot: SnapshotSlot,
     view: Arc<dyn FeedView>,
+    /// The version the grant this snapshot installs took, for a positioned subscription.
+    version: Option<u64>,
 }
 
 impl SlotFill for Delivered {
     fn fill(self: Box<Self>, frame: Bytes) {
-        let Delivered { slot, view } = *self;
-        slot.fill(view.at_delivery(frame));
+        let Delivered { slot, view, version } = *self;
+        let frame = view.at_delivery(frame);
+        slot.fill(match version {
+            Some(version) => view.at_window_version(frame, version),
+            None => frame,
+        });
     }
 }
 
@@ -201,7 +213,8 @@ impl Shared {
     /// Replays `(resume.seq, S]` into `lane` when P §6.3 conditions 1–3 hold and the frames'
     /// bytes fit the connection's free event budget (condition 4).
     fn replay(&self, state: &State, lane: &dyn Lane, resume: &ResumeFrom, window: &Window) -> bool {
-        if resume.position.epoch != self.epoch || resume.window != *window {
+        // A new lane holds no grant the frames could be chosen by: only the lane that holds one carries on.
+        if resume.position.epoch != self.epoch || resume.window != *window || matches!(window, Window::Positioned(_)) {
             return false;
         }
         let Some(replay) = state.ring.after(resume.position.seq, state.seq) else {
@@ -277,6 +290,19 @@ impl FeedSource for CoreFeed {
             }
         };
         let mut pending = None;
+        // The snapshot is of the view's newest rows for every subscription of the window, so the grant it installs is
+        // the view's too: a recovered lane starts again from it, whatever it held.
+        let grant = matches!(window, Window::Positioned(_)).then(|| {
+            let ask = state.view.first_grant(&window).unwrap_or(GrantAsk { lineage: 0, ranges: Vec::new(), tail_from: None });
+            // A subscription's window version never repeats: a lane recovered at a seq its grant already took a
+            // version of takes the next one, and no demand made of an earlier grant names it.
+            let version = match state.subs.get(&req.sub).and_then(|held| held.grant.as_ref()) {
+                Some(held) => state.view_seq.max(held.version + 1),
+                None => state.view_seq,
+            };
+            ask.granted(version)
+        });
+        let version = grant.as_ref().map(|grant| grant.version);
         if decision.mode == AttachMode::Snapshot {
             // The view may lag the frames (`publish_deferred`): the snapshot is the view's, at its seq, and the frames after it
             // follow from the ring. A ring that no longer holds them cannot serve the attach now; the lane lags and recovers once
@@ -288,13 +314,14 @@ impl FeedSource for CoreFeed {
                 if at < seq && catch_up.is_none() { None } else { reservation.or_else(|| lane.try_reserve_snapshot(shared.max_snapshot_bytes).ok()) };
             match reservation {
                 Some(reservation) => {
-                    let slot = SnapshotSlot::new(Box::new(Delivered { slot: lane.push_slot(reservation), view: state.view.clone() }));
+                    let slot = SnapshotSlot::new(Box::new(Delivered { slot: lane.push_slot(reservation), view: state.view.clone(), version }));
                     if let Some(frames) = catch_up {
-                        match lane.try_reserve(frames.bytes) {
+                        let frames: Vec<Bytes> = frames.map(|frame| frame.for_grant(grant.as_ref()).clone()).collect();
+                        match lane.try_reserve(frames.iter().map(Bytes::len).sum()) {
                             Ok(mut reserved) => {
                                 for frame in frames {
-                                    let part = reserved.split(frame.bytes.len()).expect("the reservation holds the catch-up's byte sum");
-                                    lane.push(part, frame.bytes.clone());
+                                    let part = reserved.split(frame.len()).expect("the reservation holds the catch-up's byte sum");
+                                    lane.push(part, frame);
                                 }
                             }
                             Err(_) => {
@@ -312,7 +339,7 @@ impl FeedSource for CoreFeed {
                 }
             }
         }
-        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1 });
+        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1, grant });
         state.watched = true;
         drop(state);
 
@@ -343,6 +370,47 @@ impl FeedSource for CoreFeed {
 
     fn ordered(&self) -> bool {
         self.shared.ordered
+    }
+
+    fn grant(&self, sub: &SubscriptionId) -> Option<Grant> {
+        self.shared.lock().subs.get(sub)?.grant.clone()
+    }
+
+    fn regrant(&self, sub: &SubscriptionId, base_version: u64, ask: GrantAsk) -> Result<GrantFence, CoreError> {
+        let shared = &self.shared;
+        let mut guard = shared.lock();
+        let seq = guard.seq;
+        let subscriber = guard.subs.get_mut(sub).ok_or(CoreError::ConnectionClosed)?;
+        let Some(held) = &subscriber.grant else {
+            return Err(CoreError::InvalidParams { path: "subscriptionId".into(), expected: "a positioned subscription".into() });
+        };
+        let other = |actual: String| CoreError::PreconditionFailed {
+            precondition: mixdog_core_api::error::Precondition::Revision { expected: base_version.to_string().into(), actual: actual.into() },
+        };
+        if held.version != base_version {
+            return Err(other(held.version.to_string()));
+        }
+        let lane = &subscriber.lane;
+        // A lane being recovered is owed a snapshot, which installs its own grant: nothing is changed under it.
+        if lane.is_lagged() {
+            return Err(other("recovering".into()));
+        }
+        let Ok(reservation) = lane.try_reserve_snapshot(shared.max_snapshot_bytes) else {
+            lane.lag();
+            return Err(other("recovering".into()));
+        };
+        let slot = lane.push_slot(reservation);
+        let version = (held.version + 1).max(seq);
+        subscriber.grant = Some(ask.granted(version));
+        Ok(GrantFence { at: FeedPosition { epoch: shared.epoch.clone(), seq }, version, slot })
+    }
+
+    fn owner(&self, sub: &SubscriptionId) -> Option<mixdog_core_api::ids::ConnectionId> {
+        self.shared.lock().subs.get(sub)?.lane.connection()
+    }
+
+    fn frame_budget(&self) -> usize {
+        self.shared.max_snapshot_bytes
     }
 }
 
@@ -382,6 +450,85 @@ impl Feed for CoreFeed {
         let state = &mut *guard;
         state.ring.rest(state.view_seq);
     }
+
+    fn rebase(&self, rebase: &mut dyn FnMut(&SubscriptionId, &Grant, u64, &FeedPosition) -> Option<(GrantAsk, Bytes)>) {
+        let shared = &self.shared;
+        let mut guard = shared.lock();
+        let at = FeedPosition { epoch: shared.epoch.clone(), seq: guard.seq };
+        for (sub, subscriber) in &mut guard.subs {
+            let Some(held) = &subscriber.grant else { continue };
+            let version = (held.version + 1).max(at.seq);
+            let Some((ask, frame)) = rebase(sub, held, version, &at) else { continue };
+            subscriber.grant = Some(ask.granted(version));
+            let lane = &subscriber.lane;
+            // A lagged lane is told by its recovery's snapshot.
+            if lane.is_lagged() {
+                continue;
+            }
+            match lane.try_reserve(frame.len()) {
+                Ok(reservation) => lane.push(reservation, frame),
+                Err(_) => {
+                    lane.lag();
+                }
+            }
+        }
+    }
+
+    fn deliver(
+        &self,
+        lineage: u64,
+        ordinal: u64,
+        position: &str,
+        after: Option<&str>,
+        view: Option<Arc<dyn FeedView>>,
+        frame: &mut dyn FnMut(Held, &FeedPosition) -> Bytes,
+    ) {
+        let shared = &self.shared;
+        let mut guard = shared.lock();
+        let state = &mut *guard;
+        let at = FeedPosition { epoch: shared.epoch.clone(), seq: state.seq };
+        // One encoding of each form, whoever gets it.
+        let mut forms: [Option<Bytes>; 2] = [None, None];
+        for subscriber in state.subs.values_mut() {
+            let Some(grant) = &mut subscriber.grant else { continue };
+            let Some(held) = grant.held(lineage, ordinal) else { continue };
+            // What the subscription holds is what it was sent: the record joins the tail's range whether or not its
+            // lane takes the frame, and a lane that does not is recovered by a snapshot, which holds it.
+            if held == Held::Tail {
+                grant.extend_tail(ordinal, position, after);
+            }
+            let lane = &subscriber.lane;
+            if lane.is_lagged() {
+                continue;
+            }
+            let bytes = forms[usize::from(held == Held::Tail)].get_or_insert_with(|| frame(held, &at)).clone();
+            match lane.try_reserve(bytes.len()) {
+                Ok(reservation) => lane.push(reservation, bytes),
+                Err(_) => {
+                    lane.lag();
+                }
+            }
+        }
+        if let Some(view) = view {
+            state.snapshots.clear();
+            state.view = view;
+            state.view_seq = state.seq;
+            if !state.watched {
+                state.ring.drop_through(state.view_seq);
+            }
+        }
+    }
+
+    fn held(&self, lineage: u64) -> Vec<mixdog_core_api::feed::GrantRange> {
+        let state = self.shared.lock();
+        state
+            .subs
+            .values()
+            .filter_map(|subscriber| subscriber.grant.as_ref())
+            .filter(|grant| grant.lineage == lineage)
+            .flat_map(|grant| grant.ranges.clone())
+            .collect()
+    }
 }
 
 impl Shared {
@@ -401,8 +548,9 @@ impl Shared {
                 if lane.is_lagged() {
                     continue;
                 }
-                match lane.try_reserve(frame.bytes.len()) {
-                    Ok(reservation) => lane.push(reservation, frame.bytes.clone()),
+                let bytes = frame.for_grant(subscriber.grant.as_ref());
+                match lane.try_reserve(bytes.len()) {
+                    Ok(reservation) => lane.push(reservation, bytes.clone()),
                     Err(_) => {
                         lane.lag();
                     }

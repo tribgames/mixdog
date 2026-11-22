@@ -118,7 +118,9 @@ fn crash_child() {
     }
     BASE.set(PathBuf::from(&base)).expect("once");
     durable::set_step_hook(on_step);
-    migrator(&named_roots(Path::new(&base)), MigrateOptions { workers: 1, fault: None, verified: None }).run().expect("the run the child was not stopped in");
+    migrator(&named_roots(Path::new(&base)), MigrateOptions { workers: 1, fault: None, verified: None, retention: None })
+        .run()
+        .expect("the run the child was not stopped in");
     if let Some(log) = std::env::var_os("UPGRADE_CHAIN_LOG") {
         std::fs::write(log, LOG.lock().expect("log").join("\n")).expect("step log");
     }
@@ -333,7 +335,7 @@ fn crash_matrix_over_gen2(part: usize) {
         ran += 1;
         fresh();
         assert_eq!(child(&base, Some(stop_at), None), Some(KILLED), "step {stop_at} ({step}) was not reached");
-        migrator(&roots, MigrateOptions { workers: 1, fault: None, verified: None })
+        migrator(&roots, MigrateOptions { workers: 1, fault: None, verified: None, retention: None })
             .run()
             .unwrap_or_else(|e| panic!("resume after a kill in step {stop_at} ({step}): {e}"));
         let got = tree_digest(&roots);

@@ -94,8 +94,9 @@ impl Registry for Fakes {
     fn resolve_tombstone_owners(&self) {
         self.0.log(json!(["resolveTombstoneOwners"]));
     }
-    async fn refresh_tags_from_sessions(&self, scan: bool, scope: &Scope) {
+    async fn refresh_tags_from_sessions(&self, scan: bool, scope: &Scope) -> Result<(), String> {
         self.0.log(json!(["refreshTags", scan, scope_json(scope)]));
+        Ok(())
     }
     fn resolve_tag(&self, tag: &str, scope: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
         self.0.log(json!(["resolveTag", tag, scope_json(scope), { "scan": options.scan_sessions, "traces": options.exclude_terminal_traces }]));
@@ -177,11 +178,14 @@ impl Registry for Fakes {
         let row = record(self.0.json.get("lastSessions")?.get(tag)?);
         scope.owns(&row.owner).then_some(row)
     }
-    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Option<Resumable> {
+    async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Result<Option<Resumable>, String> {
         self.0.log(json!(["resumableTagSession", tag, session_id, scope_json(scope)]));
-        let found = self.0.json.get("resumable")?.get(format!("{tag}|{session_id}"))?;
-        if found.is_null() {
-            return None;
+        let Some(found) = self.0.json.get("resumable").and_then(|all| all.get(format!("{tag}|{session_id}"))).filter(|found| !found.is_null()) else {
+            return Ok(None);
+        };
+        // `{ "unreadable": "<why>" }`: the session's record could not be read.
+        if let Some(why) = found.get("unreadable").and_then(Value::as_str) {
+            return Err(why.to_owned());
         }
         let session = found.get("session").filter(|v| !v.is_null()).map(|v| SessionFacts {
             id: s(v, "id"),
@@ -189,7 +193,7 @@ impl Registry for Fakes {
             cwd: s(v, "cwd"),
             owner: Owner { parent_session_id: "lead1".into(), ..Owner::default() },
         });
-        Some(Resumable { session, missing_cwd: found.get("missingCwd").and_then(Value::as_str).map(str::to_owned) })
+        Ok(Some(Resumable { session, missing_cwd: found.get("missingCwd").and_then(Value::as_str).map(str::to_owned) }))
     }
 }
 
@@ -369,8 +373,9 @@ impl Views for Fakes {
             view: view_of(&job["view"]),
         })
     }
-    async fn list(&self, _scope: &Scope, _options: ListOptions) -> Vec<WorkerRow> {
-        self.0
+    async fn list(&self, _scope: &Scope, _options: ListOptions) -> Result<Vec<WorkerRow>, String> {
+        Ok(self
+            .0
             .list("workers")
             .iter()
             .map(|w| WorkerRow {
@@ -380,7 +385,7 @@ impl Views for Fakes {
                 active: w.get("active") == Some(&Value::Bool(true)),
                 ..WorkerRow::default()
             })
-            .collect()
+            .collect())
     }
     async fn list_jobs(&self, _scope: &Scope) -> Vec<JobRow> {
         self.0
@@ -506,4 +511,19 @@ async fn a_spawn_on_a_reaped_tag_resumes_it_only_when_the_request_fits() {
         let (_, trace) = spawn_on(&world, args).await;
         assert!(names(&trace, "startSpawn") && !names(&trace, "dispatch"), "a request that does not fit starts fresh");
     }
+}
+
+/// A spawn on a reaped tag whose session's record cannot be read is answered with that failure: the session is not taken
+/// as gone, so nothing is resumed and no fresh session starts under its tag.
+#[tokio::test]
+async fn a_spawn_on_a_reaped_tag_whose_record_cannot_be_read_starts_nothing() {
+    let reaped = json!({
+        "lastSessions": { "w1": { "tag": "w1", "sessionId": "sx", "agent": "worker", "cwd": "/work", "parentSessionId": "lead1" } },
+        "resumable": { "w1|sx": { "unreadable": "the header of session sx could not be read" } },
+    });
+    let world = world_with(reaped, &[]);
+    let (answer, trace) = spawn_on(&world, json!({ "prompt": "go", "tag": "w1", "cwd": "/work" })).await;
+    assert!(answer.contains("the header of session sx could not be read"), "{answer}");
+    assert!(names(&trace, "resumableTagSession"), "the reaped session was asked for: {trace:?}");
+    assert!(!names(&trace, "dispatch") && !names(&trace, "startSpawn"), "nothing is resumed or started: {trace:?}");
 }

@@ -81,6 +81,15 @@ pub struct SourceFile {
     pub secret: bool,
 }
 
+/// A source file the plan names without its size and hash ([`ManifestItem::late_sources`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LateSource {
+    pub root: Root,
+    /// As [`SourceFile::path`].
+    pub path: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SharedSource {
@@ -100,8 +109,13 @@ pub struct ManifestItem {
     pub group: KindGroup,
     pub kind: ItemKind,
     pub contract: Contract,
-    /// Files this item alone owns, sorted by `(root, path)`.
+    /// Files this item alone owns, sorted by `(root, path)`. Empty for an item with `late_sources`.
     pub sources: Vec<SourceFile>,
+    /// A `session` item's own files, sorted by `(root, path)`: named by the plan and not read by it. They are hashed
+    /// when the item is converted and journaled as its `sources` ([`JournalRecord::Sources`]), which then stand for
+    /// `sources` above.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub late_sources: Vec<LateSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Target>,
 }
@@ -267,6 +281,8 @@ pub enum ItemState {
     Published,
     Verified,
     Quarantined,
+    /// A session the product's retention deletes: settled without being converted, its sources removed at disposal.
+    Expired,
     Disposed,
 }
 
@@ -279,6 +295,8 @@ impl ItemState {
             (Planned, Staged)
                 | (Planned, Verified)
                 | (Planned, Quarantined)
+                | (Planned, Expired)
+                | (Expired, Disposed)
                 | (Staged, Published)
                 | (Staged, Quarantined)
                 | (Published, Verified)
@@ -295,12 +313,26 @@ impl ItemState {
 pub enum JournalRecord {
     /// Ordinal 0: every manifest item enters `planned`.
     Plan(PlanEntry),
+    /// The size and hash of an item's `late_sources` as they are when the item is converted: once per item, while it
+    /// is `planned`, before anything of it is staged.
+    Sources(SourcesEntry),
     Staged(StagedEntry),
     Published(KeyEntry),
     Verified(VerifiedEntry),
     Quarantined(QuarantinedEntry),
+    /// The product's retention deletes this session: it is not converted. Journaled with the time it was judged at, before
+    /// the `judged` phase that closes the judgement.
+    Expired(ExpiredEntry),
     Disposed(KeyEntry),
     Phase(PhaseEntry),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpiredEntry {
+    pub key: ItemKey,
+    /// Epoch milliseconds.
+    pub judged_at: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,6 +340,14 @@ pub enum JournalRecord {
 pub struct PlanEntry {
     pub manifest_sha256: Text<SHA256_HEX_MAX>,
     pub items: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourcesEntry {
+    pub key: ItemKey,
+    /// Sorted by `(root, path)`; what the item is converted from, verified against and disposed by.
+    pub sources: Vec<SourceFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +387,9 @@ pub struct QuarantinedEntry {
 #[serde(deny_unknown_fields)]
 pub struct PhaseEntry {
     pub phase: Phase,
+    /// `judged` only: the time the judgement was made at, epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,6 +397,9 @@ pub struct PhaseEntry {
 pub enum Phase {
     /// Every item is `verified` or `quarantined`; disposal may start.
     VerifiedAll,
+    /// The product's retention has judged the sessions still planned, at `at`: every session it deletes is journaled
+    /// `expired` before this frame, and none is after it. Written whatever the verdicts, before any session converts.
+    Judged,
 }
 
 /// `migration/complete.json`; the runtime checks only this file before `Serving`.
@@ -383,6 +429,14 @@ pub struct Counts {
     pub retired: u64,
     pub retained: u64,
     pub dangling: u64,
+    /// Sessions the product's retention deletes, removed without being converted.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub expired: u64,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if takes a reference")]
+fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// `quarantine/<code>/<escaped key>/reason.json`.

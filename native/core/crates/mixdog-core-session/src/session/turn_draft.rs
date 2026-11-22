@@ -51,6 +51,10 @@ impl RunDraft {
             }
             None => {}
         }
+        // Before the body's own results: a call run again takes back what its first run told, then tells its result.
+        for call in withdrawn(body) {
+            self.results.retain(|result| result_call(result) != Some(call));
+        }
         let text = |key: &str| body.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
         if let Some(text) = text("text") {
             self.started = true;
@@ -86,8 +90,11 @@ impl RunDraft {
 
     /// The bodies of the run's draft file, in order. A `committed` body names the assistant row that took the message so
     /// far: it ends the draft's message only when `landed` finds that row in the log (a row whose save never landed leaves
-    /// its text to the draft).
-    pub fn apply_file(&mut self, bodies: &[Value], landed: impl Fn(&str) -> bool) {
+    /// its text to the draft). A result whose call `answered` finds a row of in the log is the log's and leaves the draft:
+    /// a call's id is its alone in its session (`mixdog_agent::repair::ToolCallIds`), so the row in the log is the one
+    /// fact that says so, nothing else has to reach the disk for it, and a kill at any point leaves each result in the
+    /// log or in the draft.
+    pub fn apply_file(&mut self, bodies: &[Value], landed: impl Fn(&str) -> bool, answered: impl Fn(&str) -> bool) {
         for body in bodies {
             match body.get("committed").and_then(Value::as_str) {
                 Some(iid) => {
@@ -98,7 +105,19 @@ impl RunDraft {
                 None => self.apply(body),
             }
         }
+        self.results.retain(|result| !result_call(result).is_some_and(&answered));
     }
+}
+
+/// The call a drafted result answers.
+fn result_call(result: &Value) -> Option<&str> {
+    result.get("toolCallId").and_then(Value::as_str)
+}
+
+/// The calls a draft body takes the drafted result back of (`withdrawn`): each was run again, and the result its first
+/// run told is not the call's.
+fn withdrawn(body: &Value) -> impl Iterator<Item = &str> {
+    body.get("withdrawn").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
 }
 
 /// A write of a run's draft file (`draft-<rid>.jsonl` beside the session's log, the 1.4.5 checkpoint's place).
@@ -123,11 +142,6 @@ pub struct DraftJournal {
     reasoning: String,
     calls: Vec<Value>,
     results: Vec<Value>,
-    /// Beside `results`, entry for entry: each result's own number, and whether a row's write has taken it as its own
-    /// ([`Self::claim_result`]). A provider may give two calls of a turn the same id (a compaction between them reseeds its
-    /// ids), so the call id names no one result.
-    result_marks: Vec<(u64, bool)>,
-    result_seq: u64,
     tools: Option<bool>,
     written_text: String,
     written_reasoning: String,
@@ -183,27 +197,17 @@ impl DraftJournal {
         self.written_reasoning.clear();
     }
 
-    /// A row answering `call_id` was accepted: the oldest drafted result of that call no row has taken is this row's, and
-    /// its number is what the row's acknowledgement retires. `None` when the draft holds none (the result was never
-    /// drafted early).
-    pub fn claim_result(&mut self, call_id: &str) -> Option<u64> {
-        let at = self
-            .results
-            .iter()
-            .zip(&self.result_marks)
-            .position(|(row, (_, claimed))| !claimed && row.get("toolCallId").and_then(Value::as_str) == Some(call_id))?;
-        self.result_marks[at].1 = true;
-        Some(self.result_marks[at].0)
+    /// Whether the draft holds a result of the call `call`.
+    pub fn holds_result(&self, call: &str) -> bool {
+        self.results.iter().any(|result| result_call(result) == Some(call))
     }
 
-    /// The row that took the result numbered `result` is on disk (its write was acknowledged): the draft holds that result
-    /// no longer. Not before: a row accepted and not yet written can still fail, and a rewrite of the file meanwhile would
-    /// leave the result in neither place. Kept past that, every result of a turn stayed here until the turn ended.
-    pub fn result_landed(&mut self, result: u64) {
-        if let Some(at) = self.result_marks.iter().position(|(number, _)| *number == result) {
-            self.result_marks.remove(at);
-            self.results.remove(at);
-        }
+    /// The row of the call `call` is on disk (its write was acknowledged): the draft holds that call's result no longer.
+    /// Not before: a row accepted and not yet written can still fail, and a rewrite of the file meanwhile would leave the
+    /// result in neither place. Kept past that, every result of a turn stayed here until the turn ended. The file is not
+    /// written for it: that row in the log is what a later read goes by ([`RunDraft::apply_file`]).
+    pub fn result_landed(&mut self, call: &str) {
+        self.results.retain(|result| result_call(result) != Some(call));
     }
 
     /// The body to write for the chunk `body` the run drafted, and whether it is the whole draft (it replaces the file);
@@ -215,11 +219,10 @@ impl DraftJournal {
         let calls = body.get("calls").and_then(Value::as_array).cloned().unwrap_or_default();
         let results = body.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
         self.calls.extend(calls.iter().cloned());
-        self.results.extend(results.iter().cloned());
-        for _ in &results {
-            self.result_seq += 1;
-            self.result_marks.push((self.result_seq, false));
+        for call in withdrawn(body) {
+            self.results.retain(|result| result_call(result) != Some(call));
         }
+        self.results.extend(results.iter().cloned());
         if let Some(tools) = body.get("tools").and_then(Value::as_bool) {
             self.tools = Some(tools);
         }
@@ -243,6 +246,9 @@ impl DraftJournal {
         }
         if !calls.is_empty() {
             out.insert("calls".into(), redact_calls(marks, thread, &calls));
+        }
+        if let Some(calls) = body.get("withdrawn").filter(|calls| calls.as_array().is_some_and(|calls| !calls.is_empty())) {
+            out.insert("withdrawn".into(), calls.clone());
         }
         if !results.is_empty() {
             out.insert("results".into(), Value::Array(marks.redacted(thread, &results)));
@@ -308,11 +314,11 @@ mod tests {
             let (append, whole) = journal.chunk(&json!({}), &marks, &thread).unwrap();
             assert!(!whole);
             assert_eq!(append.get("contextTokens"), Some(&expected));
-            draft.apply_file(&[append, json!({ "text": "continued" })], |_| false);
+            draft.apply_file(&[append, json!({ "text": "continued" })], |_| false, |_| false);
             assert_eq!(draft.context_tokens, Some(tokens));
         }
         let mut recovered = RunDraft::default();
-        recovered.apply_file(&[journal.reset(&marks, &thread)], |_| false);
+        recovered.apply_file(&[journal.reset(&marks, &thread)], |_| false, |_| false);
         assert_eq!(recovered.context_tokens, Some(None));
     }
 
@@ -326,35 +332,65 @@ mod tests {
             let (append, whole) = journal.chunk(&json!({ "results": [result(call)] }), &marks, &thread).unwrap();
             assert_eq!((append["results"].clone(), whole), (json!([result(call)]), false));
         }
-        let (first, third) = (journal.claim_result("c1").unwrap(), journal.claim_result("c3").unwrap());
-        assert_eq!(journal.claim_result("unknown"), None);
-        journal.result_landed(first);
-        journal.result_landed(third);
+        assert!(journal.holds_result("c1") && !journal.holds_result("unknown"));
+        journal.result_landed("c1");
+        journal.result_landed("c3");
+        journal.result_landed("unknown");
+        assert!(!journal.holds_result("c1"));
         assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("c2")]), "the whole draft holds the results no row holds yet");
-        let second = journal.claim_result("c2").unwrap();
-        journal.result_landed(second);
+        journal.result_landed("c2");
         assert_eq!(journal.reset(&marks, &thread)["results"], json!([]));
     }
 
-    /// A provider reuses a call id within a turn (a compaction between the calls reseeds its ids). The first result's row is
-    /// held by a failed write while the second is drafted: the acknowledgement of the first row retires the first result
-    /// only, and the second stays in the draft until its own row lands.
+    /// What a kill leaves is read by each result's call. A result whose call has a row in the log is the log's, at
+    /// whatever point of that row's landing the kill came; one whose call has none is what the draft is for. A draft
+    /// file an earlier build wrote names a row beside each result, which is not read.
     #[test]
-    fn the_acknowledgement_of_one_row_retires_its_own_result_and_not_another_of_the_same_call_id() {
+    fn a_result_read_back_from_the_file_is_the_logs_exactly_when_its_calls_row_is_there() {
+        let result = |call: &str| json!({ "role": "tool", "toolCallId": call, "content": format!("result of {call}") });
+        let read = |bodies: &[Value], answered: &[&str]| {
+            let mut draft = RunDraft::default();
+            draft.apply_file(bodies, |_| false, |call| answered.contains(&call));
+            draft.results
+        };
+        let (a, b) = (json!({ "results": [result("a")] }), json!({ "results": [result("b")] }));
+        assert_eq!(read(&[a.clone()], &["a"]), Vec::<Value>::new(), "a's row landed: nothing is left to recover");
+        assert_eq!(read(&[a.clone()], &[]), [result("a")], "a's row never landed");
+        assert_eq!(read(&[a.clone(), b.clone()], &["a"]), [result("b")]);
+        assert_eq!(read(&[a.clone(), b.clone()], &["a", "b"]), Vec::<Value>::new());
+        assert_eq!(read(&[a, b], &[]), [result("a"), result("b")]);
+        let whole = json!({ "reset": true, "results": [result("a"), result("b")], "resultRows": [null, "r-b"] });
+        assert_eq!(read(&[whole, json!({ "results": [result("c")] })], &["b"]), [result("a"), result("c")]);
+    }
+
+    /// A call run again takes back the result its first run drafted and drafts its own: the journal, a whole rewrite of
+    /// it and the file read back all hold the last execution's result alone, or none between the two.
+    #[test]
+    fn a_withdrawn_result_leaves_the_draft_and_the_result_of_the_calls_last_run_takes_its_place() {
         let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default()));
-        let thread = ThreadId::from("draft-reused-id-test");
+        let thread = ThreadId::from("draft-withdrawn-test");
+        let result = |call: &str, content: &str| json!({ "role": "tool", "toolCallId": call, "content": content });
+        let read = |bodies: &[Value]| {
+            let mut draft = RunDraft::default();
+            draft.apply_file(bodies, |_| false, |_| false);
+            draft.results
+        };
         let mut journal = DraftJournal::default();
-        let result = |content: &str| json!({ "role": "tool", "toolCallId": "x", "content": content });
-        journal.chunk(&json!({ "results": [result("A")] }), &marks, &thread).unwrap();
-        let a = journal.claim_result("x").expect("A's row takes A");
-        journal.chunk(&json!({ "results": [result("B")] }), &marks, &thread).unwrap();
-        let b = journal.claim_result("x").expect("B's row takes B, not A again");
-        assert_ne!(a, b);
-        journal.result_landed(a);
-        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("B")]), "B has no row on disk: the rewritten draft still holds it");
-        journal.result_landed(a);
-        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("B")]));
-        journal.result_landed(b);
-        assert_eq!(journal.reset(&marks, &thread)["results"], json!([]));
+        let mut file = Vec::new();
+        let mut write = |journal: &mut DraftJournal, body: Value| {
+            let (written, whole) = journal.chunk(&body, &marks, &thread).expect("a body to write");
+            assert!(!whole);
+            file.push(written);
+            read(&file)
+        };
+        let kept = write(&mut journal, json!({ "results": [result("r", "before the edit"), result("other", "kept")] }));
+        assert_eq!(kept.len(), 2);
+        assert_eq!(write(&mut journal, json!({ "withdrawn": ["r"] })), [result("other", "kept")], "between the two runs the call has no result");
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("other", "kept")]));
+        let last = write(&mut journal, json!({ "results": [result("r", "after the edit")] }));
+        assert_eq!(last, [result("other", "kept"), result("r", "after the edit")]);
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!(last));
+        // One body may hold both: the result follows the withdrawal.
+        assert_eq!(read(&[json!({ "results": [result("r", "one")] }), json!({ "withdrawn": ["r"], "results": [result("r", "two")] })]), [result("r", "two")]);
     }
 }

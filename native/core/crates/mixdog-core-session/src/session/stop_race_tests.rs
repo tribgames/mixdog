@@ -1171,6 +1171,11 @@ async fn duplicate_stops_and_a_redelivered_completion_join_one_disposition() {
     drained_after(&handle, "stop:settled:").await;
     assert_eq!(seen.lock().unwrap().len(), 1, "no second run");
     assert_eq!(stop_records(&rig, &handle.id).len(), 1, "one disposition");
+    // The header a reader of the session is given says what the Stop's records folded, not what stood before them.
+    let stored = rig.store.stored_header(&handle.id).expect("header");
+    assert!(stored.get("stoppedWork").is_some(), "the Stop is in the stored header");
+    let live = handle.header_snapshot();
+    assert_eq!((live.get("stoppedWork"), live.get("owedStops")), (stored.get("stoppedWork"), stored.get("owedStops")));
     assert!(handle.cell.queued.load().is_empty(), "the redelivered completion was not queued");
     // After a reload: the same delivery is consumed again, nothing runs, nothing is handed back.
     let saved: Vec<Record> = rig.store.records(&handle.id).into_iter().map(|(_, record)| record).collect();

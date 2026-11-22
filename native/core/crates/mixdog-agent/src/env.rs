@@ -524,6 +524,18 @@ pub trait RunObserver: Send + Sync {
         self.event(RunEvent::EarlyResult(message));
     }
 
+    /// [`Self::early_result_of`] for a run the batch does not take the result of (a read started as it streamed behind a
+    /// change, which the batch runs again once the change is in): the call is told settled as any other, and `message`
+    /// is not the result to keep for it.
+    fn early_result_superseded(&self, generation: u64, message: AgentMessage) {
+        self.early_result_of(generation, message);
+    }
+
+    /// The result to keep for the call `call_id` until its row is committed is the one of its last execution: `None`
+    /// as that execution starts (what an earlier one told is taken back), its result when it ends. Told only for a call
+    /// run again; it is no settlement to show.
+    fn early_result_replaced(&self, _generation: u64, _call_id: &str, _result: Option<AgentMessage>) {}
+
     /// Whether the owner offers any way to withdraw shown text. Without one, a
     /// stream cut mid-text is kept as shown and resumed, not replayed.
     fn can_retract(&self) -> bool;
@@ -577,6 +589,16 @@ pub trait TranscriptSink: Send + Sync {
     /// The transcript was rewritten (compaction or repair); `messages` is the new
     /// model context and `rewrite` what the pass took out of it.
     fn replace(&self, messages: &[AgentMessage], rewrite: &Rewrite);
+
+    /// How many times calls have left the session's model context, as the session counts them
+    /// (`mixdog_protocol::tool_call_ids::distinct_id`); 0 for a sink with no session behind it.
+    fn call_epoch(&self) -> u64 {
+        0
+    }
+
+    /// Told before a [`Self::replace`] that takes calls out of the transcript: the run counts `epoch` such rewrites now,
+    /// and the session keeps no lower count.
+    fn calls_left(&self, _epoch: u64) {}
 
     /// A fresh stable id for a message that arrives without one.
     fn message_id(&self) -> String;

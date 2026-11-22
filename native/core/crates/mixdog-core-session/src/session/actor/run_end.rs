@@ -234,7 +234,7 @@ impl SessionActor {
                 // `session.turnCoverage = turnToken` (`ask-turn-settle.mjs`). The loop's last iteration and
                 // the session's tool-call total are written by each model call (`persistIterationMetrics`).
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
-                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             } else {
                 // A cancelled or failed turn is finalized too: `session.turnCoverage = turnCheckpointToken`
@@ -248,7 +248,7 @@ impl SessionActor {
                     set.insert("updatedAt".into(), json!(at));
                     set.insert("lastUsedAt".into(), json!(at));
                 }
-                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
                 self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             }
             // `clearTurnCheckpoint` once the terminal save landed: the draft goes with nothing left to recover. Until it goes,
@@ -453,8 +453,7 @@ impl SessionActor {
                 return;
             }
             if let Ok(rows) = context.read().await {
-                let messages = rows.into_iter().map(|(_, body)| body).collect();
-                search.ingest_turn(&context.thread, &header, messages);
+                search.ingest_turn(&context.thread, &header, super::super::search_backfill::search_messages(rows));
             }
         });
         tx

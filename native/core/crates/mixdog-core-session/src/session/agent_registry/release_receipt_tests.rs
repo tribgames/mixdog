@@ -48,16 +48,26 @@ thread_local! {
     static TRUNCATE_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Whether `record` is the header record `of` names. A release's record carries its operation.
+/// The operation of a release of `released(probe)` in these tests: it names the probe, so a fault finds the release by
+/// the operation its record carries. The record's change does not say it: the log writes a map set over a map as the
+/// members that changed, which is none of them for a release of the map already there.
+fn operation(probe: &str) -> String {
+    format!("worker-release:{probe}:{}", uuid::Uuid::new_v4().simple())
+}
+
+/// Whether `record` is the header record `of` names. A release's record carries its operation; a row write that is no
+/// release carries none and, written over no map, states its map whole.
 fn is_record(record: &Record, of: &Of) -> bool {
     let Record::Meta(MetaRecord { op, change: Slot::Inline(change) }) = record else { return false };
-    let Some(worker) = change.set.get("worker").and_then(Value::as_object) else { return false };
-    let probe = worker.get("probe").and_then(Value::as_str);
     match (of, op) {
-        (Of::Release { probe: wanted }, Some(op)) => {
-            op.id.as_str().starts_with("worker-release:") && wanted.as_deref().is_none_or(|wanted| probe == Some(wanted))
+        (Of::Release { probe: None }, Some(op)) => op.id.as_str().starts_with("worker-release:"),
+        (Of::Release { probe: Some(wanted) }, Some(op)) => op.id.as_str().starts_with(&format!("worker-release:{wanted}:")),
+        (Of::Row { session, probe: wanted }, None) => {
+            let worker = change.set.get("worker").and_then(Value::as_object);
+            worker.is_some_and(|worker| {
+                worker.get("of").and_then(Value::as_str) == Some(session.as_str()) && worker.get("probe").and_then(Value::as_str) == Some(wanted.as_str())
+            })
         }
-        (Of::Row { session, probe: wanted }, None) => worker.get("of").and_then(Value::as_str) == Some(session.as_str()) && probe == Some(wanted.as_str()),
         _ => false,
     }
 }
@@ -120,7 +130,7 @@ fn receipt(core: &Core, thread: &ThreadId, probe: &str, prior: Option<Row>) -> R
         session_id: thread.as_str().to_owned(),
         incarnation,
         prior,
-        operation: format!("worker-release:{}", uuid::Uuid::new_v4().simple()),
+        operation: operation(probe),
         tag: None,
         turn: None,
         revision: 0,
@@ -677,7 +687,7 @@ async fn idle_worker(core: &Core) -> (ThreadId, Arc<AgentRegistry>, CleanupParts
 
 async fn cleanup(parts: &CleanupParts) -> CleanupReport {
     let scope = lead("lead");
-    let listed = parts.registry.refresh_topology(false, &scope).await;
+    let listed = parts.registry.refresh_topology(false, &scope).await.unwrap();
     let run = mixdog_agent::agent_tool::dispatch::cleanup_idle(parts.clone(), &scope, listed, mixdog_rt::CancellationToken::new());
     tokio::time::timeout(DEADLINE, run).await.expect("the cleanup ended within 30 s").expect("the cleanup ran")
 }

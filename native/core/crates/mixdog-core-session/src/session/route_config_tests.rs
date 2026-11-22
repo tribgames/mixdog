@@ -650,7 +650,7 @@ async fn a_route_write_moves_with_its_figures() {
     let (directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
     let set: serde_json::Map<String, Value> = ROUTE_FIELDS.iter().map(|field| ((*field).to_owned(), recorded.after[*field].clone())).collect();
     let update: super::actor::AwaitingHeaderUpdate =
-        Box::new(move |_| Box::pin(async move { mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() } }));
+        Box::new(move |_| Box::pin(async move { mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() } }));
     let write = tokio::spawn({
         let (directory, id) = (directory.clone(), handle.id.clone());
         async move { directory.update_header_awaiting(&id, update).await }

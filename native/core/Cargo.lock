@@ -5855,6 +5855,7 @@ dependencies = [
  "mixdog-core-base",
  "mixdog-core-config",
  "mixdog-core-prompt",
+ "mixdog-core-session",
  "mixdog-exthost",
  "mixdog-fsio",
  "mixdog-js",

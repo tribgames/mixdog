@@ -641,11 +641,8 @@ impl State {
     }
 
     fn derive(&self, id: &str, map: &Row, now: f64) -> Derived {
-        Derived {
-            key: self.maps.key(id).cloned().unwrap_or(Place::At(0)),
-            row: self.row(id, map, now).map(Arc::new),
-            tombstone: map.get("tombstone").and_then(Value::as_object).and_then(|t| normalize_tombstone(t, id, now)).map(Arc::new),
-        }
+        let (row, tombstone) = super::read_map(id, map, now);
+        Derived { key: self.maps.key(id).cloned().unwrap_or(Place::At(0)), row: row.map(Arc::new), tombstone: tombstone.map(Arc::new) }
     }
 
     /// The written sessions read again: a changed tombstone rebuilds the tombstone reads (and the

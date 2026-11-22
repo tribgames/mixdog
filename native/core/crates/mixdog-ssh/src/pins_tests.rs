@@ -181,6 +181,20 @@ async fn opening_the_ssh_state_at_start_up_removes_every_generated_config_and_no
     }
 }
 
+#[tokio::test]
+async fn a_start_that_finds_the_generated_config_as_it_would_write_it_leaves_the_file_alone() {
+    let (folder, config) = configured().await;
+    let file = config.config_file().to_path_buf();
+    let written = std::fs::read(&file).unwrap();
+    let long_ago = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(long_ago).unwrap();
+
+    MixdogSshConfig::configure(&env_in(folder.path())).await.expect("configured again");
+
+    assert_eq!(std::fs::read(&file).unwrap(), written);
+    assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), long_ago, "the unchanged config was written again");
+}
+
 /// The other process of the tests below: holds the state lock, says so, then waits for the file `release` (and publishes a claim)
 /// or is killed by the parent. A plain test that does nothing unless the parent started it.
 #[test]

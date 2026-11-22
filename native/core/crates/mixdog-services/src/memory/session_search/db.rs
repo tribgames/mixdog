@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS session_search.messages (
   content     text NOT NULL,
   tsv         tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED
 );
+ALTER TABLE session_search.messages ADD COLUMN IF NOT EXISTS position text;
 CREATE TABLE IF NOT EXISTS session_search.backfill (
   session_id text PRIMARY KEY,
   stamp      text NOT NULL
@@ -47,13 +48,20 @@ pub struct SearchRow {
     pub role: &'static str,
     pub ts: Option<i64>,
     pub content: String,
+    /// The position of the message's record in its session's history, when the transcript named it.
+    pub position: Option<String>,
 }
+
+/// The key of a transcript message that names its record's history position ([`SearchRow::position`]).
+pub const MESSAGE_POSITION: &str = "historyPosition";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionHit {
     pub session_id: String,
     pub rank: f64,
     pub snippet: String,
+    /// The history position of the record the snippet is of; none for a row stored before positions were.
+    pub position: Option<String>,
 }
 
 fn message_ts(message: &Value) -> Option<i64> {
@@ -115,6 +123,7 @@ pub(crate) fn search_row(session_id: &str, message: &Value, index: usize) -> Opt
         role,
         ts: message_ts(message),
         content,
+        position: message.get(MESSAGE_POSITION).and_then(Value::as_str).map(str::to_owned),
     })
 }
 
@@ -147,12 +156,15 @@ async fn insert_rows(client: &impl tokio_postgres::GenericClient, rows: &[Search
     let roles: Vec<&str> = rows.iter().map(|r| r.role).collect();
     let stamps: Vec<Option<i64>> = rows.iter().map(|r| r.ts).collect();
     let contents: Vec<&str> = rows.iter().map(|r| r.content.as_str()).collect();
+    let positions: Vec<Option<&str>> = rows.iter().map(|r| r.position.as_deref()).collect();
+    // A row stored before its record's position was known takes it; nothing else of a stored row changes.
     Ok(client
         .execute(
-            "INSERT INTO session_search.messages (source_ref, session_id, ordinal, role, ts, content)
-             SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::bigint[], $6::text[])
-             ON CONFLICT (source_ref) DO NOTHING",
-            &[&refs, &sessions, &ordinals, &roles, &stamps, &contents],
+            "INSERT INTO session_search.messages (source_ref, session_id, ordinal, role, ts, content, position)
+             SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::bigint[], $6::text[], $7::text[])
+             ON CONFLICT (source_ref) DO UPDATE SET position = EXCLUDED.position
+               WHERE session_search.messages.position IS NULL AND EXCLUDED.position IS NOT NULL",
+            &[&refs, &sessions, &ordinals, &roles, &stamps, &contents, &positions],
         )
         .await?)
 }
@@ -282,7 +294,7 @@ impl SessionSearchDb {
             tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
             let stored = tx
                 .query(
-                    "SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
+                    "SELECT source_ref, ordinal, role, ts, content, position FROM session_search.messages
                   WHERE session_id = $1 FOR UPDATE",
                     &[&session_id],
                 )
@@ -313,6 +325,7 @@ impl SessionSearchDb {
                     role: if role == "user" { "user" } else { "assistant" },
                     ts: row.get(3),
                     content: content.clone(),
+                    position: row.get(5),
                 });
             }
             insert_rows(&***tx, &all).await?;
@@ -401,7 +414,7 @@ impl SessionSearchDb {
                 &format!(
                     "WITH q AS (SELECT to_tsquery('simple', $1) AS query),
                      hits AS (
-                       SELECT m.session_id, m.content, ts_rank_cd(m.tsv, q.query) AS rank,
+                       SELECT m.session_id, m.content, m.position, ts_rank_cd(m.tsv, q.query) AS rank,
                               row_number() OVER (
                                 PARTITION BY m.session_id
                                 ORDER BY ts_rank_cd(m.tsv, q.query) DESC, m.ordinal DESC
@@ -409,7 +422,7 @@ impl SessionSearchDb {
                        FROM session_search.messages m, q
                        WHERE m.tsv @@ q.query AND NOT (m.session_id = ANY($3))
                      )
-                     SELECT hits.session_id, hits.rank::float8 AS rank,
+                     SELECT hits.session_id, hits.position, hits.rank::float8 AS rank,
                             ts_headline('simple', hits.content, q.query,
                               'StartSel={SNIPPET_START}, StopSel={SNIPPET_STOP}, MaxWords=24, MinWords=8, MaxFragments=1') AS snippet
                      FROM hits, q
@@ -425,7 +438,12 @@ impl SessionSearchDb {
             .map(|row| {
                 let snippet: Option<String> = row.get("snippet");
                 let cleaned: String = snippet.unwrap_or_default().replace([SNIPPET_START, SNIPPET_STOP], "");
-                SessionHit { session_id: row.get("session_id"), rank: row.get::<_, f64>("rank"), snippet: js_words(&cleaned).collect::<Vec<_>>().join(" ") }
+                SessionHit {
+                    session_id: row.get("session_id"),
+                    rank: row.get::<_, f64>("rank"),
+                    snippet: js_words(&cleaned).collect::<Vec<_>>().join(" "),
+                    position: row.get("position"),
+                }
             })
             .collect())
     }

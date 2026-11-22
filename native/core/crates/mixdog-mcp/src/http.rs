@@ -453,7 +453,11 @@ mod tests {
         transport.close().await;
         let seen = [ends.recv().await.unwrap(), ends.recv().await.unwrap(), ends.recv().await.unwrap()];
         let as_opened = |method: &str, session: bool| (method.to_owned(), "old".to_owned(), session);
-        assert_eq!(seen, [as_opened("post", false), as_opened("post", true), as_opened("delete", true)], "every request of the connection is the sign-in it was opened as");
+        assert_eq!(
+            seen,
+            [as_opened("post", false), as_opened("post", true), as_opened("delete", true)],
+            "every request of the connection is the sign-in it was opened as"
+        );
     }
 
     #[test]

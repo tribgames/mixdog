@@ -313,6 +313,8 @@ mod limits_tests;
 mod session_project_flow_tests;
 #[cfg(test)]
 mod state_set_aside_tests;
+#[cfg(test)]
+mod unconverted_delete_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1135,7 +1137,12 @@ async fn compose_inner(
     let calls_in_flight = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let work = work_counts(real.late_lifecycle.clone(), calls_in_flight.clone());
     let telemetry = build_telemetry(data_dir, tokens, &log, &stop, work.clone());
-    let stall_description = crate::lifecycle::StallDescription { work, spans: crate::lifecycle::SlowSpans::new(log.line_log()) };
+    mixdog_core_session::session::read_trace::log_to(log.line_log());
+    let stall_description = crate::lifecycle::StallDescription {
+        work,
+        spans: crate::lifecycle::SlowSpans::new(log.line_log()),
+        reads: Arc::new(mixdog_core_session::session::read_trace::running),
+    };
     let core = ComposedCore {
         state: watch::Sender::new(LifecycleState::Serving),
         limits,
@@ -1435,6 +1442,11 @@ impl ComposedCore {
     /// `tool_modules::host::Parts.processes`.
     pub fn tidy_processes(&self) -> &Processes {
         &self.tidy_processes
+    }
+
+    /// The session directory, as the migration's retention purges through it.
+    pub fn session_directory(&self) -> Arc<mixdog_core_session::session::SessionDirectory> {
+        self.real.directory.clone()
     }
 
     /// Mixy's heartbeat on its timers; `serve` calls it once startup has finished.

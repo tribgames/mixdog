@@ -345,16 +345,20 @@ impl JobViews {
 
     /// `workerFallbackJob`: a worker session outlives its spawn task, which is pruned or lost
     /// with a restart.
-    async fn worker_fallback(&self, target: &str, scope: &Scope) -> Option<JobData> {
-        self.registry.refresh_tags_from_sessions(true, scope).await;
+    async fn worker_fallback(&self, target: &str, scope: &Scope) -> Result<Option<JobData>, String> {
+        // "No such worker" is an answer only from the worker rows read whole.
+        self.registry.refresh_tags_from_sessions(true, scope).await?;
         let bound = self.registry.tag_session(target);
         let session_id = match bound.clone() {
             Some(bound) => bound,
-            None => self.workers.session(target).await.map(|_| target.to_owned())?,
+            None => match self.workers.session(target).await {
+                Some(_) => target.to_owned(),
+                None => return Ok(None),
+            },
         };
-        let session = self.workers.session(&session_id).await?;
+        let Some(session) = self.workers.session(&session_id).await else { return Ok(None) };
         let status = if session.closed { "closed".to_owned() } else { session.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) };
-        Some(JobData {
+        Ok(Some(JobData {
             task_id: None,
             operation: "worker".to_owned(),
             status,
@@ -374,7 +378,7 @@ impl JobViews {
                 fast: Some(session.fast),
                 ..JobMeta::default()
             },
-        })
+        }))
     }
 }
 
@@ -387,15 +391,15 @@ impl Views for JobViews {
         };
         let target = first_truthy(&[args.get("tag"), args.get("sessionId")]);
         if !target.is_empty()
-            && let Some(job) = self.worker_fallback(&target, scope).await
+            && let Some(job) = self.worker_fallback(&target, scope).await?
         {
             return Ok(self.render(job, include_result).await);
         }
         Err(error)
     }
 
-    async fn list(&self, scope: &Scope, options: ListOptions) -> Vec<WorkerRow> {
-        self.registry.refresh_tags_from_sessions(options.scan_sessions, scope).await;
+    async fn list(&self, scope: &Scope, options: ListOptions) -> Result<Vec<WorkerRow>, String> {
+        self.registry.refresh_tags_from_sessions(options.scan_sessions, scope).await?;
         let mut rows = Vec::new();
         for (tag, facts) in self.workers.entries(options.scan_sessions, scope).await {
             // An agent its owner closed (and no turn started on since) is not listed, as Node's list drops it once closed.
@@ -426,7 +430,7 @@ impl Views for JobViews {
                 stamp: facts.updated_at.as_ref().and_then(Stamp::shown).or_else(|| facts.last_used_at.as_ref().and_then(Stamp::shown)).unwrap_or_default(),
             });
         }
-        rows
+        Ok(rows)
     }
 
     async fn list_jobs(&self, scope: &Scope) -> Vec<JobRow> {

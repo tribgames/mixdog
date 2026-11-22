@@ -84,7 +84,7 @@ impl FeedView for EchoView {
 
 /// The frame `evt@<seq>`.
 pub fn event(seq: u64) -> FeedFrame {
-    FeedFrame { seq, bytes: Bytes::from(format!("evt@{seq}")) }
+    FeedFrame::new(seq, Bytes::from(format!("evt@{seq}")))
 }
 
 /// A 32-hex-digit epoch with value `n`.

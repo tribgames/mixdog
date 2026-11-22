@@ -8,6 +8,7 @@ use mixdog_store::schema::migration::Contract;
 use mixdog_store::schema::migration::ItemKey;
 use mixdog_store::schema::migration::ItemKind;
 use mixdog_store::schema::migration::KindGroup;
+use mixdog_store::schema::migration::LateSource;
 use mixdog_store::schema::migration::MANIFEST_FORMAT;
 use mixdog_store::schema::migration::Manifest;
 use mixdog_store::schema::migration::ManifestItem;
@@ -55,7 +56,22 @@ pub fn retain_key(root: Root, rel: &str) -> String {
 /// A manifest item; `sources` are sorted here.
 pub fn item(key: &str, group: KindGroup, kind: ItemKind, contract: Contract, mut sources: Vec<SourceFile>, target: Option<Target>) -> Result<ManifestItem> {
     sources.sort_by(|a, b| (a.root, &a.path).cmp(&(b.root, &b.path)));
-    Ok(ManifestItem { key: ItemKey::try_from(key).map_err(Blocked::journal)?, group, kind, contract, sources, target })
+    Ok(ManifestItem { key: ItemKey::try_from(key).map_err(Blocked::journal)?, group, kind, contract, sources, late_sources: Vec::new(), target })
+}
+
+/// A manifest item whose own files are `files` of `root`, named and not read: hashed when the item is converted.
+pub fn late_item(
+    key: &str,
+    group: KindGroup,
+    kind: ItemKind,
+    contract: Contract,
+    root: Root,
+    mut files: Vec<String>,
+    target: Option<Target>,
+) -> Result<ManifestItem> {
+    files.sort();
+    let late_sources = files.into_iter().map(|path| LateSource { root, path }).collect();
+    Ok(ManifestItem { late_sources, ..item(key, group, kind, contract, Vec::new(), target)? })
 }
 
 /// Items and shared sources under construction.
@@ -72,8 +88,8 @@ impl PlanSink {
         Self { roots: roots.clone(), items: BTreeMap::new(), shared: BTreeMap::new(), hashed: BTreeMap::new() }
     }
 
-    /// Hashes the files `rels` of `root` on every core, for the [`Self::source`] calls that follow: a session's log is the
-    /// bulk of what a plan reads, and one file after another is what a person waits for at the first start.
+    /// Hashes the files `rels` of `root` on every core, for the [`Self::source`] calls that follow: one file after
+    /// another is what a person waits for at the first start.
     pub fn hash_ahead(&mut self, root: Root, rels: &[String]) -> Result<()> {
         let paths: Vec<_> = rels.iter().map(|rel| self.roots.resolve(root, rel)).collect::<Result<_>>()?;
         let next = std::sync::atomic::AtomicUsize::new(0);

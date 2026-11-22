@@ -316,7 +316,10 @@ async fn a_session_opened_after_a_crash_in_a_compaction_is_no_longer_compacting(
     let thread = start_thread(&first).await;
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), json!({ "lastStage": "compacting", "lastTrigger": "pre_send", "compactCount": 1 }));
-    rig.store.append_record(&thread.id, Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) }));
+    rig.store.append_record(
+        &thread.id,
+        Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) }),
+    );
 
     let second = SessionDirectory::new(rig.deps());
     second.open_handle(&thread.id, &CallContext::internal("test")).await.expect("the thread reopens");

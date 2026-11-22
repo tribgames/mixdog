@@ -75,21 +75,26 @@ impl RegistryPoolStore {
 #[async_trait]
 impl PoolStore for RegistryPoolStore {
     async fn agent_index(&self) -> Option<Value> {
-        Some(self.registry.pool_index().await.0)
+        self.registry.pool_index().await.ok().map(|(agents, _)| agents)
     }
 
     async fn lead_index(&self) -> Option<Value> {
-        Some(self.registry.pool_index().await.1)
+        self.registry.pool_index().await.ok().map(|(_, leads)| leads)
     }
 
-    async fn indexes(&self) -> (Option<Value>, Option<Value>) {
-        let (agents, leads) = self.registry.pool_index().await;
-        (Some(agents), Some(leads))
+    async fn indexes(&self) -> Result<(Option<Value>, Option<Value>), String> {
+        let (agents, leads) = self.registry.pool_index().await?;
+        Ok((Some(agents), Some(leads)))
     }
 
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>> {
         let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
         self.directory.listed_fields_of(&ids, &HEADER_FIELDS).await
+    }
+
+    async fn listed_headers(&self, session_ids: &[String]) -> Result<Vec<Option<Row>>, String> {
+        let ids: Vec<ThreadId> = session_ids.iter().map(|id| ThreadId::from(id.as_str())).collect();
+        self.directory.try_listed_fields_of(&ids, &HEADER_FIELDS).await.map_err(|error| format!("a listed session's header could not be read: {error:?}"))
     }
 
     async fn settle_identities(&self, fixes: &[SettleFix]) -> Vec<Value> {

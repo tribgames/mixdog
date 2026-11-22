@@ -69,19 +69,41 @@ pub struct PurgeHooks {
 }
 
 impl PurgeHooks {
-    /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal, one after
-    /// another; it returns once every hook's effect has landed. A hook that panics never breaks
-    /// the delete or the hooks after it (Node's per-hook `try`).
-    pub async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
-        for hook in [
-            &self.transcript_export,
-            &self.tool_result_offload,
-            &self.transcripts,
-            &self.cache_warm,
-            &self.read_cache,
-            &self.provider_connections,
-            &self.connector_accounts,
-        ] {
+    /// The hooks run before the turn review's. `stored`: the session has a stored record. The files of one never stored
+    /// that lie where a stored session's export and compaction sidecars lie (`sessions/<id>.log.jsonl`, its
+    /// `.compaction-archive.*`) are the earlier version's own record of it: the migration that recorded them removes them,
+    /// only while they are the files it recorded, so the two hooks that remove those names do not run for it.
+    fn before_review(&self, stored: bool) -> Vec<&Arc<dyn PurgeHook>> {
+        let mut hooks = Vec::new();
+        if stored {
+            hooks.push(&self.transcript_export);
+        }
+        hooks.extend([&self.tool_result_offload, &self.transcripts, &self.cache_warm, &self.read_cache, &self.provider_connections, &self.connector_accounts]);
+        hooks
+    }
+
+    /// The hooks run for a session never stored, in their order (the turn review's own forgetting, which is no hook, apart).
+    pub fn unconverted_hooks(&self) -> Vec<&Arc<dyn PurgeHook>> {
+        let mut hooks = self.before_review(false);
+        hooks.extend(self.after_review(false));
+        hooks
+    }
+
+    /// The hooks run after the turn review's; `stored` as in [`Self::before_review`].
+    fn after_review(&self, stored: bool) -> Vec<&Arc<dyn PurgeHook>> {
+        let mut hooks = vec![&self.worker_turns, &self.agent_status];
+        if stored {
+            hooks.push(&self.compaction_archive);
+        }
+        hooks.extend([&self.scratch_dir, &self.retention]);
+        hooks
+    }
+
+    /// [`Self::run`] with `stored` given: a session of an earlier version that the migration removed without converting it
+    /// (`false`) gets the same hooks in the same order, but for the two that remove the earlier version's own files of it
+    /// ([`Self::before_review`]).
+    async fn run_as(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String], stored: bool) {
+        for hook in self.before_review(stored) {
             guarded(|| hook.purge(id, cwds)).await;
         }
         guarded(|| {
@@ -89,9 +111,64 @@ impl PurgeHooks {
             Box::pin(std::future::ready(()))
         })
         .await;
-        for hook in [&self.worker_turns, &self.agent_status, &self.compaction_archive, &self.scratch_dir, &self.retention] {
+        for hook in self.after_review(stored) {
             guarded(|| hook.purge(id, cwds)).await;
         }
+    }
+
+    /// `_runSessionPurgeHooks(id, { cwds })`, then the archive and scratch removal, one after
+    /// another; it returns once every hook's effect has landed. A hook that panics never breaks
+    /// the delete or the hooks after it (Node's per-hook `try`).
+    pub async fn run(&self, review: &dyn mixdog_core_api::turn_review::TurnReviewApi, id: &str, cwds: &[String]) {
+        self.run_as(review, id, cwds, true).await;
+    }
+}
+
+#[cfg(test)]
+mod unconverted_purge_tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// The purge of a session removed unconverted runs every hook of a delete, the read cache's among them, in a delete's
+    /// order, and leaves out the two hooks that remove files the migration removes itself.
+    #[test]
+    fn the_purge_of_an_unconverted_session_is_a_deletes_but_for_its_source_files() {
+        let ran: Arc<Mutex<Vec<&'static str>>> = Arc::default();
+        let hook = |name: &'static str| -> Arc<dyn PurgeHook> {
+            let ran = ran.clone();
+            Arc::new(move |_: &str, _: &[String]| -> BoxFuture<'static, ()> {
+                ran.lock().unwrap().push(name);
+                Box::pin(std::future::ready(()))
+            })
+        };
+        let hooks = PurgeHooks {
+            transcript_export: hook("transcriptExport"),
+            tool_result_offload: hook("toolResultOffload"),
+            transcripts: hook("transcripts"),
+            cache_warm: hook("cacheWarm"),
+            read_cache: hook("readCache"),
+            provider_connections: hook("providerConnections"),
+            connector_accounts: hook("connectorAccounts"),
+            worker_turns: hook("workerTurns"),
+            agent_status: hook("agentStatus"),
+            compaction_archive: hook("compactionArchive"),
+            scratch_dir: hook("scratchDir"),
+            retention: hook("retention"),
+        };
+        let names = |stored: bool| {
+            ran.lock().unwrap().clear();
+            let all = if stored { hooks.before_review(true).into_iter().chain(hooks.after_review(true)).collect() } else { hooks.unconverted_hooks() };
+            for hook in all {
+                drop(hook.purge("sess_w", &[]));
+            }
+            ran.lock().unwrap().clone()
+        };
+        let deleted = names(true);
+        assert_eq!(deleted.len(), 12, "a delete runs every hook: {deleted:?}");
+        let unconverted = names(false);
+        assert!(unconverted.contains(&"readCache") && unconverted.contains(&"transcripts") && unconverted.contains(&"scratchDir"));
+        assert_eq!(unconverted, deleted.into_iter().filter(|name| !matches!(*name, "transcriptExport" | "compactionArchive")).collect::<Vec<_>>());
     }
 }
 
@@ -354,18 +431,42 @@ async fn remove(directory: &super::directory::DirInner, thread: &ThreadId, mut c
     if !hold.mark(directory).await {
         return false;
     }
+    removed(&deps, thread, &cwds, closed, true).await;
+    true
+}
+
+/// What a delete does once the session is no longer listed, whichever delete it is. `stored`: the session has a stored
+/// record, whose files the store purges; one never stored (a session of an earlier version the migration removed without
+/// converting it) has none, and the migration removes its sources ([`PurgeHooks::unconverted_hooks`]).
+async fn removed(deps: &super::SessionDeps, thread: &ThreadId, cwds: &[String], closed: Closed, stored: bool) {
     deps.deletion.tombstoned(thread);
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     deps.deletion.release_mcp_scope(thread.as_str());
     deps.session_grants.forget(thread.as_str());
-    // A failed purge leaves the marked session's files for the next delete's purge or the
-    // boot purge; the session is deleted either way.
-    drop(deps.store.purge_deleted().await);
-    deps.purge.run(deps.turn_review.as_ref(), thread.as_str(), &cwds).await;
+    if stored {
+        // A failed purge leaves the marked session's files for the next delete's purge or the
+        // boot purge; the session is deleted either way.
+        drop(deps.store.purge_deleted().await);
+    }
+    deps.purge.run_as(deps.turn_review.as_ref(), thread.as_str(), cwds, stored).await;
     // The deleted session's transcript-cache book is no longer open; its waiters wake and find it gone.
     deps.cache_tail.release(thread.as_str());
     deps.deletion.thread_deleted(thread);
-    true
+}
+
+/// The sub-agent retention's delete ([`delete_session`]) of a session of an earlier version that was never stored,
+/// `header` being the record it was judged by: every step of that delete from the release of the session's work on, in
+/// its order. The steps before it act on the stored record and the open thread, and there is neither: the session is
+/// listed nowhere and nothing can open it.
+pub(crate) async fn delete_unconverted(directory: &super::directory::DirInner, id: &str, header: &mixdog_store::schema::record::Header) {
+    let thread = ThreadId::from(id);
+    let deps = directory.deps().clone();
+    let cwds = row_cwds(&serde_json::Value::Object(header.clone()));
+    let closed = Closed { reason: DELETE_REASON, header: Arc::new(header.clone()), at_ms: deps.clock.now_ms() };
+    deps.deletion.release_session_work(id, DELETE_REASON).await;
+    removed(&deps, &thread, &cwds, closed, false).await;
+    directory.forget_stop_latches(&thread);
+    after_delete(&deps, id);
 }
 
 /// `void forgetSessionSearch(id); void releaseDeletedWorktree(id)`, then

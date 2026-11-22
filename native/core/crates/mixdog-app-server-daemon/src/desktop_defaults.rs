@@ -10,9 +10,10 @@ use mixdog_app_protocol::v1::DefaultsSeparation;
 use mixdog_core_config::config::Config;
 
 /// Runs the separation; a failure is reported, never raised. Returns after the attempt, so the caller
-/// serves `config/*` only once the `desktop` section is separated or the failure is on record.
-pub async fn separate(config: &Config, now_ms: i64) -> DefaultsSeparation {
-    match config.separate_desktop_defaults(now_ms).await {
+/// serves `config/*` only once the `desktop` section is separated or the failure is on record. A pass that writes carries the
+/// boot's notification stamp of `stamp_ms`.
+pub async fn separate(config: &Config, now_ms: i64, stamp_ms: i64) -> DefaultsSeparation {
+    match config.separate_desktop_defaults_stamping(now_ms, Some(stamp_ms)).await {
         Ok(_) => DefaultsSeparation::default(),
         Err(error) => DefaultsSeparation { ok: false, message: Some(error.node_message()) },
     }

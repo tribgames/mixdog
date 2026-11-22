@@ -158,7 +158,7 @@ impl FeedView for JsonView {
 
 /// The frame `{"event": <seq>}`.
 fn json_event(seq: u64) -> FeedFrame {
-    FeedFrame { seq, bytes: Bytes::from(json!({ "event": seq }).to_string()) }
+    FeedFrame::new(seq, Bytes::from(json!({ "event": seq }).to_string()))
 }
 
 async fn next_text(endpoint: &mut RelayEndpoint) -> String {

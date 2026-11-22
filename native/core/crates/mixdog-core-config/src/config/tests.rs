@@ -152,6 +152,19 @@ fn boot_stamps_migrated_at_into_an_unwritten_notification_subtree_only() {
     assert!(on_disk(&dir)["notifications"].get("migratedAt").is_none(), "a written subtree keeps reading 0");
 }
 
+/// A start whose config already holds the notification subtree rewrites nothing.
+#[test]
+fn the_boot_stamp_leaves_a_config_that_holds_notifications_unwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "notifications": { "migratedAt": 4_242 } })));
+    let file = dir.path().join("mixdog-config.json");
+    let long_ago = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    fs::File::options().write(true).open(&file).unwrap().set_modified(long_ago).unwrap();
+    block_on(config.stamp_notifications(9_999)).unwrap();
+    assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), long_ago, "the unchanged config was written again");
+    assert_eq!(on_disk(&dir)["notifications"]["migratedAt"], 4_242);
+}
+
 /// Node's store stamps `migratedAt: now` when it first loads with no document (`notification-preferences.ts:228`); an
 /// existing document keeps the stamp it has (`:120` reads a missing or invalid one as 0).
 #[test]

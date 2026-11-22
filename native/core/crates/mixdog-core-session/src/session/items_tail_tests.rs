@@ -12,6 +12,7 @@ use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
+use mixdog_store::fsio::AppendStep;
 use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_store::sqlite::SqliteStore;
@@ -21,16 +22,18 @@ use serde_json::json;
 use super::SessionLanes;
 use super::ThreadStore;
 use super::Transcript;
-use super::reads::Before;
-use super::reads::History;
-use super::reads::history_before;
-use super::reads::history_tail;
+use super::read_trace::ReadCtl;
 use super::reads::items_window;
 use super::reads::list_from_tail;
+use super::reads::page;
 use super::seams::AppendPosition;
 use super::seams::BarrierError;
 use super::seams::CommitRecord;
 use super::seams::EncodedRecord;
+use super::seams::HeldBy;
+use super::seams::PageAsk;
+use super::seams::PageAt;
+use super::seams::PageRead;
 use super::seams::SessionLog;
 use super::store::StoreThreads;
 use super::transcript::RecordTranscript;
@@ -167,6 +170,18 @@ impl ThreadStore for DefaultTail {
     fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.0.history_row(lane, id, iid)
     }
+    fn rewind_targets(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError> {
+        self.0.rewind_targets(lane, id, before, limit)
+    }
+    fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<crate::session::seams::StoredRewind>, CoreError> {
+        self.0.rewind_target(lane, id, shown)
+    }
     fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.0.compaction_entry(lane, id, iid)
     }
@@ -239,22 +254,14 @@ async fn whole(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, 
 async fn tailed(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, params: &Value) -> (Result<Reply, CoreError>, usize) {
     let transcript: Arc<dyn Transcript> = Arc::new(RecordTranscript::new());
     let widest = std::cell::Cell::new(0);
-    let got = list_from_tail(
-        id,
-        &serde_json::from_value(params.clone()).expect("params"),
-        |n| {
+    let ctl = ReadCtl::untraced(CancellationToken::new());
+    let got = list_from_tail(id, &serde_json::from_value(params.clone()).expect("params"), |at, n| {
+        if at == PageAt::Newest {
             widest.set(widest.get().max(n));
-            let (store, transcript, id) = (store.clone(), transcript.clone(), id.clone());
-            async move {
-                let (History { rev, rows }, complete) = history_tail(&store, &transcript, lanes(tokens), &id, n).await?;
-                Ok((rev, rows, complete))
-            }
-        },
-        |anchor, n| -> futures::future::BoxFuture<'static, Result<Option<Before>, CoreError>> {
-            let (store, transcript, id, anchor) = (store.clone(), transcript.clone(), id.clone(), anchor.to_owned());
-            Box::pin(async move { history_before(&store, &transcript, lanes(tokens), &id, anchor, n).await })
-        },
-    )
+        }
+        let (store, transcript, id, ctl) = (store.clone(), transcript.clone(), id.clone(), ctl.clone());
+        async move { page(&store, &transcript, lanes(tokens), &id, at, n, &ctl).await }
+    })
     .await;
     (got, widest.get())
 }
@@ -540,6 +547,337 @@ async fn cancelling_a_read_at_the_read_barrier_reports_caller_cancellation() {
     }
     drop(release);
     threads.projected().await;
+}
+
+/// A model message row.
+fn message(iid: &str) -> CommitRecord {
+    let body = json!({ "role": "assistant", "content": format!("text of {iid}") });
+    commit(json!({"k":"item","iid":iid,"form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}}))
+}
+
+/// A compaction that took nothing out and kept `entries` messages of its own, as a context restart writes each turn.
+fn restart(n: usize, entries: usize) -> CommitRecord {
+    let kept: Vec<Value> = (0..entries).map(|i| json!({ "iid": format!("k{n}-{i}"), "body": { "role": "user", "content": "kept" } })).collect();
+    commit(json!({"k":"compacted","cid":format!("c{n}"),"dropped_count":0,"silent":true,"replacement":{"inline":kept}}))
+}
+
+/// The oldest page of a long thread and the page after it (by the first page's `nextCursor`) read rows in proportion to
+/// the page, and every statement those pages run on the index, counted by its connection (their revision and anchor,
+/// their rows, the copies later compactions kept of them, the compactions that decide them and each one's probe, their
+/// model switches and dividers), runs about as many steps however many context restarts the thread wrote after those rows: a thread that restarts its context every turn holds the messages each restart kept, far more of
+/// them than it has rows. Not exactly as many: the restarts after a row are still passed over, once per index page.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_newer_page_costs_its_rows_whatever_the_thread_wrote_after_them() {
+    const LIMIT: usize = 50;
+    const ROWS: usize = 600;
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let mut live = Vec::new();
+    let mut over = Vec::new();
+    let mut steps = Vec::new();
+    for (name, restarts) in [("restarts4", 4usize), ("restarts64", 64)] {
+        let mut rows: Vec<CommitRecord> = (0..ROWS).map(|i| message(&format!("m{i}"))).collect();
+        rows.extend((0..restarts).map(|n| restart(n, 100)));
+        live.push(create(&threads, tokens, name, rows).await);
+        let id = ThreadId::from(name);
+        mixdog_store::read_count::take_steps(name);
+        let mut cursor: Option<String> = None;
+        for call in 0..2 {
+            let mut shape = json!({ "threadId": id, "limit": LIMIT, "sortDirection": "asc" });
+            if let Some(cursor) = &cursor {
+                shape["cursor"] = json!(cursor);
+            }
+            let (got, _) = tailed(&store, tokens, &id, &shape).await;
+            let read = mixdog_store::read_count::take(name);
+            let Reply::Value(page) = got.expect("a page") else { panic!("a value") };
+            assert_eq!(page["data"].as_array().map(Vec::len), Some(LIMIT), "{name} call {call}");
+            assert_eq!(page["data"][0]["id"], json!(format!("m{}", call * LIMIT)), "{name} call {call}");
+            if read > (8 * LIMIT) as u64 {
+                over.push(format!("{name} call {call} read {read} rows for a page of {LIMIT}"));
+            }
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+        }
+        steps.push(mixdog_store::read_count::take_steps(name));
+    }
+    assert!(over.is_empty(), "{over:#?}");
+    assert!(steps[1] <= 2 * steps[0], "the same two pages cost the index {} steps after 4 restarts and {} after 64", steps[0], steps[1]);
+}
+
+/// A model message row of a turn.
+fn turn_message(iid: &str, turn: &str) -> CommitRecord {
+    let body = json!({ "role": "assistant", "content": format!("text of {iid}") });
+    commit(json!({"k":"item","iid":iid,"turn":turn,"form":"message","model":true,"visible":true,"refs":[],"body":{"inline":body}}))
+}
+
+/// A turn's end is shown archived only when no message of its turn is left, whichever of them the page holds: a page
+/// read on from a dropped message holds that message and the turn's end, not the earlier message the compaction kept,
+/// and shows the end as the whole history does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turns_end_is_archived_by_its_whole_turn_whatever_the_page_holds() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let kept = json!({ "iid": "s", "body": { "role": "assistant", "content": "text of s" } });
+    let rows = vec![
+        turn_message("s", "t1"),
+        turn_message("d", "t1"),
+        row("e", "t1", true, json!({ "kind": "assistant", "id": "e", "text": "the end of t1" })),
+        commit(json!({"k":"compacted","cid":"c1","dropped_count":1,"replacement":{"inline":[kept]}})),
+        turn_message("z", "t2"),
+    ];
+    let live = create(&threads, tokens, "kept-turn", rows).await;
+    let id = ThreadId::from("kept-turn");
+    let archived = |row: &Value| serde_json::to_string(row).expect("a row").contains("\"archived\":true");
+    for (cursor, direction) in [("d", "asc"), ("s", "asc"), ("z", "desc")] {
+        let shape = json!({ "threadId": id, "limit": 5, "cursor": cursor, "sortDirection": direction });
+        let Ok(Reply::Value(want)) = whole(&store, tokens, &id, &shape).await else { panic!("the whole history answers {shape}") };
+        let (got, _) = tailed(&store, tokens, &id, &shape).await;
+        let Ok(Reply::Value(got)) = got else { panic!("a page of {shape}") };
+        assert_eq!(got, want, "{shape}");
+        let end = got["data"].as_array().expect("rows").iter().find(|row| row["id"] == "e").expect("the turn's end");
+        assert!(!archived(end), "{shape}: {end}");
+    }
+    // The compaction did drop the message the forward page starts from.
+    let Ok(Reply::Value(page)) = whole(&store, tokens, &id, &json!({ "threadId": id, "limit": 5, "cursor": "s", "sortDirection": "asc" })).await else {
+        panic!("the whole history")
+    };
+    assert!(archived(&page["data"][0]), "{}", page["data"][0]);
+    drop(live);
+}
+
+/// One stored page of `thread`, as its job answers it.
+async fn stored_page(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, at: PageAt) -> PageRead {
+    let (threads, id) = (threads.clone(), ThreadId::from(thread));
+    tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), move |lane| {
+            threads.history_page(lane, &id, &PageAsk { at, records: 128 }, &ReadCtl::untraced(CancellationToken::new()))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("a page read")
+}
+
+async fn rewind(log: &Log, tokens: LaneTokens, to: u64) {
+    let log = log.clone();
+    LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+        log.lock().expect("log").commit(lane, &[commit(json!({"k":"rewind","to_ordinal":to,"reason":"edit"}))]).expect("appended");
+    })
+    .expect("lane")
+    .await
+    .expect("job ran");
+}
+
+/// A rewind that reaches the index after a page read looked at its revision and before it read its rows: the read gives
+/// no page (its rows would be of the new history under the old revision and cut) and is asked again, and then reads the
+/// rewound history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_page_read_a_rewind_lands_in_is_asked_again() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let log = create(&threads, tokens, "rewound-under", plain(10)).await;
+    threads.projected().await;
+    let (reached, at_rows) = std::sync::mpsc::channel::<()>();
+    let (landed, go_on) = std::sync::mpsc::channel::<()>();
+    threads.hold_page_read(move || {
+        reached.send(()).expect("the test waits");
+        tokio::task::block_in_place(|| go_on.recv()).expect("the rewind landed");
+    });
+    let rewinding = {
+        let (threads, log) = (threads.clone(), log.clone());
+        tokio::spawn(async move {
+            tokio::task::spawn_blocking(move || at_rows.recv()).await.expect("joined").expect("the read reached its rows");
+            rewind(&log, tokens, 6).await;
+            threads.projected().await;
+            landed.send(()).expect("the read waits");
+        })
+    };
+    let first = stored_page(&threads, tokens, "rewound-under", PageAt::Oldest).await;
+    rewinding.await.expect("the rewind");
+    assert!(matches!(first, PageRead::Held(HeldBy::Index { .. })), "a page read across a rewind gave rows");
+    let PageRead::Rows(page) = stored_page(&threads, tokens, "rewound-under", PageAt::Oldest).await else { panic!("the rewound history is read") };
+    assert_eq!(page.records.iter().map(|record| record.iid.as_str().to_owned()).collect::<Vec<_>>(), ["a0", "a1", "a2", "a3", "a4"]);
+}
+
+/// A rewind in the log that the index has not taken: a page read gives its worker back however often it is asked, the wait
+/// it names ends when the rewind's projection is answered, and the page is then of the rewound history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_page_behind_a_durable_rewind_waits_for_its_projection() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let log = create(&threads, tokens, "rewound-behind", plain(10)).await;
+    threads.projected().await;
+    let (held, release) = threads.hold_index();
+    held.await.expect("index held");
+    rewind(&log, tokens, 6).await;
+    let mut held = None;
+    for asked in 0..6 {
+        match stored_page(&threads, tokens, "rewound-behind", PageAt::Newest).await {
+            PageRead::Held(by @ HeldBy::Index { behind: Some(_) }) => held = Some(by),
+            _ => panic!("asked {asked} times, the read did not wait for the index"),
+        }
+    }
+    let mut settled = std::pin::pin!(threads.page_held(&held.expect("a wait")));
+    assert!(futures::poll!(settled.as_mut()).is_pending(), "the rewind's projection is not answered yet");
+    drop(release);
+    settled.await.expect("the projection is answered");
+    let PageRead::Rows(page) = stored_page(&threads, tokens, "rewound-behind", PageAt::Newest).await else { panic!("the rewound history is read") };
+    assert_eq!(page.records.len(), 5);
+}
+
+type SyncHold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// A test's hold on the sync of the next batch that carries a rewind.
+static REWIND_SYNC: Mutex<Option<SyncHold>> = Mutex::new(None);
+
+/// The sync of a batch that carries a rewind, once a test holds it: said to the test, held until the test lets go, then
+/// failed as a disk fails it. The rewind's frame is in the log from the write before this to the rollback after it.
+fn fail_held_rewind_sync(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
+    if step != AppendStep::Sync || !records.iter().any(|record| matches!(record, Record::Rewind(_))) {
+        return Ok(());
+    }
+    let Some((reached, go_on)) = REWIND_SYNC.lock().expect("hold").take() else { return Ok(()) };
+    reached.send(()).expect("the test waits");
+    // A test's lane job runs on the thread that submits it: the wait gives that runtime worker's tasks to another.
+    tokio::task::block_in_place(|| go_on.recv()).expect("the test lets go");
+    Err(std::io::Error::other("EIO: injected"))
+}
+
+/// A rewind whose frame is written and whose sync then fails: a page read meanwhile gives no page of a log that holds
+/// the frame (it would be of a history no one was told exists), the wait it names ends when the append has rolled the
+/// frame back, though the index was sent nothing and answers nothing, and the page is then of the history as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_page_that_met_a_rewind_whose_sync_failed_answers_after_its_rollback() {
+    mixdog_store::fsio::set_append_hook(fail_held_rewind_sync);
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let log = create(&threads, tokens, "rolled-back", plain(10)).await;
+    threads.projected().await;
+    let (reached, at_sync) = std::sync::mpsc::channel::<()>();
+    let (let_go, go_on) = std::sync::mpsc::channel::<()>();
+    *REWIND_SYNC.lock().expect("hold") = Some((reached, go_on));
+    // On a task of its own: the append stops at its sync on the thread that submitted it.
+    let rewinding = {
+        let log = log.clone();
+        tokio::spawn(async move {
+            LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+                log.lock().expect("log").commit(lane, &[commit(json!({"k":"rewind","to_ordinal":6,"reason":"edit"}))]).is_err()
+            })
+            .expect("lane")
+            .await
+            .expect("job ran")
+        })
+    };
+    tokio::task::spawn_blocking(move || at_sync.recv()).await.expect("joined").expect("the rewind reached its sync");
+    let PageRead::Held(by) = stored_page(&threads, tokens, "rolled-back", PageAt::Newest).await else {
+        panic!("a page was read from a log that holds a rewind not yet synced")
+    };
+    let mut wait = std::pin::pin!(threads.page_held(&by));
+    assert!(futures::poll!(wait.as_mut()).is_pending(), "the rewind's append still runs: {by:?}");
+    let_go.send(()).expect("the append waits");
+    assert!(rewinding.await.expect("the rewind's task"), "the rewind's sync failed");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(30), wait)
+        .await
+        .unwrap_or_else(|_| panic!("the page still waits after the rollback: {by:?}"))
+        .expect("nothing stopped");
+    let PageRead::Rows(page) = stored_page(&threads, tokens, "rolled-back", PageAt::Newest).await else { panic!("the history is read as it was") };
+    assert_eq!(page.records.len(), 10);
+    // The request's read of the same thread, through its own waits.
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let id = ThreadId::from("rolled-back");
+    let (got, _) = tailed(&store, tokens, &id, &json!({ "threadId": id, "limit": 20 })).await;
+    let Ok(Reply::Value(got)) = got else { panic!("a page") };
+    assert_eq!(got["data"].as_array().map(Vec::len), Some(10));
+}
+
+/// [`create`] with `rows` committed 100 at a time, as a running session writes them.
+async fn create_batched(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, rows: Vec<CommitRecord>) -> Log {
+    let (threads, thread) = (threads.clone(), ThreadId::from(thread));
+    let session = commit(json!({"k":"session","v":2,"id":thread.as_str(),"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
+    LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+        let (mut log, _) = threads.create_log(lane, &thread, &session).expect("created");
+        for batch in rows.chunks(100) {
+            log.commit(lane, batch).expect("appended");
+        }
+        Arc::new(Mutex::new(log))
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+}
+
+/// A page that shows a turn's end without the turn's messages asks the index for them by the turn: with every statement
+/// of the page counted, it costs about the same whether the run before that turn wrote 30 messages or 3,000, and shows
+/// the end as the whole history does (archived: the compaction took the turn's one message).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_flag_of_a_turn_after_a_long_run_costs_the_turn() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    let run = |rid: &str| commit(json!({"k":"run","rid":rid,"phase":"started","at":1}));
+    let archived = |row: &Value| serde_json::to_string(row).expect("a row").contains("\"archived\":true");
+    let mut live = Vec::new();
+    let mut steps = Vec::new();
+    for (name, long) in [("after-run-30", 30usize), ("after-run-3000", 3000)] {
+        // A turn's first message precedes its run's start.
+        let mut rows = vec![turn_message("m0", "t1"), run("t1")];
+        rows.extend((1..long).map(|i| turn_message(&format!("m{i}"), "t1")));
+        rows.extend([
+            turn_message("d", "t2"),
+            run("t2"),
+            row("e", "t2", true, json!({ "kind": "assistant", "id": "e", "text": "the end of t2" })),
+            commit(json!({"k":"compacted","cid":"c1","dropped_count":long + 1,
+                "replacement":{"inline":[{"iid":"sum","body":{"role":"user","content":"summary"}}]}})),
+            turn_message("z", "t3"),
+        ]);
+        live.push(create_batched(&threads, tokens, name, rows).await);
+        let id = ThreadId::from(name);
+        // Read on from the turn's dropped message: the page holds the turn's end and no message of the turn left.
+        let shape = json!({ "threadId": id, "limit": 5, "cursor": "d", "sortDirection": "asc" });
+        let Ok(Reply::Value(want)) = whole(&store, tokens, &id, &shape).await else { panic!("the whole history answers {name}") };
+        mixdog_store::read_count::take_steps(name);
+        let (got, _) = tailed(&store, tokens, &id, &shape).await;
+        steps.push(mixdog_store::read_count::take_steps(name));
+        let Ok(Reply::Value(got)) = got else { panic!("a page of {name}") };
+        assert_eq!(got, want, "{name}");
+        let end = got["data"].as_array().expect("rows").iter().find(|row| row["id"] == "e").expect("the turn's end");
+        assert!(archived(end), "{name}: {end}");
+    }
+    assert!(steps[0] > 0, "the page's statements are counted");
+    assert!(steps[1] <= 2 * steps[0], "the same page cost the index {} steps after a run of 30 messages and {} after one of 3,000", steps[0], steps[1]);
+    drop(live);
 }
 
 /// [`create`] with the rows committed 100 at a time, as a running session writes them, so the log carries its checkpoints.

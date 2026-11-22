@@ -404,9 +404,9 @@ async fn a_borrowed_session_sends_each_post_its_owner_admitted_and_learns_from_i
     rig.send(&rig.request(1)).await.expect("a live write");
     assert_eq!(rig.posts(), 2, "each admitted POST reached the provider");
     let book = rig.books.book_json(&rig.session).expect("the owner's book");
-    let receipts = book["receipts"].as_array().unwrap();
-    assert_eq!(receipts.len(), 2, "both writes proved the tail: {book}");
-    assert!(receipts.iter().all(|r| r["route"].as_str().is_some_and(|route| route.starts_with("proxy:") && !route.contains("key-a"))), "{book}");
+    let receipts = book["receipts"].as_object().unwrap();
+    assert_eq!(receipts.values().map(|held| held.as_object().unwrap().len()).sum::<usize>(), 2, "both writes proved the tail: {book}");
+    assert!(receipts.keys().all(|route| route.starts_with("proxy:") && !route.contains("key-a")), "{book}");
 }
 
 /// A borrowed session whose tail expired on the owner's clock is compacted before the transcript is rewritten: the PC asks,
@@ -490,5 +490,5 @@ async fn a_standalone_prompt_goes_out_unjudged() {
     rig.script(written(0, 100));
     rig.send(&request).await.expect("sent");
     assert_eq!(rig.posts(), 1);
-    assert!(rig.books.book_json(&rig.session).expect("the rig's book")["receipts"].as_array().unwrap().is_empty(), "no owner learned from it");
+    assert!(rig.books.book_json(&rig.session).expect("the rig's book")["receipts"].as_object().unwrap().is_empty(), "no owner learned from it");
 }

@@ -828,10 +828,21 @@ impl UserRowDetails {
 
 /// A tool call's `output`: any JSON value on the wire. A text, which is what a result is, is held as the shared text the
 /// row's `run.result` is, so a card that states its result in both holds it once.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ToolOutput {
     Text(SharedText),
     Value(JsonValue),
+}
+
+/// By the value on the wire: a text is the same output whichever form holds it.
+impl PartialEq for ToolOutput {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Text(a), Self::Text(b)) => a == b,
+            (Self::Value(a), Self::Value(b)) => a == b,
+            (Self::Text(text), Self::Value(value)) | (Self::Value(value), Self::Text(text)) => value.as_str() == Some(text.as_str()),
+        }
+    }
 }
 
 impl ToolOutput {
@@ -872,7 +883,10 @@ impl Serialize for ToolOutput {
 
 impl<'de> Deserialize<'de> for ToolOutput {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        JsonValue::deserialize(deserializer).map(Self::from)
+        Ok(match JsonValue::deserialize(deserializer)? {
+            JsonValue::String(text) => Self::Text(SharedText::decoded(&text)),
+            value => Self::Value(value),
+        })
     }
 }
 
@@ -910,5 +924,33 @@ impl ThreadItem {
             | Self::RoomRow { id, .. }
             | Self::AgentJob { id, .. } => id,
         }
+    }
+}
+
+#[cfg(test)]
+mod shared_text_tests {
+    use super::*;
+
+    /// A tool row read back from its encoding holds a result it states three times once, and one it states differently
+    /// apart; the two forms of a text output are the same output.
+    #[test]
+    fn a_decoded_row_holds_equal_texts_once_and_a_text_output_is_one_value_in_either_form() {
+        let text = "r".repeat(4096);
+        let encoded = serde_json::json!([text, { "result": text, "rawResult": text }, { "result": text, "rawResult": "other" }]).to_string();
+        let (output, run, differing): (ToolOutput, ToolRun, ToolRun) = serde_json::from_str(&encoded).unwrap();
+        let (ToolOutput::Text(output), Some(MaybeBlob::Inline(result)), Some(MaybeBlob::Inline(raw))) = (&output, &run.result, &run.raw_result) else {
+            panic!("three inline texts")
+        };
+        assert!(output.shares(result) && result.shares(raw), "one allocation for the three");
+        let (Some(MaybeBlob::Inline(result)), Some(MaybeBlob::Inline(raw))) = (&differing.result, &differing.raw_result) else { panic!("two inline texts") };
+        assert!(!result.shares(raw) && raw.as_str() == "other");
+        assert_eq!(serde_json::to_string(&run).unwrap(), serde_json::json!({ "result": text, "rawResult": text }).to_string(), "the wire states both");
+
+        assert_eq!(ToolOutput::Value(serde_json::json!("x")), ToolOutput::Text("x".into()));
+        assert_eq!(
+            serde_json::from_value::<ToolOutput>(serde_json::to_value(ToolOutput::Value(serde_json::json!("x"))).unwrap()).unwrap(),
+            ToolOutput::Value(serde_json::json!("x"))
+        );
+        assert_ne!(ToolOutput::Value(serde_json::json!(1)), ToolOutput::Text("1".into()));
     }
 }

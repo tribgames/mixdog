@@ -10,9 +10,23 @@ use serde_json::json;
 use super::*;
 
 impl AgentRegistry {
-    /// `(agent index, lead index)`: `{ workers, tombstones }` and `{ workers }`, as stored now.
-    pub async fn pool_index(&self) -> (Value, Value) {
-        self.reload().await;
+    /// `(agent index, lead index)`: `{ workers, tombstones }` and `{ workers }`, as stored now. `Err` when the stored rows
+    /// could not be read whole: the documents would be short of a worker.
+    pub async fn pool_index(&self) -> Result<(Value, Value), String> {
+        // A worker whose session is held for its sensitive rewrite is answered by the store without its content, and
+        // such a map is no row of the documents: the worker would be missing from them. It is held, not gone and not
+        // failed, so the documents wait for its rewrite and are made from the rows read after it; a rewrite that failed
+        // is their failure.
+        loop {
+            self.reload().await?;
+            let held = self.store.held_workers().await?;
+            if held.is_empty() {
+                break;
+            }
+            for session in &held {
+                self.store.rewrite_settled(session).await?;
+            }
+        }
         let now = self.clock.now_ms() as f64;
         let state = self.lock();
         // A session's map is its Lead row unless the registry reads it as a worker row (`lead_row.rs`).
@@ -41,7 +55,7 @@ impl AgentRegistry {
         let mut leads: Vec<Value> = state.lead_rows.values().flatten().map(|row| Value::Object(row.clone())).collect();
         leads.extend(stored(true).into_iter().filter(|row| !state.lead_rows.contains_key(&clean(row.get("sessionId")))));
         let tombstones: Vec<Value> = state.stored_tombstones(now).iter().map(|row| Value::Object(row.clone())).collect();
-        (json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads }))
+        Ok((json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads })))
     }
 
     /// `PoolStore::settle_identities`: each worker row keeps the settle identity of its outcome as `settledAt`, with the count

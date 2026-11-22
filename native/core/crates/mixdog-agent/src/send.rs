@@ -710,7 +710,8 @@ impl Run {
     /// Exactly one attempt: admission, the stream, its fold.
     /// The provider request is I/O: an agent job's slot goes back to the pool for its length.
     async fn attempt_once(&mut self, request: Arc<ModelRequest>) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
-        let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
+        let epoch = self.call_epoch();
+        let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages).in_session(epoch));
         let request = match self.prepare_request(request).await? {
             Ok(request) => request,
             Err(error) => return Ok(fail(*error, builder, false, 0, false)),

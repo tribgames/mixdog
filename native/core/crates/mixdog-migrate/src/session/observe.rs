@@ -136,9 +136,124 @@ impl Observable {
         })
     }
 
-    /// Key order counts: migrated bodies keep 1.4.5's bytes, so a reordered key is a change.
+    /// The SHA-256 of [`Self::to_value`]'s compact JSON. Key order counts: migrated bodies keep 1.4.5's bytes, so a reordered
+    /// key is a change.
     pub fn digest(&self) -> String {
-        let bytes = serde_json::to_vec(&self.to_value()).expect("a Value always encodes");
-        format!("sha256:{}", crate::durable::sha256_hex(&bytes))
+        use sha2::Digest as _;
+        struct Hashing(sha2::Sha256);
+        impl std::io::Write for Hashing {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut hashing = Hashing(sha2::Sha256::new());
+        self.write_json(&mut hashing).expect("hashing never fails");
+        format!("sha256:{}", crate::json::hex(&hashing.0.finalize()))
+    }
+
+    /// The bytes `serde_json::to_vec(&self.to_value())` makes, written as they go: the bodies are neither copied nor built
+    /// into one value first.
+    fn write_json(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
+        fn list<T>(w: &mut dyn std::io::Write, items: &[T], mut each: impl FnMut(&mut dyn std::io::Write, &T) -> std::io::Result<()>) -> std::io::Result<()> {
+            w.write_all(b"[")?;
+            for (n, item) in items.iter().enumerate() {
+                if n > 0 {
+                    w.write_all(b",")?;
+                }
+                each(w, item)?;
+            }
+            w.write_all(b"]")
+        }
+        fn json(w: &mut dyn std::io::Write, value: &(impl serde::Serialize + ?Sized)) -> std::io::Result<()> {
+            serde_json::to_writer(w, value).map_err(std::io::Error::other)
+        }
+        let form = |f: Form| if f == Form::Display { "display" } else { "message" };
+        let visible = self.archive.iter().filter(|r| r.3).count();
+        write!(w, "{{\"header\":{},\"transcript\":", Value::Object(self.header.clone()))?;
+        list(w, &self.transcript, |w, (iid, body)| {
+            w.write_all(b"[")?;
+            json(w, iid)?;
+            write!(w, ",{body}]")
+        })?;
+        w.write_all(b",\"model_context\":")?;
+        json(w, &self.model_context)?;
+        w.write_all(b",\"archive\":{\"rows\":")?;
+        list(w, &self.archive, |w, (seq, index, f, shown, body)| {
+            write!(w, "[{seq},{index},")?;
+            json(w, form(*f))?;
+            write!(w, ",{shown},{body}]")
+        })?;
+        write!(w, ",\"visible\":{visible},\"hidden\":{}}},\"runs\":", self.archive.len() - visible)?;
+        list(w, &self.runs, |w, run| {
+            w.write_all(b"[")?;
+            json(w, &run.rid)?;
+            w.write_all(b",")?;
+            list(w, &run.phases, |w, (phase, detail)| {
+                w.write_all(b"[")?;
+                json(w, phase)?;
+                w.write_all(b",")?;
+                match detail {
+                    Some(detail) => write!(w, "{detail}")?,
+                    None => w.write_all(b"null")?,
+                }
+                w.write_all(b"]")
+            })?;
+            w.write_all(b",")?;
+            json(w, &run.input_iids)?;
+            w.write_all(b"]")
+        })?;
+        w.write_all(b",\"queue\":")?;
+        list(w, &self.queue, |w, (id, entry)| {
+            w.write_all(b"[")?;
+            json(w, id)?;
+            write!(w, ",{entry}]")
+        })?;
+        w.write_all(b",\"attachments\":")?;
+        json(w, &self.attachments)?;
+        w.write_all(b"}")
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::*;
+
+    /// The digest is that of the observable built into one value and encoded compactly, whatever it holds.
+    #[test]
+    fn the_digest_is_the_hash_of_the_value_encoded_whole() {
+        let empty = Observable {
+            header: Header::new(),
+            transcript: Vec::new(),
+            model_context: Vec::new(),
+            archive: Vec::new(),
+            runs: Vec::new(),
+            queue: Vec::new(),
+            attachments: BTreeMap::new(),
+        };
+        let body = json!({"role": "user", "z": 1, "a": [1.5, -0.0, 1e300, "\u{2028}\"\\\u{1}é😀"], "n": null, "t": true});
+        let header = json!({"title": "T \"q\"", "b": {"y": 2, "x": [{}]}, "a": 3});
+        let full = Observable {
+            header: header.as_object().unwrap().clone(),
+            transcript: vec![("i\"1".into(), body.clone()), ("i2".into(), json!("text"))],
+            model_context: vec!["i\"1".into(), "i2".into()],
+            archive: vec![(3, 0, Form::Display, true, body.clone()), (3, 1, Form::Message, false, json!([]))],
+            runs: vec![
+                RunView { rid: "r\n".into(), phases: vec![(RunPhase::Started, None), (RunPhase::Attempt, Some(body.clone()))], input_iids: vec!["i2".into()] },
+                RunView { rid: "r2".into(), phases: Vec::new(), input_iids: Vec::new() },
+            ],
+            queue: vec![("q1".into(), body)],
+            attachments: BTreeMap::from([("b".repeat(64), BlobStatus::Ok), ("a".repeat(64), BlobStatus::Dangling)]),
+        };
+        for observable in [empty, full] {
+            let whole = serde_json::to_vec(&observable.to_value()).unwrap();
+            assert_eq!(observable.digest(), format!("sha256:{}", crate::durable::sha256_hex(&whole)));
+            let mut written = Vec::new();
+            observable.write_json(&mut written).unwrap();
+            assert_eq!(String::from_utf8(written).unwrap(), String::from_utf8(whole).unwrap());
+        }
     }
 }
