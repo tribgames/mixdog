@@ -164,6 +164,9 @@ struct Life {
     /// The root process has not exited. Descendants may outlive it, so this does not gate a kill.
     running: bool,
     killed: Option<KillReason>,
+    /// The group was sent SIGKILL: the root's exit sends it once more (`Proc::wait_root`).
+    #[cfg(unix)]
+    group_killed: bool,
     #[cfg(unix)]
     group_pinned: bool,
     #[cfg(windows)]
@@ -439,6 +442,10 @@ impl Proc {
             return Err(ProcessError::AlreadyExited);
         }
         life.killed.get_or_insert(reason);
+        #[cfg(unix)]
+        {
+            life.group_killed = true;
+        }
         self.containment.kill();
         drop(life);
         drop(gate);
@@ -495,6 +502,12 @@ impl Proc {
                 #[cfg(all(feature = "core-test", any(target_os = "linux", target_os = "macos")))]
                 crate::testing::root_exit_window();
                 let mut life = self.life();
+                // A group signal reaches the members of that instant. A child the root was forking then joins the
+                // group afterwards with nothing pending (macOS; Linux fails a fork that a signal overtakes). The root
+                // has exited, so that child is a member by now, and the unreaped root still pins the group id.
+                if life.group_killed {
+                    self.containment.kill();
+                }
                 let status = root.wait();
                 self.containment.root_reaped();
                 life.running = false;
@@ -1188,6 +1201,8 @@ fn launch_process(
         life: Mutex::new(Life {
             running: true,
             killed: None,
+            #[cfg(unix)]
+            group_killed: false,
             #[cfg(unix)]
             group_pinned: cfg!(any(target_os = "linux", target_os = "macos")),
             #[cfg(windows)]
