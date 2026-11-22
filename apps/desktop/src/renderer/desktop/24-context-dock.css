@@ -135,41 +135,41 @@
 /* Category palette: the shared chart inks (01-tokens.css), which already
    step one shade deeper on light. Free space is not a category — it keeps
    its own dim plate grey. */
-.context-surface-view [data-context-key="messages"],
-.context-surface-view [data-context-key="user"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="messages"],
+:is(.context-surface-view, .session-rail-context) [data-context-key="user"] {
   --ctx-color: var(--mx-chart-purple);
 }
-.context-surface-view [data-context-key="assistant"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="assistant"] {
   --ctx-color: var(--mx-chart-blue);
 }
-.context-surface-view [data-context-key="reasoning"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="reasoning"] {
   --ctx-color: var(--mx-chart-orange);
 }
-.context-surface-view [data-context-key="toolResults"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="toolResults"] {
   --ctx-color: var(--mx-chart-teal);
 }
-.context-surface-view [data-context-key="attachments"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="attachments"] {
   --ctx-color: var(--mx-chart-pink);
 }
-.context-surface-view [data-context-key="tools"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="tools"] {
   --ctx-color: var(--mx-chart-green);
 }
-.context-surface-view [data-context-key="mcp"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="mcp"] {
   --ctx-color: var(--mx-chart-mauve);
 }
-.context-surface-view [data-context-key="agents"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="agents"] {
   --ctx-color: var(--mx-chart-violet);
 }
-.context-surface-view [data-context-key="skills"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="skills"] {
   --ctx-color: var(--mx-chart-gold);
 }
-.context-surface-view [data-context-key="memory"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="memory"] {
   --ctx-color: var(--mx-chart-sky);
 }
-.context-surface-view [data-context-key="system"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="system"] {
   --ctx-color: var(--mx-chart-grey);
 }
-.context-surface-view [data-context-key="free"] {
+:is(.context-surface-view, .session-rail-context) [data-context-key="free"] {
   --ctx-color: var(--mx-chart-grey);
 }
 @media (max-width: 640px) {

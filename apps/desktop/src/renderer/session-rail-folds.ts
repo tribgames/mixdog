@@ -94,7 +94,7 @@ export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v2';
 /** Sessions remembered, the most recently changed kept. */
 const REMEMBERED_SESSIONS = 200;
 
-/** Everything is open until the user folds it: the categories folded, and each to-do group's fold once it was set. */
+/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`). */
 type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean> };
 
 function readAll(): Record<string, SessionFolds> {
@@ -181,8 +181,8 @@ export function useSessionRailFolds(sessionId: string) {
   return {
     isOpen: (category: SessionRailCategory) => !folds.closed.includes(category),
     toggle,
-    /** A to-do group's fold. */
-    groupOpen: (key: string) => folds.groups[key] ?? true,
+    /** A to-do fold as the user left it, `byDefault` until they set it. */
+    groupOpen: (key: string, byDefault: boolean) => folds.groups[key] ?? byDefault,
     setGroups,
   };
 }

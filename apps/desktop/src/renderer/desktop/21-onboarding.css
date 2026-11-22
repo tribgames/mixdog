@@ -150,7 +150,7 @@
 }
 /* Step entry fades only: a translateY pushed the incoming step past the
    scroll box for a few frames, so a scrollbar flashed on every step change. The 20px gap is the
-   wizard's section rhythm at the default install size (1200×800). */
+   wizard's section rhythm at the default install size. */
 .onboarding-step-view {
   flex: 1;
   display: grid;

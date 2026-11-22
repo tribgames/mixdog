@@ -4,7 +4,7 @@
    reading column hold them (session-rail-layout.ts sessionRailFit). The
    column has no frame of its own; it hugs its cards and scrolls past the
    conversation's height. The 8px at its right (SESSION_RAIL_GAP) is the
-   transcript scrollbar's lane while the conversation keeps its full width. */
+   transcript scrollbar's lane. */
 .pane-cell > .session-rail {
   grid-column: 1;
   grid-row: 2;
@@ -15,10 +15,25 @@
 }
 /* When the right margin alone is too narrow, the conversation re-centres
    left of the cards (--session-rail-reserve, set on the cell by
-   SessionRailCard): its pane container narrows, so the transcript, its
-   scrollbar and the composer keep one right edge and every width rule inside
-   follows. */
-.pane-conversation-slot > .conversation-persistent-surface {
+   SessionRailCard): its pane container narrows by that much, so every width
+   rule inside follows. */
+.pane-conversation-slot > .conversation-persistent-surface > .workspace {
+  box-sizing: border-box;
+  padding-right: var(--session-rail-reserve, 0px);
+}
+/* The transcript's scroller alone keeps the pane's full width: its scrollbar
+   stays on the pane's edge, in the lane right of the cards, and its rows keep
+   the narrowed column. */
+.pane-conversation-slot .conversation > .transcript-shell {
+  margin-right: calc(-1 * var(--session-rail-reserve, 0px));
+}
+/* The boxes between the two clip at their edge; the scroller's width past it
+   is let through. */
+.pane-conversation-slot :is(.pane-surface-body, .pane-chat-surface) {
+  overflow: clip;
+  overflow-clip-margin: var(--session-rail-reserve, 0px);
+}
+.pane-conversation-slot .conversation > .transcript-shell > .transcript {
   padding-right: var(--session-rail-reserve, 0px);
 }
 /* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
@@ -69,15 +84,19 @@
   background: var(--mx-focus);
   pointer-events: none;
 }
-/* The body scrolls the categories as one column, with the app's scrollbar in
-   a gutter on both edges: the cards keep the same inset either side, with
-   room for their shadow. */
+/* The body scrolls the categories as one column by wheel, touch or keys, with
+   no bar of its own beside the transcript's: cards passing its top or bottom
+   edge fade out there instead. The 8px around the cards holds their shadow. */
 .session-rail-body {
   flex: 0 1 auto;
   min-height: 0;
   overflow: hidden auto;
-  scrollbar-gutter: stable both-edges;
-  padding-block: 8px;
+  scrollbar-width: none;
+  padding: 8px;
+  mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 8px), transparent);
+}
+.session-rail-body::-webkit-scrollbar {
+  display: none;
 }
 .session-rail-content {
   display: flex;
@@ -429,6 +448,21 @@ button.session-rail-row:not(:disabled):hover,
   background: var(--mx-hover);
   color: var(--mx-text);
 }
+/* A to-do group's name and, inside a list, a phase's: labels, not folds. */
+.session-rail-gl,
+.session-rail-phase {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
+}
+.session-rail-phase {
+  height: 24px;
+  font-weight: 400;
+}
 
 /* Info: the borrowed pickers take the row's whole width. */
 .session-rail-project {
@@ -439,6 +473,8 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-project > .session-rail-row {
   flex: 1 1 auto;
   width: auto;
+}
+.session-rail-project > .session-rail-row:not(:last-child) {
   margin-right: 0;
 }
 .session-rail-model {
@@ -458,9 +494,16 @@ button.session-rail-row:not(:disabled):hover,
   align-items: center;
   gap: 4px;
 }
-/* The route editor hugs its trigger elsewhere; here the trigger is a row of
-   the card's width, pressed anywhere along it like every other row. */
-.session-rail-model > .route-editor {
+/* The route controls hug their trigger elsewhere; here the trigger is a row
+   of the card's width, pressed anywhere along it like every other row. */
+.session-rail-model > .route-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  /* The row's wash reaches past the controls' box, as every row's does. */
+  overflow: visible;
+}
+.session-rail-model .route-editor {
   flex: 1 1 auto;
   display: block;
   width: auto;
@@ -487,7 +530,9 @@ button.session-rail-row:not(:disabled):hover,
 }
 .session-rail-meter {
   height: 6px;
-  margin: 2px 0 4px;
+  display: flex;
+  gap: 1px;
+  margin: 2px 0 6px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--mx-meter-track);
@@ -497,6 +542,37 @@ button.session-rail-row:not(:disabled):hover,
   height: 100%;
   border-radius: 3px;
   background: var(--mx-text-muted);
+}
+/* What the window holds: a colour for each kind (24-context-dock.css's
+   palette), in the bar and before each kind's row. */
+.session-rail-meter > b {
+  flex: none;
+  min-width: 2px;
+  height: 100%;
+  background: var(--ctx-color);
+}
+.session-rail-part {
+  height: 26px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.session-rail-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ctx-color);
+}
+.session-rail-part[data-context-key="free"] > .session-rail-swatch {
+  background: var(--mx-meter-track);
+}
+.session-rail-part > .session-rail-num {
+  color: var(--mx-text);
+}
+.session-rail-part > .session-rail-share {
+  width: 44px;
+  color: var(--mx-text-muted);
+  text-align: right;
 }
 .session-rail-meter[data-tone="warning"] > i {
   background: var(--mx-warning);
@@ -554,10 +630,29 @@ button.session-rail-row:not(:disabled):hover,
   margin: 0;
 }
 
-/* To-do */
+/* To-do: the island's marks and tones. The working step carries the row
+   wash; a dropped one stays readable, never struck through. */
+.session-rail-group > .session-rail-row > svg {
+  flex: none;
+  color: var(--mx-text-faint);
+}
 .session-rail-group > .session-rail-row[data-status="completed"],
 .session-rail-group > .session-rail-row[data-status="abandoned"] {
   color: var(--mx-text-muted);
+}
+.session-rail-group > .session-rail-row[data-status="completed"] > svg {
+  color: var(--mx-success);
+}
+.session-rail-group > .session-rail-row[data-status="in_progress"] {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-label);
+}
+.session-rail-group > .session-rail-row[data-status="in_progress"] > svg {
+  color: var(--mx-text-accent);
+}
+.session-rail-group > .session-rail-row[data-status="abandoned"] > .session-rail-cut {
+  opacity: var(--mx-op-dim);
 }
 
 /* Agents and shells: the island's own lists. The sheet's body is the scroller

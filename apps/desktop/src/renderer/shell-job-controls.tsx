@@ -1,6 +1,6 @@
-import { type ReactNode, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  cwdFolderName,
+  shellCommandTitle,
   shellFinishedLabel,
   shellFinishedOk,
   shellRowAction,
@@ -89,7 +89,7 @@ function finishedState(row: JobRow): 'done' | 'cancelled' | 'failed' {
   return shellFinishedOk(row) ? 'done' : 'failed';
 }
 
-/** A shell row's icon, command, folder · elapsed (or stop error) and status. */
+/** A shell row's icon, command title (a stop error under it) and status. */
 export function ShellJobContent({
   row,
   clock,
@@ -101,18 +101,7 @@ export function ShellJobContent({
   stop: ShellStopState;
   releasing?: boolean;
 }) {
-  const folder = cwdFolderName(row.cwd);
   const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
-  let detail: ReactNode = null;
-  if (stop === 'failed') {
-    detail = (
-      <small className="composer-island-row-error" role="alert">
-        {releasing ? t("Couldn't release") : t("Island: Couldn't stop")}
-      </small>
-    );
-  } else if (folder) {
-    detail = <small title={row.cwd}>{folder}</small>;
-  }
   return (
     <>
       <span className="sidebar-resource-icon" aria-hidden="true">
@@ -120,11 +109,19 @@ export function ShellJobContent({
       </span>
       <span className="schedules-row-copy">
         <span className="agent-pool-heading">
-          <b className="agent-pool-name composer-island-shell-command" title={row.label}>
-            {row.label}
+          {/* The whole command and where it runs are on hover. */}
+          <b
+            className="agent-pool-name composer-island-shell-command"
+            title={row.cwd ? `${row.label}\n${row.cwd}` : row.label}
+          >
+            {shellCommandTitle(row.label)}
           </b>
         </span>
-        {detail}
+        {stop === 'failed' && (
+          <small className="composer-island-row-error" role="alert">
+            {releasing ? t("Couldn't release") : t("Island: Couldn't stop")}
+          </small>
+        )}
       </span>
       <span className="agent-activity-status">
         {row.finished ? (

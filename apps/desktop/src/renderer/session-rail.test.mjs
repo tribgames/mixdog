@@ -5,7 +5,6 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import {
   PANE_READING_COLUMN_MAX,
   publishSessionRailSlot,
-  SESSION_RAIL_DEFAULT_WIDTH,
   SESSION_RAIL_GAP,
   SESSION_RAIL_MIN_WIDTH,
   sessionRailFit,
@@ -27,7 +26,8 @@ const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
 const paneFor = (width) => PANE_READING_COLUMN_MAX + width + SESSION_RAIL_GAP;
 
 test('the panel takes the two margins beside the reading column at its widest: it yields to its minimum, then is not shown', () => {
-  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
+  // Cards the user widened to 400.
+  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: 400 });
   // The right margin alone holds the cards: nothing moves.
   const roomy = PANE_READING_COLUMN_MAX + 2 * (400 + SESSION_RAIL_GAP);
   assert.deepEqual(fit(roomy), { width: 400, reserve: 0 });
@@ -42,7 +42,7 @@ test('the panel takes the two margins beside the reading column at its widest: i
 
 test('a dock beside the conversation keeps its width; the panel fits in what is left', () => {
   const dock = PANE_SIDE_DOCK_DEFAULT_WIDTH;
-  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: dock, railPref: SESSION_RAIL_DEFAULT_WIDTH });
+  const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: dock, railPref: 400 });
   assert.equal(fit(paneFor(400) + FRAME + dock).width, 400);
   assert.equal(fit(paneFor(300) + FRAME + dock).width, 300);
   assert.equal(fit(paneFor(300) + FRAME + dock - 1).width, 0);
@@ -305,12 +305,29 @@ test("each foot's Clean up is enabled only with something to clear", async (t) =
       shellKeys: null,
       open: true,
       onToggle() {},
+      folds: { groupOpen: (key, byDefault) => opened[key] ?? byDefault, setGroups: (next) => Object.assign(opened, next) },
     });
+  const opened = {};
   await act(async () => root.render(agents([agent('a', 'running', 'streaming')])));
   assert.equal(tidy().getAttribute('aria-disabled'), 'true', 'a running agent has nothing to clear');
   const finished = { ...agent('b', 'completed'), settledAt: Date.now() - 1_000 };
   await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
   assert.equal(tidy().getAttribute('aria-disabled'), null);
+  // A fold for each state: the finished agents stay folded while one is at work.
+  const group = (key) => document.querySelector(`[data-category="agents"] [data-group="agents:${key}"]`);
+  const rows = (key) => group(key).querySelectorAll('[role="treeitem"]').length;
+  assert.equal(group('running').querySelector('[data-fold]').textContent, 'Running 1');
+  assert.equal(rows('running'), 1);
+  assert.equal(group('finished').querySelector('[data-fold]').textContent, 'Finished 1');
+  assert.equal(rows('finished'), 0);
+  assert.equal(group('waiting'), null, 'a state with no agent has no fold');
+  await act(async () => group('finished').querySelector('[data-fold]').click());
+  await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
+  assert.equal(rows('finished'), 1);
+  // With nothing at work the finished agents are what there is to read.
+  for (const key of Object.keys(opened)) delete opened[key];
+  await act(async () => root.render(agents([finished])));
+  assert.equal(rows('finished'), 1);
 });
 
 test("the Worktrees foot's Clean up follows the cleanup preview", async (t) => {
@@ -382,17 +399,54 @@ test('folds are remembered per session', async (t) => {
   const { root } = await mount(t, React.createElement(Probe, { sessionId: 'one' }));
   // Nothing is folded until the user folds it.
   for (const category of SESSION_RAIL_CATEGORIES) assert.equal(folds.isOpen(category), true, category);
-  assert.equal(folds.groupOpen('done'), true);
+  // A to-do fold stands as its list asks until the user sets it.
+  assert.equal(folds.groupOpen('done', false), false);
+  assert.equal(folds.groupOpen('done', true), true);
   await act(async () => folds.toggle('agents'));
-  await act(async () => folds.setGroups({ done: false }));
+  await act(async () => folds.setGroups({ done: true }));
   await act(async () => root.render(React.createElement(Probe, { sessionId: 'two' })));
   assert.equal(folds.isOpen('agents'), true, 'another session starts with everything open');
-  assert.equal(folds.groupOpen('done'), true);
+  assert.equal(folds.groupOpen('done', false), false);
   // A fresh mount reads them back.
   await act(async () => root.render(React.createElement(Probe, { key: 'again', sessionId: 'one' })));
   assert.equal(folds.isOpen('agents'), false);
   assert.equal(folds.isOpen('info'), true);
-  assert.equal(folds.groupOpen('done'), false);
+  assert.equal(folds.groupOpen('done', false), true);
+});
+
+test('To-do lists five remaining steps and every working one, folding the rest and the done ones', async (t) => {
+  const step = (content, status = 'pending') => ({ content, status });
+  const todo = {
+    phases: [
+      {
+        name: 'Fix',
+        tasks: [
+          step('shipped', 'completed'),
+          ...['a', 'b', 'c', 'd', 'e', 'f'].map((name) => step(name)),
+          step('working', 'in_progress'),
+          step('dropped', 'abandoned'),
+        ],
+      },
+    ],
+    completed: 1,
+    abandoned: 1,
+    total: 9,
+  };
+  const { document } = await goalSection(t, goalSnapshot(goalOf('active'), todo));
+  const rows = (group) =>
+    [...document.querySelectorAll(`[data-category="todo"] [data-group="${group}"] .session-rail-row`)].map(
+      (row) => row.textContent
+    );
+  const fold = (key) => document.querySelector(`[data-category="todo"] [data-fold="${key}"]`);
+  assert.equal(document.querySelector('[data-group="remaining"] > .session-rail-gl').textContent, 'Remaining 7');
+  assert.deepEqual(rows('remaining'), ['a', 'b', 'c', 'd', 'working']);
+  assert.equal(fold('rest').textContent, 'Rest 2');
+  assert.equal(fold('done').textContent, 'Done 1 · 1 dropped');
+  assert.deepEqual(rows('done'), [], 'the done steps stay folded while steps remain');
+  await act(async () => fold('rest').click());
+  assert.deepEqual(rows('remaining'), ['a', 'b', 'c', 'd', 'working', 'e', 'f']);
+  await act(async () => fold('done').click());
+  assert.deepEqual(rows('done'), ['shipped', 'dropped']);
 });
 
 test('a model picker request while the panel is shown is answered by its Model row, Info unfolding for it', async (t) => {
@@ -533,14 +587,14 @@ test("a fold's chevron follows its name, as in the left rail; the count comes af
     total: 2,
   };
   const { document } = await goalSection(t, goalSnapshot(goalOf('active'), todo));
-  // The category's own head and each task group's.
+  // The category's own head and each fold inside it.
   const heads = [...document.querySelectorAll('[data-category="todo"] :is(.session-rail-tg, .session-rail-gh)')];
   assert.ok(heads.length > 1);
   for (const head of heads) {
     const kids = [...head.children];
     assert.ok(kids[1].classList.contains('session-rail-cv'), `chevron right after the name in "${head.textContent}"`);
-    assert.match(kids[2]?.textContent ?? '', /^\d+(\/\d+)?$/);
   }
+  assert.equal(heads[0].children[2].textContent, '1/2');
 });
 
 test("Info's usage row opens usage; a bot's home thread or a room reads its routines, and a room shows no model", async (t) => {
@@ -603,11 +657,44 @@ test('Context is a category of its own: the share, a bar and the two actions; ab
       snapshot,
       onViewDetails: () => opened.push('context'),
     });
-  const { document, root } = await mount(t, element({ sessionId: LEAD }));
+  const asked = [];
+  const tokens = (count) => ({ tokens: count });
+  const { document, root } = await mount(t, element({ sessionId: LEAD }), {
+    invokeCapability: async (request) => {
+      asked.push(request);
+      return {
+        value: {
+          messages: { semantic: { system: tokens(20000), chat: tokens(50000) } },
+          request: { toolSchemaBreakdown: { code: tokens(10000) } },
+        },
+      };
+    },
+  });
   assert.equal(document.querySelector('[data-category="context"]'), null);
+  assert.deepEqual(asked, [], 'nothing is read before the session has a reading');
   const reading = { currentContextTokens: 80000, currentContextSource: 'last_api_request' };
   await act(async () => root.render(element({ sessionId: LEAD, contextTokens: 200000, stats: reading })));
   const section = document.querySelector('[data-category="context"]');
+  // What the window holds, by kind: a segment each in the bar, a row each, and the free space.
+  assert.deepEqual(asked, [{ capability: 'contextStatus', sessionId: LEAD }]);
+  assert.deepEqual(
+    [...section.querySelectorAll('[role="meter"] > b')].map((part) => part.dataset.contextKey),
+    ['system', 'tools', 'messages']
+  );
+  assert.deepEqual(
+    [...section.querySelectorAll('.session-rail-part')].map((row) => [
+      row.dataset.contextKey,
+      row.querySelector('.session-rail-share').textContent,
+    ]),
+    [
+      ['system', '10.0%'],
+      ['tools', '5.0%'],
+      // MCP tools keep their row with nothing loaded.
+      ['mcp', '0.0%'],
+      ['messages', '25.0%'],
+      ['free', '60.0%'],
+    ]
+  );
   assert.equal(section.querySelector('.session-rail-ct').textContent, '40%');
   assert.equal(section.querySelector('[role="meter"]').getAttribute('aria-valuenow'), '40');
   const buttons = [...section.querySelectorAll('.session-rail-ft button')];

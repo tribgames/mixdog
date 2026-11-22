@@ -89,13 +89,23 @@ export function expiredShellRows(
   return { keys, nextAt };
 }
 
-/** Last path segment of a working directory ('' for none). */
-export function cwdFolderName(cwd: string | undefined): string {
-  const segments = String(cwd || '')
-    .trim()
-    .split(/[\\/]+/)
-    .filter(Boolean);
-  return segments[segments.length - 1] ?? '';
+/** A shell command's title for its row: the first command, without what it is
+ *  piped, chained or redirected into. Quoted text is never cut. */
+export function shellCommandTitle(command: string): string {
+  let quote = '';
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (quote) {
+      if (char === quote) quote = '';
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '|' || char === ';' || char === '>' || char === '\n' || command.startsWith('&&', index)) {
+      // A redirect names its stream just before the mark (2>&1).
+      const end = char === '>' && /\s\d$/.test(command.slice(0, index)) ? index - 1 : index;
+      return command.slice(0, end).trim() || command;
+    }
+  }
+  return command;
 }
 
 /** The shell row keys a dismissal may prune against: only a real lane's shell

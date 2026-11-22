@@ -155,6 +155,31 @@ export function RailSection({
   );
 }
 
+/** A fold inside a category (a to-do group, an agent state): its name, then
+ *  the chevron, as on the category's own head. */
+export function RailFold({
+  id,
+  name,
+  open,
+  onToggle,
+}: {
+  id: string;
+  name: string;
+  open: boolean;
+  onToggle(): void;
+}) {
+  return (
+    <button type="button" className="session-rail-gh" data-fold={id} aria-expanded={open} onClick={onToggle}>
+      <span>{name}</span>
+      {open ? (
+        <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
+      ) : (
+        <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
 /** A row that opens a picker: arrow keys open it too, as on the composer's pill. */
 export function openOnArrow(event: KeyboardEvent<HTMLElement>, open: boolean, show: () => void): void {
   if (open || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;

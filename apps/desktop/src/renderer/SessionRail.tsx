@@ -120,6 +120,7 @@ function SessionRailCategories(props: SessionRailProps) {
     agents: (
       <AgentsSection
         {...fold('agents')}
+        folds={folds}
         sessionId={sessionId}
         agents={jobs.agentRows}
         poolRows={jobs.poolRows}

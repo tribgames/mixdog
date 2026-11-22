@@ -132,17 +132,17 @@ test("the session panel's cards stand right of the reading column: in its margin
   assert.ok(wide.card.bottom < wide.cell.bottom - 300, 'the column hugs its cards');
   assert.ok(wide.sheet.right - wide.sheet.left > 300, 'the cards take the column');
 
-  // The narrowest pane the layout shows them in: the conversation re-centres left of them, the composer still at
-  // its widest, and the transcript, its scrollbar and the composer keep one right edge.
+  // The narrowest pane the layout shows them in: the conversation re-centres left of them, the composer still in
+  // full, and the transcript's scrollbar stays on the pane's edge, right of the cards.
   const pane = PANE_READING_COLUMN_MAX + SESSION_RAIL_MIN_WIDTH + SESSION_RAIL_GAP;
   const fit = sessionRailFit({ cellWidth: pane, dockWidth: 0, railPref: 400 });
   assert.deepEqual(fit, { width: SESSION_RAIL_MIN_WIDTH, reserve: SESSION_RAIL_MIN_WIDTH + SESSION_RAIL_GAP });
   const plain = await at(pane, 0);
   const tight = await at(pane, fit.width, fit.reserve);
   assert.ok(tight.composer.right - tight.composer.left >= 800, 'the composer keeps its full column');
-  near(tight.scroller.right, pane - fit.reserve, 'the transcript ends where the conversation does');
-  assert.ok(tight.composer.right <= tight.scroller.right, 'and the composer inside it');
-  assert.ok(tight.card.left >= tight.scroller.right - 1, `the cards stand right of the scrollbar: ${tight.card.left} < ${tight.scroller.right}`);
-  assert.ok(tight.row.right <= tight.card.left, 'and of the reading column');
+  near(tight.scroller.right, plain.scroller.right, "the scrollbar keeps the pane's edge");
+  near(tight.card.right, tight.scroller.right - 8, "the cards leave the scrollbar's lane");
+  assert.ok(tight.row.right <= tight.card.left, `the reading column ends before the cards: ${tight.row.right} > ${tight.card.left}`);
+  assert.ok(tight.composer.right <= tight.card.left, 'and so does the composer');
   assert.deepEqual(errors, []);
 });

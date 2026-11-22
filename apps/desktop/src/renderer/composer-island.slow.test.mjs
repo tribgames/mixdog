@@ -430,7 +430,7 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     ['run auto-ok', translate('Island: Exited')],
     ['run auto-fail', translate('Failed')],
   ]);
-  assert.equal(document.querySelector('.composer-island-row small').textContent, 'app');
+  assert.equal(document.querySelector('.composer-island-shell-command').title, 'npm run dev\n/w/app');
   const head = () => document.querySelector('.composer-island-phead');
   assert.equal(head().querySelector('.composer-island-tab').textContent, translate('Shell {{shell}}', { shell: 1 }));
   assert.equal(
@@ -615,7 +615,7 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
-  assert.equal(document.querySelector('.composer-island-row small').textContent, 'cart-service');
+  assert.equal(document.querySelector('.composer-island-shell-command').title, 'npm test\n/work/cart-service');
   assert.match(document.querySelector('.composer-island-row .agent-activity-elapsed').textContent, /^\d+s$/);
   await act(async () => document.querySelector('.composer-island-row button').click());
   assert.deepEqual(calls, [['island-session', 'j1']]);
