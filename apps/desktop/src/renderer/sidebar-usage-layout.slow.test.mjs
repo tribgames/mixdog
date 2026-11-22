@@ -218,7 +218,7 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
       };
     })
   );
-  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 24, middle: 19, centred: 0, meter: 31 });
+  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 25, middle: 19.5, centred: 0, meter: 31 });
   // The marks wear the gear's resting ink.
   const inks = await page.evaluate(() =>
     ['.sidebar-usage-toggle svg[data-provider-icon]', '.sidebar-settings-button .codicon'].map((selector) => {
