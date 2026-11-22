@@ -34,7 +34,7 @@ function RadioItem({
   );
 }
 
-/** The usage flyout's `···` menu: rail pin switch plus the rail bar mode.
+/** The usage flyout's `···` menu: rail pin switch plus the rail ring mode.
  *  Same open/dismiss/roving-focus conventions as RowOverflowMenu; the panel is
  *  portaled because the flyout clips its own overflow. */
 export function SidebarUsageMenu({
@@ -180,14 +180,10 @@ export function SidebarUsageMenu({
             {/* biome-ignore lint/a11y/useSemanticElements: <hr> default border/margin would change the styling. */}
             <div className="usage-menu-separator" role="separator" />
             <div className="usage-menu-group" role="presentation">
-              {t('Rail bars')}
+              {t('Rail rings')}
             </div>
             {radio('long', t('Longest period only'), t('Only the longest period, such as monthly or weekly'))}
-            {radio(
-              'short-long',
-              t('5-hour + longest period'),
-              t('5-hour and weekly as two bars; the number shows the higher')
-            )}
+            {radio('short-long', t('5-hour + longest period'), t('5-hour and weekly as two rings'))}
             {/* biome-ignore lint/a11y/useSemanticElements: <hr> default border/margin would change the styling. */}
             <div className="usage-menu-separator" role="separator" />
             <div className="usage-menu-group" role="presentation">

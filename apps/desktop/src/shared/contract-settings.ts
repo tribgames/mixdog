@@ -138,8 +138,8 @@ export interface DesktopSettings {
   sessionAutoDeleteDays: number;
   /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
   usagePinned: boolean;
-  /** Pinned rail bars: false = the longest period only (default), true = the
-   *  shortest plus the longest period as two bars. */
+  /** Pinned rail rings: false = the longest period only (default), true = the
+   *  shortest plus the longest period as two rings. */
   usageRailShortLong: boolean;
   /** Usage panel and rail show every account of a multi-account provider. */
   usageAccountsExpanded: boolean;

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
+import { usagePinStackHeight } from './rail-usage-pin-room.ts';
 
 /** SidebarUsage inside the rail popup in a real Chrome, with the app's
     stylesheets; `rows` is the dashboard rows' source (has `quota` and `hour`). */
@@ -47,6 +48,11 @@ async function openUsagePopup(t, rows) {
     jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' },
   });
+  return openPage(t, bundle, '.sidebar-usage-meter > em');
+}
+
+/** A bundled renderer entry in a real Chrome with the app's stylesheets. */
+async function openPage(t, bundle, readySelector) {
   const styles = await build({
     stdin: {
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -74,9 +80,120 @@ async function openUsagePopup(t, rows) {
   await page.addStyleTag({ content: styles.outputFiles[0].text });
   await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.css')).text });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
-  await Promise.race([page.waitForSelector('.sidebar-usage-meter > em'), renderError]);
+  await Promise.race([page.waitForSelector(readySelector), renderError]);
   return page;
 }
+
+/** The real ActivityRail, pinned in "5-hour + longest period" mode, on a
+    2000px rail; `window.showUsage(rows)` republishes the dashboard. */
+async function openRail(t, rows) {
+  const bundle = await build({
+    stdin: {
+      resolveDir: fileURLToPath(new URL('.', import.meta.url)),
+      loader: 'tsx',
+      contents: `
+        import React from "react";
+        import { createRoot } from "react-dom/client";
+        import { ActivityRail } from "./ActivityRail";
+        import { publishUsageDashboard } from "./usage-dashboard-store";
+
+        let dashboard = { rows: ${rows} };
+        window.showUsage = (next) => {
+          dashboard = { rows: next };
+          publishUsageDashboard(dashboard);
+        };
+        window.mixdogDesktop = {
+          readActivityRailPins: async () => null,
+          subscribeActivityRailPins: () => () => {},
+          readSettings: async () => ({ usagePinned: true, usageRailShortLong: true }),
+          updateSetting: async () => ({}),
+        };
+        const api = { async invokeCapability({ capability }) {
+          return { value: capability === "getUsageDashboard" ? dashboard : { selectedId: null, accounts: [] } };
+        } };
+        publishUsageDashboard(dashboard);
+        createRoot(document.getElementById("root")).render(
+          <div style={{ display: "flex", height: "2000px" }}>
+            <ActivityRail settingsOpen={false} onOpenSettings={() => {}} usageApi={api}
+              navigationItems={[]} activeNavigationId={null} onSelectNavigation={() => {}} />
+          </div>
+        );
+      `,
+    },
+    bundle: true,
+    write: false,
+    outfile: 'activity-rail-layout.js',
+    format: 'iife',
+    jsx: 'automatic',
+    // The rail's module graph reaches the changelog text, Monaco's codicon font
+    // and the editor workers, none of which the rail draws.
+    loader: { '.md': 'text', '.ttf': 'dataurl' },
+    plugins: [
+      {
+        name: 'worker-stub',
+        setup(builder) {
+          builder.onResolve({ filter: /\?worker$/ }, (args) => ({ path: args.path, namespace: 'worker-stub' }));
+          builder.onLoad({ filter: /.*/, namespace: 'worker-stub' }, () => ({
+            contents: 'export default class {};',
+            loader: 'js',
+          }));
+        },
+      },
+    ],
+    define: { 'process.env.NODE_ENV': '"production"' },
+  });
+  return openPage(t, bundle, '.rail-usage-pin-ring');
+}
+
+test('the pinned rail stack is as tall as the room budget, and each arc paints exactly its percentage', async (t) => {
+  const page = await openRail(t, `[{ id: "openai-oauth", group: "oauth", windows: [{ label: "W", usedPct: 1 }] }]`);
+  const stackHeight = () =>
+    page.evaluate(() => document.querySelector('.sidebar-usage-toggle.is-pinned').getBoundingClientRect().height);
+  // One provider: the block is 17 + 26 = 43px, no taller (no leftover minimum).
+  assert.equal(await stackHeight(), usagePinStackHeight(1));
+
+  await page.evaluate(() =>
+    window.showUsage([
+      { id: 'openai-oauth', group: 'oauth', windows: [{ label: 'W', usedPct: 1 }] },
+      {
+        id: 'anthropic-oauth',
+        group: 'oauth',
+        windows: [
+          { label: '5H', usedPct: 99 },
+          { label: 'W', usedPct: 100 },
+        ],
+      },
+      { id: 'opencode-go-oauth', windows: [{ label: 'M', usedPct: 0 }] },
+    ])
+  );
+  await page.waitForFunction(() => document.querySelectorAll('[data-usage-pin]').length === 3);
+  assert.equal(await stackHeight(), usagePinStackHeight(3));
+
+  // Painted extent of every arc as a fraction of its circle, caps included,
+  // from the computed stroke the stylesheet leaves on it.
+  const arcs = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-usage-window]')].map((ring) => {
+      const arc = ring.querySelector('.rail-usage-pin-fill');
+      const slot = ring.closest('[data-usage-pin]').getAttribute('data-usage-pin');
+      const key = `${slot}:${ring.getAttribute('data-usage-window')}`;
+      if (!arc) return { key, painted: 0 };
+      const style = getComputedStyle(arc);
+      const circumference = 2 * Math.PI * Number(arc.getAttribute('r'));
+      const [dash] = style.strokeDasharray.split(/[ ,]+/).map(Number.parseFloat);
+      const capped = style.strokeLinecap === 'butt' ? 0 : Number.parseFloat(style.strokeWidth);
+      const painted = Math.min(1, dash / Number(arc.getAttribute('pathLength')) + capped / circumference);
+      return { key, painted };
+    })
+  );
+  const near = (value, expected) => Math.abs(value - expected) < 1e-9;
+  const painted = Object.fromEntries(arcs.map((arc) => [arc.key, arc.painted]));
+  assert.deepEqual(Object.keys(painted), ['codex:W', 'claude:5H', 'claude:W', 'opencode-go-oauth:M']);
+  // 1 and 99 leave both an arc and a gap; only 100 closes; 0 paints nothing.
+  assert.ok(near(painted['codex:W'], 0.01), `1% painted ${painted['codex:W']}`);
+  assert.ok(near(painted['claude:5H'], 0.99), `99% painted ${painted['claude:5H']}`);
+  assert.ok(near(painted['claude:W'], 1), `100% painted ${painted['claude:W']}`);
+  assert.equal(painted['opencode-go-oauth:M'], 0);
+});
 
 test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {
   const page = await openUsagePopup(

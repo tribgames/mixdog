@@ -6,7 +6,6 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
 import { usagePinAccountEntries } from './usage-pin-entries.ts';
 import { publishUsageDashboard } from './usage-dashboard-store.ts';
-import { usagePinStackFits, usagePinStackHeight } from './rail-usage-pin-room.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -33,19 +32,17 @@ test('short + long mode picks the shortest and the longest window, short first',
     ]
   );
   assert.equal(entry.percent, 99);
-  assert.equal(entry.hot, 0);
-  // The default mode keeps the single longest-window bar.
+  // The default mode keeps the single longest-window ring.
   const [longOnly] = usagePinEntries(claude(windows));
   assert.deepEqual(
     longOnly.bars.map((bar) => bar.label),
     ['M']
   );
-  // Long-only mode shows the chosen long window's own figure.
+  // Long-only mode takes the chosen long window's own usage.
   assert.equal(longOnly.percent, 5);
-  assert.equal(longOnly.hot, 0);
 });
 
-test('the figure and the driving bar follow the higher of the two', () => {
+test("the slot's usage follows the higher of the two", () => {
   const [entry] = usagePinEntries(
     claude([
       { label: '5H', usedPct: 20 },
@@ -54,7 +51,6 @@ test('the figure and the driving bar follow the higher of the two', () => {
     'short-long'
   );
   assert.equal(entry.percent, 75);
-  assert.equal(entry.hot, 1);
 });
 
 test('the tooltip names every window, including ones that are not drawn', () => {
@@ -117,7 +113,6 @@ test('Cursor keeps Basic as the long bar and API becomes the second bar', () => 
     ['Basic', 'API']
   );
   assert.equal(entry.percent, 70);
-  assert.equal(entry.hot, 1);
   const [longOnly] = usagePinEntries(cursor, 'long');
   assert.deepEqual(
     longOnly.bars.map((bar) => bar.label),
@@ -203,12 +198,19 @@ test('the tooltip names the provider and both windows with percent and reset tim
   }
 });
 
-test('the taller two-bar stack counts toward rail room', () => {
-  assert.equal(usagePinStackHeight(3, 2), usagePinStackHeight(3) + 10);
-  const base = { navHeight: 400, settingsHeight: 44, rowCount: 3 };
-  const railHeight = 400 + 44 + usagePinStackHeight(3);
-  assert.equal(usagePinStackFits({ ...base, railHeight }), true);
-  assert.equal(usagePinStackFits({ ...base, railHeight, doubleBarCount: 3 }), false);
+test("a slot's spoken text names every window its tooltip names, including the undrawn one that is in danger", () => {
+  const windows = [
+    { label: '5H', usedPct: 20, resetAt: NOW + HOUR },
+    { label: 'W', usedPct: 95 },
+    { label: 'M', usedPct: 30 },
+  ];
+  for (const mode of ['short-long', 'long']) {
+    const [entry] = usagePinEntries(claude(windows), mode);
+    // The weekly 95% is not drawn (5-hour outside, monthly inside) yet drives
+    // the danger centre in two-ring mode, so the description must name it.
+    assert.equal(entry.name, 'Claude · 5-hour 20% · monthly 30% · weekly 95%');
+    assert.equal(entry.tooltip.replace(/ \(resets in [^)]*\)/g, ''), entry.name);
+  }
 });
 
 function mount(
@@ -307,7 +309,7 @@ test('the pin item toggles the rail pin and the radios apply the bar mode', asyn
   );
   assert.deepEqual(
     radios().map((radio) => radio.getAttribute('data-tooltip')),
-    ['Only the longest period, such as monthly or weekly', '5-hour and weekly as two bars; the number shows the higher']
+    ['Only the longest period, such as monthly or weekly', '5-hour and weekly as two rings']
   );
   assert.equal(document.querySelector('.usage-menu-hint'), null);
   assert.equal(radios()[0].querySelector('svg') !== null, true);
