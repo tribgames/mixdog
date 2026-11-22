@@ -284,6 +284,7 @@ pub struct AgentRegistry {
     /// The tags reserved for spawns admitted and not yet bound ([`Registry::claim_tag`]).
     claimed: Arc<Mutex<HashSet<String>>>,
     /// One spawn takes its tag at a time.
+    #[allow(clippy::disallowed_types, reason = "one spawn's tag admission at a time, across the reads of the tag it awaits")]
     spawn_admission: tokio::sync::Mutex<()>,
     /// The listings of every agent session made ([`Self::list_sessions`]).
     #[cfg(test)]
@@ -637,6 +638,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 }
 
 impl AgentRegistry {
+    #[allow(clippy::disallowed_types, reason = "see `spawn_admission`")]
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
         Self {
             store,

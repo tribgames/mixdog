@@ -466,7 +466,13 @@ struct Shared<'a> {
 /// journaled once, by whichever thread first needs them (its converter, or another session's that reads its header),
 /// while the others hash theirs.
 #[derive(Default)]
-struct LateSources(Mutex<BTreeMap<String, Arc<Mutex<Option<Arc<Vec<SourceFile>>>>>>>);
+struct LateSources(Mutex<BTreeMap<String, LateSource>>);
+
+/// One item's journaled sources, once they are hashed.
+type LateSource = Arc<Mutex<Option<Arc<Vec<SourceFile>>>>>;
+
+/// The header fields read of each session for the retention judgement, with whether something else is bound to it.
+type ReadHeaders = BTreeMap<String, (serde_json::Map<String, serde_json::Value>, bool)>;
 
 impl crate::framework::SourceRecords for Shared<'_> {
     fn sources_of(&self, item: &ManifestItem) -> Result<Arc<Vec<SourceFile>>> {
@@ -850,7 +856,7 @@ impl Migrator {
         let linked = crate::stores::linked_session_ids(cx)?;
         let fields = retention.fields();
         let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
-        let read: Mutex<BTreeMap<String, (serde_json::Map<String, serde_json::Value>, bool)>> = Mutex::default();
+        let read: Mutex<ReadHeaders> = Mutex::default();
         let next = AtomicUsize::new(0);
         // The candidates asked for that wait for the judgement to close, in the order they were asked for; `None` once
         // it is closed.
@@ -907,8 +913,7 @@ impl Migrator {
             let facts = read.lock().expect("retention facts").clone();
             let now = shared.journal.lock().expect("journal").judged_at().unwrap_or_else(|| retention.now_ms());
             // Converted, or on the way, by a run of before the judgement existed: in use.
-            let converted: BTreeSet<String> =
-                [ItemState::Staged, ItemState::Published, ItemState::Verified].into_iter().flat_map(|wanted| of_state(wanted)).collect();
+            let converted: BTreeSet<String> = [ItemState::Staged, ItemState::Published, ItemState::Verified].into_iter().flat_map(&of_state).collect();
             let planned: BTreeSet<String> = of_state(ItemState::Planned).into_iter().collect();
             let headers: BTreeMap<String, serde_json::Map<String, serde_json::Value>> =
                 facts.iter().map(|(id, (header, _))| (id.clone(), header.clone())).collect();

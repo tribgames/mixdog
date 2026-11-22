@@ -451,7 +451,7 @@ impl Feed for CoreFeed {
         state.ring.rest(state.view_seq);
     }
 
-    fn rebase(&self, rebase: &mut dyn FnMut(&SubscriptionId, &Grant, u64, &FeedPosition) -> Option<(GrantAsk, Bytes)>) {
+    fn rebase(&self, rebase: &mut mixdog_core_api::feed::Rebase<'_>) {
         let shared = &self.shared;
         let mut guard = shared.lock();
         let at = FeedPosition { epoch: shared.epoch.clone(), seq: guard.seq };

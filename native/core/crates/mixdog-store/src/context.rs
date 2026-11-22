@@ -190,7 +190,7 @@ pub(crate) fn rows_on(
     let own = crate::sqlite::read_snapshot(c)?;
     let tx: &Connection = own.as_deref().unwrap_or(c);
     let rev: i64 = tx.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
-    let spans = plan(&tx, lineage, cut)?;
+    let spans = plan(tx, lineage, cut)?;
     let first = &spans[0];
     let start = (first.level, first.from);
     let mut cur = match cursor {
@@ -206,7 +206,7 @@ pub(crate) fn rows_on(
         let span = &spans[cur.span];
         let session = &lineage[span.level].session;
         let want = limit - out.len();
-        let (rows, more) = fetch_span(&tx, session, span.as_of, cur.from, want)?;
+        let (rows, more) = fetch_span(tx, session, span.as_of, cur.from, want)?;
         for (ordinal, idx, ver, iid, file_no, offset, len) in rows {
             let key = (span.level, ver);
             let cost = if seen.contains(&key) { 0 } else { len as u64 };

@@ -484,6 +484,7 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "tests over files of their own temporary directory")]
 mod tests {
     use std::ffi::OsString;
 

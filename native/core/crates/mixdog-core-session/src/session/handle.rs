@@ -1337,7 +1337,7 @@ impl SessionHandle {
         let mut req = req;
         // Only the stored history's answer names a target to the actor.
         if let Some(params) = req.params.as_object_mut() {
-            params.remove("target");
+            params.shift_remove("target");
         }
         // Idle is asked first, as it always was: a running thread answers that, whatever the id names.
         let (tx, rx) = oneshot::channel();

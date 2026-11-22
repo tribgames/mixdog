@@ -36,7 +36,7 @@ impl SessionWorkspaces {
         let inner = &self.inner;
         let leave = inner.gate.begin_transition(session, &format!("project:{}", new_tx_id()))?;
         let mut journal = Journal::default();
-        let outcome = inner.switch_project(session, cwd, desktop_session, own_turn, project_move, &mut journal, cancel).await;
+        let outcome = inner.switch_project(session, cwd, Stored { desktop_session, project_move }, own_turn, &mut journal, cancel).await;
         if outcome.is_err() {
             journal.undo_all().await;
         }
@@ -45,17 +45,24 @@ impl SessionWorkspaces {
     }
 }
 
+/// What a Project switch stores with the folder: the desktop classification (`None`: the session has none), and the pending
+/// Project move the switch carries out, when it carries one out.
+pub(super) struct Stored {
+    pub(super) desktop_session: Option<JsonValue>,
+    pub(super) project_move: Option<JsonValue>,
+}
+
 impl Inner {
     pub(super) async fn switch_project(
         self: &Arc<Self>,
         session: &str,
         cwd: &str,
-        desktop_session: Option<JsonValue>,
+        stored: Stored,
         own_turn: bool,
-        project_move: Option<JsonValue>,
         journal: &mut Journal,
         cancel: &CancellationToken,
     ) -> Result<String, ScmFailure> {
+        let Stored { desktop_session, project_move } = stored;
         self.assert_lead_idle_with(session, own_turn, false).await?;
         let view = self.hosted(session)?;
         if read_session_workspace(view.workspace.as_ref()).is_some_and(|workspace| workspace.is_bound()) {

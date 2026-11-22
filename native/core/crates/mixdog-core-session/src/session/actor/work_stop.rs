@@ -201,7 +201,12 @@ impl SessionActor {
 
     /// A start whose work a Stop froze before its run began: it never runs. Its prompt goes back to its composer (a user's restorable
     /// prompt) or it is cancelled and consumed; its waiter hears that it was stopped; the Stop settles; the queue behind it moves on.
-    pub(super) fn finish_stopped_start(&mut self, work: WorkRef, reply: Option<Effect>, sid: &str) {
+    pub(super) fn finish_stopped_start(
+        &mut self,
+        #[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))] work: WorkRef,
+        reply: Option<Effect>,
+        sid: &str,
+    ) {
         #[cfg(any(test, feature = "test-support"))]
         self.ledger(format!("start:stopped:{}", work.id));
         self.submitter = None;

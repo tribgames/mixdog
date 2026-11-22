@@ -5,6 +5,7 @@
 //! result. The load runs as its own task, so a waiter that is cancelled stops waiting only.
 
 // Transparent names for existing callback/record shapes; no ownership or ordering change.
+#[cfg(any(test, feature = "test-support"))]
 type ThreadWriteVersions = (ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2]);
 
 use std::collections::HashMap;
