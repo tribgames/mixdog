@@ -142,14 +142,14 @@ async function openRail(t, rows) {
     ],
     define: { 'process.env.NODE_ENV': '"production"' },
   });
-  return openPage(t, bundle, '.rail-usage-pin-ring');
+  return openPage(t, bundle, '.rail-usage-pin-mark');
 }
 
-test('the pinned rail stack is as tall as the room budget, and each arc paints exactly its percentage', async (t) => {
+test('the pinned rail stack is as tall as the room budget, and each bar paints exactly its percentage', async (t) => {
   const page = await openRail(t, `[{ id: "openai-oauth", group: "oauth", windows: [{ label: "W", usedPct: 1 }] }]`);
   const stackHeight = () =>
     page.evaluate(() => document.querySelector('.sidebar-usage-toggle.is-pinned').getBoundingClientRect().height);
-  // One provider: the block is 16 + 26 = 42px, no taller (no leftover minimum).
+  // One provider: the block is 16 + 25 = 41px, no taller (no leftover minimum).
   assert.equal(await stackHeight(), usagePinStackHeight(1));
 
   await page.evaluate(() =>
@@ -169,31 +169,53 @@ test('the pinned rail stack is as tall as the room budget, and each arc paints e
   await page.waitForFunction(() => document.querySelectorAll('[data-usage-pin]').length === 3);
   assert.equal(await stackHeight(), usagePinStackHeight(3));
 
-  // Painted extent of every arc as a fraction of its circle, caps included,
-  // from the computed stroke the stylesheet leaves on it.
-  const arcs = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-usage-window]')].map((ring) => {
-      const arc = ring.querySelector('.rail-usage-pin-fill');
-      const slot = ring.closest('[data-usage-pin]').getAttribute('data-usage-pin');
-      const key = `${slot}:${ring.getAttribute('data-usage-window')}`;
-      if (!arc) return { key, painted: 0 };
-      const style = getComputedStyle(arc);
-      const circumference = 2 * Math.PI * Number(arc.getAttribute('r'));
-      if (style.strokeDasharray === 'none') return { key, painted: 1 };
-      const [dash] = style.strokeDasharray.split(/[ ,]+/).map(Number.parseFloat);
+  // Every window's bar: its painted share of the track, caps included, and its
+  // drawn band, from the computed stroke the stylesheet leaves on it.
+  const bars = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-usage-window]')].map((bar) => {
+      const track = bar.querySelector('.rail-usage-pin-track');
+      const fill = bar.querySelector('.rail-usage-pin-fill');
+      const slot = bar.closest('[data-usage-pin]').getAttribute('data-usage-pin');
+      const key = `${slot}:${bar.getAttribute('data-usage-window')}`;
+      const box = track.getBoundingClientRect();
+      const thickness = Number.parseFloat(getComputedStyle(track).strokeWidth);
+      const band = { top: box.top + box.height / 2 - thickness / 2, thickness };
+      if (!fill) return { key, painted: 0, band };
+      const style = getComputedStyle(fill);
       const capped = style.strokeLinecap === 'butt' ? 0 : Number.parseFloat(style.strokeWidth);
-      const painted = Math.min(1, dash / Number(arc.getAttribute('pathLength')) + capped / circumference);
-      return { key, painted };
+      return { key, painted: (fill.getBBox().width + capped) / track.getBBox().width, band };
     })
   );
-  const near = (value, expected) => Math.abs(value - expected) < 1e-9;
-  const painted = Object.fromEntries(arcs.map((arc) => [arc.key, arc.painted]));
+  // getBBox reports single-precision floats.
+  const near = (value, expected) => Math.abs(value - expected) < 1e-6;
+  const painted = Object.fromEntries(bars.map((bar) => [bar.key, bar.painted]));
   assert.deepEqual(Object.keys(painted), ['codex:W', 'claude:5H', 'claude:W', 'opencode-go-oauth:M']);
-  // 1 and 99 leave both an arc and a gap; only 100 closes; 0 paints nothing.
+  // 1 and 99 leave both a fill and a gap; only 100 fills the track; 0 paints nothing.
   assert.ok(near(painted['codex:W'], 0.01), `1% painted ${painted['codex:W']}`);
   assert.ok(near(painted['claude:5H'], 0.99), `99% painted ${painted['claude:5H']}`);
   assert.ok(near(painted['claude:W'], 1), `100% painted ${painted['claude:W']}`);
   assert.equal(painted['opencode-go-oauth:M'], 0);
+
+  // One 3px bar, or two 2px bars a pixel apart with the short window on top.
+  const band = Object.fromEntries(bars.map((bar) => [bar.key, bar.band]));
+  assert.equal(band['codex:W'].thickness, 3);
+  assert.equal(band['claude:5H'].thickness, 2);
+  assert.equal(band['claude:W'].thickness, 2);
+  assert.equal(band['claude:W'].top - (band['claude:5H'].top + 2), 1);
+
+  // The mark at glyph size, the bar centred 3px under its ink.
+  const slots = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-usage-pin]')].map((slot) => {
+      const icon = slot.querySelector('svg[data-provider-icon]').getBoundingClientRect();
+      const meter = slot.querySelector('.rail-usage-pin-meter').getBoundingClientRect();
+      return {
+        icon: icon.width,
+        centred: icon.left + icon.width / 2 - (meter.left + meter.width / 2),
+        gap: meter.top - (icon.bottom - 4),
+      };
+    })
+  );
+  for (const slot of slots) assert.deepEqual(slot, { icon: 24, centred: 0, gap: 3 });
 });
 
 test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {

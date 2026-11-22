@@ -37,49 +37,36 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Rings (radius, stroke) in the 26-unit meter box, the track and its arc on
- *  one stroke: one ring at 1/8 of the box, or the short window outside and the
- *  long one inside, thinner so the pair leaves the mark room. */
-const SINGLE_RING = [{ r: 11.375, width: 3.25 }];
-const NESTED_RINGS = [
-  { r: 11.875, width: 2.25 },
-  { r: 8.625, width: 2.25 },
+/** Bars (centre line, stroke) in the 18x5 meter under the mark: one 3px bar,
+ *  or two 2px bars a pixel apart with the short window on top. */
+const METER_LENGTH = 18;
+const SINGLE_BAR = [{ y: 2.5, width: 3 }];
+const STACKED_BARS = [
+  { y: 1, width: 2 },
+  { y: 4, width: 2 },
 ];
 
-/** The slot's meter: a faint track per drawn window under its own toned arc. */
+/** The slot's meter: a faint track per drawn window under its own toned fill. */
 function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
-  const rings = entry.bars.length > 1 ? NESTED_RINGS : SINGLE_RING;
+  const bars = entry.bars.length > 1 ? STACKED_BARS : SINGLE_BAR;
   return (
-    <svg className="rail-usage-pin-meter" viewBox="0 0 26 26" aria-hidden="true" focusable="false">
+    <svg className="rail-usage-pin-meter" viewBox={`0 0 ${METER_LENGTH} 5`} aria-hidden="true" focusable="false">
       {entry.bars.map((bar, index) => {
-        const { r, width } = rings[index];
+        const { y, width } = bars[index];
         const percent = entry.pending ? 0 : (displayUsagePercent(bar.percent) ?? 0);
         return (
           <g key={bar.label} data-usage-window={bar.label}>
-            <circle
-              className="rail-usage-pin-track"
-              cx="13"
-              cy="13"
-              r={r}
-              strokeWidth={width}
-              // The loading dashes split every ring into the same count.
-              pathLength={100}
-            />
+            <line className="rail-usage-pin-track" x1="0" y1={y} x2={METER_LENGTH} y2={y} strokeWidth={width} />
             {percent > 0 && (
-              <circle
+              <line
                 className={`rail-usage-pin-fill${usageToneClass(bar.percent)}`}
-                cx="13"
-                cy="13"
-                r={r}
+                x1="0"
+                y1={y}
+                x2={(METER_LENGTH * percent) / 100}
+                y2={y}
                 strokeWidth={width}
-                // Butt caps paint exactly the dash: round caps add a stroke
-                // width, closing the ring before 100 and swelling 1%.
+                // Butt caps end the fill exactly at its percentage.
                 strokeLinecap="butt"
-                pathLength={100}
-                // A full ring is a plain stroke: a dash ending on its own start
-                // leaves an antialiased seam at 12 o'clock.
-                strokeDasharray={percent < 100 ? `${percent} 100` : undefined}
-                transform="rotate(-90 13 13)"
               />
             )}
           </g>
@@ -94,7 +81,7 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
     return (
       <span className="rail-usage-pin-stack">
         {rows.map((entry) => (
-          // No figure: the ring and its tone carry the reading; the exact
+          // No figure: the bar and its tone carry the reading; the exact
           // values live in the tooltip, the button's description and the flyout.
           <span
             className="rail-usage-pin-brand"
@@ -103,13 +90,13 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
             aria-busy={entry.pending || undefined}
             data-tooltip={entry.tooltip}
           >
-            <span className={`rail-usage-pin-ring${entry.bars.length > 1 ? ' is-nested' : ''}`}>
-              <UsagePinMeter entry={entry} />
+            <span className="rail-usage-pin-mark">
               <ProviderIcon provider={entry.provider} />
               {entry.accountIndex !== undefined && (
                 <sup className={entry.accountSelected ? 'is-selected' : undefined}>{entry.accountIndex}</sup>
               )}
             </span>
+            <UsagePinMeter entry={entry} />
           </span>
         ))}
       </span>

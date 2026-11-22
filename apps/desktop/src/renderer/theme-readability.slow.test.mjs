@@ -335,7 +335,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           .getElementById('contrast-rail')
           .insertAdjacentHTML(
             'beforeend',
-            `<span class="rail-usage-pin-brand"><span class="rail-usage-pin-ring"><svg class="rail-usage-pin-meter"><circle class="rail-usage-pin-track"></circle><circle class="rail-usage-pin-fill ${tone}"></circle></svg></span></span>`
+            `<span class="rail-usage-pin-brand"><span class="rail-usage-pin-mark"></span><svg class="rail-usage-pin-meter"><line class="rail-usage-pin-track"></line><line class="rail-usage-pin-fill ${tone}"></line></svg></span>`
           );
         document
           .getElementById('contrast-popup')

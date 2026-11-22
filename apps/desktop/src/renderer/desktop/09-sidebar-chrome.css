@@ -2,9 +2,9 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* Pinned usage: the rail button trades the pie glyph for a
-   per-brand stack — each provider's icon inside its usage ring, no figure. */
+   per-brand stack — each provider's icon over its usage bar, no figure. */
 /* No min-height: the block is exactly its rows and padding, the numbers
-   rail-usage-pin-room.ts budgets (one slot is 16 + 26 = 42px). */
+   rail-usage-pin-room.ts budgets (one slot is 16 + 25 = 41px). */
 .activity-rail > .sidebar-usage-toggle.is-pinned {
   height: auto;
   /* Yields only after the destination nav has hit its floor, and clips its
@@ -16,50 +16,53 @@
      inactive ghost ink. */
   color: var(--mx-text-soft);
 }
-/* Rows sit 10px apart (rail-usage-pin-room.ts): the widest 36px pitch at which
-   six rings still fit under nine destinations in a 700px window. */
+/* Rows sit 11px apart (rail-usage-pin-room.ts), wider than the 3px between a
+   mark and its own bar, so each bar reads as its mark's; six slots still fit
+   under nine destinations in a 700px window. */
 .rail-usage-pin-stack {
   display: grid;
-  gap: 10px;
+  gap: 11px;
   justify-items: center;
   width: 100%;
 }
+/* One 25px slot (rail-usage-pin-room.ts budgets 25): the mark's 24px box
+   rides 4px up, where its glyph leaves the box empty, so the ink spans
+   0-16px; the 5px meter sits 3px under the ink. */
 .rail-usage-pin-brand {
-  display: grid;
-  justify-items: center;
-  width: 100%;
-}
-/* One 26px ring per slot (rail-usage-pin-room.ts budgets 26), the brand mark
-   dead-centred inside it. */
-.rail-usage-pin-ring {
   position: relative;
   display: block;
-  width: 26px;
-  height: 26px;
+  width: 100%;
+  height: 25px;
+}
+/* The mark at the rail's glyph size: a 24px box inks about the 16px of the
+   22px destination glyphs. */
+.rail-usage-pin-mark {
+  position: absolute;
+  top: -4px;
+  left: calc(50% - 12px);
+  width: 24px;
+  height: 24px;
 }
 .rail-usage-pin-meter {
   position: absolute;
-  inset: 0;
-  width: 26px;
-  height: 26px;
+  top: 19px;
+  left: calc(50% - 9px);
+  width: 18px;
+  height: 5px;
   overflow: visible;
 }
-.rail-usage-pin-meter circle {
-  fill: none;
-}
-/* The track is the gauge's own ink, faint, on the arc's stroke: an empty ring
-   reads as a meter at zero, not as a button outline, and a full one is no
-   heavier than its neighbours. */
+/* The track is the gauge's own ink, faint, on the fill's stroke: an empty bar
+   still reads as a meter at zero. */
 .rail-usage-pin-track {
   stroke: color-mix(in srgb, var(--mx-meter-fill) 30%, transparent);
 }
-/* Calm resting arc (a blue fill at rest is too eye-catching): quiet ink until
-   the warning/danger tones below take over. Each ring tones by its own window. */
+/* Calm resting fill (a blue fill at rest is too eye-catching): quiet ink until
+   the warning/danger tones below take over. Each bar tones by its own window. */
 .rail-usage-pin-fill {
   stroke: var(--mx-meter-fill);
 }
-/* The toned arc carries the tone alone, so it takes the status text inks the
-   figure used, not the brighter meter fills. */
+/* The toned fill carries the tone alone, so it takes the status text inks,
+   not the brighter meter fills. */
 .rail-usage-pin-fill.tone-warning {
   stroke: var(--mx-warning);
 }
@@ -67,44 +70,37 @@
   stroke: var(--mx-danger);
 }
 /* Loading: a dashed track under a dimmed mark, never mistaken for the solid
-   empty track of a 0% slot. */
+   empty track of a 0% slot. Five dashes span the 18-unit bar end to end. */
 .rail-usage-pin-brand[aria-busy="true"] .rail-usage-pin-track {
-  stroke-dasharray: 3.125 3.125;
+  stroke-dasharray: 2 2;
 }
 .rail-usage-pin-brand[aria-busy="true"] svg[data-provider-icon] {
   opacity: var(--mx-op-dim);
 }
 /* One optical box per brand mark: the glyphs ink the 40-unit viewBox very
-   differently, so inline sizing reads ragged. Two rings leave an 11px mark. */
-.rail-usage-pin-ring > svg[data-provider-icon] {
+   differently, so inline sizing reads ragged. */
+.rail-usage-pin-mark > svg[data-provider-icon] {
   position: absolute;
   inset: 0;
   display: block;
-  width: 14px;
-  height: 14px;
-  margin: auto;
-}
-.rail-usage-pin-ring.is-nested > svg[data-provider-icon] {
-  width: 11px;
-  height: 11px;
+  width: 24px;
+  height: 24px;
 }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
-.rail-usage-pin-ring > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
-  width: 16px;
-  height: 16px;
+.rail-usage-pin-mark > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
+  inset: -2px;
+  width: 28px;
+  height: 28px;
 }
-.rail-usage-pin-ring.is-nested > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
-  width: 12px;
-  height: 12px;
-}
-/* Expanded accounts: the account index rides the ring's bottom-right edge,
-   bright for the account in use, muted for the others. */
-.rail-usage-pin-ring > sup {
+/* Expanded accounts: the account index sits on the mark's bottom-right
+   corner, clear of the bar, bright for the account in use, muted for the
+   others. */
+.rail-usage-pin-mark > sup {
   position: absolute;
   z-index: 1;
-  right: -4px;
-  bottom: -2px;
+  right: 0;
+  bottom: 3px;
   display: grid;
   place-items: center;
   min-width: 9px;
@@ -118,7 +114,7 @@
   font-weight: 600;
   line-height: 9px;
 }
-.rail-usage-pin-ring > sup.is-selected {
+.rail-usage-pin-mark > sup.is-selected {
   color: var(--mx-text);
 }
 /* Scroll chevrons of the slot stack: no background, 8px glyph, a 24x24 hit
