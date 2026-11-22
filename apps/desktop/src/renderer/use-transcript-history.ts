@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useReducer, useRef, type RefObject } from 'react';
-import { WINDOW_TAIL_MAX_ROWS } from '../../../../packages/protocol-client/src/transcript-window.ts';
 import type { DesktopTranscriptMove } from '../shared/contract-session';
 import { noteHistoryPageRequest } from './tool-output-prefetch';
 import {
@@ -208,8 +207,6 @@ export interface PositionedFacts<T> {
   /** It continues toward older rows (`transcriptHistoryBefore`), toward newer ones (`transcriptHistoryAfter`). */
   viewOlder: boolean;
   viewNewer: boolean;
-  /** Rows of the followed tail's run (`transcriptTailRows`). */
-  tailRows: number;
   /** `transcriptWindowVersion`: the window changed. */
   version: number;
 }
@@ -221,7 +218,6 @@ export function positionedFactsOf<T>(state: Record<string, unknown>): Positioned
     viewItems: Array.isArray(state.transcriptViewItems) ? (state.transcriptViewItems as T[]) : null,
     viewOlder: state.transcriptHistoryBefore === true,
     viewNewer: state.transcriptHistoryAfter === true,
-    tailRows: typeof state.transcriptTailRows === 'number' ? state.transcriptTailRows : 0,
     version: typeof state.transcriptWindowVersion === 'number' ? state.transcriptWindowVersion : 0,
   };
 }
@@ -268,9 +264,9 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   );
   const viewItems = facts?.viewItems ?? null;
   const historyActive = viewItems !== null;
-  const tailRows = facts?.tailRows ?? 0;
-  // Following the tail holds the tail alone: a stretch read above it is let go, and the tail is read anew once it has grown.
-  const loose = following && (historyActive || tailRows > WINDOW_TAIL_MAX_ROWS);
+  // A reader back on the tail lets go of the stretch opened apart from it. The tail itself is kept as it grows: following
+  // asks for nothing while the tail's run is what is held.
+  const loose = following && historyActive;
   useEffect(() => {
     if (loose) move({ kind: 'follow' });
   }, [loose, move, facts?.version]);

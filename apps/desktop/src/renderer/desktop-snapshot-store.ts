@@ -143,7 +143,6 @@ const CONVERSATION_FIELDS = [
   // A positioned window's facts (use-transcript-history.ts positionedFactsOf).
   'transcriptPositioned',
   'transcriptWindowVersion',
-  'transcriptTailRows',
   'transcriptViewItems',
   'transcriptHistoryBefore',
   'transcriptHistoryAfter',
