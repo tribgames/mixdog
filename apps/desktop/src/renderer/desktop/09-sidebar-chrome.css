@@ -4,22 +4,23 @@
 /* Pinned usage: the rail button trades the pie glyph for a
    per-brand stack — each provider's icon inside its usage ring, no figure. */
 /* No min-height: the block is exactly its rows and padding, the numbers
-   rail-usage-pin-room.ts budgets (one slot is 17 + 26 = 43px). */
+   rail-usage-pin-room.ts budgets (one slot is 16 + 26 = 42px). */
 .activity-rail > .sidebar-usage-toggle.is-pinned {
   height: auto;
   /* Yields only after the destination nav has hit its floor, and clips its
      own last brand row instead of overflowing onto the Settings cell. */
   flex: 0 1 auto;
   overflow: hidden;
-  padding: 9px 0 8px;
+  padding: 8px 0;
   /* A monitoring readout must stay readable at rest — never the rail's 40%
      inactive ghost ink. */
   color: var(--mx-text-soft);
 }
-/* Rows sit 6px apart: each ring frames its own slot (rail-usage-pin-room.ts). */
+/* Rows sit 10px apart (rail-usage-pin-room.ts): the widest 36px pitch at which
+   six rings still fit under nine destinations in a 700px window. */
 .rail-usage-pin-stack {
   display: grid;
-  gap: 6px;
+  gap: 10px;
   justify-items: center;
   width: 100%;
 }
@@ -46,12 +47,11 @@
 .rail-usage-pin-meter circle {
   fill: none;
 }
-/* The track is the rail's own divider ink, not the meter track: with no figure
-   an empty ring is the only sign of a meter at zero, and it must read on the
-   rail in every theme. It is thinner than the arc (TRACK_WIDTH), so it never
-   reads as a button's outline around the mark. */
+/* The track is the gauge's own ink, faint, on the arc's stroke: an empty ring
+   reads as a meter at zero, not as a button outline, and a full one is no
+   heavier than its neighbours. */
 .rail-usage-pin-track {
-  stroke: var(--mx-border-structure);
+  stroke: color-mix(in srgb, var(--mx-meter-fill) 30%, transparent);
 }
 /* Calm resting arc (a blue fill at rest is too eye-catching): quiet ink until
    the warning/danger tones below take over. Each ring tones by its own window. */
@@ -69,7 +69,7 @@
 /* Loading: a dashed track under a dimmed mark, never mistaken for the solid
    empty track of a 0% slot. */
 .rail-usage-pin-brand[aria-busy="true"] .rail-usage-pin-track {
-  stroke-dasharray: 2.3 2.3;
+  stroke-dasharray: 3.125 3.125;
 }
 .rail-usage-pin-brand[aria-busy="true"] svg[data-provider-icon] {
   opacity: var(--mx-op-dim);

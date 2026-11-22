@@ -37,18 +37,16 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Rings (radius, arc stroke) in the 26-unit meter box: one ring, or the
- *  short window outside and the long one inside. */
-const SINGLE_RING = [{ r: 11.75, width: 2.5 }];
+/** Rings (radius, stroke) in the 26-unit meter box, the track and its arc on
+ *  one stroke: one ring at 1/8 of the box, or the short window outside and the
+ *  long one inside, thinner so the pair leaves the mark room. */
+const SINGLE_RING = [{ r: 11.375, width: 3.25 }];
 const NESTED_RINGS = [
-  { r: 12, width: 2 },
-  { r: 8.5, width: 2 },
+  { r: 11.875, width: 2.25 },
+  { r: 8.625, width: 2.25 },
 ];
-/** The track under an arc: thinner than the arc, so the ring reads as a gauge
- *  around the mark and the arc alone carries the reading. */
-const TRACK_WIDTH = 1.25;
 
-/** The slot's meter: a hairline track per drawn window with its own toned arc. */
+/** The slot's meter: a faint track per drawn window under its own toned arc. */
 function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
   const rings = entry.bars.length > 1 ? NESTED_RINGS : SINGLE_RING;
   return (
@@ -58,7 +56,15 @@ function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
         const percent = entry.pending ? 0 : (displayUsagePercent(bar.percent) ?? 0);
         return (
           <g key={bar.label} data-usage-window={bar.label}>
-            <circle className="rail-usage-pin-track" cx="13" cy="13" r={r} strokeWidth={TRACK_WIDTH} />
+            <circle
+              className="rail-usage-pin-track"
+              cx="13"
+              cy="13"
+              r={r}
+              strokeWidth={width}
+              // The loading dashes split every ring into the same count.
+              pathLength={100}
+            />
             {percent > 0 && (
               <circle
                 className={`rail-usage-pin-fill${usageToneClass(bar.percent)}`}
@@ -70,7 +76,9 @@ function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
                 // width, closing the ring before 100 and swelling 1%.
                 strokeLinecap="butt"
                 pathLength={100}
-                strokeDasharray={`${percent} 100`}
+                // A full ring is a plain stroke: a dash ending on its own start
+                // leaves an antialiased seam at 12 o'clock.
+                strokeDasharray={percent < 100 ? `${percent} 100` : undefined}
                 transform="rotate(-90 13 13)"
               />
             )}
