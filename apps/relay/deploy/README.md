@@ -33,6 +33,101 @@ and the renderer (`renderer/`, or the delta cache from `renderer-delta`).
 unit; `deploy-release.sh` stages and swaps a release. The unit's `MemoryMax=800M`
 bounds the process.
 
+## Connection tracking
+
+Every flow through the host holds one netfilter connection-tracking entry; past
+`nf_conntrack_max` the kernel drops new flows (`nf_conntrack: table full,
+dropping packet` in the kernel log, `drop`/`early_drop` in
+`/proc/net/stat/nf_conntrack`, where `drop` counts refused flows and
+`early_drop` counts entries evicted to make room under pressure, not
+necessarily refused flows). The kernel sizes the table from RAM (buckets =
+RAM / 16384 / 8 bytes, max = buckets): 8192 on this ~1 GB VPS.
+`deploy-release.sh` runs `conntrack.sh apply` under the deployment lock, before
+staging, on every release. Nothing in it stops a release: whatever the host does
+not allow is reported and the release continues.
+
+Sizing (`conntrack.sh` `CONNTRACK_MAX`), a workload estimate:
+
+- 1000 users (the top of "hundreds"), each holding up to 5 TURN allocations.
+- 8 entries per allocation, an estimate of what ICE produces, not a TURN or
+  coturn limit (permissions per allocation are unbounded): 1 client flow (the
+  UDP 5-tuple to 3478, or the TCP connection to 3478/5349), plus one
+  relay-port ↔ peer flow per remote candidate ICE checks through it: the peer's
+  server-reflexive address(es) and its relay candidates on this host (udp, tcp,
+  tls), with room for peer-reflexive ones. Host candidates are private addresses
+  coturn refuses (`denied-peer-ip`) and create none.
+- 1000 × 5 × 8 = 40 000, plus ~5000 for relay HTTPS/WebSocket legs and their
+  TIME_WAIT churn: ~45 000. `131072` (2^17) leaves ~2.9× for ICE restarts,
+  reconnect churn (see the timeouts below) and scans.
+- Memory: an entry is one `nf_conntrack` slab object (~320 B on x86_64; the
+  report prints the live size) plus separately allocated extensions, held only
+  while the entry exists. 131072 × 320 B = 40 MiB of entry objects at a full
+  table, ~4% of the VPS's 961 MB; extensions and slab overhead add to that, so
+  it is an estimate, not a ceiling. The hash table is allocated up front:
+  131072 buckets × 8 B = 1 MiB. One bucket per entry is the kernel's own default
+  ratio.
+- Timeouts stay at the kernel defaults, and they are why churn needs headroom.
+  A UDP entry lives 30 s after the last packet on its 5-tuple, 120 s once it is
+  a detected stream (traffic seen both ways). Only tuples that carry traffic
+  stay tracked: an active ICE pair's consent checks (every ~5 s, RFC 7675) keep
+  it; an allocation or peer tuple that only sees a TURN refresh minutes apart
+  loses its entry in between and gets a new one with the next packet (no NAT runs
+  here, so nothing breaks). TCP: after an observed FIN an entry stays in
+  FIN_WAIT/TIME_WAIT for 120 s, after an RST in CLOSE for 10 s; a connection
+  whose teardown the host never sees stays ESTABLISHED for 5 days. So during
+  reconnect churn the table holds more TCP entries than there are open
+  sockets.
+
+What `apply` does, in this order, writing nothing already in force:
+
+1. If no `nf_conntrack_max` sysctl exists, `modprobe nf_conntrack` (a failure
+   is reported); the steps below then find the sysctls unreadable and leave them
+   alone.
+2. Capacity: reads `nf_conntrack_max` and writes 131072 only when it is lower,
+   then reads it back. A higher value, and 0 (unlimited on some kernels), are
+   left alone. When the value in force stays below 131072 (a refused write) it
+   prints a `CAPACITY RISK` warning and continues.
+3. Hash, the same way and independent of step 2: `nf_conntrack_buckets` is
+   read and written to 131072 only when lower; a larger hash stays. The hash
+   sets lookup cost per entry, never capacity.
+4. Boot configuration, one mechanism: `/etc/sysctl.d/99-mixdog-conntrack.conf`
+   sets each key whose 131072 is in force and read back after steps 2–3. For a
+   key the kernel refused, or left alone, the file keeps whatever it already
+   set for that key (nothing, on a first run). It is installed through a
+   temporary file renamed over it, only when its content differs, and reported
+   as installed only after it reads back as written; a failed install leaves
+   the previous file in place. With it,
+   `/etc/modules-load.d/mixdog-conntrack.conf` loads `nf_conntrack` before
+   `systemd-sysctl` runs, so the keys exist when the file is applied. A refused
+   step is reported with the value in force now and the value configured for
+   the next boot, as two facts, and changes nothing else.
+5. Warns about any other sysctl file that sets the same keys (the file applied
+   last at boot wins).
+6. Reports: the values in force now (limit, buckets, entries in use with
+   headroom), the values configured for the next boot (and whether the module
+   is preloaded), `drop` / `early_drop` / `insert_failed` since boot (from
+   `/proc/net/stat/nf_conntrack`, else `conntrack -S`, else stated as
+   unavailable, not zero), and the memory a full table takes against RAM. Any
+   value it cannot read is printed as unavailable.
+   `bash /opt/mixdog-relay/deploy/conntrack.sh report` prints the same on
+   demand.
+
+By hand, on a host whose `nf_conntrack_buckets` sysctl is read-only (the
+script then reports the refusal and leaves the hash alone): set the hash when
+the module loads, `echo 'options nf_conntrack hashsize=131072'
+>/etc/modprobe.d/nf_conntrack-hash.conf`; if `nf_conntrack` is loaded from the
+initramfs, run `update-initramfs -u`; if it is built into the kernel
+(`/sys/module/nf_conntrack/initstate` absent), add `nf_conntrack.hashsize=131072`
+to the kernel command line instead. It takes effect at the next boot (or the
+next load of the module); check with
+`cat /sys/module/nf_conntrack/parameters/hashsize`.
+
+Rollout: files under `deploy/` count as a relay input, and `deploy-remote.ps1`
+deploys a relay change only with a CI build of the current relay sources (or
+`-LocalRelayBuild`). That condition applies to the relay binary only: any
+renderer deploy still packages the current `deploy/` tree and runs this step.
+Only a run with no renderer change and no usable relay build uploads nothing.
+
 ## Verification
 
 The installed binary's `mixdog-relay verify-release` verifies:
