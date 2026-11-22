@@ -477,7 +477,7 @@ export const ModelSelector = memo(function ModelSelector({
   tuningDisabled,
   invokeResult,
   onOpenSettings,
-  onDraftSelection,
+  onDraftModelSelection,
   onRoutePreferenceApplied,
   sessionId,
   answersModelPickerRequests = false,
@@ -515,7 +515,7 @@ export const ModelSelector = memo(function ModelSelector({
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
-  onDraftSelection?: (selection: DesktopModelSelection) => void;
+  onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
 }) {
   const {
@@ -645,8 +645,8 @@ export const ModelSelector = memo(function ModelSelector({
     write = () => window.mixdogDesktop.setModelRoute(selection, sessionId) as Promise<unknown>
   ) => {
     if (modelUnavailable) return false;
-    if (onDraftSelection) {
-      onDraftSelection(selection);
+    if (onDraftModelSelection) {
+      onDraftModelSelection(selection);
       return true;
     }
     const token = begin(selection);
@@ -776,8 +776,8 @@ export const ModelSelector = memo(function ModelSelector({
       contextPercent: normalizedContextPercent,
       ...exactContextField,
     };
-    if (onDraftSelection) {
-      onDraftSelection(selection);
+    if (onDraftModelSelection) {
+      onDraftModelSelection(selection);
       return;
     }
     await route(selection);

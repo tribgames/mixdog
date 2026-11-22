@@ -1,4 +1,4 @@
-import { type ComponentProps, lazy, type RefObject, Suspense, useMemo } from 'react';
+import { type ComponentProps, lazy, type RefObject, Suspense, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
@@ -13,11 +13,33 @@ import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
 import { useSessionInfoDisplay } from './pane-side-dock-hooks';
 import { draftRailOwner, sessionRailHost, useSessionRailSlot } from './session-rail-layout';
-import type { DraftRailContext } from './session-rail-info';
+import { DraftRail, type DraftRailContext } from './session-rail-draft';
 import { useSurfaceActive } from './surface-activity';
 
 // The panel's categories load with the first panel shown, as the island's Goal does.
-const SessionRail = lazy(() => import('./SessionRail'));
+type SessionRailComponent = (typeof import('./SessionRail'))['default'];
+let loadedSessionRail: SessionRailComponent | null = null;
+const loadSessionRail = () =>
+  import('./SessionRail').then((module) => {
+    loadedSessionRail = module.default;
+    return module;
+  });
+const LazySessionRail = lazy(loadSessionRail);
+
+/** The session panel's cards: drawn directly once their module is loaded (a
+ *  New Task's panel loads it, so the first message's session draws them in
+ *  its commit), through the lazy boundary until then. */
+function SessionRailCards(props: ComponentProps<SessionRailComponent>) {
+  // Chosen once per mount: turning from the lazy boundary to the loaded
+  // component would remount the cards.
+  const [Loaded] = useState(() => loadedSessionRail);
+  if (Loaded) return <Loaded {...props} />;
+  return (
+    <Suspense fallback={null}>
+      <LazySessionRail {...props} />
+    </Suspense>
+  );
+}
 
 export type ConversationComposerDockProps = Pick<
   ConversationProps,
@@ -228,12 +250,32 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const railShown = Boolean(railHost);
   // Settings → Session info: Hidden draws neither the panel nor the island.
   const islandOff = useSessionInfoDisplay() === 'none';
+  const railModel = {
+    ...route,
+    sessionId: routeSessionId,
+    modelDisabled: transitioning,
+    tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
+    invokeResult: actions.composerInvokeResult,
+    applySnapshot: actions.composerApplySnapshot,
+    onOpenSettings: actions.composerOnOpenSettings,
+    // A draft's pick stages the draft, as the control under the composer does.
+    onDraftModelSelection,
+    onRoutePreferenceApplied,
+  };
+  // A New Task's panel draws at once; the session's cards it turns into on
+  // the first message load meanwhile.
+  const draftRailShown = railShown && draftMode;
+  useEffect(() => {
+    if (draftRailShown) void loadSessionRail();
+  }, [draftRailShown]);
   return (
     <>
       {railHost &&
         createPortal(
-          <Suspense fallback={null}>
-            <SessionRail
+          draftMode && draftContext ? (
+            <DraftRail draft={draftContext} model={railModel} answersModelPickerRequests={reviewActive} />
+          ) : (
+            <SessionRailCards
               sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
               reviewSessionId={reviewSessionId}
               workspace={routeSnapshot.workspace ?? null}
@@ -247,25 +289,15 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
               reviewActive={reviewActive}
               reviewBusy={reviewBusy}
               pendingInput={pendingInput}
-              model={{
-                ...route,
-                sessionId: routeSessionId,
-                modelDisabled: transitioning,
-                tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
-                invokeResult: actions.composerInvokeResult,
-                applySnapshot: actions.composerApplySnapshot,
-                onOpenSettings: actions.composerOnOpenSettings,
-                onRoutePreferenceApplied,
-              }}
+              model={railModel}
               sessionChoices={sessionChoices}
               onOpenSessionDiff={onOpenSessionDiff}
               onOpenAgentSession={onOpenAgentSession}
               onMoveSessionToProject={props.onMoveSessionToProject}
               onAddProject={props.onAddProject}
               onOpenCommandSurface={actions.composerOnOpenCommandSurface}
-              draft={draftMode && draftContext ? draftContext : undefined}
             />
-          </Suspense>,
+          ),
           railHost
         )}
     <ComposerDock

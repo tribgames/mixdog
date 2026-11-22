@@ -118,8 +118,7 @@ export function useDraftPanePreferences({
     }
   }, []);
   const rememberDraftPanePrefs = useCallback(
-    (patch: Partial<DraftPanePrefs>, seedNextTask = true) => {
-      const draftKey = focusedDraftKey(selectionRef.current);
+    (patch: Partial<DraftPanePrefs>, seedNextTask = true, draftKey = focusedDraftKey(selectionRef.current)) => {
       if (!draftKey) return;
       // A first-touch entry stays null-valued (inherit live): only the fields
       // the user explicitly stages freeze on this pane.
@@ -141,22 +140,31 @@ export function useDraftPanePreferences({
     persistDraftPanePrefs,
     repaintDrafts,
   });
+  // A stage names its draft when it comes from a pane's own controls (an
+  // unfocused pane's session panel); only the focused draft's working
+  // values follow it, the others repaint from their entry.
+  const stagesFocusedDraft = useCallback(
+    (draftKey?: string) => !draftKey || draftKey === focusedDraftKey(selectionRef.current),
+    [selectionRef]
+  );
   const stageNewTaskProject = useCallback(
-    (projectPath: string) => {
+    (projectPath: string, draftKey?: string) => {
       const next = String(projectPath || '').trim();
-      setNewTaskProjectPath(next);
-      setNewTaskDeferred(true);
-      rememberDraftPanePrefs({ projectPath: next });
+      if (stagesFocusedDraft(draftKey)) {
+        setNewTaskProjectPath(next);
+        setNewTaskDeferred(true);
+      }
+      rememberDraftPanePrefs({ projectPath: next }, true, draftKey);
     },
-    [rememberDraftPanePrefs, setNewTaskProjectPath]
+    [rememberDraftPanePrefs, setNewTaskProjectPath, stagesFocusedDraft]
   );
   const stageNewTaskModelSelection = useCallback(
-    (selection: DesktopModelSelection) => {
+    (selection: DesktopModelSelection, draftKey?: string) => {
       const remembered = routePreferenceStore.remember(selection);
-      setNewTaskModelSelection(remembered);
-      rememberDraftPanePrefs({ modelSelection: remembered });
+      if (stagesFocusedDraft(draftKey)) setNewTaskModelSelection(remembered);
+      rememberDraftPanePrefs({ modelSelection: remembered }, true, draftKey);
     },
-    [rememberDraftPanePrefs, setNewTaskModelSelection]
+    [rememberDraftPanePrefs, setNewTaskModelSelection, stagesFocusedDraft]
   );
   const rememberSessionRouteForNextTask = useCallback(
     (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => {
@@ -186,14 +194,15 @@ export function useDraftPanePreferences({
     [persistDraftPanePrefs, repaintDrafts, selectionRef, setNewTaskModelSelection]
   );
   const stageNewTaskWorkflow = useCallback(
-    (workflow: DesktopWorkflowState) => {
-      setNewTaskWorkflow(workflow);
-      rememberDraftPanePrefs({ workflow });
+    (workflow: DesktopWorkflowState, draftKey?: string) => {
+      if (stagesFocusedDraft(draftKey)) setNewTaskWorkflow(workflow);
+      rememberDraftPanePrefs({ workflow }, true, draftKey);
     },
-    [rememberDraftPanePrefs, setNewTaskWorkflow]
+    [rememberDraftPanePrefs, setNewTaskWorkflow, stagesFocusedDraft]
   );
   const stageNewTaskOrchestrationMode = useCallback(
-    (orchestrationMode: DesktopOrchestrationMode) => rememberDraftPanePrefs({ orchestrationMode }),
+    (orchestrationMode: DesktopOrchestrationMode, draftKey?: string) =>
+      rememberDraftPanePrefs({ orchestrationMode }, true, draftKey),
     [rememberDraftPanePrefs]
   );
   const clearNewTaskPreferences = useCallback(

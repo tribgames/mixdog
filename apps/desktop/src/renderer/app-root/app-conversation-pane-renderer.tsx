@@ -50,7 +50,7 @@ interface PaneConversationRendererOptions {
 
   conversationNewTask: () => void;
   conversationClearToNewTask: (sessionId: string) => void;
-  conversationClearProject: () => void;
+  conversationClearProject: (draftKey?: string) => void;
   conversationResumeSession: (sessionId: string) => void;
   openSidebar: () => void;
   conversationOpenProjects: () => void;
@@ -61,7 +61,7 @@ interface PaneConversationRendererOptions {
   rememberSessionRouteForNextTask: ReturnType<typeof useDraftPanePreferences>['rememberSessionRouteForNextTask'];
   stageNewTaskWorkflow: ReturnType<typeof useDraftPanePreferences>['stageNewTaskWorkflow'];
   stageNewTaskOrchestrationMode: ReturnType<typeof useDraftPanePreferences>['stageNewTaskOrchestrationMode'];
-  conversationSelectProject: (path: string) => void;
+  conversationSelectProject: (path: string, draftKey?: string) => void;
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
   openFileTab: (
     project: string,
@@ -218,7 +218,6 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
         paneTitle = t('Untitled session');
       }
     }
-    const focusedDraft = focused && Boolean(draftKey);
     const focusedSession = focused && Boolean(paneSessionId);
 
     const routes = paneRoutesFor({ options, leafId, paneSessionId, focusPane });
@@ -267,7 +266,7 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           composerFocusRequest: focused ? options.composerFocusRequest : 0,
           onNewTask: options.conversationNewTask,
           onClearToNewTask: options.conversationClearToNewTask,
-          onClearProject: options.conversationClearProject,
+          onClearProject: () => options.conversationClearProject(draftKey || undefined),
           onResumeSession: options.conversationResumeSession,
           onOpenSessions: routes.openSessions,
           onOpenProjects: options.conversationOpenProjects,
@@ -279,13 +278,19 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           draftModelSelection: draftKey ? prefs.modelSelection : undefined,
           draftWorkflow: draftKey ? prefs.workflow : undefined,
           draftOrchestrationMode: draftKey ? prefs.orchestrationMode : undefined,
-          onDraftModelSelection: focusedDraft ? options.stageNewTaskModelSelection : undefined,
+          // Each pane's pickers stage its own draft, focused or not: its
+          // session panel is operated without the pane taking focus.
+          onDraftModelSelection: draftKey
+            ? (selection) => options.stageNewTaskModelSelection(selection, draftKey)
+            : undefined,
           onRoutePreferenceApplied: options.rememberSessionRouteForNextTask,
-          onDraftWorkflow: focusedDraft ? options.stageNewTaskWorkflow : undefined,
-          onDraftOrchestrationMode: focusedDraft ? options.stageNewTaskOrchestrationMode : undefined,
+          onDraftWorkflow: draftKey ? (workflow) => options.stageNewTaskWorkflow(workflow, draftKey) : undefined,
+          onDraftOrchestrationMode: draftKey
+            ? (mode) => options.stageNewTaskOrchestrationMode(mode, draftKey)
+            : undefined,
           activeProjectPath: paneProjectPath,
           activeProjectLabel: paneProjectLabel,
-          onSelectProject: options.conversationSelectProject,
+          onSelectProject: (path) => options.conversationSelectProject(path, draftKey || undefined),
           onOpenCommandSurface: routes.openCommandSurface,
           onOpenFile: routes.openFile,
           onOpenFolder: options.openFolderInSideDock ? routes.openFolder : undefined,

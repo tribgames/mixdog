@@ -1338,7 +1338,7 @@ test('an explicit effort pick on an Auto route turns its Auto effort off, in a s
 
     await act(async () => root.unmount());
     root = createRoot(host);
-    await act(async () => root.render(selector({ onDraftSelection: (s) => drafts.push(s) })));
+    await act(async () => root.render(selector({ onDraftModelSelection: (s) => drafts.push(s) })));
     await pickLow();
     assert.equal(drafts.at(-1).effort, 'low');
     assert.equal(drafts.at(-1).autoEffort, false, 'a new task started from the draft keeps the picked level');
@@ -1447,7 +1447,7 @@ test('the speed pane offers Ultrafast only for models with the serviceTier optio
     model: model.model,
     fast: false,
     modelParameters: {},
-    onDraftSelection: (selection) => drafts.push(selection),
+    onDraftModelSelection: (selection) => drafts.push(selection),
   });
   assert.equal(option('Ultrafast'), undefined);
   assert.ok(option('Standard') && option('Fast'));
@@ -1458,7 +1458,7 @@ test('the speed pane offers Ultrafast only for models with the serviceTier optio
     model: ultraModel.model,
     fast: true,
     modelParameters: { serviceTier: 'priority' },
-    onDraftSelection: (selection) => drafts.push(selection),
+    onDraftModelSelection: (selection) => drafts.push(selection),
   });
   assert.equal(option('Fast').getAttribute('aria-checked'), 'true');
   assert.equal(option('Ultrafast').getAttribute('aria-checked'), 'false');
@@ -1476,7 +1476,7 @@ test('the speed pane offers Ultrafast only for models with the serviceTier optio
     model: ultraModel.model,
     fast: true,
     modelParameters: { serviceTier: 'ultrafast' },
-    onDraftSelection: (selection) => drafts.push(selection),
+    onDraftModelSelection: (selection) => drafts.push(selection),
   });
   assert.equal(option('Ultrafast').getAttribute('aria-checked'), 'true');
   assert.equal(option('Fast').getAttribute('aria-checked'), 'false');
@@ -1527,7 +1527,7 @@ test('a model without a Speed row gets a generic Service tier row; the Ultrafast
           model: target.model,
           fast: false,
           modelParameters: {},
-          onDraftSelection: (selection) => drafts.push(selection),
+          onDraftModelSelection: (selection) => drafts.push(selection),
         })
       )
     );

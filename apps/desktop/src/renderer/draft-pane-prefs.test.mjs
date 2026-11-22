@@ -350,6 +350,28 @@ test('an explicit model choice replaces the next-task model', async (t) => {
   assert.equal(drafts.api().lastNewTaskPrefs.current.modelSelection.model, 'sol');
 });
 
+test("a pick named for another pane's draft stages that draft, not the focused one", async (t) => {
+  window.localStorage.clear();
+  const drafts = await mountDrafts(PROJECT);
+  t.after(() => drafts.unmount());
+  const pick = { provider: 'p', model: 'sol', effort: 'low' };
+  await act(async () => {
+    drafts.api().stageNewTaskProject('C:/Project/other', 'pane-b');
+    drafts.api().stageNewTaskModelSelection(pick, 'pane-b');
+    drafts.api().stageNewTaskWorkflow({ id: 'review', name: 'Review' }, 'pane-b');
+    drafts.api().stageNewTaskOrchestrationMode('swarm', 'pane-b');
+  });
+  const other = drafts.api().resolvedDraftPrefsFor('pane-b');
+  assert.equal(other.projectPath, 'C:/Project/other');
+  assert.equal(other.explicitModelSelection.model, 'sol');
+  assert.deepEqual(other.workflow, { id: 'review', name: 'Review' });
+  assert.equal(other.orchestrationMode, 'swarm');
+  const focused = drafts.api().draftPanePrefs.current.get('default');
+  assert.deepEqual(focused, { projectPath: null, modelSelection: null, workflow: null }, 'the focused draft is untouched');
+  assert.notEqual(drafts.api().newTaskProjectPath, 'C:/Project/other');
+  assert.notEqual(drafts.api().newTaskModelSelection?.model, 'sol');
+});
+
 test('a projectless new task is No project for that draft only and leaves the next-task seed alone', async (t) => {
   window.localStorage.clear();
   const drafts = await mountDrafts(PROJECT);
