@@ -287,13 +287,26 @@ fn texts(code: &str) -> String {
     }
 }
 
+fn replied(code: &str, reply: &str) -> String {
+    format!("{} (Google replied: {reply})", texts(code))
+}
+
 #[tokio::test]
-async fn a_refused_login_is_the_rejected_sentence_and_smtp_is_never_tried() {
+async fn a_refused_login_is_the_rejected_sentence_with_googles_reply_and_smtp_is_never_tried() {
     let mut imap = Imap::gmail();
     imap.login = "NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)".into();
     let rig = rig(imap, Smtp::gmail(), quick()).await;
-    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("REJECTED"));
+    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), replied("REJECTED", "3 NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)"));
     assert!(lines(&rig.smtp_log).is_empty());
+}
+
+#[tokio::test]
+async fn a_refusal_keeps_googles_words_without_the_password() {
+    let mut imap = Imap::gmail();
+    imap.login = format!("NO [AUTHENTICATIONFAILED] Web login required for {SECRET} (Failure)");
+    let rig = rig(imap, Smtp::gmail(), quick()).await;
+    let text = rig.verifier.check(EMAIL, SECRET).await.unwrap_err();
+    assert_eq!(text, replied("UNAVAILABLE", "3 NO [AUTHENTICATIONFAILED] Web login required for [redacted] (Failure)"));
 }
 
 #[tokio::test]
@@ -301,7 +314,10 @@ async fn an_app_password_requirement_is_the_unavailable_sentence() {
     let mut imap = Imap::gmail();
     imap.login = "NO [ALERT] Application-specific password required: https://support.google.com/accounts/answer/185833 (Failure)".into();
     let rig = rig(imap, Smtp::gmail(), quick()).await;
-    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("UNAVAILABLE"));
+    assert_eq!(
+        rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
+        replied("UNAVAILABLE", "3 NO [ALERT] Application-specific password required: https://support.google.com/accounts/answer/185833 (Failure)")
+    );
 }
 
 #[tokio::test]
@@ -311,12 +327,62 @@ async fn smtp_535_is_rejected_and_534_is_unavailable() {
         "535-5.7.8 Username and Password not accepted. For more information, go to\n535 5.7.8  https://support.google.com/mail/?p=BadCredentials abc - gsmtp"
             .into();
     let rig = rig(Imap::gmail(), smtp, quick()).await;
-    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("REJECTED"));
+    assert_eq!(
+        rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
+        replied(
+            "REJECTED",
+            "535-5.7.8 Username and Password not accepted. For more information, go to https://support.google.com/mail/ abc - gsmtp"
+        )
+    );
 
     let mut smtp = Smtp::gmail();
     smtp.auth = "534 5.7.9 Application-specific password required.".into();
     let rig = self::rig(Imap::gmail(), smtp, quick()).await;
-    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), texts("UNAVAILABLE"));
+    assert_eq!(rig.verifier.check(EMAIL, SECRET).await.unwrap_err(), replied("UNAVAILABLE", "534 5.7.9 Application-specific password required."));
+}
+
+/// Gmail's web-login answer: the sign-in link breaks inside its query, across continuation lines.
+fn wrapped_link(status: &str) -> String {
+    format!(
+        "{status}-{} <https://accounts.google.com/signin/continue?sarp=1&scc=1&plt=AKgnsbv\n{status}-{} {TOKEN_TAIL}>\n{status} {} Please log in via your web browser and then try again.",
+        enhanced(status),
+        enhanced(status),
+        enhanced(status)
+    )
+}
+
+fn enhanced(status: &str) -> &'static str {
+    if status == "534" { "5.7.14" } else { "5.7.0" }
+}
+
+const TOKEN_TAIL: &str = "Fl2I9nDq7xYzWb3";
+
+#[tokio::test]
+async fn a_wrapped_sign_in_link_in_a_refusal_keeps_its_address_and_loses_its_whole_query() {
+    let mut smtp = Smtp::gmail();
+    smtp.auth = wrapped_link("534");
+    let rig = rig(Imap::gmail(), smtp, quick()).await;
+    let text = rig.verifier.check(EMAIL, SECRET).await.unwrap_err();
+    assert_eq!(
+        text,
+        replied("UNAVAILABLE", "534-5.7.14 <https://accounts.google.com/signin/continue> Please log in via your web browser and then try again.")
+    );
+    assert!(!leaks_token(&text), "{text}");
+}
+
+/// Whether any run of three characters of the token, either line of it, is in `text`.
+fn leaks_token(text: &str) -> bool {
+    ["AKgnsbv", TOKEN_TAIL].iter().any(|part| part.as_bytes().windows(3).any(|run| text.contains(std::str::from_utf8(run).unwrap())))
+}
+
+#[tokio::test]
+async fn a_wrapped_sign_in_link_in_an_unexpected_reply_loses_its_whole_query() {
+    let mut smtp = Smtp::gmail();
+    smtp.greeting = wrapped_link("554");
+    let rig = rig(Imap::gmail(), smtp, quick()).await;
+    let text = rig.verifier.check(EMAIL, SECRET).await.unwrap_err();
+    assert!(text.starts_with("GMAIL_APP_PASSWORD_FAILED: Gmail refused the request. (554-5.7.0 <https://accounts.google.com/signin/continue> Please log in via your web browser and then try again."), "{text}");
+    assert!(!leaks_token(&text), "{text}");
 }
 
 #[tokio::test]

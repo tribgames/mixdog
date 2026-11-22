@@ -28,7 +28,7 @@ use url::Url;
 use crate::connector_model::GMAIL_APP_PASSWORD_URL;
 use crate::connector_model::gmail_address;
 use crate::gmail_verify::GmailAppPassword;
-use crate::gmail_verify::describe;
+use crate::gmail_verify::report;
 use crate::gmail_verify::imap;
 use crate::gmail_verify::imap::Session;
 use crate::gmail_verify::sentence;
@@ -63,7 +63,7 @@ pub fn is_service(url: &Url) -> bool {
     url.scheme() == "https" && url.host_str() == Some(HOST.as_str())
 }
 
-/// Why a tool call failed: its own refusal (shown as it is) or a Gmail failure (one fixed sentence per cause).
+/// Why a tool call failed: its own refusal (shown as it is) or a Gmail failure (one fixed sentence per cause and Gmail's reply).
 enum Fail {
     Input(String),
     Mail(Failure),
@@ -79,7 +79,7 @@ impl Fail {
     fn text(&self, password: &str) -> String {
         match self {
             Self::Input(message) => message.clone(),
-            Self::Mail(failure) => describe(failure, password),
+            Self::Mail(failure) => report(failure, password),
         }
     }
 }

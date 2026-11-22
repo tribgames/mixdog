@@ -104,7 +104,7 @@ pub trait SecretOps: Send + Sync {
 }
 
 /// Checks an app password with Gmail (IMAP and SMTP); the error is the fixed
-/// `GMAIL_APP_PASSWORD_<CODE>: …` sentence, never the password.
+/// `GMAIL_APP_PASSWORD_<CODE>: …` sentence and Gmail's reply, never the password.
 #[async_trait]
 pub trait GmailVerifier: Send + Sync {
     async fn verify(&self, email: &str, password: &str) -> Result<(), String>;
