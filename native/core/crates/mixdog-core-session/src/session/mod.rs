@@ -61,6 +61,7 @@ pub mod heartbeat_host;
 pub mod home_threads;
 pub mod idle_auto_clear;
 pub mod import_sessions;
+mod job_wait;
 pub mod lifecycle_hooks;
 #[cfg(test)]
 mod lifecycle_hooks_tests;
