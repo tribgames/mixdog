@@ -27,6 +27,7 @@ import { t } from './i18n';
 import { ModelSelector } from './model-controls';
 import { showDesktopToast } from './notifications';
 import { projectIdentity } from './project-catalog-cache';
+import { RendererLruCache } from './renderer-lru-cache';
 import type { RouteSessionChoice } from './route-editor-panes';
 import { ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { openOnArrow, RailPickMark, RailSection } from './session-rail-parts';
@@ -314,6 +315,15 @@ export function InfoSection({
   );
 }
 
+/** The last context status read of each session: a session shown again draws
+ *  its rows at once, in the place they had, while the next read is out. */
+const contextStatuses = new RendererLruCache<string, unknown>({
+  name: 'session-rail-context',
+  maxEntries: 64,
+  maxChars: 256 * 1024,
+  measure: (value, key) => key.length + JSON.stringify(value ?? null).length,
+});
+
 /** The session's context status (what its window holds, by kind), read while
  *  the category is open: for the session shown and again for each `reading`. */
 function useContextStatus(sessionId: string, open: boolean, reading: number | null): unknown {
@@ -325,6 +335,7 @@ function useContextStatus(sessionId: string, open: boolean, reading: number | nu
     window.mixdogDesktop
       .invokeCapability({ capability: 'contextStatus', sessionId })
       .then((result) => {
+        contextStatuses.set(sessionId, result.value);
         if (current) setRead({ sessionId, status: result.value });
       })
       // Without the status the category still shows its figures and one bar.
@@ -333,7 +344,7 @@ function useContextStatus(sessionId: string, open: boolean, reading: number | nu
       current = false;
     };
   }, [open, sessionId, reading]);
-  return read?.sessionId === sessionId ? read.status : null;
+  return read?.sessionId === sessionId ? read.status : (contextStatuses.peek(sessionId) ?? null);
 }
 
 /** The Context category: how full the window is, as its figures, a bar of
@@ -370,12 +381,15 @@ export function ContextSection({
     <RailSection
       category="context"
       title={t('Context')}
-      count={
-        <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
-          {`${usage.percent}%`}
+      // The window's figures as its rows write them: 19k / 256k · 7.5%.
+      meta={
+        <span title={usage.title}>
+          {usage.used !== null && usage.limit > 0 && `${compactTokens(usage.used)} / ${compactTokens(usage.limit)} · `}
+          <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
+            {`${usage.percent.toFixed(1)}%`}
+          </span>
         </span>
       }
-      meta={usage.text ? <span title={usage.title}>{usage.text}</span> : undefined}
       open={open}
       onToggle={onToggle}
       foot={

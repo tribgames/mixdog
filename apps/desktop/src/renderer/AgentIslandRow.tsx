@@ -13,6 +13,7 @@ import { t } from './i18n';
  *  and the row's token total under its state. */
 export function AgentIslandRow({
   node,
+  name,
   state,
   clock,
   tokens,
@@ -22,6 +23,8 @@ export function AgentIslandRow({
   onOpenSession,
 }: {
   node: AgentActivityNode;
+  /** The row's name where its role is already said (the session panel's role folds); default: role and tag. */
+  name?: string;
   /** The lifecycle state the island resolved (it merges worker and job entries). */
   state: DesktopAgentActivityState;
   clock: number;
@@ -48,7 +51,7 @@ export function AgentIslandRow({
       <AgentProviderMark agent={agent} />
       <span className="schedules-row-copy">
         <span className="agent-pool-heading">
-          <b className="agent-pool-name">{agentRowName(agent, node.sessionId === ownerSessionId)}</b>
+          <b className="agent-pool-name">{name ?? agentRowName(agent, node.sessionId === ownerSessionId)}</b>
         </span>
         <span className="island-agent-route">
           <AgentRouteSummary agent={agent} />

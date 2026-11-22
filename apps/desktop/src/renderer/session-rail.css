@@ -518,10 +518,7 @@ button.session-rail-row:not(:disabled):hover,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Context: the share beside the name and the bar take the gauge's tone. */
-.session-rail-context-percent {
-  font-weight: var(--mx-weight-medium);
-}
+/* Context: the share at the head's end and the bar take the gauge's tone. */
 .session-rail-context-percent[data-tone="warning"] {
   color: var(--mx-warning);
 }
