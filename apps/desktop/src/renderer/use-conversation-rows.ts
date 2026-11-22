@@ -2,9 +2,14 @@ import { useMemo, useRef } from 'react';
 import { itemPlacesById, type PendingPromptItem } from './conversation-prompt-items';
 import type { TranscriptItem } from './desktop-types';
 import { isRoomTypingItem } from './agent-chat-place';
-import { keptFrom, noteCarried, sharedPrefix } from './list-carry';
+import { carriedLast, keptFrom, noteCarried, sharedPrefix } from './list-carry';
 import { transcriptTurnKeys, turnKeysTakenOver } from './renderer-logic.mjs';
-import { appendLiveTranscriptRows, createSettledProjector, type TranscriptRowModel } from './transcript-rows';
+import {
+  appendLiveTranscriptRows,
+  closingEnd,
+  createSettledProjector,
+  type TranscriptRowModel,
+} from './transcript-rows';
 
 export function useStreamingTail(streamingTail: TranscriptItem | null | undefined, settledItems: TranscriptItem[]) {
   const streamingTailId = streamingTail?.id;
@@ -42,6 +47,9 @@ export function useStreamingTail(streamingTail: TranscriptItem | null | undefine
   return { activeStreamingTail, liveItemCount, settledRowItems };
 }
 
+/** Where a transcript's last turn's end is, carried on from the list a frame made it from. */
+const lastTurnEnd = carriedLast<TranscriptItem>((item) => item?.kind === 'turndone');
+
 export function useTranscriptRows({
   identity,
   sessionKey,
@@ -55,9 +63,12 @@ export function useTranscriptRows({
   busy,
   commandBusy,
   commandActivityVisible,
+  commandActivityStartedAt = 0,
   optimisticActivityStartedAt,
   room = false,
 }: {
+  /** When the visible activity began (ms; transcript-status.tsx commandActivityStartedAt); 0: not known. */
+  commandActivityStartedAt?: number;
   identity: string;
   sessionKey: string;
   settledItems: TranscriptItem[];
@@ -113,8 +124,44 @@ export function useTranscriptRows({
       }),
     [failedTurns, identity, sessionKey, projectedItems, settledTurnKeys, settled]
   );
+  // The settled rows close with a turn's end (`turndone`: finished, failed or stopped; `closingEnd`) and no prompt waits
+  // after it. A status line a running turn leaves (`statusdone`: a compaction checked or skipped) ends none.
+  const endIndex = pendingItems.length === 0 ? closingEnd(projectedItems) : -1;
+  const end = endIndex >= 0 ? (projectedItems[endIndex] as TranscriptItem) : null;
+  const endId = end ? (end.id ?? end) : null;
+  // The end last shown with the session idle: work reported after that is another turn's.
+  const idleEnd = useRef<unknown>(null);
+  if (!busy && !commandBusy) idleEnd.current = endId;
+  // Activity that began before the end was recorded is the ended turn's own, still winding down; activity that began
+  // after it is another turn's. An activity or an end that names no time says neither.
+  const endedAt = Number(end?.at) || 0;
+  const timed = commandActivityStartedAt > 0 && endedAt > 0;
+  const activityOfEndedTurn = timed && commandActivityStartedAt <= endedAt;
+  // A reply still arriving when the end is written is the ended turn's own when the end names it (`finalAssistantId`; an
+  // end that names none, when the reply began no later than it): the end can settle before its reply does.
+  const liveOfEndedTurn =
+    end !== null &&
+    Boolean(liveItem) &&
+    (end.finalAssistantId != null
+      ? String(end.finalAssistantId) === String(liveItem?.id)
+      : !(endedAt > 0 && Number(liveItem?.at ?? liveItem?.startedAt) > endedAt));
+  // What runs now is past that end and has settled no row yet: the end was shown idle, the activity began after it, or
+  // another reply is arriving after it (a wake with no prompt streams before anything of it settles).
+  const turnPastEnd =
+    end !== null &&
+    Boolean(busy || commandBusy || liveItem) &&
+    !liveOfEndedTurn &&
+    (idleEnd.current === endId || (timed && !activityOfEndedTurn) || Boolean(liveItem));
+  // The transcript's last turn end is passed by what runs, or by rows settled after it that are not its own reply (a wake
+  // with no prompt: its rows are a turn of their own). The items themselves say so: a pane mounted mid-wake reads the same.
+  const pastLastEnd = turnPastEnd || lastTurnEnd(projectedItems) !== endIndex;
+  // A finished turn's footer stands where its band was, also while its own activity is still reported.
   const turnSettled =
-    settledProjection.endsWithFoldedCompletion && !commandActivityVisible && pendingItems.length === 0;
+    end !== null && settledProjection.endsWithFoldedCompletion && (!commandActivityVisible || activityOfEndedTurn);
+  const thinking = Boolean(
+    (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
+  );
+  const opening = thinking && turnPastEnd;
   const shownRows = useRef<readonly TranscriptRowModel[] | undefined>(undefined);
   const transcriptRows = useMemo(
     () => {
@@ -124,27 +171,15 @@ export function useTranscriptRows({
         pendingItems,
         steerItems,
         liveItem,
-        thinking: Boolean(
-          (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
-        ),
+        thinking,
+        opening,
         turnRunning: Boolean(busy),
         prior: shownRows.current,
       });
       shownRows.current = rows;
       return rows;
     },
-    [
-      identity,
-      optimisticActivityStartedAt,
-      settledProjection,
-      pendingItems,
-      steerItems,
-      busy,
-      turnSettled,
-      commandBusy,
-      commandActivityVisible,
-      liveItem,
-    ]
+    [identity, settledProjection, pendingItems, steerItems, busy, thinking, opening, liveItem]
   );
-  return { settledTurnKeys, transcriptRows };
+  return { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd };
 }

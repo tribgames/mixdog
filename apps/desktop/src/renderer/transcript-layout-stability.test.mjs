@@ -11,6 +11,7 @@ import { turnReviewScope } from './turn-review-scope.ts';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
 import { useTranscriptRows } from './use-conversation-rows';
+import { turnOf } from './conversation-turn-index';
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {
@@ -117,7 +118,61 @@ test('a completed reply takes the live band’s place: no band lingers below its
     'an open turn keeps its band through null activity'
   );
   await render({ items: [prompt, reply, done, { kind: 'user', id: 'wake', text: 'next', hidden: true }], busy: true });
-  assert.deepEqual(tags, ['UserMessage', 'AssistantPart', 'Thinking'], 'a hidden follow-up turn keeps the band');
+  assert.deepEqual(
+    tags,
+    ['UserMessage', 'AssistantPart', 'TurnGap', 'Thinking'],
+    'a hidden follow-up turn keeps the band, as that turn’s own'
+  );
+});
+
+test('a finished turn keeps its footer and cards while activity is reported around its end', async (t) => {
+  const { root } = mount(t);
+  const prompt = { kind: 'user', id: 'prompt', text: 'Change a file', at: 1_000 };
+  const reply = { kind: 'assistant', id: 'reply', text: 'Done.', at: 4_000 };
+  const done = { kind: 'turndone', id: 'done', status: 'done', verb: 'Completed', elapsedMs: 3_000, at: 4_000 };
+  let rows = [];
+  let ended = false;
+  function Rows(props) {
+    const settledItems = props.items;
+    const { transcriptRows, turnPastEnd } = useTranscriptRows({
+      identity: 'end-session',
+      sessionKey: 'end-session',
+      settledItems,
+      settledRowItems: settledItems,
+      failedTurnKeys: [],
+      precomputedTurnKeys: null,
+      pendingItems: [],
+      liveItem: null,
+      busy: true,
+      commandBusy: false,
+      commandActivityVisible: true,
+      commandActivityStartedAt: props.activityStartedAt,
+      optimisticActivityStartedAt: 0,
+    });
+    rows = transcriptRows;
+    ended = turnPastEnd;
+    return null;
+  }
+  const render = (props) => act(async () => root.render(React.createElement(Rows, props)));
+  const tags = () => rows.map((row) => row._tag);
+  // The turn's end is recorded while its own activity is still reported: the footer takes the band's place in the
+  // commit that shows it, so the two never stand together and the row never loses the band's height a frame later.
+  await render({ items: [prompt, reply], activityStartedAt: 1_000 });
+  assert.deepEqual(tags(), ['UserMessage', 'AssistantPart', 'Thinking']);
+  await render({ items: [prompt, reply, done], activityStartedAt: 1_000 });
+  assert.deepEqual(tags(), ['UserMessage', 'AssistantPart'], 'the ended turn’s own activity keeps no band');
+  // The next turn is reported running before its prompt is recorded: its band opens a turn of its own, and the
+  // finished turn still ends at its reply (use-conversation-row-renderer.ts draws its cards and footer there).
+  await render({ items: [prompt, reply, done], activityStartedAt: 9_000 });
+  assert.deepEqual(tags(), ['UserMessage', 'AssistantPart', 'TurnGap', 'Thinking']);
+  const finished = turnOf(rows, rows[1].turnKey);
+  assert.equal(finished.running, false, 'the finished turn is not running again');
+  assert.equal(finished.lastRow, 1);
+  assert.notEqual(rows.at(-1).turnKey, rows[1].turnKey);
+  assert.equal(ended, true, 'nothing of the running turn is placed: the trailing changed-files card is not its own');
+  await render({ items: [prompt, reply, done, { kind: 'user', id: 'next', text: 'More', at: 9_100 }], activityStartedAt: 9_000 });
+  assert.deepEqual(tags(), ['UserMessage', 'AssistantPart', 'TurnGap', 'UserMessage', 'Thinking']);
+  assert.equal(ended, false);
 });
 
 test('a group room keeps one typing slot row through its turns; the typing rows open none', async (t) => {

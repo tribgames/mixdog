@@ -9,6 +9,17 @@ import { isLiveOnlyTranscriptRow } from '../../../../packages/protocol-client/sr
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isProcessRestartStatusText, isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
 
+/** Where the turn end `items` close with is (-1: they close with none): their last item, or the one before it when the
+ *  last is the reply that end names (`finalAssistantId`; an end can settle before its reply does). */
+export function closingEnd(items: readonly TranscriptItem[]): number {
+  const last = items.length - 1;
+  const tail = items[last];
+  if (tail?.kind === 'turndone') return last;
+  const end = items[last - 1];
+  const named = end?.kind === 'turndone' && tail?.kind === 'assistant' && end.finalAssistantId != null;
+  return named && String(end.finalAssistantId) === String(tail.id) ? last - 1 : -1;
+}
+
 export type TranscriptRowModel =
   | {
       _tag: 'TurnGap';
@@ -128,7 +139,8 @@ const sameTurnChanges = (left: TurnChangesRef | undefined, right: TurnChangesRef
     right !== undefined &&
     left.checkpointId === right.checkpointId &&
     left.boundary === right.boundary &&
-    left.trailing === right.trailing);
+    left.trailing === right.trailing &&
+    left.reclosed === right.reclosed);
 
 /** `anchor`: the item (or tool group's first item) whose row begins the turn. */
 function beginBuilderTurn(builder: TranscriptRowBuilder, sessionKey: string, turnKey: string, anchor?: object): void {
@@ -263,9 +275,14 @@ interface SettledTranscriptProjection {
   currentTurnKey: string;
   previousRowWasUser: boolean;
   itemCount: number;
-  /** The last settled item is a successful completion folded into its
-   *  assistant row: that row's footer now stands where the live band was. */
+  /** The settled items close with a successful completion (`closingEnd`)
+   *  folded into its assistant row: that row's footer now stands where the
+   *  live band was. */
   endsWithFoldedCompletion: boolean;
+  /** The turn the settled items leave open: their last item's, unless they close with a turn's end ('' then, and for
+   *  no item). It is not always `currentTurnKey`: a prompt that places no row (a hidden wake kickoff) opens a turn
+   *  after the last row's turn has ended. */
+  openTurnKey: string;
   hasSettledItem(id: unknown): boolean;
   /** Whether a settled message row carries `key`. */
   hasRowKey(key: string): boolean;
@@ -386,8 +403,9 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
   let promptCheckpoints = new CarriedFacts<string, string>();
   /** Per end that carries a checkpoint, that checkpoint. */
   let endCheckpoints = new CarriedFacts<number, string>();
-  /** Those ends, and the visible prompts, in transcript order. */
+  /** Those ends, every turn's end, and the visible prompts, in transcript order. */
   let ends: number[] = [];
+  let turnEnds: number[] = [];
   let visiblePrompts: number[] = [];
 
   const forget = () => {
@@ -404,6 +422,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     promptCheckpoints = new CarriedFacts();
     endCheckpoints = new CarriedFacts();
     ends = [];
+    turnEnds = [];
     visiblePrompts = [];
   };
   const countId = (id: unknown, by: 1 | -1) => {
@@ -464,6 +483,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const turnsBefore = new Map<string, TurnFacts | undefined>();
     const ownersBefore = new Map<string, number | undefined>();
     const promptBefore = visiblePrompts.at(-1) ?? -1;
+    const endBefore = turnEnds.at(-1) ?? -1;
     turns.rewind(kept, (turnKey, facts) => {
       if (!turnsBefore.has(turnKey)) turnsBefore.set(turnKey, facts);
     });
@@ -473,6 +493,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     promptCheckpoints.rewind(kept);
     endCheckpoints.rewind(kept);
     while (ends.length > 0 && (ends.at(-1) as number) >= kept) ends.pop();
+    while (turnEnds.length > 0 && (turnEnds.at(-1) as number) >= kept) turnEnds.pop();
     while (visiblePrompts.length > 0 && (visiblePrompts.at(-1) as number) >= kept) visiblePrompts.pop();
     for (let index = kept; index < oldItems.length; index += 1) countId(oldItems[index]?.id, -1);
     for (let index = kept; index < items.length; index += 1) {
@@ -497,7 +518,9 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
           promptCheckpoints.set(index, turnKey, String(id));
         }
         if (isVisibleTranscriptItem(item) && !isTranscriptCancelledStatusText(item.text)) visiblePrompts.push(index);
-      } else if (item?.kind === 'turndone' && item.archived !== true) {
+      }
+      if (item?.kind === 'turndone') turnEnds.push(index);
+      if (item?.kind === 'turndone' && item.archived !== true) {
         // An archived turn's Undo/Reapply would act on files and the model state
         // of a conversation the model no longer holds.
         const checkpointId =
@@ -531,7 +554,17 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       if (before !== undefined && before < kept) reaches(firstOf(keyAt(before), before));
       if (after !== undefined && after < kept) reaches(firstOf(keyAt(after), after));
     }
-    // A card trails while no visible prompt follows it: the cards between the last prompt before and the last one now.
+    // A card trails on the transcript's last turn end: the end that was last, and the one that is now.
+    const lastEnd = turnEnds.at(-1) ?? -1;
+    if (lastEnd !== endBefore) {
+      for (const end of [endBefore, lastEnd]) {
+        const checkpointId = endCheckpoints.get(end);
+        if (end >= 0 && end < kept && checkpointId !== undefined && cardOwners.get(checkpointId) === end) {
+          reaches(firstOf(keyAt(end), end));
+        }
+      }
+    }
+    // And only while no visible prompt follows it: the cards between the last prompt before and the last one now.
     const lastPrompt = visiblePrompts.at(-1) ?? -1;
     if (lastPrompt !== promptBefore) {
       const low = Math.min(lastPrompt, promptBefore);
@@ -603,12 +636,28 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       const checkpointId = endCheckpoints.get(index);
       if (checkpointId === undefined || cardOwners.get(checkpointId) !== index) return undefined;
       const id = items[index]?.id;
+      const trailing = index === lastEnd && index > lastPrompt;
+      // An earlier end closed the same checkpoint (a completion wake closes it again): the card stood there already.
+      let reclosed = false;
+      for (let at = ends.length - 1; trailing && !reclosed && at >= 0 && (ends[at] as number) > lastPrompt; at -= 1) {
+        const end = ends[at] as number;
+        reclosed = end < index && endCheckpoints.get(end) === checkpointId;
+      }
       return {
         checkpointId,
         boundary: id !== undefined && id !== null ? String(id) : `${checkpointId}:${index}`,
-        trailing: index > lastPrompt,
+        trailing,
+        ...(reclosed ? { reclosed } : {}),
       };
     };
+    /** A successful end that names its reply (`finalAssistantId`) is that reply's footer and nothing else: while the
+     *  reply is not among the items (still arriving, or above the rows held) it draws no row of its own. */
+    const awaitsReply = (item: TranscriptItem | undefined, turnKey: string): boolean =>
+      item?.kind === 'turndone' &&
+      !failed(turnKey) &&
+      completionTone(item) === 'complete' &&
+      item.finalAssistantId != null &&
+      !itemIds.has(item.finalAssistantId);
     /** The completion a reply row closes with, and the card that rides on the row with it. */
     const closing = (index: number, turnKey: string) => {
       const facts = failed(turnKey) ? undefined : turns.get(turnKey);
@@ -651,7 +700,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         }
         return;
       }
-      if (folded(item, turnKey)) {
+      if (folded(item, turnKey) || awaitsReply(item, turnKey)) {
         flushToolActivity();
         return;
       }
@@ -710,13 +759,14 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const made = version;
     let ownIds: Set<unknown> | null = null;
     let ownKeys: Set<string> | null = null;
-    const last = items.length - 1;
+    const last = closingEnd(items);
     const output: SettledTranscriptProjection = {
       rows,
       currentTurnKey: builder.currentTurnKey,
       previousRowWasUser: builder.previousRowWasUser,
       itemCount: items.length,
       endsWithFoldedCompletion: last >= 0 && folded(items[last], keyAt(last)),
+      openTurnKey: last < 0 && items.length > 0 ? keyAt(items.length - 1) : '',
       // The projector's own sets answer for its newest projection; an older one still read answers from its own rows.
       hasSettledItem(id) {
         if (id === undefined || id === null) return false;
@@ -753,9 +803,13 @@ export function appendLiveTranscriptRows({
   steerItems = [],
   liveItem,
   thinking = false,
+  opening = false,
   turnRunning = false,
   prior,
 }: {
+  /** What runs has settled no row yet after a turn's end: its band and its arriving reply open a turn of their own
+   *  instead of reopening the ended turn, whose footer and cards stand. */
+  opening?: boolean;
   /** The rows this made last: a row that is the same again is that row, and the list says how many of its leading rows
    *  are the ones `prior` holds. */
   prior?: readonly TranscriptRowModel[];
@@ -783,7 +837,10 @@ export function appendLiveTranscriptRows({
     pushBuilderItem(builder, sessionKey, item, itemCount + index, `pending:${String(item.id ?? index)}`);
   });
 
-  const activeTurnKey = builder.currentTurnKey || `${sessionKey}:active`;
+  // The live rows are the open turn's: a pending prompt's, else the one the settled items leave open, else (they close
+  // with an end still winding down) the last row's.
+  const openTurnKey = pendingItems.length > 0 ? '' : settled.openTurnKey;
+  const activeTurnKey = (!opening && (openTurnKey || builder.currentTurnKey)) || `${sessionKey}:active`;
   if (liveItem) pushLiveAssistantRow(builder, sessionKey, settled, liveItem, activeTurnKey);
 
   steerItems.forEach((item, index) => {

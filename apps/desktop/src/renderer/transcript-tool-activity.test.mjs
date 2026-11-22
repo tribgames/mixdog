@@ -1749,24 +1749,37 @@ test('a group counts its settled changes while another call still runs', async (
   }
 });
 
-test('an edit row opens in place under its path line; the path opens the side diff pane where there is one', async () => {
-  const { TurnChangesContext } = await import('./TurnChangesCard.tsx');
+test('an edit row opens in place under its path line; the path opens its recorded turn in the side diff pane', async () => {
+  const { TurnChangesContext, ToolTurnProvider } = await import('./TurnChangesCard.tsx');
+  const { sessionDiffTurnTarget } = await import('./session-diff-focus.ts');
   const items = [
     {
       kind: 'tool',
       id: 'e1',
       name: 'edit',
       args: { file_path: 'src/a.ts', old_string: 'a', new_string: 'b' },
+      cwd: 'C:/repo/packages/app',
       uiDiff: editedPatch,
       result: 'ok',
       completedAt: 1,
     },
   ];
-  for (const withPane of [true, false]) {
+  const visualized = ['C:/repo/docs/chart.html'];
+  // A pane and a recorded turn; a pane while the turn still runs; no pane.
+  for (const [withPane, checkpointId] of [
+    [true, 'cp-1'],
+    [true, ''],
+    [false, 'cp-1'],
+  ]) {
     const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
     let opened = 0;
+    const linked = withPane && Boolean(checkpointId);
     try {
-      const group = React.createElement(ToolActivityGroup, { disclosureScope: `pane-${withPane}`, items });
+      const group = React.createElement(
+        ToolTurnProvider,
+        { checkpointId, boundary: checkpointId && 'd1', visualized },
+        React.createElement(ToolActivityGroup, { disclosureScope: `pane-${withPane}-${checkpointId}`, items })
+      );
       await act(async () => {
         dom.root.render(
           withPane
@@ -1789,9 +1802,15 @@ test('an edit row opens in place under its path line; the path opens the side di
       assert.ok(article.querySelector('.tool-diff-frame .code-diff'));
       // The diff of the row's own file draws no second caption.
       assert.equal(article.querySelector('.diff-file > header'), null);
-      if (withPane) {
+      if (linked) {
         await act(async () => article.querySelector('.tool-diff-path-link').click());
         assert.equal(opened, 1);
+        const target = sessionDiffTurnTarget('s1');
+        assert.equal(target.checkpointId, 'cp-1', 'the turn that made the edit, not the Changes source');
+        assert.equal(target.boundary, 'd1', 'read as the turn’s card reads it');
+        assert.equal(target.path, 'src/a.ts');
+        assert.equal(target.cwd, 'C:/repo/packages/app', 'the diff’s path is under the call’s folder');
+        assert.equal(target.visualized, visualized, 'the list is the one the turn’s card opens');
       } else {
         assert.equal(article.querySelector('.tool-diff-path-link'), null);
         assert.ok(article.querySelector('.tool-diff-path-text'));

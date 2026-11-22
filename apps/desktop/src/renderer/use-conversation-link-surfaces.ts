@@ -5,6 +5,15 @@ import { forgetTurnPreviewMarks, noteTurnRunning } from './turn-preview-model';
 type OpenFile = (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
 type OpenFolder = (project: string, rel: string) => void;
 
+/** Whether the card on the transcript's last turn end (its `trailing` one) belongs to a turn still running: it then
+ *  stays hidden and unread. It does through the turn's own end until the session is idle: the record is readable once
+ *  the turn has let go of it, not when its end is written. It does not once that end is passed (`pastLastEnd`,
+ *  use-conversation-rows.ts; for the running turn's key, `turnPastEnd`: nothing of it has settled): the card is the
+ *  ended turn's, already read. */
+export function trailingTurnRuns(busy: unknown, pendingPrompts: number, turnPastEnd: boolean): boolean {
+  return Boolean(busy) && pendingPrompts === 0 && !turnPastEnd;
+}
+
 /** Context values for transcript rows and file links: stable openers and the
  *  per-turn changed-files surface. */
 export function useConversationLinkSurfaces(
@@ -58,8 +67,8 @@ export function useConversationLinkSurfaces(
   // The turn seen running here: its own end may open its previews
   // (turn-preview-model.ts).
   useEffect(() => {
-    if (turnChangesRunning) noteTurnRunning(turnChangesSessionId, runningTurnKey);
-  }, [turnChangesSessionId, turnChangesRunning, runningTurnKey]);
+    noteTurnRunning(turnChangesSessionId, runningTurnKey);
+  }, [turnChangesSessionId, runningTurnKey]);
   // A reconnect (pushes may have been missed, the turn may have ended
   // unseen) or leaving the session drops its marks.
   useEffect(() => {

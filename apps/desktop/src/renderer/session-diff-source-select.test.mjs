@@ -191,6 +191,40 @@ test('an uncapped set reads all patches in one batch; deleted files start folded
   assert.deepEqual(opened, ['long.txt']);
 });
 
+test('a file with no text difference lists as a folded row; its notice shows only once it is opened', async (t) => {
+  const view = await mountPane(
+    t,
+    {
+      gitReview: async () => ({
+        repository: true,
+        root: 'C:/plain-rows',
+        base: 'HEAD',
+        files: [
+          { path: 'scripts/load.mjs', status: 'A', additions: 471, deletions: 0, untracked: true },
+          { path: 'items.pkl', status: 'A', additions: 0, deletions: 0, untracked: true },
+          { path: 'signature.rs', status: 'A', additions: 0, deletions: 0, untracked: true },
+        ],
+      }),
+      gitReviewDiffs: async (_cwd, files) => ({
+        patches: files.map((file) => ({ path: file.path, patch: file.path === 'scripts/load.mjs' ? patchFor(file.path) : '' })),
+        omitted: [],
+      }),
+      invokeCapability: async () => ({ value: null }),
+    },
+    { sessionId: 'pane-plain-rows', cwd: 'C:/plain-rows' }
+  );
+  const section = (path) => view.q(`.session-diff-section[data-session-diff-path="${path}"]`);
+  assert.ok(section('scripts/load.mjs').querySelector('.inline-diff'));
+  for (const path of ['items.pkl', 'signature.rs']) {
+    assert.equal(section(path).dataset.collapsed, 'true', `${path} starts folded`);
+    assert.equal(section(path).querySelector('.inline-diff-empty'), null);
+  }
+  assert.doesNotMatch(view.q('.session-diff-stack').textContent, /No textual differences\./);
+  await act(async () => section('items.pkl').querySelector('.session-diff-collapse').click());
+  assert.match(section('items.pkl').textContent, /No textual differences\./);
+  assert.equal(section('signature.rs').dataset.collapsed, 'true');
+});
+
 test('a folder that is not a Git repository shows no source picker and the session text', async (t) => {
   const view = await mountPane(
     t,

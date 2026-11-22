@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { Snapshot } from './desktop-types';
 import { useMobileRemoteSurface } from './mobile-surface';
-import { commandShowsActivity } from './transcript-status';
+import { commandActivityStartedAt, commandShowsActivity } from './transcript-status';
 import { useConversationFollowEffects } from './use-conversation-follow-effects';
 import type { TranscriptRowModel } from './transcript-rows';
 import { useTranscriptRows } from './use-conversation-rows';
@@ -90,7 +90,7 @@ export function useConversationTimeline({
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
   const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
-  const { settledTurnKeys, transcriptRows } = useTranscriptRows({
+  const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd } = useTranscriptRows({
     identity,
     sessionKey,
     settledItems,
@@ -103,6 +103,7 @@ export function useConversationTimeline({
     busy: snapshot.busy,
     commandBusy: snapshot.commandBusy,
     commandActivityVisible: commandShowsActivity(snapshot),
+    commandActivityStartedAt: commandActivityStartedAt(snapshot),
     optimisticActivityStartedAt,
     room,
   });
@@ -176,6 +177,10 @@ export function useConversationTimeline({
   });
   return {
     settledTurnKeys,
+    /** What runs is past the last turn's end and has settled no row yet (use-conversation-rows.ts). */
+    turnPastEnd,
+    /** What runs is past the last turn's end, whether or not it has settled rows since. */
+    pastLastEnd,
     transcriptRows,
     transcriptRevealed,
     jumpToLatest,

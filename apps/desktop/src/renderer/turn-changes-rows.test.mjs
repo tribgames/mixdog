@@ -50,6 +50,8 @@ test('a completion wake closing the same checkpoint moves the card to its later 
     checkpointId: 'cp-1',
     boundary: 'd2',
     trailing: true,
+    // It stood on the earlier end: the wake's end does not hide it.
+    reclosed: true,
   });
 });
 
@@ -252,4 +254,33 @@ test('coding order on an error row: notice, then the visualize cards, then the c
   assert.equal(changesAt, children.length - 1);
   assert.equal(children[changesAt - 1], 'VISUALIZE');
   assert.equal(seat.placed, true);
+});
+
+test('a tool round names its recorded turn and the files that turn’s card leaves out', async () => {
+  const { ToolTurnProvider } = await import('./TurnChangesCard.tsx');
+  const items = [
+    { kind: 'user', id: 'u1', text: 'one', checkpointId: 'cp-1' },
+    { kind: 'tool', id: 't1', name: 'apply_patch', args: {}, result: 'ok' },
+    { kind: 'assistant', id: 'a1', text: 'done' },
+    { kind: 'turndone', id: 'd1', status: 'complete' },
+  ];
+  const row = project(items).find((candidate) => candidate._tag === 'ToolActivity');
+  const visualized = ['C:/repo/docs/chart.html'];
+  const node = transcriptRowNode(row, {
+    disclosureScope: 's',
+    optimisticActivityStartedAt: 0,
+    readOnly: false,
+    renderAssistantRow: () => 'assistant',
+    retryDisabled: false,
+    settledItems: items,
+    settledTurnKeys: items.map(() => 'turn:u1'),
+    snapshot: { sessionId: 's' },
+    onRetryTurn() {},
+    onOpenSettings() {},
+    turnCards: { cards: null, placed: false, visualized },
+  });
+  assert.equal(node.type, ToolTurnProvider);
+  assert.equal(node.props.checkpointId, 'cp-1');
+  assert.equal(node.props.boundary, 'd1', 'the end its card stands on');
+  assert.equal(node.props.visualized, visualized);
 });

@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard.tsx';
 import { allChangesVisualized, resetTurnChangesCache, unvisualizedChanges } from './turn-changes-model.ts';
-import { useSessionDiffFileRequest } from './session-diff-focus.ts';
+import { useSessionDiffTurnTarget } from './session-diff-focus.ts';
 import { _runIdleReclaimForTest } from './idle-reclaim.ts';
 
 const h = React.createElement;
@@ -52,7 +52,7 @@ async function mountCard(t, { reply, surface = {}, turnChanges = {}, framed = fa
   const diffOpened = [];
   const requests = [];
   function RequestProbe() {
-    const request = useSessionDiffFileRequest('s1');
+    const request = useSessionDiffTurnTarget('s1');
     requests.push(request ? request.path : null);
     return null;
   }
@@ -395,12 +395,18 @@ test('row click focuses the file in the session diff; Ctrl/Cmd+click opens it', 
   assert.equal(view.diffOpened.length, 2);
 });
 
-test('a file click carries the recorded root with its path', async (t) => {
+test('a file click and View changes open the card’s turn, not the Changes source', async (t) => {
   const view = await mountCard(t, { reply: () => ready([file('x.txt')]) });
   await view.click(view.q('.turn-changes-file-main'));
-  const { pendingSessionDiffFileRequest } = await import('./session-diff-focus.ts');
-  assert.equal(pendingSessionDiffFileRequest('s1').root, ROOT);
-  assert.equal(pendingSessionDiffFileRequest('s1').path, 'x.txt');
+  const { pendingSessionDiffFileRequest, sessionDiffTurnTarget } = await import('./session-diff-focus.ts');
+  assert.equal(sessionDiffTurnTarget('s1').checkpointId, 'cp');
+  assert.equal(sessionDiffTurnTarget('s1').boundary, 'done-1', 'the pane reads the record the card read');
+  assert.equal(sessionDiffTurnTarget('s1').path, 'x.txt');
+  assert.equal(sessionDiffTurnTarget('s1').cwd, undefined, 'the path is the record’s own');
+  await view.click(view.q('.turn-changes-view'));
+  assert.equal(sessionDiffTurnTarget('s1').checkpointId, 'cp');
+  assert.equal(sessionDiffTurnTarget('s1').path, '');
+  assert.equal(pendingSessionDiffFileRequest('s1'), null, 'nothing is asked of the source');
 });
 
 test('Undo reverts the whole turn, then the header offers Reapply', async (t) => {
@@ -709,4 +715,30 @@ test('an unmeasured file takes the transcript edit counts, so the card agrees wi
     ]
   );
   assert.equal(withTranscriptCounts(files, undefined, ROOT), files);
+});
+
+test('a tool round’s turn record is the one its card reads: the checkpoint and its end; a running turn has none', async () => {
+  const { turnRecordOf } = await import('./turn-changes-model.ts');
+  const items = [
+    { kind: 'user', id: 'u1' },
+    { kind: 'tool', id: 't1' },
+    { kind: 'turndone', id: 'd1', checkpointId: 'cp-1' },
+    { kind: 'user', id: 'u2', checkpointId: 'cp-2' },
+    { kind: 'tool', id: 't2' },
+    { kind: 'turndone', id: 'd2' },
+    { kind: 'user', id: 'u3', checkpointId: 'cp-3' },
+    { kind: 'tool', id: 't3' },
+  ];
+  const keys = ['a', 'a', 'a', 'b', 'b', 'b', 'c', 'c'];
+  assert.deepEqual(turnRecordOf(items, keys, 'a'), { checkpointId: 'cp-1', boundary: 'd1' });
+  assert.deepEqual(
+    turnRecordOf(items, keys, 'b'),
+    { checkpointId: 'cp-2', boundary: 'd2' },
+    'its prompt’s, once the turn ended'
+  );
+  assert.deepEqual(
+    turnRecordOf(items, keys, 'c'),
+    { checkpointId: '', boundary: '' },
+    'still running: no latest turn is inferred'
+  );
 });

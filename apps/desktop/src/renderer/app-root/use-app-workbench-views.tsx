@@ -53,6 +53,7 @@ import { showDesktopToast } from '../desktop-toasts';
 import { errorMessageText } from '../ErrorNotice';
 import { t } from '../i18n';
 import { resolveLocalLink } from '../local-link-resolver';
+import { useSessionDiffTurnLifetime } from '../session-diff-focus';
 import { isAbsolutePath } from '../session-diff-model';
 import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
@@ -71,6 +72,8 @@ function SessionDiffPane({
   ...props
 }: React.ComponentProps<typeof SessionDiffPaneComponent> & { ownsWorkspace: boolean }) {
   const module = useDeferredModule(sessionDiffPaneModule, { bootSurface: props.active ? 'session-diff' : undefined });
+  // Also while the module loads: a turn asked for and left before the pane mounted ends with this view.
+  useSessionDiffTurnLifetime(props.sessionId, props.active);
   const lane = useSessionLane(ownsWorkspace ? props.sessionId : '');
   const cwd = sessionChangesCwd(ownsWorkspace, lane?.cwd, props.cwd ?? '');
   const loading = <DesktopLoadingSurface label={t('Loading view…')} />;

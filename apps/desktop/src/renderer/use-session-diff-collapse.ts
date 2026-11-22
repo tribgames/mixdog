@@ -2,13 +2,42 @@ import { useCallback, useRef, useState } from 'react';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
 import type { SessionDiffRow } from './session-diff-model';
-import { rowListIndex } from './session-diff-row-index';
+import { foldedByDefault, rowListIndex } from './session-diff-row-index';
 
 type Base = 'default' | 'folded' | 'open';
 type Folds = { base: Base; differs: Map<string, boolean>; delta: number; rows: readonly SessionDiffRow[] };
 
-function baseFolded(base: Base, row: Pick<SessionDiffRow, 'status'>): boolean {
-  return base === 'default' ? row.status === 'D' : base === 'folded';
+function baseFolded(base: Base, row: SessionDiffRow): boolean {
+  return base === 'default' ? foldedByDefault(row) : base === 'folded';
+}
+
+/** A file header's toggle. In a capped set a header selects its file
+ *  (unfolded); the selected one folds as usual. */
+export function fileHeaderToggle({
+  capped,
+  rows,
+  selectedRow,
+  toggleCollapsed,
+  expandRow,
+  select,
+}: {
+  capped: boolean;
+  rows: readonly SessionDiffRow[];
+  selectedRow: SessionDiffRow | null | undefined;
+  toggleCollapsed(id: string): void;
+  expandRow(id: string): void;
+  select(path: string): void;
+}): (id: string) => void {
+  return (id) => {
+    if (!capped || id === selectedRow?.id) {
+      toggleCollapsed(id);
+      return;
+    }
+    const row = rows[rowListIndex(rows).byId.get(id) ?? -1];
+    if (!row) return;
+    select(row.path);
+    expandRow(id);
+  };
 }
 
 /** Which files of the session diff are folded, by row ID (one relative path
@@ -63,7 +92,7 @@ export function useSessionDiffCollapse(rows: readonly SessionDiffRow[]) {
   const resetCollapsed = () => reset('default');
   const index = rowListIndex(rows);
   let baseCount = 0;
-  if (state.base === 'default') baseCount = index.deleted;
+  if (state.base === 'default') baseCount = index.foldedByDefault;
   else if (state.base === 'folded') baseCount = rows.length;
   const folded = baseCount + state.delta;
   const collapseActions: DockAction[] = [

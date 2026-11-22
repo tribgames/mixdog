@@ -707,6 +707,16 @@ html[data-mixdog-mobile-tabs] .turn-review-files-panel .composer-island-phead .r
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* One turn's changes take the picker's place: Back, then the scope's name. */
+.session-diff-turn-scope {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  white-space: nowrap;
+}
 /* A file's tab: the file pill at the left, its open/undo grouped with the
    refresh at the right. */
 .session-diff-file-scope {

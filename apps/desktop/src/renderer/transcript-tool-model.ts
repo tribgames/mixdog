@@ -118,6 +118,8 @@ interface DesktopToolActivityItemPresentation {
   diffCounts: { additions: number; deletions: number } | null;
   /** The file a phone's digest-only diff names (the host keeps the text). */
   diffDigestPath: string;
+  /** The folder the diff's relative paths are under ('' = the session's). */
+  diffCwd: string;
   outputText: string;
   /** One quiet line under the output ("종료 코드 2", the still-running note). */
   outputNote: string;
@@ -990,11 +992,12 @@ function presentationDiffDigest(
 ): PatchDigest | null {
   const summary = uiDiffDigest(item);
   if (!summary) return null;
-  return digestForTarget(
-    summary.sections,
-    normalizedName === 'edit' ? targetPath : '',
-    toolActivityFirstText(args, 'cwd', 'root') || (typeof item.cwd === 'string' ? item.cwd : '')
-  );
+  return digestForTarget(summary.sections, normalizedName === 'edit' ? targetPath : '', callCwd(item, args));
+}
+
+/** The folder the call ran in, where the call or its row names one. */
+function callCwd(item: TranscriptItem, args: Record<string, unknown>): string {
+  return toolActivityFirstText(args, 'cwd', 'root') || (typeof item.cwd === 'string' ? item.cwd : '');
 }
 
 function presentationDiffPatch(
@@ -1006,11 +1009,7 @@ function presentationDiffPatch(
   // The text is not held: the digest stands for it (see `uiDiffDigest`).
   if (uiDiffDigest(item)) return '';
   if (typeof item.uiDiff === 'string' && item.uiDiff.trim()) {
-    return patchForTarget(
-      item.uiDiff.trim(),
-      normalizedName === 'edit' ? targetPath : '',
-      toolActivityFirstText(args, 'cwd', 'root') || (typeof item.cwd === 'string' ? item.cwd : '')
-    );
+    return patchForTarget(item.uiDiff.trim(), normalizedName === 'edit' ? targetPath : '', callCwd(item, args));
   }
   if (normalizedName === 'apply_patch' && typeof args.patch === 'string') return normalizeApplyPatch(args.patch).trim();
   return '';
@@ -1255,6 +1254,7 @@ export function desktopToolActivityItemPresentation(
     diffPatch,
     diffCounts,
     diffDigestPath: digest?.targetPath ?? '',
+    diffCwd: callCwd(item, args),
     outputText,
     outputNote,
     outputNotice,

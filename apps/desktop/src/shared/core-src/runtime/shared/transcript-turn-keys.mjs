@@ -47,8 +47,22 @@ export function transcriptTurnKeys(items, held) {
     keys = held.keys.slice(0, from);
   }
   let taken = from;
+  // The end just before the next item, while that item may be the reply it names (`finalAssistantId`): an end can
+  // settle before its reply does, and the reply is the ended turn's wherever it lands.
+  let closed = from > 0 && transcript[from - 1]?.kind === 'turndone' ? from - 1 : -1;
   for (let index = from; index < transcript.length; index += 1) {
     const item = transcript[index];
+    const end = closed >= 0 ? transcript[closed] : null;
+    closed = -1;
+    if (
+      end &&
+      item?.kind === 'assistant' &&
+      end.finalAssistantId != null &&
+      String(end.finalAssistantId) === String(item.id)
+    ) {
+      keys.push(keys[index - 1]);
+      continue;
+    }
     if (item?.kind === 'user') {
       activeTurn = `turn:${stableItemKey(item, index)}`;
       start = index;
@@ -71,6 +85,7 @@ export function transcriptTurnKeys(items, held) {
         taken = Math.min(taken, start);
       }
       activeTurn = null;
+      closed = index;
     }
   }
   openTurns.set(keys, activeTurn === null ? transcript.length : start);

@@ -170,7 +170,16 @@ export type SessionDiffRow = {
   patchTooLarge?: boolean;
   /** Its own patch read failed: Refresh asks again. */
   patchFailed?: boolean;
+  /** Where the file is now when that is not what `status` says of `path`
+   *  (a turn's file after its Undo); null: not on disk. */
+  openPath?: string | null;
 };
+
+/** The path a row's file opens at; null when there is no file to open. */
+export function sessionDiffRowOpenPath(row: Pick<SessionDiffRow, 'path' | 'status' | 'openPath'>): string | null {
+  if (row.openPath !== undefined) return row.openPath;
+  return row.status === 'D' ? null : row.path;
+}
 
 function cleanPath(value: unknown): string {
   return String(value || '').replace(/\\/g, '/');
