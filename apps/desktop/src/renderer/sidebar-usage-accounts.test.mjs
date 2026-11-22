@@ -565,10 +565,10 @@ test('rail: the Usage button describes every drawn slot, account index and loadi
 });
 
 test('rail: a short rail shows fewer slots, and the pie icon when not even one fits', async (t) => {
-  // 5 slots, limit 5: one slot needs 17 + 26 + two 12px chevrons = 67px.
-  await mountRail(t, { stored: { usageAccountsExpanded: true }, railHeight: 110 });
+  // 5 slots, limit 5: one 44px slot and two 12px chevrons need 68px.
+  await mountRail(t, { stored: { usageAccountsExpanded: true }, railHeight: 140 });
   await waitFor(() => pinKeys().length > 0 && document.querySelector('.rail-usage-pin-mark > sup'));
-  // 17 + 2×26 + 6 + 24 = 99 fits two slots; three need 131.
+  // 2×44 + 24 = 112 fits two slots; three need 156.
   assert.equal(pinKeys().length, 2);
   assert.ok(step(1));
 });
