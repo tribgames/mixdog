@@ -33,7 +33,7 @@ pub struct SseTransport {
     client: reqwest::Client,
     endpoint: Url,
     headers: HeaderMap,
-    auth: Option<Arc<dyn Authorizer>>,
+    auth: Option<Arc<crate::transport::OpenedAs>>,
     shutdown: CancellationToken,
     incoming: IncomingTx,
 }
@@ -148,6 +148,7 @@ async fn pump(response: reqwest::Response, origin: Url, tx: IncomingTx, endpoint
 impl SseTransport {
     pub async fn connect(url: Url, headers: &BTreeMap<String, String>, auth: Option<Arc<dyn Authorizer>>) -> Result<(Self, IncomingRx), TransportError> {
         let headers = header_map(headers)?;
+        let auth = auth.map(crate::transport::OpenedAs::new);
         let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().map_err(request_error)?;
         let get = |token: Option<String>| {
             let mut request = client.get(url.clone()).headers(headers.clone()).header(reqwest::header::ACCEPT, "text/event-stream");
@@ -187,7 +188,10 @@ impl SseTransport {
         let (endpoint_tx, endpoint_rx) = oneshot::channel();
         let shutdown = CancellationToken::new();
         mixdog_rt::spawn("mcp.sse.pump", mixdog_rt::TaskClass::Work, pump(response, url, incoming.clone(), endpoint_tx, shutdown.clone()));
+        // The pump is the transport's from here; until there is a transport, an open that fails or is dropped ends it.
+        let opening = shutdown.clone().drop_guard();
         let endpoint = STARTUP.bound_head(endpoint_rx).await.map_err(expired)?.map_err(|_| TransportError::Closed)??;
+        opening.disarm();
         Ok((Self { client, endpoint, headers, auth, shutdown, incoming }, rx))
     }
 }
@@ -209,6 +213,10 @@ impl Transport for SseTransport {
             self.shutdown.cancel();
             let _ = self.incoming.send(Incoming::Closed(CloseCause { reason: "closed by client".to_owned(), stderr_tail: String::new() }));
         }
+    }
+
+    fn opened_as(&self) -> Option<u64> {
+        self.auth.as_ref().and_then(|auth| auth.opened_as())
     }
 }
 
@@ -258,6 +266,32 @@ impl SseTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The server opens the stream and never announces an endpoint. The open is given up (a startup budget drops it):
+    /// the stream it had opened is closed, not left to a task nobody owns.
+    #[tokio::test]
+    async fn an_open_dropped_before_the_endpoint_closes_its_stream() {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+
+        let _runtime = mixdog_rt::testing::tokens();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (closed, closes) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf).await;
+            socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n: open\n\n").await.unwrap();
+            // Nothing more is sent: the next read ends when the client lets the connection go.
+            while matches!(socket.read(&mut buf).await, Ok(read) if read > 0) {}
+            let _ = closed.send(());
+        });
+        let url = Url::parse(&format!("http://{addr}/sse")).unwrap();
+        let opened = tokio::time::timeout(std::time::Duration::from_millis(300), SseTransport::connect(url, &BTreeMap::new(), None)).await;
+        assert!(opened.is_err(), "the open was still waiting for the endpoint");
+        tokio::time::timeout(std::time::Duration::from_secs(5), closes).await.expect("the stream is closed once its open is dropped").unwrap();
+    }
 
     #[test]
     fn events_split_across_chunks_and_carry_their_names() {

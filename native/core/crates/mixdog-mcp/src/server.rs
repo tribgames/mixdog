@@ -97,6 +97,36 @@ pub struct Ready {
     pub capabilities: Value,
     pub instructions: Option<String>,
     pub(crate) tools: Vec<Value>,
+    pub(crate) calls: Calls,
+}
+
+/// The calls running on one connection: a connection a reconnect replaced is closed once they ended.
+#[derive(Clone)]
+pub(crate) struct Calls(Arc<watch::Sender<usize>>);
+
+impl Default for Calls {
+    fn default() -> Self {
+        Self(Arc::new(watch::channel(0).0))
+    }
+}
+
+impl Calls {
+    fn begin(&self) -> Running {
+        self.0.send_modify(|running| *running += 1);
+        Running(self.clone())
+    }
+
+    async fn ended(&self) {
+        let _ = self.0.subscribe().wait_for(|running| *running == 0).await;
+    }
+}
+
+struct Running(Calls);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.0.send_modify(|running| *running -= 1);
+    }
 }
 
 /// What a call sends the server.
@@ -145,6 +175,9 @@ pub enum ConnectError {
         "MCP server \"{name}\" startup exceeded {ms}ms budget — raise per-server \"startupTimeoutSec\"/\"startupTimeoutMs\" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS"
     )]
     StartupTimeout { name: String, ms: u128 },
+    /// Nothing was dialled: the server is known to need a sign-in that is not stored. `reported`: that was known before.
+    #[error("{}", TransportError::AuthRequired)]
+    SignInAbsent { reported: bool },
     #[error("server was closed")]
     Closed,
 }
@@ -208,6 +241,10 @@ pub struct McpServer {
     reconnecting: tokio::sync::Semaphore,
     /// The service advert the last connect of an `autoDetect` server dialled: the one a refused connect distrusts.
     advert: Mutex<Option<crate::config::AutoDetectAdvert>>,
+    /// The connection an explicit reconnect ended to start the server's process again.
+    restarted: ArcSwapOption<RpcClient>,
+    /// The closing of each connection a reconnect replaced, which a close of the server waits for.
+    retired: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
     /// call path of a server the core never reaches over the network.
     #[cfg(feature = "test-support")]
@@ -399,6 +436,60 @@ fn roots_result(follow: bool, fixed: Option<&str>, scope_root: &Mutex<String>) -
 }
 
 #[cfg(test)]
+mod retire_tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+
+    struct Counted {
+        closes: AtomicUsize,
+        _incoming: crate::transport::IncomingTx,
+    }
+
+    #[async_trait::async_trait]
+    impl Transport for Counted {
+        async fn send(&self, _: Value, _: mixdog_rt::Liveness) -> Result<(), TransportError> {
+            Ok(())
+        }
+        async fn close(&self) {
+            self.closes.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// The close of a server began (its first step: the shutdown is signalled) before a reconnect of the ready server
+    /// reached the point where it would start closing the connection it replaces. The reconnect starts no closing: none
+    /// can then be pending when the close, which ends the connection itself, says the server stopped.
+    #[tokio::test]
+    async fn a_reconnect_that_comes_once_the_close_began_starts_no_closing_of_its_own() {
+        let tokens = mixdog_rt::testing::tokens();
+        let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+        let config = McpServerConfig::from_entry("fx", &json!({"url": "http://127.0.0.1:9/mcp"}), &Default::default()).unwrap();
+        let server = McpServer::new(config, io, Spiller::new(std::env::temp_dir(), io.durability), OutputPolicy::default(), None);
+        let (incoming, rx) = tokio::sync::mpsc::unbounded_channel();
+        let transport = Arc::new(Counted { closes: AtomicUsize::new(0), _incoming: incoming });
+        let ready = Ready {
+            client: RpcClient::start(transport.clone(), rx),
+            catalog: Arc::new(build_catalog("fx", &[], &json!({}))),
+            outputs: Arc::new(OutputValidators::of(&[]).unwrap()),
+            capabilities: Value::Null,
+            instructions: None,
+            tools: Vec::new(),
+            calls: Calls::default(),
+        };
+        server.state.send_replace(Arc::new(ServerState::Ready(Arc::new(ready))));
+
+        server.shutdown.cancel();
+        let reconnected = server.reconnect().await;
+        assert!(matches!(reconnected, Err(ConnectError::Closed)), "{reconnected:?}");
+        assert!(server.retired.lock().unwrap().is_empty(), "no closing was started behind the close");
+        assert_eq!(transport.closes.load(Ordering::SeqCst), 0, "the connection is the close's to end");
+
+        server.close().await;
+        assert_eq!(transport.closes.load(Ordering::SeqCst), 1, "and the close ended it before it returned");
+    }
+}
+
+#[cfg(test)]
 mod catalog_tests {
     use serde_json::json;
 
@@ -507,6 +598,8 @@ impl McpServer {
             died: ArcSwapOption::empty(),
             reconnecting: tokio::sync::Semaphore::new(1),
             advert: Mutex::new(None),
+            restarted: ArcSwapOption::empty(),
+            retired: Mutex::new(Vec::new()),
             #[cfg(feature = "test-support")]
             stand_in: None,
         })
@@ -607,54 +700,84 @@ impl McpServer {
         for warning in &self.config.warnings {
             crate::config::mcp_log(&format!("[mcp-client] \"{}\": {warning}", self.config.name));
         }
-        let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        self.state.send_replace(Arc::new(ServerState::Starting));
-        if let Some(cause) = &self.config.blocked {
-            let cause = scrub(cause, &self.secrets);
-            crate::config::daemon_line(&format!("[mcp-server] name={} connect failed (blocked by config): {cause}", self.name()));
-            self.died.store(None);
-            self.publish(generation, ServerState::Failed { cause: cause.clone() });
-            return Err(ConnectError::Failed(cause));
-        }
         let opened = &self.opening;
         // The namespace owns no remote handshake: each private connection has its own
         // startup deadline, and the namespace waits only for one usable account.
         let startup_timeout = if self.accounts.get().is_some() { None } else { self.config.startup_timeout };
-        let handshake = async {
-            match startup_timeout {
-                Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(opened)).await {
-                    Ok(result) => result,
-                    Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
-                },
-                // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
-                None => self.handshake(opened).await,
-            }
-        };
-        let outcome = tokio::select! {
-            outcome = handshake => outcome,
-            () = self.shutdown.cancelled() => Err(ConnectError::Closed),
-        };
-        // The connect settled: whatever connection died before it is replaced or given up, and its tools with it (a failed
-        // replacement is unregistered, `replaceServerConnection`). Until here a call still finds the dead one and waits
-        // for this connect with the others (`died`).
-        self.died.store(None);
-        match outcome {
-            Ok(ready) => {
-                opened.lock().unwrap_or_else(|e| e.into_inner()).take();
-                let client = Arc::clone(&ready.client);
-                // `connectServer` (mcp/client.mjs:1501) follows `list_changed` only from a server that advertised it.
-                let follows = ready.capabilities.pointer("/tools/listChanged").is_some_and(truthy);
-                self.publish(generation, ServerState::Ready(Arc::new(ready)));
-                self.watch(generation, client, follows);
-                Ok(())
-            }
-            Err(error) => {
-                let client = opened.lock().unwrap_or_else(|e| e.into_inner()).take();
-                let cause = self.connect_failure(&error, client).await;
-                crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name()));
+        // A connection is the sign-in it was opened as. One opened as a sign-in that is no longer the stored one is not
+        // the server's connection, whatever its handshake came to: it is closed and the server connects again.
+        loop {
+            let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
+            self.state.send_replace(Arc::new(ServerState::Starting));
+            if let Some(cause) = &self.config.blocked {
+                let cause = scrub(cause, &self.secrets);
+                crate::config::daemon_line(&format!("[mcp-server] name={} connect failed (blocked by config): {cause}", self.name()));
+                self.died.store(None);
                 self.publish(generation, ServerState::Failed { cause: cause.clone() });
-                Err(ConnectError::Failed(cause))
+                return Err(ConnectError::Failed(cause));
             }
+            let handshake = async {
+                match startup_timeout {
+                    Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(opened)).await {
+                        Ok(result) => result,
+                        Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
+                    },
+                    // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
+                    None => self.handshake(opened).await,
+                }
+            };
+            let outcome = tokio::select! {
+                outcome = handshake => outcome,
+                () = self.shutdown.cancelled() => Err(ConnectError::Closed),
+            };
+            let opening = opened.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(client) = opening.filter(|client| self.opened_as_replaced(client) && !self.shutdown.is_cancelled()) {
+                opened.lock().unwrap_or_else(|e| e.into_inner()).take();
+                client.close().await;
+                continue;
+            }
+            // The connect settled: whatever connection died before it is replaced or given up, and its tools with it (a
+            // failed replacement is unregistered, `replaceServerConnection`). Until here a call still finds the dead one
+            // and waits for this connect with the others (`died`).
+            self.died.store(None);
+            match outcome {
+                Ok(ready) => {
+                    opened.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    let client = Arc::clone(&ready.client);
+                    // `connectServer` (mcp/client.mjs:1501) follows `list_changed` only from a server that advertised it.
+                    let follows = ready.capabilities.pointer("/tools/listChanged").is_some_and(truthy);
+                    self.publish(generation, ServerState::Ready(Arc::new(ready)));
+                    self.watch(generation, Arc::clone(&client), follows);
+                    // Read again now that the server is ready: a sign-in stored since the check above is either seen
+                    // here, or finds the server ready when its own reconnect looks.
+                    if self.opened_as_replaced(&client) && !self.shutdown.is_cancelled() {
+                        client.close().await;
+                        continue;
+                    }
+                    return Ok(());
+                }
+                Err(error) => {
+                    let client = opened.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    let cause = self.connect_failure(&error, client).await;
+                    match error {
+                        ConnectError::SignInAbsent { reported: true } => {}
+                        ConnectError::SignInAbsent { reported: false } => {
+                            crate::config::daemon_line(&format!("[mcp-server] name={} needs sign-in: not connecting until one is stored", self.name()));
+                        }
+                        _ => crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name())),
+                    }
+                    self.publish(generation, ServerState::Failed { cause: cause.clone() });
+                    return Err(ConnectError::Failed(cause));
+                }
+            }
+        }
+    }
+
+    /// Whether `client`'s connection was opened as a sign-in that is not the stored one any more.
+    fn opened_as_replaced(&self, client: &RpcClient) -> bool {
+        match (&self.authorizer, client.transport().opened_as()) {
+            (Some(authorizer), Some(opened_as)) => authorizer.sign_in() != opened_as,
+            _ => false,
         }
     }
 
@@ -772,6 +895,12 @@ impl McpServer {
     }
 
     async fn handshake(&self, opened: &Mutex<Option<Arc<RpcClient>>>) -> Result<Ready, ConnectError> {
+        if let Some(authorizer) = &self.authorizer {
+            let reported = authorizer.sign_in_required();
+            if authorizer.sign_in_absent().await {
+                return Err(ConnectError::SignInAbsent { reported });
+            }
+        }
         let (transport, incoming) = self.open_transport().await?;
         let client = RpcClient::start(transport, incoming);
         *opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&client));
@@ -809,6 +938,7 @@ impl McpServer {
             capabilities,
             instructions: init.get("instructions").and_then(Value::as_str).map(str::to_owned),
             tools,
+            calls: Calls::default(),
         })
     }
 
@@ -897,19 +1027,59 @@ impl McpServer {
                 capabilities: ready.capabilities.clone(),
                 instructions,
                 tools,
+                calls: ready.calls.clone(),
             })),
         );
     }
 
-    /// Ends the current connection and connects again — an explicit command, never a timer.
+    /// Connects again — an explicit command, never a timer. A server this process runs cannot run twice: its connection
+    /// is ended first, and a call that cut says the server was restarted. Any other connection is replaced: it ends
+    /// once the calls already on it ended, each by its own result or timeout.
     pub async fn reconnect(self: &Arc<Self>) -> Result<(), ConnectError> {
-        if let ServerState::Ready(ready) = &*self.state() {
-            let client = Arc::clone(&ready.client);
-            // Bumping the generation retires the old watcher before the close lands.
-            self.generation.fetch_add(1, Ordering::AcqRel);
-            client.close().await;
+        let ready = match &*self.state() {
+            ServerState::Ready(ready) => Arc::clone(ready),
+            _ => return self.connect().await,
+        };
+        // Bumping the generation retires the old watcher before the close lands.
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        if self.runs_a_process() {
+            self.restarted.store(Some(Arc::clone(&ready.client)));
+            ready.client.close().await;
+            return self.connect().await;
         }
+        // The server owns the connection it replaces until that one is closed. The closing is started and listed under
+        // the list's lock, which a close of the server takes after it began: a close finds every closing a reconnect
+        // started, and a reconnect that comes once the close began starts none (the close ends the connection itself).
+        let swapped = CancellationToken::new();
+        {
+            let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+            if self.shutdown.is_cancelled() {
+                return Err(ConnectError::Closed);
+            }
+            let (shutdown, swapped) = (self.shutdown.clone(), swapped.clone());
+            retired.retain(|task| !task.is_finished());
+            retired.push(mixdog_rt::spawn("mcp.server.retire", TaskClass::Work, async move {
+                let drained = async {
+                    swapped.cancelled().await;
+                    ready.calls.ended().await;
+                };
+                tokio::select! {
+                    () = drained => {}
+                    () = shutdown.cancelled() => {}
+                }
+                ready.client.close().await;
+            }));
+        }
+        let _swapped = swapped.drop_guard();
         self.connect().await
+    }
+
+    fn runs_a_process(&self) -> bool {
+        #[cfg(feature = "test-support")]
+        let transport = self.stand_in.as_ref().unwrap_or(&self.config.transport);
+        #[cfg(not(feature = "test-support"))]
+        let transport = &self.config.transport;
+        self.accounts.get().is_none() && matches!(transport, TransportConfig::Stdio { .. })
     }
 
     pub async fn close(&self) {
@@ -955,6 +1125,10 @@ impl McpServer {
         if let ServerState::Ready(ready) = &*previous {
             ready.client.close().await;
         }
+        let retired = std::mem::take(&mut *self.retired.lock().unwrap_or_else(|e| e.into_inner()));
+        for closing in retired {
+            let _ = closing.await;
+        }
         self.stopped.cancel();
     }
 
@@ -972,6 +1146,33 @@ impl McpServer {
 
     pub(crate) fn set_accounts(&self, accounts: Arc<crate::connector_transport::AccountGroup>) {
         let _ = self.accounts.set(accounts);
+    }
+
+    /// The connection the server holds: the one it is ready on, else the one it is opening.
+    fn held_client(&self) -> Option<Arc<RpcClient>> {
+        match &*self.state() {
+            ServerState::Ready(ready) => Some(Arc::clone(&ready.client)),
+            _ => self.opening.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+        }
+    }
+
+    /// Whether the server holds a connection, ready or still opening, that was opened as a sign-in another one has
+    /// replaced since or that was signed out: that connection keeps the sign-in it has, so the server needs a new one.
+    pub(crate) fn sign_in_replaced(&self) -> bool {
+        self.held_client().is_some_and(|client| self.opened_as_replaced(&client))
+    }
+
+    /// Lets go of a connection [`sign_in_replaced`](Self::sign_in_replaced) names: a ready server connects again; one
+    /// still opening has that connection closed, and its connect starts over as the stored sign-in.
+    pub(crate) async fn leave_replaced_sign_in(self: &Arc<Self>) {
+        if matches!(&*self.state(), ServerState::Ready(_)) {
+            let _ = self.reconnect().await;
+            return;
+        }
+        let opening = self.opening.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(client) = opening.filter(|client| self.opened_as_replaced(client)) {
+            client.close().await;
+        }
     }
 
     pub(crate) fn sign_in_required(&self) -> bool {
@@ -1131,6 +1332,13 @@ impl McpServer {
         let Some(tail) = tail.filter(|_| !cancel.is_cancelled()) else {
             return Err(first);
         };
+        if self.restarted.load().as_ref().is_some_and(|ended| Arc::ptr_eq(ended, &ready.client)) {
+            let message = format!(
+                "Tool call failed: MCP server \"{}\" was restarted by an explicit reconnect while this call was running; the call was cut and was not replayed",
+                self.name()
+            );
+            return Err(self.recovery_error(&message, true));
+        }
         self.recover_call(gate, Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline, delivery).await
     }
 
@@ -1309,6 +1517,7 @@ impl McpServer {
         if delivery.account.is_some() && self.accounts.get().is_none() {
             return Err(CallError::Recovery { message: "The approved connector account is no longer available.".into(), outcome_unknown: false });
         }
+        let _running = ready.calls.begin();
         let permit = gate.acquire(owner, cancel, self.config.wait_timeout).await?;
         let from_deadline = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let max_total = match (self.config.max_total_timeout, from_deadline) {

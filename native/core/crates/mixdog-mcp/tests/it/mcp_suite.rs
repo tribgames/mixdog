@@ -188,6 +188,26 @@ async fn crash_is_a_failed_state_with_the_stderr_tail_and_reconnect_recovers() {
     assert_eq!(call(&server, "echo", json!({"text": "once more"})).await.unwrap(), "once more");
     server.close().await;
 }
+/// An explicit reconnect of a server this process runs is a restart: the call it cut says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_cut_by_an_explicit_reconnect_says_the_server_was_restarted() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = ready(json!({"timeoutMs": 0}), dir.path()).await;
+    let hung = {
+        let server = Arc::clone(&server);
+        tokio::spawn(async move { call(&server, "hang", json!({})).await })
+    };
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
+    server.reconnect().await.unwrap();
+    match hung.await.unwrap() {
+        Err(CallError::Recovery { message, .. }) => {
+            assert!(message.contains("MCP server \"mock\" was restarted by an explicit reconnect"), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(call(&server, "echo", json!({"text": "after"})).await.unwrap(), "after");
+    server.close().await;
+}
 async fn unlisted(server: &McpServer, tool: &str) -> String {
     let out = server.call_tool_unlisted("t", tool, json!({}), &CancellationToken::new(), None).await.unwrap();
     text_of(&out.parts)

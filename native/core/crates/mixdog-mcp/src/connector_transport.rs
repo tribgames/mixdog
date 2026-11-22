@@ -170,6 +170,32 @@ mod tests {
         assert_eq!(health_error(&ServerState::Failed { cause: "boom".into() }), "boom");
     }
 
+    /// The account failed its last connect and its next is scheduled but has not begun, so its state is still that
+    /// failure: the connector does not answer from it, and answers once the scheduled connect ended.
+    #[tokio::test]
+    async fn a_connector_waits_for_the_connect_scheduled_for_its_failed_account() {
+        let tokens = mixdog_rt::testing::tokens();
+        let io = crate::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+        let dir = tempfile::tempdir().unwrap();
+        let url = "http://127.0.0.1:9/mcp";
+        let entry = json!({"connector": "linear", "url": url, "accounts": [{"name": "work", "url": url, "oauthKey": "work"}]});
+        let config = McpServerConfig::from_entry("linear", &entry, &Default::default()).unwrap();
+        let mut account = config.accounts[0].server.clone();
+        account.blocked = Some("the last attempt failed".to_owned());
+        let spiller = crate::result::Spiller::new(dir.path().to_path_buf(), io.durability);
+        let server = McpServer::new(account, io, spiller, crate::result::OutputPolicy::default(), None);
+        server.connect().await.unwrap_err();
+        let scheduled = CancellationToken::new();
+        *server.scheduled_start.lock().unwrap() = Some(scheduled.clone());
+        let runtime = AccountRuntime { health: Arc::new(AccountHealth::default()), data_dir: dir.path().to_path_buf(), maintenance: tokens.maintenance_io };
+        let group = AccountGroup::new(&config, vec![server], &runtime);
+
+        let mut asked = std::pin::pin!(group.initialize());
+        assert!(futures::poll!(asked.as_mut()).is_pending(), "the scheduled connect has not ended");
+        scheduled.cancel();
+        assert_eq!(asked.await.unwrap_err(), "failed: the last attempt failed");
+    }
+
     #[test]
     fn account_union_compares_schema_objects_and_rejects_conflicting_tools() {
         let lists = vec![
@@ -287,6 +313,12 @@ impl AccountGroup {
             .servers
             .iter()
             .map(|server| async move {
+                // A connect scheduled for the account has not begun until it says so: the state before it is the last
+                // attempt's, and a namespace that read it would fail beside an account about to connect.
+                let scheduled = server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if let Some(ended) = scheduled {
+                    ended.cancelled().await;
+                }
                 let mut state = server.subscribe();
                 state.wait_for(|state| !matches!(**state, ServerState::Starting)).await.map(|state| Arc::clone(&state)).ok()
             })

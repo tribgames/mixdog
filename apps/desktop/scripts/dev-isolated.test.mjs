@@ -245,6 +245,19 @@ test('--copy-auth copies only allowlisted sign-ins; a missing secrets directory 
   assert.deepEqual(await copyDevAuth(bare, { devProfileDir: profile }), ['provider-accounts.json']);
 });
 
+test('--copy-auth leaves the connector sign-ins and the installation identity behind', async (t) => {
+  const root = await tempRoot(t);
+  const { profile, dataDir } = await devProfile(root);
+  await writeFile(join(profile, 'data', 'secrets', 'mcp-oauth.ab12.dpapi'), 'grant');
+  await writeFile(join(profile, 'data', 'installation-id'), 'the-dev-profile');
+  assert.deepEqual(await copyDevAuth(dataDir, { devProfileDir: profile }), [
+    'provider-accounts.json',
+    'secrets/a.dpapi',
+  ]);
+  assert.equal(existsSync(join(dataDir, 'secrets', 'mcp-oauth.ab12.dpapi')), false);
+  assert.equal(existsSync(join(dataDir, 'installation-id')), false);
+});
+
 test('--copy-auth copies each provider account credential the pool file names', async (t) => {
   const root = await tempRoot(t);
   const { profile, dataDir } = await devProfile(root, { secrets: false });

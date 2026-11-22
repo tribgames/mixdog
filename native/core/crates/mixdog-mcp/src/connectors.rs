@@ -166,12 +166,15 @@ fn oauth_binding_with(name: &str, entry: &Value, url: &Url, connector_id: Option
         (None, None)
     };
     let own_key = text(entry, "oauthKey");
+    let requires_sign_in = client_unavailable.is_none()
+        && catalog.is_some_and(|c| matches!(c.backend, Backend::OAuth { url: own } if Url::parse(own).is_ok_and(|own| own == *url)));
     OAuthBinding {
         url: url.clone(),
         credential_key: if own_key.is_empty() { url.as_str().to_owned() } else { format!("mcp-account:{own_key}") },
         display_name: catalog.map_or_else(|| name.to_owned(), |c| c.name.to_owned()),
         client,
         client_unavailable,
+        requires_sign_in,
     }
 }
 

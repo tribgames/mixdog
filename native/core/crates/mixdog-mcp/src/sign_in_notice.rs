@@ -36,8 +36,20 @@ impl Authorizer for NoticingAuthorizer {
         self.inner.sign_in_required()
     }
 
+    async fn sign_in_absent(&self) -> bool {
+        self.inner.sign_in_absent().await
+    }
+
+    fn sign_in(&self) -> u64 {
+        self.inner.sign_in()
+    }
+
     async fn token(&self) -> Result<Option<String>, TransportError> {
         self.inner.token().await
+    }
+
+    async fn token_as(&self) -> Result<Option<(u64, Option<String>)>, TransportError> {
+        self.inner.token_as().await
     }
 
     /// A stored sign-in was sent and refused, and its renewal needs the user
