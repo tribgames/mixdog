@@ -10,7 +10,8 @@ A large `app/snapshot` or `thread/snapshot` does not fold in one turn of the thr
 - **Thread snapshot:** folded by `ThreadReducer.initialSteps` (a generator that yields where its work divides; `sessionReducer` yields every 16 items); the previous fold stays until the swap, then one `thread` change.
 - **Both:** later notifications of the feed wait behind the fold; a connection that ends mid-fold discards the staging.
 - **Blob stubs** are resolved in the same budget, a check every 64 nodes.
+- **Frames:** the budget is one per loop turn, not one per frame. A frame that arrives after the turn's budget is spent (a socket read that delivers many) waits, in arrival order and with the transport's close behind it, for a later turn, where it shares the budget with the waiting folds. The frame that opens a turn is always handled at once.
 
-**Not budgeted:** `JSON.parse` of the frame. A frame is parsed in one piece before any fold starts, so its cost (about 8 to 10 ms for 1 MB) is a turn of its own that only a streaming transport could split. The per-item cost of a reducer step, and a store listener's own work per change, are also outside the budget: a turn can exceed it by one step.
+**Not budgeted:** `JSON.parse` of one frame. A frame is parsed in one piece, so its cost (about 8 to 10 ms for 1 MB) is a unit of its own that only a streaming transport could split. The per-item cost of a reducer step, and a store listener's own work per change, are also outside the budget: a turn can exceed it by one step.
 
 The unit tests prove the structure with a fake clock (`test/fake-turn.ts`, `ConnectOptions.turn.now`): the fold yields whenever the budget is spent and no turn exceeds the budget plus one step. Wall-clock latency is checked by the gate runs on a quiet machine, not by unit tests.

@@ -22,6 +22,7 @@ import { t } from './i18n';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { projectIdentity, sessionProjectKey } from './project-catalog-cache';
 import { isOpen, type OpenMap } from './sidebar-open-state';
+import { emptyStateHost } from './empty-state-host';
 
 const DEFAULT_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
 export const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
@@ -475,7 +476,11 @@ export function recentSection({
             <InitialSurface />
           ) : (
             sessionsReady &&
-            rowCount === 0 && <p className="sidebar-section-empty mx-empty-state">{t('No sessions.')}</p>
+            rowCount === 0 && (
+              <p className="sidebar-section-empty mx-empty-state" ref={emptyStateHost}>
+                {t('No sessions.')}
+              </p>
+            )
           )}
           {renderRows(allRows, visibleRows.length, hasMoreRows ? sentinelRef : undefined)}
         </nav>
@@ -725,7 +730,11 @@ function projectFolderGroup(
           className={`session-list project-session-list${branches.length > 0 ? ' project-session-list-split' : ''}`}
           aria-label={group.name}
         >
-          {group.rows.length === 0 && <p className="sidebar-section-empty mx-empty-state">{t('No sessions.')}</p>}
+          {group.rows.length === 0 && (
+            <p className="sidebar-section-empty mx-empty-state" ref={emptyStateHost}>
+              {t('No sessions.')}
+            </p>
+          )}
           {branches.length === 0 && renderRows(group.rows, limit, group.key)}
           {branches.map((branch) => {
             const branchKey = projectBranchKey(group.key, branch.name);

@@ -38,6 +38,7 @@ export const SECTION_NAMES = [
   'core',
   'coreHealth',
   'migration',
+  'catalogIndex',
   'reviewDiff',
   'gitStatus',
   'lspStatus',

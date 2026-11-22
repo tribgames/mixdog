@@ -1198,6 +1198,12 @@
 .session-search > .workbench-quick-results {
   max-height: min(70vh, 640px, calc(100vh - 130px));
 }
+.workbench-quick-results > .session-search-indexing {
+  margin: 0;
+  padding: 8px 9px 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 .workbench-quick-results > .session-search-heading {
   padding: 8px 9px 4px;
   color: var(--mx-text-muted);

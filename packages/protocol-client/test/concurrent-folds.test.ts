@@ -67,6 +67,7 @@ async function harness(config: Config) {
   let turnNo = -1;
   let activity = 0;
   let throwNext = config.throwFirstYield === true;
+  let attaching = true;
   const requests: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
   /** Every step of every fold, and each fold's finish: its fold and the released turn it ran in (-1: before the first release). */
   const log: Array<{ id: string; turn: number; done?: true }> = [];
@@ -98,6 +99,8 @@ async function harness(config: Config) {
       budgetMs: config.budgetMs,
       now: () => (config.advancing ? ++t : t),
       yieldTurn: () => {
+        // While the sessions attach, a reply that arrives after the turn's budget waits for a real turn.
+        if (attaching) return macrotask();
         activity++;
         if (throwNext) {
           throwNext = false;
@@ -122,6 +125,7 @@ async function harness(config: Config) {
     });
     await resumed;
   }
+  attaching = false;
   /** Until a macrotask passes with nothing done: every microtask chain the last step set off has run out. */
   const settle = async () => {
     for (let seen = -1; seen !== activity; ) {
@@ -132,6 +136,8 @@ async function harness(config: Config) {
   /** One socket read: every session's snapshot arrives in the same loop turn, so the folds start together. `spendBeforeScan`
    *  is fake time that passes before any fold's blob scan runs (they run in microtasks, after this synchronous read). */
   const startAll = async (spendBeforeScan = 0, only = ids) => {
+    // The read is a turn of its own: its first frame opens the turn, not one already spent.
+    await macrotask();
     for (const id of only) conn.serverSend(snapshot(id, 'e1', 0, pad));
     t += spendBeforeScan;
     await settle();
@@ -149,6 +155,8 @@ async function harness(config: Config) {
       revision: 1,
       ...(lastIsStub && i === count - 1 ? { stub: { count: 1, stub: true } } : { value: i }),
     }));
+    // The snapshot is a socket read of its own, after the reply's.
+    await macrotask();
     conn.serverSend({ method: 'app/snapshot', params: { sections }, feed: { id: 'app', epoch: 'ae', seq: 0 } });
     await settle();
   };
@@ -382,6 +390,34 @@ test(
         `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`
       );
     }
+  }
+);
+
+test(
+  'a frame that arrives after the turn budget is spent waits for a later turn, and the close behind it waits too',
+  DEADLINE,
+  async () => {
+    // Every clock read advances 1 ms on a 0 ms budget: the frame that opens the read's turn spends it.
+    const h = await harness({ budgetMs: 0, stepMs: 1, steps: 2, advancing: true });
+    let answered = false;
+    const unsubscribed = h.client.unsubscribeThread('t3').then(() => (answered = true));
+    const req = JSON.parse(await h.conn.nextSent());
+    await h.settle();
+    let answeredBeforeClose = false;
+    h.client.on((event) => {
+      if (event.type === 'status' && event.status.state !== 'ready') answeredBeforeClose = answered;
+    });
+    h.conn.serverSend(snapshot('t0', 'e1', 0, 0));
+    h.conn.serverSend({ id: req.id, result: {} });
+    h.conn.serverClose(1006);
+    await Promise.resolve();
+    assert.equal(answered, false, 'the reply after the spent budget waits');
+    assert.equal(h.client.status.state, 'ready', 'the close waits behind it');
+    await h.settle();
+    for (let turn = await h.release(); turn && h.client.status.state === 'ready'; turn = await h.release());
+    await unsubscribed;
+    assert.notEqual(h.client.status.state, 'ready', 'the close was handled');
+    assert.ok(answeredBeforeClose, 'the waiting reply was handled before the close');
   }
 );
 

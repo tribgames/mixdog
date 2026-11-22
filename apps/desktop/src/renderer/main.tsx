@@ -3,6 +3,11 @@ import { nativeAppInfo } from '../shared/native-app';
 import { installShellUpdateState, recoverShellBootstrap } from './shell-update-state';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { installKeyboardFlick, installTouchGestures } from './touch-gestures';
+import { setClientFailureText } from '../../../../packages/protocol-client/src/client.ts';
+import { clientFailureText } from '../main/protocol/client-failure-text';
+import { earlyUiT } from './early-ui-i18n';
+// Before any client exists (the phone dials below, ahead of i18next): boot.js's catalog already answers in the page's language.
+setClientFailureText((detail) => clientFailureText(detail, earlyUiT));
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
 // any module reads window.mixdogDesktop; inside Electron the window composes it
 // from the preload's host half and its own core port (core-direct/install).

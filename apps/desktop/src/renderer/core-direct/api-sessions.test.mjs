@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sessionReducer } from '../../../../../packages/protocol-client/src/index.ts';
+import { ClientFailure, sessionReducer } from '../../../../../packages/protocol-client/src/index.ts';
 import { DIRECT_KEYS } from '../../shared/desktop-api-split.ts';
 import { createDirectContext } from './context.ts';
 import { createRendererConnection } from './renderer-connection.ts';
@@ -128,6 +128,16 @@ async function opened(answer = defaults) {
   return { client, ctx, api: createSessionsApi(ctx) };
 }
 const sent = (client) => client.calls.map((c) => [c.method, c.params]);
+
+test("the window's prompt the core fenced unrun is sent again through the connection", async () => {
+  let fences = 1;
+  const { client, api } = await opened(async (method, params) => {
+    if (method === 'turn/start' && fences-- > 0) throw new ClientFailure({ kind: 'opNotApplied', opId: 'op-1' });
+    return defaults(method, params);
+  });
+  assert.equal(await api.submitToSession(S1, 'hi', { id: 'sub1' }), true);
+  assert.equal(client.calls.filter((c) => c.method === 'turn/start').length, 2);
+});
 
 test('every key of the group is implemented', async () => {
   const { api } = await opened();

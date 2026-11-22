@@ -38,8 +38,8 @@ const threadCpuMs = () => {
 
 /** Names the task that owns each loop turn over 16 ms: work is timed under a label where this test can wrap it, and a turn
  *  with little labelled time belongs to the library's own fold. A turn is the gap between two 1 ms ticks. Each turn also
- *  records the main thread's own CPU time: wall time beyond it is time the OS ran other processes, which a shared runner
- *  running sibling test files hands out and the product cannot cause. */
+ *  records the main thread's own processor time, for attribution only: wall time beyond it is time the thread waited (a
+ *  blocking call) or the OS ran other processes. */
 function createTurnLog() {
   const spent = new Map();
   const stack = [];
@@ -324,13 +324,11 @@ test('reconnect storms over concurrent streams in several sessions never block t
     delivered.count > 0 && folded >= STORMS,
     'the store was folded after every reconnect and its changes were delivered'
   );
-  // The bound is on the turn's main-thread CPU time: work the product does without yielding counts whatever the host,
-  // while time the OS spent running sibling test processes does not.
   assert.ok(
-    worstCpuMs <= MAX_LOOP_BLOCK_MS,
-    `the main loop was blocked by ${worstCpuMs.toFixed(1)} ms of its own work (limit ${MAX_LOOP_BLOCK_MS}; wall ${worstWallMs.toFixed(1)} ms)`
+    worstWallMs <= MAX_LOOP_BLOCK_MS,
+    `the main loop was blocked ${worstWallMs.toFixed(1)} ms (limit ${MAX_LOOP_BLOCK_MS}; its own longest turn on the processor ${worstCpuMs.toFixed(1)} ms)`
   );
   console.log(
-    `# worst main-loop turn ${worstCpuMs.toFixed(1)} ms of its own work (wall delay ${worstWallMs.toFixed(1)} ms) over ${STORMS} storms`
+    `# worst main-loop delay ${worstWallMs.toFixed(1)} ms over ${STORMS} storms (longest turn on the processor ${worstCpuMs.toFixed(1)} ms)`
   );
 });

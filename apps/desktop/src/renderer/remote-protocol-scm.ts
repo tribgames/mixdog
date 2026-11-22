@@ -74,9 +74,14 @@ export function phoneCallError(error: unknown): unknown {
   const named = typeof given === 'string' ? (CORE_CODE_AS_NODE[given] ?? given) : undefined;
   const code = named !== undefined && NODE_CODE.test(named) ? named : undefined;
   const params = codedErrorParams(code, (failure as { details?: unknown }).details);
-  const rebuilt: Error & { code?: string; details?: unknown } = new Error(failure.message || 'remote call failed.');
+  const rebuilt: Error & { code?: string; details?: unknown; detail?: unknown } = new Error(
+    failure.message || 'remote call failed.'
+  );
   if (typeof code === 'string' && code) rebuilt.code = code;
   if (params) rebuilt.details = params;
+  // The client library's failure stays readable by its kind (an unknown outcome is worded by it: source-control-action-failure.ts).
+  const detail = (error as { detail?: unknown } | null)?.detail;
+  if (detail !== undefined) rebuilt.detail = detail;
   return rebuilt;
 }
 

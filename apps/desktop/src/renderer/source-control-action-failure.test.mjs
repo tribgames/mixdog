@@ -18,11 +18,6 @@ test('an unknown outcome tells the person the Git action may have run', () => {
   assert.doesNotMatch(text, /opOutcomeUnknown/);
 });
 
-test('the bare protocol message of an unknown outcome, once the detail is gone, is worded the same', () => {
-  assert.equal(gitActionFailureText(new Error('opOutcomeUnknown')), gitActionFailureText(unknown()));
-  assert.equal(isOutcomeUnknown(new Error('opOutcomeUnknown')), true);
-});
-
 test('any other failure keeps its own message', () => {
   assert.equal(gitActionFailureText(new Error('fatal: not a git repository')), 'fatal: not a git repository');
   assert.equal(gitActionFailureText('plain'), 'plain');

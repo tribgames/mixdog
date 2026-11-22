@@ -2,7 +2,10 @@
 // reaches the router as the client's own error, which the router turns into the interruption error.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { adapter } from './remote-protocol-scm.ts';
+import { ClientFailure, setClientFailureText } from '../../../../packages/protocol-client/src/index.ts';
+import { clientFailureText } from '../main/protocol/client-failure-text.ts';
+import { adapter, phoneCallError } from './remote-protocol-scm.ts';
+import { gitActionFailureText } from './source-control-action-failure.ts';
 import { runQueued } from './remote-protocol-queue.ts';
 import { isRemoteConnectionInterruptedError } from './remote-connection-state.ts';
 import { createProtocolRouter } from './remote-shim-protocol.ts';
@@ -11,6 +14,19 @@ import { DIRECT_KEYS } from '../shared/desktop-api-split.ts';
 
 // The API the desktop names as source control (DIRECT_KEYS.scm), plus the GitHub star and LibreOffice calls the phone answers beside it.
 const SCM_CALLS = [...DIRECT_KEYS.scm, 'githubStarStatus', 'installLibreOffice', 'libreOfficeStatus', 'starGithub'];
+
+test("a Git action whose outcome is unknown keeps the phone's recovery instruction across the call's boundary", () => {
+  setClientFailureText((detail) => clientFailureText(detail, (key) => key));
+  try {
+    const failure = new ClientFailure({ kind: 'opOutcomeUnknown', opId: 'op-1', state: 'statusFailed' });
+    assert.match(
+      gitActionFailureText(phoneCallError(failure)),
+      /may have run\. Check the repository status before trying it again\./
+    );
+  } finally {
+    setClientFailureText(() => undefined);
+  }
+});
 
 test('the adapter answers exactly the 62 source-control calls, each as a function', () => {
   assert.equal(adapter.group, 'scm');

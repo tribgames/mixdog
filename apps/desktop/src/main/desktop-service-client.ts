@@ -23,6 +23,7 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { reissuedOnceIfNotApplied } from '../shared/outcome-unknown';
 import type { DesktopService, DesktopServiceMethod, SessionFinalAnswer } from './desktop-service-contract';
 import type { CapabilityLane } from './protocol/capability-route';
 import type { OperationLane } from './protocol/desktop-operation-route';
@@ -352,7 +353,7 @@ export class DesktopServiceClient implements DesktopService {
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {}
   ): Promise<boolean> {
-    return this.invoke('submitToSession', [sessionId, prompt, options]);
+    return reissuedOnceIfNotApplied(() => this.invoke<boolean>('submitToSession', [sessionId, prompt, options]));
   }
   abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     return this.invoke('abortSession', [sessionId, options]);

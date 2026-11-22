@@ -77,10 +77,14 @@ function laneOf(client: Client) {
 function relayedError(error: unknown): unknown {
   const ended = (error as { detail?: { kind?: string } } | null)?.detail?.kind;
   if (ended === 'connectionLost' || ended === 'clientClosed' || !(error instanceof Error)) return error;
-  const { code, details } = error as Error & { code?: unknown; details?: unknown };
-  const rebuilt: Error & { code?: string; details?: unknown } = new Error(error.message || 'remote call failed.');
+  const { code, details, detail } = error as Error & { code?: unknown; details?: unknown; detail?: unknown };
+  const rebuilt: Error & { code?: string; details?: unknown; detail?: unknown } = new Error(
+    error.message || 'remote call failed.'
+  );
   if (typeof code === 'string' && code) rebuilt.code = code;
   if (details !== undefined) rebuilt.details = details;
+  // The client library's failure stays readable by its kind.
+  if (detail !== undefined) rebuilt.detail = detail;
   return rebuilt;
 }
 

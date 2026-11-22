@@ -151,8 +151,7 @@ import { BootReports } from './core-port/boot-progress';
 import { watchRecovery } from './core-port/failure-recovery';
 import { CorePortRelay } from './core-port/relay';
 import { windowIdFor } from './core-port/window-ids';
-import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';
-import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
+import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
@@ -1081,8 +1080,14 @@ const hostRole = createLocalHostRole({
     confirmBusy: () => desktopUpdater.confirmBusy(),
     install: (confirmed) => desktopUpdater.install(confirmed),
   },
-  onClaimFailed: (error) =>
-    diagnostics?.write('host-claim-failed', { message: error instanceof Error ? error.message : String(error) }),
+  onClaimFailed: (error) => {
+    // A client-library failure's message is a sentence in the UI language: its kind is the field the log is read by.
+    const kind = (error as { detail?: { kind?: unknown } } | null)?.detail?.kind;
+    diagnostics?.write('host-claim-failed', {
+      message: error instanceof Error ? error.message : String(error),
+      ...(typeof kind === 'string' ? { kind } : {}),
+    });
+  },
   onHostFault: (where, error) =>
     diagnostics?.write('host-handler-failed', {
       where,

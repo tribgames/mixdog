@@ -226,6 +226,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-panel-indexing {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 /* View actions: the active rail panel portals its primary
    action into the title row, so the panel never prints a second header. */
 .session-panel-header-actions {

@@ -21,6 +21,7 @@ export function developerOptionUiKeys() {
 export const rendererUrl = new URL('../../src/renderer/', import.meta.url);
 export const localesUrl = new URL('locales/', rendererUrl);
 export const bootTemplateUrl = new URL('./boot.template.js', import.meta.url);
+const clientFailureTextUrl = new URL('../../src/main/protocol/client-failure-text.ts', import.meta.url);
 export function readJson(url) {
   const text = readFileSync(url, 'utf8');
   const value = JSON.parse(text);
@@ -128,6 +129,9 @@ export function catalogState() {
     functions: ['earlyUiT'],
   }))
     bootSources.set(key, path);
+  // The renderer builds a client-library failure's text before i18next has loaded (the phone dials first), from boot.js's catalog.
+  for (const key of collectUiKeys(fileURLToPath(clientFailureTextUrl), { explicitOnly: true }).keys())
+    bootSources.set(key, 'src/main/protocol/client-failure-text.ts');
   for (const [key, path] of nativeSources) sources.set(key, `main/${path}`);
   for (const key of bootSources.keys()) sources.set(key, 'scripts/i18n/boot.template.js');
   const keys = new Set([

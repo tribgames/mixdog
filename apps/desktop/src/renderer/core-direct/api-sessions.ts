@@ -4,6 +4,7 @@ import { createCapabilityLane, type CapabilityLane } from '../../shared/core-lan
 import { createServiceLane, type ServiceLane } from '../../shared/core-lanes/service-route.ts';
 import { createSessionLane, type SessionLane } from '../../shared/core-lanes/session-lane.ts';
 import { modelRouteWrite } from '../../shared/model-route-write';
+import { reissuedOnceIfNotApplied } from '../../shared/outcome-unknown';
 import { createSnapshotDeltaEncoder, isNoDelta } from '../../main/state-delta';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
@@ -169,7 +170,8 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     // ── chat ──
     submitNewTask: async (prompt, options = {}, draft = {}) =>
       withDirectErrors((await session.chat()).submitNewTask(prompt, options, draft)),
-    submitToSession: (sessionId, prompt, options = {}) => svc('submitToSession', [trimmed(sessionId), prompt, options]),
+    submitToSession: (sessionId, prompt, options = {}) =>
+      reissuedOnceIfNotApplied(() => svc('submitToSession', [trimmed(sessionId), prompt, options])),
     abortSession: (sessionId, options = {}) => svc('abortSession', [trimmed(sessionId), options]),
     inheritSession: async (sourceSessionId, selection, options) =>
       withDirectErrors(

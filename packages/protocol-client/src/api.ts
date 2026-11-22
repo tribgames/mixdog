@@ -441,9 +441,10 @@ export interface ConnectOptions<S = Json> {
 }
 
 /**
- * A fold that has run for `budgetMs` since its turn began (the frame's arrival, or the last yield) gives the thread back through
- * `yieldTurn` before it continues: the app snapshot's section staging and its change announcements, and blob-stub resolution
- * inside any feed's notification. A frame is parsed in one piece, before the fold starts; that cost is outside the budget.
+ * A fold that has run for `budgetMs` since its turn began (the first frame of the loop turn, or the last yield) gives the thread
+ * back through `yieldTurn` before it continues: the app snapshot's section staging and its change announcements, and blob-stub
+ * resolution inside any feed's notification. A frame that arrives after the budget is spent waits for a later turn; the one that
+ * opens a turn is handled at once. A frame is parsed in one piece; that cost is outside the budget.
  */
 export interface TurnOptions {
   readonly budgetMs?: number;
