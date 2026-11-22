@@ -21,46 +21,53 @@
 }
 /* One 44px slot on the rail's cell pitch. The mark, its meter and the figure
    are one readout, centred in the cell as the Settings gear is in its own:
-   the ink spans 6-23px, the capsule 25-27px and the figure's digits 31-38px. */
+   the ink spans 4-23px, the capsule 25-28px and the figure's digits 31-40px
+   (two capsules reach 32px and the digits stand 3px lower). */
 .rail-usage-pin-brand {
   position: relative;
   display: block;
   width: 100%;
   height: 44px;
 }
-/* A 23px box inks about 17px, the capsule's width. Odd, like the 17px
-   capsule: an even box in the 47px rail stands on a half pixel and is painted
-   half a pixel to the right of the capsule under it. */
+/* A 25px box inks about 18px. Odd, like the 27px capsule: an even box in the
+   47px rail stands on a half pixel and is painted half a pixel to the right
+   of the capsule under it. */
 .rail-usage-pin-mark {
   position: absolute;
-  top: 3px;
-  left: calc(50% - 11.5px);
-  width: 23px;
-  height: 23px;
+  top: 1px;
+  left: calc(50% - 12.5px);
+  width: 25px;
+  height: 25px;
 }
-/* 17px wide so the capsules start on a whole pixel of the 47px rail. */
+/* The flyout's meter in miniature: 27x3, wider than the mark, so it reads as
+   a gauge and not as a line under the logo. Odd, to start on a whole pixel of
+   the 47px rail. */
 .rail-usage-pin-meter {
   position: absolute;
-  top: 24px;
-  left: calc(50% - 8.5px);
-  width: 17px;
-  height: 5px;
+  top: 25px;
+  left: calc(50% - 13.5px);
+  width: 27px;
+  height: 7px;
   overflow: visible;
 }
-/* The figure the meter stands for, in the rail's own ink: a gauge readout,
-   regular weight, never heavier than the mark above it. */
+/* The figure the meter stands for: a readout must stay readable at rest, so
+   it takes the text ink, not the rail's resting ghost ink; regular weight,
+   never heavier than the mark above it. */
 .rail-usage-pin-figure {
   position: absolute;
-  top: 30px;
+  top: 29px;
   left: 0;
   width: 100%;
-  color: inherit;
-  font-size: 9px;
+  color: var(--mx-text-soft);
+  font-size: 12px;
   font-weight: var(--mx-weight-regular);
-  line-height: 10px;
+  line-height: 12px;
   letter-spacing: 0;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.rail-usage-pin-brand[data-bars="2"] > .rail-usage-pin-figure {
+  top: 32px;
 }
 /* The capsule is the gauge's own ink, faint: an empty one still reads as a
    meter at zero. Not --mx-meter-track, which the light rail band swallows. */
@@ -96,15 +103,15 @@
   position: absolute;
   inset: 0;
   display: block;
-  width: 23px;
-  height: 23px;
+  width: 25px;
+  height: 25px;
 }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
 .rail-usage-pin-mark > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
   inset: -2px;
-  width: 27px;
-  height: 27px;
+  width: 29px;
+  height: 29px;
 }
 /* Expanded accounts: the account index sits on the mark's bottom-right
    corner, clear of the bar, bright for the account in use, muted for the
