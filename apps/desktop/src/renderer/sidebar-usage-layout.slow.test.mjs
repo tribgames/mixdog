@@ -202,8 +202,8 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
   }
   assert.equal(band['claude:W'].top - (band['claude:5H'].top + 2), 1);
 
-  // Each slot is one 44px rail cell with the mark centred on it as the
-  // Settings gear is on its cell, the meter centred under the mark.
+  // Each slot is one 44px rail cell; the mark and the meter under it are one
+  // unit, centred in the cell.
   const slots = await page.evaluate(() =>
     [...document.querySelectorAll('[data-usage-pin]')].map((slot) => {
       const box = slot.getBoundingClientRect();
@@ -218,7 +218,7 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
       };
     })
   );
-  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 26, middle: 22, centred: 0, meter: 34 });
+  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 24, middle: 19, centred: 0, meter: 31 });
   // The marks wear the gear's resting ink.
   const inks = await page.evaluate(() =>
     ['.sidebar-usage-toggle svg[data-provider-icon]', '.sidebar-settings-button .codicon'].map((selector) => {
