@@ -1,7 +1,11 @@
-//   npm run dev:isolated -- --name <tag> [--copy-auth] [--onboarding] [--ttl-minutes=120]
+//   npm run dev:isolated -- --name <tag> [--copy-auth | --keep-auth] [--onboarding] [--ttl-minutes=120]
 //
 // --copy-auth copies the kept dev profile's sign-ins and model routes without their refresh tokens: refresh tokens
 // rotate, so an instance that refreshed one would sign the kept profile out.
+// --keep-auth (implies --copy-auth) also hands the instance the sign-ins kept in the kept profile's dev-isolated-auth
+// folder, refresh tokens included, and saves its provider sign-ins (those it was handed and those made in it) back
+// there at its stop. One live instance at a time may hold them: another --keep-auth start is refused. The kept dev
+// app never reads that folder, and a plain --copy-auth instance neither reads nor writes it.
 //   --config-overlay=<json file>  deep-merged into the seeded config before the core starts
 //   --pass-env=NAME,NAME          MIXDOG_* names of this shell kept in the instance env (never a name the
 //                                 isolation sets itself); MIXDOGD_TEST_HOOKS and MIXDOG_DEV_COMPUTER_RUN reach
@@ -15,7 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { accessSync, closeSync, constants, openSync, readFileSync, statSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -96,7 +100,7 @@ export function leaseIsStale(lease, { now = Date.now(), alive = isPidAlive } = {
 export async function acquireLease(
   root,
   name,
-  { ttlMs = DEFAULT_TTL_MS, now = Date.now(), alive = isPidAlive, list } = {}
+  { ttlMs = DEFAULT_TTL_MS, now = Date.now(), alive = isPidAlive, list, devProfileDir } = {}
 ) {
   assertName(name);
   await mkdir(leasesDir(root), { recursive: true });
@@ -116,8 +120,10 @@ export async function acquireLease(
             ', or pick another --name.'
         );
       }
-      if (holder) await stopInstance(root, holder, list ? { list } : {});
-      else await rm(leasePath(root, name), { force: true });
+      if (holder) {
+        const stopped = await stopInstance(root, holder, { ...(list ? { list } : {}), devProfileDir });
+        if (stopped.unsaved) throw new Error(`Isolated instance "${name}" was not stopped: ${stopped.unsaved}`);
+      } else await rm(leasePath(root, name), { force: true });
     }
   }
   throw new Error(`Could not claim isolated instance name "${name}".`);
@@ -315,16 +321,42 @@ export async function killInstanceProcesses(lease, { list = listProcesses } = {}
 }
 
 /** Stop an instance: processes, instance directory, port reservation, then the lease. */
-export async function stopInstance(root, lease, options = {}) {
+export async function stopInstance(
+  root,
+  lease,
+  { devProfileDir = persistentDevProfileDir('default'), ...options } = {}
+) {
   const { killed, remaining } = await killInstanceProcesses(lease, options);
   let removed = true;
-  if (lease.instanceDir) {
-    if (
-      !insideDir(lease.instanceDir, instancesDir(root)) ||
-      resolve(lease.instanceDir) === resolve(instancesDir(root))
-    ) {
-      throw new Error(`Refusing to delete ${lease.instanceDir}: not an isolated instance directory.`);
+  if (
+    lease.instanceDir &&
+    (!insideDir(lease.instanceDir, instancesDir(root)) || resolve(lease.instanceDir) === resolve(instancesDir(root)))
+  ) {
+    throw new Error(`Refusing to delete ${lease.instanceDir}: not an isolated instance directory.`);
+  }
+  let carried = [];
+  if (lease.authCarry?.seeded && lease.instanceDir) {
+    // Saved only once no process of the instance can still rotate a token; an instance not saved is never deleted.
+    let unsaved = remaining.length ? `processes ${remaining.join(', ')} still run` : null;
+    if (!unsaved) {
+      try {
+        carried = await carryAuthOut(root, lease, devProfileDir);
+      } catch (error) {
+        unsaved = error.message;
+      }
     }
+    if (unsaved) {
+      return {
+        name: lease.name,
+        killed,
+        remaining,
+        removed: false,
+        carried,
+        unsaved: `its --keep-auth sign-ins were not saved, so ${lease.instanceDir} and its lease stay (${unsaved}).`,
+      };
+    }
+  }
+  if (lease.instanceDir) {
     removed = false;
     for (let attempt = 0; attempt < 20 && !removed; attempt += 1) {
       try {
@@ -345,7 +377,7 @@ export async function stopInstance(root, lease, options = {}) {
     const current = await readJson(leasePath(root, lease.name)).catch(() => null);
     if (!current || current.startedAt === lease.startedAt) await rm(leasePath(root, lease.name), { force: true });
   }
-  return { name: lease.name, killed, remaining, removed };
+  return { name: lease.name, killed, remaining, removed, carried };
 }
 
 export async function readLeases(root) {
@@ -359,10 +391,13 @@ export async function readLeases(root) {
 }
 
 /** Reclaim stale leases, then reservations and directories no lease owns. */
-export async function sweep(root, { all = false, now = Date.now(), alive = isPidAlive, list = listProcesses } = {}) {
+export async function sweep(
+  root,
+  { all = false, now = Date.now(), alive = isPidAlive, list = listProcesses, devProfileDir } = {}
+) {
   const results = [];
   for (const lease of await readLeases(root)) {
-    if (all || leaseIsStale(lease, { now, alive })) results.push(await stopInstance(root, lease, { list }));
+    if (all || leaseIsStale(lease, { now, alive })) results.push(await stopInstance(root, lease, { list, devProfileDir }));
   }
   // List reservations and directories BEFORE reading leases: a starter writes
   // its lease before either, so anything listed here already has its lease.
@@ -518,6 +553,8 @@ export async function copyDevAuth(
     devProfileDir = persistentDevProfileDir('default'),
     trustedRoot = devTrustedRoot(devProfileDir),
     ttlMs = DEFAULT_TTL_MS,
+    skip = new Set(),
+    required = true,
   } = {}
 ) {
   const source = join(devProfileDir, 'data');
@@ -526,7 +563,7 @@ export async function copyDevAuth(
     if (!stat.isDirectory()) throw new Error(`--copy-auth: ${dir} is not a directory.`);
   }
   const copied = [];
-  for (const entry of (await readDevDir(source)).filter((name) => CREDENTIAL_FILE.test(name))) {
+  for (const entry of (await readDevDir(source)).filter((name) => CREDENTIAL_FILE.test(name) && !skip.has(name))) {
     await assertDevFile(trustedRoot, join(source, entry));
     if (entry === POOL_FILE) await copyFile(join(source, entry), join(dataDir, entry));
     else await copyCredential(join(source, entry), join(dataDir, entry), entry, ttlMs);
@@ -544,8 +581,9 @@ export async function copyDevAuth(
       const accounts = (await readDevDir(providerDir)).filter((name) => name.endsWith('.json'));
       if (accounts.length) await mkdir(join(dataDir, 'provider-accounts', provider), { recursive: true });
       for (const entry of accounts) {
-        await assertDevFile(trustedRoot, join(providerDir, entry));
         const label = `provider-accounts/${provider}/${entry}`;
+        if (skip.has(label)) continue;
+        await assertDevFile(trustedRoot, join(providerDir, entry));
         const destination = join(dataDir, 'provider-accounts', provider, entry);
         await copyCredential(join(providerDir, entry), destination, label, ttlMs);
         copied.push(label);
@@ -565,10 +603,298 @@ export async function copyDevAuth(
       copied.push(`secrets/${entry}`);
     }
   }
-  if (!copied.length) {
+  if (!copied.length && required) {
     throw new Error(`--copy-auth: the kept dev profile at ${devProfileDir} has no provider sign-ins to copy.`);
   }
   return copied;
+}
+
+// ── sign-ins kept between --keep-auth instances ─────────────────────────────
+
+const CARRY_DIR = 'dev-isolated-auth';
+const HOLDER_FILE = 'holder.json';
+const CARRY_ENTRY = /^[a-z0-9-]+\.json$/;
+const ACCOUNT_FILE = /^provider-accounts\/([a-z0-9-]+)\/([a-z0-9-]+)\.json$/;
+// native/core/crates/mixdog-ai/src/accounts/mod.rs MAX_ACCOUNTS: a longer list makes the core read the roster as damaged.
+const MAX_ACCOUNTS = 20;
+
+/** Where --keep-auth keeps sign-ins: always the kept profile's own folder, which the kept dev app never reads. */
+export const carryStoreDir = (devProfileDir) => join(devProfileDir, CARRY_DIR);
+
+/** The provider an instance credential file belongs to, or null for anything else. */
+function credentialProvider(rel) {
+  if (CREDENTIAL_FILE.test(rel) && rel !== POOL_FILE) return rel.replace(/\.json$/, '').replace(/-credentials$/, '');
+  return ACCOUNT_FILE.exec(rel)?.[1] ?? null;
+}
+
+/** The roster account id a credential file belongs to: `default` for the provider's own file. */
+const accountIdOf = (rel) => ACCOUNT_FILE.exec(rel)?.[2] ?? 'default';
+
+function hasRefreshToken(value) {
+  if (Array.isArray(value)) return value.some(hasRefreshToken);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(
+    ([key, item]) => (REFRESH_TOKEN_KEYS.has(key) && typeof item === 'string' && item !== '') || hasRefreshToken(item)
+  );
+}
+
+async function writePrivateJson(path, value) {
+  const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
+  await rename(temporary, path);
+}
+
+/** Parsed JSON of a file already proven a regular file; a parse error names the file, never its content. */
+async function readTrustedJson(path, label) {
+  const text = await readDevSource((file) => readFile(file, 'utf8'), path);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} is not valid JSON.`);
+  }
+}
+
+/** One isolated root, however a shell spelled it: Windows paths differ in case (`c:\` and `C:\`) and name one folder. */
+const rootKey = (root) => (process.platform === 'win32' ? resolve(root).toLowerCase() : resolve(root));
+const sameHolder = (a, b) =>
+  isPlainObject(a) &&
+  isPlainObject(b) &&
+  typeof a.root === 'string' &&
+  typeof b.root === 'string' &&
+  rootKey(a.root) === rootKey(b.root) &&
+  a.name === b.name &&
+  a.startedAt === b.startedAt;
+
+/** Serializes claims and write-backs between starters and stoppers of every isolated root. */
+async function withCarryLock(store, run) {
+  const lock = join(store, '.lock');
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await writeFile(lock, String(process.pid), { flag: 'wx' });
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const owner = Number(await readFile(lock, 'utf8').catch(() => ''));
+      const age = await lstat(lock).then(
+        (info) => Date.now() - info.mtimeMs,
+        () => 0
+      );
+      if (owner ? !isPidAlive(owner) : age > 10_000) {
+        await rm(lock, { force: true });
+        continue;
+      }
+      if (attempt >= 300) throw new Error(`--keep-auth: ${lock} stays held by pid ${owner || 'unknown'}.`);
+      await sleep(100);
+    }
+  }
+  try {
+    return await run();
+  } finally {
+    await rm(lock, { force: true });
+  }
+}
+
+/** The holder record as written, or undefined when there is no record. */
+async function readHolder(trustedRoot, store) {
+  const path = join(store, HOLDER_FILE);
+  if (!(await lstatTrusted(trustedRoot, path, { optional: true }))) return undefined;
+  await assertDevFile(trustedRoot, path);
+  return readTrustedJson(path, `--keep-auth: the holder record ${path}`);
+}
+
+/** Why the kept sign-ins are in use, or null when free. Free is only no record, or a record whose lease is gone or
+ *  is another start's; a record or lease that cannot be read, or does not say what it must, holds them: stopInstance
+ *  drops a lease only once its instance is gone. */
+async function carryHeldBy(trustedRoot, store) {
+  let holder;
+  try {
+    holder = await readHolder(trustedRoot, store);
+  } catch (error) {
+    return error.message;
+  }
+  if (holder === undefined) return null;
+  if (!isPlainObject(holder) || typeof holder.root !== 'string' || !NAME.test(holder.name ?? '')) {
+    return `${join(store, HOLDER_FILE)} names no instance`;
+  }
+  const stop = `stop it with npm run dev:isolated:stop -- --name ${holder.name}`;
+  let lease;
+  try {
+    lease = JSON.parse(await readFile(leasePath(holder.root, holder.name), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    return `the lease of isolated instance "${holder.name}" (${holder.root}) cannot be read; ${stop}`;
+  }
+  if (!isPlainObject(lease) || typeof lease.startedAt !== 'string') {
+    return `the lease of isolated instance "${holder.name}" (${holder.root}) cannot be read; ${stop}`;
+  }
+  if (lease.startedAt !== holder.startedAt) return null;
+  return `isolated instance "${holder.name}" (${holder.root}, started ${holder.startedAt}) holds them; ${stop}`;
+}
+
+/** Makes `holder` the one instance with the kept sign-ins and returns them, by provider. */
+async function claimCarriedAuth({ devProfileDir, trustedRoot, holder }) {
+  await lstatTrusted(trustedRoot, devProfileDir);
+  const store = carryStoreDir(devProfileDir);
+  const stat = await lstatTrusted(trustedRoot, store, { optional: true });
+  if (!stat) await mkdir(store);
+  else if (!stat.isDirectory()) throw new Error(`--keep-auth: ${store} is not a directory.`);
+  return withCarryLock(store, async () => {
+    const held = await carryHeldBy(trustedRoot, store);
+    if (held) {
+      throw new Error(
+        `--keep-auth: the kept sign-ins in ${store} are in use: ${held}. Start with --copy-auth for an instance without them.`
+      );
+    }
+    const entries = new Map();
+    for (const file of (await readDevDir(store)).filter((name) => CARRY_ENTRY.test(name) && name !== HOLDER_FILE)) {
+      const path = join(store, file);
+      await assertDevFile(trustedRoot, path);
+      const entry = await readTrustedJson(path, `--keep-auth: ${path}`);
+      if (!isPlainObject(entry?.files)) throw new Error(`--keep-auth: ${path} holds no sign-in.`);
+      entries.set(file.slice(0, -'.json'.length), entry);
+    }
+    await writePrivateJson(join(store, HOLDER_FILE), holder);
+    return entries;
+  });
+}
+
+/** The kept roster's pool with the carried accounts merged in by id. */
+function mergePool(kept, carried) {
+  if (!isPlainObject(kept)) return carried;
+  const accounts = Array.isArray(kept.accounts) ? [...kept.accounts] : [];
+  for (const row of Array.isArray(carried.accounts) ? carried.accounts : []) {
+    const at = accounts.findIndex((account) => account?.id === row?.id);
+    if (at >= 0) accounts[at] = row;
+    else if (accounts.length < MAX_ACCOUNTS) accounts.push(row);
+  }
+  const selectedId = accounts.some((row) => row?.id === kept.selectedId) ? kept.selectedId : carried.selectedId;
+  return { ...kept, accounts, selectedId };
+}
+
+/** Writes the kept sign-ins into the instance, replacing the kept profile's copy of the same file, and merges their
+ *  accounts into its roster. Returns where each credential file came from. */
+async function applyCarriedAuth(dataDir, entries, kept) {
+  const seeded = Object.fromEntries(kept.map((label) => [label, 'kept']));
+  for (const [provider, entry] of entries) {
+    for (const [rel, credential] of Object.entries(entry.files)) {
+      if (credentialProvider(rel) !== provider) continue;
+      const destination = join(dataDir, ...rel.split('/'));
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, JSON.stringify(credential), { mode: 0o600 });
+      seeded[rel] = 'carry';
+    }
+  }
+  const pools = [...entries].filter(([, entry]) => isPlainObject(entry.pool));
+  if (pools.length) {
+    const rosterPath = join(dataDir, POOL_FILE);
+    const copied = await readFile(rosterPath, 'utf8')
+      .then(JSON.parse)
+      .catch(() => null);
+    // The core reads any other roster as damaged.
+    const roster =
+      isPlainObject(copied) && copied.version === 1 && isPlainObject(copied.providers)
+        ? copied
+        : { version: 1, providers: {} };
+    for (const [provider, entry] of pools) roster.providers[provider] = mergePool(roster.providers[provider], entry.pool);
+    await writeFile(rosterPath, JSON.stringify(roster, null, 2), { mode: 0o600 });
+  }
+  return seeded;
+}
+
+/** --keep-auth for one instance: claims the kept sign-ins for `holder` (refused while another instance holds them),
+ *  copies the kept profile's sign-ins as --copy-auth does, and lays the kept ones over them. */
+export async function seedInstanceAuth(
+  dataDir,
+  {
+    devProfileDir = persistentDevProfileDir('default'),
+    trustedRoot = devTrustedRoot(devProfileDir),
+    ttlMs = DEFAULT_TTL_MS,
+    holder,
+  }
+) {
+  const entries = await claimCarriedAuth({ devProfileDir, trustedRoot, holder });
+  const skip = new Set();
+  for (const [provider, entry] of entries) {
+    for (const rel of Object.keys(entry.files)) if (credentialProvider(rel) === provider) skip.add(rel);
+  }
+  const copied = await copyDevAuth(dataDir, { devProfileDir, trustedRoot, ttlMs, skip, required: !entries.size });
+  const seeded = await applyCarriedAuth(dataDir, entries, copied);
+  return { copied, carried: [...entries.keys()], seeded };
+}
+
+/** The instance's provider credential files, by provider; any link or unreadable file throws. */
+async function instanceCredentials(trustedRoot, dataDir) {
+  await lstatTrusted(trustedRoot, dataDir);
+  const rels = (await readDevDir(dataDir)).filter((name) => credentialProvider(name));
+  const accountsDir = join(dataDir, 'provider-accounts');
+  if (await lstatTrusted(trustedRoot, accountsDir, { optional: true })) {
+    for (const provider of (await readDevDir(accountsDir)).filter((name) => ACCOUNT_PROVIDER_DIR.test(name))) {
+      const stat = await lstatTrusted(trustedRoot, join(accountsDir, provider));
+      if (!stat.isDirectory()) continue;
+      for (const entry of await readDevDir(join(accountsDir, provider))) {
+        const rel = `provider-accounts/${provider}/${entry}`;
+        if (credentialProvider(rel)) rels.push(rel);
+      }
+    }
+  }
+  const byProvider = new Map();
+  for (const rel of rels) {
+    const path = join(dataDir, ...rel.split('/'));
+    await assertDevFile(trustedRoot, path);
+    const credential = await readTrustedJson(path, `The instance's ${rel}`);
+    const provider = credentialProvider(rel);
+    byProvider.set(provider, { ...byProvider.get(provider), [rel]: credential });
+  }
+  return byProvider;
+}
+
+/** The holder's write-back at its stop: every sign-in it was handed or made, with the roster accounts they belong to,
+ *  replaces the kept ones; the kept profile's copies stay behind. An instance that no longer holds writes nothing. */
+async function carryAuthOut(root, lease, devProfileDir) {
+  const trustedRoot = devTrustedRoot(devProfileDir);
+  const store = carryStoreDir(devProfileDir);
+  if (!(await lstatTrusted(trustedRoot, store, { optional: true }))) return [];
+  return withCarryLock(store, async () => {
+    const holder = { root: resolve(root), name: lease.name, startedAt: lease.startedAt };
+    if (!sameHolder(await readHolder(trustedRoot, store), holder)) return [];
+    const instanceTrust = instancesDir(root);
+    const dataDir = join(lease.instanceDir, 'profile', 'data');
+    const found = await instanceCredentials(instanceTrust, dataDir);
+    const rosterPath = join(dataDir, POOL_FILE);
+    let roster = null;
+    if (await lstatTrusted(instanceTrust, rosterPath, { optional: true })) {
+      await assertDevFile(instanceTrust, rosterPath);
+      roster = await readTrustedJson(rosterPath, `The instance's ${POOL_FILE}`);
+    }
+    const saved = [];
+    for (const [provider, files] of found) {
+      const own = Object.fromEntries(
+        Object.entries(files).filter(
+          ([rel, credential]) => hasRefreshToken(credential) || lease.authCarry.seeded[rel] !== 'kept'
+        )
+      );
+      if (!Object.keys(own).length) continue;
+      const ids = new Set(Object.keys(own).map(accountIdOf));
+      const pool = roster?.providers?.[provider];
+      const record = { files: own, savedAt: new Date().toISOString() };
+      if (isPlainObject(pool) && Array.isArray(pool.accounts)) {
+        record.pool = {
+          ...pool,
+          accounts: pool.accounts.filter((row) => ids.has(row?.id)),
+          selectedId: ids.has(pool.selectedId) ? pool.selectedId : undefined,
+        };
+      }
+      await writePrivateJson(join(store, `${provider}.json`), record);
+      saved.push(provider);
+    }
+    for (const file of await readDevDir(store)) {
+      if (CARRY_ENTRY.test(file) && file !== HOLDER_FILE && !saved.includes(file.slice(0, -'.json'.length))) {
+        await rm(join(store, file), { force: true });
+      }
+    }
+    await rm(join(store, HOLDER_FILE), { force: true });
+    return saved;
+  });
 }
 
 const PASS_ENV_NAME = /^MIXDOGD?_[A-Z0-9_]+$/;
@@ -769,7 +1095,8 @@ function logTail(path) {
 export async function startInstance({
   name,
   ttlMs = DEFAULT_TTL_MS,
-  copyAuth = false,
+  copyAuth: copyOnly = false,
+  keepAuth = false,
   skipOnboarding = true,
   timeoutMs = 300_000,
   root = isolatedRoot(),
@@ -781,8 +1108,9 @@ export async function startInstance({
 }) {
   if (relay !== 'off' && !LOOPBACK_RELAY.test(relay))
     throw new Error('--relay must be a ws://127.0.0.1:<port> or ws://localhost:<port> URL.');
-  await sweep(root);
-  const lease = await acquireLease(root, name, { ttlMs });
+  const copyAuth = copyOnly || keepAuth;
+  await sweep(root, { devProfileDir });
+  const lease = await acquireLease(root, name, { ttlMs, devProfileDir });
   let current = lease;
   try {
     const { cdpPort, rendererPort } = await allocatePorts(root, name);
@@ -795,7 +1123,17 @@ export async function startInstance({
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
     applyPassEnv(env, passEnv);
-    const copiedAuth = copyAuth ? await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs }) : [];
+    let copiedAuth = [];
+    let carriedAuth = [];
+    if (keepAuth) {
+      const holder = { root: resolve(root), name, startedAt: lease.startedAt };
+      const kept = await seedInstanceAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs, holder });
+      ({ copied: copiedAuth, carried: carriedAuth } = kept);
+      current = { ...current, authCarry: { seeded: kept.seeded } };
+      await replaceJson(leasePath(root, name), current);
+    } else if (copyAuth) {
+      copiedAuth = await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs });
+    }
     if (copyAuth || skipOnboarding) {
       await seedReadyConfig(env.MIXDOG_DATA_DIR, {
         withRoutes: copyAuth,
@@ -851,9 +1189,11 @@ export async function startInstance({
       startedAt: lease.startedAt,
       expiresAt: new Date(Date.parse(lease.startedAt) + ttlMs).toISOString(),
       copiedAuth,
+      carriedAuth,
     };
   } catch (error) {
-    await stopInstance(root, current).catch(() => {});
+    const stopped = await stopInstance(root, current, { devProfileDir }).catch(() => null);
+    if (stopped?.unsaved) throw new Error(`${error.message}\nThe instance was not cleaned up: ${stopped.unsaved}`);
     throw error;
   }
 }
@@ -866,6 +1206,7 @@ async function main() {
       name: { type: 'string' },
       all: { type: 'boolean', default: false },
       'copy-auth': { type: 'boolean', default: false },
+      'keep-auth': { type: 'boolean', default: false },
       onboarding: { type: 'boolean', default: false },
       'ttl-minutes': { type: 'string', default: String(DEFAULT_TTL_MS / 60_000) },
       'timeout-seconds': { type: 'string', default: '300' },
@@ -888,6 +1229,7 @@ async function main() {
       name: values.name,
       ttlMs,
       copyAuth: values['copy-auth'],
+      keepAuth: values['keep-auth'],
       skipOnboarding: !values.onboarding,
       timeoutMs: Number(values['timeout-seconds']) * 1000,
       root,
