@@ -67,7 +67,8 @@ export function RailSection({
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
     const head = event.currentTarget;
-    const shown = [...(head.closest('.session-rail-content')?.querySelectorAll<HTMLElement>('.session-rail-sec') ?? [])].map(
+    const cards = head.closest('.session-rail-content')?.querySelectorAll<HTMLElement>('.session-rail-sec:not([data-leaving])');
+    const shown = [...(cards ?? [])].map(
       (node) => node.dataset.category as SessionRailCategory
     );
     const down = event.key === 'ArrowDown';
