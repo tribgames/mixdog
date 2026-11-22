@@ -96,7 +96,7 @@ impl Extensions {
         let Some(item) = panel.items.get(index) else { return };
         match &panel.handler {
             Handler::McpServers => self.toggle_server(host, item),
-            Handler::Skills { skills, disabled } => self.toggle_skill(host, skills, disabled, item),
+            Handler::Skills { skills } => self.toggle_skill(host, skills, item),
             Handler::ProjectSkills => {
                 panel::close_now(host);
                 if let Action::View(skill) = &item.action {
@@ -147,7 +147,7 @@ impl Extensions {
         let Some(item) = panel.items.get(index) else { return };
         match &panel.handler {
             Handler::McpServers => self.toggle_server(host, item),
-            Handler::Skills { skills, disabled } => self.toggle_skill(host, skills, disabled, item),
+            Handler::Skills { skills } => self.toggle_skill(host, skills, item),
             _ => {}
         }
     }

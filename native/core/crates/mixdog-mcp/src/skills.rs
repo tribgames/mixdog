@@ -209,6 +209,40 @@ pub struct Skill {
     pub tool_dependencies: SkillToolDependencies,
 }
 
+/// The source part of a disabled-list entry: `global`, `plugin:<id>` or `builtin`.
+pub fn source_key(source: SkillSource, plugin: Option<&str>) -> String {
+    match source {
+        SkillSource::Global => "global".to_owned(),
+        SkillSource::Plugin => format!("plugin:{}", plugin.unwrap_or_default()),
+        SkillSource::Builtin => "builtin".to_owned(),
+    }
+}
+
+impl Skill {
+    pub fn source_key(&self) -> String {
+        source_key(self.source, self.plugin.as_deref())
+    }
+
+    /// The disabled-list entry that turns off this source's skill only: `<source>:<name>`.
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.source_key(), self.name)
+    }
+
+    /// A built-in that requires a feature follows that feature, not the disabled list.
+    pub fn follows_feature(&self) -> bool {
+        self.source == SkillSource::Builtin && !self.requires.is_empty()
+    }
+}
+
+/// The identity of a disabled-list entry (a key or a bare name): two entries are the same entry when these are equal.
+pub fn entry_key(entry: &str) -> String {
+    js_trim(entry).to_lowercase()
+}
+
+fn name_key(name: &str) -> String {
+    entry_key(name)
+}
+
 fn required_features(frontmatter: &Value) -> Vec<String> {
     let raw = frontmatter.get("metadata").and_then(|m| m.get("requires"));
     let items: Vec<String> = match raw {
@@ -247,9 +281,10 @@ fn walk_skill_dir(dir: &Path, out: &mut Vec<PathBuf>, ancestors: &mut Vec<PathBu
     }
 }
 
-/// Collects skills from `roots` in order (global, plugins, bundled): the first skill of a name
-/// wins. A non-plugin skill's folder name must equal its name; plugins ship nested layouts and
-/// load by their declared name. Unparseable documents are skipped.
+/// Collects skills from `roots` in order (global, plugins, bundled), every source's skill of a
+/// name included; within one source the first skill of a name wins. Which one of a name is in
+/// use is [`SkillGate::states`]. A non-plugin skill's folder name must equal its name; plugins
+/// ship nested layouts and load by their declared name. Unparseable documents are skipped.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 pub fn collect_skills(lane: &InLane<MaintenanceIo>, data_dir: &Path, roots: &[SkillRoot]) -> Vec<Skill> {
     let mut seen = HashSet::new();
@@ -264,7 +299,7 @@ pub fn collect_skills(lane: &InLane<MaintenanceIo>, data_dir: &Path, roots: &[Sk
             if root.source != SkillSource::Plugin && folder != Some(document.name.as_str()) {
                 continue;
             }
-            if !seen.insert(document.name.clone()) {
+            if !seen.insert((source_key(root.source, root.plugin.as_deref()), document.name.clone())) {
                 continue;
             }
             skills.push(Skill {
@@ -282,10 +317,22 @@ pub fn collect_skills(lane: &InLane<MaintenanceIo>, data_dir: &Path, roots: &[Sk
     skills
 }
 
+/// Where a skill stands among the skills of its name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SkillState {
+    InUse,
+    Off,
+    /// Another source's skill of the name, at this index of the list, is in use instead.
+    Hidden { by: usize },
+}
+
 /// What decides whether a skill is offered.
 #[derive(Clone, Debug, Default)]
 pub struct SkillGate {
-    /// Lower-cased names switched off in settings.
+    /// The disabled list's entries, each as [`entry_key`]. `<source>:<name>` ([`Skill::key`]) turns off that
+    /// source's skill. A bare `<name>`, as earlier versions wrote it, turns off every skill of the
+    /// name, unless the only one is a built-in that follows its feature: under first-of-name-wins
+    /// the shadowed ones were never offered either.
     pub disabled: HashSet<String>,
     /// Features that are installed and on (`jsRuntime` while the bundled runtime exists).
     pub active_features: HashSet<String>,
@@ -306,9 +353,13 @@ impl SkillGate {
         skill.requires.iter().find(|f| !self.active_features.contains(*f)).map(String::as_str)
     }
 
-    /// A bundled skill that requires a feature follows that feature, not the disabled list.
+    /// The gate of a disabled list as the settings hold it.
+    pub fn disabled_set<'a>(entries: impl IntoIterator<Item = &'a str>) -> HashSet<String> {
+        entries.into_iter().map(entry_key).filter(|entry| !entry.is_empty()).collect()
+    }
+
     fn follows_feature(skill: &Skill) -> bool {
-        skill.source == SkillSource::Builtin && !skill.requires.is_empty()
+        skill.follows_feature()
     }
 
     pub fn refusal(&self, skill: &Skill) -> Option<SkillRefusal> {
@@ -320,11 +371,93 @@ impl SkillGate {
         if let Some(feature) = self.missing_feature(skill) {
             return Some(SkillRefusal::MissingFeature { skill: requested.to_owned(), feature: feature.to_owned() });
         }
-        (!Self::follows_feature(skill) && self.disabled.contains(&skill.name.to_lowercase())).then(|| SkillRefusal::Disabled(requested.to_owned()))
+        self.turned_off(skill).then(|| SkillRefusal::Disabled(requested.to_owned()))
+    }
+
+    fn turned_off(&self, skill: &Skill) -> bool {
+        !Self::follows_feature(skill) && (self.disabled.contains(&entry_key(&skill.key())) || self.disabled.contains(&name_key(&skill.name)))
+    }
+
+    /// Whether a bare entry turns off the whole group (the first of the name decides, as it did when it alone was kept).
+    fn name_off(&self, first: &Skill) -> bool {
+        !Self::follows_feature(first) && self.disabled.contains(&name_key(&first.name))
+    }
+
+    /// Indexes of `skills` by name, in order of each name's first appearance.
+    fn groups(skills: &[Skill]) -> Vec<Vec<usize>> {
+        let mut at: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        for (index, skill) in skills.iter().enumerate() {
+            let slot = *at.entry(name_key(&skill.name)).or_insert_with(|| {
+                groups.push(Vec::new());
+                groups.len() - 1
+            });
+            groups[slot].push(index);
+        }
+        groups
+    }
+
+    /// [`states_where`](Self::states_where) with every skill in scope.
+    pub fn states(&self, skills: &[Skill]) -> Vec<SkillState> {
+        self.states_where(skills, |_| true)
+    }
+
+    /// The state of each of `skills` (in source order) where `in_scope` tells the skills the caller's project scope admits:
+    /// of a name, the first that is not turned off, has its required features and is in scope is in use and the rest of
+    /// those are hidden by it; the others are off.
+    pub fn states_where(&self, skills: &[Skill], in_scope: impl Fn(&Skill) -> bool) -> Vec<SkillState> {
+        let mut states = vec![SkillState::Off; skills.len()];
+        for group in Self::groups(skills) {
+            if self.name_off(&skills[group[0]]) {
+                continue;
+            }
+            let mut used = None;
+            for index in group {
+                let skill = &skills[index];
+                if self.turned_off(skill) || self.missing_feature(skill).is_some() || !in_scope(skill) {
+                    continue;
+                }
+                states[index] = match used {
+                    None => {
+                        used = Some(index);
+                        SkillState::InUse
+                    }
+                    Some(by) => SkillState::Hidden { by },
+                };
+            }
+        }
+        states
+    }
+
+    /// One skill of each name: the one in use, or the first of the name when every one is turned off (it reads as disabled).
+    pub fn in_use<'a>(&self, skills: &'a [Skill]) -> Vec<&'a Skill> {
+        self.in_use_where(skills, |_| true)
+    }
+
+    /// [`in_use`](Self::in_use) among the skills `in_scope` admits.
+    pub fn in_use_where<'a>(&self, skills: &'a [Skill], in_scope: impl Fn(&Skill) -> bool) -> Vec<&'a Skill> {
+        let states = self.states_where(skills, in_scope);
+        Self::groups(skills).into_iter().map(|group| &skills[group.iter().copied().find(|&i| states[i] == SkillState::InUse).unwrap_or(group[0])]).collect()
     }
 
     pub fn offered<'a>(&self, skills: &'a [Skill]) -> Vec<&'a Skill> {
-        skills.iter().filter(|s| self.refusal(s).is_none()).collect()
+        self.in_use(skills).into_iter().filter(|s| self.refusal(s).is_none()).collect()
+    }
+
+    /// Why an off skill is off: `"name"` when a bare entry covers its name, `"source"` when its own key is listed,
+    /// `"feature"` when a required feature is missing, else `"scope"` (the caller's project scope excludes it).
+    pub fn off_by(&self, skills: &[Skill], index: usize) -> &'static str {
+        let skill = &skills[index];
+        let first = skills.iter().find(|s| name_key(&s.name) == name_key(&skill.name)).unwrap_or(skill);
+        if self.name_off(first) {
+            "name"
+        } else if self.turned_off(skill) {
+            "source"
+        } else if self.missing_feature(skill).is_some() {
+            "feature"
+        } else {
+            "scope"
+        }
     }
 }
 

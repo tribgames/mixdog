@@ -623,7 +623,7 @@
         "items": {
           "type": "string"
         },
-        "description": "set_disabled_skills: full list of disabled skill names."
+        "description": "set_disabled_skills: full list of disabled skills. `<source>:<name>` turns off one source's skill, source being `global` (the user's own), `plugin:<plugin id>` or `builtin` (e.g. `plugin:acme:setup`); the next source's skill of that name is then used. A bare `<name>` turns off that name in every source. status skills gives each row's `key` and `state`."
       },
       "source": {
         "type": "string",

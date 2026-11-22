@@ -87,12 +87,13 @@ function buildSkillPayload(
   input: {
     editing: boolean;
     readOnly: boolean;
-    name: string;
+    /** The open row's key (`<sourceKey>:<name>`): saves go to that source's skill. */
+    original: string;
     dependencies: Dependency[];
     dependencyChange: 'none' | 'override' | 'restore';
   }
 ): { payload: RecordValue } | { error: string } | null {
-  const { editing, readOnly, name, dependencies, dependencyChange } = input;
+  const { editing, readOnly, original, dependencies, dependencyChange } = input;
   const trimmedDependencies = dependencies
     .filter((entry) => entry.value.trim())
     .map((entry) => ({ ...entry, value: entry.value.trim() }));
@@ -102,13 +103,13 @@ function buildSkillPayload(
   if (readOnly) {
     return dependencyChange === 'none'
       ? null
-      : { payload: { originalName: name, dependenciesOnly: true, ...dependencyPayload } };
+      : { payload: { originalName: original, dependenciesOnly: true, ...dependencyPayload } };
   }
   const body = String(data.get('skill-instructions') || '').trim();
   if (!body) return { error: t('SKILL.md instructions must not be empty.') };
   return {
     payload: {
-      ...(editing ? { originalName: name } : {}),
+      ...(editing ? { originalName: original } : {}),
       name: String(data.get('skill-name') || '').trim(),
       description: String(data.get('skill-description') || '').trim(),
       whenToUse: String(data.get('skill-trigger') || '').trim(),
@@ -167,6 +168,7 @@ export function SkillEditorDialog({
           <CompactSwitch
             label={`${name} · ${t('Enabled')}`}
             checked={!disabled}
+            optimistic={false}
             disabled={busy}
             onChange={() => onToggle()}
           />
@@ -177,7 +179,7 @@ export function SkillEditorDialog({
         const built = buildSkillPayload(new FormData(event.currentTarget), {
           editing,
           readOnly,
-          name,
+          original: String(skill?.key || ''),
           dependencies,
           dependencyChange,
         });

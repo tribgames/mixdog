@@ -344,8 +344,10 @@ impl DoctorSources for ServiceDoctor {
         self.host.channel_setup().await
     }
 
-    async fn skills_status(&self) -> Probe {
-        self.status("skills/skillsStatus", json!({})).await
+    async fn skills_status(&self, thread: Option<&ThreadId>) -> Probe {
+        // A check run by a session is about that session's folder; one without a session is unscoped.
+        let params = thread.map_or_else(|| json!({}), |thread| json!({"threadId": thread.as_str(), "options": {"scoped": true}}));
+        self.status("skills/skillsStatus", params).await
     }
 
     async fn plugins_status(&self) -> Probe {

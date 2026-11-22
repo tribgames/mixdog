@@ -660,6 +660,7 @@
   "setCwd",
   "setDeveloperOption",
   "setDisabledSkills",
+  "setSkillEnabled",
   "setEffort",
   "setExtensionScope",
   "setFast",

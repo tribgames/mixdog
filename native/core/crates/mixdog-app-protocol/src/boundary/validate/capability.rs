@@ -213,6 +213,7 @@ const CAPABILITIES: &[(&str, &str, &[&str])] = &[
     ("skills/removeSkill", "removeSkill", &["input"]),
     ("skills/saveSkill", "saveSkill", &["input"]),
     ("skills/setDisabledSkills", "setDisabledSkills", &["names"]),
+    ("skills/setSkillEnabled", "setSkillEnabled", &["key", "enabled"]),
     ("skills/skillContent", "skillContent", &["name"]),
     ("skills/skillsStatus", "skillsStatus", &[]),
     ("thread/askSide", "askSide", &["question"]),
@@ -276,8 +277,9 @@ const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const CONTEXT_INSPECTION_KEYS: &[&str] = &["inspect", "entryId", "revision"];
 /// `projectPath` is the desktop's option (a new-task draft's Project); `cwd` is the runtime's own (`skillsStatus({ cwd })`,
 /// `resource-skills-api.mjs` `statusCwd`), which the skills service reads when no Project is named
-/// (`skills_service.rs` `requested_cwd`).
-const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath", "cwd"];
+/// (`skills_service.rs` `requested_cwd`). `scoped: true` is a session asking about itself (a composer's skill menu, the
+/// `$` palette): the status is scoped to the folder of the request's `threadId`.
+const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath", "cwd", "scoped"];
 const STARTER_GUIDE_KEYS: &[&str] = &["closed", "welcomed", "visited"];
 /// `STARTER_GUIDE_STEPS` of `ipc-validation.ts` (the runtime schema `starter-guide-state.mjs`).
 const STARTER_GUIDE_STEPS: &[&str] = &["provider", "project", "workflow", "extensions", "remote"];
@@ -318,7 +320,7 @@ pub fn check(method: &str, given: Option<&Value>) -> Option<Result<(), ErrorData
             }
         }
         "skillsStatus" => {
-            if let Err((path, expected)) = skills_status_options(params.get("options")) {
+            if let Err((path, expected)) = skills_status_options(params.get("options"), params.get("threadId")) {
                 return refuse(&path, &expected);
             }
         }
@@ -502,11 +504,28 @@ fn turn_changes_target(params: &Map<String, Value>) -> Result<(), (&'static str,
 /// The `skillsStatus` options: a new-task draft's absolute project path (the host resolves it to a registered
 /// Project and refuses anything else), or the folder itself as `cwd`, which the skills service holds to an existing
 /// absolute directory with its own messages (`statusCwd`).
-fn skills_status_options(value: Option<&Value>) -> Result<(), (String, String)> {
+fn skills_status_options(value: Option<&Value>, thread: Option<&Value>) -> Result<(), (String, String)> {
     let Some(options) = options_object(value, "skills status options are invalid.")? else {
         return Ok(());
     };
     allowed_keys(options, SKILLS_STATUS_OPTION_KEYS, "skills status options")?;
+    if let Some(scoped) = options.get("scoped") {
+        let path = "/options/scoped";
+        if scoped != &Value::Bool(true) {
+            return Err((path.to_owned(), "skills status scoped must be true.".to_owned()));
+        }
+        if !thread.and_then(Value::as_str).is_some_and(|id| !id.is_empty()) {
+            return Err((path.to_owned(), "skills status scoped needs the session's threadId.".to_owned()));
+        }
+        if !options.contains_key("projectPath") && !options.contains_key("cwd") {
+            return Ok(());
+        }
+    }
+    // A new-task draft with no Project names the empty project identity, as creating that task does: the host answers for
+    // the task workspace it will run in.
+    if options.get("projectPath").and_then(Value::as_str) == Some("") {
+        return Ok(());
+    }
     // The service reads `projectPath` first and `cwd` only without one. A null `cwd` is no folder: Node's `statusCwd`
     // refused it, and the service would read it as absent, so it is held to the Project rule below.
     if !options.contains_key("projectPath") && options.get("cwd").is_some_and(|cwd| !cwd.is_null()) {
@@ -628,6 +647,20 @@ mod tests {
         assert_eq!(
             run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "/work/proj", "force": true }))),
             refused("/options", "skills status options contains an unsupported field.")
+        );
+    }
+
+    /// A client's session asking about itself (`options.scoped: true` with the request's `threadId`) is accepted, as from
+    /// the core; without the session, or with another value, it is refused.
+    #[test]
+    fn validate_capability_skills_status_takes_a_session_asking_about_itself() {
+        let refused = |expected: &str| Err(ErrorData::InvalidParams { path: "/options/scoped".to_owned(), expected: expected.to_owned() });
+        let scoped = serde_json::json!({ "scoped": true });
+        assert_eq!(run("skills/skillsStatus", &serde_json::json!({ "threadId": "thread-1", "options": scoped })), Ok(()));
+        assert_eq!(run("skills/skillsStatus", &serde_json::json!({ "options": scoped })), refused("skills status scoped needs the session's threadId."));
+        assert_eq!(
+            run("skills/skillsStatus", &serde_json::json!({ "threadId": "thread-1", "options": { "scoped": false } })),
+            refused("skills status scoped must be true.")
         );
     }
 

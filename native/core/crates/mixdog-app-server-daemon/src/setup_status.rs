@@ -70,7 +70,9 @@ impl StatusReader for ServiceStatus {
             "skills" => {
                 // `{ ...skillsStatus(), disabled: getDisabledSkills().disabled || [] }`: a
                 // `disabled` the status carries keeps its place.
-                let Value::Object(mut out) = ask(&self.skills, "skills/skillsStatus", json!({})).await? else { unreachable!("skillsStatus answers an object") };
+                // The session asks about itself: the status is scoped to its folder.
+                let params = json!({"threadId": thread.as_str(), "options": {"scoped": true}});
+                let Value::Object(mut out) = ask(&self.skills, "skills/skillsStatus", params).await? else { unreachable!("skillsStatus answers an object") };
                 let disabled = ask(&self.skills, "skills/getDisabledSkills", json!({})).await?;
                 out.insert("disabled".to_owned(), disabled.get("disabled").filter(|list| !list.is_null()).cloned().unwrap_or_else(|| json!([])));
                 Ok(Value::Object(out))

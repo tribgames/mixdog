@@ -54,10 +54,12 @@ async fn skills_are_collected_in_precedence_with_folder_rules() {
     let dir = tempfile::tempdir().unwrap();
     let (found, _) = collect_fixture_skills(&tokens, dir.path()).await;
     let names: Vec<&str> = found.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, vec!["alpha", "needs-js", "gamma"]);
+    assert_eq!(names, vec!["alpha", "needs-js", "gamma", "alpha"]);
     assert_eq!(found[0].tool_dependencies.manifest_names(), ["mcp:github", "read"]);
     assert_eq!(found[0].tool_dependencies.source, mixdog_mcp::skill_deps::DependencySource::Declaration);
-    assert_eq!(found[0].description, "alpha description", "the global skill shadows the bundled one");
+    let in_use = skills::SkillGate::default().in_use(&found);
+    assert_eq!(in_use.iter().map(|s| (s.name.as_str(), s.description.as_str())).collect::<Vec<_>>()[0], ("alpha", "alpha description"), "the global skill shadows the bundled one");
+    assert_eq!(in_use.len(), 3);
     assert_eq!(found[2].plugin.as_deref(), Some("plug"));
 }
 

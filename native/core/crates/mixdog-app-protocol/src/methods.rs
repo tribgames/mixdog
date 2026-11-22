@@ -2827,6 +2827,15 @@ crate::client_request_definitions! {
         mutation: op(Skills),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's session configure action `setSkillEnabled`: switches one status row's skill in the stored disabled list.
+    SkillsSetSkillEnabled => "skills/setSkillEnabled" {
+        params: SkillsSetSkillEnabledParams,
+        result: JsonValue,
+        scope: thread_or_none(thread_id),
+        class: C2,
+        mutation: op(Skills),
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's session read action `pluginsStatus`.
     PluginsPluginsStatus => "plugins/pluginsStatus" {
         params: PluginsPluginsStatusParams,

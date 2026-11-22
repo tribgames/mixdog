@@ -171,7 +171,7 @@ fn target_of(list: InventoryList, name: &str) -> Option<&'static Target> {
 }
 
 /// DS-ALL-1: each of the 174 operations, 61 service methods, 190 phone
-/// methods and 304 session actions is mapped exactly once, to a target that
+/// methods and 305 session actions is mapped exactly once, to a target that
 /// exists in the generated tables.
 #[test]
 fn ds_all_1_every_inventory_name_is_mapped_once() {
@@ -180,7 +180,7 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
         (InventoryList::Operations, "operations", 174),
         (InventoryList::Services, "services", 61),
         (InventoryList::Remote, "remote", 190),
-        (InventoryList::Actions, "actions", 304),
+        (InventoryList::Actions, "actions", 305),
     ];
     let methods: HashSet<&str> = CLIENT_METHODS.iter().map(|s| s.method).collect();
     let notifications: HashSet<&str> = SERVER_NOTIFICATIONS.iter().map(|s| s.method).collect();

@@ -1,7 +1,7 @@
 //! Which Skills the user has turned off (`src/tui/app/use-disabled-skills.mjs`).
 //!
-//! The set is read once when the application starts and written back through the store on every change, so the Skills picker
-//! edits one authority instead of a local copy.
+//! The set is read once when the application starts and replaced by the list the core answers to each switch: the core
+//! changes the stored list itself, so the Skills picker never writes a copy of its own.
 
 use serde_json::{Value, json};
 
@@ -61,10 +61,20 @@ pub fn load_disabled_skills(host: &mut dyn ExtensionsHost) {
     }
 }
 
-/// `setDisabledSkills(next)`: holds `next` and persists it through the store; a failed write is reported.
-pub fn set_disabled_skills(host: &mut dyn ExtensionsHost, next: SkillSet) {
-    host.hold_disabled_skills(next.clone());
-    if let Err(error) = host.store_call("setDisabledSkills", json!([next.names()])) {
-        host.push_notice(&format!("skill disable persist failed: {error}"), Tone::Error);
+/// `setSkillEnabled(key, enabled)`: the core switches the status row's skill `key` in the stored list and answers the list,
+/// which is held; a failed write is reported and answers false.
+pub fn set_skill_enabled(host: &mut dyn ExtensionsHost, key: &str, enabled: bool) -> bool {
+    match host.store_call("setSkillEnabled", json!([key, enabled])) {
+        Ok(result) => {
+            let disabled = result.get("disabled").and_then(Value::as_array).map(|names| names.iter().map(value_text).collect());
+            if let Some(disabled) = disabled {
+                host.hold_disabled_skills(disabled);
+            }
+            true
+        }
+        Err(error) => {
+            host.push_notice(&format!("skill toggle failed: {error}"), Tone::Error);
+            false
+        }
     }
 }

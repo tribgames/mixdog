@@ -1,4 +1,4 @@
-import { Blocks, Plug } from 'lucide-react';
+import { Blocks, ChevronDown, ChevronRight, Plug, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { t } from '../i18n';
 import { CapabilityIcon } from '../CapabilityIcon';
@@ -6,8 +6,28 @@ import { skillDisplayDescription } from '../skill-presentation';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
 import { useRemoteHostOpenAccess } from '../remote-host-access';
-import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
+import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
+import { toggleHeading } from '../session-sidebar-sections';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
+import {
+  isOpen,
+  readOpenMap,
+  SKILL_CATEGORY_OPEN_KEY,
+  toggleOpen,
+  writeOpenMap,
+  type OpenMap,
+} from '../sidebar-open-state';
+import { SidebarResourceTitle, type SidebarResourceTag } from '../sidebar-resource-row';
+import {
+  isBuiltinSource,
+  isSharedSkill,
+  OWN_SKILLS,
+  pluginIdOf,
+  sharedSkillNames,
+  skillCategories,
+  skillSourceRows,
+  type SkillSourceRow,
+} from './skill-sources';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { PluginInfo } from './plugin-info';
 import { SkillEditorDialog } from './skill-editor';
@@ -79,17 +99,6 @@ function PluginInstallDialog({
   );
 }
 
-function disabledSkillNames(data: PanelContext['data']): Set<string> {
-  const disabled = record(data.disabledSkills).disabled;
-  return new Set((Array.isArray(disabled) ? disabled : []).map(String));
-}
-
-function saveSkillEnabled(run: PanelContext['run'], disabled: ReadonlySet<string>, name: string, enabled: boolean) {
-  const next = new Set(disabled);
-  if (enabled) next.delete(name);
-  else next.add(name);
-  void run('setDisabledSkills', [[...next]]);
-}
 
 const REMOVAL_IN_FLIGHT = Symbol('mcp-removal-in-flight');
 
@@ -270,7 +279,97 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
   );
 }
 
-/** The user's own skills only: built-in and plugin skills stay out of the UI. */
+function useSkillCategoryOpen(): [(sourceKey: string) => boolean, (sourceKey: string) => void] {
+  const [map, setMap] = useState<OpenMap>(() => readOpenMap(window.localStorage, SKILL_CATEGORY_OPEN_KEY));
+  const toggle = (sourceKey: string) =>
+    setMap((current) => {
+      const next = toggleOpen(current, sourceKey);
+      writeOpenMap(window.localStorage, SKILL_CATEGORY_OPEN_KEY, next);
+      return next;
+    });
+  return [(sourceKey) => isOpen(map, sourceKey), toggle];
+}
+
+function skillRowStatus(
+  row: SkillSourceRow,
+  shared: ReadonlySet<string>,
+  sourceLabel: (sourceKey: string) => string
+): { tag: SidebarResourceTag | null; note: string } {
+  if (row.state === 'off') return { tag: { label: t('Disabled'), tone: 'muted' }, note: '' };
+  if (row.state === 'hidden') {
+    return {
+      tag: { label: t('Overridden'), tone: 'muted' },
+      note: t('In use: {{source}}', { source: sourceLabel(row.hiddenBy) }),
+    };
+  }
+  return {
+    tag: isSharedSkill(shared, row) ? { label: t('In use'), tone: 'ok' } : null,
+    note: row.replacesBuiltin ? t('Replaces the built-in skill') : '',
+  };
+}
+
+/** One source's skill: the row opens its card, the switch turns that source's
+ *  skill on or off. The status line names what is in use instead. */
+function SkillSourceRowView({
+  row,
+  sourceLabel,
+  status,
+  on,
+  busy,
+  onOpen,
+  onMenu,
+  onToggle,
+}: {
+  row: SkillSourceRow;
+  sourceLabel: string;
+  status: { tag: SidebarResourceTag | null; note: string };
+  on: boolean;
+  busy: boolean;
+  onOpen(): void;
+  onMenu(point: { x: number; y: number }): void;
+  onToggle(on: boolean): void;
+}) {
+  const off = row.state === 'off';
+  const description = skillDisplayDescription(row.record).trim() || t('Skill instructions');
+  return (
+    <div
+      className="schedules-row utilities-row skills-row"
+      data-extension-row={row.name}
+      data-skill-key={row.key}
+      data-skill-state={row.state}
+      data-enabled={off ? 'false' : 'true'}
+      {...contextMenuRowProps(onMenu)}
+    >
+      <button
+        type="button"
+        className="skills-row-open"
+        aria-label={row.name}
+        data-tooltip={description}
+        disabled={busy}
+        onClick={onOpen}
+      >
+        <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">
+          <CapabilityIcon name={row.name} />
+        </span>
+        <span className="schedules-row-copy utilities-row-copy">
+          <SidebarResourceTitle label={row.name} tag={status.tag} />
+          {status.note ? <small className="skills-row-note">{status.note}</small> : null}
+        </span>
+      </button>
+      <CompactSwitch
+        label={`${row.name} · ${sourceLabel} · ${t('Enabled')}`}
+        checked={on}
+        optimistic={false}
+        disabled={busy || !row.switchable}
+        onChange={onToggle}
+      />
+    </div>
+  );
+}
+
+/** The user's own skills, then each plugin's, one category per source. A
+ *  skill another source's skill of the same name hides is listed too; built-in
+ *  skills are listed only while the disabled list turns them off. */
 export function SkillsPanel({
   api,
   data,
@@ -280,53 +379,87 @@ export function SkillsPanel({
   refreshExtensions,
   createOpen,
   closeCreate,
+  openCreate,
 }: PanelContext) {
   const status = record(data.skills);
-  const skills = rows(status, 'skills').filter(
-    (skill) => record(skill.owner).kind !== 'builtin' && record(skill.owner).kind !== 'plugin'
-  );
-  const disabled = disabledSkillNames(data);
+  const all = skillSourceRows(status);
+  const shared = sharedSkillNames(all);
   const busy = Boolean(pending);
-  const [detail, setDetail] = useState<{ name: string; content: string | null } | null>(null);
-  const toggle = (name: string) => saveSkillEnabled(run, disabled, name, disabled.has(name));
-  const open = detail ? skills.find((skill) => String(skill.name) === detail.name) : undefined;
-  const openOff = detail ? disabled.has(detail.name) : false;
-  const openDetail = (name: string) => {
+  const [sameNamesOnly, setSameNamesOnly] = useState(false);
+  const filtering = sameNamesOnly && shared.size > 0;
+  const [categoryOpen, toggleCategory] = useSkillCategoryOpen();
+  const pluginLabels = new Map(
+    rows(record(data.plugins), 'plugins').map((plugin) => [String(plugin.id || plugin.name || ''), label(plugin)])
+  );
+  const sourceLabel = (sourceKey: string) => {
+    if (sourceKey === OWN_SKILLS) return t('My skills');
+    if (isBuiltinSource(sourceKey)) return t('Built-in');
+    const id = pluginIdOf(sourceKey);
+    return pluginLabels.get(id) || id;
+  };
+  const categories = skillCategories(all)
+    .map((category) => ({
+      ...category,
+      rows: filtering ? category.rows.filter((row) => isSharedSkill(shared, row)) : category.rows,
+    }))
+    .filter((category) => category.rows.length > 0 || (!filtering && category.sourceKey === OWN_SKILLS));
+  const [detail, setDetail] = useState<{ key: string; name: string; content: string | null } | null>(null);
+  // A switched row shows the asked value only until the core replies; then it
+  // shows the refreshed row, which may still be off for another reason.
+  const [switching, setSwitching] = useState<Readonly<Record<string, boolean>>>({});
+  const toggle = (row: SkillSourceRow, on: boolean) => {
+    setSwitching((current) => ({ ...current, [row.key]: on }));
+    void run('setSkillEnabled', [row.key, on]).finally(() =>
+      setSwitching(({ [row.key]: _done, ...rest }) => rest)
+    );
+  };
+  const shownOn = (row: SkillSourceRow) => switching[row.key] ?? row.state !== 'off';
+  const open = detail ? all.find((row) => row.key === detail.key) : undefined;
+  const openDetail = (row: SkillSourceRow) => {
+    const { key, name } = row;
     closeCreate?.();
-    setDetail({ name, content: null });
+    setDetail({ key, name, content: null });
     void refreshExtensions();
-    void run<RecordValue>('skillContent', [name], `skill-content-${name}`, false).then((value) => {
+    void run<RecordValue>('skillContent', [key], `skill-content-${key}`, false).then((value) => {
       setDetail((current) => {
-        if (current?.name !== name) return current;
-        return value === undefined ? null : { name, content: String(record(value).content || '') };
+        if (current?.key !== key) return current;
+        return value === undefined ? null : { key, name, content: String(record(value).content || '') };
       });
     });
   };
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
-  const openMenu = (name: string, off: boolean, point: { x: number; y: number }) =>
+  const openMenu = (row: SkillSourceRow, point: { x: number; y: number }) => {
+    const off = !shownOn(row);
     setMenu({
-      label: name,
+      label: row.name,
       ...point,
       items: [
-        { id: 'open', label: t('Open'), onSelect: () => window.setTimeout(() => openDetail(name), 0) },
-        { id: 'toggle', label: off ? t('Enable') : t('Disable'), onSelect: () => toggle(name) },
-        {
-          id: 'remove',
-          label: t('Delete'),
-          danger: true,
-          separatorBefore: true,
-          onSelect: () => window.setTimeout(() => confirmRemove(name), 0),
-        },
+        { id: 'open', label: t('Open'), onSelect: () => window.setTimeout(() => openDetail(row), 0) },
+        ...(row.switchable
+          ? [{ id: 'toggle', label: off ? t('Enable') : t('Disable'), onSelect: () => toggle(row, off) }]
+          : []),
+        ...(row.editable
+          ? [
+              {
+                id: 'remove',
+                label: t('Delete'),
+                danger: true,
+                separatorBefore: true,
+                onSelect: () => window.setTimeout(() => confirmRemove(row), 0),
+              },
+            ]
+          : []),
       ],
     });
-  const confirmRemove = (name: string) =>
+  };
+  const confirmRemove = ({ key, name }: SkillSourceRow) =>
     confirm({
       title: t('Delete skill?'),
       description: t('{{name}} will be deleted from your skills.', { name }),
       confirmLabel: t('Delete'),
       danger: true,
       onConfirm: () => {
-        setDetail((current) => (current?.name === name ? null : current));
+        setDetail((current) => (current?.key === key ? null : current));
         void run('removeSkill', [{ name }]);
       },
     });
@@ -351,32 +484,84 @@ export function SkillsPanel({
           onSave={(payload) => void save(payload)}
         />
       )}
-      {skills.length === 0 &&
-        (sectionLoaded(data, 'skills') ? (
-          <div className="utility-dock-empty mx-empty-state">
-            <p>{t('No skills.')}</p>
-          </div>
-        ) : (
-          <ListEmpty text={t('Loading skills…')} />
-        ))}
-      {skills.map((skill) => {
-        const name = String(skill.name);
-        const off = disabled.has(name);
-        const description = skillDisplayDescription(skill).trim() || t('Skill instructions');
-        return (
-          <ExtensionRow
-            key={name}
-            icon={<CapabilityIcon name={name} />}
-            title={name}
-            description={description}
-            enabled={!off}
-            status={off ? { label: t('Disabled'), tone: 'muted' } : null}
-            busy={busy}
-            onOpen={() => openDetail(name)}
-            onMenu={(point) => openMenu(name, off, point)}
-          />
-        );
-      })}
+      {!sectionLoaded(data, 'skills') && all.length === 0 ? (
+        <ListEmpty text={t('Loading skills…')} />
+      ) : (
+        <>
+          {shared.size > 0 && (
+            <div className="skills-filter" role="group" aria-label={t('Skill filter')}>
+              <button type="button" aria-pressed={!filtering} onClick={() => setSameNamesOnly(false)}>
+                {t('All')}
+              </button>
+              <button type="button" aria-pressed={filtering} onClick={() => setSameNamesOnly(true)}>
+                {t('Same names only')}
+              </button>
+            </div>
+          )}
+          {categories.map((category) => {
+            const name = sourceLabel(category.sourceKey);
+            const expanded = categoryOpen(category.sourceKey);
+            return (
+              <section
+                key={category.sourceKey}
+                className="skills-category"
+                data-skill-source={category.sourceKey}
+                aria-label={name}
+              >
+                <div className="sidebar-category-header">
+                  <button
+                    type="button"
+                    className="sidebar-recent-heading sidebar-heading-toggle"
+                    aria-expanded={expanded}
+                    onClick={toggleHeading(() => toggleCategory(category.sourceKey))}
+                  >
+                    <span>{name}</span>
+                    <small>{category.rows.length}</small>
+                    {expanded ? (
+                      <ChevronDown size={12} aria-hidden="true" />
+                    ) : (
+                      <ChevronRight size={12} aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+                {expanded && (
+                  <div className="skills-category-list">
+                    {category.rows.length === 0 && (
+                      <button
+                        type="button"
+                        className="schedules-row utilities-row skills-row skills-invite"
+                        disabled={busy}
+                        onClick={() => openCreate?.()}
+                      >
+                        <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">
+                          <Plus size={16} />
+                        </span>
+                        <span className="schedules-row-copy utilities-row-copy">
+                          <SidebarResourceTitle label={t('Add skill')} />
+                          <small className="skills-row-note">{t('Skills you create appear here.')}</small>
+                        </span>
+                      </button>
+                    )}
+                    {category.rows.map((row) => (
+                      <SkillSourceRowView
+                        key={row.key}
+                        row={row}
+                        sourceLabel={name}
+                        status={skillRowStatus(row, shared, sourceLabel)}
+                        on={shownOn(row)}
+                        busy={busy}
+                        onOpen={() => openDetail(row)}
+                        onMenu={(point) => openMenu(row, point)}
+                        onToggle={(on) => toggle(row, on)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </>
+      )}
       <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
       {detail && open && detail.content === null && (
         <SidebarLoadingDialog
@@ -387,27 +572,29 @@ export function SkillsPanel({
       )}
       {detail && open && detail.content !== null && (
         <SkillEditorDialog
-          key={detail.name}
-          skill={open}
+          key={detail.key}
+          skill={open.record}
           tools={rows(status, 'tools')}
           instructions={detail.content}
-          disabled={openOff}
+          disabled={!shownOn(open)}
           busy={busy}
-          readOnly={open.editable === false}
+          readOnly={!open.editable}
           scopeField={
-            <ExtensionScopeField
-              api={api}
-              run={run}
-              kind="skills"
-              name={detail.name}
-              {...scopeOf(open)}
-              currentPath={currentProjectPath(data)}
-              busy={busy}
-            />
+            open.sourceKey === OWN_SKILLS ? (
+              <ExtensionScopeField
+                api={api}
+                run={run}
+                kind="skills"
+                name={detail.name}
+                {...scopeOf(open.record)}
+                currentPath={currentProjectPath(data)}
+                busy={busy}
+              />
+            ) : undefined
           }
           onClose={() => setDetail(null)}
           onSave={(payload) => void save(payload)}
-          onToggle={() => toggle(detail.name)}
+          onToggle={open.switchable ? () => toggle(open, !shownOn(open)) : undefined}
         />
       )}
     </Group>

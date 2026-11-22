@@ -356,15 +356,9 @@ impl SkillSettingsSource for ConfigSkillSettings {
                 active.insert(id.to_owned());
             }
         }
-        let disabled = agent
-            .get("skills")
-            .and_then(|skills| skills.get("disabled"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|name| mixdog_js::js_trim(&mixdog_js::value_to_string(name)).to_lowercase())
-            .filter(|name| !name.is_empty())
-            .collect();
+        let entries: Vec<String> =
+            agent.get("skills").and_then(|skills| skills.get("disabled")).and_then(Value::as_array).into_iter().flatten().map(mixdog_js::value_to_string).collect();
+        let disabled = SkillGate::disabled_set(entries.iter().map(String::as_str));
         SkillSettings {
             gate: SkillGate { disabled, active_features: active },
             scopes: mixdog_mcp::scopes::ExtensionScopes::from_config(agent.get("extensionScopes").unwrap_or(&Value::Null)),

@@ -22,6 +22,7 @@ use crate::skills::SkillRefusal;
 use crate::skills::SkillRoot;
 use crate::skills::SkillSource;
 use crate::skills::collect_skills;
+use crate::skills::entry_key;
 use crate::skills::parse_document;
 use crate::skills_watch::SkillsWatch;
 use crate::skills_watch::WatchTargets;
@@ -154,9 +155,28 @@ impl SkillCatalog {
         self.cache.store(Arc::new(None));
     }
 
-    /// Every installed skill, first of a name winning; empty while skills are switched off by
-    /// the environment.
+    /// One installed skill of each name: the one in use ([`SkillGate::in_use`] under the current
+    /// settings, no project scope applied; a session's is [`skills_at`](Self::skills_at)); empty
+    /// while skills are switched off by the environment.
     pub async fn skills(&self) -> Result<Arc<Vec<Skill>>, CatalogError> {
+        let every = self.every_skill().await?;
+        Ok(self.in_use(&every))
+    }
+
+    fn in_use(&self, every: &[Skill]) -> Arc<Vec<Skill>> {
+        Arc::new(self.settings.current().gate.in_use(every).into_iter().cloned().collect())
+    }
+
+    /// One skill of each name as a session in `cwd` has it: the one in use among those the project scope admits there.
+    pub async fn skills_at(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
+        let every = self.every_skill().await?;
+        let settings = self.settings.current();
+        Ok(settings.gate.in_use_where(&every, |s| settings.scopes.skill_allowed_for_cwd(s, cwd)).into_iter().cloned().collect())
+    }
+
+    /// Every installed skill of every source, in source order; empty while skills are switched
+    /// off by the environment.
+    pub async fn every_skill(&self) -> Result<Arc<Vec<Skill>>, CatalogError> {
         if skills_disabled_by_env() {
             return Ok(Arc::new(Vec::new()));
         }
@@ -196,7 +216,7 @@ impl SkillCatalog {
         }
         let generation = *self.changes.borrow();
         match &**self.cache.load() {
-            Some(cached) if cached.generation == generation => Some(Arc::clone(&cached.skills)),
+            Some(cached) if cached.generation == generation => Some(self.in_use(&cached.skills)),
             _ => None,
         }
     }
@@ -216,7 +236,7 @@ impl SkillCatalog {
     /// The skills a session in `cwd` may see: not switched off, feature available, inside the
     /// skill's (and its plugin's) project scope.
     pub async fn visible(&self, cwd: &Path) -> Result<Vec<Skill>, CatalogError> {
-        Ok(self.filter_visible(&self.skills().await?, cwd))
+        Ok(self.filter_visible(&self.skills_at(cwd).await?, cwd))
     }
 
     fn filter_visible(&self, skills: &[Skill], cwd: &Path) -> Vec<Skill> {
@@ -242,7 +262,7 @@ impl SkillCatalog {
 
     /// What the `Skill` tool delivers for `name` at `cwd`.
     pub async fn load(&self, name: &str, cwd: &Path) -> Result<SkillLoad, CatalogError> {
-        let skills = self.skills().await?;
+        let skills = self.skills_at(cwd).await?;
         if let Some(refusal) = self.refusal(&skills, name, cwd) {
             return Ok(SkillLoad::Refused(refusal));
         }
@@ -252,11 +272,27 @@ impl SkillCatalog {
         })
     }
 
-    /// `loadSkillResource`: the skill named `name` (exactly, once trimmed) with its body, whether
-    /// or not settings or scope would hide it from the model.
-    pub async fn resource(&self, name: &str) -> Result<Option<SkillResource>, CatalogError> {
-        let skills = self.skills().await?;
-        self.resource_from(&skills, name).await
+    /// The one skill a request names, whether or not settings or scope would hide it from the model.
+    /// A status row's key (`<sourceKey>:<name>`; a skill name holds no `:`) is that source's skill,
+    /// matched as [`entry_key`]. A name (exactly, once trimmed) is the user's own skill of the name
+    /// when there is one (the one the editor writes), else the one in use.
+    pub async fn named(&self, value: &str) -> Result<Option<Skill>, CatalogError> {
+        let every = self.every_skill().await?;
+        let wanted = js_trim(value);
+        if wanted.contains(':') {
+            return Ok(every.iter().find(|s| entry_key(&s.key()) == entry_key(wanted)).cloned());
+        }
+        if let Some(own) = every.iter().find(|s| s.source == SkillSource::Global && s.name == wanted) {
+            return Ok(Some(own.clone()));
+        }
+        Ok(self.in_use(&every).iter().find(|s| s.name == wanted).cloned())
+    }
+
+    /// `loadSkillResource`: the skill [`named`](Self::named) by `value`, with its body.
+    pub async fn resource(&self, value: &str) -> Result<Option<SkillResource>, CatalogError> {
+        let Some(skill) = self.named(value).await? else { return Ok(None) };
+        let name = skill.name.clone();
+        self.resource_from(&[skill], &name).await
     }
 
     async fn resource_from(&self, skills: &[Skill], name: &str) -> Result<Option<SkillResource>, CatalogError> {

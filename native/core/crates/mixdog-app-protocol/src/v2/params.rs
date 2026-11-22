@@ -4073,6 +4073,7 @@ pub struct SkillsSkillsStatusParams {
 pub struct SkillsSkillContentParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
+    /// A skill name, or a `skillsStatus` row's `key` (`<sourceKey>:<name>`, e.g. `plugin:acme:setup`) for that source's skill.
     pub name: String,
 }
 
@@ -4170,6 +4171,26 @@ pub struct SkillsSetDisabledSkillsParams {
 }
 
 impl crate::common::HasOpId for SkillsSetDisabledSkillsParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
+/// Params of `skills/setSkillEnabled`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct SkillsSetSkillEnabledParams {
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    /// A `skillsStatus` row's `key` (`<sourceKey>:<name>`, e.g. `plugin:acme:setup`): that source's skill alone is switched.
+    pub key: String,
+    pub enabled: bool,
+}
+
+impl crate::common::HasOpId for SkillsSetSkillEnabledParams {
     fn op_id(&self) -> &OpId {
         &self.op_id
     }

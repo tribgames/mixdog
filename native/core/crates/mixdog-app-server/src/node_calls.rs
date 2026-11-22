@@ -3,7 +3,7 @@
 //! each its own method. These are the methods the protocol table documents as "Today's session configure action" / "session read
 //! action" (`mixdog-app-protocol/src/methods.rs`), and the
 //! methods Node reached through an action the table names differently.
-const CONFIGURE_ACTIONS: [&str; 165] = [
+const CONFIGURE_ACTIONS: [&str; 166] = [
     "thread/rememberPromptHistory",
     "thread/restoreNewerTranscript",
     "thread/restoreOlderTranscript",
@@ -161,6 +161,7 @@ const CONFIGURE_ACTIONS: [&str; 165] = [
     "skills/removeSkill",
     "skills/reloadSkills",
     "skills/setDisabledSkills",
+    "skills/setSkillEnabled",
     "plugins/addPlugin",
     "plugins/updatePlugin",
     "plugins/setPluginEnabled",

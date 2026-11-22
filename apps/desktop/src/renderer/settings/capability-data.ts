@@ -112,6 +112,8 @@ export interface PanelContext {
   /** Create-form disclosure driven by the host's header action. */
   createOpen?: boolean;
   closeCreate?(): void;
+  /** Opens the create form from inside the panel (an empty category's invitation). */
+  openCreate?(): void;
   /** The dialog is showing. Its pages stay mounted, hidden, while it is closed;
    *  absent means shown. */
   active?: boolean;

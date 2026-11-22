@@ -12,7 +12,7 @@ pub enum InventoryList {
     Services,
     /// The 190 phone methods.
     Remote,
-    /// The 304 session actions.
+    /// The 305 session actions.
     Actions,
 }
 
@@ -712,6 +712,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (InventoryList::Actions, "setCwd", Target::Method("thread/setCwd")),
     (InventoryList::Actions, "setDeveloperOption", Target::Method("config/setDeveloperOption")),
     (InventoryList::Actions, "setDisabledSkills", Target::Method("skills/setDisabledSkills")),
+    (InventoryList::Actions, "setSkillEnabled", Target::Method("skills/setSkillEnabled")),
     (InventoryList::Actions, "setEffort", Target::Method("thread/setEffort")),
     (InventoryList::Actions, "setExtensionScope", Target::Method("config/setExtensionScope")),
     (InventoryList::Actions, "setFast", Target::Method("fast/set")),

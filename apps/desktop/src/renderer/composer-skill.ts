@@ -53,13 +53,14 @@ export function shouldRemoveSelectedSkill(input: {
  *  (src/session-runtime/resource-scope-decorate.mjs): `scope` / `inheritedScope`
  *  are project root lists (null = everywhere), `activeHere` whether the
  *  answering session's cwd sees the skill. */
-type ScopedSkill = { enabled?: unknown; activeHere?: unknown; scope?: unknown; inheritedScope?: unknown };
+type ScopedSkill = { state?: unknown; activeHere?: unknown; scope?: unknown; inheritedScope?: unknown };
 
-/** Whether the runtime would use `skill` for this composer: switched on AND in
- *  scope. The status is always read for the composer's own folder (its
+/** Whether the runtime would use `skill` for this composer: the source's skill
+ *  of its name that is in use (every source's row of a name says `enabled`)
+ *  AND in scope. The status is always read for the composer's own folder (its
  *  session's, or a draft's selected Project), so `activeHere` decides. */
 export function skillAvailable(skill: ScopedSkill | null | undefined): boolean {
-  return skill?.enabled === true && skill.activeHere !== false;
+  return skill?.state === 'inUse' && skill.activeHere !== false;
 }
 
 // The menu offers only the user's own skills, in the order the daemon
