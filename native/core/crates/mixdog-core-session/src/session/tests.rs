@@ -5837,6 +5837,24 @@ async fn a_watched_thread_gone_quiet_rests_its_feed_and_stays_loaded() {
     assert!(directory.handle(&handle.id).is_some(), "and the thread stays loaded for its subscriber");
 }
 
+/// A loaded session held its header four times: each of its two states, the live header it publishes and the open log. Once
+/// a turn is over and everything it wrote has landed, the two states and the live header are one allocation.
+#[tokio::test(start_paused = true)]
+async fn a_quiet_sessions_two_states_and_its_live_header_hold_one_header() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+    // Past the usage books' debounce: a book still waiting is laid over a copy of the header.
+    tokio::time::advance(Duration::from_secs(120)).await;
+    caught_up(&handle).await;
+    caught_up(&handle).await;
+    let live = handle.cell.header.load_full();
+    assert!(Arc::strong_count(&live) >= 4, "the cell, this reader and both states hold it: {} holders", Arc::strong_count(&live));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_refused_last_attach_restarts_idle_eviction() {
     let rig = Rig::new();

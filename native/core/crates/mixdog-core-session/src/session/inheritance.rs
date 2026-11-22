@@ -212,7 +212,7 @@ impl SessionDirectory {
         }
         let ctx = CallContext::internal("inheritance");
         let handle = self.open_handle(heir, &ctx).await?;
-        let live = (**handle.cell.turn_messages.borrow()).clone();
+        let live = handle.turn_messages_snapshot();
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }

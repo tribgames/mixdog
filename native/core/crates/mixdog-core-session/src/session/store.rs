@@ -1939,7 +1939,7 @@ impl StoreThreads {
     /// them directly.
     fn open(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<log::OpenedLog, CoreError> {
         let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index).map_err(|e| Self::open_error(id, e))?;
-        if mixdog_store::summary::is_deleted(&opened.fold.header) {
+        if opened.fold.header.get(mixdog_store::summary::DELETED) == Some(&Value::Bool(true)) {
             return Err(Self::not_found(id));
         }
         Ok(opened)
@@ -2343,7 +2343,7 @@ impl ThreadStore for StoreThreads {
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
-        Ok(self.open(lane, id)?.fold.header)
+        Ok(self.open(lane, id)?.fold.header.to_map())
     }
 
     /// Kept by the version of the session's log (`log_epoch`), as [`StoreThreads::shape`] is: the header is folded
@@ -2460,7 +2460,7 @@ impl ThreadStore for StoreThreads {
         // `thread/clear` rewinds to the lineage's first row: a fork may cut into its base.
         let lineage_start = if fold.base.is_some() { 0 } else { fold.start_ordinal + 1 };
         Ok(OpenedLog {
-            header: fold.header.clone(),
+            header: fold.header.to_map(),
             control: fold.control,
             history_rev: fold.history_rev,
             lineage_start,

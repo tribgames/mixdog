@@ -916,7 +916,7 @@ impl SessionSwitchAdapter {
         };
         header.insert("id".into(), json!(thread.as_str()));
         let handle = self.directory.handle(thread);
-        let live: Vec<Value> = handle.as_ref().map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
+        let live: Vec<Value> = handle.as_ref().map(|handle| handle.turn_messages_snapshot()).unwrap_or_default();
         let committed = ThreadMessages::messages(&self.threads, thread).await.map_err(failed)?;
         let facts = Facts {
             now: self.directory.deps().clock.now_ms(),
@@ -1053,7 +1053,7 @@ impl SessionContextSwitch {
             Err(PortError::NotFound { .. }) => return Ok(()),
             Err(error) => return Err(failed(error)),
         };
-        let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
+        let live: Vec<Value> = self.directory.handle(thread).map(|handle| handle.turn_messages_snapshot()).unwrap_or_default();
         if is_scratch(thread.as_str(), &committed, &live) {
             // A failed close throws before anything else was released.
             if !self.close.close(thread.as_str(), CONTEXT_SWITCH_REASON).await {

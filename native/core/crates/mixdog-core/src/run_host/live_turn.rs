@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 use mixdog_agent::compact::execution_tail::MessageRows;
 use mixdog_agent::message::AgentMessage;
+use mixdog_core_session::session::LiveRow;
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -19,7 +20,7 @@ pub struct LiveTurnPublisher {
 }
 
 struct Inner {
-    tx: watch::Sender<Arc<Vec<Value>>>,
+    tx: watch::Sender<Arc<Vec<LiveRow>>>,
     state: Mutex<State>,
 }
 
@@ -35,7 +36,7 @@ struct State {
 }
 
 impl LiveTurnPublisher {
-    pub fn new(tx: watch::Sender<Arc<Vec<Value>>>) -> Self {
+    pub fn new(tx: watch::Sender<Arc<Vec<LiveRow>>>) -> Self {
         Self { inner: Arc::new(Inner { tx, state: Mutex::new(State::default()) }) }
     }
 
@@ -48,6 +49,16 @@ impl LiveTurnPublisher {
     /// it commits), so the rows of those already published stay and only the new ones are made; a list shorter than the
     /// one published is a new list.
     pub fn publish<M: std::borrow::Borrow<AgentMessage>>(&self, messages: &[M], rows: &dyn MessageRows) {
+        self.publish_with(messages, |message| LiveRow::Row(rows.row(message)));
+    }
+
+    /// [`Self::publish`] with the run's stored rows: a message that is its own row is referred to, so the cell holds no
+    /// second copy of a tool result's bytes for the turn.
+    pub fn publish_stored<M: std::borrow::Borrow<AgentMessage>>(&self, messages: &[M], rows: &mixdog_core_session::session::StoredRows) {
+        self.publish_with(messages, |message| rows.live_row(message));
+    }
+
+    fn publish_with<M: std::borrow::Borrow<AgentMessage>>(&self, messages: &[M], row: impl Fn(&AgentMessage) -> LiveRow) {
         let mut guard = self.state();
         let state = &mut *guard;
         if messages.len() < state.turn {
@@ -55,7 +66,7 @@ impl LiveTurnPublisher {
             state.answered.clear();
         }
         let added = &messages[state.turn..];
-        let new_rows: Vec<Value> = added.iter().map(|m| rows.row(m.borrow())).collect();
+        let new_rows: Vec<LiveRow> = added.iter().map(|m| row(m.borrow())).collect();
         state.answered.extend(added.iter().filter_map(|m| m.borrow().tool_call_id().map(str::to_owned)));
         let answered = &state.answered;
         state.early.retain(|(id, _)| !answered.contains(id));
@@ -65,7 +76,7 @@ impl LiveTurnPublisher {
             let cell = Arc::make_mut(cell);
             cell.truncate(held);
             cell.extend(new_rows);
-            cell.extend(early.iter().map(|(_, row)| row.clone()));
+            cell.extend(early.iter().map(|(_, row)| LiveRow::Row(row.clone())));
         });
         state.turn = messages.len();
     }
@@ -78,7 +89,7 @@ impl LiveTurnPublisher {
             return;
         }
         state.early.push((call_id.to_owned(), row.clone()));
-        self.inner.tx.send_modify(|cell| Arc::make_mut(cell).push(row));
+        self.inner.tx.send_modify(|cell| Arc::make_mut(cell).push(LiveRow::Row(row)));
     }
 
     /// The turn ended (committed, failed or interrupted): nothing is live.
@@ -95,6 +106,11 @@ mod tests {
 
     use super::*;
 
+    /// The cell's rows as a reader takes them.
+    fn read(rx: &watch::Receiver<Arc<Vec<LiveRow>>>) -> Vec<Value> {
+        LiveRow::values(&rx.borrow())
+    }
+
     struct Rows;
     impl MessageRows for Rows {
         fn row(&self, message: &AgentMessage) -> Value {
@@ -107,24 +123,24 @@ mod tests {
 
     #[test]
     fn the_cell_reads_what_the_run_last_published_and_nothing_after_it_ends() {
-        let (tx, rx) = watch::channel(Arc::<Vec<Value>>::default());
+        let (tx, rx) = watch::channel(Arc::<Vec<LiveRow>>::default());
         let run = LiveTurnPublisher::new(tx);
         assert!(rx.borrow().is_empty());
         run.publish(&[AgentMessage::user("hi")], &Rows);
-        assert_eq!(**rx.borrow(), vec![json!({ "role": "user", "content": "hi" })]);
+        assert_eq!(read(&rx), vec![json!({ "role": "user", "content": "hi" })]);
         run.clear();
         assert!(rx.borrow().is_empty());
     }
 
     #[test]
     fn an_early_notice_shows_after_the_working_messages_until_its_result_commits() {
-        let (tx, rx) = watch::channel(Arc::<Vec<Value>>::default());
+        let (tx, rx) = watch::channel(Arc::<Vec<LiveRow>>::default());
         let run = LiveTurnPublisher::new(tx);
         run.publish(&[AgentMessage::user("hi")], &Rows);
         run.early("c1", json!({ "role": "tool", "toolCallId": "c1", "content": "early" }));
         run.early("c1", json!({ "role": "tool", "toolCallId": "c1", "content": "again" }));
         assert_eq!(rx.borrow().len(), 2);
-        assert_eq!(rx.borrow()[1]["content"], "early");
+        assert_eq!(read(&rx)[1]["content"], "early");
         let mut result = AgentMessage::tool_text("c1", "real", mixdog_agent::message::ToolKind::Normal);
         result.message.tool_call_id = Some("c1".into());
         run.publish(&[AgentMessage::user("hi"), result], &Rows);
@@ -144,7 +160,7 @@ mod tests {
 
     #[test]
     fn a_commit_makes_its_own_row_and_the_cell_keeps_the_rows_already_published() {
-        let (tx, rx) = watch::channel(Arc::<Vec<Value>>::default());
+        let (tx, rx) = watch::channel(Arc::<Vec<LiveRow>>::default());
         let run = LiveTurnPublisher::new(tx);
         let rows = Counted(Default::default());
         let mut turn = Vec::new();
@@ -153,14 +169,20 @@ mod tests {
             turn.push(AgentMessage::user(format!("message {n}")));
             run.publish(&turn, &rows);
             if n == 0 {
-                first = rx.borrow()[0]["content"].as_str().unwrap().as_ptr();
+                first = match &rx.borrow()[0] {
+                    LiveRow::Row(row) => row["content"].as_str().unwrap().as_ptr(),
+                    LiveRow::Message(_) => panic!("a row"),
+                };
             }
         }
         assert_eq!(rows.0.load(std::sync::atomic::Ordering::SeqCst), 50, "each working message is made a row once, not on every commit");
         let held = rx.borrow().clone();
         assert_eq!(held.len(), 50);
-        assert_eq!(held[49]["content"], "message 49");
-        assert_eq!(held[0]["content"].as_str().unwrap().as_ptr(), first, "the first row is the one first published, not a copy of it");
+        assert_eq!(held[49].value()["content"], "message 49");
+        assert!(
+            matches!(&held[0], LiveRow::Row(row) if row["content"].as_str().unwrap().as_ptr() == first),
+            "the first row is the one first published, not a copy of it"
+        );
         // A reader's list is its own: the next commit leaves it as it was taken.
         turn.push(AgentMessage::user("message 50"));
         run.publish(&turn, &rows);
@@ -169,8 +191,23 @@ mod tests {
         run.early("c9", json!({ "role": "tool", "toolCallId": "c9", "content": "early" }));
         turn.push(AgentMessage::user("message 51"));
         run.publish(&turn, &rows);
-        assert_eq!((rx.borrow()[51]["content"].clone(), rx.borrow()[52]["content"].clone()), (json!("message 51"), json!("early")));
+        assert_eq!((read(&rx)[51]["content"].clone(), read(&rx)[52]["content"].clone()), (json!("message 51"), json!("early")));
         run.publish(&turn[..1], &rows);
-        assert_eq!(rx.borrow().iter().map(|row| row["content"].clone()).collect::<Vec<_>>(), [json!("message 0"), json!("early")]);
+        assert_eq!(read(&rx).iter().map(|row| row["content"].clone()).collect::<Vec<_>>(), [json!("message 0"), json!("early")]);
+    }
+
+    /// A tool result the turn registered as its own row is referred to by the cell, not converted and kept: the cell, the
+    /// stored rows and the turn hold one message, and a reader is given the row it converts to.
+    #[test]
+    fn a_result_that_is_its_own_row_is_the_turns_message_in_the_cell_and_reads_as_its_row() {
+        let (tx, rx) = watch::channel(Arc::<Vec<LiveRow>>::default());
+        let run = LiveTurnPublisher::new(tx);
+        let rows = mixdog_core_session::session::StoredRows::new();
+        let result = Arc::new(AgentMessage::tool_text("c1", &"x".repeat(4096), mixdog_agent::message::ToolKind::Normal));
+        let body = mixdog_agent::message_row::row_of(&result);
+        rows.record_turn(result.clone(), body.clone());
+        run.publish_stored(std::slice::from_ref(&result), &rows);
+        assert!(matches!(&rx.borrow()[0], LiveRow::Message(held) if Arc::ptr_eq(held, &result)), "the cell refers to the turn's message");
+        assert_eq!(read(&rx), vec![body]);
     }
 }

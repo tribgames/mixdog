@@ -192,7 +192,7 @@ fn keep_fields(header: &mixdog_store::schema::record::Header, fields: Option<&[&
 /// The opened log folded into the state the actor starts from (cpu-interactive).
 fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog) -> Opened {
     let mut state = SessionState::new(deps.limits.view_items);
-    state.header = log.header;
+    state.header = Arc::new(log.header);
     state.sections.title = super::state::title_of(&state.header);
     state.history_rev = log.history_rev;
     state.lineage_start = log.lineage_start;
@@ -1356,7 +1356,7 @@ impl DirInner {
             shown_changed: tokio::sync::watch::Sender::new(0),
             takeover: Default::default(),
             view: arc_swap::ArcSwap::new(view),
-            header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
+            header: arc_swap::ArcSwap::new(state.header.clone()),
             surface,
             progress: watch::Sender::new(Default::default()),
             turn_messages: watch::Sender::new(Default::default()),
@@ -1458,7 +1458,7 @@ impl DirInner {
             header: Slot::Inline(header.clone()),
         });
         let mut state = SessionState::new(self.deps.limits.view_items);
-        state.header = header.clone();
+        state.header = Arc::new(header.clone());
         let lineage = self.lineage_of(&id, &header);
         let (tx, rx) = oneshot::channel();
         let (handle, launch) = {
@@ -2521,7 +2521,7 @@ impl SessionDirectory {
     pub async fn holds_conversation(&self, id: &ThreadId) -> Result<bool, CoreError> {
         let mut rows = self.committed_rows(id).await?;
         if let Some(handle) = self.handle(id) {
-            rows.extend(handle.turn_messages_snapshot().iter().cloned());
+            rows.extend(handle.turn_messages_snapshot());
         }
         Ok(super::thread_settings::has_conversation_messages(&rows))
     }
@@ -2804,6 +2804,7 @@ impl SessionDirectory {
         // its projector are still there. Taken before the actors are told, so none ends with its journal still here; no
         // thread is opened from here (`sealed`), so no session is marked again behind a retirement.
         let journals: Vec<(ThreadId, Journal)> = lock(&self.inner.journals).drain().collect();
+        #[cfg(any(test, feature = "test-support"))]
         shutdown_stage(format_args!(
             "journals taken: {:?}; threads told to stop: {:?}",
             journals.iter().map(|(thread, _)| thread.as_str()).collect::<Vec<_>>(),

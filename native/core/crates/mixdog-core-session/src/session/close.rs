@@ -567,7 +567,7 @@ impl super::directory::ExitClose for SessionClose {
             let ended = tokio::spawn(async move { hooks.session_end(&ended_thread, &header, end_reason).await });
             let _ = mixdog_rt::time::timeout(super::lifecycle_hooks::SESSION_END_WAIT, ended).await;
         }
-        let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
+        let live: Vec<Value> = self.directory.handle(thread).map(|handle| handle.turn_messages_snapshot()).unwrap_or_default();
         let closed = if super::thread_switches::is_scratch(thread.as_str(), &committed, &live) {
             self.close(thread.as_str(), reason).await
         } else {

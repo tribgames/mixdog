@@ -194,7 +194,7 @@ impl CatalogHead {
             session: fold.session.clone(),
             log_id: fold.log_id.clone(),
             base_session: fold.base.as_ref().map(|b| b.session.as_str().to_owned()),
-            header: fold.header.clone(),
+            header: fold.header.to_map(),
         }
     }
 }

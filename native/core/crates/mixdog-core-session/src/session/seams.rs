@@ -971,7 +971,7 @@ pub struct RunStart {
     pub progress: watch::Sender<mixdog_core_run::run_host::progress::RunProgress>,
     /// The session cell's working-messages channel: the run publishes the turn's messages
     /// before they are committed (`session.liveTurnMessages`); the route side reads the cell.
-    pub turn_messages: watch::Sender<Arc<Vec<Value>>>,
+    pub turn_messages: watch::Sender<Arc<Vec<super::transcript::LiveRow>>>,
     /// Cancelled by `turn/interrupt` (RL §5.2): every await of the run selects on it.
     pub cancel: CancellationToken,
     /// The same cancellation with the reason it was aborted for (Node's abort texts): the

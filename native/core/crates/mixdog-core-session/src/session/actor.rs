@@ -1717,10 +1717,10 @@ pub(crate) struct SessionActor {
     draft_stopped: std::collections::HashSet<String>,
     /// Ended runs whose drafts wait for the held records (their end records among them) to land.
     drafts_after_save: Vec<String>,
-    /// The tool-result rows accepted and not yet on disk, by outbox entry: the run and the call each answers. A result leaves
+    /// The tool-result rows accepted and not yet on disk, by outbox entry: the run and the drafted result each took as its own. A result leaves
     /// its run's draft only when its own row's write is acknowledged ([`Self::durability_acked`]), on a retry or after the
     /// run ended as well: until then the draft is the one place a rewrite or a recovery finds it.
-    draft_results: std::collections::HashMap<u64, (String, String)>,
+    draft_results: std::collections::HashMap<u64, (String, u64)>,
     /// The drafts of ended runs still on disk, by run id: what each holds and the run's mark subscription, so a value marked
     /// before the file goes is taken out of it ([`JobDone::SensitiveMarked`]).
     ended_drafts: std::collections::HashMap<String, (super::turn_draft::DraftJournal, Box<dyn Send>)>,
@@ -1881,7 +1881,8 @@ struct TurnTask {
     warm: super::turn_warm::WarmNote,
     hooks: Arc<dyn super::lifecycle_hooks::LifecycleHooks>,
     thread: ThreadId,
-    header: mixdog_store::schema::record::Header,
+    /// The header as the turn began: the state's allocation, held and not copied.
+    header: Arc<mixdog_store::schema::record::Header>,
     review: super::turn_snapshot::TurnSnapshot,
     cancel: mixdog_agent::cancel::Cancel,
     ctl: mpsc::Sender<Ctl>,
@@ -2437,14 +2438,16 @@ impl SessionActor {
 
     /// The live header: the stored one with the usage books still waiting for their write.
     fn publish_live_header(&self) {
-        let mut header = self.acked.header.clone();
-        if let Some(unsaved) = &self.usage_unsaved {
-            for key in &unsaved.unset {
-                header.shift_remove(key);
-            }
-            for (key, value) in &unsaved.set {
-                header.insert(key.clone(), value.clone());
-            }
+        // With no book waiting the live header is the stored one: the cell holds the state's allocation, not a copy of it.
+        let Some(unsaved) = &self.usage_unsaved else {
+            return self.cell.header.store(self.acked.header.clone());
+        };
+        let mut header = Header::clone(&self.acked.header);
+        for key in &unsaved.unset {
+            header.shift_remove(key);
+        }
+        for (key, value) in &unsaved.set {
+            header.insert(key.clone(), value.clone());
         }
         self.cell.header.store(Arc::new(header));
     }
@@ -2913,6 +2916,11 @@ impl SessionActor {
             }
         }
         self.releasing = false;
+        // Both states have folded everything accepted, each into a copy of its own header: they say the same again, and hold
+        // it once.
+        if self.outbox.is_empty() && !Arc::ptr_eq(&self.projected.header, &self.acked.header) && self.projected.header == self.acked.header {
+            self.projected.header = self.acked.header.clone();
+        }
         if !self.writes_landed.is_empty() {
             let (landed, waiting): (Vec<_>, Vec<_>) =
                 std::mem::take(&mut self.writes_landed).into_iter().partition(|(through, _)| !self.outbox.unwritten_through(*through));
@@ -3458,13 +3466,13 @@ impl SessionActor {
         self.save_risk.acked(&ordinals);
         for &(id, ordinal) in &ordinals {
             self.outbox.acked(id, ordinal);
-            if let Some((rid, call)) = self.draft_results.remove(&id) {
+            if let Some((rid, result)) = self.draft_results.remove(&id) {
                 let journal = match self.run.as_mut().filter(|run| run.turn.as_str() == rid) {
                     Some(run) => Some(&mut run.journal),
                     None => self.ended_drafts.get_mut(&rid).map(|(journal, _)| journal),
                 };
                 if let Some(journal) = journal {
-                    journal.result_landed(&call);
+                    journal.result_landed(result);
                 }
             }
         }
@@ -3817,8 +3825,10 @@ impl SessionActor {
                     run.last_model = Some(row.clone());
                 }
                 let entry = self.accept_record_entry(record, Class::Normal, display, Vec::new(), vec![Effect::ItemAck(ack)]);
-                if let Some(call) = answers {
-                    self.draft_results.insert(entry, (turn.as_str().to_owned(), call));
+                if let Some(call) = answers
+                    && let Some(result) = self.run.as_mut().filter(|run| run.turn.as_str() == turn.as_str()).and_then(|run| run.journal.claim_result(&call))
+                {
+                    self.draft_results.insert(entry, (turn.as_str().to_owned(), result));
                 }
             }
             Err(_) => {
@@ -4379,7 +4389,7 @@ impl SessionActor {
 
     /// An agent-mode session compacts silently (`isAgentModeSession`).
     fn agent_mode(&self) -> bool {
-        let mut header = self.acked.header.clone();
+        let mut header = Header::clone(&self.acked.header);
         header.entry("id").or_insert_with(|| Value::String(self.id.as_str().to_owned()));
         mixdog_store::agent_mode::session_mode_of(&header) == "agent"
     }
@@ -5272,7 +5282,7 @@ impl SessionActor {
                 Ok::<_, mixdog_scm::error::ScmFailure>(admitted)
             }
         };
-        let mut run_header = self.acked.header.clone();
+        let mut run_header = Header::clone(&self.acked.header);
         match admitted_pick {
             Some(pick) => {
                 run_header.insert("pendingRoute".into(), pick);

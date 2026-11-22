@@ -255,6 +255,50 @@ impl StoredRows {
     }
 }
 
+/// A row of the running turn's working messages (the cell's `turn_messages`): the stored body, or the turn's own message
+/// where the body is the row that message converts to. A tool result is such a message, and a body held beside it kept the
+/// result's bytes once more for the whole turn; a reader makes the row when it reads.
+#[derive(Clone, Debug)]
+pub enum LiveRow {
+    Row(Value),
+    Message(std::sync::Arc<AgentMessage>),
+}
+
+impl LiveRow {
+    pub fn value(&self) -> Value {
+        match self {
+            Self::Row(row) => row.clone(),
+            Self::Message(message) => mixdog_agent::message_row::row_of(message),
+        }
+    }
+
+    /// The rows of a list the cell holds.
+    pub fn values(rows: &[LiveRow]) -> Vec<Value> {
+        rows.iter().map(Self::value).collect()
+    }
+}
+
+impl From<Value> for LiveRow {
+    fn from(row: Value) -> Self {
+        Self::Row(row)
+    }
+}
+
+impl StoredRows {
+    /// [`MessageRows::row`] for the running turn's list: a message registered as its own row ([`Self::record_turn`]) is
+    /// referred to, not converted and kept.
+    pub fn live_row(&self, message: &AgentMessage) -> LiveRow {
+        let rows = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if message.message_id.is_none()
+            && let Some((known, Held::Converted)) = rows.unkeyed.iter().rev().find(|(known, _)| **known == *message)
+        {
+            return LiveRow::Message(known.clone());
+        }
+        drop(rows);
+        LiveRow::Row(self.row(message))
+    }
+}
+
 impl MessageRows for StoredRows {
     /// `Value::Null` for a message the run never registered: no stored row exists for it.
     fn row(&self, message: &AgentMessage) -> Value {

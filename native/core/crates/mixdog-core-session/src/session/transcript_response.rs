@@ -245,8 +245,8 @@ fn append_to_tail(previous: &Row, response: &Row, now: i64) -> Option<Row> {
 /// `None` for another item, or a card whose text lives out of line (a live card is inline).
 fn tool_row(item: &ThreadItem) -> Option<Row> {
     let ThreadItem::ToolCall { id, name, input, run, meta, .. } = item else { return None };
-    let inline = |text: &Option<MaybeBlob<String>>| match text {
-        Some(MaybeBlob::Inline(text)) => Some(Some(text.clone())),
+    let inline = |text: &Option<MaybeBlob<mixdog_protocol::SharedText>>| match text {
+        Some(MaybeBlob::Inline(text)) => Some(Some(text.as_str().to_owned())),
         Some(MaybeBlob::Blob(_)) => None,
         None => Some(None),
     };

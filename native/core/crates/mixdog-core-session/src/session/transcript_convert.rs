@@ -224,13 +224,17 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let call_id = take_str(&mut row, "callId");
     // The item id is opaque; the provider's call id rides `run.callId`, which a result's update finds the card by.
     let id = row_id;
-    let result = blob_text(&mut row, "result");
+    let shared = |text: Option<MaybeBlob<String>>| match text? {
+        MaybeBlob::Inline(text) => Some(MaybeBlob::Inline(mixdog_protocol::SharedText::from(text))),
+        MaybeBlob::Blob(blob) => Some(MaybeBlob::Blob(blob)),
+    };
+    let result = shared(blob_text(&mut row, "result"));
     let is_error = take_bool(&mut row, "isError");
     let completed_count = take_int(&mut row, "completedCount").and_then(|n| u32::try_from(n).ok());
-    let run = ToolRun {
+    let mut run = ToolRun {
         call_id,
-        result: result.clone(),
-        raw_result: blob_text(&mut row, "rawResult"),
+        result,
+        raw_result: shared(blob_text(&mut row, "rawResult")),
         is_error,
         started_at: take_int(&mut row, "startedAt"),
         completed_at: take_int(&mut row, "completedAt"),
@@ -241,6 +245,7 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         aggregate: None,
         live: None,
     };
+    run.share_equal_results();
     row.shift_remove("expanded");
     let mut meta = meta_of(&mut row, ctx);
     meta.status = if is_error == Some(true) {
@@ -349,13 +354,14 @@ pub(in crate::session) fn item_of(row: Row, ctx: &Ctx<'_>) -> ThreadItem {
 
 /// The update a tool result gives the item of its call.
 fn result_update(fact: ResultFact, ctx: &Ctx<'_>) -> ThreadItem {
-    let text = fact.text;
+    // The update states its text as the call's `output` and as the run's `result`: one text, held once.
+    let text = mixdog_protocol::SharedText::from(fact.text);
     let status = if fact.is_error == Some(true) { ItemStatus::Failed } else { ItemStatus::Completed };
     ThreadItem::ToolCall {
         id: item_id(&call_item_id(&fact.call_id)),
         name: String::new(),
         input: Value::Null,
-        output: Some(MaybeBlob::Inline(Value::String(text.clone()))),
+        output: Some(MaybeBlob::Inline(mixdog_protocol::ToolOutput::Text(text.clone()))),
         run: Box::new(ToolRun {
             call_id: Some(fact.call_id),
             result: Some(MaybeBlob::Inline(text)),
@@ -641,6 +647,52 @@ mod tests {
             panic!("a tool card");
         };
         assert!(run.result.is_some(), "a result with its card fills the run");
+    }
+
+    /// A result's update states its text as the call's `output` and as the run's `result`. Both are one allocation, in the
+    /// update and in the card it is merged into, and the wire still carries each as the string it is.
+    #[test]
+    fn a_results_text_is_held_once_by_its_update_and_its_card_and_is_on_the_wire_twice() {
+        use mixdog_protocol::ToolOutput;
+        let texts = |item: &ThreadItem| match item {
+            ThreadItem::ToolCall { output: Some(MaybeBlob::Inline(ToolOutput::Text(output))), run, .. } => match &run.result {
+                Some(MaybeBlob::Inline(result)) => (output.clone(), result.clone()),
+                other => panic!("an inline result: {other:?}"),
+            },
+            other => panic!("a tool card with a text output: {other:?}"),
+        };
+        let mut state = SessionState::new(16);
+        commit(&mut state, "a1", call("s1", "shell", json!({ "command": "ls" })));
+        let shown = commit(&mut state, "t1", result("s1", "a.txt"));
+        let [Shown::Update(update)] = shown.as_slice() else { panic!("one update") };
+        let (output, held) = texts(update);
+        assert!(output.shares(&held), "the update holds its text once");
+        let wire = serde_json::to_value(update).unwrap();
+        assert_eq!((&wire["output"], &wire["run"]["result"]), (&json!("a.txt"), &json!("a.txt")));
+        assert_eq!(serde_json::from_value::<ThreadItem>(wire).unwrap(), *update, "and reads back as it was written");
+
+        let [row] = state.window.make_contiguous() else { panic!("one card") };
+        let (card_output, card_result) = texts(&row.item);
+        assert!(card_output.shares(&card_result) && card_output.shares(&held), "the card it is merged into holds the same allocation");
+    }
+
+    /// A stored card whose raw result says what its result says holds the text once.
+    #[test]
+    fn a_stored_card_with_an_equal_raw_result_holds_the_text_once() {
+        let ctx = Ctx { turn: None, message: None, counts_prompt: false, source: None };
+        let row = |raw: &str| json!({ "kind": "tool", "id": "c1", "name": "read", "args": {}, "result": "the text", "rawResult": raw });
+        let run_of = |row: Value| match item_of(row.as_object().unwrap().clone(), &ctx) {
+            ThreadItem::ToolCall { run, .. } => run,
+            other => panic!("a tool card: {other:?}"),
+        };
+        let texts = |run: &ToolRun| match (&run.result, &run.raw_result) {
+            (Some(MaybeBlob::Inline(result)), Some(MaybeBlob::Inline(raw))) => (result.clone(), raw.clone()),
+            other => panic!("both inline: {other:?}"),
+        };
+        let (result, raw) = texts(&run_of(row("the text")));
+        assert!(result.shares(&raw));
+        let (result, raw) = texts(&run_of(row("another text")));
+        assert!(!result.shares(&raw) && raw == "another text");
     }
 
     /// A tool result row's `toolMeta` (the visualize owner) is on the card's run.

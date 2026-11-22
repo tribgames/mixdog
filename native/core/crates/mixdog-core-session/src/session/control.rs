@@ -269,7 +269,7 @@ pub(crate) struct ControlCell {
     /// The running turn's working messages before they are committed (Node
     /// `session.liveTurnMessages`), published by the run (`RunStart::turn_messages`); empty
     /// between turns.
-    pub turn_messages: watch::Sender<Arc<Vec<serde_json::Value>>>,
+    pub turn_messages: watch::Sender<Arc<Vec<super::transcript::LiveRow>>>,
     /// Who observes this session's turns (`observeSessionTurns`), by subscription id; told
     /// when a turn starts and when it settles.
     pub turn_listeners: Mutex<Vec<(u64, Arc<dyn TurnListener>)>>,

@@ -142,10 +142,19 @@ export function createViewManager(
   // state or answer an approval): the library resumes each again on every reconnect and the core keeps a followed thread loaded,
   // so one that stayed unwanted for `STRAY_FOLLOW_RELEASE_MS` is let go, as the desktop's lane does (service-route.ts).
   const library = client as unknown as {
-    threadSubscription?(threadId: string): { readonly followed: boolean; readonly held: boolean };
+    threadSubscription?(threadId: string): {
+      readonly followed: boolean;
+      readonly held: boolean;
+      readonly restoring: boolean;
+    };
     readonly store: { readonly threads?: { keys(): Iterable<string> } };
   };
+  // The sweep a follow was first seen unwanted at. The age is that follow's: a thread the view took meanwhile (a pane named
+  // it, the view opened it) or whose subscription the library reported on starts over when it is seen unwanted again.
   const strays = new Map<string, number>();
+  const offStrayStore = client.store.subscribe((change: StoreChange) => {
+    if (change.type === 'subscription') strays.delete(change.feedId);
+  });
   let sweeps = 0;
   let strayTimer: ReturnType<typeof setTimeout> | undefined;
   const sweepStrays = (): void => {
@@ -164,6 +173,9 @@ export function createViewManager(
       const since = strays.get(id);
       if (since === undefined) strays.set(id, sweeps);
       else if (sweeps - since >= 2) {
+        // The library's resume of it after a reconnect is still out: the core may attach the thread after an unsubscribe it
+        // already answered, and the client would then follow nothing while the core keeps it loaded. A later sweep lets it go.
+        if (library.threadSubscription?.(id).restoring) continue;
         strays.delete(id);
         void client.unsubscribeThread(id).catch(() => undefined);
       }
@@ -346,6 +358,7 @@ export function createViewManager(
   return {
     async set(threadIds) {
       wanted = [...new Set(threadIds)];
+      for (const id of wanted) strays.delete(id);
       await connected();
       const key = keyOf(target());
       // Already named by the latest sync: wait for it instead of asking again (remote-shim-api.ts:306-307).
@@ -391,6 +404,7 @@ export function createViewManager(
       readyWaiters.clear();
       clearTimeout(firstTurn);
       clearTimeout(strayTimer);
+      offStrayStore();
       watchApp?.();
       appGate.shut(remoteConnectionInterruptedError());
       offStatus();

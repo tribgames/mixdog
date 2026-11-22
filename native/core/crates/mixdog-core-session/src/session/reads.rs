@@ -612,10 +612,14 @@ pub fn transcript_row(item: &ThreadItem) -> Value {
             if !input.is_null() {
                 row.insert("args".into(), input.clone());
             }
-            if let Some(raw) = run.raw_result.as_ref().and_then(inline) {
+            let shared = |text: &Option<mixdog_protocol::MaybeBlob<mixdog_protocol::SharedText>>| match text {
+                Some(mixdog_protocol::MaybeBlob::Inline(text)) => Some(text.as_str().to_owned()),
+                _ => None,
+            };
+            if let Some(raw) = shared(&run.raw_result) {
                 row.insert("rawResult".into(), json!(raw));
             }
-            if let Some(result) = run.result.as_ref().and_then(inline) {
+            if let Some(result) = shared(&run.result) {
                 row.insert("result".into(), json!(result));
             }
             if let Some(is_error) = run.is_error {

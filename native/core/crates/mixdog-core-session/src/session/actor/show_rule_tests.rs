@@ -267,7 +267,7 @@ fn card_result(handle: &SessionHandle) -> Option<(Option<String>, bool)> {
     let card = view.items.iter().find(|item| item.id().as_str() == "call:c1")?;
     let ThreadItem::ToolCall { run, .. } = card.as_ref() else { panic!("a tool call: {card:?}") };
     let text = match &run.result {
-        Some(mixdog_protocol::MaybeBlob::Inline(text)) => Some(text.clone()),
+        Some(mixdog_protocol::MaybeBlob::Inline(text)) => Some(text.as_str().to_owned()),
         _ => None,
     };
     Some((text, run.completed_at.is_some()))

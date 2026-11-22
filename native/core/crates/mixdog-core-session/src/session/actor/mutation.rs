@@ -39,7 +39,7 @@ impl SessionActor {
             let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
             return;
         }
-        let header = self.projected.header.clone();
+        let header = Header::clone(&self.projected.header);
         let Ok(change) = std::panic::AssertUnwindSafe(update(header)).catch_unwind().await else {
             let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
             return;
@@ -695,7 +695,7 @@ impl SessionActor {
     pub(super) fn fork_plan(&self, idle: bool) -> Result<ForkSource, CoreError> {
         self.history_revision(idle).map(|revision| ForkSource {
             revision,
-            header: self.acked.header.clone(),
+            header: Header::clone(&self.acked.header),
             active_input: self.run.as_ref().map(|run| run.input_item.clone()),
             _hold: None,
         })

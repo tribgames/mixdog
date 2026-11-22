@@ -123,6 +123,11 @@ pub struct DraftJournal {
     reasoning: String,
     calls: Vec<Value>,
     results: Vec<Value>,
+    /// Beside `results`, entry for entry: each result's own number, and whether a row's write has taken it as its own
+    /// ([`Self::claim_result`]). A provider may give two calls of a turn the same id (a compaction between them reseeds its
+    /// ids), so the call id names no one result.
+    result_marks: Vec<(u64, bool)>,
+    result_seq: u64,
     tools: Option<bool>,
     written_text: String,
     written_reasoning: String,
@@ -178,11 +183,27 @@ impl DraftJournal {
         self.written_reasoning.clear();
     }
 
-    /// The row of the call `call_id`'s result is on disk (its write was acknowledged): the draft holds the result no
-    /// longer. Not before: a row accepted and not yet written can still fail, and a rewrite of the file meanwhile would
+    /// A row answering `call_id` was accepted: the oldest drafted result of that call no row has taken is this row's, and
+    /// its number is what the row's acknowledgement retires. `None` when the draft holds none (the result was never
+    /// drafted early).
+    pub fn claim_result(&mut self, call_id: &str) -> Option<u64> {
+        let at = self
+            .results
+            .iter()
+            .zip(&self.result_marks)
+            .position(|(row, (_, claimed))| !claimed && row.get("toolCallId").and_then(Value::as_str) == Some(call_id))?;
+        self.result_marks[at].1 = true;
+        Some(self.result_marks[at].0)
+    }
+
+    /// The row that took the result numbered `result` is on disk (its write was acknowledged): the draft holds that result
+    /// no longer. Not before: a row accepted and not yet written can still fail, and a rewrite of the file meanwhile would
     /// leave the result in neither place. Kept past that, every result of a turn stayed here until the turn ended.
-    pub fn result_landed(&mut self, call_id: &str) {
-        self.results.retain(|row| row.get("toolCallId").and_then(Value::as_str) != Some(call_id));
+    pub fn result_landed(&mut self, result: u64) {
+        if let Some(at) = self.result_marks.iter().position(|(number, _)| *number == result) {
+            self.result_marks.remove(at);
+            self.results.remove(at);
+        }
     }
 
     /// The body to write for the chunk `body` the run drafted, and whether it is the whole draft (it replaces the file);
@@ -195,6 +216,10 @@ impl DraftJournal {
         let results = body.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
         self.calls.extend(calls.iter().cloned());
         self.results.extend(results.iter().cloned());
+        for _ in &results {
+            self.result_seq += 1;
+            self.result_marks.push((self.result_seq, false));
+        }
         if let Some(tools) = body.get("tools").and_then(Value::as_bool) {
             self.tools = Some(tools);
         }
@@ -301,11 +326,35 @@ mod tests {
             let (append, whole) = journal.chunk(&json!({ "results": [result(call)] }), &marks, &thread).unwrap();
             assert_eq!((append["results"].clone(), whole), (json!([result(call)]), false));
         }
-        journal.result_landed("c1");
-        journal.result_landed("c3");
-        journal.result_landed("unknown");
+        let (first, third) = (journal.claim_result("c1").unwrap(), journal.claim_result("c3").unwrap());
+        assert_eq!(journal.claim_result("unknown"), None);
+        journal.result_landed(first);
+        journal.result_landed(third);
         assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("c2")]), "the whole draft holds the results no row holds yet");
-        journal.result_landed("c2");
+        let second = journal.claim_result("c2").unwrap();
+        journal.result_landed(second);
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([]));
+    }
+
+    /// A provider reuses a call id within a turn (a compaction between the calls reseeds its ids). The first result's row is
+    /// held by a failed write while the second is drafted: the acknowledgement of the first row retires the first result
+    /// only, and the second stays in the draft until its own row lands.
+    #[test]
+    fn the_acknowledgement_of_one_row_retires_its_own_result_and_not_another_of_the_same_call_id() {
+        let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default()));
+        let thread = ThreadId::from("draft-reused-id-test");
+        let mut journal = DraftJournal::default();
+        let result = |content: &str| json!({ "role": "tool", "toolCallId": "x", "content": content });
+        journal.chunk(&json!({ "results": [result("A")] }), &marks, &thread).unwrap();
+        let a = journal.claim_result("x").expect("A's row takes A");
+        journal.chunk(&json!({ "results": [result("B")] }), &marks, &thread).unwrap();
+        let b = journal.claim_result("x").expect("B's row takes B, not A again");
+        assert_ne!(a, b);
+        journal.result_landed(a);
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("B")]), "B has no row on disk: the rewritten draft still holds it");
+        journal.result_landed(a);
+        assert_eq!(journal.reset(&marks, &thread)["results"], json!([result("B")]));
+        journal.result_landed(b);
         assert_eq!(journal.reset(&marks, &thread)["results"], json!([]));
     }
 }

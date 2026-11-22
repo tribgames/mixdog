@@ -32,6 +32,7 @@ use crate::schema::record::QueueAction;
 use crate::schema::record::Record;
 use crate::schema::record::RunPhase;
 use crate::schema::record::SessionRecord;
+use crate::schema::shared_header::SharedHeader;
 
 /// Index lookups the fold needs below its horizon.
 pub trait LineageIndex: Send + Sync {
@@ -151,7 +152,9 @@ pub struct Fold {
     pub history_rev: u64,
     pub rows: u64,
     pub visible_rows: u64,
-    pub header: Header,
+    /// The header with each value behind its own count, and the large ones (the tool definitions, the deferred catalog, the
+    /// prompt texts) held once in the process: an open log kept a whole copy of them beside the session's own.
+    pub header: SharedHeader,
     pub context: Option<FramePos>,
     pub runs: Vec<OpenRun>,
     pub approvals: Vec<PendingApproval>,
@@ -177,7 +180,7 @@ impl Fold {
             history_rev: 0,
             rows: 0,
             visible_rows: 0,
-            header,
+            header: header.into(),
             context: None,
             runs: Vec::new(),
             approvals: Vec::new(),
@@ -203,7 +206,7 @@ impl Fold {
             history_rev: state.history_rev,
             rows: state.rows,
             visible_rows: state.visible_rows,
-            header: state.header,
+            header: state.header.into(),
             context: state.context,
             runs: state.runs,
             approvals: state.approvals,
@@ -235,7 +238,7 @@ impl Fold {
             runs: self.runs.clone(),
             approvals: self.approvals.clone(),
             queue: self.queue.clone(),
-            header: self.header.clone(),
+            header: self.header.to_map(),
         }
     }
 
@@ -526,7 +529,7 @@ pub(crate) fn fold_salvaging(
         if let Ok(state) = resolve_slot(&checkpoint.state, resolve)
             && state.covers_ordinal == at.ordinal
         {
-            f.header = state.header;
+            f.header = state.header.into();
             f.queue = state.queue;
             losses.header.clear();
             losses.session_header = None;

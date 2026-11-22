@@ -44,7 +44,7 @@ impl DirInner {
             header.insert(key.to_owned(), view[key].clone());
         }
         let mut state = SessionState::new(1);
-        state.header = header;
+        state.header = std::sync::Arc::new(header);
         state.sections.route = Some(ThreadRoute { fast: view["fast"].as_bool(), ..Default::default() });
         let ctx = Ctx { turn: None, message: None, counts_prompt: false, source: None };
         for row in view["items"].as_array().into_iter().flatten().filter_map(Value::as_object) {
