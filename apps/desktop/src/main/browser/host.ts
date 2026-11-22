@@ -500,6 +500,7 @@ export function createBrowserHost(
       fillBoundLogin: agent.loginFill,
       sendToRenderer,
       publishRemoteImportProgress: options.publishRemoteImportProgress,
+      onDiagnostic: options.onDiagnostic,
     }),
     ...createBrowserRemoteHostMethods({
       remote: shown.remote,

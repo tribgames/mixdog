@@ -8,7 +8,7 @@ import type {
   DesktopBrowserImportSource,
 } from '../shared/contract';
 import { t, uiFormatLocale } from './i18n';
-import { ErrorNotice } from './ErrorNotice';
+import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { watchBrowserDialogFocus } from './browser-dialog-focus';
 import { useMobileBack } from './mobile-back';
 import { scrimDismiss } from './scrim-dismiss';
@@ -16,6 +16,19 @@ import { scrimDismiss } from './scrim-dismiss';
 interface BrowserImportDialogProps {
   open: boolean;
   onClose: () => void;
+  /** `settings`: raised over the Settings dialog, as its other nested dialogs are;
+   *  `pane` (default): fills the browser pane below its toolbar. */
+  layer?: 'pane' | 'settings';
+}
+
+function itemLabel(item: DesktopBrowserImportItem): string {
+  if (item === 'passwords') return t('Saved passwords');
+  return item === 'cookies' ? t('Cookies') : t('Browsing history');
+}
+
+function itemFailure(items: readonly DesktopBrowserImportItem[], error: string): string {
+  const item = new Intl.ListFormat(uiFormatLocale(), { type: 'conjunction' }).format(items.map(itemLabel));
+  return t('{{item}} could not be imported: {{error}}', { item, error });
 }
 
 const EMPTY_ITEMS: Record<DesktopBrowserImportItem, boolean> = {
@@ -122,6 +135,7 @@ function ImportItemRow({
           <small>
             {t('Failed to import')}
             {importedCount}
+            {itemProgress?.error ? `: ${itemProgress.error}` : ''}
           </small>
         ) : null}
       </span>
@@ -130,11 +144,13 @@ function ImportItemRow({
   );
 }
 
-export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps) {
+export function BrowserImportDialog({ open, onClose, layer = 'pane' }: BrowserImportDialogProps) {
   const desktopApi = window.mixdogDesktop;
   const dialogRef = useRef<HTMLElement | null>(null);
   const busyRef = useRef(false);
   const activeJobRef = useRef('');
+  /** Kinds the running job reported done, read when the whole call is refused. */
+  const completedRef = useRef(new Set<DesktopBrowserImportItem>());
   const [sources, setSources] = useState<DesktopBrowserImportSource[]>([]);
   const [sourceId, setSourceId] = useState('');
   const [profileId, setProfileId] = useState('');
@@ -143,7 +159,8 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [finished, setFinished] = useState(false);
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+  const setError = (text: string) => setErrors(text ? [text] : []);
   const [progress, setProgress] = useState<Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>>({});
 
   busyRef.current = busy;
@@ -200,6 +217,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     if (!desktopApi?.onBrowserProfileImportProgress) return undefined;
     return desktopApi.onBrowserProfileImportProgress((update) => {
       if (update.jobId !== activeJobRef.current) return;
+      if (update.state === 'completed') completedRef.current.add(update.item);
       setProgress((current) => ({
         ...current,
         [update.item]: update,
@@ -229,6 +247,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     setError('');
     setProgress({});
     const jobId = crypto.randomUUID().replaceAll('-', '');
+    completedRef.current = new Set();
     activeJobRef.current = jobId;
     void desktopApi
       .browserProfileImportStart({
@@ -254,11 +273,30 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
             ])
           )
         );
-        const failures = Object.values(result.errors).filter(Boolean);
-        if (failures.length) setError(failures.join('\n'));
+        // One notice per failed kind: a notice headlines only its first line.
+        setErrors(
+          requestedItems.flatMap((item) => {
+            const failure = result.errors[item];
+            return failure ? [itemFailure([item], failure)] : [];
+          })
+        );
       })
       .catch((reason) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        // The whole run was refused: what already reported done stays done, the rest failed with this reason.
+        const message = errorMessageText(reason);
+        const failed = requestedItems.filter((item) => !completedRef.current.has(item));
+        setFinished(true);
+        setProgress((current) =>
+          Object.fromEntries(
+            requestedItems.map((item) => [
+              item,
+              failed.includes(item)
+                ? { jobId, item, state: 'failed', count: current[item]?.count, error: message }
+                : current[item],
+            ])
+          )
+        );
+        setErrors([failed.length ? itemFailure(failed, message) : message]);
       })
       .finally(() => {
         activeJobRef.current = '';
@@ -270,18 +308,21 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   if (!open) return null;
 
   const importItems: { item: DesktopBrowserImportItem; label: string; icon: React.ReactNode }[] = [
-    { item: 'passwords', label: t('Saved passwords'), icon: <KeyRound size={18} /> },
-    { item: 'cookies', label: t('Cookies'), icon: <Cookie size={18} /> },
-    { item: 'history', label: t('Browsing history'), icon: <History size={18} /> },
+    { item: 'passwords', label: itemLabel('passwords'), icon: <KeyRound size={18} /> },
+    { item: 'cookies', label: itemLabel('cookies'), icon: <Cookie size={18} /> },
+    { item: 'history', label: itemLabel('history'), icon: <History size={18} /> },
   ];
 
   let description = t('Select data to import into the built-in browser');
   if (busy) description = t('Importing browser data…');
-  else if (finished) description = error ? t('Some data could not be imported') : t('Browser data imported');
+  else if (finished) description = errors.length ? t('Some data could not be imported') : t('Browser data imported');
 
   return (
     // Backdrop click-to-dismiss is a pointer convenience; keyboard dismissal is handled by the dialog focus watcher.
-    <div className="browser-import-backdrop" {...scrimDismiss(requestClose)}>
+    <div
+      className={layer === 'settings' ? 'settings-confirm-layer' : 'browser-import-backdrop'}
+      {...scrimDismiss(requestClose)}
+    >
       <section
         ref={dialogRef}
         className="browser-import-dialog"
@@ -289,6 +330,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
         aria-modal="true"
         aria-labelledby="browser-import-title"
         aria-describedby="browser-import-description"
+        data-settings-nested-dialog
       >
         <header>
           <div>
@@ -296,7 +338,13 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
             <p id="browser-import-description">{description}</p>
           </div>
           {!busy && (
-            <button type="button" className="browser-pane-nav-button" onClick={requestClose} aria-label={t('Close')}>
+            <button
+              type="button"
+              className="browser-pane-nav-button"
+              onClick={requestClose}
+              aria-label={t('Close')}
+              data-settings-nested-close
+            >
               <X size={16} />
             </button>
           )}
@@ -363,12 +411,14 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
             </span>
           </label>
         )}
-        {error && <ErrorNotice error={error} />}
+        {errors.map((text) => (
+          <ErrorNotice key={text} error={text} />
+        ))}
         <footer>
           <button type="button" className="browser-import-secondary" disabled={busy} onClick={requestClose}>
             {finished ? t('Close') : t('Cancel')}
           </button>
-          {(!finished || Boolean(error)) && (
+          {(!finished || errors.length > 0) && (
             <button
               type="button"
               className="browser-import-primary"
