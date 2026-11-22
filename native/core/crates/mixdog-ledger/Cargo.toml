@@ -3,9 +3,14 @@ name = "mixdog-ledger"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 mixdog-js = { workspace = true }

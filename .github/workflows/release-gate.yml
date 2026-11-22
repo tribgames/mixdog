@@ -4,7 +4,17 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The full gate on main every night: the Rust core on the three systems, every lane, the reconciliation. A push and a pull request
+  # run the core on Linux only (docs/testing.md, "Which run proves what").
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      full_gate:
+        description: "Run the full gate: the Rust core on Linux, macOS and Windows, every lane, and the reconciliation"
+        required: false
+        default: false
+        type: boolean
   # The full-release gate. Every publication path calls this with the immutable commit it publishes (release.yml `coverage-gate`,
   # deploy.yml `coverage-gate`, tidy-engines-mirror.yml `coverage-gate`) and lists the call in its `needs`: a call is never made
   # for a branch name, and a run that is not for that commit proves nothing about it. A call runs every lane (the path selection
@@ -51,14 +61,14 @@ env:
 #   changes ---> core-build-linux ---> core-tests-linux (N legs), core-pg (a leg per profile), core-entry
 #      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-pg-macos (both profiles)
 #      +-------> core-build-windows -> core-tests-windows (N legs)
-#      +-------> mixdogd (dev controls; linux, windows) ---> core-entry, desktop-slow, runtime-slow, desktop-computer
-#      +--> core-lint (clippy per system, rustfmt once)   core-real (release mixdogd, node real-core tests)
+#      +-------> mixdogd-linux ---> core-entry, desktop-slow, runtime-slow;  mixdogd-windows ---> desktop-computer
+#      +--> core-lint (clippy, plain stable compile)   rustfmt   core-doctests   core-real (release mixdogd, node real-core tests)
 #      +--> runtime, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
 #
-# A pull request builds and tests only the crates the change can affect and the crates
-# that depend on them (scripts/ci/core-select.mjs); a push to main and a manual run, and
-# so the release gate, run every crate. The Rust jobs restore the compiled third-party
-# dependencies from a cache that a push to main refreshes. The dev mixdogd is built on a
+# A push and a pull request build and test on Linux only the crates the change can affect and the
+# crates that depend on them (scripts/ci/core-select.mjs); the full gate (every gate call, the
+# nightly run, a manual full_gate run) runs every crate on the three systems. The Rust jobs restore
+# the compiled third-party dependencies from a cache that a build of every crate on main refreshes. The dev mixdogd is built on a
 # runner of its own beside the archive, not after it: its feature set recompiles most of the
 # workspace's crates anyway (12 of the 47 minutes of the Windows build when it ran after the
 # archive). Each system's tests need only its own archive: a `needs` waits for every entry of a
@@ -68,6 +78,10 @@ jobs:
   changes:
     timeout-minutes: 15
     runs-on: ubuntu-22.04
+    # actions: read for the runs of this workflow a push selects against (the last commit the gate passed on).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       # A call (the full-release gate: `inputs.ref` is required there and empty for every other event) is a full run whatever the
       # selection step says, so no change to that step can turn the call's inventory and reconciliation off
@@ -89,11 +103,21 @@ jobs:
       window: ${{ steps.paths.outputs.window }}
       spawn: ${{ steps.paths.outputs.spawn }}
       core_scripts: ${{ steps.paths.outputs.core_scripts }}
+      # The format check follows its files on every event; a full run (which requires every job) runs it whatever changed.
+      rustfmt: ${{ (inputs.ref != '' || steps.paths.outputs.full == 'true') && 'true' || steps.paths.outputs.rustfmt }}
+      # The source inventory runs on every run but the generated release commit's, whose validation the release owns.
+      source_inventory: ${{ steps.paths.outputs.release_commit != 'true' }}
+      lint_matrix: ${{ steps.core.outputs.lint_matrix || '{"include":[]}' }}
+      core_doctests: ${{ steps.core.outputs.core_doctests || '[]' }}
+      core_daemon: ${{ steps.core.outputs.core_daemon || 'false' }}
       core: ${{ steps.core.outputs.core || 'false' }}
       core_build: ${{ steps.core.outputs.core_build || 'false' }}
       core_scope: ${{ steps.core.outputs.core_scope }}
       core_archive_args: ${{ steps.core.outputs.core_archive_args }}
       core_features: ${{ steps.core.outputs.core_features }}
+      # The selection resolved against the whole build (step `align`): what core-build archives and core-lint compiles.
+      core_build_args: ${{ steps.align.outputs.packages }}
+      core_build_features: ${{ steps.align.outputs.features }}
       core_filter: ${{ steps.core.outputs.core_filter }}
       core_pg: ${{ steps.core.outputs.core_pg || 'false' }}
       core_entry: ${{ steps.core.outputs.core_entry || 'false' }}
@@ -103,11 +127,20 @@ jobs:
       # Empty only when the step did not run (a generated release commit, where no lane is selected): a discovery that fails fails `changes`.
       runtime_matrix: ${{ steps.shards.outputs.runtime_matrix || '{"include":[]}' }}
       runtime_excluded_path: ${{ steps.shards.outputs.runtime_excluded_path }}
-      mixdogd: ${{ steps.core.outputs.mixdogd || 'false' }}
-      mixdogd_matrix: ${{ steps.core.outputs.mixdogd_matrix || '{"include":[]}' }}
+      mixdogd_linux: ${{ steps.core.outputs.mixdogd_linux || 'false' }}
+      mixdogd_windows: ${{ steps.core.outputs.mixdogd_windows || 'false' }}
       test_matrix_linux: ${{ steps.core.outputs.test_matrix_linux || '{"include":[]}' }}
       test_matrix_macos: ${{ steps.core.outputs.test_matrix_macos || '{"include":[]}' }}
       test_matrix_windows: ${{ steps.core.outputs.test_matrix_windows || '{"include":[]}' }}
+      core_macos: ${{ steps.core.outputs.core_macos || 'false' }}
+      core_windows: ${{ steps.core.outputs.core_windows || 'false' }}
+      build_matrix_linux: ${{ steps.core.outputs.build_matrix_linux || '{"include":[]}' }}
+      build_matrix_macos: ${{ steps.core.outputs.build_matrix_macos || '{"include":[]}' }}
+      build_matrix_windows: ${{ steps.core.outputs.build_matrix_windows || '{"include":[]}' }}
+      core_real_matrix: ${{ steps.core.outputs.core_real_matrix || '{"include":[]}' }}
+      store_key_mixdogd_dev: ${{ steps.core.outputs.store_key_mixdogd_dev }}
+      store_key_mixdogd: ${{ steps.core.outputs.store_key_mixdogd }}
+      store_key_relay: ${{ steps.core.outputs.store_key_relay }}
     steps:
       # Shallow: the selection below diffs two commits' trees, which needs the
       # base commit itself and no ancestry; it is fetched by SHA in the step.
@@ -119,10 +152,13 @@ jobs:
         id: paths
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL_GATE: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_gate) }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE: ${{ github.event.before }}
           HEAD_MESSAGE: ${{ github.event.head_commit.message }}
           ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -130,22 +166,33 @@ jobs:
             echo "Release workflow owns validation for this generated version commit."
             echo "release_commit=true" >> "$GITHUB_OUTPUT"
             echo "full=false" >> "$GITHUB_OUTPUT"
-            for name in browser_import computer core_scripts desktop desktop_computer desktop_css_only desktop_tests graph mobile packages patch relay runtime secure_desktop spawn window; do
+            for name in browser_import computer core_scripts desktop desktop_computer desktop_css_only desktop_tests graph mobile packages patch relay runtime rustfmt secure_desktop spawn window; do
               echo "${name}=false" >> "$GITHUB_OUTPUT"
             done
             exit 0
           fi
-          # Every event but a pull request runs every lane: the reconciliation in `complete` then requires the evidence of all of them.
-          if [[ "$EVENT_NAME" == pull_request ]]; then echo "full=false" >> "$GITHUB_OUTPUT"; else echo "full=true" >> "$GITHUB_OUTPUT"; fi
+          # The full gate (a call, the nightly run, a manual run that asks for it) runs every lane on every system it is declared for,
+          # and the reconciliation in `complete` then requires the evidence of all of them. A push runs every lane but the Rust core,
+          # whose crates it selects as a pull request does, on Linux; a pull request runs the lanes its change can affect.
+          if [[ "$FULL_GATE" == true ]]; then echo "full=true" >> "$GITHUB_OUTPUT"; else echo "full=false" >> "$GITHUB_OUTPUT"; fi
           BASE=$PUSH_BASE
           if [[ "$EVENT_NAME" == pull_request ]]; then BASE=$PR_BASE; fi
+          # A push selects against the last commit the gate passed on for this branch, not the push's own parent: a newer push
+          # cancels the run of an older one (concurrency above), and the older one's change would otherwise reach no run. No such
+          # commit, or no answer, selects every file below.
+          if [[ "$EVENT_NAME" == push ]]; then
+            BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-gate.yml/runs?branch=$BRANCH&status=success&per_page=50" \
+              --jq "[.workflow_runs[] | select(.event != \"pull_request\" and .head_repository.full_name == \"$GITHUB_REPOSITORY\")][0].head_sha // \"\"") || BASE=""
+            echo "Selecting against the last passed commit: ${BASE:-none}"
+          fi
           # A base that cannot be fetched (force-pushed away) falls through to
           # the full file list below, exactly as a missing base always has.
           if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then git fetch --no-tags --depth=1 origin "$BASE" || true; fi
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             git ls-files > /tmp/changed
           else
-            git diff --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
+            # Both sides of a rename: a module moved out of a crate leaves that crate's #[path] or mod line behind.
+            git diff --no-renames --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
           fi
           # Gate selection patterns (grep -E). deploy.yml's RELEASE_CRITICAL_PATHS
           # (native, scripts, src, packages, bin and the package manifests) is the
@@ -210,11 +257,16 @@ jobs:
           flag packages "$PACKAGES_RE"
           flag spawn "$SPAWN_RE"
           flag core_scripts "$CORE_SCRIPTS_RE"
+          # What the format check formats or is configured by: every Rust source and manifest under native/ (the core, each
+          # standalone tool, mixdog-browser-import's main.rs), the tree helper's workspace, the rustfmt the toolchain pins. Unlike
+          # `flag`, on a push too: the format check follows its files on every event (a full run selects it in `changes.outputs`).
+          RUSTFMT_RE="^(native/.*\.rs$|native/(.*/)?\.?rustfmt\.toml$|native/.*/Cargo\.toml$|native/[^/]+/Cargo\.lock$|scripts/rust-core/tree-helper/|${TOOLCHAIN}|${WORKFLOW})"
+          if grep -Eq "$RUSTFMT_RE" /tmp/changed; then echo "rustfmt=true" >> "$GITHUB_OUTPUT"; else echo "rustfmt=false" >> "$GITHUB_OUTPUT"; fi
 
       # Which crates of the Rust core a change can affect, and the build and test
-      # legs that follow (scripts/ci/core-select.mjs, with its own test). A pull
-      # request gets the changed crates and everything that depends on them; a
-      # push to main and a manual run get every crate. The metadata read is
+      # legs that follow (scripts/ci/core-select.mjs, with its own test). A push
+      # and a pull request get the changed crates and everything that depends on
+      # them; the full gate gets every crate. The metadata read is
       # `cargo metadata --no-deps`: no compilation; Cargo may populate its registry index.
       - name: Read the repository Rust toolchain
         id: rust-pin
@@ -230,6 +282,7 @@ jobs:
         if: steps.paths.outputs.release_commit != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL: ${{ inputs.ref != '' || steps.paths.outputs.full == 'true' }}
           # The slow Node lanes also need the dev programs; core-select adds them independently for the entry tests.
           MIXDOGD_DEV: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.runtime == 'true' }}
           # The Windows leg (desktop-computer) boots the built app against this run's Windows dev daemon.
@@ -239,8 +292,54 @@ jobs:
         run: |
           set -euo pipefail
           args=(--changed /tmp/changed --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
-          if [[ "$EVENT_NAME" != pull_request ]]; then args+=(--all); fi
+          if [[ "$FULL" == true ]]; then args+=(--all); fi
           node scripts/ci/core-select.mjs "${args[@]}" | tee -a "$GITHUB_OUTPUT"
+      # A partial selection (a push's or a pull request's crates) is resolved here, once, against the whole build: each round of
+      # scripts/ci/core-align.mjs selects the workspace crates the last tree resolved otherwise, in either role (built for the host
+      # or the target), with the features the whole gives them, until none is left; a round that changes nothing fails (a
+      # third-party difference, the workspace hack's to close), so there is at most one round per workspace crate. Every job that
+      # compiles the selection takes this result: core-build's archive and core-lint's plain stable compile. A whole one passes.
+      - name: Resolve the selection against the whole build
+        id: align
+        if: steps.paths.outputs.release_commit != 'true' && steps.core.outputs.core_build == 'true'
+        env:
+          SCOPE: ${{ steps.core.outputs.core_scope }}
+          SELECTION: ${{ steps.core.outputs.core_archive_args }}
+          FEATURES: ${{ steps.core.outputs.core_features }}
+          RUSTUP_TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SCOPE" != packages ]]; then
+            printf 'packages=%s\nfeatures=%s\n' "$SELECTION" "$FEATURES" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          features=()
+          if [[ -n "$FEATURES" ]]; then features=(--features "$FEATURES"); fi
+          cd native/core
+          cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/members.json"
+          cargo tree --locked --charset utf8 -f '{p} {f}' --workspace "${features[@]}" > "$RUNNER_TEMP/tree-whole.txt"
+          select=$SELECTION
+          tree=()
+          selection_features=$FEATURES
+          last=""
+          while true; do
+            node ../../scripts/ci/core-align.mjs args --packages "$select" "${tree[@]}" --metadata "$RUNNER_TEMP/members.json" --whole "$RUNNER_TEMP/tree-whole.txt" --features "$selection_features" > "$RUNNER_TEMP/align.txt"
+            packages=$(sed -n 's/^packages=//p' "$RUNNER_TEMP/align.txt")
+            selection_features=$(sed -n 's/^features=//p' "$RUNNER_TEMP/align.txt")
+            if [[ "$packages|$selection_features" == "$last" ]]; then
+              node ../../scripts/ci/core-align.mjs check --whole "$RUNNER_TEMP/tree-whole.txt" --tree "$RUNNER_TEMP/tree-selection.txt" || true
+              echo "::error::the selection resolves the crates above otherwise and no workspace crate is left to select"
+              exit 1
+            fi
+            last="$packages|$selection_features"
+            # shellcheck disable=SC2086
+            cargo tree --locked --charset utf8 -f '{p} {f}' $packages --features "$selection_features" > "$RUNNER_TEMP/tree-selection.txt"
+            if node ../../scripts/ci/core-align.mjs check --whole "$RUNNER_TEMP/tree-whole.txt" --tree "$RUNNER_TEMP/tree-selection.txt"; then break; fi
+            select=$packages
+            tree=(--tree "$RUNNER_TEMP/tree-selection.txt")
+          done
+          cat "$RUNNER_TEMP/align.txt" >> "$GITHUB_OUTPUT"
 
       # The shards of the root default Node lane (scripts/ci/node-shards.mjs, sized by the number of test files the lane
       # discovers). Discovery needs no install: this checkout has no node_modules to walk.
@@ -291,10 +390,11 @@ jobs:
   # The denominator of the release proof: every case the tracked source of the exact commit defines (scripts/ci/coverage/inventory.mjs),
   # from `git ls-files` and the syntax of the files, never from a lane's arguments or a run. HEAD must equal the commit this run is for
   # and the tree must be clean. Any unassigned test file, unrouted case, or registration that cannot be named exactly fails the job:
-  # the manifest is written only when there is none. Runs in every full run (all events but a pull request).
+  # the manifest is written only when there is none. Runs on every run, a pull request and a push included (an orphan test source,
+  # a `tests/x.rs` no `mod` line reaches under `autotests = false`, fails here at once); only a full run reconciles against it.
   inventory:
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.source_inventory == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-22.04
     env:
@@ -457,8 +557,8 @@ jobs:
   # Files over ~10s (*.slow.test.mjs) run beside the default lane, not inside
   # it, so the gate finishes at the longer of the two instead of their sum.
   runtime-slow:
-    # The mixdogd job (Linux) leaves the three programs scripts/check-npm-packages.slow.test.mjs starts.
-    needs: [changes, mixdogd]
+    # The mixdogd-linux job leaves the three programs scripts/check-npm-packages.slow.test.mjs starts.
+    needs: [changes, mixdogd-linux]
     if: needs.changes.outputs.runtime == 'true'
     timeout-minutes: 20
     runs-on: ubuntu-22.04
@@ -946,7 +1046,7 @@ jobs:
   # `desktop` against the Windows mixdogd of `mixdogd`, neither built again here. It is its own job so that producer
   # dependencies gate only this leg and never the independent Linux fast receipts above.
   desktop-computer:
-    needs: [changes, desktop, mixdogd]
+    needs: [changes, desktop, mixdogd-windows]
     if: needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'
     timeout-minutes: 15
     runs-on: windows-latest
@@ -1075,10 +1175,10 @@ jobs:
           name: windows-desktop-computer-1of1
 
   # The desktop's slow lane. The remote-protocol slow replays start a real core
-  # (MIXDOGD_BIN): the Linux mixdogd of this run's `mixdogd` job (mixdog-cli/dev-controls,
+  # (MIXDOGD_BIN): the Linux mixdogd of this run's `mixdogd-linux` job (mixdog-cli/dev-controls,
   # the replay controls every one of them needs), not a build of its own.
   desktop-slow:
-    needs: [changes, mixdogd]
+    needs: [changes, mixdogd-linux]
     if: >-
       needs.changes.outputs.desktop == 'true'
       && needs.changes.outputs.desktop_css_only != 'true'
@@ -1255,8 +1355,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
+      # The relay of one set of inputs is the same program: the shipping build main keeps in a store keyed by those inputs
+      # (core-select.mjs store_key_relay), built only when the store has no entry for the key; a pull request reads it too.
+      - name: Take the relay of these inputs from the store
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: relay-store
+          key: relay-release-linux-${{ runner.arch }}-${{ needs.changes.outputs.store_key_relay }}
+      - name: Place the stored relay
+        if: steps.store.outputs.cache-hit == 'true'
+        run: mkdir -p native/core/target/release && cp relay-store/mixdog-relay native/core/target/release/mixdog-relay
       - name: Restore the compiled release dependencies
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -1268,7 +1379,7 @@ jobs:
           key: core-release-linux-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
       # The key core-build (linux) writes: the same formula, so a pull request reads the entry main saved, exact or cold.
       - name: Restore the compiled test dependencies
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -1301,10 +1412,18 @@ jobs:
           for pid in "${pids[@]}"; do wait "$pid" || status=1; done
           exit "$status"
       - name: Build the relay as it ships
-        if: github.event_name != 'pull_request'
-        run: cd native/core && cargo build --release --locked --manifest-path Cargo.toml -p mixdog-relay
+        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
+        run: |
+          cd native/core && cargo build --release --locked --manifest-path Cargo.toml -p mixdog-relay
+          mkdir -p ../../relay-store && cp target/release/mixdog-relay ../../relay-store/mixdog-relay
+      - name: Keep the relay in the store
+        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: relay-store
+          key: ${{ steps.store.outputs.cache-primary-key }}
       - name: Build the relay in the test profile (pull request)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.store.outputs.cache-hit != 'true'
         run: cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-relay
       # relay-process.ts starts the newest native/core/target/{release,debug}/mixdog-relay (built above) and the Node relay
       # (apps/relay/server.mjs): the phone transport must give the same outcomes on both.
@@ -1770,22 +1889,22 @@ jobs:
   # compiles anything. The systems are the ones the product ships on and runs natively
   # here: Linux x64, macOS arm64 and Windows x64 (Linux arm64 and macOS x64 are built, not
   # tested natively, by mixdogd-build.yml: the code that depends on the architecture is seven
-  # files). A pull request gets the crates the change can affect (scripts/ci/core-select.mjs);
-  # a push to main, a manual run and the release gate get every crate.
+  # files). A push and a pull request get the crates the change can affect (scripts/ci/core-select.mjs);
+  # the full gate gets every crate.
   #
   # Compiled third-party dependencies (the part that costs: 941 packages built with optimisation)
   # come from actions/cache, keyed by system, toolchain and exactly the files that decide them
   # (Cargo.lock, the manifests with their features, the cargo config, the toolchain file). Only a
-  # push to main saves it, and only after the workspace's own crates, the test binaries and the
+  # build of every crate on main (a push that reaches all, the nightly run) saves it, and only after the workspace's own crates, the test binaries and the
   # build state are removed from it (scripts/ci/prune-core-target.mjs): an entry is the size of the
   # dependencies, one per system, and a pull request reads the main entry without writing one.
   #
   # One build job per system, and test jobs per system that need only that build: the legs of a system start when its own
   # archive is uploaded, not when the slowest system's is (run 44943772315: Linux's archive was ready at 19.5 minutes,
   # Windows' at 27.1, and every leg waited for macOS's at 28.4). The jobs of a kind share their steps (YAML anchors). The
-  # archive is one build of the whole selection, never one build per leg: a build of part of the workspace unifies the
-  # features of fewer crates (forty test features such as mixdog-rt/virtual-clock come only from dev-dependencies), so its
-  # binaries would not be the ones the whole build tests. cargo runs as many jobs as the runner has cores (four on the hosted
+  # archive is one build of the whole selection on one runner, never one build per leg. A partial selection (a push's or a pull
+  # request's crates) is the one `changes` resolved (scripts/ci/core-align.mjs: widened by the workspace crates and features its
+  # tree resolves otherwise than the whole build's), the same one core-lint compiles on plain stable. cargo runs as many jobs as the runner has cores (four on the hosted
   # Linux and Windows runners, three on macOS); the `CARGO_BUILD_JOBS: 3` the Rust jobs carried came with the first Unix job
   # (rust-core-unix.yml, for macos-latest's three cores) and left a core of the four-core runners idle.
   # ---------------------------------------------------------------------------------------------
@@ -1797,9 +1916,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: linux, runner: ubuntu-22.04 }
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix_linux) }}
     defaults:
       run:
         shell: bash
@@ -1813,6 +1930,16 @@ jobs:
       # for it.
       - name: Check that the build is a clean checkout
         run: node scripts/ci/check-clean-checkout.mjs --build
+      # Windows: the checkout, and with it the target folder, is on D:, the runner's local disk; the Rust homes (the registry the
+      # build reads, the toolchain) move there from C:, the slower system disk. A ReFS Dev Drive needs Windows build 22621
+      # (`Format-Volume -DevDrive`), which windows-2022 is not; uv measured a plain ReFS volume no faster than D:.
+      - &rust-homes-on-d
+        name: Put the Rust homes on drive D (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          printf 'CARGO_HOME=D:\\.cargo\nRUSTUP_HOME=D:\\.rustup\n' >> "$GITHUB_ENV"
+          printf 'D:\\.cargo\\bin\n' >> "$GITHUB_PATH"
       - name: Read the repository Rust toolchain
         id: rust-pin
         shell: bash
@@ -1825,17 +1952,25 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/registry
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/git
             native/core/target
           key: core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
+            core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - uses: ./.github/actions/install-nextest
+      # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
+      # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
+      # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
+      # plain stable on each system the archive is for.
+      - uses: ./.github/actions/rustc-threads
       - name: Build the test binaries once (nextest archive)
         env:
-          ARCHIVE_ARGS: ${{ needs.changes.outputs.core_archive_args }}
-          FEATURES: ${{ needs.changes.outputs.core_features }}
+          # The selection `changes` resolved against the whole build (core_build_args, core_build_features), which core-lint also
+          # compiles on plain stable.
+          ARCHIVE_ARGS: ${{ needs.changes.outputs.core_build_args }}
+          FEATURES: ${{ needs.changes.outputs.core_build_features }}
         run: |
           features=()
           if [[ -n "$FEATURES" ]]; then features=(--features "$FEATURES"); fi
@@ -1865,46 +2000,46 @@ jobs:
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
+      # Only a build of every crate writes the entry: a push's selection compiles the dependencies of its crates alone, and an
+      # entry of those would be an exact hit that every later build compiles the rest after.
       - name: Keep only the third-party dependencies in the cache
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
       - name: Save the compiled dependencies
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && needs.changes.outputs.core_scope == 'all'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/registry
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/git
             native/core/target
           key: ${{ steps.deps.outputs.cache-primary-key }}
 
+  # The full gate's macOS and Windows archives, each one build on its own runner as Linux's is (core-select.mjs build_matrix_<os>);
+  # a push and a pull request build neither.
   core-build-macos:
-    name: core-build (macos)
+    name: core-build (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.core_build == 'true'
+    if: needs.changes.outputs.core_build == 'true' && needs.changes.outputs.core_macos == 'true'
     timeout-minutes: 90
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: macos, runner: macos-15 }
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix_macos) }}
     defaults:
       run:
         shell: bash
     steps: *core-build-steps
 
   core-build-windows:
-    name: core-build (windows)
+    name: core-build (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.core_build == 'true'
+    if: needs.changes.outputs.core_build == 'true' && needs.changes.outputs.core_windows == 'true'
     timeout-minutes: 90
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: windows, runner: windows-2022 }
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix_windows) }}
     defaults:
       run:
         shell: bash
@@ -1917,44 +2052,81 @@ jobs:
   # core-build rather than after the archive in the same job: that order held every consumer of the archive and of the daemon
   # behind both builds (run 44930949033: 7.8 min Linux, 12.3 min Windows after the archive). It reads the dependency cache
   # core-build keeps and saves none.
-  mixdogd:
+  #
+  # The three programs of one set of inputs are the same programs: they are kept in a store keyed by those inputs
+  # (core-select.mjs store_key_mixdogd_dev: every tracked core input but the crates this build does not compile) and built only
+  # when the store has no entry for the key. A pull request reads the entries main writes and writes none.
+  #
+  # A job per system, so that a consumer waits for the daemon it runs and not for the other system's build: desktop-slow,
+  # runtime-slow and core-entry for the Linux one, desktop-computer for the Windows one (run 44959677392: the Linux daemon was
+  # ready at 7.5 minutes, and its consumers started at 14.3, when the Windows one was).
+  mixdogd-linux:
     name: mixdogd (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.mixdogd == 'true'
+    if: needs.changes.outputs.mixdogd_linux == 'true'
     timeout-minutes: 60
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.mixdogd_matrix) }}
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-22.04, exe: "" }
     defaults:
       run:
         shell: bash
-    steps:
+    steps: &mixdogd-steps
+      - name: Take the programs of these inputs from the store
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mixdogd-store
+          key: mixdogd-dev-${{ matrix.os }}-${{ runner.arch }}-${{ needs.changes.outputs.store_key_mixdogd_dev }}
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        if: steps.store.outputs.cache-hit != 'true'
         with:
           ref: ${{ inputs.ref || github.sha }}
       # The daemon the replays and the entry scenarios drive is built from a clean checkout, as the archive is (core-build).
       - name: Check that the build is a clean checkout
+        if: steps.store.outputs.cache-hit != 'true'
         run: node scripts/ci/check-clean-checkout.mjs --build
+      # The entries core-build saves hold the Windows registry from D: (the cache's paths are part of its key).
+      - name: Put the Rust homes on drive D (Windows)
+        if: runner.os == 'Windows' && steps.store.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          printf 'CARGO_HOME=D:\\.cargo\nRUSTUP_HOME=D:\\.rustup\n' >> "$GITHUB_ENV"
+          printf 'D:\\.cargo\\bin\n' >> "$GITHUB_PATH"
       - name: Read the repository Rust toolchain
         id: rust-pin
+        if: steps.store.outputs.cache-hit != 'true'
         shell: bash
         run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        if: steps.store.outputs.cache-hit != 'true'
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
       - name: Restore the compiled dependencies
+        if: steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/registry
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/git
             native/core/target
           key: core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
       - name: Build the mixdogd the desktop replays drive, and the programs the npm package check starts
-        run: cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-entry --bin mixdog -p mixdog-askpass --bin mixdog-askpass --features mixdog-cli/dev-controls
+        if: steps.store.outputs.cache-hit != 'true'
+        run: |
+          cd native/core && cargo build --locked --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-entry --bin mixdog -p mixdog-askpass --bin mixdog-askpass --features mixdog-cli/dev-controls
+          mkdir -p ../../mixdogd-store
+          cp target/debug/mixdogd${{ matrix.exe }} target/debug/mixdog${{ matrix.exe }} target/debug/mixdog-askpass${{ matrix.exe }} ../../mixdogd-store/
+      - name: Keep the programs in the store
+        if: steps.store.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mixdogd-store
+          key: ${{ steps.store.outputs.cache-primary-key }}
       - name: Upload mixdogd
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1962,11 +2134,26 @@ jobs:
           overwrite: true
           # One folder of the three programs: desktop-slow takes mixdogd from it, runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
           path: |
-            native/core/target/debug/mixdogd${{ matrix.exe }}
-            native/core/target/debug/mixdog${{ matrix.exe }}
-            native/core/target/debug/mixdog-askpass${{ matrix.exe }}
+            mixdogd-store/mixdogd${{ matrix.exe }}
+            mixdogd-store/mixdog${{ matrix.exe }}
+            mixdogd-store/mixdog-askpass${{ matrix.exe }}
           retention-days: 1
           if-no-files-found: error
+
+  mixdogd-windows:
+    name: mixdogd (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.mixdogd_windows == 'true'
+    timeout-minutes: 60
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { os: windows, runner: windows-2022, exe: .exe }
+    defaults:
+      run:
+        shell: bash
+    steps: *mixdogd-steps
 
   # The legs. Each downloads its system's archive and runs one partition of it: `count` deals the
   # tests (in binary and name order) out one by one, so the neighbouring tests of a heavy module
@@ -1974,7 +2161,8 @@ jobs:
   # is the test count over 4,000 (at most 4): the last whole run summed 4,370 s over 15,902 tests, so a
   # leg of 4,000 tests is about 1,100 s of work for the four cores of a hosted runner, about 4.5 minutes
   # beside the groups that run one at a time (nextest.toml: the Postgres cluster tests, the migration
-  # crash matrices) and the setup. macOS has at most three legs (core-select.mjs SYSTEMS).
+  # crash matrices) and the setup. macOS has at most three legs; Windows, whose tests run about twice as long, one per
+  # 3,000 tests and at most six (core-select.mjs SYSTEMS).
   core-tests-linux:
     name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
     needs: [changes, core-build-linux]
@@ -2001,6 +2189,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+      # Windows: nextest unpacks the archive into the temporary folder (1m11s a time to C:, the system disk, in run 44959677392),
+      # and the tests make their folders there; both move to D:, the runner's local disk, where the checkout is. The workflow
+      # retire replays need a folder on another volume than the temporary folder: on C: then (MIXDOG_TEST_OTHER_VOLUME below).
+      - name: Put the temporary folder on drive D (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmp" /c/mixdog-other-volume
+          tmp=$(cygpath -w "$RUNNER_TEMP/tmp")
+          printf 'TMP=%s\nTEMP=%s\n' "$tmp" "$tmp" >> "$GITHUB_ENV"
       # The tracked tests that run `node` need the binary on the search path (the daemon's discovery tests, the Office
       # authoring script runtime), and one reads the checkout's node_modules: mixdog-office tests/pptx_script.rs, for
       # pptxgenjs, jszip and @napi-rs/canvas (the script's text metrics, src/runtime/office/portable/text-metrics.mjs). No other
@@ -2102,13 +2299,6 @@ jobs:
           path: rust-lists
           if-no-files-found: error
           retention-days: 14
-      # nextest does not run doctests: the rustdoc blocks of mixdog-core-api (scripts/ci/run-doctest.mjs, its own slot of this leg).
-      - name: Run the doctests of mixdog-core-api
-        if: matrix.os == 'linux' && matrix.part == 1
-        env:
-          MIXDOG_SLOT: doc
-          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/doc.json
-        run: node scripts/ci/run-doctest.mjs -p mixdog-core-api --manifest-path native/core/Cargo.toml --locked
       # Without the install scripts, as the full install was: the tests read no postinstall output (prune-embedding-runtime,
       # native-layout's js-runtime.json) and no addon build (sharp, onnxruntime-node, esbuild, fsevents, protobufjs); every
       # test that needs a js-runtime.json writes its own beside the binary it starts. apps/relay is not installed: its
@@ -2135,9 +2325,9 @@ jobs:
           FILTER: ${{ needs.changes.outputs.core_filter }}
           PART: ${{ matrix.part }}
           OF: ${{ matrix.of }}
-          # A folder on another volume than the tests' temp dir (Windows: the runner's temp is on D:, the user temp on C:): the
-          # workflow retire replays rename across two volumes (mixdog-core-config workflow::retire::tests).
-          MIXDOG_TEST_OTHER_VOLUME: ${{ runner.temp }}
+          # A folder on another volume than the tests' temp dir (Windows: the temp dir is on D:, this folder on C:): the workflow
+          # retire replays rename across two volumes (mixdog-core-config workflow::retire::tests).
+          MIXDOG_TEST_OTHER_VOLUME: ${{ runner.os == 'Windows' && 'C:\mixdog-other-volume' || runner.temp }}
           MIXDOG_SLOT: ci
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/ci.json
         # Every partition records what its own run reported, from nextest's JUnit, the #[ignore]d tests it selected included (the `ci`
@@ -2147,12 +2337,6 @@ jobs:
             --archive-file core-tests.tar.zst --workspace-remap native/core \
             --config-file native/core/.config/nextest.toml --profile ci -E "$FILTER" \
             -- --partition "count:${PART}/${OF}" --no-tests=fail
-      - name: Run the doctests of mixdog-image-egress
-        if: matrix.os == 'linux' && matrix.part == 1
-        env:
-          MIXDOG_SLOT: doc-image-egress
-          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/doc-image-egress.json
-        run: node scripts/ci/run-doctest.mjs -p mixdog-image-egress --manifest-path native/core/Cargo.toml --locked
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -2161,7 +2345,7 @@ jobs:
   core-tests-macos:
     name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
     needs: [changes, core-build-macos]
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true'
     timeout-minutes: 40
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -2176,7 +2360,7 @@ jobs:
   core-tests-windows:
     name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
     needs: [changes, core-build-windows]
-    if: needs.changes.outputs.core == 'true'
+    if: needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true'
     timeout-minutes: 40
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -2188,12 +2372,67 @@ jobs:
     env: *core-tests-env
     steps: *core-tests-steps
 
+  # nextest does not run doctests: the rustdoc blocks of mixdog-core-api and mixdog-image-egress (scripts/ci/run-doctest.mjs, a slot
+  # each), compiled by `cargo test --doc` on the dependencies core-build keeps. Its own job beside core-build, not a step of the first
+  # Linux leg: there they added about four minutes to the leg that ends the run. Each package when the selection holds it
+  # (core-select.mjs `core_doctests`): both in the full gate.
+  core-doctests:
+    needs: changes
+    if: needs.changes.outputs.core_doctests != '[]'
+    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    env:
+      MIXDOG_LEG: linux/core-doctests/1of1
+      MIXDOG_LEG_OS: linux
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - name: Restore the compiled dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: core-deps-linux-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
+          restore-keys: |
+            core-deps-linux-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      - name: Run the doctests of mixdog-core-api
+        if: contains(fromJSON(needs.changes.outputs.core_doctests), 'mixdog-core-api')
+        env:
+          MIXDOG_SLOT: doc
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/doc.json
+        run: node scripts/ci/run-doctest.mjs -p mixdog-core-api --manifest-path native/core/Cargo.toml --locked
+      - name: Run the doctests of mixdog-image-egress
+        if: contains(fromJSON(needs.changes.outputs.core_doctests), 'mixdog-image-egress')
+        env:
+          MIXDOG_SLOT: doc-image-egress
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/doc-image-egress.json
+        run: node scripts/ci/run-doctest.mjs -p mixdog-image-egress --manifest-path native/core/Cargo.toml --locked
+      - name: Upload the evidence of this leg
+        uses: ./.github/actions/upload-evidence
+        with:
+          name: linux-core-doctests-1of1
+
   # The interactive scenarios of mixdog-entry (tests/node_free.rs, the terminal interface and --plain, without Node): ignored in the
   # partitions because they drive the development mixdogd, so they run here, from the Linux archive against the Linux daemon of
   # this run, and the partitions depend on the archives alone. Selected when the archive holds mixdog-entry (core-select.mjs);
   # the reconciliation credits the `entry` profile of the Linux variant to this leg.
   core-entry:
-    needs: [changes, core-build-linux, mixdogd]
+    needs: [changes, core-build-linux, mixdogd-linux]
     if: needs.changes.outputs.core_entry == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-22.04
@@ -2386,24 +2625,55 @@ jobs:
         with:
           name: macos-core-pg-1of1
 
-  # Clippy of the daemon, which composes the core (the command the merge check runs), on each system
-  # because each compiles code the others do not (cfg(windows), cfg(target_os = "macos")). It is
-  # a check build: it shares nothing with the test build but the build scripts, so it runs beside it
-  # on its own dependency cache, not after it on the same runner. The format check (native/rustfmt.toml)
-  # reads the sources and nothing else, whatever system they are compiled for, so one system runs it, for the
-  # core and for the standalone tools beside it.
+  # The format check (native/rustfmt.toml) reads the sources and nothing else, whatever system they are compiled for, so one
+  # system runs it, for the core and for the standalone tools beside it, whenever a file it formats changed (changes `rustfmt`).
+  rustfmt:
+    needs: changes
+    if: needs.changes.outputs.rustfmt == 'true'
+    timeout-minutes: 15
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+          components: rustfmt
+      # Every Rust workspace under native/ that resolves from the checkout alone (mixdog-browser-import depends
+      # on sources outside it): the core, and each standalone tool with its own binaries and tests.
+      - name: Format check
+        run: |
+          for lock in native/*/Cargo.lock; do
+            cargo fmt --all --manifest-path "$(dirname "$lock")/Cargo.toml" -- --check
+          done
+          # No Cargo.lock and path dependencies outside the repository: cargo cannot load it, rustfmt reads the sources alone.
+          rustfmt --check --edition 2021 native/mixdog-browser-import/src/main.rs
+          # Its own workspace under scripts/, below no rustfmt.toml: the default layout.
+          cargo fmt --all --manifest-path scripts/rust-core/tree-helper/Cargo.toml -- --check
+
+  # Clippy of the daemon, which composes the core (the command the merge check runs). It is a check build: it shares nothing
+  # with the test build but the build scripts, so it runs beside it on its own dependency cache, not after it on the same
+  # runner. On Linux for a push and a pull request; on each system in the full gate, since each compiles code the others do
+  # not (cfg(windows), cfg(target_os = "macos")) (core-select.mjs `lint_matrix`).
+  #
+  # It is also the plain stable compile of what the archive builds compiled: those compile the workspace crates through
+  # rustc-threads (-Zthreads, with RUSTC_BOOTSTRAP for that compiler), which would accept a `#![feature]`; here the same
+  # selection, every target, on the plain stable compiler, on each system the archive was built for.
   core-lint:
     name: core-lint (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.core == 'true'
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: linux, runner: ubuntu-22.04 }
-          - { os: macos, runner: macos-15 }
-          - { os: windows, runner: windows-2022 }
+      matrix: ${{ fromJSON(needs.changes.outputs.lint_matrix) }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -2414,6 +2684,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
       - name: Check that the build is a clean checkout
         run: node scripts/ci/check-clean-checkout.mjs --build
+      - *rust-homes-on-d
       - name: Read the repository Rust toolchain
         id: rust-pin
         shell: bash
@@ -2421,33 +2692,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
-          components: clippy, rustfmt
+          components: clippy
       - name: Restore the checked dependencies
         id: deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/registry
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/git
             native/core/target
           key: core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
-      # Every Rust workspace under native/ that resolves from the checkout alone (mixdog-browser-import depends
-      # on sources outside it): the core, and each standalone tool with its own binaries and tests.
-      - name: Format check
-        if: matrix.os == 'linux'
-        run: |
-          for lock in native/*/Cargo.lock; do
-            cargo fmt --all --manifest-path "$(dirname "$lock")/Cargo.toml" -- --check
-          done
-          # No Cargo.lock and path dependencies outside the repository: cargo cannot load it, rustfmt reads the sources alone.
-          rustfmt --check --edition 2021 native/mixdog-browser-import/src/main.rs
-          # Its own workspace under scripts/, below no rustfmt.toml: the default layout.
-          cargo fmt --all --manifest-path scripts/rust-core/tree-helper/Cargo.toml -- --check
       # Lints are not denied in the compile itself: a denied lint ends the build at the first crate that has
       # one, and the crates after it wait for the next run. Every crate is linted, then any finding fails.
+      # The daemon and what composes it, when the selection holds the daemon (core-select.mjs `core_daemon`; every full run).
       - name: Clippy
+        if: needs.changes.outputs.core_daemon == 'true'
         run: |
           cd native/core
           cargo clippy --manifest-path Cargo.toml --locked -p mixdog-app-server-daemon --all-targets 2>&1 | tee "$RUNNER_TEMP/clippy.log"
@@ -2455,6 +2716,19 @@ jobs:
             echo "::error::clippy reported the warnings above"
             exit 1
           fi
+      # The archive's resolved selection and features (core_build_args, core_build_features: the one result core-build takes),
+      # every target, on the plain stable compiler: no RUSTC_WORKSPACE_WRAPPER, no RUSTC_BOOTSTRAP. After clippy, whose compiles
+      # of the same crates are plain stable too.
+      - name: Compile the archive's crates on plain stable
+        env:
+          ARCHIVE_ARGS: ${{ needs.changes.outputs.core_build_args }}
+          FEATURES: ${{ needs.changes.outputs.core_build_features }}
+        run: |
+          features=()
+          if [[ -n "$FEATURES" ]]; then features=(--features "$FEATURES"); fi
+          cd native/core
+          # shellcheck disable=SC2086
+          cargo check --manifest-path Cargo.toml --locked --all-targets $ARCHIVE_ARGS "${features[@]}"
       - name: Keep only the third-party dependencies in the cache
         if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile debug --manifest-path native/core/Cargo.toml
@@ -2463,8 +2737,8 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/registry
+            ${{ runner.os == 'Windows' && 'D:/.cargo' || '~/.cargo' }}/git
             native/core/target
           key: ${{ steps.deps.outputs.cache-primary-key }}
 
@@ -2483,14 +2757,15 @@ jobs:
     if: >-
       (github.event_name != 'pull_request' && (needs.changes.outputs.core == 'true' || needs.changes.outputs.core_scripts == 'true'))
       || (github.event_name == 'pull_request' && needs.changes.outputs.core_scripts == 'true')
-    timeout-minutes: 90
+    timeout-minutes: 120
+    # actions: read for the release's call, which waits for the shipped build of the same run (below).
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: linux, runner: ubuntu-22.04, unix: true }
-          - { os: macos, runner: macos-15, unix: true }
-          - { os: windows, runner: windows-2022, unix: false }
+      # Linux on an ordinary run, the three systems in the full gate (core-select.mjs `core_real_matrix`).
+      matrix: ${{ fromJSON(needs.changes.outputs.core_real_matrix) }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -2498,6 +2773,13 @@ jobs:
     env:
       MIXDOG_LEG: ${{ matrix.os }}/core-real/1of1
       MIXDOG_LEG_OS: ${{ matrix.os }}
+      # A full run (a call of the gate: a release, a deploy's native assets, the mirror; the nightly run; a manual full run) boots
+      # mixdogd in the shipping profile; a push and a manual ordinary run boot the release-optimised build without the thin-LTO
+      # link (opt-level 3, `lto = "off"`), which is most of the macOS build's 25-minute tail.
+      SHIPPING: ${{ inputs.ref != '' || needs.changes.outputs.full == 'true' }}
+      # The release's call builds nothing here: release.yml `mixdogd` (mixdogd-build.yml) builds the shipping mixdogd of this
+      # run for every target, and the smoke below runs on that build.
+      SHIPPED_BUILD: ${{ inputs.gate == 'release' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -2512,9 +2794,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
+      # The release mixdogd of one set of inputs and one profile is the same program: kept in a store keyed by those inputs
+      # (core-select.mjs store_key_mixdogd), built only when the store has no entry for the key.
+      - name: Take the release mixdogd of these inputs from the store
+        id: store
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mixdogd-store
+          key: mixdogd-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING == 'true' && 'shipping' || 'nolto' }}-${{ needs.changes.outputs.store_key_mixdogd }}
+      - name: Place the stored mixdogd
+        if: steps.store.outputs.cache-hit == 'true'
+        run: mkdir -p native/core/target/release && cp mixdogd-store/mixdogd native/core/target/release/mixdogd
+      # Two entries: the shipping profile's (`core-release-<os>-...`, which relay-rust also reads) and the one without LTO
+      # (`core-release-<os>-<arch>-nolto-...`). Dependencies compiled for an LTO link carry bitcode the other build does not.
       - name: Restore the compiled release dependencies
         id: deps
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2522,9 +2818,52 @@ jobs:
             ~/.cargo/git
             native/core/target
             scripts/rust-core/tree-helper/target
-          key: core-release-${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
+          key: core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING != 'true' && 'nolto-' || '' }}${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json', 'scripts/rust-core/tree-helper/Cargo.lock') }}
           restore-keys: |
-            core-release-${{ matrix.os }}-${{ runner.arch }}-
+            core-release-${{ matrix.os }}-${{ runner.arch }}-${{ env.SHIPPING != 'true' && 'nolto-' || '' }}
+      # First, since it is this job's longest step (macOS 23-37 minutes) and the helper and harness suites below do not read it:
+      # after them it started 2-3 minutes into the job. The timeline says where the build's time goes.
+      - name: Build mixdogd as it ships
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        run: |
+          profile=()
+          if [[ "$SHIPPING" != true ]]; then profile=(--config 'profile.release.lto="off"'); fi
+          cd native/core && cargo build --release --locked --timings "${profile[@]}" --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd
+          mkdir -p ../../mixdogd-store && cp target/release/mixdogd ../../mixdogd-store/mixdogd
+      - name: Keep the release mixdogd in the store
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mixdogd-store
+          key: ${{ steps.store.outputs.cache-primary-key }}
+      - name: Wait for the shipped mixdogd of this release (release.yml mixdogd)
+        if: matrix.unix && env.SHIPPED_BUILD == 'true'
+        timeout-minutes: 105
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/wait-for-artifact.sh mixdogd-${{ matrix.target }} mixdogd-${{ matrix.target }} 100
+      - name: Take the shipped mixdogd of this release
+        if: matrix.unix && env.SHIPPED_BUILD == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-${{ matrix.target }}
+          path: native/core/target/release
+      - name: Name the shipped mixdogd executable
+        if: matrix.unix && env.SHIPPED_BUILD == 'true'
+        run: chmod +x native/core/target/release/mixdogd
+      - name: Upload the release build timings
+        if: matrix.unix && github.event_name != 'pull_request' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: core-timings-${{ env.GATE_KEY }}-release-${{ matrix.os }}
+          overwrite: true
+          path: native/core/target/cargo-timings/cargo-timing.html
+          retention-days: 14
+          if-no-files-found: error
+      # The build writes a report per run beside the latest; none belongs in the release cache saved below.
+      - name: Remove the timing reports from the build folder
+        if: matrix.unix && github.event_name != 'pull_request'
+        run: rm -rf native/core/target/cargo-timings
       # scripts/rust-core/lib/core-session.mjs imports `ws`; a clean runner has no node_modules. (Windows runs only the helper's tests.)
       - name: Install
         run: |
@@ -2561,9 +2900,6 @@ jobs:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/harness.json
           MIXDOG_SLOT: harness
         run: node scripts/ci/node-runner.mjs benchmarks/terminal-bench-2.1/harness/anthropic_oauth_preflight_rust.test.mjs benchmarks/terminal-bench-2.1/harness/prebake-rust.test.mjs
-      - name: Build mixdogd as it ships
-        if: matrix.unix && github.event_name != 'pull_request'
-        run: cd native/core && cargo build --release --locked --manifest-path Cargo.toml -p mixdog-cli --bin mixdogd
       - name: Boot mixdogd and answer a first call
         if: matrix.unix && github.event_name != 'pull_request'
         # Red by design while mixdogd writes no history/tool-failures.jsonl (owner rs-tool-failures): the smoke fails naming it.
@@ -2589,10 +2925,11 @@ jobs:
           if [[ "$UNIX" == true && "$EVENT" != pull_request ]]; then receipts+=("$RECEIPTS/core-session.json"); fi
           node scripts/ci/check-skips.mjs receipts "${receipts[@]}"
       - name: Keep only the third-party dependencies in the cache
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && matrix.unix
+        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && matrix.unix && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         run: node scripts/ci/prune-core-target.mjs --target native/core/target --profile release --manifest-path native/core/Cargo.toml
+      # The release's call built no mixdogd, nor a run that took it from the store: the folder holds a program, not dependencies.
       - name: Save the compiled release dependencies
-        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.deps.outputs.cache-hit != 'true' && env.SHIPPED_BUILD != 'true' && steps.store.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -2611,7 +2948,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd, core-tests-linux, core-tests-macos, core-tests-windows, core-entry, core-pg, core-pg-macos, core-lint, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd-linux, mixdogd-windows, core-tests-linux, core-tests-macos, core-tests-windows, core-doctests, core-entry, core-pg, core-pg-macos, core-lint, rustfmt, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -2620,7 +2957,7 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           FULL: ${{ needs.changes.outputs.full }}
           INVENTORY: ${{ needs.inventory.result }}
-          SEL_INVENTORY: ${{ needs.changes.outputs.full == 'true' }}
+          SEL_INVENTORY: ${{ needs.changes.outputs.source_inventory == 'true' }}
           RUNTIME: ${{ needs.runtime.result }}
           RUNTIME_SLOW: ${{ needs.runtime-slow.result }}
           RUNTIME_MACOS: ${{ needs.runtime-macos.result }}
@@ -2642,14 +2979,17 @@ jobs:
           CORE_BUILD_LINUX: ${{ needs.core-build-linux.result }}
           CORE_BUILD_MACOS: ${{ needs.core-build-macos.result }}
           CORE_BUILD_WINDOWS: ${{ needs.core-build-windows.result }}
-          MIXDOGD: ${{ needs.mixdogd.result }}
+          MIXDOGD_LINUX: ${{ needs.mixdogd-linux.result }}
+          MIXDOGD_WINDOWS: ${{ needs.mixdogd-windows.result }}
           CORE_TESTS_LINUX: ${{ needs.core-tests-linux.result }}
           CORE_TESTS_MACOS: ${{ needs.core-tests-macos.result }}
           CORE_TESTS_WINDOWS: ${{ needs.core-tests-windows.result }}
+          CORE_DOCTESTS: ${{ needs.core-doctests.result }}
           CORE_ENTRY: ${{ needs.core-entry.result }}
           CORE_PG: ${{ needs.core-pg.result }}
           CORE_PG_MACOS: ${{ needs.core-pg-macos.result }}
           CORE_LINT: ${{ needs.core-lint.result }}
+          RUSTFMT: ${{ needs.rustfmt.result }}
           CORE_REAL: ${{ needs.core-real.result }}
           SEL_RUNTIME: ${{ needs.changes.outputs.runtime == 'true' }}
           SEL_RUNTIME_SLOW: ${{ needs.changes.outputs.runtime == 'true' }}
@@ -2670,16 +3010,19 @@ jobs:
           SEL_WINDOW: ${{ needs.changes.outputs.window == 'true' }}
           SEL_MOBILE_SCRIPTS: ${{ needs.changes.outputs.mobile == 'true' }}
           SEL_CORE_BUILD_LINUX: ${{ needs.changes.outputs.core_build == 'true' }}
-          SEL_CORE_BUILD_MACOS: ${{ needs.changes.outputs.core_build == 'true' }}
-          SEL_CORE_BUILD_WINDOWS: ${{ needs.changes.outputs.core_build == 'true' }}
-          SEL_MIXDOGD: ${{ needs.changes.outputs.mixdogd == 'true' }}
+          SEL_CORE_BUILD_MACOS: ${{ needs.changes.outputs.core_build == 'true' && needs.changes.outputs.core_macos == 'true' }}
+          SEL_CORE_BUILD_WINDOWS: ${{ needs.changes.outputs.core_build == 'true' && needs.changes.outputs.core_windows == 'true' }}
+          SEL_MIXDOGD_LINUX: ${{ needs.changes.outputs.mixdogd_linux == 'true' }}
+          SEL_MIXDOGD_WINDOWS: ${{ needs.changes.outputs.mixdogd_windows == 'true' }}
           SEL_CORE_TESTS_LINUX: ${{ needs.changes.outputs.core == 'true' }}
-          SEL_CORE_TESTS_MACOS: ${{ needs.changes.outputs.core == 'true' }}
-          SEL_CORE_TESTS_WINDOWS: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_TESTS_MACOS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true' }}
+          SEL_CORE_TESTS_WINDOWS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true' }}
+          SEL_CORE_DOCTESTS: ${{ needs.changes.outputs.core_doctests != '[]' }}
           SEL_CORE_ENTRY: ${{ needs.changes.outputs.core_entry == 'true' }}
           SEL_CORE_PG: ${{ needs.changes.outputs.core_pg == 'true' }}
           SEL_CORE_PG_MACOS: ${{ needs.changes.outputs.core_pg_macos == 'true' }}
           SEL_CORE_LINT: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_RUSTFMT: ${{ needs.changes.outputs.rustfmt == 'true' }}
           SEL_CORE_REAL: ${{ (github.event_name != 'pull_request' && (needs.changes.outputs.core == 'true' || needs.changes.outputs.core_scripts == 'true')) || (github.event_name == 'pull_request' && needs.changes.outputs.core_scripts == 'true') }}
         run: |
           set -euo pipefail
@@ -2715,14 +3058,17 @@ jobs:
           gate core-build-linux "$SEL_CORE_BUILD_LINUX" "$CORE_BUILD_LINUX"
           gate core-build-macos "$SEL_CORE_BUILD_MACOS" "$CORE_BUILD_MACOS"
           gate core-build-windows "$SEL_CORE_BUILD_WINDOWS" "$CORE_BUILD_WINDOWS"
-          gate mixdogd "$SEL_MIXDOGD" "$MIXDOGD"
+          gate mixdogd-linux "$SEL_MIXDOGD_LINUX" "$MIXDOGD_LINUX"
+          gate mixdogd-windows "$SEL_MIXDOGD_WINDOWS" "$MIXDOGD_WINDOWS"
           gate core-tests-linux "$SEL_CORE_TESTS_LINUX" "$CORE_TESTS_LINUX"
           gate core-tests-macos "$SEL_CORE_TESTS_MACOS" "$CORE_TESTS_MACOS"
           gate core-tests-windows "$SEL_CORE_TESTS_WINDOWS" "$CORE_TESTS_WINDOWS"
+          gate core-doctests "$SEL_CORE_DOCTESTS" "$CORE_DOCTESTS"
           gate core-entry "$SEL_CORE_ENTRY" "$CORE_ENTRY"
           gate core-pg "$SEL_CORE_PG" "$CORE_PG"
           gate core-pg-macos "$SEL_CORE_PG_MACOS" "$CORE_PG_MACOS"
           gate core-lint "$SEL_CORE_LINT" "$CORE_LINT"
+          gate rustfmt "$SEL_RUSTFMT" "$RUSTFMT"
           gate core-real "$SEL_CORE_REAL" "$CORE_REAL"
       # The proof. A full run has no way to be green without it: the manifest of the commit (what the source defines) is compared with the
       # evidence every declared leg and slot left (what the lanes executed), per case, platform and slot, against the reviewed plan and

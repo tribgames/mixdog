@@ -87,6 +87,7 @@ tokio-tungstenite = { version = "0.28", default-features = false, features = ["c
 tokio-util = { version = "0.7", features = ["codec", "io"] }
 tracing = { version = "0.1" }
 tracing-core = { version = "0.1" }
+tracing-log = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ttf-parser = { version = "0.25", features = ["no-std-float"] }
 tungstenite = { version = "0.28", default-features = false, features = ["__rustls-tls", "handshake"] }

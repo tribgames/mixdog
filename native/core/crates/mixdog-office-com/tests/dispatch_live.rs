@@ -1,6 +1,6 @@
 //! The live backend against Microsoft Office. Both tests are `#[ignore]`d: they start Word and Excel, so they run only
 //! on a Windows PC with Office, by hand, with `MIXDOG_TEST_LIVE_OFFICE=1`:
-//! `cargo test -p mixdog-office-com --test dispatch_live -- --ignored`.
+//! `cargo test -p mixdog-office-com --test it -- --ignored dispatch_live::`.
 #![cfg(windows)]
 
 use mixdog_office_com::com::SafeArray;

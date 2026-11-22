@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { judgeToolFailureRows, toolFailureCheck } from './smoke-mixdogd.mjs';
+import { judgeToolFailureRows, slowestBootSteps, toolFailureCheck } from './smoke-mixdogd.mjs';
+
+test('the boot steps start at serve entry and follow the marks by their instants', () => {
+  const phases = [
+    { phase: 'runtime-resolved', ms: 900 },
+    { phase: 'compose-start', ms: 1000 },
+    { phase: 'catalog-index-job-started', ms: 1100 },
+    { phase: 'core-composed', ms: 1500 },
+  ].reverse();
+  assert.deepEqual(slowestBootSteps(phases, 2), [
+    { step: 'serve-entry -> runtime-resolved', ms: 900 },
+    { step: 'catalog-index-job-started -> core-composed', ms: 400 },
+  ]);
+});
 
 const RUN = { sessionId: 'thread-1', cwd: 'C:\\work', startedAt: 1000, endedAt: 2000 };
 // The core's row for the provoked call, with this run's own values.

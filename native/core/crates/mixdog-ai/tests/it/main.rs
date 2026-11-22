@@ -73,3 +73,6 @@ mod web_search_shape;
 
 mod compat_chat_wire;
 mod custom_provider_request;
+
+#[path = "../credential_read_waits.rs"]
+mod credential_read_waits;

@@ -87,11 +87,13 @@ async function withCore(bin, config, work) {
   return { value, exitMs, rows, phases };
 }
 
-/** The boot's slowest steps from the daemon's own marks (ms from `serve` entry, so launch and the login-shell read come before them). */
+/** The boot's slowest steps from the daemon's own marks (ms from `serve` entry, so launch and the login-shell read come before them).
+ *  A mark stamped with an earlier instant can be written after later ones, so the steps follow the instants, not the file order. */
 export function slowestBootSteps(phases, count = 6) {
-  return phases
+  const marks = [{ phase: 'serve-entry', ms: 0 }, ...[...phases].sort((a, b) => a.ms - b.ms)];
+  return marks
     .slice(1)
-    .map((mark, i) => ({ step: `${phases[i].phase} -> ${mark.phase}`, ms: mark.ms - phases[i].ms }))
+    .map((mark, i) => ({ step: `${marks[i].phase} -> ${mark.phase}`, ms: mark.ms - marks[i].ms }))
     .sort((a, b) => b.ms - a.ms)
     .slice(0, count);
 }

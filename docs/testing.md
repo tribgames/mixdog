@@ -251,8 +251,30 @@ unenforced replacement, and each way of switching off the verdict or moving a re
 
 ## CI coverage
 
-What each part of `release-gate.yml` runs, and when. A push to main and a manual run select everything; a pull request selects
-by changed path (the `changes` job). The `complete` job covers every other job: one whose own `if` selected it must have
+What each part of `release-gate.yml` runs, and when, and which run proves what:
+
+| Run | Rust core | Other lanes | Reconciliation |
+|---|---|---|---|
+| Pull request | the crates the change can affect, built, linted and tested on Linux | by changed path | no |
+| Push to main | the crates the change can affect, as for a pull request (every crate for a core input outside the crates), on Linux | every lane but `rustfmt`, which follows its files | no |
+| Full gate: every `workflow_call` (the release, a deploy's native assets, the mirror, the runtime refresh), the nightly `schedule` on main, a manual run with `full_gate` | every crate on Linux, macOS and Windows | every lane | yes |
+
+A pull request and a push prove that the crates the change can affect build and their tests pass on Linux. Only the full gate
+compiles the macOS and Windows code and proves the core's tests there, and only the full gate is a release: a call is a
+full run whatever the selection says (`changes.outputs.full`, pinned by `wiring.mjs`), a full run requires every job of the graph
+to have succeeded, and the reconciliation then requires the evidence of every leg of `plan.json` on its system, so a gate that did
+not run the three systems cannot pass a release. A macOS- or Windows-only failure is chased with a manual run with `full_gate`.
+
+The core inputs are `scripts/ci/core-inputs.mjs` `CORE_INPUTS`: `native/core`, the native trees its workspace builds or reads, the
+toolchain pin, this workflow, its actions and scripts (`scripts/ci`, `scripts/rust-core`), and every path outside `native/` a core
+build script or test reads (the Node runtime and protocol packages its tests start, the manifests and shipped files it embeds, the
+benchmark fixtures and the relay pages). They were found by a scan of the core's sources (`include_str!`/`include_bytes!`,
+`#[path]`, the testkit's `fixture!` macros, the `..` joins and `ancestors()`/`parent()` climbs of `CARGO_MANIFEST_DIR`), and
+`release-gate-wiring.test.mjs` runs the scan: a core source that reads a path outside the set fails it, and a reach to the
+repository root it cannot resolve fails it until `REVIEWED` says what that code reads. A base the push cannot be compared with
+selects every file, and so the core.
+
+The `complete` job covers every other job: one whose own `if` selected it must have
 succeeded, so a selected job that ends skipped fails the gate; a job that was not selected may be skipped. Each job's `if` is
 repeated in `complete` and compared by `scripts/ci/release-gate-wiring.test.mjs`, so a job added without its line fails that
 test. A change to `rust-toolchain.toml`, to `release-gate.yml` or to the core's `Cargo.toml`/`Cargo.lock` selects every job that
@@ -261,26 +283,75 @@ consumes it (the test runs the selection over a table of paths).
 - **Rust core.** `core-build-linux`, `core-build-macos` and `core-build-windows` compile the tests once per system (Linux x64,
   macOS arm64, Windows x64) with `cargo nextest archive --timings`, upload the archive and the build's timeline
   (`core-timings-*`), and use every core of the runner; each first checks the checkout is clean (no Cargo test target git does
-  not track), so no untracked test file is in the archive. The archive is one build of the whole selection, never a build per
-  leg: a build of part of the workspace unifies the features of fewer crates, so its binaries differ from the ones the whole
-  build tests. The development `mixdogd` (dev controls, with the `mixdog` terminal
-  program and the ssh helper) is the `mixdogd` job's, on Linux when a slow Node lane or the entry scenarios need it, and on
-  Windows for the app boot in `desktop-computer`: a runner of its own beside the archive builds, checking its checkout the same
-  way, so `desktop-slow`, `runtime-slow` and `desktop-computer` start when it is done, not when the slowest system's archive is.
+  not track), so no untracked test file is in the archive. The archive is one archive of the whole selection, never one per leg.
+  Each system's archive is one build on one runner; the workspace crates compile with the parallel front end
+  (`-Zthreads=4` through `scripts/ci/rustc-threads.rs`, the test archive only), and `core-lint` compiles the same selection on
+  plain stable. A build of part of the workspace unifies the features of fewer crates, so on its own it would compile some
+  crates otherwise than the whole: `mixdog-protocol` and `mixdog-app-protocol` without `codegen`, `mixdog-imaging` without
+  `test-support`, `mixdog-cli` with optional dependencies the whole leaves off. So `changes` resolves a push's or a pull
+  request's selection once (`scripts/ci/core-align.mjs`), and the archive and `core-lint` both take that result: it compares
+  `cargo tree` of the selection with `cargo tree --workspace`, each crate in each of its roles (built for the host, as a build
+  dependency or proc macro, or for the target), selects with its features each workspace crate it resolves otherwise (no list:
+  the rounds find them; such a crate is compiled without its tests being run) and repeats until the selection resolves as the
+  whole does, failing when a round changes nothing, as a third-party difference does. A third-party difference is closed in the workspace hack (`cargo
+  hakari generate`; `tracing-log`'s default features were the one). On Windows the Rust homes
+  (registry, toolchain) and, in the test legs, the temporary folder nextest unpacks the archive into are on `D:`, the runner's
+  local disk where the checkout and its target folder already are; `windows-2022` cannot make a ReFS Dev Drive (`Format-Volume
+  -DevDrive` needs build 22621). A crate links one integration-test binary, `tests/it/main.rs` (or its `tests/features/main.rs`), with
+  `autotests = false`: each `tests/<suite>.rs` is a `#[path]` module of it, because every test binary is one more link of
+  the whole dependency graph, and nextest runs each test in a process of its own whatever binary holds it. A test's name
+  carries its suite (`perf_pty::first_frame_is_not_slower_than_node`), and a test that starts its own executable on
+  another test names that test with the path. A new suite file is a module of the root: the inventory fails a file no
+  target reaches. `mixdog-migrate`'s `tests/long_log.rs` stays a binary of its own, since its counting
+  `#[global_allocator]` would become the allocator of every suite, and so do `mixdog-workspace`'s `tests/read_admission.rs`
+  (it boots and fills the process-wide executors) and `tests/no_polling.rs` (it counts every lane job of its process), which
+  need a process of their own under a plain `cargo test` too. The development `mixdogd` (dev controls, with the `mixdog` terminal
+  program and the ssh helper) is built by `mixdogd-linux` when a slow Node lane or the entry scenarios need it, and by
+  `mixdogd-windows` for the app boot in `desktop-computer`: runners of their own beside the archive builds, checking their
+  checkout the same way, so `desktop-slow`, `runtime-slow` and `core-entry` start when the Linux daemon is done and
+  `desktop-computer` when the Windows one is, not when the slowest system's archive or the other system's daemon is. The archive
+  builds alone compile the workspace crates with rustc's parallel front end (`.github/actions/rustc-threads`,
+  `scripts/ci/rustc-threads.rs`, the CI form of the local `rustc-slot` wrapper): `-Zthreads=4` with `RUSTC_BOOTSTRAP` for that
+  compiler process alone, which would therefore accept a `#![feature]`; the dependencies and every build-script probe on the
+  plain compiler; a compile again without the flag when the compiler crashes (exit 101), with a warning in the log and a line in
+  the job summary. Nothing a release ships, nor the mixdogd `core-real` or the dev daemon jobs build, goes through it, and
+  `core-lint` compiles the archive's selection, every target, on plain stable on each system the archive is built for
+  (`release-gate-wiring.test.mjs` pins both). `core-lint` runs on Linux for a push and a pull request and on the three systems in
+  the full gate; the format check is its own job, `rustfmt`, selected by the files it formats on every event and run in every
+  full run (the other lanes' selection turns them all on for a push). The source inventory runs on
+  every run; the reconciliation against it only in the full gate. A push selects against the last commit the gate passed on for
+  its branch (a newer push cancels an older one's run), both sides of a rename. Core-real builds the shipping profile in every
+  full run.
   The legs of `core-tests-linux`, `core-tests-macos` and `core-tests-windows` each need their own system's archive alone: they
   download it and run `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at
-  most four, three on macOS, whose five concurrent jobs per account the legs share with `core-pg-macos` and `core-real`). The
+  most four; three on macOS, whose five concurrent jobs per account the legs share with `core-pg-macos` and `core-real`; on
+  Windows, whose partitions run about twice as long as Linux's, one per 3,000 tests and at most six). The
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
   `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
-  request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
+  request and a push archive the changed crates and their reverse dependencies (the whole workspace for a core input outside
+  the crates); the full gate archives the whole workspace. Only a build of every crate on main writes the dependency cache. The
+  doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg
+  `linux/core-doctests/1of1`, beside the build on its dependency cache. The development `mixdogd`, the release `mixdogd` of
+  `core-real` and the relay of `relay-rust` are kept in a store (`actions/cache`) keyed by their inputs (`core-select.mjs`
+  `STORES`, `store_key_*`: the mode, object and path of every tracked core input, without the files of the crates that build does
+  not compile, a crate compiled being a normal or build dependency, optional ones included, or a crate a compiled crate's source
+  reaches into by the reaches `core-inputs.mjs` `reachesOf` recognises: `include_str!`/`include_bytes!`/`include!`, `#[path]`,
+  the fixture macros and the `CARGO_MANIFEST_DIR` climbs, a name in a comment or a string not being one) and built only when the store has no entry for the key; main writes the entries, a pull request reads
+  them. The key leaves out the runner image: a program built by an older image's linker for the same inputs is taken. `core-pg` runs
   `services-pg` and `pg` from the Linux archive with the provisioned runtime, a leg per profile, when the archive holds the
-  crate; `core-pg-macos` runs both, one after the other as the slots of leg `macos/core-pg/1of1`, on main and manual runs. `core-lint` is clippy of the daemon on each system, and on Linux
-  the format check of the whole workspace (`cargo fmt --all -- --check` for `native/core` and for each standalone tool under `native/` that has a
-  `Cargo.lock`, configured by `native/rustfmt.toml`; `native/core/vendor` and the generated tables marked `#[rustfmt::skip]` are
-  left alone). `core-real` builds the process-tree helper and
-  runs its suites and the harness suites on every system, and on Linux and macOS also builds the release `mixdogd` and boots it.
-  It runs on a push to main or a manual run whenever the core or `scripts/rust-core` and its neighbours changed (everything, on
-  main). On a pull request it runs only when `scripts/rust-core`, `benchmarks/token-lang`, the harness's Rust-core suites, the
+  crate; `core-pg-macos` runs both, one after the other as the slots of leg `macos/core-pg/1of1`, in the full gate. `core-lint`
+  runs clippy of the daemon when the selection holds the daemon (`core_daemon`; every full run), beside the plain stable
+  compile. `rustfmt` is the format check of the whole workspace (`cargo fmt --all -- --check` for `native/core` and for each
+  standalone tool under `native/` that has a `Cargo.lock`, configured by `native/rustfmt.toml`; `native/core/vendor` and the
+  generated tables marked `#[rustfmt::skip]` are left alone). `core-real` builds the process-tree helper and
+  runs its suites and the harness suites, and on Linux and macOS also builds the release `mixdogd` and boots it: on Linux for a
+  push, on the three systems in the full gate. What it boots depends on the run. On a push and in the nightly and manual full
+  gates it is the release-optimised build without the thin-LTO link (`--config profile.release.lto="off"`, opt-level 3), so the
+  boot smoke there proves that the release-optimised daemon boots, not the shipped binary; the LTO link was most of the macOS
+  build's 25-minute tail. A call of the gate builds the shipping profile, and the release's call builds nothing: it waits for
+  the `mixdogd-<target>` that `release.yml` `mixdogd` (`mixdogd-build.yml`) builds for the packages and boots that, the same
+  binary `release.yml` `core-smoke` boots and the npm packages ship. It runs on a push or in the full gate whenever the core or `scripts/rust-core` and its neighbours changed (everything, in
+  the full gate). On a pull request it runs only when `scripts/rust-core`, `benchmarks/token-lang`, the harness's Rust-core suites, the
   toolchain pin, the core's `Cargo.toml`/`Cargo.lock` or the workflow changed, and then it skips the release build and the boot.
 - **Node.** `runtime` (the root default lane, sharded by `scripts/ci/node-shards.mjs`), `runtime-slow` and `runtime-macos`
   for the root tree; `desktop`, `desktop-tests` (three shards plus Windows) and `desktop-slow`; `relay`, `relay-rust`,

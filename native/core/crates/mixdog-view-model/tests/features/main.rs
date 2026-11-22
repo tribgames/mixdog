@@ -14,6 +14,9 @@ use mixdog_view_model::results::status::{assign_ui_diff_from_message, ui_diff_fr
 use mixdog_view_model::tool_primitives::{display_model, first_text, pluralize};
 use serde_json::json;
 
+#[path = "../statusline_segments.rs"]
+mod statusline_segments;
+
 // ---- model names ----------------------------------------------------------------------------------------------------------
 
 #[test]

@@ -1,5 +1,5 @@
 //! The actions against real Microsoft Office. Every test is `#[ignore]`: it starts Office, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test actions_live -- --ignored`) on a Windows machine with Office and
+//! (`cargo test -p mixdog-office-com --test it -- --ignored actions_live::`) on a Windows machine with Office and
 //! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
 //!
 //! The scenarios of `tests/scenarios/actions.json` that need no reader or editor of an application (those are written

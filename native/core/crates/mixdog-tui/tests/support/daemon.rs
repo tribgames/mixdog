@@ -44,6 +44,13 @@ pub struct Workspace {
     clip_dir: PathBuf,
 }
 
+/// The libtest name of the `tui_child` test of the suite that mounts this support module: `<suite>::tui_child`, where the
+/// suite is this module's path less the crate and `support::daemon`.
+fn child_test_name() -> String {
+    let suite: Vec<&str> = module_path!().split("::").skip(1).take_while(|part| *part != "support").collect();
+    suite.iter().chain(&["tui_child"]).copied().collect::<Vec<_>>().join("::")
+}
+
 /// The `mixdogd` under test: `MIXDOGD_BIN`, else the one the build left beside the test binaries' `deps` folder.
 fn built_daemon() -> PathBuf {
     if let Some(bin) = std::env::var_os("MIXDOGD_BIN").filter(|bin| !bin.is_empty()) {
@@ -123,7 +130,7 @@ impl Workspace {
     /// The command of the terminal UI child: this test binary on its `tui_child` test, with the private root's environment.
     pub fn child_command(&self) -> CommandBuilder {
         let mut command = CommandBuilder::new(std::env::current_exe().expect("the test binary"));
-        command.args(["--exact", "tui_child", "--nocapture", "--test-threads=1"]);
+        command.args(["--exact", &child_test_name(), "--nocapture", "--test-threads=1"]);
         for (name, value) in &self.boundary.env {
             match value {
                 Some(value) => command.env(name, value),

@@ -217,6 +217,9 @@ function releaseProblems(workflows, fail) {
 /** The one name a release's join evidence has: uploaded by the Windows package job, downloaded by name by the join. */
 export const JOIN_EVIDENCE = 'join-evidence-release-${{ inputs.ref }}-windows-desktop-package-1of1';
 
+/** The release's own build of mixdogd (release.yml `mixdogd`), which core-real boots on the release's call instead of building it again. */
+export const SHIPPED_MIXDOGD = 'mixdogd-${{ matrix.target }}';
+
 function artifactProblems(workflows, fail) {
   for (const [file, workflow] of Object.entries(workflows)) {
     for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
@@ -231,7 +234,8 @@ function artifactProblems(workflows, fail) {
             (upload ? step.with?.overwrite !== true : step.with?.overwrite !== undefined)
           )
             fail(`${where}: only producers replace their run-scoped artifact; downloads never merge`);
-          if (!KINDS.some((kind) => given.startsWith(artifactTemplate(kind))))
+          const shipped = !upload && name === 'core-real' && given === SHIPPED_MIXDOGD;
+          if (!shipped && !KINDS.some((kind) => given.startsWith(artifactTemplate(kind))))
             fail(`${where}: the artifact ${JSON.stringify(given)} is not named by kind, gate and SHA (artifacts.mjs)`);
         } else if (String(given).startsWith('join-evidence') && given !== JOIN_EVIDENCE)
           fail(`${where}: the join evidence ${JSON.stringify(given)} is not named ${JOIN_EVIDENCE}`);

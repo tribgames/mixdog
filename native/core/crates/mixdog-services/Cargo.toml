@@ -3,6 +3,11 @@ name = "mixdog-services"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
+
+[[test]]
+name = "features"
+path = "tests/features/main.rs"
 
 [features]
 # Test-only: for other crates' replays, the scheduler's call recorder (`Scheduler::record_calls`) and the effort judge over a

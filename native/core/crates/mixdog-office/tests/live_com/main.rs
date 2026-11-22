@@ -12,14 +12,14 @@
 //! over the tests. The tests share one Office and its foreground, so they hold a lock of their own and run one at a time:
 //!
 //! ```text
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored excel::
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored word::
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored powerpoint::
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored other::author_
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored other::attach_
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored other::contract_
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored other::compat_
-//! cargo test -p mixdog-office --offline --test live_com -- --ignored            (all)
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::excel::
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::word::
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::powerpoint::
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::other::author_
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::other::attach_
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::other::contract_
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::other::compat_
+//! cargo test -p mixdog-office --offline --test features -- --ignored live_com::          (all)
 //! ```
 //!
 //! A filter that selects no test runs none and passes: read the line `running N tests` (the Node runner failed an empty selection).

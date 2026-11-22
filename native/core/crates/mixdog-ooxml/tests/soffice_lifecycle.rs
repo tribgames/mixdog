@@ -39,7 +39,7 @@ fn fake_launcher() {
     }
     let me = std::env::current_exe().expect("the test program");
     std::process::Command::new(me)
-        .args(["--exact", "fake_sleeper", "--ignored", "--nocapture"])
+        .args(["--exact", "soffice_lifecycle::fake_sleeper", "--ignored", "--nocapture"])
         .env(JOB, "sleep")
         .env(PID_FILE, std::env::var(CHILD_PID_FILE).expect("the child's pid file"))
         .spawn()
@@ -81,10 +81,10 @@ fn fake_exit() {
 fn fake(job: &str, env: &[(&str, &str)], timeout: Duration) -> (String, Vec<String>, RunOptions<'static>) {
     let program = std::env::current_exe().expect("the test program").display().to_string();
     let name = match job {
-        "sleep" => "fake_sleeper",
-        "launch" => "fake_launcher",
-        "flood" => "fake_flood",
-        _ => "fake_exit",
+        "sleep" => "soffice_lifecycle::fake_sleeper",
+        "launch" => "soffice_lifecycle::fake_launcher",
+        "flood" => "soffice_lifecycle::fake_flood",
+        _ => "soffice_lifecycle::fake_exit",
     };
     let args = ["--exact", name, "--ignored", "--nocapture"].map(str::to_owned).to_vec();
     let mut options = RunOptions::new(timeout, "timed out", "cancelled");

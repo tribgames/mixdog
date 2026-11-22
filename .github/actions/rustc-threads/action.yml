@@ -1,0 +1,17 @@
+name: Parallel rustc front end for the workspace crates
+description: >-
+  Builds scripts/ci/rustc-threads.rs with the repository toolchain and makes it the RUSTC_WORKSPACE_WRAPPER of the job's later
+  cargo builds: each workspace crate compiles with `-Zthreads` (MIXDOG_RUSTC_THREADS, default 4), dependencies and build-script
+  probes as they are. After the toolchain step.
+runs:
+  using: composite
+  steps:
+    - name: Build the wrapper and point cargo at it
+      shell: bash
+      run: |
+        set -euo pipefail
+        exe=""
+        if [[ "$RUNNER_OS" == Windows ]]; then exe=.exe; fi
+        wrapper="$RUNNER_TEMP/rustc-threads$exe"
+        rustc --edition 2021 -O "$GITHUB_WORKSPACE/scripts/ci/rustc-threads.rs" -o "$wrapper"
+        printf 'RUSTC_WORKSPACE_WRAPPER=%s\n' "$wrapper" >> "$GITHUB_ENV"

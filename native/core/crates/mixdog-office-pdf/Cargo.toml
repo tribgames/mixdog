@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 description = "The office PDF backend: the layout of a PDF's text with its ruled lines, boxes and links, the tables read from it, the images it paints, its outline and a text search over the layout, on the mixdog-pdf reader"
+autotests = false
 
 [lints]
 workspace = true
+
+[[test]]
+name = "features"
+path = "tests/features/main.rs"
 
 [dependencies]
 base64 = { workspace = true }

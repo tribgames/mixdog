@@ -1280,7 +1280,7 @@ test('release refs: no force, candidates only before the gate, and every sink ch
     [
       'a gate artifact is unqualified by gate and SHA',
       (w) => {
-        w['release-gate.yml'].jobs.mixdogd.steps.find(
+        w['release-gate.yml'].jobs['mixdogd-linux'].steps.find(
           (step) => /upload-artifact/.test(step.uses ?? '') && /mixdogd-dev/.test(step.with?.name ?? '')
         ).with.name = 'mixdogd-dev';
       },
@@ -1843,7 +1843,7 @@ test('inventory requires image-egress compile-fail doctests to produce their own
       {
         id: ['rust', `${pkg}/Cargo.toml`, 'doctest', 'mixdog_image_egress'],
         source: `${pkg}/Cargo.toml`,
-        requires: [clause('linux/core-tests/1of4#doc-image-egress')],
+        requires: [clause('linux/core-doctests/1of1#doc-image-egress')],
       },
     ]
   );

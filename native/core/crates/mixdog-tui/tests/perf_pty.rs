@@ -2,7 +2,7 @@
 //! (`tests/support/node-perf-baseline.json`, recorded from `scripts/tui-perf-run.ps1` and `scripts/tui-runtime-load-bench.mjs`
 //! runs on the baseline machine): the first frame, the time from a keystroke to the frame that shows it, and the streaming
 //! throughput. Each is asserted not worse than Node's. The tests are ignored: they run on the baseline machine
-//! (`cargo test --offline -p mixdog-tui --test perf_pty -- --ignored`), one at a time.
+//! (`cargo test --offline -p mixdog-tui --test it -- --ignored perf_pty::`), one at a time.
 //!
 //! A number the baseline file does not hold yet fails its test with what was measured, so a machine without a recording never
 //! passes by comparing with nothing.
