@@ -218,8 +218,8 @@ export function ContextUsageIndicator({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onViewDetails?: () => void;
-  /** The session panel's Context row: the ring with its percentage and
-   *  used / limit after the row's name; the same card opens under it. */
+  /** The session panel's Context row: the percentage and used / limit after
+   *  the row's name, no ring; the same card opens under it. */
   rowLabel?: string;
 }) {
   // Click-only like the other composer chips: hovering past the gauge must not
@@ -281,27 +281,30 @@ export function ContextUsageIndicator({
             : undefined
         }
       >
-        {rowLabel && <span className="session-rail-key">{rowLabel}</span>}
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <circle className="context-usage-track" cx="10" cy="10" r="8" />
-          <circle
-            className="context-usage-value"
-            cx="10"
-            cy="10"
-            r="8"
-            pathLength="100"
-            strokeDasharray={`${context?.percent ?? 0} 100`}
-          />
-        </svg>
-        {rowLabel && context && (
+        {rowLabel ? (
           <>
+            <span className="session-rail-key">{rowLabel}</span>
             <span className="session-rail-context-percent">
-              {context.percent == null ? '—' : `${context.percent}%`}
+              {context?.percent == null ? '—' : `${context.percent}%`}
             </span>
-            <span className="session-rail-num" title={contextUsageTitle(context)}>
-              {contextUsageText(context)}
-            </span>
+            {context && context.used != null && (
+              <span className="session-rail-num" title={contextUsageTitle(context)}>
+                {contextUsageText(context)}
+              </span>
+            )}
           </>
+        ) : (
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <circle className="context-usage-track" cx="10" cy="10" r="8" />
+            <circle
+              className="context-usage-value"
+              cx="10"
+              cy="10"
+              r="8"
+              pathLength="100"
+              strokeDasharray={`${context?.percent ?? 0} 100`}
+            />
+          </svg>
         )}
         {rowLabel && <ChevronDown size={12} className="session-rail-pk" aria-hidden="true" />}
       </button>
@@ -328,8 +331,8 @@ export function ContextUsageIndicator({
   );
 }
 
-/** The gauge's ring and percentage alone, in its tone (the session panel's
- *  Info summary); nothing before the session has a reading. */
+/** The context percentage alone, in its tone (the session panel's Info
+ *  summary); nothing before the session has a reading. */
 export function ContextUsageSummary({ snapshot }: { snapshot: Snapshot }) {
   const context = contextMetrics(snapshot);
   if (!context || context.percent == null) return null;
@@ -337,19 +340,8 @@ export function ContextUsageSummary({ snapshot }: { snapshot: Snapshot }) {
   if (context.percent >= 90) tone = 'danger';
   else if (context.percent >= 70) tone = 'warning';
   return (
-    <span className="session-context-indicator session-rail-context-summary" data-active="true" data-tone={tone}>
-      <svg viewBox="0 0 20 20" aria-hidden="true">
-        <circle className="context-usage-track" cx="10" cy="10" r="8" />
-        <circle
-          className="context-usage-value"
-          cx="10"
-          cy="10"
-          r="8"
-          pathLength="100"
-          strokeDasharray={`${context.percent} 100`}
-        />
-      </svg>
-      <span>{`${context.percent}%`}</span>
+    <span className="session-rail-context-percent" data-tone={tone}>
+      {`${context.percent}%`}
     </span>
   );
 }

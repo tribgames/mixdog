@@ -127,7 +127,7 @@ const HARNESS = `
     const out = [];
     const body = document.querySelector('.session-rail-body');
     if (body.scrollWidth > body.clientWidth) out.push('panel scrolls sideways: ' + body.scrollWidth);
-    const rows = document.querySelectorAll('.session-rail-row, .session-rail .agent-pool-row, .session-rail-hd, .session-rail-goal-line');
+    const rows = document.querySelectorAll('.session-rail-row, .session-rail-hd, .session-rail-goal-line');
     for (const row of rows) {
       const box = row.getBoundingClientRect();
       if (row.scrollWidth > row.clientWidth + 1) out.push('scrolls: ' + row.className + ' ' + row.textContent.slice(0, 40));
@@ -139,6 +139,9 @@ const HARNESS = `
         if (!rect.width || !rect.height) continue;
         if (rect.right > box.right + 1 || rect.left < box.left - 1) {
           out.push('past its row: ' + (child.className?.baseVal ?? child.className) + ' in ' + row.textContent.slice(0, 40));
+        }
+        if (rect.bottom > box.bottom + 1 || rect.top < box.top - 1) {
+          out.push('above or below its row: ' + (child.className?.baseVal ?? child.className) + ' in ' + row.textContent.slice(0, 40));
         }
       }
       if (box.height > 37) out.push('taller than a row: ' + box.height + ' ' + row.textContent.slice(0, 40));
@@ -193,9 +196,11 @@ test('the panel at 400px with a busy session: nothing overflows its row', async 
   page.on('pageerror', (error) => errors.push(error.stack.split('\n').slice(0, 4).join(' <- ')));
   await page.setViewport({ width: 1200, height: 900 });
   await page.setContent('<!doctype html><html><body><div id="root"></div></body></html>');
-  await page.addStyleTag({ content: styles.outputFiles[0].text });
+  // The panel's own CSS is a chunk of its own: the desktop layers load after it here, the order in which a rule of
+  // theirs on a class the panel borrows would win a tie.
   const css = bundle.outputFiles.find((file) => file.path.endsWith('.css'));
   if (css) await page.addStyleTag({ content: css.text });
+  await page.addStyleTag({ content: styles.outputFiles[0].text });
   // The route picker's shared terminal figures read process at load; the app's bundler gives them one.
   await page.addScriptTag({ content: 'window.process = { env: {}, platform: "win32", argv: [], versions: {} };' });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });

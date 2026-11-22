@@ -1995,6 +1995,12 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .composer-footer {
   gap: 0;
 }
+/* A card with no line under it (the session panel holds the line's controls,
+   or the "simple" style shows none) closes its region on the panels' 12px,
+   not flush on the pane's edge. */
+html:not([data-mixdog-mobile-tabs]) .composer-region > form.composer:last-child {
+  margin-bottom: 12px;
+}
 /* The slim line under the card: the usage readout at the left end, the model
    picker and the context gauge at the right end. Popups open upward from it. */
 .composer-model-line {

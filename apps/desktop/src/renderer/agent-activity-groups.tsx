@@ -107,6 +107,7 @@ export function AgentRowFrame({
   setSize,
   tabIndex,
   describedBy,
+  className = 'schedules-row workflows-agent-summary-row agent-pool-row',
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
@@ -114,6 +115,8 @@ export function AgentRowFrame({
 }: AgentRowFrameProps & {
   /** The element that reads the row's state. */
   describedBy: string;
+  /** The row's box: an agents list's row unless the surface draws its own. */
+  className?: string;
   children: React.ReactNode;
 }): React.ReactElement {
   const role = agentRoleLabel(agent.agent || agent.tag);
@@ -127,7 +130,7 @@ export function AgentRowFrame({
   return (
     <button
       type="button"
-      className="schedules-row workflows-agent-summary-row agent-pool-row"
+      className={className}
       data-agent-tag={agent.tag || undefined}
       data-agent-session-id={sessionId || undefined}
       data-agent-parent-session-id={parentSessionId || undefined}

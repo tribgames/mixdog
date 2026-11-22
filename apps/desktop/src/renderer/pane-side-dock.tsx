@@ -223,19 +223,19 @@ function resolveDockLayout({
   const diffWidth = pairShowing
     ? Math.round(Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffDesired, avail - baseAsideWidth)))
     : 0;
-  return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth, inlineFloor };
+  return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth };
 }
 
 type DockLayoutInput = Omit<Parameters<typeof resolveDockLayout>[0], 'room' | 'cellWidth'>;
 
 /** The dock and the session panel decided together, from the pane cell's
- *  width: the dock's layout (resolveDockLayout) in the room the panel's
- *  column leaves it, and where the panel goes (sessionRailFit) given the
- *  least the dock can be shown at inline. A dock that cannot keep that much
- *  beside the panel and the conversation keeps the room it has alone, and
- *  the panel is raised over it instead. Below the chat the dock shares the
- *  cell's width with the panel's column. Before the first measure the panel
- *  is a column at its preferred width. */
+ *  width: the dock as it lays out alone (resolveDockLayout), and the panel
+ *  as a column in the room left beside it and the conversation
+ *  (sessionRailFit). Without that room the panel is not shown beside a dock
+ *  (null: the composer keeps its controls) and is raised over the pane with
+ *  no dock. Below the chat the dock shares the cell's width with the
+ *  panel's column. Before the first measure the panel is a column at its
+ *  preferred width. */
 export function paneDockRailLayout({
   cellWidth,
   bottom,
@@ -257,8 +257,10 @@ export function paneDockRailLayout({
   const alone = resolveDockLayout({ ...dock, cellWidth, room: roomFor(cellWidth) });
   if (rail === null) return { dock: alone, rail: null };
   if (cellWidth <= 0) return { dock: alone, rail: { mode: 'column' as const, width: clampSessionRailWidth(rail) } };
-  const dockFloor = dock.openNow && !bottom ? alone.inlineFloor : 0;
-  const fit = sessionRailFit({ cellWidth, dockFloor, railPref: rail });
+  // A dock floating over a narrow pane has no room of its own beside the conversation, so the panel has none either.
+  const inline = alone.overlay ? cellWidth : alone.baseAsideWidth + alone.diffWidth;
+  const fit = sessionRailFit({ cellWidth, dockWidth: dock.openNow && !bottom ? inline : 0, railPref: rail });
+  if (fit.mode === 'off') return { dock: alone, rail: null };
   if (fit.mode === 'raised') return { dock: alone, rail: { mode: fit.mode, width: fit.width } };
   const placed = { mode: fit.mode, width: fit.width };
   if (bottom) {

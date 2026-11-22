@@ -8,8 +8,9 @@ export const SESSION_RAIL_DEFAULT_WIDTH = 400;
 export const SESSION_RAIL_MIN_WIDTH = 300;
 export const SESSION_RAIL_MAX_WIDTH = 560;
 
-/** `column`: a column of its own at the pane's right edge; `raised`: shown
- *  over the right edge of the pane (too little room for a column). */
+/** `column`: a sheet of its own at the pane's right edge; `raised`: shown
+ *  over the right edge of the pane (too little room for a column); `off`:
+ *  not shown. */
 export type SessionRailMode = 'off' | 'column' | 'raised';
 
 export function clampSessionRailWidth(width: number): number {
@@ -18,28 +19,29 @@ export function clampSessionRailWidth(width: number): number {
 }
 
 /** Where the panel goes in a pane cell `cellWidth` wide (the cell's width,
- *  not the window's). The conversation keeps its floor; a dock beside it
- *  gives up width down to the least it can be shown at inline
- *  (`dockFloor`: its minimum, or a file diff pair's two columns) first, then
- *  the panel down to its own; with less room still the panel is raised over
- *  the pane and the dock keeps the room it has without it. `dockRoom` is the
- *  width the dock may take beside the conversation. */
+ *  not the window's). The conversation keeps its floor and a dock beside it
+ *  the width it has without the panel (`dockWidth`): the panel is a column
+ *  in the room they leave, down to its own minimum. With less room it is
+ *  `off` beside a dock (the dock is the pane's side panel then, and the
+ *  composer keeps its controls) and raised over the pane with no dock.
+ *  `dockRoom` is the width the dock may take beside the conversation. */
 export function sessionRailFit({
   cellWidth,
-  dockFloor,
+  dockWidth,
   railPref,
 }: {
   cellWidth: number;
   /** 0 when no dock is open beside the conversation (none, or one below it). */
-  dockFloor: number;
+  dockWidth: number;
   railPref: number;
-}): { mode: 'column' | 'raised'; width: number; dockRoom: number } {
+}): { mode: SessionRailMode; width: number; dockRoom: number } {
   const frame = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   const preferred = clampSessionRailWidth(railPref);
-  const dockReserve = dockFloor > 0 ? frame + dockFloor : 0;
+  const dockReserve = dockWidth > 0 ? frame + dockWidth : 0;
   const room = cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - dockReserve - frame;
   const withoutRail = cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - frame;
   if (room < SESSION_RAIL_MIN_WIDTH) {
+    if (dockWidth > 0) return { mode: 'off', width: 0, dockRoom: withoutRail };
     return { mode: 'raised', width: Math.max(0, Math.min(preferred, cellWidth - 2 * frame)), dockRoom: withoutRail };
   }
   const width = Math.min(preferred, room);
