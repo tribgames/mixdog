@@ -192,18 +192,18 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
   assert.ok(near(painted['claude:W'], 1), `100% painted ${painted['claude:W']}`);
   assert.equal(painted['opencode-go-oauth:M'], 0);
 
-  // 27x3 capsules on whole pixels: one, or two a pixel apart with the short
+  // 23x3 capsules on whole pixels: one, or two a pixel apart with the short
   // window on top.
   const band = Object.fromEntries(bars.map((bar) => [bar.key, bar.band]));
   for (const capsule of Object.values(band)) {
     assert.equal(capsule.thickness, 3);
-    assert.equal(capsule.width, 27);
+    assert.equal(capsule.width, 23);
     assert.ok(Number.isInteger(capsule.left) && Number.isInteger(capsule.top), JSON.stringify(capsule));
   }
   assert.equal(band['claude:W'].top - (band['claude:5H'].top + 3), 1);
 
-  // Each slot is one 44px rail cell; the mark, the meter under it and the
-  // figure are one readout, centred in the cell.
+  // Each slot is one 44px rail cell; the mark and the meter under it are one
+  // unit, standing low in the cell.
   const slots = await page.evaluate(() =>
     [...document.querySelectorAll('[data-usage-pin]')].map((slot) => {
       const box = slot.getBoundingClientRect();
@@ -218,7 +218,7 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
       };
     })
   );
-  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 25, middle: 13.5, centred: 0, meter: 25 });
+  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 25, middle: 24.5, centred: 0, meter: 37 });
   // The marks wear the gear's resting ink.
   const inks = await page.evaluate(() =>
     ['.sidebar-usage-toggle svg[data-provider-icon]', '.sidebar-settings-button .codicon'].map((selector) => {

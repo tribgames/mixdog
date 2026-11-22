@@ -37,9 +37,9 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Capsule tops in the 27x7 meter under the mark: one 3px capsule, or two a
+/** Capsule tops in the 23x7 meter under the mark: one 3px capsule, or two a
  *  pixel apart with the short window on top. */
-const METER_LENGTH = 27;
+const METER_LENGTH = 23;
 const METER_HEIGHT = 7;
 const CAPSULE_HEIGHT = 3;
 const SINGLE_BAR = [0];
@@ -105,14 +105,12 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
     return (
       <span className="rail-usage-pin-stack">
         {rows.map((entry) => (
-          // The mark, its bar, then the figure the bar stands for (the long
-          // window, or the highest one when two bars are drawn); every window's
-          // value lives in the tooltip, the button's description and the flyout.
+          // No figure: the bar and its tone carry the reading; the exact
+          // values live in the tooltip, the button's description and the flyout.
           <span
             className="rail-usage-pin-brand"
             key={entry.key}
             data-usage-pin={entry.key}
-            data-bars={entry.bars.length}
             aria-busy={entry.pending || undefined}
             data-tooltip={entry.tooltip}
           >
@@ -123,11 +121,6 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
               )}
             </span>
             <UsagePinMeter entry={entry} />
-            {!entry.pending && (
-              <small className="rail-usage-pin-figure" aria-hidden="true">
-                {displayUsagePercent(entry.percent) ?? 0}%
-              </small>
-            )}
           </span>
         ))}
       </span>
