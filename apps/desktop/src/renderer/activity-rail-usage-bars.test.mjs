@@ -139,10 +139,12 @@ test('the rail draws one ring per brand by default and saves the chosen two-ring
     ['rail-usage-pin-fill', '41 100'],
   ]);
   assert.ok(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'));
-  // The arc is the reading: the track under it is thinner.
+  // Each track runs under its arc on the same ring and stroke.
   for (const track of tracks('claude')) {
     const arc = track.parentElement.querySelector('.rail-usage-pin-fill');
-    assert.ok(Number(track.getAttribute('stroke-width')) < Number(arc.getAttribute('stroke-width')));
+    for (const attribute of ['r', 'stroke-width']) {
+      assert.equal(track.getAttribute(attribute), arc.getAttribute(attribute));
+    }
   }
   assert.equal(
     toggle().getAttribute('aria-description'),

@@ -149,7 +149,7 @@ test('the pinned rail stack is as tall as the room budget, and each arc paints e
   const page = await openRail(t, `[{ id: "openai-oauth", group: "oauth", windows: [{ label: "W", usedPct: 1 }] }]`);
   const stackHeight = () =>
     page.evaluate(() => document.querySelector('.sidebar-usage-toggle.is-pinned').getBoundingClientRect().height);
-  // One provider: the block is 17 + 26 = 43px, no taller (no leftover minimum).
+  // One provider: the block is 16 + 26 = 42px, no taller (no leftover minimum).
   assert.equal(await stackHeight(), usagePinStackHeight(1));
 
   await page.evaluate(() =>
@@ -179,6 +179,7 @@ test('the pinned rail stack is as tall as the room budget, and each arc paints e
       if (!arc) return { key, painted: 0 };
       const style = getComputedStyle(arc);
       const circumference = 2 * Math.PI * Number(arc.getAttribute('r'));
+      if (style.strokeDasharray === 'none') return { key, painted: 1 };
       const [dash] = style.strokeDasharray.split(/[ ,]+/).map(Number.parseFloat);
       const capped = style.strokeLinecap === 'butt' ? 0 : Number.parseFloat(style.strokeWidth);
       const painted = Math.min(1, dash / Number(arc.getAttribute('pathLength')) + capped / circumference);
