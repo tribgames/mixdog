@@ -45,7 +45,6 @@ const HARNESS = `
         } };
       }
       if (capability === 'previewWorktreeCleanup') return { value: { hasCandidates: true } };
-      if (capability === 'listWorktrees') return { value: [{ path: workspace.cwd, dirty: 12345 }] };
       return { value: null };
     },
   };

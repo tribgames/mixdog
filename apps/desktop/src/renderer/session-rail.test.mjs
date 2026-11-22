@@ -374,7 +374,6 @@ test("the Worktrees head's Clean up follows the cleanup preview", async (t) => {
       if (capability === 'previewWorktreeCleanup') {
         return { value: { hasCandidates: args[0].repoCommonDir === `${projectOf.busy}/.git` } };
       }
-      if (capability === 'listWorktrees') return { value: [] };
       return { value: null };
     },
   };
@@ -681,7 +680,6 @@ async function worktreesSection(t, { locked = false, menu, host = {} }) {
         calls.push(request);
         if (request.capability === 'getBranchMenu') return { value: menu };
         if (request.capability === 'previewWorktreeCleanup') return { value: { hasCandidates: false } };
-        if (request.capability === 'listWorktrees') return { value: [] };
         return host.invokeCapability ? host.invokeCapability(request) : { value: null };
       },
       openLocalFileLink: async (...args) => calls.push({ openLocalFileLink: args }),
@@ -718,6 +716,9 @@ test("worktree rows follow the island's eligibility: locked while work runs, unm
   await idle.lock(true);
   assert.equal(idle.action('feature', 'Merge').disabled, true, 'a turn or a shell locks merge');
   assert.equal(idle.action('feature', 'Remove').disabled, true);
+  // The rows come from the branch menu alone: the Settings list inspects and measures every managed worktree.
+  const reads = new Set(idle.calls.map((call) => call.capability).filter(Boolean));
+  assert.deepEqual([...reads].sort(), ['getBranchMenu', 'previewWorktreeCleanup']);
 });
 
 test("the session's own existing-branch worktree merges into the project folder's branch without an explicit target", async (t) => {
