@@ -21,12 +21,14 @@ interface SessionTranscriptIdentity {
 }
 
 const IDENTITY_TEXT_CAP = 512;
+/** The capped head as a string of its own: a slice (or a concatenation over one) keeps the whole text alive. */
+const headCopy = (text: string): string => text.slice(0, IDENTITY_TEXT_CAP).split('').join('');
 const capText = (value: unknown): string | undefined => {
   if (value === undefined || value === null) return undefined;
   const text = String(value);
   if (text.length <= IDENTITY_TEXT_CAP) return text;
   const { length, hash } = fingerprintText(text);
-  return `${text.slice(0, IDENTITY_TEXT_CAP)}\u0002${length}:${hash}`;
+  return `${headCopy(text)}\u0002${length}:${hash}`;
 };
 const identityRecords = new WeakMap<object, TranscriptItem>();
 
@@ -38,7 +40,7 @@ function identityRecord(item: TranscriptItem): TranscriptItem {
       id: item.id,
       kind: item.kind,
       name: item.name,
-      text: text === undefined ? undefined : text.slice(0, IDENTITY_TEXT_CAP),
+      text: text === undefined || text.length <= IDENTITY_TEXT_CAP ? text : headCopy(text),
       status: item.status,
       label: capText(item.label),
       tone: item.tone,
@@ -194,7 +196,7 @@ export interface TranscriptLaneFacts {
 
 interface TranscriptIdentityReconciler {
   reconcile(snapshot: Snapshot, lane?: TranscriptLaneFacts): Snapshot;
-  /** Drop one session's baseline (lane unmounted with nothing cached, or the session ended). */
+  /** Drop one session's baseline (its lane evicted from the cache, or the session ended). */
   forget(sessionId: string): void;
 }
 
