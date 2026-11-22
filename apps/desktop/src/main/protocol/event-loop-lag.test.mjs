@@ -31,28 +31,43 @@ const thread = (id) => ({
 const text = (n) => 'x'.repeat(n);
 const immediate = () => new Promise((done) => setImmediate(done));
 
+const threadCpuMs = () => {
+  const { user, system } = process.threadCpuUsage();
+  return (user + system) / 1000;
+};
+
 /** Names the task that owns each loop turn over 16 ms: work is timed under a label where this test can wrap it, and a turn
- *  with little labelled time belongs to the library's own fold. A turn is the gap between two 1 ms ticks. */
+ *  with little labelled time belongs to the library's own fold. A turn is the gap between two 1 ms ticks. Each turn also
+ *  records the main thread's own CPU time: wall time beyond it is time the OS ran other processes, which a shared runner
+ *  running sibling test files hands out and the product cannot cause. */
 function createTurnLog() {
   const spent = new Map();
   const stack = [];
   const turns = [];
   let last = performance.now();
+  let lastCpu = threadCpuMs();
+  let worstCpuMs = 0;
   let timer = null;
   const collections = [];
   const observer = new PerformanceObserver((list) => collections.push(...list.getEntries()));
   const tick = () => {
     const now = performance.now();
+    const cpuNow = threadCpuMs();
     const ms = now - last - 1;
-    if (ms > 16) turns.push({ ms, from: last, to: now, spans: new Map(spent) });
+    const cpuMs = cpuNow - lastCpu;
+    worstCpuMs = Math.max(worstCpuMs, cpuMs);
+    if (ms > 16) turns.push({ ms, cpuMs, from: last, to: now, spans: new Map(spent) });
     spent.clear();
     last = now;
+    lastCpu = cpuNow;
   };
   return {
+    worstCpuMs: () => worstCpuMs,
     start() {
       // Time labelled before the measurement (the warm-up) belongs to no turn of it.
       spent.clear();
       last = performance.now();
+      lastCpu = threadCpuMs();
       timer = setInterval(tick, 1);
       observer.observe({ entryTypes: ['gc'] });
     },
@@ -78,7 +93,7 @@ function createTurnLog() {
     /** The turns, longest first, each with its labelled spans and the unlabelled remainder (the library's fold). */
     report: () =>
       turns
-        .map(({ ms, from, to, spans }) => {
+        .map(({ ms, cpuMs, from, to, spans }) => {
           // Garbage collection inside the turn is its own owner; it is not part of the labelled work.
           const gc = collections.reduce(
             (sum, entry) =>
@@ -88,6 +103,7 @@ function createTurnLog() {
           const labelled = [...spans.values()].reduce((a, b) => a + b, 0);
           return {
             ms,
+            cpuMs,
             owners: [...spans, ['garbage collection', gc], ['library fold step', Math.max(0, ms - labelled - gc)]].sort(
               (a, b) => b[1] - a[1]
             ),
@@ -288,11 +304,12 @@ test('reconnect storms over concurrent streams in several sessions never block t
   // The last reconnect's snapshot folds over several turns.
   for (let i = 0; i < 2000 && folded < STORMS; i++) await immediate();
 
-  const worstMs = monitor.max / 1e6;
+  const worstWallMs = monitor.max / 1e6;
+  const worstCpuMs = turnLog.worstCpuMs();
   const longTurns = turnLog.report();
   for (const turn of longTurns.slice(0, 5)) {
     const owners = turn.owners.filter(([, ms]) => ms >= 1).map(([label, ms]) => `${label} ${ms.toFixed(1)}`);
-    console.log(`# turn ${turn.ms.toFixed(1)} ms: ${owners.join('; ')}`);
+    console.log(`# turn ${turn.ms.toFixed(1)} ms (main thread on CPU ${turn.cpuMs.toFixed(1)}): ${owners.join('; ')}`);
   }
   // Not vacuous: one handshake and one app snapshot per generation, every session re-folded each time, every storm
   // streamed mid-session, and the store held the whole snapshot after each reconnect.
@@ -307,9 +324,13 @@ test('reconnect storms over concurrent streams in several sessions never block t
     delivered.count > 0 && folded >= STORMS,
     'the store was folded after every reconnect and its changes were delivered'
   );
+  // The bound is on the turn's main-thread CPU time: work the product does without yielding counts whatever the host,
+  // while time the OS spent running sibling test processes does not.
   assert.ok(
-    worstMs <= MAX_LOOP_BLOCK_MS,
-    `the main loop was blocked ${worstMs.toFixed(1)} ms (limit ${MAX_LOOP_BLOCK_MS})`
+    worstCpuMs <= MAX_LOOP_BLOCK_MS,
+    `the main loop was blocked by ${worstCpuMs.toFixed(1)} ms of its own work (limit ${MAX_LOOP_BLOCK_MS}; wall ${worstWallMs.toFixed(1)} ms)`
   );
-  console.log(`# worst main-loop delay ${worstMs.toFixed(1)} ms over ${STORMS} storms`);
+  console.log(
+    `# worst main-loop turn ${worstCpuMs.toFixed(1)} ms of its own work (wall delay ${worstWallMs.toFixed(1)} ms) over ${STORMS} storms`
+  );
 });

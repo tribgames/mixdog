@@ -647,10 +647,11 @@ impl EffortJudgeModel {
         if !self.config.runtime_supported() {
             return Err(JudgeError::Unsupported.into());
         }
-        self.refresh_once();
+        // Before the refresh: a refresh taken during an install would start once that install ends, a cancelled one included.
         if self.is_installing() {
             return Err(JudgeError::Installing.into());
         }
+        self.refresh_once();
         match available_on(self.lanes.read, &self.config).await {
             Ok(true) => {}
             Ok(false) => return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()).into()),

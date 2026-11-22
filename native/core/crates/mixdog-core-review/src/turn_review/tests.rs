@@ -104,8 +104,15 @@ async fn user_repository_is_never_written() {
     let base = PathBuf::from(plain(&dir.path().canonicalize().unwrap()));
     let (ws, data) = (base.join("ws"), base.join("data"));
     std::fs::create_dir_all(&ws).unwrap();
+    // Where git can detach (not Windows), the commit's auto-maintenance outlives it and holds
+    // `objects/maintenance.lock` while the turn runs.
     let git = |args: &[&str]| {
-        let out = std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).current_dir(&ws).output().unwrap();
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "maintenance.auto=false"])
+            .args(args)
+            .current_dir(&ws)
+            .output()
+            .unwrap();
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     };
     git(&["init", "-q"]);

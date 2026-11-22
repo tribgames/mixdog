@@ -65,6 +65,13 @@ async function withCore(bin, config, work) {
   const exitMs = core ? performance.now() - core.spawnedAt : undefined;
   const spool = core ? join(core.paths.dataDir, 'history', 'tool-failures.jsonl') : null;
   const rows = spool && existsSync(spool) ? readFileSync(spool, 'utf8').split(/\r?\n/).filter(Boolean) : null;
+  const daemonLog = core ? join(core.paths.dataDir, 'daemon.log') : null;
+  const phases =
+    daemonLog && existsSync(daemonLog)
+      ? [...readFileSync(daemonLog, 'utf8').matchAll(/boot-phase phase=(\S+) status=mark totalMs=([\d.]+)/g)].map(
+          ([, phase, ms]) => ({ phase, ms: Number(ms) })
+        )
+      : [];
   try {
     rmSync(root, { recursive: true, force: true });
   } catch (error) {
@@ -77,12 +84,21 @@ async function withCore(bin, config, work) {
     throw runError;
   }
   if (stopError) throw stopError;
-  return { value, exitMs, rows };
+  return { value, exitMs, rows, phases };
+}
+
+/** The boot's slowest steps from the daemon's own marks (ms from `serve` entry, so launch and the login-shell read come before them). */
+export function slowestBootSteps(phases, count = 6) {
+  return phases
+    .slice(1)
+    .map((mark, i) => ({ step: `${phases[i].phase} -> ${mark.phase}`, ms: mark.ms - phases[i].ms }))
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, count);
 }
 
 /** One boot: the parts of the interval from the spawn, in ms. No tool runs, so no tool failure may appear. */
 export async function bootOnce(bin) {
-  const { value, exitMs, rows } = await withCore(bin, {}, async (core) => {
+  const { value, exitMs, rows, phases } = await withCore(bin, {}, async (core) => {
     const servingMs = performance.now() - core.spawnedAt;
     const threadId = await startThread(core, { provider: 'anthropic-oauth', model: 'smoke' });
     const status = await within(core.call('tools/toolsStatus', { threadId }), HANG_MS, 'tools/toolsStatus');
@@ -90,7 +106,7 @@ export async function bootOnce(bin) {
     return { servingMs, answeredMs: performance.now() - core.spawnedAt };
   });
   if (rows?.length) throw new Error(`tool failures appeared during the boot smoke:\n${rows.join('\n').slice(0, 600)}`);
-  return { ...value, exitMs };
+  return { ...value, exitMs, phases };
 }
 
 const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
@@ -208,10 +224,18 @@ if (
   const problems = [];
   let runs = 0;
   do {
-    const { servingMs, answeredMs, exitMs } = await bootOnce(bin);
+    const { servingMs, answeredMs, exitMs, phases } = await bootOnce(bin);
     runs += 1;
     console.log(
       `run ${runs}: spawn to serving+connected ${servingMs.toFixed(0)}ms, to first answered thread + status ${answeredMs.toFixed(0)}ms, to stopped and exited ${exitMs.toFixed(0)}ms (budget ${limit}ms on the last)`
+    );
+    const ready = phases.find((mark) => mark.phase === 'daemon-ready');
+    console.log(
+      `  daemon marks: ready ${ready ? `${ready.ms}ms after serve entry` : 'not logged'}; slowest steps: ${
+        slowestBootSteps(phases)
+          .map(({ step, ms }) => `${step} ${ms.toFixed(0)}ms`)
+          .join(', ') || 'none logged'
+      }`
     );
     if (exitMs > limit) {
       problems.push(

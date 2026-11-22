@@ -8874,6 +8874,23 @@
         "kind": "runs",
         "in": ["windows/core-real/1of1#process-tree"]
       }
+    },
+    {
+      "id": [
+        "node",
+        "apps/desktop/src/main/computer/backend/window-graphics-capture.electron.test.mjs",
+        "WGC captures a covered fixture without foreign pixels, preserves foreground and rejects changed geometry"
+      ],
+      "platform": "windows",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonTemplate": "WGC capability probe reported Windows.Graphics.Capture unavailable on this host: ${capability.reason}",
+      "owner": "release-engineering",
+      "reason": "the hosted Windows runner's compositor refuses a capture item (GraphicsCaptureItem::CreateForWindow answers E_INVALIDARG for every window, release-gate runs 35088208105 and 44959677392); the test skips only when the independent probe in fixtures/wgc-capability.mjs proves that, and runs fully wherever WGC works",
+      "replacement": {
+        "kind": "none",
+        "reason": "local: a signed-in Windows desktop with a working compositor runs apps/desktop test:electron, where the probe reports WGC available and the case must pass"
+      }
     }
   ]
 }

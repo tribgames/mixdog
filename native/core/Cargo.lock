@@ -7053,12 +7053,14 @@ dependencies = [
 name = "mixdog-xlsx-formula"
 version = "1.5.0"
 dependencies = [
+ "libc",
  "mixdog-fsio",
  "mixdog-js",
  "mixdog-office-base",
  "mixdog-rt",
  "mixdog-workspace-hack",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

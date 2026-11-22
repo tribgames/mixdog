@@ -19,3 +19,9 @@ serde_json = { workspace = true }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }

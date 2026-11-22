@@ -3753,7 +3753,7 @@ async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
     turn(&handle, "one", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     turn(&handle, "two", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
     let list =
         |cursor: &ItemId| directory.request(request("thread/items/list", json!({ "threadId": handle.id, "cursor": cursor, "sortDirection": "asc" }), "list"));
@@ -4413,7 +4413,7 @@ async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two
         let directory = SessionDirectory::new(rig.deps_on(store.clone()));
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
         assert_eq!(
             compaction_rows(&handle),
             [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
