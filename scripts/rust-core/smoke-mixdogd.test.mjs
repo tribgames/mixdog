@@ -1,6 +1,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { judgeToolFailureRows, slowestBootSteps, toolFailureCheck } from './smoke-mixdogd.mjs';
+import { judgeBoot, judgeToolFailureRows, slowestBootSteps, toolFailureCheck } from './smoke-mixdogd.mjs';
+
+const BOOT = [
+  { phase: 'compose-start', ms: 40 },
+  { phase: 'core-composed', ms: 900 },
+  { phase: 'sessions-bound', ms: 910 },
+  { phase: 'daemon-ready', ms: 950.5 },
+];
+const CLEAN = { code: 0, signal: null };
+
+test('a boot passes on its steps, their order and its exit, whatever it took', () => {
+  assert.deepEqual(judgeBoot(BOOT, CLEAN), []);
+  assert.deepEqual(judgeBoot(BOOT.map((mark) => ({ ...mark, ms: mark.ms * 100 })), CLEAN), []);
+});
+
+test('a missing, repeated or reordered step, or an unclean exit, fails the boot', () => {
+  assert.match(judgeBoot(BOOT.slice(1), CLEAN).join('\n'), /compose-start 0 times/);
+  assert.match(judgeBoot([...BOOT, { phase: 'daemon-ready', ms: 5000 }], CLEAN).join('\n'), /daemon-ready 2 times/);
+  const late = BOOT.map((mark) => (mark.phase === 'core-composed' ? { ...mark, ms: 990 } : mark));
+  assert.match(judgeBoot(late, CLEAN).join('\n'), /sessions-bound \(910ms\) was marked before core-composed/);
+  assert.match(judgeBoot(BOOT, { code: 1, signal: null }).join('\n'), /did not exit cleanly/);
+  assert.match(judgeBoot(BOOT, { code: null, signal: 'SIGKILL' }).join('\n'), /did not exit cleanly/);
+  assert.match(judgeBoot(BOOT, undefined).join('\n'), /did not exit cleanly/);
+});
 
 test('the boot steps start at serve entry and follow the marks by their instants', () => {
   const phases = [

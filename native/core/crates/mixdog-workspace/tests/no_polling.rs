@@ -118,27 +118,36 @@ async fn idle_run(idle: Duration) {
     }
     assert!(conn.drain_text().is_empty(), "frames arrived while idle");
 
-    // An external write is pushed, not found by a poll.
+    // An external write is pushed, not found by a poll: no lane job runs between the write and the frame, and the frame follows
+    // the chain of the OS watch: the backend's callback named the written file, the worker took that event from its queue, the
+    // worker handed a batch naming it to the sink, and only then did this loop find the frame.
     mixdog_workspace::watcher::await_backend_event(&root.join("src/main.rs"));
+    let before_write = job_snapshot();
     let started = Instant::now();
     std::fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
-    let latency = loop {
+    let found = loop {
         if conn.drain_text().iter().any(|f| f.contains("fs/changed") && f.contains("main.rs")) {
-            break started.elapsed();
+            break Instant::now();
         }
         mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
-    // Where a late push waited, each instant counted from the write: the service's own watcher heard of the written file from the
-    // OS, its worker thread took that event from its queue (the 250 ms batching window starts there), the worker handed the batch
-    // to the sink, and this loop found the frame. On the macOS runner a push of 407 ms was heard from the OS after 39 ms (release
-    // gate run 44959677392), which left 118 ms beside the window in one of the three steps that follow.
-    let since = |at: Option<Instant>| at.map(|at| at.saturating_duration_since(started));
-    let heard = since(mixdog_workspace::watcher::backend_told());
-    let (taken, pushed) = (since(mixdog_workspace::watcher::worker_took()), since(mixdog_workspace::watcher::batch_pushed()));
+    if let Some(violation) = idle_window_violation(before_write, job_snapshot()) {
+        panic!("{violation} between the external write and its fs/changed: the change was found by a lane job, not pushed");
+    }
+    let told = mixdog_workspace::watcher::backend_told().expect("no backend callback named the written file: the frame was not pushed by the OS watch");
+    let took = mixdog_workspace::watcher::worker_took().expect("the watcher's worker never took the OS event of the written file");
+    let handed = mixdog_workspace::watcher::batch_pushed().expect("the watcher's worker never handed a batch naming the written file to the sink");
     assert!(
-        latency <= Duration::from_millis(400),
-        "fs/changed took {latency:?}; the service's watcher heard of the write from the OS after {heard:?}, its worker took the event after {taken:?} and pushed the batch after {pushed:?}"
+        started <= told && told <= took && took <= handed && handed <= found,
+        "the push is out of order: the OS told the watcher at {:?}, the worker took the event at {:?}, handed the batch at {:?}, the frame was found at {:?} (from the write)",
+        told.saturating_duration_since(started),
+        took.saturating_duration_since(started),
+        handed.saturating_duration_since(started),
+        found.saturating_duration_since(started),
     );
+    let latency = found - started;
+    let since = |at: Instant| at.saturating_duration_since(started);
+    let (heard, taken, pushed) = (since(told), since(took), since(handed));
     eprintln!(
         "idle {idle:?}: 0 lane jobs started; external write pushed after {latency:?} (heard from the OS after {heard:?}, taken by the worker after {taken:?}, batch pushed after {pushed:?})"
     );
