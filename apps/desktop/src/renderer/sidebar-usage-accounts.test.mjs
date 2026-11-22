@@ -393,10 +393,10 @@ test('rail: expanded accounts get their own slot with an index badge, the slot l
     stored: { usageAccountsExpanded: true, usageRailSlotsThree: true, usageRailSlotsAll: false },
   });
   // codex (1 account) + three claude accounts + opencode = 5 slots; limit 3.
-  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark > sup'));
   assert.deepEqual(pinKeys(), ['codex', 'claude:p', 'claude:d']);
   // Single-account providers draw no badge; accounts draw their roster index.
-  const badges = [...document.querySelectorAll('.rail-usage-pin-ring > sup')];
+  const badges = [...document.querySelectorAll('.rail-usage-pin-mark > sup')];
   assert.deepEqual(badges.map(text), ['1', '2']);
   assert.deepEqual(
     badges.map((badge) => badge.classList.contains('is-selected')),
@@ -428,7 +428,7 @@ test('rail: scrolling without a data change does not rebuild entries or tooltips
   await mountRail(t, {
     stored: { usageAccountsExpanded: true, usageRailSlotsThree: true, usageRailSlotsAll: false },
   });
-  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark > sup'));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
   // Tooltips name each window ('weekly'): every entry built formats them.
   const original = i18next.t;
@@ -451,7 +451,7 @@ test('rail: keyboard stepping to either end keeps focus on a mounted step contro
   await mountRail(t, {
     stored: { usageAccountsExpanded: true, usageRailSlotsThree: true, usageRailSlotsAll: false },
   });
-  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark > sup'));
   // Five slots, three visible: two steps reach the end.
   step(1).focus();
   while (step(1)) {
@@ -481,7 +481,7 @@ const wheel = (init) =>
 
 test('rail wheel: horizontal and zero deltas never step, rapid notches each step, smooth deltas accumulate', async (t) => {
   await mountRail(t, { stored: { usageAccountsExpanded: true, usageRailSlotsThree: true } });
-  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length === 3 && document.querySelector('.rail-usage-pin-mark > sup'));
   const first = ['codex', 'claude:p', 'claude:d'];
   assert.deepEqual(pinKeys(), first);
   // Sideways scrolling and a zero vertical delta do nothing (not a step back).
@@ -524,7 +524,7 @@ test('rail: All shows every one of nine slots with no chevrons', async (t) => {
 
 test('rail: the default limit shows five of the same nine slots with a chevron for the rest', async (t) => {
   await mountRail(t, { stored: { usageAccountsExpanded: true }, api: manyAccounts });
-  await waitFor(() => pinKeys().length === 5 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length === 5 && document.querySelector('.rail-usage-pin-mark > sup'));
   assert.deepEqual(pinKeys(), allNine.slice(0, 5));
   assert.equal(step(-1), null);
   assert.ok(step(1));
@@ -534,7 +534,7 @@ test('rail: collapsed (default) is one slot per provider without badges', async 
   await mountRail(t);
   await waitFor(() => pinKeys().length === 3);
   assert.deepEqual(pinKeys(), ['codex', 'claude', 'opencode-go-oauth']);
-  assert.equal(document.querySelector('.rail-usage-pin-ring > sup'), null);
+  assert.equal(document.querySelector('.rail-usage-pin-mark > sup'), null);
   assert.equal(step(1), null);
 });
 
@@ -567,7 +567,7 @@ test('rail: the Usage button describes every drawn slot, account index and loadi
 test('rail: a short rail shows fewer slots, and the pie icon when not even one fits', async (t) => {
   // 5 slots, limit 5: one slot needs 17 + 26 + two 12px chevrons = 67px.
   await mountRail(t, { stored: { usageAccountsExpanded: true }, railHeight: 110 });
-  await waitFor(() => pinKeys().length > 0 && document.querySelector('.rail-usage-pin-ring > sup'));
+  await waitFor(() => pinKeys().length > 0 && document.querySelector('.rail-usage-pin-mark > sup'));
   // 17 + 2×26 + 6 + 24 = 99 fits two slots; three need 131.
   assert.equal(pinKeys().length, 2);
   assert.ok(step(1));

@@ -63,11 +63,12 @@ async function mountRail(t, { shortLong = false, usage = dashboard } = {}) {
 
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
 const tracks = (key) => [...brand(key).querySelectorAll('.rail-usage-pin-track')];
-// Each drawn ring's arc as [class, dash], outer ring first.
-const arcs = (key) =>
-  [...brand(key).querySelectorAll('.rail-usage-pin-fill')].map((arc) => [
-    arc.getAttribute('class'),
-    arc.getAttribute('stroke-dasharray'),
+const length = (line) => Number(line.getAttribute('x2')) - Number(line.getAttribute('x1'));
+// Each drawn bar's fill as [class, percent of its track], top bar first.
+const fills = (key) =>
+  [...brand(key).querySelectorAll('.rail-usage-pin-fill')].map((fill) => [
+    fill.getAttribute('class'),
+    Math.round((1e4 * length(fill)) / length(fill.parentElement.querySelector('.rail-usage-pin-track'))) / 100,
   ]);
 
 // The flyout body loads asynchronously: open it and wait for its menu.
@@ -111,12 +112,16 @@ test('the usage flyout closes on Escape and on a press outside it, not on a pres
   assert.equal(popup(), null, 'Escape closes it');
 });
 
-test('the rail draws one ring per brand by default and saves the chosen two-ring mode in settings', async (t) => {
+test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
-  // One ring for the long window, no figure under it; the values live in the
-  // tooltip and in the Usage button's description, slot by slot, which names
-  // every window the tooltip does, drawn or not.
-  assert.deepEqual(arcs('claude'), [['rail-usage-pin-fill', '41 100']]);
+  // One bar for the long window under the mark, no figure; the values live in
+  // the tooltip and in the Usage button's description, slot by slot, which
+  // names every window the tooltip does, drawn or not.
+  assert.deepEqual(fills('claude'), [['rail-usage-pin-fill', 41]]);
+  const meter = brand('claude').querySelector('.rail-usage-pin-meter');
+  assert.equal(meter.previousElementSibling, brand('claude').querySelector('.rail-usage-pin-mark'));
+  assert.ok(meter.previousElementSibling.querySelector('svg[data-provider-icon]'));
+  assert.equal(brand('claude').querySelector('circle'), null);
   assert.equal(brand('claude').querySelector('small'), null);
   assert.equal(brand('claude').getAttribute('role'), null);
   const toggle = () => document.querySelector('.sidebar-usage-toggle');
@@ -125,32 +130,36 @@ test('the rail draws one ring per brand by default and saves the chosen two-ring
     toggle().getAttribute('aria-description'),
     'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
   );
-  assert.equal(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'), null);
 
   await press(await openFlyout());
   await press(document.querySelector('[role="menuitemradio"][data-rail-bars="short-long"]'));
   assert.ok(document.querySelector('.usage-menu'), 'the menu survives its own press');
   await waitFor(() => stored.usageRailShortLong === true);
 
-  // Two concentric rings, the short window outside.
+  // Two stacked bars, the short window on top.
   await waitFor(() => tracks('claude').length === 2);
-  assert.deepEqual(arcs('claude'), [
-    ['rail-usage-pin-fill tone-danger', '99 100'],
-    ['rail-usage-pin-fill', '41 100'],
+  assert.deepEqual(fills('claude'), [
+    ['rail-usage-pin-fill tone-danger', 99],
+    ['rail-usage-pin-fill', 41],
   ]);
-  assert.ok(brand('claude').querySelector('.rail-usage-pin-ring.is-nested'));
-  // Each track runs under its arc on the same ring and stroke.
+  assert.deepEqual(
+    [...brand('claude').querySelectorAll('[data-usage-window]')].map((bar) => bar.getAttribute('data-usage-window')),
+    ['5H', 'W']
+  );
+  const [top, bottom] = tracks('claude').map((track) => Number(track.getAttribute('y1')));
+  assert.ok(top < bottom);
+  // Each track runs under its fill on the same line and stroke.
   for (const track of tracks('claude')) {
-    const arc = track.parentElement.querySelector('.rail-usage-pin-fill');
-    for (const attribute of ['r', 'stroke-width']) {
-      assert.equal(track.getAttribute(attribute), arc.getAttribute(attribute));
+    const fill = track.parentElement.querySelector('.rail-usage-pin-fill');
+    for (const attribute of ['y1', 'stroke-width']) {
+      assert.equal(track.getAttribute(attribute), fill.getAttribute(attribute));
     }
   }
   assert.equal(
     toggle().getAttribute('aria-description'),
     'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
   );
-  // A single-window provider never gets a placeholder ring.
+  // A single-window provider never gets a placeholder bar.
   assert.equal(tracks('opencode-go-oauth').length, 1);
   assert.match(brand('claude').getAttribute('data-tooltip'), /^Claude · 5-hour 99% · weekly 41%$/);
 
@@ -163,7 +172,7 @@ test('the rail draws one ring per brand by default and saves the chosen two-ring
   await act(async () => second.unmount());
 });
 
-test('a two-window provider draws two rings, each in the tone of its own window', async (t) => {
+test('a two-window provider draws two bars, each in the tone of its own window', async (t) => {
   await mountRail(t, {
     shortLong: true,
     usage: {
@@ -181,13 +190,13 @@ test('a two-window provider draws two rings, each in the tone of its own window'
     },
   });
   await waitFor(() => brand('codex') && tracks('codex').length === 2);
-  assert.deepEqual(arcs('codex'), [
-    ['rail-usage-pin-fill tone-warning', '75 100'],
-    ['rail-usage-pin-fill tone-danger', '95 100'],
+  assert.deepEqual(fills('codex'), [
+    ['rail-usage-pin-fill tone-warning', 75],
+    ['rail-usage-pin-fill tone-danger', 95],
   ]);
-  // 0% is a solid empty track: no arc, not busy.
+  // 0% is a solid empty track: no fill, not busy.
   assert.equal(tracks('claude').length, 1);
-  assert.deepEqual(arcs('claude'), []);
+  assert.deepEqual(fills('claude'), []);
   assert.equal(brand('claude').getAttribute('aria-busy'), null);
 });
 

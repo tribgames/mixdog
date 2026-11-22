@@ -1,7 +1,7 @@
-/** Layout constants of .rail-usage-pin-ring / -stack / .is-pinned in
- *  09-sidebar-chrome.css: one 26px ring per slot, two rings included. */
-const PIN_ROW_HEIGHT = 26;
-const PIN_ROW_GAP = 10;
+/** Layout constants of .rail-usage-pin-brand / -stack / .is-pinned in
+ *  09-sidebar-chrome.css: one 25px mark-and-bar slot, two bars included. */
+const PIN_ROW_HEIGHT = 25;
+const PIN_ROW_GAP = 11;
 const PIN_STACK_PADDING = 8 + 8;
 
 export function usagePinStackHeight(rowCount: number): number {
