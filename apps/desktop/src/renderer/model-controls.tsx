@@ -55,28 +55,21 @@ import {
   readSidebarReference,
 } from './sidebar-reference-cache';
 
-// Model-style trigger for changing the active session workflow. With a
-// `sessionId` (an existing session's composer) the pick switches that session
-// alone (from its next turn while one runs); the configured default for new
-// sessions stays.
-export const WorkflowSelect = memo(function WorkflowSelect({
-  workflow,
-  disabled,
-  invokeResult,
-  applySnapshot,
-  onDraftChange,
-  sessionId,
-}: {
+export type WorkflowPickProps = {
   workflow?: RecordValue | null;
   disabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (workflow: { id: string; name: string }) => void;
   sessionId?: string;
-}) {
-  const { options, optionsSettled } = useWorkflowOptions();
-  const [switching, setSwitching] = useState(false);
-  const switchGuard = useRef(false);
+};
+
+// Model-style trigger for changing the active session workflow. With a
+// `sessionId` (an existing session's composer) the pick switches that session
+// alone (from its next turn while one runs); the configured default for new
+// sessions stays.
+export const WorkflowSelect = memo(function WorkflowSelect(props: WorkflowPickProps) {
+  const { choice, options, optionsSettled } = useWorkflowChoice(props);
   beginBootSurface('workflow-controls', 'catalog');
   // The seeded list already answers whether this control belongs in the row, so
   // a workspace that has loaded one before is ready on its first frame.
@@ -90,6 +83,41 @@ export const WorkflowSelect = memo(function WorkflowSelect({
     if (!optionsSettled) return;
     reportBootSurfaceStage('workflow-controls', 'catalog', 'data');
   }, [optionsSettled]);
+  // A workspace with one pack has nothing to choose, so the control leaves the
+  // context row entirely instead of opening a menu with a single row. It never
+  // reserves a slot either: appearing and then vanishing would shift the row.
+  if (!choice) return null;
+  return (
+    <div className="composer-route-workflow">
+      <OpenSelect
+        variant="route"
+        className="workflow-context-select"
+        ariaLabel={t('Workflow')}
+        tooltip={t('Select workflow')}
+        disabled={choice.disabled}
+        value={choice.value}
+        displayValue={choice.valueLabel}
+        onChange={choice.onSelect}
+        options={options}
+      />
+    </div>
+  );
+});
+
+/** The workflow picker's pick as a route choice (the New Task chip and the
+ *  session panel's draft row share it); null while fewer than two workflows
+ *  exist. */
+export function useWorkflowChoice({
+  workflow,
+  disabled,
+  invokeResult,
+  applySnapshot,
+  onDraftChange,
+  sessionId,
+}: WorkflowPickProps): { choice: RouteSessionChoice | null; options: WorkflowOption[]; optionsSettled: boolean } {
+  const { options, optionsSettled } = useWorkflowOptions();
+  const [switching, setSwitching] = useState(false);
+  const switchGuard = useRef(false);
   const inherited = options.find((option) => option.active) || options[0];
   const selectedId = String(workflow?.id || inherited?.value || '');
   const selected = options.find((option) => option.value === selectedId);
@@ -118,26 +146,20 @@ export const WorkflowSelect = memo(function WorkflowSelect({
       setSwitching(false);
     }
   };
-  // A workspace with one pack has nothing to choose, so the control leaves the
-  // context row entirely instead of opening a menu with a single row. It never
-  // reserves a slot either: appearing and then vanishing would shift the row.
-  if (options.length < 2) return null;
-  return (
-    <div className="composer-route-workflow">
-      <OpenSelect
-        variant="route"
-        className="workflow-context-select"
-        ariaLabel={t('Workflow')}
-        tooltip={t('Select workflow')}
-        disabled={disabled || switching || !optionsSettled}
-        value={selectedId}
-        displayValue={String(workflow?.name || selected?.label || selectedId)}
-        onChange={(value) => void changeWorkflow(value)}
-        options={options}
-      />
-    </div>
-  );
-});
+  const choice: RouteSessionChoice | null =
+    options.length < 2
+      ? null
+      : {
+          id: 'workflow',
+          label: t('Workflow'),
+          value: selectedId,
+          valueLabel: String(workflow?.name || selected?.label || selectedId),
+          options,
+          disabled: disabled || switching || !optionsSettled,
+          onSelect: (value) => void changeWorkflow(value),
+        };
+  return { choice, options, optionsSettled };
+}
 
 /** The workflow catalog every workflow picker shares (workflow-options-cache). */
 function useWorkflowOptions() {
@@ -264,19 +286,45 @@ export function useSessionRouteChoices({
   return choices;
 }
 
-export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
-  mode,
-  disabled,
-  invokeResult,
-  applySnapshot,
-  onDraftChange,
-}: {
+export type OrchestrationModePickProps = {
   mode?: DesktopOrchestrationMode | null;
   disabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (mode: DesktopOrchestrationMode) => void;
-}) {
+};
+
+export const OrchestrationModeSelect = memo(function OrchestrationModeSelect(props: OrchestrationModePickProps) {
+  const choice = useOrchestrationModeChoice(props);
+  return (
+    <div className="composer-route-workflow">
+      {choice ? (
+        <OpenSelect
+          variant="route"
+          className="context-pill-select orchestration-mode-select"
+          ariaLabel={t('Orchestration Mode')}
+          tooltip={t('Delegation mode')}
+          disabled={choice.disabled}
+          value={choice.value}
+          onChange={choice.onSelect}
+          options={choice.options}
+        />
+      ) : (
+        <InitialSurface variant="control" />
+      )}
+    </div>
+  );
+});
+
+/** The delegation picker's pick as a route choice (the New Task chip and the
+ *  session panel's draft row share it); null until a mode is known. */
+export function useOrchestrationModeChoice({
+  mode,
+  disabled,
+  invokeResult,
+  applySnapshot,
+  onDraftChange,
+}: OrchestrationModePickProps): RouteSessionChoice | null {
   const inherited = useInheritedOrchestrationMode(!mode);
   const [switching, setSwitching] = useState(false);
   const guard = useRef(false);
@@ -306,25 +354,18 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
       setSwitching(false);
     }
   };
-  return (
-    <div className="composer-route-workflow">
-      {selected ? (
-        <OpenSelect
-          variant="route"
-          className="context-pill-select orchestration-mode-select"
-          ariaLabel={t('Orchestration Mode')}
-          tooltip={t('Delegation mode')}
-          disabled={disabled || switching}
-          value={selected}
-          onChange={(value) => void change(value)}
-          options={orchestrationModeOptions()}
-        />
-      ) : (
-        <InitialSurface variant="control" />
-      )}
-    </div>
-  );
-});
+  if (!selected) return null;
+  const options = orchestrationModeOptions();
+  return {
+    id: 'orchestration-mode',
+    label: t('Delegation mode'),
+    value: selected,
+    valueLabel: options.find((option) => option.value === selected)?.label || selected,
+    options,
+    disabled: disabled || switching,
+    onSelect: (value) => void change(value),
+  };
+}
 
 /** The context slider owns the window whenever it is available, so a
  *  provider's own context-window parameter (Cursor 272K/1M) never travels with

@@ -648,6 +648,62 @@ test("Info's usage row opens usage; a bot's home thread or a room reads its rout
   assert.equal(document.querySelector('[data-category="info"] .session-rail-model'), null, 'each room member runs its own');
 });
 
+test("a New Task's Info holds its context pickers and model, and a pick acts on the draft", async (t) => {
+  const { DraftInfoSection } = await import('./session-rail-info.tsx');
+  const picked = [];
+  const noop = () => {};
+  const element = React.createElement(DraftInfoSection, {
+    open: true,
+    onToggle: noop,
+    answersModelPickerRequests: false,
+    draft: {
+      project: {
+        projects: [{ path: 'C:/work/app', name: 'app' }],
+        activePath: '',
+        activeLabel: '',
+        disabled: false,
+        onClear: () => picked.push('clear'),
+        onSelect: (path) => picked.push(`project ${path}`),
+      },
+      workflow: { workflow: null, disabled: false, invokeResult: async (action) => action(), applySnapshot: noop },
+      delegation: {
+        mode: 'none',
+        disabled: false,
+        invokeResult: async () => assert.fail('a draft pick never reaches the session'),
+        applySnapshot: noop,
+        onDraftChange: (mode) => picked.push(`mode ${mode}`),
+      },
+      branch: { sessionId: '', draftId: 'default', projectPath: '' },
+    },
+    model: {
+      provider: 'anthropic',
+      model: 'model',
+      effort: '',
+      fast: false,
+      fastCapable: false,
+      sessionId: '',
+      modelDisabled: false,
+      tuningDisabled: false,
+      invokeResult: async (action) => action(),
+      applySnapshot: noop,
+      onOpenSettings: noop,
+      onDraftModelSelection: noop,
+    },
+  });
+  const { document } = await mount(t, element);
+  const row = (title) => document.querySelector(`[data-category="info"] button.session-rail-row[title="${title}"]`);
+  assert.equal(row('Project').textContent, 'ProjectNo project');
+  assert.ok(document.querySelector('[data-category="info"] .session-rail-model'), 'the model the composer line held');
+  const pick = async (title, label) => {
+    await act(async () => row(title).click());
+    const option = [...document.querySelectorAll('.route-sheet-option')].find((el) => el.textContent.startsWith(label));
+    await act(async () => option.click());
+  };
+  await pick('Project', 'app');
+  await pick('Delegation mode', 'Swarm');
+  assert.deepEqual(picked, ['project C:/work/app', 'mode swarm']);
+});
+
 test('Context is a category of its own: the share, a bar and the two actions; absent before a reading', async (t) => {
   const { ContextSection } = await import('./session-rail-info.tsx');
   const opened = [];
