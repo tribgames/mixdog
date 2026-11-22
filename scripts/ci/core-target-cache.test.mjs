@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync, ex
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { check, seal, stamp, trackedEntries, verify } from './core-target-cache.mjs';
 
@@ -104,6 +105,16 @@ test('core-target-cache: an entry is warm only when every file of its list is th
   assert.equal(verify(paths), false, 'a missing file');
   assert.equal(check({ paths, restored: true }), false);
   assert.ok(!existsSync(repo.target) && !existsSync(registry));
+});
+
+test('core-target-cache: the command line takes a list after --paths and the options around it', () => {
+  const repo = repository();
+  const registry = join(repo.root, 'registry');
+  const script = fileURLToPath(new URL('./core-target-cache.mjs', import.meta.url));
+  const run = (...args) => execFileSync(process.execPath, [script, ...args], { cwd: repo.root, encoding: 'utf8' });
+  assert.match(run('stamp', '--root', '.', '--target', 'target', '--warm', 'false'), /0 tracked entries keep their recorded time/);
+  assert.equal(run('seal', '--root', '.', '--paths', 'target', registry).trim(), 'save=true');
+  assert.equal(verify([repo.target, registry]), true);
 });
 
 test('core-target-cache: a build that changed a tracked file saves nothing', () => {

@@ -159,9 +159,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = {};
   for (let i = 0; i < rest.length; i++) {
     if (!rest[i].startsWith('--')) continue;
+    const name = rest[i].slice(2);
     const values = [];
     while (rest[i + 1] !== undefined && !rest[i + 1].startsWith('--')) values.push(rest[++i]);
-    args[rest[i].slice(2)] = values;
+    args[name] = values;
   }
   const one = (name) => args[name]?.[0] ?? '';
   const output = (line) => {
