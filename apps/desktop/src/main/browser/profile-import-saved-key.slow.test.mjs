@@ -175,6 +175,7 @@ function world(_t, { scenario = {}, encryption = fakeEncryption() } = {}) {
   return {
     service,
     data,
+    chrome,
     set,
     writeLocalState,
     /** Chrome writing its cookie store: new content, and a modification time that moves. */
@@ -236,6 +237,24 @@ test('a manual import elevates once, keeps the key encrypted, and the next one n
   assert.equal(reused.savedKeyGiven, true, 'the key reached the importer over stdin');
   assert.equal(reused.keyLeaked, false, 'and never through arguments or the environment');
   assert.equal(elevations(w.calls()), 1, 'still one elevation in total');
+});
+
+test('an unreadable Local State refuses the import with a fixed reason that names no path or content', {
+  skip: !isWindows,
+}, async (t) => {
+  const w = world(t);
+  const localState = join(w.chrome, 'Local State');
+  writeFileSync(localState, '{"profile": SECRET-CONTENT');
+  await assert.rejects(w.manual(), (error) => {
+    assert.equal(error.message, "Chrome's profile list (Local State) could not be read.");
+    return true;
+  });
+  rmSync(localState);
+  mkdirSync(localState);
+  await assert.rejects(w.manual(), (error) => {
+    assert.equal(error.message, "Chrome's profile list (Local State) could not be read.");
+    return true;
+  });
 });
 
 test('an automatic import with the saved key imports without ever allowing elevation', {

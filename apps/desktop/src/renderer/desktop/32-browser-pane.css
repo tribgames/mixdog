@@ -573,8 +573,10 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   color: var(--mx-text);
 }
 
+/* Its overflow clip (for the rounded corners) would let the card shrink it below its rows; the card scrolls instead. */
 .browser-import-items {
   display: flex;
+  flex: none;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--mx-border-muted);

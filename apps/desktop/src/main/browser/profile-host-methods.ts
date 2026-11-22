@@ -67,6 +67,7 @@ export function createBrowserProfileHostMethods(options: {
   fillBoundLogin: (sessionId: string, fillId: string, credentialId: string) => Promise<BrowserCredentialFillResult>;
   sendToRenderer: (channel: string, ...args: unknown[]) => void;
   publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
+  onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }) {
   const { profileImporter, vault } = options;
   const requiredCookieAutoImport = () => {
@@ -93,10 +94,23 @@ export function createBrowserProfileHostMethods(options: {
       return await profileImporter.sources();
     },
     async browserImport(request: BrowserImportRequest): Promise<BrowserImportResult> {
-      const result = await profileImporter.importProfile(request, (progress) => {
-        options.sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
-        void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
-      });
+      let result: BrowserImportResult;
+      try {
+        result = await profileImporter.importProfile(request, (progress) => {
+          options.sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
+          void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
+        });
+      } catch (error) {
+        options.onDiagnostic?.('browser-import-failed', {
+          items: request.items,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+      for (const item of request.items) {
+        const error = result.errors[item];
+        if (error) options.onDiagnostic?.('browser-import-item-failed', { item, count: result.counts[item], error });
+      }
       if (request.items.includes('cookies') && !result.errors.cookies) {
         // The first one binds the automatic target; the key it saved opens the Chrome-exit watch.
         await options.cookieAutoImport?.manualImportDone(request.profileId).catch(() => undefined);

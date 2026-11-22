@@ -522,6 +522,61 @@ test('automatic cookie import on by default shows no status line before the firs
   assert.ok(!doc.body.textContent.includes('Needs one manual import'));
 });
 
+const COOKIE_STATUS_WITH_HISTORY = {
+    enabled: true,
+    profileId: 'Default',
+    keySaved: false,
+    keyStorageAvailable: true,
+    running: false,
+    lastImportAt: Date.UTC(2026, 8, 9),
+    lastCount: 7,
+    needsManualImport: true,
+    skippedChromeRunning: false,
+};
+
+async function cookieStatusLine(t, status) {
+  const dom = await mount(t, {
+    ...makeApi(),
+    browserProfileImportSources: async () => [
+      { id: 'chrome', name: 'Google Chrome', supports: { cookies: true }, profiles: [{ id: 'Default', name: 'Me' }] },
+    ],
+    browserCookieAutoImportStatus: async () => status,
+    browserCookieAutoImportConfigure: async () => status,
+  });
+  return dom.window.document.querySelector('.settings-empty[role="status"]')?.textContent ?? '';
+}
+
+test('automatic cookie import that needs one manual import says so, with the last known import', async (t) => {
+  assert.match(
+    await cookieStatusLine(t, COOKIE_STATUS_WITH_HISTORY),
+    /^Needs one manual import.* Last imported .* · 7 cookies$/
+  );
+});
+
+test('automatic cookie import skipped while Chrome ran says so, with the last known import', async (t) => {
+  assert.match(
+    await cookieStatusLine(t, {
+      ...COOKIE_STATUS_WITH_HISTORY,
+      keySaved: true,
+      needsManualImport: false,
+      skippedChromeRunning: true,
+    }),
+    /^Last import skipped: Chrome was running\..* Last imported .* · 7 cookies$/
+  );
+});
+
+test('automatic cookie import reports a newer Chrome skip instead of an earlier failure', async (t) => {
+  const line = await cookieStatusLine(t, {
+    ...COOKIE_STATUS_WITH_HISTORY,
+    keySaved: true,
+    needsManualImport: false,
+    lastError: 'Chrome data decryption failed.',
+    skippedChromeRunning: true,
+  });
+  assert.match(line, /^Last import skipped: Chrome was running\./);
+  assert.doesNotMatch(line, /failed/);
+});
+
 test('automatic cookie import shows the bound profile as missing instead of substituting another', async (t) => {
   const status = {
     enabled: true,

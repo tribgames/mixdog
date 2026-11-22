@@ -52,12 +52,17 @@ export interface DesktopCookieAutoImportStatus {
   keyStorageAvailable: boolean;
   /** A run is in progress. */
   running: boolean;
-  /** Epoch ms of the last successful import (manual or automatic). */
+  /** Epoch ms of the latest recorded successful import from any profile (manual or
+   *  automatic); `lastCount` is that import's count. Absent while no profile is bound. */
   lastImportAt?: number;
   lastCount?: number;
   lastError?: string;
-  /** Automatic runs stopped: one manual import (one prompt) saves the key again. */
+  /** Automatic runs cannot run (no saved key, or the profile was never imported
+   *  with one) or stopped: one manual import (one prompt) saves the key. */
   needsManualImport: boolean;
+  /** The latest automatic attempt was skipped because Chrome was running, and
+   *  nothing was imported since the app started: newer than `lastError`. */
+  skippedChromeRunning: boolean;
 }
 
 export interface DesktopCookieAutoImportRequest {

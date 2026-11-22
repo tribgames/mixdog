@@ -152,7 +152,7 @@ test('before a key is saved no run, process check or watch exists, however long 
     assert.equal(calls.chromeChecks, 0, 'no process check');
     assert.equal(calls.watches, 0, 'no watch');
     const status = await importer.status();
-    assert.equal(status.needsManualImport, false, 'no "needs one manual import" yet');
+    assert.equal(status.needsManualImport, saved.profileId !== '', 'asked for only once a profile is bound');
     assert.equal(status.lastError, undefined);
   }
 });
@@ -169,8 +169,62 @@ test('an import time without a saved key does not open the gate', async () => {
   assert.equal(calls.chromeChecks, 0);
   assert.equal(calls.watches, 0);
   const status = await importer.status();
-  assert.equal(status.needsManualImport, false, 'silent, not "Needs one manual import"');
+  assert.equal(status.needsManualImport, true);
+  assert.equal(status.lastImportAt, undefined, 'an unattributed legacy time is not shown');
   assert.equal(status.lastError, undefined);
+});
+
+test('on and bound but never imported with a key: one manual import is asked for, with the last known import', async () => {
+  const { importer, state, world } = setup({ saved: ON, ready: [] });
+  world.keySaved = false;
+  await state.updateProfile('Work', { lastImportAt: 1_700_000_000_000, lastCount: 12 });
+  await state.updateProfile('Default', { lastImportAt: 1_600_000_000_000, lastCount: 3 });
+  await importer.start();
+  const status = await importer.status();
+  assert.equal(status.needsManualImport, true);
+  assert.equal(status.lastImportAt, 1_700_000_000_000, 'the latest import of any profile');
+  assert.equal(status.lastCount, 12);
+
+  world.keySaved = true;
+  assert.equal((await importer.status()).needsManualImport, true, 'a key alone: this profile never used it');
+  world.keyAvailable = false;
+  assert.equal((await importer.status()).needsManualImport, false, 'no key can be saved: no manual import helps');
+
+  const unbound = setup({ saved: { enabled: true, profileId: '' }, ready: [] });
+  unbound.world.keySaved = false;
+  await unbound.state.updateProfile('Work', { lastImportAt: 1_700_000_000_000, lastCount: 12 });
+  await unbound.importer.start();
+  const quiet = await unbound.importer.status();
+  assert.equal(quiet.needsManualImport, false);
+  assert.equal(quiet.lastImportAt, undefined);
+});
+
+test('an attempt skipped while Chrome runs is reported until something is imported', async () => {
+  const { importer, clock, calls, chromeExits } = setup({ saved: ON, chromeRunning: true });
+  await importer.start();
+  assert.equal((await importer.status()).skippedChromeRunning, false);
+  await clock.advance(START_DELAY_MS);
+  assert.deepEqual(calls.run, []);
+  assert.equal((await importer.status()).skippedChromeRunning, true);
+  await importer.configure({ enabled: true, profileId: 'Profile 1' });
+  assert.equal((await importer.status()).skippedChromeRunning, false, 'another profile was not attempted yet');
+  await importer.configure(ON);
+  await clock.advance(0);
+  assert.equal((await importer.status()).skippedChromeRunning, true);
+  await chromeExits();
+  assert.deepEqual(calls.run, ['Default']);
+  assert.equal((await importer.status()).skippedChromeRunning, false);
+
+  const manual = setup({ saved: ON, chromeRunning: true });
+  await manual.importer.start();
+  await manual.clock.advance(START_DELAY_MS);
+  await manual.importer.manualImportDone('Default');
+  assert.equal((await manual.importer.status()).skippedChromeRunning, false, 'a manual import counts');
+
+  const reopened = setup({ saved: ON, runOutcome: async () => ({ state: 'skipped', reason: 'chrome-running' }) });
+  await reopened.importer.start();
+  await reopened.clock.advance(START_DELAY_MS);
+  assert.equal((await reopened.importer.status()).skippedChromeRunning, true, 'Chrome opened during the run');
 });
 
 test('a saved key alone does not open the gate for a profile that was never imported with it', async () => {
@@ -363,7 +417,7 @@ test('runs never overlap: an exit during a run joins it', async () => {
   assert.equal((await importer.status()).running, false);
 });
 
-test('legacy state without a bound, imported profile shows no warning or error', async () => {
+test('legacy state without a bound, imported profile shows no stale error; bound, it asks for one manual import', async () => {
   // A state file from an earlier build: "needs one manual import" with no ready profile recorded.
   for (const saved of [
     { enabled: true, profileId: '' },
@@ -374,7 +428,7 @@ test('legacy state without a bound, imported profile shows no warning or error',
     await state.update({ needsManualImport: true, lastError: 'old failure', lastImportAt: 7, lastCount: 2 });
     await importer.start();
     const status = await importer.status();
-    assert.equal(status.needsManualImport, false);
+    assert.equal(status.needsManualImport, saved.profileId !== '');
     assert.equal(status.lastError, undefined);
   }
   // Once the profile did work, the same flags are real and shown.
@@ -559,7 +613,7 @@ test('stopping cancels the start deadline and the watch', async () => {
   assert.deepEqual(calls.run, []);
 });
 
-test('forgetting the key closes the watch and asks for one manual import only if automatic import is on and a key existed', async () => {
+test('forgetting the key closes the watch and asks for one manual import only if automatic import is on', async () => {
   const on = setup({ saved: ON });
   await on.importer.start();
   await settle();
@@ -577,7 +631,8 @@ test('forgetting the key closes the watch and asks for one manual import only if
   const none = setup({ saved: ON });
   none.world.keySaved = false;
   await none.importer.start();
-  assert.equal((await none.importer.forgetKey()).needsManualImport, false);
+  assert.equal((await none.importer.forgetKey()).needsManualImport, true, 'no key: it could not run anyway');
+  assert.equal(none.state.peek().profileStatus, undefined, 'nothing is recorded when no key existed');
 });
 
 test('the status shows the setting, the key, the last import and the last error', async () => {
@@ -599,6 +654,7 @@ test('the status shows the setting, the key, the last import and the last error'
     lastCount: 42,
     lastError: 'Chrome data decryption failed.',
     needsManualImport: false,
+    skippedChromeRunning: false,
   });
 });
 

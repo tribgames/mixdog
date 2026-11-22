@@ -394,6 +394,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         />
       )}
       <BrowserImportDialog
+        layer="settings"
         open={importOpen}
         onClose={() => {
           setImportOpen(false);

@@ -289,6 +289,9 @@ export class CookieAutoImporter {
   private settingsWrites: Promise<unknown> = Promise.resolve();
   /** Chrome exited while a run was going: one more run follows it, never alongside it. */
   private exitedDuringRun = false;
+  /** The profile whose latest automatic attempt was skipped because Chrome was running. */
+  private chromeSkippedProfile: string | null = null;
+  private importedSinceStart = false;
   private readonly timers: CookieAutoImportTimers;
 
   constructor(private readonly deps: CookieAutoImporterDeps) {
@@ -319,6 +322,7 @@ export class CookieAutoImporter {
    *  automatic target (a profile the user chose in settings is kept), and it
    *  may have saved the key, so the Chrome-exit watch is set up now. */
   async manualImportDone(profileId: string): Promise<void> {
+    this.importedSinceStart = true;
     await this.changeSettings(async () => {
       if (!this.settings.profileId && profileId) {
         this.settings = await this.deps.settings.write({ enabled: this.settings.enabled, profileId });
@@ -330,21 +334,32 @@ export class CookieAutoImporter {
   async status(): Promise<DesktopCookieAutoImportStatus> {
     const { enabled, profileId } = this.settings;
     const [state, key] = await Promise.all([this.deps.state.read(), this.deps.keyStatus()]);
-    // Errors and "needs one manual import" belong to a setup that once worked
-    // (this profile was imported with a key). A state left by an earlier build,
-    // or before the first manual import, says nothing: the migration is silent.
-    const wasReady = profileId !== '' && state.readyProfiles?.includes(profileId) === true;
+    // Recorded errors belong to a setup that once worked (this profile was
+    // imported with a key); a state left by an earlier build says nothing.
+    const bound = profileId !== '';
+    const wasReady = bound && state.readyProfiles?.includes(profileId) === true;
     const summary = wasReady ? state.profileStatus?.[profileId] : undefined;
+    // Cookies from every profile land in the same jar: the latest import of any is the age the user sees.
+    let last: CookieAutoImportProfileStatus | undefined;
+    for (const row of bound ? Object.values(state.profileStatus ?? {}) : []) {
+      if (row.lastImportAt !== undefined && (last?.lastImportAt === undefined || row.lastImportAt > last.lastImportAt)) {
+        last = row;
+      }
+    }
+    // On and bound, but the gate stays closed until a manual import saves a key for this profile.
+    // Where no key can be saved, a manual import cannot open it either.
+    const gateClosed = enabled && bound && key.available && !(key.saved && wasReady);
     return {
       enabled,
       profileId,
       keySaved: key.saved,
       keyStorageAvailable: key.available,
       running: this.runningProfile === profileId,
-      ...(summary?.lastImportAt !== undefined ? { lastImportAt: summary.lastImportAt } : {}),
-      ...(summary?.lastCount !== undefined ? { lastCount: summary.lastCount } : {}),
+      ...(last?.lastImportAt !== undefined ? { lastImportAt: last.lastImportAt } : {}),
+      ...(last?.lastCount !== undefined ? { lastCount: last.lastCount } : {}),
       ...(summary?.lastError ? { lastError: summary.lastError } : {}),
-      needsManualImport: wasReady && summary?.needsManualImport === true,
+      needsManualImport: gateClosed || (wasReady && summary?.needsManualImport === true),
+      skippedChromeRunning: enabled && !this.importedSinceStart && bound && this.chromeSkippedProfile === profileId,
     };
   }
 
@@ -440,8 +455,8 @@ export class CookieAutoImporter {
   }
 
   /** Until a manual import of the bound profile saved a key that works for it,
-   *  a run could only fail: nothing runs and nothing is reported, not even a
-   *  process check. A bare "imported at" time is no evidence of a key. */
+   *  a run could only fail: nothing runs, not even a process check, and the
+   *  status asks for one manual import. A bare "imported at" time is no evidence of a key. */
   private async importedBefore(profileId: string): Promise<boolean> {
     if (!profileId) return false;
     const [key, state] = await Promise.all([this.deps.keyStatus(), this.deps.state.read()]);
@@ -459,7 +474,10 @@ export class CookieAutoImporter {
       this.runningProfile = initial.profileId;
       this.checkingChrome = true;
       try {
-        if (await this.deps.chromeRunning()) return;
+        if (await this.deps.chromeRunning()) {
+          this.chromeSkippedProfile = initial.profileId;
+          return;
+        }
       } catch {
         return;
       } finally {
@@ -472,7 +490,10 @@ export class CookieAutoImporter {
       if (settings !== initial && !(await this.importedBefore(profileId))) return;
       this.runningProfile = profileId;
       if ((await this.deps.state.read()).profileStatus?.[profileId]?.needsManualImport || !stillSelected()) return;
-      await this.deps.run(profileId, stillSelected);
+      const outcome = await this.deps.run(profileId, stillSelected);
+      if (outcome.state === 'imported') this.importedSinceStart = true;
+      this.chromeSkippedProfile =
+        outcome.state === 'skipped' && outcome.reason === 'chrome-running' ? profileId : null;
     })()
       .catch((error) => this.deps.onError?.(error))
       .finally(() => {

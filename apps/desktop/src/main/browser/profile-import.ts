@@ -341,7 +341,14 @@ export class BrowserProfileImportService {
     const userData = this.chromeUserData();
     const localStatePath = join(userData, 'Local State');
     if (!chromeExecutable || !existsSync(localStatePath)) return [];
-    const profiles = chromeProfiles(userData, JSON.parse(await readFile(localStatePath, 'utf8')) as ChromeLocalState);
+    let localState: ChromeLocalState;
+    try {
+      localState = JSON.parse(await readFile(localStatePath, 'utf8')) as ChromeLocalState;
+    } catch {
+      // The file system's text names the user's profile path; JSON's quotes the file.
+      throw new Error("Chrome's profile list (Local State) could not be read.");
+    }
+    const profiles = chromeProfiles(userData, localState);
     if (!profiles.length) return [];
     const [passwordImporter, cookieImporter] = await Promise.all([
       this.nativeImporter('passwords'),

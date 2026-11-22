@@ -176,7 +176,7 @@ function chromeSource({ passwords = false, cookies = true, history = false } = {
   };
 }
 
-function renderDialog(api) {
+function renderDialog(api, props = {}) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
@@ -186,10 +186,78 @@ function renderDialog(api) {
     root,
     render: (open = true, onClose = () => {}) =>
       act(async () => {
-        root.render(React.createElement(BrowserImportDialog, { open, onClose }));
+        root.render(React.createElement(BrowserImportDialog, { open, onClose, ...props }));
       }),
   };
 }
+
+const noticeHeadlines = (host) =>
+  [...host.querySelectorAll('.error-notice-copy > span')].map((node) => node.textContent);
+
+const failedRows = (host) =>
+  [...host.querySelectorAll('.browser-import-item')]
+    .filter((row) => row.querySelector('.browser-import-state.is-failed'))
+    .map((row) => row.querySelector('strong').textContent);
+
+test('over Settings, a failed kind is named with its reason and the kinds that worked are done', async () => {
+  const view = renderDialog(
+    {
+      browserProfileImportSources: async () => [chromeSource({ passwords: true, history: true })],
+      onBrowserProfileImportProgress: () => () => {},
+      browserProfileImportStart: async (input) => ({
+        jobId: input.jobId,
+        counts: { passwords: 0, cookies: 0, history: 40 },
+        errors: { passwords: 'Elevation was cancelled or failed.', cookies: 'Chrome data decryption failed.' },
+      }),
+    },
+    { layer: 'settings' }
+  );
+  try {
+    await view.render();
+    assert.ok(view.host.querySelector('.settings-confirm-layer > [role="dialog"][data-settings-nested-dialog]'));
+    await act(async () => view.host.querySelector('.browser-import-admin input').click());
+    await act(async () => view.host.querySelector('.browser-import-primary').click());
+    assert.deepEqual(failedRows(view.host), ['Saved passwords', 'Cookies']);
+    assert.equal(view.host.querySelectorAll('.browser-import-state.is-completed').length, 1);
+    assert.match(view.host.querySelector('.browser-import-items').textContent, /40 imported/);
+    assert.match(view.host.textContent, /Failed to import: Chrome data decryption failed\./);
+    assert.deepEqual(noticeHeadlines(view.host), [
+      'Saved passwords could not be imported: Elevation was cancelled or failed.',
+      'Cookies could not be imported: Chrome data decryption failed.',
+    ]);
+  } finally {
+    await act(async () => view.root.unmount());
+    view.host.remove();
+  }
+});
+
+test('a refused import keeps the kinds that reported done and fails the rest with the reason', async () => {
+  let progress;
+  const view = renderDialog({
+    browserProfileImportSources: async () => [chromeSource({ history: true })],
+    onBrowserProfileImportProgress: (listener) => {
+      progress = listener;
+      return () => {};
+    },
+    browserProfileImportStart: async (input) => {
+      progress({ jobId: input.jobId, item: 'history', state: 'completed', count: 5 });
+      throw new Error("Error invoking remote method 'mixdog:browser-profile-import-start': Error: Importer stopped.");
+    },
+  });
+  try {
+    await view.render();
+    await act(async () => view.host.querySelector('.browser-import-admin input').click());
+    await act(async () => view.host.querySelector('.browser-import-primary').click());
+    assert.deepEqual(failedRows(view.host), ['Cookies']);
+    assert.match(view.host.querySelector('.browser-import-items').textContent, /5 imported/);
+    assert.match(view.host.textContent, /Failed to import: Importer stopped\./);
+    assert.doesNotMatch(view.host.querySelector('.browser-import-items').textContent, /invoking remote method/);
+    assert.deepEqual(noticeHeadlines(view.host), ['Cookies could not be imported: Importer stopped.']);
+  } finally {
+    await act(async () => view.root.unmount());
+    view.host.remove();
+  }
+});
 
 test('cookie-only import exposes approval and sends only the selected data', async () => {
   let request;

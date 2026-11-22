@@ -20,15 +20,23 @@ type CookieAutoImportApi = Partial<
 /** The one-line state of the last run; empty until there is one to report. */
 function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string {
   if (status.running) return t('In progress');
-  if (status.needsManualImport) {
-    return t('Needs one manual import: use Import to approve once and save the Chrome key.');
+  // A skip is reported only while it is the latest attempt, so it outranks an earlier recorded failure.
+  if (!status.needsManualImport && !status.skippedChromeRunning && status.lastError) {
+    return t('Last import failed: {{error}}', { error: status.lastError });
   }
-  if (status.lastError) return t('Last import failed: {{error}}', { error: status.lastError });
-  if (status.lastImportAt === undefined) return '';
-  return t('Last imported {{time}} · {{total}} cookies', {
-    time: new Date(status.lastImportAt).toLocaleString(uiFormatLocale()),
-    total: (status.lastCount ?? 0).toLocaleString(uiFormatLocale()),
-  });
+  const state = status.needsManualImport
+    ? t('Needs one manual import: use Import to approve once and save the Chrome key.')
+    : status.skippedChromeRunning
+      ? t('Last import skipped: Chrome was running. Close Chrome to import cookies.')
+      : '';
+  const last =
+    status.lastImportAt === undefined
+      ? ''
+      : t('Last imported {{time}} · {{total}} cookies', {
+          time: new Date(status.lastImportAt).toLocaleString(uiFormatLocale()),
+          total: (status.lastCount ?? 0).toLocaleString(uiFormatLocale()),
+        });
+  return [state, last].filter(Boolean).join(' ');
 }
 
 export function CookieAutoImportGroup({
