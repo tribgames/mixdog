@@ -28,9 +28,20 @@ function railMotion(root: HTMLElement): RailMotion {
   const folds = view.CSS?.supports?.('interpolate-size', 'allow-keywords') === true;
   const still = () => !folds || reduced?.matches === true;
   const present = new Set<HTMLElement>();
-  /** One fold a card: forward it opens, backward it closes, so a card turned round goes back from where it stands. */
   const moving = new Map<HTMLElement, Animation>();
   const leaving = new Set<HTMLElement>();
+
+  const OPEN: Keyframe = { height: 'auto', marginBottom: '0px', opacity: 1 };
+  /** Nothing, and none of the gap the card holds in the column. */
+  const closed = (): Keyframe => {
+    const gap = Number.parseFloat(view.getComputedStyle(root).rowGap) || 0;
+    return { height: '0px', marginBottom: `${-gap}px`, opacity: 0 };
+  };
+  /** Where the card stands now, at rest or mid-fold. */
+  const standing = (card: HTMLElement): Keyframe => {
+    const style = view.getComputedStyle(card);
+    return { height: style.height, marginBottom: style.marginBottom, opacity: style.opacity };
+  };
 
   const settle = (card: HTMLElement) => {
     moving.get(card)?.cancel();
@@ -43,23 +54,15 @@ function railMotion(root: HTMLElement): RailMotion {
     card.style.removeProperty('interpolate-size');
   };
 
-  const fold = (card: HTMLElement): Animation => {
-    const running = moving.get(card);
-    if (running) return running;
-    const gap = Number.parseFloat(view.getComputedStyle(root).rowGap) || 0;
+  /** Every fold starts where the card stands, so one that turns round or takes over another goes on from there. */
+  const fold = (card: HTMLElement, from: Keyframe, to: Keyframe) => {
+    moving.get(card)?.cancel();
     // Hidden, not clipped: a column's item is no shorter than its content unless it scrolls.
     card.style.overflow = 'hidden';
     card.style.setProperty('interpolate-size', 'allow-keywords');
-    const animation = card.animate(
-      [
-        { height: '0px', marginBottom: `${-gap}px`, opacity: 0 },
-        { height: 'auto', marginBottom: '0px', opacity: 1 },
-      ],
-      { duration: DURATION, easing: EASING, fill: 'both' }
-    );
+    const animation = card.animate([from, to], { duration: DURATION, easing: EASING, fill: 'both' });
     animation.onfinish = () => settle(card);
     moving.set(card, animation);
-    return animation;
   };
 
   const leave = (card: HTMLElement, record: MutationRecord) => {
@@ -73,18 +76,22 @@ function railMotion(root: HTMLElement): RailMotion {
     card.setAttribute('aria-hidden', 'true');
     card.inert = true;
     root.insertBefore(card, next ?? after);
-    fold(card).reverse();
+    fold(card, standing(card), closed());
   };
 
   const arrive = (card: HTMLElement) => {
     present.add(card);
-    // The same category back before its last card has closed: the new card goes on from there.
+    // The same category back before its last card has closed: the new card takes its place and goes on from there.
+    // Only closing cards stand between the two, so the order React keeps is untouched.
     const twin = [...leaving].find((other) => other.dataset.category === card.dataset.category);
-    const from = twin ? moving.get(twin)?.currentTime : null;
-    if (twin) settle(twin);
-    if (still()) return;
-    const animation = fold(card);
-    if (from != null) animation.currentTime = from;
+    if (twin) {
+      root.insertBefore(card, twin);
+      const from = standing(twin);
+      settle(twin);
+      fold(card, from, OPEN);
+      return;
+    }
+    if (!still()) fold(card, closed(), OPEN);
   };
 
   const observer = new view.MutationObserver((records) => {

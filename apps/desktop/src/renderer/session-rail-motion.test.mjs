@@ -15,13 +15,8 @@ async function mountPanel(t) {
     const animation = {
       card: this.dataset.category,
       frames,
-      currentTime: 0,
-      backward: false,
       cancelled: false,
       onfinish: null,
-      reverse() {
-        this.backward = !this.backward;
-      },
       cancel() {
         this.cancelled = true;
       },
@@ -58,7 +53,8 @@ async function mountPanel(t) {
       (card) => `${card.dataset.category}${card.hasAttribute('data-leaving') ? ' (leaving)' : ''}`
     );
   const running = () => animations.filter((animation) => !animation.cancelled);
-  return { animations, running, render, shown, showOwn: (value) => act(async () => own.show(value)) };
+  const card = (category) => view.document.querySelector(`.session-rail-sec[data-category="${category}"]`);
+  return { animations, running, render, shown, card, showOwn: (value) => act(async () => own.show(value)) };
 }
 
 test('a card that arrives while the panel is shown opens from nothing to its own height; the cards drawn with the panel stand at once', async (t) => {
@@ -67,7 +63,7 @@ test('a card that arrives while the panel is shown opens from nothing to its own
   assert.deepEqual(panel.animations, [], 'nothing moves at the first draw');
   await panel.render('s1', ['info', 'todo', 'context']);
   assert.deepEqual(
-    panel.animations.map((animation) => `${animation.card}${animation.backward ? ' backward' : ''}`),
+    panel.animations.map((animation) => animation.card),
     ['todo']
   );
   const [from, to] = panel.animations[0].frames;
@@ -82,7 +78,7 @@ test('a card that leaves closes in its place and is gone once closed', async (t)
   await panel.render('s1', ['info', 'todo', 'context']);
   await panel.render('s1', ['info', 'context']);
   assert.deepEqual(panel.shown(), ['info', 'todo (leaving)', 'context'], 'it stands where it was while it closes');
-  assert.equal(panel.animations.at(-1).backward, true);
+  assert.equal(panel.animations.at(-1).frames[1].height, '0px');
   // Another commit meanwhile leaves the closing card alone.
   await panel.render('s1', ['info', 'context']);
   assert.equal(panel.animations.length, 1);
@@ -105,19 +101,23 @@ test('a card that shows and hides by itself, with no render of the panel, opens 
   assert.equal(panel.running().length, 1, 'and closes nothing twice');
 });
 
-test('a card turned round mid-way goes back from where it stands, on the one fold it has', async (t) => {
+test('a card turned round mid-way goes on from where it stands, whichever way', async (t) => {
   const panel = await mountPanel(t);
   await panel.render('s1', ['info', 'context']);
   await panel.render('s1', ['info', 'todo', 'context']);
+  // Where the opening card stands as it is taken away (the fold's own state, stood in for by its style).
+  panel.card('todo').style.height = '37px';
   await panel.render('s1', ['info', 'context']);
-  assert.equal(panel.animations.length, 1, 'the opening fold is turned round, no second one starts');
-  assert.equal(panel.animations[0].backward, true);
-  // Back again before it has closed: one card of the category, going on from where the closing one stood.
-  panel.animations[0].currentTime = 80;
+  assert.deepEqual(panel.running().map((animation) => animation.card), ['todo'], 'the opening fold gives way to the closing one');
+  assert.equal(panel.running()[0].frames[0].height, '37px', 'it closes from there, not from its full height');
+  assert.equal(panel.running()[0].frames[1].height, '0px');
+  // Back again before it has closed: one card of the category, opening from where the closing one stood.
+  panel.card('todo').style.height = '12px';
   await panel.render('s1', ['info', 'todo', 'context']);
   assert.deepEqual(panel.shown(), ['info', 'todo', 'context']);
-  assert.equal(panel.animations.at(-1).currentTime, 80);
-  assert.equal(panel.animations.at(-1).backward, false);
+  assert.equal(panel.running().length, 1);
+  assert.equal(panel.running()[0].frames[0].height, '12px');
+  assert.equal(panel.running()[0].frames[1].height, 'auto');
 });
 
 test('two cards leaving one after the other each close where they stood', async (t) => {
@@ -130,6 +130,12 @@ test('two cards leaving one after the other each close where they stood', async 
   await panel.render('s2', ['agents', 'shells', 'changes']);
   await panel.render('s2', ['changes']);
   assert.deepEqual(panel.shown(), ['agents (leaving)', 'shells (leaving)', 'changes']);
+  // One of them back while the other still closes: it takes the place its closing card had.
+  await panel.render('s2', ['agents', 'changes']);
+  assert.deepEqual(panel.shown(), ['agents', 'shells (leaving)', 'changes']);
+  // And the order React keeps still holds for what comes next.
+  await panel.render('s2', ['agents', 'shells', 'changes']);
+  assert.deepEqual(panel.shown(), ['agents', 'shells', 'changes']);
 });
 
 test('a card moved in the order neither opens nor closes', async (t) => {
