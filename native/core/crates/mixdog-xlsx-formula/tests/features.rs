@@ -1653,10 +1653,33 @@ fn tiny_gamma_shapes_and_quantiles_a_hair_from_a_double_are_exact() {
     rel("=GAMMA.INV(0.5,1,2.2250738585072014E-308)", 1.542_303_671_561_905_3e-308);
 }
 
+/// The CPU time the calling thread has used.
+#[cfg(unix)]
+fn thread_cpu_time() -> std::time::Duration {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid place for the call to write.
+    assert_eq!(unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) }, 0);
+    std::time::Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+}
+
+/// The CPU time the calling thread has used.
+#[cfg(windows)]
+fn thread_cpu_time() -> std::time::Duration {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
+    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+    // SAFETY: the pseudo-handle names this thread and the four places are valid for the call to write.
+    assert_ne!(unsafe { GetThreadTimes(GetCurrentThread(), &mut created, &mut exited, &mut kernel, &mut user) }, 0);
+    let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+    std::time::Duration::from_nanos((ticks(kernel) + ticks(user)) * 100)
+}
+
 #[test]
 fn every_formula_of_the_adversarial_grid_ends_within_its_time_bound() {
     // the bound per formula: 2 s for an optimised build (the release gate, measured by the sweep harness), 20 s for
-    // this unoptimised test build (about 4-8 times slower); the grid's slowest formula takes 2.5 s here
+    // this unoptimised test build (about 4-8 times slower); the grid's slowest formula takes 2.5 s here. It is the
+    // thread's CPU time: on a loaded runner, the wall time also counts the time the thread waits for a core.
     let bound = std::time::Duration::from_secs(if cfg!(debug_assertions) { 20 } else { 2 });
     let grid = adversarial_grid();
     let slow = std::sync::Mutex::new(Vec::new());
@@ -1665,9 +1688,9 @@ fn every_formula_of_the_adversarial_grid_ends_within_its_time_bound() {
             let slow = &slow;
             s.spawn(move || {
                 for f in chunk {
-                    let start = std::time::Instant::now();
+                    let start = thread_cpu_time();
                     let got = eval(f);
-                    let took = start.elapsed();
+                    let took = thread_cpu_time() - start;
                     if took > bound || !matches!(got, Ok(Value::Number(_)) | Ok(Value::Error(_))) {
                         slow.lock().unwrap().push(format!("{f}: {got:?} in {took:?}"));
                     }

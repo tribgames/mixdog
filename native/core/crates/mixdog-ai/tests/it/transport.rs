@@ -205,8 +205,9 @@ async fn answering_websocket_peer_stays_alive_and_delivers_frames() {
 }
 // Driven by the paused clock with explicit advances: hyper's HTTP/2 keep-alive takes its timers from tokio, so virtual time
 // is moved by this test, a step at a time, once the peer has the client's preface; the instants asserted are the
-// schedule's own, whatever the machine's load.
-#[tokio::test(start_paused = true)]
+// schedule's own, whatever the machine's load. The clock is paused only then: a paused clock jumps to the next timer
+// whenever the runtime waits on real I/O, so the connect and the preface run in real time.
+#[tokio::test]
 async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     // A cleartext peer that accepts and swallows bytes: it never sends its
     // SETTINGS or a PING ack. It says when it has the client's preface.
@@ -227,8 +228,8 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     let client = http::client_builder(&schedule).http2_prior_knowledge().build().unwrap();
     let url = format!("http://{addr}/");
     let request = tokio::spawn(async move { client.get(url).send().await });
-    // Real I/O first (connect, preface); no virtual time has to pass for it.
     mixdog_rt::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
+    tokio::time::pause();
     let started = tokio::time::Instant::now();
     let bound = (schedule.h2.interval + schedule.h2.timeout) * 3;
     let step = Duration::from_millis(10);

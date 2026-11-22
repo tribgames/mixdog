@@ -98,7 +98,8 @@ fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
         move |lane| with_lock(lane, &file, &within(Duration::from_millis(150)), || ()).unwrap_err()
     });
     assert_eq!(busy.code(), Some("ELOCKTIMEOUT"));
-    assert!(started.elapsed() >= Duration::from_millis(150));
+    // The deadline is `Date.now()`'s, whole milliseconds: it can fall up to 1 ms before 150 ms of real time.
+    assert!(started.elapsed() > Duration::from_millis(149));
     assert!(busy.to_string().contains("holder pid="), "{busy}");
     let once = on_lane({
         let file = file.clone();
