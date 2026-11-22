@@ -174,23 +174,27 @@ export function ShellRowButton({
     release: t('Release anyway'),
   }[action];
   const held = row.terminationUnconfirmed === true;
-  const button = (text: string, onClick: () => void, disabled = false) => (
+  // Stop and Dismiss are a row's everyday buttons: a mark in one column. The
+  // rarer ones (Stopping…, Retry, Release anyway) say what they do.
+  const button = (text: string, onClick: () => void, disabled = false, icon?: 'stop' | 'close-small') => (
     <button
       key={text}
       type="button"
       className="composer-island-button composer-island-row-dismiss"
+      data-icon={icon ? 'true' : undefined}
       aria-label={disabled ? undefined : `${text}: ${row.label}`}
+      title={icon ? text : undefined}
       disabled={disabled}
       onClick={onClick}
     >
-      {text}
+      {icon ? <MxIcon name={icon} size={14} /> : text}
     </button>
   );
   if (action === 'release') {
     return (
       <>
         {button(label, () => onStop(row, 'release'))}
-        {button(t('Stop'), () => onStop(row, 'stop'))}
+        {button(t('Stop'), () => onStop(row, 'stop'), false, 'stop')}
       </>
     );
   }
@@ -203,9 +207,11 @@ export function ShellRowButton({
     );
   }
   const heldKind: ShellKind = releasing ? 'release' : 'stop';
+  const icons: Partial<Record<typeof action, 'stop' | 'close-small'>> = { stop: 'stop', dismiss: 'close-small' };
   return button(
     label,
     () => (action === 'dismiss' ? onDismiss(row) : onStop(row, held ? heldKind : undefined)),
-    action === 'stopping'
+    action === 'stopping',
+    icons[action]
   );
 }

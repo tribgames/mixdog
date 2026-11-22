@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from './i18n';
-import { DockHeaderRow } from './pane-dock-chrome';
 import {
   markSessionRailPress,
   publishSessionRailSlot,
@@ -48,7 +47,7 @@ function underPanel(target: EventTarget | null, panel: HTMLElement | null): bool
   return bodyLayer(target) === bodyLayer(panel);
 }
 
-/** A raised panel lets go on its toggle, its close button, Escape (unless one
+/** A raised panel lets go on its toggle, Escape (unless one
  *  of its own pickers is open, which Escape closes first) or a press outside. */
 function useRaisedDismiss(raised: boolean, root: { current: HTMLElement | null }, onClose: () => void) {
   const close = useRef(onClose);
@@ -74,8 +73,9 @@ function useRaisedDismiss(raised: boolean, root: { current: HTMLElement | null }
   }, [raised, root]);
 }
 
-/** The session panel's frame in a pane cell: its title row, the resize edge
- *  of a column, and the body slot the pane's conversation draws into. */
+/** The session panel's frame in a pane cell: the resize edge of a column and
+ *  the body slot the pane's conversation draws into. The pane's own switch
+ *  closes it; the frame has no title row. */
 export function SessionRailColumn({
   leafId,
   sessionId,
@@ -147,11 +147,6 @@ export function SessionRailColumn({
           {...resizeHandleProps}
         />
       )}
-      <DockHeaderRow
-        className="session-rail-head"
-        left={<span className="dock-header-title">{t('Session')}</span>}
-        onClose={onClose}
-      />
       <div ref={setBody} className="session-rail-body" />
     </aside>
   );

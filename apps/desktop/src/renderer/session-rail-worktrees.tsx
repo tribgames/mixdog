@@ -1,19 +1,17 @@
 // The session panel's Worktrees category: the project's worktrees from the
 // branch menu's own read, with the branch panel's actions.
-import { FolderOpen, GitFork, GitMerge, Trash2 } from 'lucide-react';
-import { type ReactNode, useRef } from 'react';
+import { FolderGit2, FolderOpen, GitFork, GitMerge, Plus, Search, Trash2 } from 'lucide-react';
+import { type ReactNode, useId, useRef, useState } from 'react';
 import type { DesktopBranchMenu, DesktopSessionWorkspace } from '../shared/contract';
-import { useBranchMenuActions, WorktreeCarryDialog } from './branch-menu';
+import { BranchNameDialog, startNewBranch, useBranchMenuActions, WorktreeCarryDialog } from './branch-menu';
 import { useBranchMenuData } from './branch-menu-data';
 import { openBranchFolder, runBranchRowAction } from './branch-row-actions';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
-import { RailList, RailSection } from './session-rail-parts';
+import { RailSection } from './session-rail-parts';
 import { type BranchRow, branchRows, projectFolderBranch } from './worktree-branch-model';
 import { useWorktreeSessionActions } from './WorktreeIslandSegment';
-
-export const RAIL_WORKTREE_ROWS = 3;
 
 /** `managed`: a folder the app made (a session's worktree); only those can be removed. */
 export type RailWorktree = { row: BranchRow; name: string; path: string; current: boolean; managed: boolean };
@@ -88,8 +86,12 @@ export function WorktreesSection({
   onToggle(): void;
   onFlash(flash: ComposerIslandFlash): void;
 }) {
-  const trigger = useRef<HTMLElement>(null);
-  const { menu, load, setNotice } = useBranchMenuData({
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dialogId = useId();
+  // The search narrows the rows and names the branch "New branch" creates.
+  const [query, setQuery] = useState('');
+  const [namingBranch, setNamingBranch] = useState(false);
+  const { menu, load, notice, setNotice } = useBranchMenuData({
     draft: false,
     projectPath,
     sessionId,
@@ -108,7 +110,7 @@ export function WorktreesSection({
     sessionId,
     projectPath,
     menu,
-    query: '',
+    query,
     locked,
     menuOpen: open,
     load,
@@ -146,18 +148,61 @@ export function WorktreesSection({
   const mergeInto = workspace?.mergeTarget || menu?.workspace.mergeTarget || projectFolderBranch(menu);
   // The island's lock: no merge or removal while anything of the session works.
   const lockTitle = locked ? t("Can't switch while work is running") : undefined;
+  const needle = query.trim().toLowerCase();
+  const listed = needle
+    ? worktrees.filter((tree) => `${tree.name}\n${tree.row.name}`.toLowerCase().includes(needle))
+    : worktrees;
+  const transitionOff = actions.busy || locked;
+  const worktreeOff = transitionOff || actions.worktreeUnavailable || Boolean(menu?.workspace.worktreeId);
   return (
     <>
       <RailSection
         category="worktrees"
         title={t('Worktrees')}
+        count={worktrees.length}
         open={open}
         onToggle={onToggle}
-        summary={
+        summary={<span className="session-rail-cut">{shown?.name}</span>}
+        scroll
+        top={
+          <label className="session-rail-search">
+            <Search size={14} aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              placeholder={t('Search branches')}
+              aria-label={t('Search branches')}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+          </label>
+        }
+        foot={
           <>
-            <span className="session-rail-cut">{shown?.name}</span>
-            <span aria-hidden="true">·</span>
-            <span>{t('{{count}} worktrees', { count: worktrees.length })}</span>
+            <button
+              ref={trigger}
+              type="button"
+              className="composer-island-button"
+              data-kind="create"
+              aria-disabled={transitionOff || undefined}
+              title={lockTitle}
+              onClick={() => startNewBranch({ actions, query, locked, setNotice: notify, setNamingBranch })}
+            >
+              <Plus size={14} aria-hidden="true" />
+              <span>{t('New branch')}</span>
+            </button>
+            <button
+              type="button"
+              className="composer-island-button"
+              data-kind="worktree"
+              aria-disabled={worktreeOff || undefined}
+              title={actions.worktreeUnavailable ? t('This folder does not support worktrees.') : lockTitle}
+              onClick={() => {
+                if (!worktreeOff) void actions.pickWorktree();
+              }}
+            >
+              <FolderGit2 size={14} aria-hidden="true" />
+              <span>{t('New worktree')}</span>
+            </button>
           </>
         }
         tidy={
@@ -170,18 +215,8 @@ export function WorktreesSection({
               }
             : undefined
         }
-        menu={[
-          {
-            id: 'new-worktree',
-            label: t('New worktree'),
-            disabled: actions.worktreeUnavailable || actions.busy || locked || Boolean(menu?.workspace.worktreeId),
-            onSelect: () => void actions.pickWorktree(),
-          },
-        ]}
       >
-        <RailList
-          budget={RAIL_WORKTREE_ROWS}
-          rows={worktrees.map((tree) => {
+        {listed.map((tree) => {
             return (
               <div
                 key={tree.row.name}
@@ -228,8 +263,19 @@ export function WorktreesSection({
               </div>
             );
           })}
-        />
       </RailSection>
+      {namingBranch && (
+        <BranchNameDialog
+          panelId={dialogId}
+          anchor={trigger}
+          name={query}
+          onName={setQuery}
+          busy={actions.busy}
+          notice={notice}
+          onCreate={actions.createBranch}
+          onClose={() => setNamingBranch(false)}
+        />
+      )}
       {own.dialog}
       {carry}
     </>

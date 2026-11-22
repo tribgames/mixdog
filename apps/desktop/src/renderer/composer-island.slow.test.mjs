@@ -179,7 +179,9 @@ test('background jobs show as one segment, expand to rows, collapse on Escape an
   assert.ok(rows[0].querySelector('.sidebar-resource-icon svg'));
   assert.match(rows[0].textContent, /npm test/);
   assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'running');
-  assert.equal(rows[0].querySelector('button').textContent, translate('Stop'));
+  // Stop is a mark: its name is the tooltip and the accessible label.
+  assert.equal(rows[0].querySelector('button').title, translate('Stop'));
+  assert.equal(rows[0].querySelector('button').getAttribute('aria-label'), `${translate('Stop')}: npm test`);
   await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
   await publish({ shellJobs: { count: 0, jobs: [] } });
@@ -443,10 +445,10 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     ['npm run dev', 'run auto-fail'],
     'only the clean exit left on its own'
   );
-  // Close all is the footer's right-end action, as the branch panel's Clean up.
+  // Clean up is the footer's right-end action, as in the branch panel.
   assert.equal(head().querySelectorAll('button').length, 1, 'the header holds only the close button');
   const closeAll = document.querySelector('.composer-island-panel-foot-end [data-kind="close-all"]');
-  assert.equal(closeAll.textContent, translate('Island: Close all'));
+  assert.equal(closeAll.textContent, translate('Clean up'));
   await act(async () => closeAll.click());
   assert.deepEqual(
     status().map(([command]) => command),
@@ -508,7 +510,7 @@ test('an agent row with a session is a button that opens it and closes the panel
   // Shell rows are not openable: their only button is Stop.
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
   assert.equal(document.querySelector('.composer-island-row-open'), null);
-  assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Stop'));
+  assert.equal(document.querySelector('.composer-island-row button').title, translate('Stop'));
 });
 
 test('without an open action agent rows stay non-interactive', async (t) => {
@@ -640,7 +642,7 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
     document.querySelector('.composer-island-row .agent-activity-elapsed').textContent,
     translate('Island: Stopped')
   );
-  assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Dismiss'));
+  assert.equal(document.querySelector('.composer-island-row button').title, translate('Dismiss'));
 });
 
 test('a stop the runtime could not confirm shows the unconfirmed state at once, not a failure', async (t) => {
@@ -734,7 +736,7 @@ test('a shell whose termination is unconfirmed offers Stop beside Release anyway
   await publish({ shellJobs: { count: 1, jobs: [job] } });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
-  const labels = () => [...document.querySelectorAll('.composer-island-row button')].map((b) => b.textContent);
+  const labels = () => [...document.querySelectorAll('.composer-island-row button')].map((b) => b.title || b.textContent);
   assert.deepEqual(labels(), [translate('Release anyway'), translate('Stop')]);
 
   // A stop that cannot confirm fails visibly; Release anyway stays reachable.

@@ -1,11 +1,9 @@
-// The session panel's Changes category: the island's Changes source (the
-// files segment's own view) and the actions of its files menu and Git tab.
-import { type RefObject, useMemo, useRef, useState } from 'react';
-import { useIslandGitStatus } from './IslandGitSegment';
+// The session panel's Changes category (the island's Changes source: the
+// files segment's own view) and its Git category (the island's Git tab).
+import { File, Play } from 'lucide-react';
+import { GIT_ROWS, useIslandGitStatus } from './IslandGitSegment';
 import { t } from './i18n';
-import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
-import { showDesktopToast } from './notifications';
-import { requestOpenDockTab } from './open-dock-tab-event';
+import { useIslandGitRequest } from './island-git-request';
 import type { DockAction } from './pane-dock-chrome';
 import {
   DEFAULT_SESSION_CHANGES_SOURCE,
@@ -15,13 +13,9 @@ import {
   setSessionChangesSource,
   useSessionChangesSource,
 } from './session-changes-store';
-import { RailList, RailSection } from './session-rail-parts';
+import { RailSection } from './session-rail-parts';
 import type { TurnReviewSegmentView } from './TurnReview';
-import { clearSessionChangeHistory, DeleteHistoryDialog, runningTurnNotice } from './turn-review-files-menu';
 import type { TurnReviewFileEntry } from './turn-review-model';
-import { errorMessageText } from './ErrorNotice';
-
-export const RAIL_FILE_ROWS = 5;
 
 /** Most changed first; files without line counts keep their order after them. */
 export function railChangedFiles(files: ReadonlyMap<string, TurnReviewFileEntry>): [string, TurnReviewFileEntry][] {
@@ -29,52 +23,19 @@ export function railChangedFiles(files: ReadonlyMap<string, TurnReviewFileEntry>
   return [...files.entries()].sort((a, b) => weight(b) - weight(a));
 }
 
-/** The "…" menu: the source as radio items, then the files menu's and Git tab's actions. */
-export function railChangesMenu({
-  source,
-  gitReady,
-  onSource,
-  onViewChanges,
-  onGit,
-  onSourceControl,
-  onDeleteHistory,
-}: {
-  source: SessionChangesSource;
-  gitReady: boolean;
-  onSource(source: SessionChangesSource): void;
-  onViewChanges?: () => void;
-  onGit(action: IslandGitAction): void;
-  onSourceControl(): void;
-  onDeleteHistory(): void;
-}): DockAction[] {
-  return [
-    ...SESSION_CHANGES_SOURCES.map((value) => ({
-      id: `source:${value}`,
-      label: sessionChangesSourceLabel(value),
-      checked: value === source,
-      // The conversation's own sources stand apart from Git's.
-      separatorBefore: value === 'branch',
-      onSelect: () => onSource(value),
-    })),
-    {
-      id: 'view-changes',
-      label: t('Island: View changes'),
-      separatorBefore: true,
-      disabled: !onViewChanges,
-      onSelect: () => onViewChanges?.(),
-    },
-    { id: 'commit', label: t('Commit'), disabled: !gitReady, onSelect: () => onGit('commit') },
-    { id: 'commit-push', label: t('Commit · push'), disabled: !gitReady, onSelect: () => onGit('commit-push') },
-    { id: 'pr', label: t('Create PR'), disabled: !gitReady, onSelect: () => onGit('pr') },
-    { id: 'source-control', label: t('Island: Source Control'), onSelect: onSourceControl },
-    {
-      id: 'delete-history',
-      label: t('Delete history'),
-      separatorBefore: true,
-      danger: true,
-      onSelect: onDeleteHistory,
-    },
-  ];
+/** The "…" menu: which changes the category lists, as radio items. */
+export function railChangesMenu(
+  source: SessionChangesSource,
+  onSource: (source: SessionChangesSource) => void
+): DockAction[] {
+  return SESSION_CHANGES_SOURCES.map((value) => ({
+    id: `source:${value}`,
+    label: sessionChangesSourceLabel(value),
+    checked: value === source,
+    // The conversation's own sources stand apart from Git's.
+    separatorBefore: value === 'branch',
+    onSelect: () => onSource(value),
+  }));
 }
 
 function FileRow({ path, entry, onOpen }: { path: string; entry: TurnReviewFileEntry; onOpen?: () => void }) {
@@ -83,6 +44,7 @@ function FileRow({ path, entry, onOpen }: { path: string; entry: TurnReviewFileE
   const name = path.slice(cut + 1);
   return (
     <button type="button" className="session-rail-row" title={path} disabled={!onOpen} onClick={onOpen}>
+      <File size={14} className="session-rail-ic" aria-hidden="true" />
       {dir && <span className="session-rail-cut session-rail-muted session-rail-dir">{dir}</span>}
       <span className="session-rail-cut session-rail-name">{name}</span>
       <span className="session-rail-grow" />
@@ -99,111 +61,115 @@ function FileRow({ path, entry, onOpen }: { path: string; entry: TurnReviewFileE
 
 export function ChangesSection({
   view,
-  cwd,
   open,
   onToggle,
   onOpenChanges,
   onOpenChangeFile,
 }: {
   view: TurnReviewSegmentView;
-  /** The session's checkout, for the Git actions. */
-  cwd: string;
   open: boolean;
   onToggle(): void;
   onOpenChanges?: () => void;
   onOpenChangeFile?: (path: string) => void;
 }) {
   const source = useSessionChangesSource();
-  const git = useIslandGitRequest({ sessionId: view.sessionId ?? '', cwd });
-  const [confirming, setConfirming] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  // Delete history's dialog hands focus back to the "…" that opened it.
-  const menuTrigger = useMemo<RefObject<HTMLElement | null>>(
-    () => ({
-      get current() {
-        return root.current?.querySelector<HTMLElement>('.session-rail-hd .dock-header-more') ?? null;
-      },
-    }),
-    []
-  );
   const nonDefault = source !== DEFAULT_SESSION_CHANGES_SOURCE;
-  // With nothing changed the island's Git button still stays for commits not
-  // yet pushed; the panel keeps the category, and its Git actions, for them.
-  const status = useIslandGitStatus(git.ready && view.fileCount === 0 ? cwd : '');
-  const ahead = status?.repository ? status.ahead : 0;
   // An empty default source has nothing to show; another source stays so its picker can switch back.
-  if (view.fileCount === 0 && !nonDefault && ahead <= 0) return null;
+  if (view.fileCount === 0 && !nonDefault) return null;
   const files = railChangedFiles(view.files);
   const { additions, deletions, hasLineStats } = view.headlineStats;
-  const deleteHistory = async () => {
-    try {
-      await clearSessionChangeHistory(view.sessionId);
-    } catch (reason) {
-      showDesktopToast(errorMessageText(reason), 'error');
-    }
-  };
   return (
-    <div ref={root} className="session-rail-sec-host">
-      <RailSection
-        category="changes"
-        title={t('Changes')}
-        open={open}
-        onToggle={onToggle}
-        summary={
-          <>
-            {nonDefault && (
-              <>
-                <span>{sessionChangesSourceLabel(source)}</span>
-                <span aria-hidden="true">·</span>
-              </>
-            )}
-            <span>{t('{{count}} files', { count: view.fileCount })}</span>
-            {hasLineStats && <span className="session-rail-add">+{additions}</span>}
-            {hasLineStats && <span className="session-rail-del">−{deletions}</span>}
-            {ahead > 0 && <span title={t('{{count}} commits not pushed', { count: ahead })}>↑{ahead}</span>}
-          </>
-        }
-        menu={railChangesMenu({
-          source,
-          gitReady: git.ready,
-          onSource: setSessionChangesSource,
-          onViewChanges: onOpenChanges,
-          onGit: git.request,
-          onSourceControl: () => requestOpenDockTab('source-control'),
-          onDeleteHistory: () => {
-            // The runtime refuses while a turn runs: say so instead of asking.
-            if (view.busy) showDesktopToast(runningTurnNotice().message, 'info');
-            else setConfirming(true);
-          },
-        })}
-      >
-        {files.length === 0 ? (
-          <p className="session-rail-note session-rail-muted">{view.emptyText}</p>
-        ) : (
-          <RailList
-            budget={RAIL_FILE_ROWS}
-            rows={files.map(([path, entry]) => (
-              <FileRow
-                key={path}
-                path={path}
-                entry={entry}
-                onOpen={onOpenChangeFile ? () => onOpenChangeFile(path) : undefined}
-              />
-            ))}
+    <RailSection
+      category="changes"
+      title={t('Changes')}
+      count={view.fileCount}
+      meta={
+        <>
+          {nonDefault && <span className="session-rail-cut">{sessionChangesSourceLabel(source)}</span>}
+          {hasLineStats && <span className="session-rail-add">+{additions}</span>}
+          {hasLineStats && <span className="session-rail-del">−{deletions}</span>}
+        </>
+      }
+      open={open}
+      onToggle={onToggle}
+      scroll
+      menu={railChangesMenu(source, setSessionChangesSource)}
+      foot={
+        onOpenChanges && (
+          <span className="session-rail-ft-end">
+            <button type="button" className="composer-island-button" onClick={onOpenChanges}>
+              {t('Island: View changes')}
+            </button>
+          </span>
+        )
+      }
+    >
+      {files.length === 0 ? (
+        <p className="session-rail-note session-rail-muted">{view.emptyText}</p>
+      ) : (
+        files.map(([path, entry]) => (
+          <FileRow
+            key={path}
+            path={path}
+            entry={entry}
+            onOpen={onOpenChangeFile ? () => onOpenChangeFile(path) : undefined}
           />
-        )}
-      </RailSection>
-      {confirming && (
-        <DeleteHistoryDialog
-          turns={view.historyTurns}
-          returnFocus={menuTrigger}
-          onCancel={() => setConfirming(false)}
-          onConfirm={() => {
-            setConfirming(false);
-            void deleteHistory();
-          }}
-        />
+        ))
       )}
-    </div>
+    </RailSection>
+  );
+}
+
+/** The Git category: the island's Git tab, while there is something to commit or push. */
+export function GitSection({
+  sessionId,
+  cwd,
+  open,
+  onToggle,
+}: {
+  sessionId: string;
+  /** The session's checkout. */
+  cwd: string;
+  open: boolean;
+  onToggle(): void;
+}) {
+  const { changes, ...git } = useIslandGitRequest({ sessionId, cwd });
+  const files = changes.summary.files.size + changes.untrackedOmitted;
+  // A changed file already decides visibility; the open category and an empty tree read the branch.
+  const status = useIslandGitStatus(git.ready && (open || !files) ? cwd : '');
+  const ahead = status?.repository ? status.ahead : 0;
+  if (!git.ready || (files <= 0 && ahead <= 0)) return null;
+  return (
+    <RailSection
+      category="git"
+      title={t('Git')}
+      meta={
+        <span className="session-rail-cut">
+          {[status?.branch, t('Files {{count}}', { count: files })].filter(Boolean).join(' · ')}
+        </span>
+      }
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="composer-island-git-rows">
+        {GIT_ROWS.map(({ action, label, icon: Icon }) => (
+          <div key={action} className="composer-island-git-row" data-action={action}>
+            <span className="composer-island-git-label">
+              <Icon size={16} aria-hidden="true" />
+              <span>{label()}</span>
+            </span>
+            <button
+              type="button"
+              className="composer-island-button composer-island-git-run"
+              aria-label={`${t('Run')}: ${label()}`}
+              onClick={() => git.request(action)}
+            >
+              <Play size={12} aria-hidden="true" />
+              <span>{t('Run')}</span>
+            </button>
+          </div>
+        ))}
+      </div>
+    </RailSection>
   );
 }

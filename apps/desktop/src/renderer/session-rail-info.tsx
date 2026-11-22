@@ -1,7 +1,17 @@
-// The session panel's Info category: project, branch, model, workflow,
-// delegation, context and usage, each row opening the product's own picker
-// or card under it.
-import { X } from 'lucide-react';
+// The session panel's Info category (project, branch, model, workflow,
+// delegation and usage, each row opening the product's own picker under it)
+// and its Context category.
+import {
+  Activity,
+  CalendarClock,
+  Folder,
+  FoldVertical,
+  GitBranch,
+  ListTree,
+  Users,
+  Workflow,
+  X,
+} from 'lucide-react';
 import { type ComponentProps, useMemo, useRef, useState } from 'react';
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
@@ -22,7 +32,7 @@ import { openOnArrow, RailPickMark, RailSection } from './session-rail-parts';
 import { projectMoveItems } from './session-sidebar-menus';
 import { groupProjectSessions } from './session-sidebar-sections';
 import { sessionProjectMove } from './session-project-move';
-import { ContextUsageIndicator, ContextUsageSummary } from './transcript-status';
+import { useContextUsage } from './transcript-status';
 import { BranchIslandSegment } from './WorktreeIslandSegment';
 import type { ComposerIslandFlash } from './ComposerIsland';
 
@@ -92,6 +102,7 @@ function ProjectRow({
           aria-haspopup="menu"
           aria-expanded={Boolean(menu)}
           aria-disabled={!pickable || undefined}
+          title={t('Project')}
           onKeyDown={(event) => openOnArrow(event, Boolean(menu), show)}
           onClick={() => {
             if (!pickable) return;
@@ -99,7 +110,8 @@ function ProjectRow({
             else show();
           }}
         >
-          <span className="session-rail-key">{t('Project')}</span>
+          <Folder size={14} className="session-rail-ic" aria-hidden="true" />
+          <span className="sr-only">{t('Project')}</span>
           <span className="session-rail-cut">{projectLabel || t('No project')}</span>
           {pending && (
             <span className="session-rail-num session-rail-cut" data-pending="true">
@@ -135,6 +147,7 @@ function ProjectRow({
 function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
   const row = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const Icon = choice.id === 'orchestration-mode' ? Users : Workflow;
   return (
     <>
       <button
@@ -144,12 +157,14 @@ function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-disabled={choice.disabled || undefined}
+        title={choice.label}
         onKeyDown={(event) => openOnArrow(event, open, () => !choice.disabled && setOpen(true))}
         onClick={() => {
           if (!choice.disabled) setOpen(!open);
         }}
       >
-        <span className="session-rail-key">{choice.label}</span>
+        <Icon size={14} className="session-rail-ic" aria-hidden="true" />
+        <span className="sr-only">{choice.label}</span>
         <span className="session-rail-cut">{choice.valueLabel}</span>
         <RailPickMark />
       </button>
@@ -222,12 +237,7 @@ export function InfoSection({
       title={t('Info')}
       open={open}
       onToggle={onToggle}
-      summary={
-        <>
-          <span className="session-rail-cut">{projectLabel || t('No project')}</span>
-          {!room && <ContextUsageSummary snapshot={snapshot} />}
-        </>
-      }
+      summary={<span className="session-rail-cut">{projectLabel || t('No project')}</span>}
     >
       <ProjectRow
         sessionId={sessionId}
@@ -253,9 +263,9 @@ export function InfoSection({
               className="session-rail-row session-rail-pick"
               onKeyDown={(event) => openOnArrow(event, button['aria-expanded'], button.onClick)}
             >
-              <span className="session-rail-key">{t('Branch')}</span>
+              <GitBranch size={14} className="session-rail-ic" aria-hidden="true" />
+              <span className="sr-only">{t('Branch')}</span>
               <span className="session-rail-cut">{view.branch}</span>
-              {view.meta && <span className="session-rail-num">{view.meta}</span>}
               <RailPickMark />
             </button>
           )}
@@ -277,18 +287,10 @@ export function InfoSection({
       {sessionChoices.map((choice) => (
         <ChoiceRow key={choice.id} choice={choice} />
       ))}
-      {!room && (
-        <div className="session-rail-context">
-          <ContextUsageIndicator
-            snapshot={snapshot}
-            rowLabel={t('Context')}
-            onViewDetails={() => onOpenCommandSurface('context')}
-          />
-        </div>
-      )}
       {routines ? (
-        <div className="session-rail-row session-rail-usage">
-          <span className="session-rail-key">{t('Routines')}</span>
+        <div className="session-rail-row session-rail-usage" title={t('Routines')}>
+          <CalendarClock size={14} className="session-rail-ic" aria-hidden="true" />
+          <span className="sr-only">{t('Routines')}</span>
           <ComposerRoutineReadout sessionId={sessionId} hidden={!open} />
         </div>
       ) : (
@@ -298,10 +300,73 @@ export function InfoSection({
           title={t('Open usage')}
           onClick={() => onOpenCommandSurface('stats')}
         >
-          <span className="session-rail-key">{t('Usage')}</span>
-          <FittedReadout variants={usageWithCostVariants(snapshot)} title={t('Session usage')} className="session-rail-num" />
+          <Activity size={14} className="session-rail-ic" aria-hidden="true" />
+          <span className="sr-only">{t('Usage')}</span>
+          <FittedReadout variants={usageWithCostVariants(snapshot)} title={t('Session usage')} />
         </button>
       )}
+    </RailSection>
+  );
+}
+
+/** The Context category: how full the window is, as its figures and a bar,
+ *  with the gauge's two actions. Absent before the session has a reading. */
+export function ContextSection({
+  open,
+  onToggle,
+  snapshot,
+  onViewDetails,
+}: {
+  open: boolean;
+  onToggle(): void;
+  snapshot: Snapshot;
+  onViewDetails(): void;
+}) {
+  const usage = useContextUsage(snapshot);
+  if (usage.percent === null) return null;
+  return (
+    <RailSection
+      category="context"
+      title={t('Context')}
+      count={
+        <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
+          {`${usage.percent}%`}
+        </span>
+      }
+      meta={usage.text ? <span title={usage.title}>{usage.text}</span> : undefined}
+      open={open}
+      onToggle={onToggle}
+      foot={
+        <>
+          <button
+            type="button"
+            className="composer-island-button"
+            disabled={usage.compactBusy}
+            onClick={() => void usage.compact()}
+          >
+            <FoldVertical size={14} aria-hidden="true" />
+            <span>{t('Compact context')}</span>
+          </button>
+          <span className="session-rail-ft-end">
+            <button type="button" className="composer-island-button" onClick={onViewDetails}>
+              <ListTree size={14} aria-hidden="true" />
+              <span>{t('View context details')}</span>
+            </button>
+          </span>
+        </>
+      }
+    >
+      <div
+        className="session-rail-meter"
+        data-tone={usage.tone || undefined}
+        role="meter"
+        aria-label={t('Context usage')}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={usage.percent}
+      >
+        <i style={{ width: `${Math.min(100, usage.percent)}%` }} />
+      </div>
     </RailSection>
   );
 }

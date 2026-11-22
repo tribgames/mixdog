@@ -17,13 +17,17 @@
   grid-column: 3;
   grid-row: 1 / -1;
 }
-/* The left rail's type ramp and rhythm (30-dialogs.css "Rail type ramp"):
-   title 16, group label and item 14, supporting figures 13; text on the 16px
-   line, sections 12px apart with no rule between them. */
+/* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
+   items 14, supporting figures 13 and 12. */
 .session-rail {
-  --session-rail-row: 32px;
-  --session-rail-head: 28px;
-  --session-rail-inset: 16px;
+  --session-rail-row: 30px;
+  --session-rail-inset: 14px;
+  /* A scrolling list shows about five two-line rows before it scrolls. */
+  --session-rail-list-max: 248px;
+  /* The island panels' own tokens, for the island rows the categories draw. */
+  --island-panel-inset: var(--session-rail-inset);
+  --composer-island-wash: var(--mx-hover);
+  --composer-island-rule: var(--mx-border-muted);
   position: relative;
   z-index: 2;
   box-sizing: border-box;
@@ -92,39 +96,52 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   background: var(--mx-focus);
   pointer-events: none;
 }
-.session-rail-head {
-  flex: 0 0 var(--mx-rail-panel-band);
-  height: var(--mx-rail-panel-band);
-}
+/* The body scrolls the categories as one column, with the app's scrollbar in
+   a gutter on both edges so the sheets keep the same inset either side. */
 .session-rail-body {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden auto;
-  padding-block: var(--mx-rail-panel-content-top) 12px;
-  border-radius: 0 0 calc(var(--mx-sheet-radius, 10px) - 1px) calc(var(--mx-sheet-radius, 10px) - 1px);
+  scrollbar-gutter: stable both-edges;
+  padding-block: 8px;
+  border-radius: calc(var(--mx-sheet-radius, 10px) - 1px);
+}
+.session-rail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-/* A category: name, chevron, summary while closed, buttons while open. */
+/* A category: a sheet of its own in the island panels' grammar: a head (name
+   by weight, count, what it holds, chevron), a body and a foot of actions,
+   parted by spacing alone. Its place in the column is the user's (order). */
 .session-rail-sec {
-  margin-bottom: 12px;
+  min-width: 0;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 12px;
+  background: var(--mx-workspace-sheet);
+}
+.session-rail-sec[data-dragging] {
+  opacity: var(--mx-op-dim);
 }
 .session-rail-hd {
-  height: var(--session-rail-head);
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 8px;
+  padding-right: 4px;
+}
+.session-rail-hd > .dock-header-more {
+  flex: none;
 }
 .session-rail-tg {
   flex: 1 1 auto;
   min-width: 0;
-  height: var(--session-rail-head);
+  min-height: 42px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px;
+  gap: 10px;
+  padding: 0 10px 0 var(--session-rail-inset);
   border: 0;
-  border-radius: var(--mx-radius-md);
+  border-radius: 11px;
   background: none;
   color: inherit;
   font: inherit;
@@ -134,60 +151,109 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
 .session-rail-tg:hover {
   background: var(--mx-hover);
 }
-/* The rail's group label (--mx-rail-label-*, 01-tokens.css). */
 .session-rail-tt {
   flex: none;
-  color: var(--mx-rail-label-ink);
-  font-size: var(--mx-rail-label-size);
-  font-weight: var(--mx-rail-label-weight);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
+}
+.session-rail-ct {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 .session-rail-cv {
   flex: none;
   color: var(--mx-text-muted);
 }
 .session-rail-sm {
+  flex: 1 1 0;
   min-width: 0;
-  margin-left: auto;
-  padding-left: 8px;
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 6px;
   overflow: hidden;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-micro);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.session-rail-sec[data-open] > .session-rail-hd .session-rail-sm {
-  visibility: hidden;
+.session-rail-bd {
+  padding: 0 var(--session-rail-inset) 8px;
 }
-.session-rail-tidy {
+/* A list that outgrows the sheet scrolls inside it; at its end the wheel
+   goes on to the column. */
+.session-rail-bd[data-scroll] {
+  max-height: var(--session-rail-list-max);
+  overflow: hidden auto;
+  scrollbar-gutter: stable;
+  /* The gutter pays part of the inset; a row's wash reaches the gutter, no further. */
+  --session-rail-list-end: calc(var(--session-rail-inset) - var(--mx-scrollbar-gutter));
+  padding-right: var(--session-rail-list-end);
+}
+.session-rail-bd[data-scroll] > .session-rail-row {
+  margin-right: calc(-1 * var(--session-rail-list-end));
+  padding-right: var(--session-rail-list-end);
+}
+.session-rail-ft {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 8px var(--session-rail-inset);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+}
+.session-rail-ft > .composer-usage-readout {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-inline: 0;
+}
+.session-rail-ft-end {
   flex: none;
-  height: 24px;
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.session-rail-ft .composer-island-button {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: none;
-  color: var(--mx-text-muted);
-  font: inherit;
+  gap: 6px;
   font-size: var(--mx-font-meta);
-  cursor: pointer;
 }
-.session-rail-tidy:hover {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
-.session-rail-tidy[aria-disabled="true"] {
-  opacity: 0.45;
-  background: none;
-  color: var(--mx-text-muted);
+.session-rail-ft .composer-island-button[aria-disabled="true"] {
+  opacity: var(--mx-op-disabled);
   cursor: default;
 }
-.session-rail-bd {
-  padding: 2px var(--session-rail-inset) 0;
+/* A category's search: one field above its list. */
+.session-rail-search {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--session-rail-inset) 6px;
+  padding: 0 10px;
+  border-radius: var(--mx-radius-md);
+  box-shadow: inset 0 0 0 1px var(--mx-border);
+  color: var(--mx-text-muted);
+}
+.session-rail-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.session-rail-search > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--mx-text);
+  font: inherit;
+  font-size: var(--mx-font-meta);
 }
 
 /* A row: one line, content from the name's line, the left rail's row wash. */
@@ -203,13 +269,17 @@ html[data-mixdog-skin] .session-rail[data-mode="raised"] {
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--mx-radius-lg);
+  border-radius: var(--mx-radius-md);
   background: none;
   color: inherit;
   font: inherit;
   font-weight: 400;
   text-align: left;
   list-style: none;
+}
+/* A row's mark: one 16px column, so every row's text starts on one line. */
+.session-rail-row > .session-rail-ic {
+  width: 16px;
 }
 .session-rail-row > * {
   min-width: 0;
@@ -225,14 +295,6 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-hover:hover,
 .session-rail-row[aria-expanded="true"] {
   background: var(--mx-hover);
-}
-.session-rail-key {
-  flex: none;
-  width: 84px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--mx-text-muted);
 }
 .session-rail-pk {
   flex: none;
@@ -365,7 +427,6 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-row:is(:hover, :focus-within) .session-rail-under-act {
   visibility: hidden;
 }
-.session-rail-more,
 .session-rail-gh {
   height: 28px;
   display: flex;
@@ -374,21 +435,17 @@ button.session-rail-row:not(:disabled):hover,
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--mx-radius-lg);
+  border-radius: var(--mx-radius-md);
   background: none;
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
   cursor: pointer;
 }
-.session-rail-more:hover,
 .session-rail-gh:hover {
   background: var(--mx-hover);
   color: var(--mx-text);
-}
-.session-rail-list {
-  margin: 0;
-  padding: 0;
 }
 
 /* Info: the borrowed pickers take the row's whole width. */
@@ -402,25 +459,12 @@ button.session-rail-row:not(:disabled):hover,
   width: auto;
   margin-right: 0;
 }
-.session-rail-model,
-.session-rail-context,
-.session-rail .session-context-indicator:has(> .session-rail-row) {
+.session-rail-model {
   position: relative;
   display: block;
   width: auto;
   height: auto;
   min-width: 0;
-}
-.session-rail .session-context-indicator > button.session-rail-row {
-  width: calc(100% + 16px);
-  height: var(--session-rail-row);
-  display: flex;
-  padding: 0 8px;
-  border-radius: var(--mx-radius-lg);
-  color: inherit;
-}
-.session-rail .session-context-indicator > button.session-rail-row:hover {
-  background: var(--mx-hover);
 }
 /* The branch tab's press boundary (BranchIslandSegment, hosted) draws no box. */
 .branch-tab-host {
@@ -445,18 +489,34 @@ button.session-rail-row:not(:disabled):hover,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Context is its figures alone; the percentage takes the gauge's tone. */
+/* Context: the share beside the name and the bar take the gauge's tone. */
 .session-rail-context-percent {
-  flex: none;
-  font-variant-numeric: tabular-nums;
+  font-weight: var(--mx-weight-medium);
 }
-.session-rail-context-percent[data-tone="warning"],
-.session-context-indicator[data-tone="warning"] .session-rail-context-percent {
+.session-rail-context-percent[data-tone="warning"] {
   color: var(--mx-warning);
 }
-.session-rail-context-percent[data-tone="danger"],
-.session-context-indicator[data-tone="danger"] .session-rail-context-percent {
+.session-rail-context-percent[data-tone="danger"] {
   color: var(--mx-danger);
+}
+.session-rail-meter {
+  height: 6px;
+  margin: 2px 0 4px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--mx-meter-track);
+}
+.session-rail-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--mx-text-muted);
+}
+.session-rail-meter[data-tone="warning"] > i {
+  background: var(--mx-warning);
+}
+.session-rail-meter[data-tone="danger"] > i {
+  background: var(--mx-danger);
 }
 /* Usage: the footer readout's items on its own 8px gap (ITEM_GAP in
    composer-usage-readout.tsx), in the value ink of the rows above. */
@@ -514,63 +574,17 @@ button.session-rail-row:not(:disabled):hover,
   color: var(--mx-text-muted);
 }
 
-/* Agents: the agent row's button (AgentRowFrame) in the panel's own row box. */
-.session-rail-row[data-dragging="true"] {
-  opacity: var(--mx-op-dim);
-}
-.session-rail-row > .agent-todo-mark {
-  flex: none;
-}
-.session-rail-el [data-state="running"] {
-  color: var(--mx-accent);
+/* Agents and shells: the island's own lists. The sheet's body is the scroller
+   here, so the list keeps no height or scroll of its own. */
+.session-rail .composer-island-jobs {
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 
-/* Shells: the island's shell row content, one line. */
-.session-rail-shells .sidebar-resource-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  color: var(--mx-text-muted);
-}
-.session-rail-shells .sidebar-resource-icon svg {
-  width: 14px;
-  height: 14px;
-}
-.session-rail-shells .schedules-row-copy {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-}
-.session-rail-shells .schedules-row-copy > small {
-  display: none;
-}
-.session-rail-shells .agent-pool-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--mx-font-mono);
-  font-size: 12px;
-  font-weight: 400;
-}
-.session-rail-shells .agent-activity-status {
-  flex: none;
-  min-width: 64px;
-  text-align: right;
-  color: var(--mx-text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.session-rail-shells .agent-activity-elapsed[data-state="running"] {
-  color: var(--mx-accent);
-}
-.session-rail-row-actions {
-  flex: none;
-  display: flex;
-  gap: 4px;
-}
-.session-rail-row-actions .composer-island-button {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 12px;
+/* Git: the island's rows, a label and its Run. */
+.session-rail .composer-island-git-row {
+  min-height: 36px;
 }

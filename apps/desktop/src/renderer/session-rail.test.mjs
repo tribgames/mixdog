@@ -185,10 +185,10 @@ test("a press on the panel's frame selects its pane, so what is typed next goes 
   const view = await railColumn(t, { onFocusPane: () => selected++ });
   const press = (target, button = 0) =>
     target.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button }));
-  await act(async () => press(view.document.querySelector('.session-rail-head button'), 2));
+  await act(async () => press(view.document.querySelector('.session-rail-body'), 2));
   assert.equal(selected, 0, 'only the primary button');
-  await act(async () => press(view.document.querySelector('.session-rail-head button')));
-  assert.equal(selected, 1, 'the Close button in the title row');
+  await act(async () => press(view.document.querySelector('.session-rail-body')));
+  assert.equal(selected, 1, 'the body');
   await act(async () => press(view.document.querySelector('.session-rail-resize')));
   assert.equal(selected, 2, 'the resize edge');
   // The focused pane's panel is given no selector: nothing to select.
@@ -298,7 +298,7 @@ const agent = (id, status, stage = status) => ({
 });
 const shell = (key, finished) => ({ key, kind: 'shell', label: `npm run ${key}`, startedAt: Date.now() - 5_000, finished, taskId: key, cwd: '' });
 
-test('a category is absent when it has nothing, and its buttons show only while it is open', async (t) => {
+test('a category is absent when it has nothing, and its body and foot show only while it is open', async (t) => {
   const { ShellsSection } = await import('./session-rail-jobs.tsx');
   const element = (shells, open) =>
     React.createElement(ShellsSection, { sessionId: LEAD, shells, shellKeys: null, open, onToggle() {} });
@@ -307,20 +307,21 @@ test('a category is absent when it has nothing, and its buttons show only while 
   await act(async () => root.render(element([shell('build', true)], false)));
   const section = document.querySelector('[data-category="shells"]');
   assert.ok(section);
-  assert.equal(section.querySelector('.session-rail-tidy'), null, 'no Clean up while closed');
+  assert.equal(section.querySelector('.session-rail-ft'), null, 'no Clean up while closed');
   assert.equal(section.querySelector('.session-rail-bd'), null);
   assert.match(section.querySelector('.session-rail-sm').textContent, /Ended 1/);
   await act(async () => root.render(element([shell('build', true)], true)));
-  assert.ok(document.querySelector('[data-category="shells"] .session-rail-tidy'), 'Clean up while open');
-  assert.equal(document.querySelector('[data-category="shells"] .session-rail-sm').getAttribute('aria-hidden'), 'true');
+  assert.ok(document.querySelector('[data-category="shells"] .session-rail-ft [data-kind="close-all"]'), 'Clean up while open');
+  assert.ok(document.querySelector('[data-category="shells"] .session-rail-bd .composer-island-row'), "the island's shell row");
+  assert.match(document.querySelector('[data-category="shells"] .session-rail-sm').textContent, /Ended 1/);
 });
 
-test("each head's Clean up is enabled only with something to clear", async (t) => {
+test("each foot's Clean up is enabled only with something to clear", async (t) => {
   const { ShellsSection, AgentsSection } = await import('./session-rail-jobs.tsx');
   const shells = (rows) =>
     React.createElement(ShellsSection, { sessionId: LEAD, shells: rows, shellKeys: null, open: true, onToggle() {} });
   const { document, root } = await mount(t, shells([shell('dev', false)]));
-  const tidy = () => document.querySelector('.session-rail-tidy');
+  const tidy = () => document.querySelector('.session-rail-ft-end [data-kind]');
   assert.equal(tidy().getAttribute('aria-disabled'), 'true', 'a running shell has nothing to clear');
   await act(async () => root.render(shells([shell('dev', false), shell('test', true)])));
   assert.equal(tidy().getAttribute('aria-disabled'), null);
@@ -330,6 +331,8 @@ test("each head's Clean up is enabled only with something to clear", async (t) =
     React.createElement(AgentsSection, {
       sessionId: LEAD,
       agents: islandAgentRows([lead, ...pool], LEAD),
+      poolRows: [lead, ...pool],
+      busy: false,
       shellKeys: null,
       open: true,
       onToggle() {},
@@ -341,7 +344,7 @@ test("each head's Clean up is enabled only with something to clear", async (t) =
   assert.equal(tidy().getAttribute('aria-disabled'), null);
 });
 
-test("the Worktrees head's Clean up follows the cleanup preview", async (t) => {
+test("the Worktrees foot's Clean up follows the cleanup preview", async (t) => {
   const { WorktreesSection } = await import('./session-rail-worktrees.tsx');
   const { clearBranchMenuReads } = await import('./branch-menu-data.ts');
   clearBranchMenuReads();
@@ -393,10 +396,11 @@ test("the Worktrees head's Clean up follows the cleanup preview", async (t) => {
   const { document, root } = await mount(t, element('quiet'), host);
   await settle();
   assert.ok(document.querySelector('[data-category="worktrees"]'), 'a worktree besides the main checkout');
-  assert.equal(document.querySelector('.session-rail-tidy').getAttribute('aria-disabled'), 'true', 'nothing to clean up');
+  const prune = () => document.querySelector('.session-rail-ft [data-kind="prune"]');
+  assert.equal(prune().getAttribute('aria-disabled'), 'true', 'nothing to clean up');
   await act(async () => root.render(element('busy')));
   await settle();
-  assert.equal(document.querySelector('.session-rail-tidy').getAttribute('aria-disabled'), null);
+  assert.equal(prune().getAttribute('aria-disabled'), null);
 });
 
 test('folds are remembered per session', async (t) => {
@@ -554,7 +558,7 @@ test("the goal's stop confirmation takes focus, and Cancel hands it back to Stop
   assert.equal(document.activeElement, stop());
 });
 
-test("a task group's chevron follows its name; the count comes after", async (t) => {
+test("a task group's count follows its name; the chevron ends the head", async (t) => {
   const todo = {
     phases: [{ name: 'Fix', tasks: [{ content: 'one', status: 'pending' }, { content: 'two', status: 'completed' }] }],
     completed: 1,
@@ -562,19 +566,18 @@ test("a task group's chevron follows its name; the count comes after", async (t)
     total: 2,
   };
   const { document } = await goalSection(t, goalSnapshot(goalOf('active'), todo));
-  const heads = [...document.querySelectorAll('[data-category="todo"] button[aria-expanded]')].filter((head) =>
-    head.querySelector('.session-rail-cv')
-  );
+  const heads = [...document.querySelectorAll('[data-category="todo"] .session-rail-gh')];
   assert.ok(heads.length > 0);
   for (const head of heads) {
     const kids = [...head.children];
-    const chevron = kids.findIndex((kid) => kid.classList.contains('session-rail-cv'));
-    assert.equal(chevron, 1, `chevron right after the name in "${head.textContent}"`);
-    assert.match(kids[2]?.textContent ?? '', /^\d+(\/\d+)?$/);
+    assert.match(kids[1]?.textContent ?? '', /^\d+$/, `count right after the name in "${head.textContent}"`);
+    assert.ok(kids.at(-1).classList.contains('session-rail-cv'));
   }
+  const title = document.querySelector('[data-category="todo"] .session-rail-tt');
+  assert.match(title.textContent, /1\/2$/, 'the category reads how far the plan is');
 });
 
-test("Info's usage row opens usage; a bot's home thread or a room reads its routines, and a room shows no model or context", async (t) => {
+test("Info's usage row opens usage; a bot's home thread or a room reads its routines, and a room shows no model", async (t) => {
   const { InfoSection } = await import('./session-rail-info.tsx');
   const opened = [];
   const noop = () => {};
@@ -615,7 +618,6 @@ test("Info's usage row opens usage; a bot's home thread or a room reads its rout
   await act(async () => usage.click());
   assert.deepEqual(opened, ['stats']);
   assert.ok(document.querySelector('[data-category="info"] .session-rail-model'));
-  assert.ok(document.querySelector('[data-category="info"] .session-rail-context'));
 
   await act(async () => root.render(element('sess_home_helper')));
   assert.notEqual(document.querySelector('[data-category="info"] .session-rail-usage').tagName, 'BUTTON');
@@ -623,26 +625,29 @@ test("Info's usage row opens usage; a bot's home thread or a room reads its rout
 
   await act(async () => root.render(element('sess_room_abcdef12')));
   assert.equal(document.querySelector('[data-category="info"] .session-rail-model'), null, 'each room member runs its own');
-  assert.equal(document.querySelector('[data-category="info"] .session-rail-context'), null);
 });
 
-test("the panel's context control opens a dialog, with an id of its own beside the composer's gauge", async (t) => {
-  const { ContextUsageIndicator } = await import('./transcript-status.tsx');
-  const snapshot = { sessionId: LEAD, contextPercent: 40, contextTokens: 200000 };
-  const { document } = await mount(
-    t,
-    React.createElement(
-      React.Fragment,
-      null,
-      React.createElement(ContextUsageIndicator, { snapshot }),
-      React.createElement(ContextUsageIndicator, { snapshot, rowLabel: 'Context' })
-    )
-  );
-  const cards = [...document.querySelectorAll('.session-context-popover')];
-  assert.equal(cards.length, 2);
-  assert.notEqual(cards[0].id, cards[1].id);
-  assert.equal(cards[0].getAttribute('role'), 'tooltip');
-  assert.equal(cards[1].getAttribute('role'), 'dialog');
+test('Context is a category of its own: the share, a bar and the two actions; absent before a reading', async (t) => {
+  const { ContextSection } = await import('./session-rail-info.tsx');
+  const opened = [];
+  const element = (snapshot) =>
+    React.createElement(ContextSection, {
+      open: true,
+      onToggle() {},
+      snapshot,
+      onViewDetails: () => opened.push('context'),
+    });
+  const { document, root } = await mount(t, element({ sessionId: LEAD }));
+  assert.equal(document.querySelector('[data-category="context"]'), null);
+  const reading = { currentContextTokens: 80000, currentContextSource: 'last_api_request' };
+  await act(async () => root.render(element({ sessionId: LEAD, contextTokens: 200000, stats: reading })));
+  const section = document.querySelector('[data-category="context"]');
+  assert.match(section.querySelector('.session-rail-tt').textContent, /40%$/);
+  assert.equal(section.querySelector('[role="meter"]').getAttribute('aria-valuenow'), '40');
+  const buttons = [...section.querySelectorAll('.session-rail-ft button')];
+  assert.equal(buttons.length, 2, 'Compact and the details');
+  await act(async () => buttons[1].click());
+  assert.deepEqual(opened, ['context']);
 });
 
 const worktreeProject = 'C:/work/app';
@@ -756,10 +761,7 @@ test('New worktree with uncommitted project-folder files asks the carry choice i
       },
     },
   });
-  const more = document.querySelector('[data-category="worktrees"] .dock-header-more');
-  await act(async () => more.click());
-  const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) => /New worktree/.test(node.textContent));
-  await act(async () => item.click());
+  await act(async () => document.querySelector('[data-category="worktrees"] .session-rail-ft [data-kind="worktree"]').click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   assert.ok(document.querySelector('.worktree-carry-dialog'), 'the carry choice is shown, not left waiting');
 });
@@ -840,8 +842,8 @@ test("a branch row's menu, portalled out of the panel's branch tab, works: a pre
   assert.equal(document.querySelector('[aria-label="Actions for feature"]'), null);
 });
 
-test('a clean branch with commits not pushed keeps Changes and its Git actions', async (t) => {
-  const { ChangesSection } = await import('./session-rail-changes.tsx');
+test('a clean branch with commits not pushed keeps Git and its actions', async (t) => {
+  const { GitSection } = await import('./session-rail-changes.tsx');
   const cwd = 'C:/work/ahead';
   const status = (ahead) => ({
     repository: true,
@@ -857,23 +859,16 @@ test('a clean branch with commits not pushed keeps Changes and its Git actions',
     operation: '',
     files: [],
   });
-  const view = {
-    label: 'Uncommitted',
-    fileCount: 0,
-    files: new Map(),
-    headlineStats: { additions: 0, deletions: 0, hasLineStats: false },
-    sessionId: LEAD,
-    historyTurns: 0,
-    busy: false,
-    emptyText: 'No changes',
-  };
-  const element = React.createElement(ChangesSection, { view, cwd, open: false, onToggle() {} });
+  const element = React.createElement(GitSection, { sessionId: LEAD, cwd, open: true, onToggle() {} });
   const { document } = await mount(t, element, {
     gitStatus: async () => status(2),
     gitReview: async () => ({ repository: true, root: cwd, base: 'HEAD', files: [] }),
   });
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  const section = document.querySelector('[data-category="changes"]');
+  const section = document.querySelector('[data-category="git"]');
   assert.ok(section, 'two commits ahead: the category stays');
-  assert.match(section.textContent, /↑2/);
+  assert.deepEqual(
+    [...section.querySelectorAll('.composer-island-git-row')].map((row) => row.dataset.action),
+    ['pr', 'commit-push', 'commit']
+  );
 });

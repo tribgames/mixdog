@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import type { CSSProperties, MutableRefObject, ReactNode, RefObject } from 'react';
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
@@ -125,7 +125,7 @@ export function RouteTrigger({
   onShow,
   onToggle,
 }: {
-  /** The session panel's Model row: the trigger is that row, its name first. */
+  /** The session panel's Model row: the trigger is that row, behind the model's mark. */
   rowLabel?: string;
   triggerRef: RefObject<HTMLButtonElement | null>;
   disabled: boolean;
@@ -175,7 +175,7 @@ export function RouteTrigger({
       }}
       onPointerCancel={clickGuard.clearPointerActivation}
     >
-      {rowLabel && <span className="session-rail-key">{rowLabel}</span>}
+      {rowLabel && <Sparkles size={14} className="session-rail-ic" aria-hidden="true" />}
       <span className="route-trigger-copy">
         <ModelRouteLabel
           model={triggerModel}

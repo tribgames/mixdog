@@ -1,12 +1,87 @@
 // The session panel's folds, remembered per session: which categories are
 // open and which of the to-do groups.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OPEN_MODEL_PICKER_EVENT, requestOpenModelPicker } from './model-picker-event';
 
-export type SessionRailCategory = 'info' | 'goal' | 'todo' | 'agents' | 'shells' | 'worktrees' | 'changes';
+/** The panel's categories, in the order a panel nobody arranged shows them. */
+export const SESSION_RAIL_CATEGORIES = [
+  'info',
+  'context',
+  'goal',
+  'todo',
+  'agents',
+  'shells',
+  'worktrees',
+  'changes',
+  'git',
+] as const;
+export type SessionRailCategory = (typeof SESSION_RAIL_CATEGORIES)[number];
 
 /** A session the panel has not shown yet opens these. */
 export const SESSION_RAIL_FIRST_OPEN: readonly SessionRailCategory[] = ['goal', 'todo', 'agents', 'shells', 'changes'];
+
+export const SESSION_RAIL_ORDER_KEY = 'mixdog.desktop.session-rail-order.v1';
+
+/** The stored arrangement, completed with the categories it does not name (a
+ *  category added since it was written) at their default places' end. */
+export function sessionRailOrder(stored: unknown): SessionRailCategory[] {
+  const known = Array.isArray(stored)
+    ? stored.filter((id): id is SessionRailCategory => SESSION_RAIL_CATEGORIES.includes(id))
+    : [];
+  const named = [...new Set(known)];
+  return [...named, ...SESSION_RAIL_CATEGORIES.filter((id) => !named.includes(id))];
+}
+
+/** `moved` placed before or after `target`. */
+export function movedSessionRailOrder(
+  order: readonly SessionRailCategory[],
+  moved: SessionRailCategory,
+  target: SessionRailCategory,
+  after: boolean
+): SessionRailCategory[] {
+  if (moved === target) return [...order];
+  const rest = order.filter((id) => id !== moved);
+  rest.splice(rest.indexOf(target) + (after ? 1 : 0), 0, moved);
+  return rest;
+}
+
+// One arrangement for every pane's panel.
+let railOrder: SessionRailCategory[] | null = null;
+const orderListeners = new Set<() => void>();
+function currentOrder(): SessionRailCategory[] {
+  if (railOrder) return railOrder;
+  let stored: unknown = null;
+  try {
+    stored = JSON.parse(window.localStorage.getItem(SESSION_RAIL_ORDER_KEY) || 'null');
+  } catch {
+    // An unreadable arrangement is the default one.
+  }
+  railOrder = sessionRailOrder(stored);
+  return railOrder;
+}
+
+export function moveSessionRailCategory(moved: SessionRailCategory, target: SessionRailCategory, after: boolean): void {
+  const next = movedSessionRailOrder(currentOrder(), moved, target, after);
+  if (next.every((id, index) => id === railOrder?.[index])) return;
+  railOrder = next;
+  try {
+    window.localStorage.setItem(SESSION_RAIL_ORDER_KEY, JSON.stringify(next));
+  } catch {
+    // The arrangement holds for this renderer session.
+  }
+  for (const listener of orderListeners) listener();
+}
+
+export function useSessionRailOrder(): readonly SessionRailCategory[] {
+  return useSyncExternalStore(
+    (listener) => {
+      orderListeners.add(listener);
+      return () => orderListeners.delete(listener);
+    },
+    currentOrder,
+    currentOrder
+  );
+}
 
 export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v1';
 /** Sessions remembered, the most recently changed kept. */

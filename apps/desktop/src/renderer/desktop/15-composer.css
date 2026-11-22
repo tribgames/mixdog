@@ -797,17 +797,17 @@
   padding: 0 8px;
   border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
 }
+/* The panel's name by weight alone, starting on the body's inset. */
 .composer-island-tab {
   height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 0 11px;
-  border-radius: var(--mx-radius-pill);
+  padding: 0 calc(var(--island-panel-inset) - 8px);
   border: 0;
   color: var(--mx-text);
-  background: var(--composer-island-wash);
   font: inherit;
+  font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -982,6 +982,19 @@ ul.composer-island-jobs > .composer-island-row {
   flex: none;
   min-width: 4rem;
   line-height: var(--island-row-button-line, 20px);
+}
+/* Stop and Dismiss: a mark in a square button, one column down the list. */
+.composer-island-row-dismiss[data-icon] {
+  min-width: 0;
+  width: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--mx-text-muted);
+  box-shadow: none;
+}
+.composer-island-row-dismiss[data-icon]:hover {
+  color: var(--mx-text);
 }
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
   color: var(--mx-text-muted);
