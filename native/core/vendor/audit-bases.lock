@@ -2,10 +2,34 @@
 # A patched copy is a path package: its entry in ../Cargo.lock has no `source`, and cargo-audit skips a package
 # without one, so an advisory against the release a copy was made from would go unreported. This file gives those
 # releases back their registry identity. It is read by .github/workflows/dependency-audit.yml and by nothing else:
-# Cargo never sees it. One entry per `[patch.crates-io]` copy of ../Cargo.toml that the workflow does not name as
-# excluded, at the version of the copy's `Cargo.toml`; the workflow fails on a patch that is missing here, on a
-# version that differs and on an entry without its patch.
+# Cargo never sees it. One entry per copy in this directory, at the version of the copy's `Cargo.toml`; the workflow
+# fails on a copy or a path patch (of any tracked Cargo manifest) that is missing here, on a version that differs and
+# on an entry without its copy.
 version = 4
+
+[[package]]
+name = "ast-grep-core"
+version = "0.45.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af0513e0a025ce1ebbbdbf00e81ca84c29f26b33a6e1e0dd877945ceef75042"
+
+[[package]]
+name = "fancy-regex"
+version = "0.19.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d301f5bf187b3c295fce6468d3875037a0bccc5f6b151c63cac2f85babf21912"
+
+[[package]]
+name = "icu_collator"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24cb0205c419b2036da3f9082964905d6849b3f2130dd4a517940c45899a544b"
+
+[[package]]
+name = "regress"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2057b2325e68a893284d1538021ab90279adac1139957ca2a74426c6f118fb48"
 
 [[package]]
 name = "rtc"
