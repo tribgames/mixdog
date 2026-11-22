@@ -191,6 +191,8 @@ export function useSessionDiffTurn({
     refresh,
     /** The record's list has answered: the rows are a result. */
     answered: reply !== null,
+    /** The rows are of the list asked for now, not of one kept on screen while it is read again. */
+    fresh: list.fresh,
     /** The runtime is still recording the turn: the list asked for now has not answered. */
     recording: list.recording,
     /** Why the list asked for now could not be read. */

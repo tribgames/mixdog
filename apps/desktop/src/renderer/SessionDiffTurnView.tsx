@@ -218,8 +218,11 @@ export function SessionDiffTurnView({
   );
   if (!body && turn.recording) body = note(t("This turn's changes are still being recorded."));
   else if (!body && focus && focus.file === null) body = <InitialSurface />;
-  // A file the record does not list has no diff of this turn, however it was asked for.
-  else if (!body && focus && !focusRow) body = note(t('No diff was recorded for this file.'));
+  // A file the record does not list has no diff of this turn, however it was asked for; a list still being read
+  // again (a newer end may list it) has not said so yet.
+  else if (!body && focus && !focusRow) {
+    body = turn.fresh ? note(t('No diff was recorded for this file.')) : <InitialSurface />;
+  }
   else if (!body && turn.patchError) body = <ErrorNotice error={turn.patchError} onRetry={turn.refresh} />;
   else if (!body && visibleRows.length === 0) body = note(t('No changes'));
   body ??= (

@@ -262,10 +262,15 @@ export function useTurnChanges({
   const readKey = (readEpoch: number) =>
     `${turnChangesKey(sessionId, checkpointId)}\u0000${boundary}\u0000${readEpoch}\u0000${reads}`;
   const key = readKey(epoch);
-  const [state, setState] = useState<{ key: string; reply: TurnChangesReply | null }>(() => ({
-    key,
-    reply: cachedTurnChanges(sessionId, checkpointId, boundary, epoch),
-  }));
+  // A card mounted on a newer end of a checkpoint it stood on before (a wake closed it again and moved the card to
+  // another row) starts from the reply held of the earlier end, as one that stayed mounted keeps it: under no key, so
+  // it is read again.
+  const [state, setState] = useState<{ key: string; reply: TurnChangesReply | null }>(() => {
+    const cached = cachedTurnChanges(sessionId, checkpointId, boundary, epoch);
+    if (cached) return { key, reply: cached };
+    const earlier = replyCache.peek(turnChangesKey(sessionId, checkpointId))?.reply ?? null;
+    return earlier ? { key: '', reply: earlier } : { key, reply: null };
+  });
   // How the reads stand while there is no reply to show: none answered yet,
   // the runtime is still recording the turn (its card is new content when it
   // lands), or the read failed.
