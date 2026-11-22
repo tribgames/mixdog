@@ -103,9 +103,20 @@ test('session state joins thread updates, host shell jobs and pending approvals 
       params: { threadId, surfaceThreadId, requestedAt: 1, order, kind: 'shell', tool: 'shell', request: { command } },
     });
   const workerThreadId = 'worker';
+  // A frame that arrives after the turn's budget is handled in a later turn: wait until all three are.
+  const offered = new Promise<void>((done) => {
+    let seen = 0;
+    const off = client.on((event) => {
+      if (event.type === 'serverRequest' && ++seen === 3) {
+        off();
+        done();
+      }
+    });
+  });
   offer('second', 2, thread.id, 'npm test');
   offer('first', 1, workerThreadId, 'npm run typecheck', thread.id);
   offer('unrelated', 0, 'other', 'git status');
+  await offered;
   assert.deepEqual(session().toolApproval, { id: 'first', tool: 'shell', command: 'npm run typecheck' });
   assert.equal(session().toolApprovalsWaiting, 1);
 

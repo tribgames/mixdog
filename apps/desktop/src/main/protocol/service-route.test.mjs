@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { connect, sessionReducer } from '../../../../../packages/protocol-client/src/index.ts';
+import { connect, sessionReducer, setClientFailureText } from '../../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts';
 import { createChatApi, sharedFor } from '../../renderer/remote-protocol-chat.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
 import { createCapabilityLane } from './capability-route.ts';
+import { clientFailureText } from './client-failure-text.ts';
 import { FOLLOW_RETRY_MAX_MS, FOLLOW_RETRY_MS, SERVICE_NOT_ROUTED, createServiceLane } from './service-route.ts';
 
 const schemaDir = new URL('../../../../../native/core/crates/mixdog-app-protocol/schema/', import.meta.url);
@@ -962,7 +963,7 @@ test('a thread that keeps failing leaves a report at the third failure and every
     await settled();
   }
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^\[mixdog-lane\] follow failing thread=fgh-0123 resume failures=3 retryMs=2000 error=bad$/);
+  assert.match(lines[0], /^\[mixdog-lane\] follow failing thread=fgh-0123 resume failures=3 retryMs=2000 kind=rpc error=bad$/);
   assert.match(lines[1], /failures=23 retryMs=30000/);
   assert.equal(m.timers.size, 1, 'and keeps retrying');
 });
@@ -1196,6 +1197,50 @@ function replaceable(first, { handOver = async () => undefined } = {}) {
   };
 }
 const titleOf = (client, threadId) => client.store.thread(threadId)?.state.fields.desktopSessionTitle;
+
+test('a prompt fenced unrun is sent again once, as a new op of the same submission; a second fence fails it in words', async () => {
+  setClientFailureText((detail) => clientFailureText(detail, (key) => key));
+  const net = new MockNetwork();
+  const starts = [];
+  // Every prompt is in flight when the link drops, and the reconnect's reconciliation finds it never ran.
+  const serve = (request, conn) => {
+    if (request.method === 'turn/start') return void starts.push(request.params);
+    if (request.method === 'op/status') {
+      const ops = request.params.opIds.map((opId) => ({ opId, state: 'notApplied' }));
+      return conn.serverSend({ id: request.id, result: { ops } });
+    }
+    conn.serverSend({ id: request.id, result: {} });
+  };
+  try {
+    const { client, conn } = await realClient(net, serve);
+    const sent = createChatApi(client, sharedFor(client)).submitToSession('t1', prompt, { id: 's1' });
+    const failed = sent.then(
+      () => assert.fail('a twice-fenced prompt is not reported as sent'),
+      (error) => error
+    );
+    await settled();
+    conn.serverClose(1006, 'gone');
+    const second = await accepted(net, serve);
+    await settled();
+    assert.equal(starts.length, 2);
+    assert.notEqual(starts[1].opId, starts[0].opId, 'a new op');
+    assert.deepEqual(starts[1].input, starts[0].input);
+    assert.equal(starts[1].input.options.clientSubmissionId, 's1');
+    second.serverClose(1006, 'gone');
+    await accepted(net, serve);
+    await settled();
+    assert.equal(starts.length, 2, 'a link that keeps dropping is not waited out');
+    const error = await failed;
+    assert.equal(error.detail.kind, 'opNotApplied');
+    assert.equal(
+      error.message,
+      'The connection was interrupted before this action ran, so nothing changed. Try it again.'
+    );
+    await client.close();
+  } finally {
+    setClientFailureText(() => undefined);
+  }
+});
 
 test("real client: a held resume of one thread holds back neither the registration nor another thread's live frames", async () => {
   const net = new MockNetwork();

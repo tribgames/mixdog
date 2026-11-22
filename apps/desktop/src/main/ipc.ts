@@ -26,6 +26,8 @@ import { type LocalStorageRescue, registerLocalStorageRescueIpc } from './local-
 import type { PaneLayoutFile } from './pane-layout-file';
 import { registerProjectIpc } from './ipc-projects';
 import { coreErrorForWindow } from './protocol/core-error';
+import { clientFailureText } from './protocol/client-failure-text';
+import { ClientFailure } from '../../../../packages/protocol-client/src/index.ts';
 import type { DesktopComputerInputAccess } from '../shared/contract-computer';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
@@ -135,7 +137,8 @@ interface DesktopIpcDependencies {
 function createSenderGuardedHandle(
   window: BrowserWindow,
   ipcMain: DesktopIpcMain,
-  connectionKind: ConnectionKind
+  connectionKind: ConnectionKind,
+  nativeT: (key: string) => string
 ): IpcHandle {
   const assertSender = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
@@ -150,10 +153,14 @@ function createSenderGuardedHandle(
       // Custom Error properties do not survive Electron's invoke, so a
       // refusal with a structured code is returned as an envelope the
       // preload turns back into an Error with that code.
+      // A client-library failure crosses as its message alone, so its sentence is made here, when it leaves for the window
+      // (main/protocol/client-failure-text.ts); main's own logs keep its kind.
       const refusal = (error: unknown): unknown => {
         const envelope = ipcErrorEnvelope(error);
         if (envelope) return envelope;
-        throw error;
+        const sentence = error instanceof ClientFailure ? clientFailureText(error.detail, nativeT) : undefined;
+        if (sentence === undefined) throw error;
+        throw new Error(sentence, { cause: error });
       };
       // The listener still starts in this tick: handlers' call order matters.
       try {
@@ -275,7 +282,7 @@ export function registerDesktopIpc(
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
   // This PC's core: what reads or writes this computer (a saved file, an attachment, a chat link, the input-access rule) is answered by it.
   const localCore = pcCore ?? protocol ?? null;
-  const handle = createSenderGuardedHandle(window, ipcMain, connectionKind);
+  const handle = createSenderGuardedHandle(window, ipcMain, connectionKind, nativeT);
   const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
     host.invokeDesktopOperation(method, args) as Promise<T>;
   const files = createWindowFileAccess({

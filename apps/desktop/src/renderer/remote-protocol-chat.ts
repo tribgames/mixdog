@@ -28,6 +28,7 @@ import { remoteSessionIdOf, withRemoteSession } from '../shared/blank-snapshot.t
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import { coreErrorForWindow } from '../main/protocol/core-error';
 import { routeService } from '../main/protocol/service-route';
+import { reissuedOnceIfNotApplied } from '../shared/outcome-unknown';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows';
 import { remoteToolOutput, remoteTranscriptSnapshot } from '../main/remote-transcript';
 import { approvalAllowIsPointerOnly } from '../shared/approval-enter-rule';
@@ -256,7 +257,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       submit: DesktopSubmitOptions = {},
       draft: DesktopNewTaskDraft = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
-      const started = record(await service('submitNewTask', [prompt, submit, draft]));
+      const started = record(await reissuedOnceIfNotApplied(() => service('submitNewTask', [prompt, submit, draft])));
       // A refusal is an error, not a reply; a reply without turn answers a retry of a submission the core already accepted.
       const sessionId = String(record(started.thread).id || '');
       if (!sessionId)
@@ -275,7 +276,7 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       prompt: DesktopPromptContent,
       submit: DesktopSubmitOptions = {}
     ): Promise<boolean> => {
-      await service('submitToSession', [sessionId, prompt, submit]);
+      await reissuedOnceIfNotApplied(() => service('submitToSession', [sessionId, prompt, submit]));
       return true;
     },
     abortSession: async (sessionId: string, abort: DesktopAbortOptions = {}): Promise<unknown> => {

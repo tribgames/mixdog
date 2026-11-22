@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject }
 import { createPortal } from 'react-dom';
 
 import type { DesktopSessionContentMatch, DesktopSessionSummary } from '../shared/contract';
+import { CatalogIndexSearchNote } from './catalog-index-progress';
 import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 import { acquireModalLayer } from './modal-layer';
@@ -14,6 +15,7 @@ import {
   sessionSearchResults,
   type SessionSearchRow,
 } from './session-search';
+import { emptyStateHost } from './empty-state-host';
 
 interface SessionSearchProps {
   sessions: readonly DesktopSessionSummary[];
@@ -190,8 +192,9 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
             }
           }}
         >
+          <CatalogIndexSearchNote />
           {rows.length === 0 && !contentPending && (
-            <p className="mx-empty-state" role="status">
+            <p className="mx-empty-state" ref={emptyStateHost} role="status">
               {t('No matching sessions')}
             </p>
           )}

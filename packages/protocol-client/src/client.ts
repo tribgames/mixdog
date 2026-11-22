@@ -101,15 +101,23 @@ const toB64 = (b: Uint8Array): string => {
 
 // ───────────────────────────── errors ─────────────────────────────
 
+let failureText: ((detail: ClientErrorDetail) => string | undefined) | undefined;
+/** The sentence a person is shown for a failure, in the host's language: installed once per realm by the host that displays failures.
+ *  `undefined` keeps the library's own message; without it a failure other than `rpc` and `requestTimeout` says its kind. */
+export function setClientFailureText(text: (detail: ClientErrorDetail) => string | undefined): void {
+  failureText = text;
+}
+
 export class ClientFailure extends Error implements ClientError {
   readonly detail: ClientErrorDetail;
   constructor(detail: ClientErrorDetail) {
     super(
-      detail.kind === 'rpc'
-        ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}`
-        : detail.kind === 'requestTimeout'
-          ? `The core did not answer ${detail.method} in time.`
-          : detail.kind
+      failureText?.(detail) ??
+        (detail.kind === 'rpc'
+          ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}`
+          : detail.kind === 'requestTimeout'
+            ? `The core did not answer ${detail.method} in time.`
+            : detail.kind)
     );
     this.name = 'ClientError';
     this.detail = detail;
@@ -321,6 +329,13 @@ function drain<V>(m: Map<unknown, V>): V[] {
   return all;
 }
 
+function nextMacrotask(callback: () => void): void {
+  // Read at call time: the renderer's program has no Node globals, and a page has no setImmediate.
+  const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
+  if (typeof immediate === 'function') immediate(callback);
+  else setTimeout(callback, 0);
+}
+
 /** A fold waiting for the next loop turn. */
 interface Waiter {
   resume: () => void;
@@ -433,15 +448,7 @@ class Engine implements ProtocolClient<Json> {
     this.reducer = options.threadReducer;
     this.budgetMs = options.turn?.budgetMs ?? 8;
     this.now = options.turn?.now ?? (() => performance.now());
-    this.yieldTurn =
-      options.turn?.yieldTurn ??
-      (() =>
-        new Promise<void>((r) => {
-          // Read at call time: the renderer's program has no Node globals, and a page has no setImmediate.
-          const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
-          if (typeof immediate === 'function') immediate(r);
-          else setTimeout(r, 0);
-        }));
+    this.yieldTurn = options.turn?.yieldTurn ?? (() => new Promise<void>((r) => nextMacrotask(r)));
   }
 
   /** Whether the turn's budget is spent. The first to ask in a turn is told it is not, so every turn runs a unit
@@ -454,6 +461,24 @@ class Engine implements ProtocolClient<Json> {
     return this.now() - this.turnStart > this.budgetMs;
   }
   private turnFresh = false;
+  /** The turn whose budget `turnStart` measures, while it lasts: frames arriving later in the same loop turn share that budget
+   *  instead of each starting one. It ends at the next macrotask. */
+  private turnOpen = 0;
+  private turnSeq = 0;
+  private readonly inbox: Array<{ conn: number; text: string | null }> = [];
+  private draining = false;
+  private startTurn(): void {
+    this.turnStart = this.now();
+    this.turnFresh = false;
+    const turn = ++this.turnSeq;
+    this.turnOpen = turn;
+    nextMacrotask(() => {
+      if (this.turnOpen === turn) this.turnOpen = 0;
+    });
+  }
+  private openTurn(): void {
+    if (this.turnOpen === 0) this.startTurn();
+  }
   /** Folds waiting for the next loop turn: the ones that ran no unit since they last waited, and the ones that did. */
   private readonly unserved: Waiter[] = [];
   private readonly served: Waiter[] = [];
@@ -472,7 +497,7 @@ class Engine implements ProtocolClient<Json> {
         const all = () => [...this.unserved.splice(0), ...this.served.splice(0)];
         new Promise<void>((yielded) => yielded(this.yieldTurn())).then(
           () => {
-            this.turnStart = this.now();
+            this.startTurn();
             this.turnFresh = true;
             for (const fold of all()) fold.resume();
           },
@@ -544,7 +569,7 @@ class Engine implements ProtocolClient<Json> {
     let early: { code: number; reason: string } | undefined;
     const sink: TransportSink = {
       frame: (t) => {
-        if (conn === this.connSeq) this.onFrame(t);
+        if (conn === this.connSeq) this.arrive(conn, t);
       },
       progress: () => {
         if (conn === this.connSeq) this.health.progress();
@@ -552,6 +577,8 @@ class Engine implements ProtocolClient<Json> {
       closed: (code, reason) => {
         if (conn !== this.connSeq) return;
         if (this.writer === null) early = { code, reason };
+        // Frames that arrived before the close are handled before it.
+        else if (this.inbox.length > 0) this.inbox.push({ conn, text: null });
         else this.onClosed();
       },
     };
@@ -990,9 +1017,46 @@ class Engine implements ProtocolClient<Json> {
     return this.health.check();
   }
 
-  private onFrame(text: string): void {
-    this.turnStart = this.now();
+  /** A frame from the transport. It is handled at once while the turn's budget lasts; after that it waits, in arrival order, for
+   *  a later turn, as a fold does: a socket read that delivers many frames cannot hold the thread for all of them. */
+  private arrive(conn: number, text: string): void {
     this.health.progress();
+    // The frame that opens a turn is its first unit, which every turn runs whatever the budget.
+    const opens = this.turnOpen === 0;
+    this.openTurn();
+    if (this.inbox.length === 0 && (opens || this.now() - this.turnStart <= this.budgetMs)) {
+      this.onFrame(text);
+      return;
+    }
+    this.inbox.push({ conn, text });
+    if (!this.draining) void this.drainInbox();
+  }
+
+  private async drainInbox(): Promise<void> {
+    this.draining = true;
+    const pace = this.pace();
+    let loop = true;
+    try {
+      while (this.inbox.length > 0) {
+        if (loop) {
+          try {
+            for (let wait = pace(); wait; wait = pace()) await wait;
+          } catch {
+            // No turn can be had: what arrived is handled now rather than never.
+            loop = false;
+          }
+        }
+        const next = this.inbox.shift()!;
+        if (next.conn !== this.connSeq) continue;
+        if (next.text === null) this.onClosed();
+        else this.onFrame(next.text);
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private onFrame(text: string): void {
     // RFC 6455: 1007 for a payload that does not decode, 1002 for a sequence violation.
     let m: Record<string, unknown>;
     try {

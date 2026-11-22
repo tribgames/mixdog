@@ -561,8 +561,10 @@ export function createServiceLane({
         : Math.min(FOLLOW_RETRY_MAX_MS, FOLLOW_RETRY_MS * 2 ** Math.min(follow.failures - 1, 16));
       if (reportedFailure(follow.failures)) {
         const reason = failure.error instanceof Error ? failure.error.message : String(failure.error);
+        // A client-library failure's message is a sentence in the UI language: its kind is the field a log is read by.
+        const kind = (failure.error as { detail?: { kind?: unknown } } | null)?.detail?.kind;
         report(
-          `[mixdog-lane] follow failing thread=${threadId.slice(-8)} ${wanted ? 'resume' : 'unsubscribe'} failures=${follow.failures} retryMs=${delay} error=${reason.slice(0, 160)}`
+          `[mixdog-lane] follow failing thread=${threadId.slice(-8)} ${wanted ? 'resume' : 'unsubscribe'} failures=${follow.failures} retryMs=${delay}${typeof kind === 'string' ? ` kind=${kind}` : ''} error=${reason.slice(0, 160)}`
         );
       }
       // Woken while the request was in flight: only a changed need acts now (the generation is the same here); the same
