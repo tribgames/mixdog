@@ -6633,5 +6633,6 @@
   "Automatic": "Automatique",
   "Island": "Îlot",
   "Session info: Hidden": "Aucun affichage",
-  "This turn's changes are still being recorded.": "Les modifications du tour sont encore en cours d'enregistrement."
+  "This turn's changes are still being recorded.": "Les modifications du tour sont encore en cours d'enregistrement.",
+  "Waiting for its turn": "En attente de son tour"
 }

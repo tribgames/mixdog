@@ -166,14 +166,14 @@ export function RailFold({
   onToggle,
 }: {
   id: string;
-  name: string;
+  name: ReactNode;
   count?: number;
   open: boolean;
   onToggle(): void;
 }) {
   return (
     <button type="button" className="session-rail-gh" data-fold={id} aria-expanded={open} onClick={onToggle}>
-      <span>{name}</span>
+      <span className="session-rail-gn">{name}</span>
       {open ? (
         <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
       ) : (

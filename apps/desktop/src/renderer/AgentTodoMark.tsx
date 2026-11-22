@@ -6,7 +6,13 @@ const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 /** An agent row's step list: a small ring (finished share of the counted
  *  steps, from 12 o'clock) and n/m. Nothing when the agent has no list; a
  *  list whose steps were all dropped shows an empty ring and 0/0. */
-export function AgentTodoMark({ todo }: { todo?: { completed: number; total: number; current?: string } | null }) {
+export function AgentTodoMark({
+  todo,
+  id,
+}: {
+  todo?: { completed: number; total: number; current?: string } | null;
+  id?: string;
+}) {
   if (!todo) return null;
   const total = Math.max(0, Number(todo.total) || 0);
   const completed = Math.min(total, Math.max(0, Number(todo.completed) || 0));
@@ -15,6 +21,7 @@ export function AgentTodoMark({ todo }: { todo?: { completed: number; total: num
   const current = String(todo.current || '');
   return (
     <span
+      id={id}
       className="agent-todo-mark"
       role="img"
       aria-label={current ? `${label}: ${current}` : label}

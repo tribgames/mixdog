@@ -77,7 +77,7 @@ const HARNESS = `
   const lead = { tag: 'lead:' + SESSION, sessionId: SESSION, ownerSessionId: SESSION, agent: 'lead', status: 'idle', stage: 'idle' };
   const pool = [lead, ...Array.from({ length: 7 }, (_, i) => ({
     tag: long('agent-' + i), sessionId: 'agent-' + i, ownerSessionId: SESSION, parentSessionId: SESSION,
-    agent: 'worker', provider: 'anthropic', status: i % 3 ? 'running' : 'completed', stage: i % 3 ? 'streaming' : 'completed',
+    agent: 'worker', provider: 'anthropic', model: long('claude-opus'), effort: 'medium', status: i % 3 ? 'running' : 'completed', stage: i % 3 ? 'streaming' : 'completed',
     startedAt: now - 3_600_000 * 9, settledAt: i % 3 ? 0 : now, todo: { completed: 12, total: 99, current: long('current step') },
   }))];
   const shells = Array.from({ length: 5 }, (_, i) => ({
@@ -147,10 +147,12 @@ const HARNESS = `
       }
     }
     const rows = document.querySelectorAll(
-      '.session-rail-row, .session-rail-hd, .session-rail-ft, .session-rail-goal-line, .session-rail .composer-island-row'
+      '.session-rail-row, .session-rail-hd, .session-rail-ft, .session-rail-goal-line, .session-rail .composer-island-row, ' +
+        '.session-rail-gh, .session-rail-agent, .session-rail-agent-past, .session-rail-agent-fold'
     );
-    // A head is 42px, a foot 38px over its 8px of padding, an island row two lines.
-    const tallest = (row) => (row.matches('.session-rail-hd, .session-rail-ft') ? 47 : row.matches('.composer-island-row') ? 60 : 37);
+    // A head is 42px, a foot 38px over its 8px of padding, an island or agent row two lines.
+    const tallest = (row) =>
+      row.matches('.session-rail-hd, .session-rail-ft') ? 47 : row.matches('.composer-island-row, .session-rail-agent') ? 60 : 37;
     for (const row of rows) {
       const box = row.getBoundingClientRect();
       if (row.scrollWidth > row.clientWidth + 1) out.push('scrolls: ' + row.className + ' ' + row.textContent.slice(0, 40));
@@ -158,6 +160,12 @@ const HARNESS = `
         const style = getComputedStyle(child);
         if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') continue;
         if (child.closest('.session-rail-act') && getComputedStyle(child.closest('.session-rail-act')).opacity === '0') continue;
+        // Inside a box that clips it (a name ending in an ellipsis), that box is what is measured.
+        let clipped = false;
+        for (let node = child.parentElement; node && node !== row; node = node.parentElement) {
+          if (getComputedStyle(node).overflowX !== 'visible') clipped = true;
+        }
+        if (clipped) continue;
         const rect = child.getBoundingClientRect();
         if (!rect.width || !rect.height) continue;
         if (rect.right > box.right + 1 || rect.left < box.left - 1) {

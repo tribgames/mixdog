@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { RecordValue } from './desktop-types';
-import { readCachedModelCatalog } from './model-catalog-cache';
+import { cachedModelCatalogRevision, readCachedModelCatalog, subscribeCachedModelCatalog } from './model-catalog-cache';
 import { subscribeSetupChanges } from './setup-change-refresh';
 
 export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
@@ -122,6 +122,12 @@ export function displayEffortLabel(_savedEffort: string, opts: { autoOn: boolean
   return opts.autoOn && opts.capable ? 'Auto' : null;
 }
 
+/** The cached catalog's revision: a reader that keeps what `cachedAutoEffortCapable`
+ *  told it reads again when this changes. */
+export function useModelCatalogRevision(): number {
+  return useSyncExternalStore(subscribeCachedModelCatalog, cachedModelCatalogRevision);
+}
+
 /** Whether the catalog (localStorage cache the composer fills) marks this
  *  provider/model as supporting Auto reasoning. */
 export function cachedAutoEffortCapable(provider: string, model: string): boolean {
@@ -136,6 +142,11 @@ export function useAutoEffortShown(capable: boolean, savedEffort: string, routeA
   const master = useAutoEffort(capable);
   const autoOn = masterAutoEffortOn(master) && routeAutoEffortOn(routeAutoEffort);
   return displayEffortLabel(savedEffort, { autoOn, capable }) !== null;
+}
+
+/** The master switch (Settings → Built-in) is on; `wanted` triggers the first read. */
+export function useAutoEffortMasterOn(wanted: boolean): boolean {
+  return masterAutoEffortOn(useAutoEffort(wanted));
 }
 
 /** The switch state; `wanted` (the model supports it) triggers the first read. */

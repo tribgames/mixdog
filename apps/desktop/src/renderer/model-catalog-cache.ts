@@ -128,6 +128,19 @@ export function readCachedModelCatalog(): CachedModelCatalog {
   }
 }
 
+let cachedCatalogRevision = 0;
+const cachedCatalogListeners = new Set<() => void>();
+
+/** Counts the writes of the cached catalog: what a reader derived from it holds while this stands. */
+export function cachedModelCatalogRevision(): number {
+  return cachedCatalogRevision;
+}
+
+export function subscribeCachedModelCatalog(listener: () => void): () => void {
+  cachedCatalogListeners.add(listener);
+  return () => void cachedCatalogListeners.delete(listener);
+}
+
 export function writeCachedModelCatalog(
   models: DesktopModelOption[],
   scope = catalogStorageScope()
@@ -138,6 +151,8 @@ export function writeCachedModelCatalog(
   } catch {
     // The live catalog remains usable when browser storage is unavailable.
   }
+  cachedCatalogRevision += 1;
+  for (const listener of [...cachedCatalogListeners]) listener();
   return catalog;
 }
 
