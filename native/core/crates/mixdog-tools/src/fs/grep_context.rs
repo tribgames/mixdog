@@ -187,15 +187,7 @@ fn distinct_anchors(matches: Vec<Match<'_>>) -> Vec<Anchor<'_>> {
             continue;
         }
         let order = anchors.len();
-        anchors.push(Anchor {
-            path: m.label,
-            abs: m.path,
-            line: m.line,
-            content: m.text,
-            order,
-            priority: NO_PRIORITY,
-            compact: std::sync::OnceLock::new(),
-        });
+        anchors.push(Anchor { path: m.label, abs: m.path, line: m.line, content: m.text, order, priority: NO_PRIORITY, compact: std::sync::OnceLock::new() });
     }
     anchors
 }
@@ -667,7 +659,13 @@ mod tests {
     fn context_fit_allocates_in_proportion_to_its_output() {
         let abs = AbsPath::new(if cfg!(windows) { "C:\\big.rs" } else { "/big.rs" }).expect("an absolute path");
         let text = |n: u64| {
-            let call = if n % 400 == 0 { "needle_b" } else if n % 40 == 0 { "needle_a" } else { "plain" };
+            let call = if n % 400 == 0 {
+                "needle_b"
+            } else if n % 40 == 0 {
+                "needle_a"
+            } else {
+                "plain"
+            };
             format!("    let value_{n} = {call}(input_{n}, {n});")
         };
         let hits: Vec<u64> = (1..=20_000u64).filter(|n| n % 40 == 0).collect();
@@ -699,7 +697,6 @@ mod tests {
         // output, one held across passes a small multiple of it.
         assert!(allocated <= 32 * out.len(), "{allocated} bytes allocated for {} bytes of output", out.len());
     }
-
 }
 
 /// `sourceBlock`: the anchor's window as far as its source has lines, or the match line alone.
@@ -734,9 +731,10 @@ fn source_block<'a>(anchor: &'a Anchor<'_>, source: Option<&'a HashMap<u64, Stri
 /// first appearance, or rank when `ranked`.
 fn merge_blocks(blocks: &mut Vec<Block<'_>>, ranked: bool) {
     blocks.sort_unstable_by(|a, b| {
-        mixdog_js::locale_compare(a.path, b.path).then(a.start.cmp(&b.start)).then(a.end.cmp(&b.end)).then_with(|| {
-            if ranked { a.priority.cmp(&b.priority).then(a.order.cmp(&b.order)) } else { a.order.cmp(&b.order) }
-        })
+        mixdog_js::locale_compare(a.path, b.path)
+            .then(a.start.cmp(&b.start))
+            .then(a.end.cmp(&b.end))
+            .then_with(|| if ranked { a.priority.cmp(&b.priority).then(a.order.cmp(&b.order)) } else { a.order.cmp(&b.order) })
     });
     blocks.dedup_by(|block, prev| {
         if prev.path != block.path || block.start > prev.end + 1 {
