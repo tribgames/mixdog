@@ -520,9 +520,13 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   }
   if (p.window !== undefined) {
     const held = windowChanged(undefined, p.window, ownRow);
+    // A row a held record shows (a compaction's divider rides the record it follows) is that record's: the snapshot's own
+    // copy of it gives way, as a row does when its record arrives.
+    const recorded = new Set([...held.units.values()].flatMap((unit) => unit.rows.map((row) => row.id)));
+    const loose = items.filter((row) => !recorded.has(row.id));
     // A snapshot's rows of no record are newer than every record it holds.
-    for (const row of items) looseAfter.set(row, tailEnd(held));
-    const shown = positionedItems(held, items);
+    for (const row of loose) looseAfter.set(row, tailEnd(held));
+    const shown = positionedItems(held, loose);
     transcriptCache.set(shown, yield* mergeToolRowsSteps(shown));
     const fold: SessionFold = {
       sessionId: String(asObj(p.thread).id ?? ''),
@@ -536,7 +540,7 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
       history: p.hasOlder === true ? 'older' : 'held',
       generation: 0,
       held,
-      loose: items,
+      loose,
     };
     return live ? withLive(fold, live) : fold;
   }

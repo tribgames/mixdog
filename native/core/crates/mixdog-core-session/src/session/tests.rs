@@ -5486,6 +5486,48 @@ async fn a_compaction_reaches_a_positioned_subscription_through_the_records_it_h
     assert!(!to_b.iter().any(own_row), "{to_b:?}");
 }
 
+/// A compaction in a turn whose prompt a positioned subscription already holds: the prompt's record is sent again, in
+/// place, with the divider after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compaction_after_a_held_record_sends_that_record_again_with_the_divider() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+
+    let go = Arc::new(tokio::sync::Notify::new());
+    let gate = go.clone();
+    rig.set_script(Arc::new(move |run| {
+        let gate = gate.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            gate.notified().await;
+            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+            run.port.compacted(compaction).await.expect("compacted");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let text = |frame: &Value| frame.to_string();
+    let prompt = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["params"]["change"]["op"] == "insert" && text(frame).contains("compact now"));
+    let running = handle.clone();
+    let turned = tokio::spawn(async move { turn(&running, "compact now", "op-2").await });
+    // The prompt's record is held before the compaction is made.
+    a.drain_text_until(prompt).await;
+    go.notify_one();
+    turned.await.expect("the turn");
+    let divided = |frames: &[String]| lane_frames(frames).iter().any(|frame| text(frame).contains("dividersAfter"));
+    let to_a = lane_frames(&a.drain_text_until(divided).await);
+    let with_divider: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("dividersAfter")).collect();
+    assert!(with_divider.iter().all(|frame| frame["params"]["change"]["op"] == "replace"), "{with_divider:?}");
+}
+
 /// `thread/rewindTargets/list` and `thread/rewind` read the stored history: a prompt is a target by its position,
 /// and the reply's figures are the lineage's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

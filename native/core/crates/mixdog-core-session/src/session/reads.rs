@@ -145,10 +145,7 @@ async fn display_rows(
 ) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
     let token = CancellationToken::new();
     let transcript = deps.transcript.clone();
-    on_lane_wait(deps.lanes.cpu, &token, move |lane| {
-        records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect()
-    })
-    .await
+    on_lane_wait(deps.lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record| transcript.rows(lane, record))).await
 }
 
 /// The rows of one stored page ([`ThreadStore::history_page`]), oldest first.
@@ -316,7 +313,7 @@ async fn page_shown(
         for (at, record) in read.records.iter().enumerate() {
             job.check()?;
             let from = rows.len();
-            rows.extend(decorated(transcript.rows(lane, record), read.decor.get(at)));
+            decorate(&mut rows, transcript.rows(lane, record), read.decor.get(at));
             if let Some(ordinal) = read.ordinals.get(at).filter(|_| rows.len() > from) {
                 units.push((*ordinal, from..rows.len()));
                 iids.push(record.iid.as_str().to_owned());
@@ -348,24 +345,45 @@ async fn page_shown(
 /// divider is no row of a page (a cursor names a stored row) and rides the row it follows.
 pub(super) const DIVIDERS_AFTER: &str = "dividersAfter";
 
-/// A record's rows with what its page shows beyond them: `archived` on each row a compaction took out of the context,
-/// and the dividers that follow the record on its last row.
-pub(super) fn decorated(mut rows: Vec<(ThreadItem, usize)>, decor: Option<&super::seams::RowDecor>) -> Vec<(ThreadItem, usize)> {
-    let Some(decor) = decor else { return rows };
+/// A record's `rows` added to the rows `shown` before it, with what its page shows beyond them: `archived` on each row a
+/// compaction took out of the context, and the dividers that follow the record after the newest row shown up to it: its
+/// own last row, or the row before it when the record shows none (a call's result is shown on its call's card).
+pub(super) fn decorate(shown: &mut Vec<(ThreadItem, usize)>, mut rows: Vec<(ThreadItem, usize)>, decor: Option<&super::seams::RowDecor>) {
+    let Some(decor) = decor else {
+        shown.extend(rows);
+        return;
+    };
     if decor.archived {
         for (item, _) in &mut rows {
             super::view::meta_mut(item).ext.insert("archived".into(), Value::Bool(true));
         }
     }
-    if let Some((last, _)) = rows.last_mut().filter(|_| !decor.dividers_after.is_empty()) {
-        let mut items = Vec::new();
-        for divider in &decor.dividers_after {
-            items.push(super::transcript::divider_item(&divider.cid, divider.at));
-            items.extend(super::transcript::divider_model_switches(&divider.cid, &divider.model_switches));
-        }
-        super::view::meta_mut(last).ext.insert(DIVIDERS_AFTER.into(), serde_json::to_value(items).expect("thread items serialize"));
+    shown.extend(rows);
+    let Some((host, _)) = shown.last_mut().filter(|_| !decor.dividers_after.is_empty()) else { return };
+    let ext = &mut super::view::meta_mut(host).ext;
+    let mut after = match ext.remove(DIVIDERS_AFTER) {
+        Some(Value::Array(after)) => after,
+        _ => Vec::new(),
+    };
+    for divider in &decor.dividers_after {
+        let items = std::iter::once(super::transcript::divider_item(&divider.cid, divider.at))
+            .chain(super::transcript::divider_model_switches(&divider.cid, &divider.model_switches));
+        after.extend(items.map(|item| serde_json::to_value(item).expect("thread items serialize")));
     }
-    rows
+    ext.insert(DIVIDERS_AFTER.into(), Value::Array(after));
+}
+
+/// [`decorate`] over the records of a page, oldest first.
+fn decorated_rows<'a>(
+    records: impl IntoIterator<Item = &'a mixdog_store::schema::record::ItemRecord>,
+    decor: &[super::seams::RowDecor],
+    rows: impl Fn(&mixdog_store::schema::record::ItemRecord) -> Vec<(ThreadItem, usize)>,
+) -> Vec<(ThreadItem, usize)> {
+    let mut shown = Vec::new();
+    for (at, record) in records.into_iter().enumerate() {
+        decorate(&mut shown, rows(record), decor.get(at));
+    }
+    shown
 }
 
 /// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
@@ -381,10 +399,7 @@ pub(super) async fn history_tail(
     let (store, thread) = (store.clone(), id.clone());
     let (_, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
-    let rows = on_lane_wait(lanes.cpu, &token, move |lane| {
-        records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect()
-    })
-    .await?;
+    let rows = on_lane_wait(lanes.cpu, &token, move |lane| decorated_rows(&records, &decor, |record| transcript.rows(lane, record))).await?;
     Ok((History { rows }, complete))
 }
 
@@ -1284,17 +1299,28 @@ mod tests {
             (0..n).map(|i| (items(json!([{ "type": "agentMessage", "id": format!("a{i}"), "text": "x", "meta": {} }])).remove(0), 1)).collect()
         };
         let ext = |item: &ThreadItem| meta(item).ext.clone();
+        let decorated = |own: Vec<(ThreadItem, usize)>, decor: Option<&RowDecor>| {
+            let mut shown = Vec::new();
+            decorate(&mut shown, own, decor);
+            shown
+        };
         // No decoration: the rows as they are.
         assert!(decorated(rows(1), None).iter().all(|(item, _)| ext(item).is_empty()));
-        let divider = WindowDivider { before: 1, ordinal: 9, cid: "k1".into(), at: Some(5), model_switches: Vec::new() };
-        let decor = RowDecor { archived: true, dividers_after: vec![divider] };
-        let shown = decorated(rows(2), Some(&decor));
+        let divider = |cid: &str| WindowDivider { before: 1, ordinal: 9, cid: cid.into(), at: Some(5), model_switches: Vec::new() };
+        let decor = RowDecor { archived: true, dividers_after: vec![divider("k1")] };
+        let mut shown = decorated(rows(2), Some(&decor));
         // Every row of the record is archived; the divider rides the last one, as the item the window would show.
         assert!(shown.iter().all(|(item, _)| ext(item).get("archived") == Some(&json!(true))));
         assert!(ext(&shown[0].0).get(DIVIDERS_AFTER).is_none());
         let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("the dividers after the record");
         assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5))]));
-        // A record that shows no row has none to carry them.
+        // A record that shows no row (a call's result, shown on its call's card): the divider that follows it follows the
+        // row shown before it, after the dividers that row already carries.
+        decorate(&mut shown, Vec::new(), Some(&RowDecor { archived: false, dividers_after: vec![divider("k2")] }));
+        assert_eq!(shown.len(), 2);
+        let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("both dividers");
+        assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5)), crate::session::transcript::divider_item("k2", Some(5))]));
+        // With no row before it either, the page has none to carry them.
         assert!(decorated(Vec::new(), Some(&decor)).is_empty());
     }
 }
@@ -1381,12 +1407,12 @@ impl DirInner {
         let (records, decor) = on_lane_wait(self.deps.lanes.io, cancel, move |lane| store.turn_history_full(lane, &thread, &io_cancel)).await??;
         let (transcript, cpu_cancel) = (self.deps.transcript.clone(), cancel.clone());
         let items = on_lane_wait(self.deps.lanes.cpu, cancel, move |lane| {
-            let mut items = Vec::new();
+            let mut rows = Vec::new();
             for (at, record) in records.into_iter().enumerate() {
                 check_turn_read_cancel(&cpu_cancel)?;
-                items.extend(decorated(transcript.rows(lane, &record), decor.get(at)).into_iter().map(|(item, _)| item));
+                decorate(&mut rows, transcript.rows(lane, &record), decor.get(at));
             }
-            Ok::<_, CoreError>(items)
+            Ok::<_, CoreError>(rows.into_iter().map(|(item, _)| item).collect::<Vec<_>>())
         })
         .await??;
         check_turn_read_cancel(cancel)?;
