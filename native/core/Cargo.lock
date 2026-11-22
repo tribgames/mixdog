@@ -6720,6 +6720,7 @@ dependencies = [
  "flate2",
  "futures",
  "globset",
+ "hashbrown 0.17.1",
  "image",
  "jpeg-decoder",
  "libc",

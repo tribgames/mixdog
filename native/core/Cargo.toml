@@ -313,6 +313,7 @@ hyper = { version = "1.12", default-features = false, features = ["http1", "serv
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 ignore = "0.4.23"
 grep = "0.3.2" # not in Codex: ripgrep's library crates, as Node's resident search server uses them (WP-WS FileService::search_text)
+hashbrown = "0.17" # not in Codex: id-keyed lookup tables of the code graph (already in the tree through indexmap)
 indexmap = "2.12.0"
 insta = "1.46.3"
 libc = "0.2.182"

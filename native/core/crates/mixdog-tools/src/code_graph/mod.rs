@@ -14,6 +14,7 @@ mod outline;
 mod output;
 mod refs;
 mod roots;
+mod symbols;
 #[cfg(test)]
 mod tests;
 mod util;

@@ -3,8 +3,6 @@
 
 use std::{cmp::Ordering, collections::HashMap, path::Path};
 
-use mixdog_graph::outline::SymbolInfo;
-
 use super::args::Args;
 use super::graph::{Graph, Node};
 use super::hits::{
@@ -12,6 +10,7 @@ use super::hits::{
 };
 use super::outline::outline_rows;
 use super::refs::{Scope, TransitiveOptions, format_callees, format_callers, format_references, format_transitive_callers, importer_references};
+use super::symbols::Sym;
 use super::util::{cap_list, name_cmp};
 
 const LIST_CAP: usize = 200;
@@ -275,8 +274,8 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
     let symbols: Vec<String> = if target.is_empty() {
         let mut names: Vec<String> = Vec::new();
         for s in &node.symbols {
-            if !s.name.is_empty() && !names.contains(&s.name) {
-                names.push(s.name.clone());
+            if !s.name.is_empty() && !names.iter().any(|n| n == s.name) {
+                names.push(s.name.to_owned());
             }
         }
         names
@@ -551,7 +550,7 @@ struct Entry<'a> {
     name: &'a str,
     lower_name: String,
     rank: Option<(usize, usize, usize)>,
-    declaration: Option<(&'a Node, &'a SymbolInfo)>,
+    declaration: Option<(&'a Node, Sym<'a>)>,
 }
 
 fn compare_entries(a: &Entry<'_>, b: &Entry<'_>) -> Ordering {
@@ -620,7 +619,7 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
     resolved.sort_unstable_by(compare_entries);
     let mut lines = vec![format!("# search keyword={clean} matches={total} shown={}", resolved.len())];
     for e in resolved {
-        let Some(hit) = e.declaration.and_then(|(node, sym)| native_hit(node, sym)) else { continue };
+        let Some(hit) = e.declaration.and_then(|(node, sym)| native_hit(node, &sym)) else { continue };
         let facts = hit.facts();
         lines.push(format!(
             "{}\t{}{}{}",
