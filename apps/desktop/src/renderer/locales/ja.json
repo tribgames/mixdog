@@ -6496,5 +6496,9 @@
   "No changes": "変更なし",
   "{{count}} commits not pushed": "未プッシュのコミット {{count}} 件",
   "Resize session panel": "セッションパネルのサイズを変更",
-  "{{width}} pixels": "{{width}} ピクセル"
+  "{{width}} pixels": "{{width}} ピクセル",
+  "Session info": "セッション情報の表示",
+  "Automatic": "自動",
+  "Island": "アイランド",
+  "Session info: Hidden": "表示しない"
 }

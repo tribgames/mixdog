@@ -6496,5 +6496,9 @@
   "No changes": "無變更",
   "{{count}} commits not pushed": "{{count}} 個提交未推送",
   "Resize session panel": "調整工作階段面板大小",
-  "{{width}} pixels": "{{width}} 像素"
+  "{{width}} pixels": "{{width}} 像素",
+  "Session info": "工作階段資訊顯示",
+  "Automatic": "自動",
+  "Island": "動態島",
+  "Session info: Hidden": "不顯示"
 }

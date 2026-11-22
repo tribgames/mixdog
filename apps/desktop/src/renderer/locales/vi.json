@@ -6496,5 +6496,9 @@
   "No changes": "Không có thay đổi",
   "{{count}} commits not pushed": "{{count}} commit chưa đẩy",
   "Resize session panel": "Đổi kích thước bảng phiên",
-  "{{width}} pixels": "{{width}} pixel"
+  "{{width}} pixels": "{{width}} pixel",
+  "Session info": "Thông tin phiên",
+  "Automatic": "Tự động",
+  "Island": "Đảo",
+  "Session info: Hidden": "Không hiển thị"
 }

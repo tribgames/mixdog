@@ -17,12 +17,16 @@ import { getStartupView, setStartupView, type StartupView } from '../startup-vie
 import { getTimeFormat, setTimeFormat, subscribeTimeFormat, type TimeFormat } from '../time-format-preference';
 import { isNativeDesktopWindow, isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
 import {
+  getSessionInfoDisplay,
   getSidePanelMode,
   getSidePanelPosition,
+  setSessionInfoDisplay,
   setSidePanelMode,
   setSidePanelPosition,
+  subscribeSessionInfoDisplay,
   subscribeSidePanelMode,
   subscribeSidePanelPosition,
+  type SessionInfoDisplay,
   type SidePanelMode,
   type SidePanelPosition,
 } from '../side-panel-preferences';
@@ -208,6 +212,7 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const narrow = window.matchMedia?.(NARROW_SHELL_QUERY).matches === true;
   const mode = narrow ? 'close-both' : configuredMode;
   const position = useSyncExternalStore(subscribeSidePanelPosition, getSidePanelPosition, () => 'right');
+  const sessionInfo = useSyncExternalStore(subscribeSessionInfoDisplay, getSessionInfoDisplay, () => 'auto');
   return (
     <>
       <SelectRow
@@ -232,6 +237,17 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
           { value: 'auto', label: t('Auto') },
         ]}
         onChange={(next) => setSidePanelPosition(next as SidePanelPosition)}
+      />
+      <SelectRow
+        title={t('Session info')}
+        value={sessionInfo}
+        disabled={Boolean(pending)}
+        options={[
+          { value: 'auto', label: t('Automatic') },
+          { value: 'island', label: t('Island') },
+          { value: 'none', label: t('Session info: Hidden') },
+        ]}
+        onChange={(next) => setSessionInfoDisplay(next as SessionInfoDisplay)}
       />
     </>
   );

@@ -6562,5 +6562,9 @@
   "No changes": "Keine Änderungen",
   "{{count}} commits not pushed": "{{count}} Commits nicht gepusht",
   "Resize session panel": "Größe des Sitzungsbereichs ändern",
-  "{{width}} pixels": "{{width}} Pixel"
+  "{{width}} pixels": "{{width}} Pixel",
+  "Session info": "Sitzungsinfo",
+  "Automatic": "Automatisch",
+  "Island": "Insel",
+  "Session info: Hidden": "Keine Anzeige"
 }

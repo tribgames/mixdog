@@ -61,12 +61,15 @@ function FileRow({ path, entry, onOpen }: { path: string; entry: TurnReviewFileE
 
 export function ChangesSection({
   view,
+  cwd,
   open,
   onToggle,
   onOpenChanges,
   onOpenChangeFile,
 }: {
   view: TurnReviewSegmentView;
+  /** The session's checkout: its commits not yet pushed keep the category. */
+  cwd: string;
   open: boolean;
   onToggle(): void;
   onOpenChanges?: () => void;
@@ -74,8 +77,11 @@ export function ChangesSection({
 }) {
   const source = useSessionChangesSource();
   const nonDefault = source !== DEFAULT_SESSION_CHANGES_SOURCE;
-  // An empty default source has nothing to show; another source stays so its picker can switch back.
-  if (view.fileCount === 0 && !nonDefault) return null;
+  const empty = view.fileCount === 0 && !nonDefault;
+  const status = useIslandGitStatus(empty ? cwd : '');
+  // An empty default source has nothing to show unless the branch is ahead (its picker then
+  // reaches the branch's files); another source stays so its picker can switch back.
+  if (empty && !(status?.repository && status.ahead > 0)) return null;
   const files = railChangedFiles(view.files);
   const { additions, deletions, hasLineStats } = view.headlineStats;
   return (
@@ -134,10 +140,12 @@ export function GitSection({
   onToggle(): void;
 }) {
   const { changes, ...git } = useIslandGitRequest({ sessionId, cwd });
-  const files = changes.summary.files.size + changes.untrackedOmitted;
-  // A changed file already decides visibility; the open category and an empty tree read the branch.
-  const status = useIslandGitStatus(git.ready && (open || !files) ? cwd : '');
+  const listed = changes.summary.files.size + changes.untrackedOmitted;
+  // A listed file already decides visibility; the open category and an empty list read the
+  // working tree itself (the list follows the Changes source, which may show none of it).
+  const status = useIslandGitStatus(git.ready && (open || !listed) ? cwd : '');
   const ahead = status?.repository ? status.ahead : 0;
+  const files = listed || (status?.repository ? status.files.length : 0);
   if (!git.ready || (files <= 0 && ahead <= 0)) return null;
   return (
     <RailSection

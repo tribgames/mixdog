@@ -11,7 +11,8 @@ import { useComposerUserMessages } from './conversation-pane-user-messages';
 import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
-import { sessionRailComposerMode, useSessionRailSlot } from './session-rail-layout';
+import { useSessionInfoDisplay } from './pane-side-dock-hooks';
+import { sessionRailHost, useSessionRailSlot } from './session-rail-layout';
 import { useSurfaceActive } from './surface-activity';
 
 // The panel's categories load with the first panel shown, as the island's Goal does.
@@ -210,12 +211,14 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const pendingInput = !draftMode && submission.steerItems.length > 0;
   const reviewBusy = Boolean(snapshot.busy || routeSnapshot.commandBusy);
   // The pane's session panel draws the session the pane shows, from its
-  // on-screen conversation only (sessionRailComposerMode).
+  // on-screen conversation only (sessionRailHost); it takes that
+  // conversation's island and the controls under its composer.
   const railSlot = useSessionRailSlot(props.paneLeafId ?? '');
   const onScreen = useSurfaceActive();
-  const railMode = sessionRailComposerMode(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
-  const railHost = railMode === 'off' ? null : railSlot.element;
-  const railColumn = railMode === 'column';
+  const railHost = sessionRailHost(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
+  const railShown = Boolean(railHost);
+  // Settings → Session info: Hidden draws neither the panel nor the island.
+  const islandOff = useSessionInfoDisplay() === 'none';
   return (
     <>
       {railHost &&
@@ -230,7 +233,6 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
               routeProject={routeProject}
               projects={props.projects}
               agentMode={agentMode}
-              column={railColumn}
               goalSubmissionId={submission.goalSubmissionId}
               reviewItems={submission.reviewItems}
               reviewActive={reviewActive}
@@ -275,7 +277,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       reviewBusy={reviewBusy}
       reviewSessionId={reviewSessionId}
       reviewCwd={routeProject}
-      islandHidden={railColumn}
+      islandHidden={railShown || islandOff}
     >
       <Composer
         onOpenFile={props.openFile}
@@ -291,7 +293,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         hasConversation={props.hasConversation}
         promptHistoryList={routeSnapshot.promptHistoryList}
         {...route}
-        bare={railColumn}
+        bare={railShown}
         draftMode={draftMode}
         onDraftModelSelection={onDraftModelSelection}
         onRoutePreferenceApplied={onRoutePreferenceApplied}

@@ -147,6 +147,7 @@ i18next.addResourceBundle('en', 'translation', {
   'Island: {{cost}} est. cost': '{{cost}} est. cost',
   'Turn changes: {{count}} files changed': '{{count}} files changed',
   'Preview badge: New': 'New',
+  'Session info: Hidden': 'Hidden',
   'Session send: Sent to {{name}}': 'Sent to {{name}}',
   'Turn changes: {{count}} files changed_other': '{{count}} files changed',
   // A settled tool group's past tense where English spells it apart (context "done").

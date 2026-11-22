@@ -215,7 +215,7 @@ export function InfoSection({
   projects: DesktopProjectSummary[];
   locked: boolean;
   agentMode: boolean;
-  /** Only the column answers requestOpenModelPicker (the composer's pill is gone then). */
+  /** The panel answers requestOpenModelPicker (the composer's pill is gone while it shows). */
   answersModelPickerRequests: boolean;
   model: RailModelProps;
   sessionChoices: RouteSessionChoice[];
@@ -231,6 +231,7 @@ export function InfoSection({
   // a room's members each run their own model (no model, no context).
   const routines = Boolean(agentIdOfHomeSession(sessionId) || roomIdOfSession(sessionId));
   const room = Boolean(roomIdOfSession(sessionId));
+  const usage = usageWithCostVariants(snapshot);
   return (
     <RailSection
       category="info"
@@ -294,16 +295,19 @@ export function InfoSection({
           <ComposerRoutineReadout sessionId={sessionId} hidden={!open} />
         </div>
       ) : (
-        <button
-          type="button"
-          className="session-rail-row session-rail-usage"
-          title={t('Open usage')}
-          onClick={() => onOpenCommandSurface('stats')}
-        >
-          <Activity size={14} className="session-rail-ic" aria-hidden="true" />
-          <span className="sr-only">{t('Usage')}</span>
-          <FittedReadout variants={usageWithCostVariants(snapshot)} title={t('Session usage')} />
-        </button>
+        // A session that has not run yet has no usage to read.
+        usage.some((items) => items.length > 0) && (
+          <button
+            type="button"
+            className="session-rail-row session-rail-usage"
+            title={t('Open usage')}
+            onClick={() => onOpenCommandSurface('stats')}
+          >
+            <Activity size={14} className="session-rail-ic" aria-hidden="true" />
+            <span className="sr-only">{t('Usage')}</span>
+            <FittedReadout variants={usage} title={t('Session usage')} />
+          </button>
+        )
       )}
     </RailSection>
   );
