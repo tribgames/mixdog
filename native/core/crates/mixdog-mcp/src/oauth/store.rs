@@ -29,7 +29,7 @@ pub const TOKENS_FLAG: &str = "+tokens";
 /// The identity of the installation whose data directory is `data_dir`, made on first use and kept in it. It names the
 /// installation's sign-ins in a secret store other installations share, so a copy of the directory that leaves this
 /// file out is another installation. `None`: the directory could not keep one.
-#[allow(clippy::disallowed_methods, reason = "one small file, read once while the daemon is composed")]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one small file, read once while the daemon is composed")]
 pub fn installation_identity(data_dir: &std::path::Path) -> Option<String> {
     use std::io::Write;
     let path = data_dir.join("installation-id");

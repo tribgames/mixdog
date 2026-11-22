@@ -400,7 +400,8 @@ impl Inner {
                     if let Some(failure) = self.fail_project_switch.lock().unwrap().take() {
                         return Err(failure);
                     }
-                    self.switch_project(session, cwd, desktop_session.clone(), false, Some(pending.clone()), &mut journal, cancel).await.map(JsonValue::String)
+                    let stored = super::worktree_project::Stored { desktop_session: desktop_session.clone(), project_move: Some(pending.clone()) };
+                    self.switch_project(session, cwd, stored, false, &mut journal, cancel).await.map(JsonValue::String)
                 }
             }
         }

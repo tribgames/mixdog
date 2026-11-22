@@ -485,6 +485,11 @@ impl LaneRecovery for FeedRecovery {
     }
 }
 
+/// What [`Feed::rebase`] asks of each positioned subscription: its id, its grant, the version a change would take and the
+/// feed's position; the ranges that survive with the encoded message that tells the subscription, or `None` to keep the
+/// grant.
+pub type Rebase<'a> = dyn FnMut(&SubscriptionId, &Grant, u64, &FeedPosition) -> Option<(GrantAsk, Bytes)> + 'a;
+
 /// The producer side of a feed.
 pub trait Feed: FeedSource {
     /// Appends `frames` (contiguous, starting at `position().seq + 1`) and, if given, swaps the
@@ -514,7 +519,7 @@ pub trait Feed: FeedSource {
     /// answering the ranges that survive with the encoded message that tells the subscription, pushed into its lane
     /// at once; `None` keeps the grant. Called by the producer right after it published the lineage change, so no
     /// frame of the new lineage is delivered by an old grant.
-    fn rebase(&self, _rebase: &mut dyn FnMut(&SubscriptionId, &Grant, u64, &FeedPosition) -> Option<(GrantAsk, Bytes)>) {}
+    fn rebase(&self, _rebase: &mut Rebase<'_>) {}
 
     /// The stored record `ordinal` of `lineage`, at `position`, as it reads now: each positioned subscription whose
     /// grant holds it is sent `frame` of how it holds it, at the feed's position, in its lane at once; one that

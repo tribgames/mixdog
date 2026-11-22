@@ -1112,9 +1112,9 @@ pub(crate) enum Inbox {
     /// the prune the turn stopped runs, as a turn's end runs it (`run_ended`).
     #[cfg(test)]
     AskEnded,
-    /// The idle deadline, come now: a test on the real clock does not wait out [`IDLE_EVICT`], and the session auto-retention
-    /// pass lets go of a session it loaded only to read ([`super::SessionDirectory::release`]). The unload is decided
-    /// as the deadline's is: a thread that is watched, working or busy stays.
+    /// The idle deadline, come now: a test on the real clock does not wait out [`IDLE_EVICT`]. The unload is decided as the
+    /// deadline's is: a thread that is watched, working or busy stays.
+    #[cfg(any(test, feature = "test-support"))]
     IdleDue,
     /// [`Inbox::IdleDue`] for a caller that waits for the decision: answered once the thread stays loaded or has left the
     /// directory (an archive of a tree lets go of what it opened before the next tree starts).
@@ -4952,6 +4952,7 @@ impl SessionActor {
                 self.cell.ask_marked.store(false, SeqCst);
                 self.run_deferred_prune();
             }
+            #[cfg(any(test, feature = "test-support"))]
             Inbox::IdleDue => self.on_idle_evict(),
             Inbox::IdleRelease(ack) => {
                 self.idle_acks.push(ack);

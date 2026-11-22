@@ -120,17 +120,17 @@ async fn page(deps: &SessionDeps, id: &ThreadId, at: PageAt, records: usize, lin
     Ok(page)
 }
 
-/// The range around `position`: its record, up to `before` rows older and `after` rows newer, whole records only.
+/// The range around `position`: its record, up to `around.0` rows older and `around.1` rows newer, whole records only.
 async fn range(
     deps: &SessionDeps,
     id: &ThreadId,
     name: String,
     position: &str,
-    before: usize,
-    after: usize,
+    around: (usize, usize),
     lineage: u64,
     ctl: &ReadCtl,
 ) -> Result<Wanted, CoreError> {
+    let (before, after) = around;
     let unknown = || invalid("want", "a position of this thread's history");
     // A record has one position, whichever of its rows the client named.
     let anchor = reads::record_position(reads::history_cursor_iid(position).ok_or_else(unknown)?);
@@ -208,16 +208,16 @@ pub(crate) async fn demand(
             WindowRangeWant::Retain { id } => {
                 Wanted { range: retained(id).ok_or_else(|| invalid("want.ranges", "ids of ranges the subscription holds"))?, units: None, keep: 0 }
             }
-            WindowRangeWant::Before { position, rows: before } => range(deps, id, name, position, rows(before), 0, lineage, ctl).await?,
-            WindowRangeWant::After { position, rows: after } => range(deps, id, name, position, 0, rows(after), lineage, ctl).await?,
-            WindowRangeWant::Around { position, before, after } => range(deps, id, name, position, rows(before), rows(after), lineage, ctl).await?,
+            WindowRangeWant::Before { position, rows: before } => range(deps, id, name, position, (rows(before), 0), lineage, ctl).await?,
+            WindowRangeWant::After { position, rows: after } => range(deps, id, name, position, (0, rows(after)), lineage, ctl).await?,
+            WindowRangeWant::Around { position, before, after } => range(deps, id, name, position, (rows(before), rows(after)), lineage, ctl).await?,
         });
     }
     for position in &want.pinned {
         let name = format!("pin:{position}");
         ranges.push(match retained(&name) {
             Some(range) => Wanted { range, units: None, keep: 0 },
-            None => range(deps, id, name, position, 0, 0, lineage, ctl).await?,
+            None => range(deps, id, name, position, (0, 0), lineage, ctl).await?,
         });
     }
     let keeps_tail = held.tail_from.is_some() && ranges.iter().any(|wanted| &*wanted.range.id == TAIL_RANGE);

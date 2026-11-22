@@ -76,6 +76,7 @@ pub struct SkillsService {
     durability: DurabilityIo,
     data_dir: PathBuf,
     /// Held across every read-change-write of the disabled list, so two changes never lose each other.
+    #[allow(clippy::disallowed_types, reason = "one change of the disabled list at a time, across the reads and the write it awaits")]
     list_lock: tokio::sync::Mutex<()>,
 }
 
@@ -193,6 +194,7 @@ fn deps_of(input: &Value, strict_null_clears: bool) -> Result<Deps, Failure> {
 
 impl SkillsService {
     #[allow(clippy::too_many_arguments, reason = "Explicit composition dependencies retain the existing public service constructor")]
+    #[allow(clippy::disallowed_types, reason = "see `list_lock`")]
     pub fn new(
         catalog: Arc<SkillCatalog>,
         settings: Arc<dyn SkillSettingsSource>,

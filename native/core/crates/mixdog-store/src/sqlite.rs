@@ -978,6 +978,8 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
 // Writer
 
 type Ack = oneshot::Sender<Result<(), DbError>>;
+/// The answer to a repair's work, which goes back to the queue with it until it is done.
+type RepairAck = mpsc::Sender<Result<(), DbError>>;
 
 /// The wait for the writer's answer to a projection already queued at it ([`SqliteStore::queue_projection`]).
 pub type Committed = std::pin::Pin<Box<dyn Future<Output = Result<(), DbError>> + Send>>;
@@ -1352,6 +1354,15 @@ struct SmallOut<'a> {
     edges: &'a mut Vec<RowEdge>,
 }
 
+/// What every session of one [`Writer::replay_whole`] transaction is written with: the labels, whether a sink watches, and
+/// the archive snapshot.
+#[derive(Clone, Copy)]
+struct WholeEnv<'a> {
+    labels: &'a PlaceholderLabels,
+    watch: bool,
+    archive: Option<&'a ArchiveSnapshot>,
+}
+
 /// One whole session of a rebuild inside a savepoint of [`Writer::replay_whole`]: the row dirty at the log's first frame,
 /// the frames, then the folded row clean with its damage, and with that row the session's debt and mark. Every row is
 /// taken from `budget` before it is written; `false` as soon as one does not fit, and the caller undoes the savepoint. The
@@ -1360,12 +1371,11 @@ fn whole_on(
     tx: &Transaction<'_>,
     replay: &Replay,
     finish: &Finish,
-    labels: &PlaceholderLabels,
-    watch: bool,
-    archive: Option<&ArchiveSnapshot>,
+    env: WholeEnv<'_>,
     edges: &mut Vec<RowEdge>,
     budget: &mut Budget,
 ) -> rusqlite::Result<bool> {
+    let WholeEnv { labels, watch, archive } = env;
     if !budget.reserve(ROW_ROOM + usize::from(replay.start.is_some())) {
         return Ok(false);
     }
@@ -1557,7 +1567,7 @@ struct Writer {
     /// The retirements whose frames are in, by session, until the row is written.
     retires: HashMap<String, Retiring>,
     /// The repairs' work taken and not yet done, in arrival order ([`Self::repair_step`]).
-    repairs: VecDeque<(RepairWork, mpsc::Sender<Result<(), DbError>>)>,
+    repairs: VecDeque<(RepairWork, RepairAck)>,
     /// The row a listing may have answered of each session whose rows a repair is replacing: what its complete row is told
     /// as a change from.
     replaced: HashMap<String, Option<StoredRow>>,
@@ -1921,10 +1931,10 @@ impl Writer {
     fn replay_whole(&mut self, first: Box<Replay>, ack: mpsc::Sender<Result<(), DbError>>, at: usize) {
         let watch = self.sink.get().is_some();
         let archive = bound_archive(&self.archive);
-        let mut applied: Vec<(String, mpsc::Sender<Result<(), DbError>>)> = Vec::new();
-        let mut refused: Vec<(mpsc::Sender<Result<(), DbError>>, String)> = Vec::new();
+        let mut applied: Vec<(String, RepairAck)> = Vec::new();
+        let mut refused: Vec<(RepairAck, String)> = Vec::new();
         // What goes back to the queue, in its order: a session that waits for the next transaction, or goes on in parts.
-        let mut back: Vec<(Box<Replay>, mpsc::Sender<Result<(), DbError>>)> = Vec::new();
+        let mut back: Vec<(Box<Replay>, RepairAck)> = Vec::new();
         let mut edges: Vec<RowEdge> = Vec::new();
         let mut told = 0usize;
         let mut budget = Budget::new(self.append_rows);
@@ -1937,7 +1947,8 @@ impl Writer {
                 tx.execute_batch("SAVEPOINT whole")?;
                 let mut changed = Vec::new();
                 let mut left = budget;
-                let fits = whole_on(&tx, &replay, &finish, labels, watch, archive.as_deref(), &mut changed, &mut left);
+                let env = WholeEnv { labels, watch, archive: archive.as_deref() };
+                let fits = whole_on(&tx, &replay, &finish, env, &mut changed, &mut left);
                 replay.finish = Some(finish);
                 match fits {
                     Ok(true) => {
