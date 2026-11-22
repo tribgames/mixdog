@@ -68,6 +68,55 @@ test('a row only the view holds is kept by a snapshot: before the first record, 
   assert.deepEqual(ids(s.items), ['r2', 'stop', 'r3', 'r4']);
 });
 
+test('after a compaction in a running turn, the ends of turns above the records carried stay out from under the divider', () => {
+  // The snapshot a positioned subscription is sent once a compaction ran in a long turn: the newest records (the last
+  // finished turn's reply with its end, the running turn's tool records, the divider riding the record it follows), and
+  // the rows no record holds: the live ends of three earlier turns whose records lie above, and the running turn's row.
+  const toolRecord = (id: string, ext: O = {}) => ({
+    position: pos(id),
+    items: [{ ...reply(id), meta: { ext: { historyPosition: pos(id), ...ext } } }],
+  });
+  const divider = { type: 'contextCompaction', id: 'k1', meta: { label: 'Conversation compacted', detail: '70s · 499k→67k' } };
+  const finished = {
+    position: pos('r306'),
+    items: [reply('r306'), { ...turnEnd('end306', { historyPosition: pos('r306') }), finalAssistantId: 'r306' }],
+  };
+  let s = sessionReducer.initial({
+    thread: { id: 't' },
+    state: {},
+    items: [
+      turnEnd('e3052', { shownAfter: pos('a1'), shownStored: true }),
+      turnEnd('e728', { shownAfter: pos('a2'), shownStored: true }),
+      turnEnd('e26', { shownAfter: pos('a3'), shownStored: true }),
+      { type: 'agentMessage', id: 'running', text: 'running', meta: { ext: { shownAfter: pos('t2') } } },
+    ],
+    hasOlder: true,
+    window: {
+      windowVersion: 10,
+      lineage: 1,
+      ranges: [{ id: 'tail', older: cont(pos('r306')), newer: end }],
+      added: [{ range: 'tail', units: [finished, toolRecord('t1'), toolRecord('t2', { dividersAfter: [divider] })] }],
+      followTail: true,
+    },
+  } as unknown as Json);
+  assert.deepEqual(ids(s.items), ['r306', 'end306', 't1', 't2', 'k1', 'running'], 'no end of a turn shown nowhere else');
+
+  // Read back to them, each end stands with its own turn, above the finished one.
+  s = at(
+    s,
+    'thread/window/changed',
+    changed(
+      11,
+      [
+        { id: 'tail', older: cont(pos('r306')), newer: end },
+        { id: 'q:q11:0', older: end, newer: cont(pos('r306')) },
+      ],
+      [{ range: 'q:q11:0', units: ['a1', 'a2', 'a3', 'r306'].map((id) => (id === 'r306' ? finished : unit(id))) }]
+    )
+  );
+  assert.deepEqual(ids(s.items), ['a1', 'e3052', 'a2', 'e728', 'a3', 'e26', 'r306', 'end306', 't1', 't2', 'k1', 'running']);
+});
+
 test('a row that names a record still to arrive waits after the tail and then stands after that record', () => {
   // The reply r4 is shown and not yet stored when the snapshot is taken: its turn's end names it.
   let s = snapshot(['r2', 'r3'], [turnEnd('e4', { shownAfter: pos('r4') })], true);
