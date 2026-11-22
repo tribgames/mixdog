@@ -3288,6 +3288,23 @@
     {
       "id": [
         "node",
+        "apps/desktop/src/main/browser/profile-import-saved-key.slow.test.mjs",
+        "an unreadable Local State refuses the import with a fixed reason that names no path or content"
+      ],
+      "platform": "linux",
+      "kind": "skip",
+      "reasonCode": "uncoded",
+      "reasonText": "",
+      "owner": "release-engineering",
+      "reason": "Windows-only behaviour (skips on Linux and macOS)",
+      "replacement": {
+        "kind": "runs",
+        "in": ["windows/desktop-computer/1of1#windows-only-slow"]
+      }
+    },
+    {
+      "id": [
+        "node",
         "apps/desktop/src/main/secret-file.test.mjs",
         "repeated secret reads verify the ACL without spawning a process; a widened ACL is tightened"
       ],

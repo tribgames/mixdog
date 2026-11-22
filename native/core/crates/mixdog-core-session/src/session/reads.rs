@@ -361,7 +361,7 @@ pub(super) fn decorate(shown: &mut Vec<(ThreadItem, usize)>, mut rows: Vec<(Thre
     shown.extend(rows);
     let Some((host, _)) = shown.last_mut().filter(|_| !decor.dividers_after.is_empty()) else { return };
     let ext = &mut super::view::meta_mut(host).ext;
-    let mut after = match ext.remove(DIVIDERS_AFTER) {
+    let mut after = match ext.shift_remove(DIVIDERS_AFTER) {
         Some(Value::Array(after)) => after,
         _ => Vec::new(),
     };

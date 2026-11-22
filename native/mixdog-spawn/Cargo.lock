@@ -1577,6 +1577,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-core",
+ "tracing-log",
  "tracing-subscriber",
  "ttf-parser",
  "tungstenite",
