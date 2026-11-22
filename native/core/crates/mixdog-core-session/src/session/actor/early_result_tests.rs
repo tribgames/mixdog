@@ -140,7 +140,7 @@ fn snapshot(handle: &SessionHandle) -> BTreeMap<String, (Option<String>, bool)> 
         .filter_map(|item| match item.as_ref() {
             ThreadItem::ToolCall { id, run, .. } => {
                 let result = match &run.result {
-                    Some(mixdog_protocol::MaybeBlob::Inline(text)) => Some(text.clone()),
+                    Some(mixdog_protocol::MaybeBlob::Inline(text)) => Some(text.as_str().to_owned()),
                     _ => None,
                 };
                 Some((id.as_str().to_owned(), (result, run.completed_at.is_some())))

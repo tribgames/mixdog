@@ -313,6 +313,7 @@ pub use self::store::StoreThreads;
 pub use self::surface::HeaderToolSurfaces;
 pub use self::surface::NoRouteExclusions;
 pub use self::surface::RouteExclusions;
+pub use self::transcript::LiveRow;
 pub use self::transcript::StoredRows;
 use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::Devices;

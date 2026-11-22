@@ -12,8 +12,8 @@
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::schema::record::Header;
 use crate::schema::record::WorkStopPhase;
+use crate::schema::shared_header::HeaderMap;
 
 const STOPPED: &str = "stoppedWork";
 const OWED: &str = "owedStops";
@@ -45,21 +45,21 @@ pub fn queues(body: &Value) -> Vec<String> {
 }
 
 /// The Stop that made `identity` terminal, if one did.
-pub fn stopped<'h>(header: &'h Header, identity: &str) -> Option<&'h str> {
-    header.get(STOPPED).and_then(Value::as_object).and_then(|stopped| stopped.get(identity)).and_then(Value::as_str)
+pub fn stopped<'h, H: HeaderMap + ?Sized>(header: &'h H, identity: &str) -> Option<&'h str> {
+    header.value(STOPPED).and_then(Value::as_object).and_then(|stopped| stopped.get(identity)).and_then(Value::as_str)
 }
 
 /// The Stops whose outcome is still owed, with their bodies, in record order.
-pub fn owed(header: &Header) -> Vec<(String, Value)> {
-    header.get(OWED).and_then(Value::as_object).map(|owed| owed.iter().map(|(sid, body)| (sid.clone(), body.clone())).collect()).unwrap_or_default()
+pub fn owed<H: HeaderMap + ?Sized>(header: &H) -> Vec<(String, Value)> {
+    header.value(OWED).and_then(Value::as_object).map(|owed| owed.iter().map(|(sid, body)| (sid.clone(), body.clone())).collect()).unwrap_or_default()
 }
 
-fn map<'h>(header: &'h mut Header, key: &str) -> Option<&'h mut Map<String, Value>> {
-    header.entry(key).or_insert_with(|| Value::Object(Map::new())).as_object_mut()
+fn map<'h, H: HeaderMap + ?Sized>(header: &'h mut H, key: &str) -> Option<&'h mut Map<String, Value>> {
+    header.value_or_insert(key, || Value::Object(Map::new())).as_object_mut()
 }
 
 /// The fold of one `work_stop` record: the queue ids whose copies leave the queue.
-pub fn apply(header: &mut Header, sid: &str, phase: WorkStopPhase, body: Option<&Value>) -> Vec<String> {
+pub fn apply<H: HeaderMap + ?Sized>(header: &mut H, sid: &str, phase: WorkStopPhase, body: Option<&Value>) -> Vec<String> {
     match phase {
         WorkStopPhase::Stopped => {
             let Some(body) = body else { return Vec::new() };
@@ -78,7 +78,7 @@ pub fn apply(header: &mut Header, sid: &str, phase: WorkStopPhase, body: Option<
             queues
         }
         WorkStopPhase::Settled => {
-            if let Some(owed) = header.get_mut(OWED).and_then(Value::as_object_mut) {
+            if let Some(owed) = header.value_mut(OWED).and_then(Value::as_object_mut) {
                 owed.shift_remove(sid);
             }
             Vec::new()
@@ -95,6 +95,7 @@ mod tests {
     use crate::fold::NoIndex;
     use crate::schema::blob::Slot;
     use crate::schema::checkpoint::FramePos;
+    use crate::schema::record::Header;
     use crate::schema::record::QueueAction;
     use crate::schema::record::QueueRecord;
     use crate::schema::record::Record;

@@ -159,6 +159,62 @@ test('a thread followed outside the view is let go once it stayed unwanted, and 
   mock.timers.reset();
 });
 
+/** The rig's client, following `folds` outside the view; `restoring` names the threads whose resume after a reconnect is out. */
+function following(client: ViewClient, folds: Set<string>, restoring = new Set<string>()) {
+  const library = client as unknown as {
+    store: { threads: { keys(): Iterable<string> } };
+    threadSubscription(id: string): { followed: boolean; held: boolean; restoring: boolean };
+  };
+  library.store.threads = { keys: () => folds.keys() };
+  library.threadSubscription = (id) => ({ followed: folds.has(id), held: false, restoring: restoring.has(id) });
+}
+
+test('a stray whose restore after a reconnect is still out is not let go until that restore has ended', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, client, manager } = rig();
+  mock.timers.tick(0);
+  await manager.synced();
+  const restoring = new Set<string>();
+  following(client, new Set(['t1', 'hovered']), restoring);
+  const drops = () => calls.filter((call) => call.startsWith('drop:'));
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  // The phone reconnected: the library's resume of the thread is in flight when the release sweep runs.
+  restoring.add('hovered');
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.deepEqual(drops(), [], 'an unsubscribe now could be answered before the restore attaches the thread');
+  restoring.clear();
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.deepEqual(drops(), ['drop:hovered']);
+  manager.stop();
+  mock.timers.reset();
+});
+
+test("a stray's age is its follow's: a thread a pane showed in between starts over when it is followed outside the view again", async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const { calls, client, manager } = rig();
+  mock.timers.tick(0);
+  await manager.synced();
+  const folds = new Set(['t1', 'T']);
+  following(client, folds);
+  const drops = () => calls.filter((call) => call === 'drop:T').length;
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.equal(drops(), 0);
+  // A pane opens the thread and closes it (the view lets it go itself); the list prefetches it again just before the sweep.
+  await manager.set(['t1', 'T']);
+  await manager.set(['t1']);
+  assert.equal(drops(), 1, 'the view released the thread its pane closed');
+  folds.add('T');
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.equal(drops(), 1, 'the new follow is not let go on the age of the one before it');
+  mock.timers.tick(STRAY_FOLLOW_RELEASE_MS / 2);
+  assert.equal(drops(), 2);
+  manager.stop();
+  mock.timers.reset();
+});
+
 test('a refused re-attachment three times in a row recycles the connection and rejects the waiting call', async () => {
   const { client, status, store, events, manager } = rig();
   await manager.synced();

@@ -209,8 +209,10 @@ impl SessionHandle {
     }
 
     /// The messages of the session's current turn transcript, as a snapshot.
-    pub fn turn_messages_snapshot(&self) -> Arc<Vec<Value>> {
-        self.cell.turn_messages.borrow().clone()
+    pub fn turn_messages_snapshot(&self) -> Vec<Value> {
+        // The list is taken under the cell's lock and the rows are made outside it.
+        let held = self.cell.turn_messages.borrow().clone();
+        super::transcript::LiveRow::values(&held)
     }
 
     /// The session's latest acked header (`SessionGate`'s `LiveHeader`).

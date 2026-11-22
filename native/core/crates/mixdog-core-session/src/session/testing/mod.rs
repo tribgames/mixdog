@@ -1311,7 +1311,7 @@ impl Transcript for TextTranscript {
                 output: None,
                 run: Box::new(mixdog_protocol::ToolRun {
                     call_id: Some(call.to_owned()),
-                    result: Some(MaybeBlob::Inline(body["text"].as_str().unwrap_or_default().to_owned())),
+                    result: Some(MaybeBlob::Inline(body["text"].as_str().unwrap_or_default().into())),
                     ..Default::default()
                 }),
                 meta: ItemMeta::default(),

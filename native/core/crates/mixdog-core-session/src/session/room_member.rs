@@ -40,7 +40,7 @@ fn snapshot_row(item: &ThreadItem) -> Value {
     if let ThreadItem::ToolCall { name, run, .. } = item {
         row["name"] = json!(name);
         if let Some(MaybeBlob::Inline(result)) = &run.result {
-            row["result"] = json!(result);
+            row["result"] = json!(result.as_str());
         }
     }
     row

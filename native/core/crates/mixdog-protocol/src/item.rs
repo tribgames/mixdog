@@ -10,6 +10,7 @@ use crate::ItemId;
 use crate::JsonObject;
 use crate::JsonValue;
 use crate::MaybeBlob;
+use crate::SharedText;
 use crate::ThreadId;
 use crate::TurnId;
 
@@ -457,10 +458,14 @@ pub struct ToolRun {
     /// The call id tying the row to its call and result messages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
+    // Not a doc comment: it would enter the generated schema. The result and the raw result are shared texts: every copy of
+    // the row holds them by count, and a raw result that is the result is the same allocation (`share_equal_results`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result: Option<MaybeBlob<String>>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<MaybeBlob<String>>"), ts(as = "Option<MaybeBlob<String>>"))]
+    pub result: Option<MaybeBlob<SharedText>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw_result: Option<MaybeBlob<String>>,
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<MaybeBlob<String>>"), ts(as = "Option<MaybeBlob<String>>"))]
+    pub raw_result: Option<MaybeBlob<SharedText>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -726,8 +731,8 @@ pub enum ThreadItem {
         name: String,
         input: JsonValue,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "codegen", ts(optional))]
-        output: Option<MaybeBlob<JsonValue>>,
+        #[cfg_attr(feature = "codegen", schemars(with = "Option<MaybeBlob<JsonValue>>"), ts(optional, as = "Option<MaybeBlob<JsonValue>>"))]
+        output: Option<MaybeBlob<ToolOutput>>,
         /// The tool row's shared facts (call id, display args/result, timing, aggregate).
         #[serde(default, skip_serializing_if = "ToolRun::is_empty_boxed")]
         run: Box<ToolRun>,
@@ -821,7 +826,66 @@ impl UserRowDetails {
     }
 }
 
+/// A tool call's `output`: any JSON value on the wire. A text, which is what a result is, is held as the shared text the
+/// row's `run.result` is, so a card that states its result in both holds it once.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolOutput {
+    Text(SharedText),
+    Value(JsonValue),
+}
+
+impl ToolOutput {
+    pub fn to_value(&self) -> JsonValue {
+        match self {
+            Self::Text(text) => JsonValue::String(text.as_str().to_owned()),
+            Self::Value(value) => value.clone(),
+        }
+    }
+}
+
+impl From<JsonValue> for ToolOutput {
+    fn from(value: JsonValue) -> Self {
+        match value {
+            JsonValue::String(text) => Self::Text(text.into()),
+            value => Self::Value(value),
+        }
+    }
+}
+
+impl From<ToolOutput> for JsonValue {
+    fn from(output: ToolOutput) -> Self {
+        match output {
+            ToolOutput::Text(text) => JsonValue::String(text.into()),
+            ToolOutput::Value(value) => value,
+        }
+    }
+}
+
+impl Serialize for ToolOutput {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Text(text) => text.serialize(serializer),
+            Self::Value(value) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolOutput {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        JsonValue::deserialize(deserializer).map(Self::from)
+    }
+}
+
 impl ToolRun {
+    /// A raw result that says what the result says becomes the result's allocation.
+    pub fn share_equal_results(&mut self) {
+        if let (Some(MaybeBlob::Inline(result)), Some(MaybeBlob::Inline(raw))) = (&self.result, &mut self.raw_result)
+            && result == raw
+        {
+            *raw = result.clone();
+        }
+    }
+
     #[allow(clippy::borrowed_box)]
     pub fn is_empty_boxed(run: &Box<Self>) -> bool {
         run.is_empty()

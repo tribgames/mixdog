@@ -450,7 +450,7 @@ impl TranscriptSink for PortSink {
         {
             let mut turn = lock(&self.turn);
             turn.push(held);
-            self.live.publish(&turn, &*self.rows);
+            self.live.publish_stored(&turn, &self.rows);
         }
         // The shown item is the message's item: a later rewrite of the context names it by this id.
         if let (Some(id), Some(iid)) = (&message.message_id, &shown) {

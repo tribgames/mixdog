@@ -69,7 +69,7 @@ async fn header_of(data: &Path, store: &SqliteStore, id: &str) -> Header {
         .unwrap()
         .await
         .unwrap();
-    opened.fold.header.clone()
+    opened.fold.header.to_map()
 }
 
 /// The model context of `id` as (role, whole message body) rows, read through the store's lane steps in pages of two.

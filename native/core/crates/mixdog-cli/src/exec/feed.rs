@@ -134,8 +134,8 @@ fn item_completed(params: &Value) -> Result<Option<Obs>, String> {
         }
         ThreadItem::ToolCall { id, name, output, run, meta, .. } => {
             let content = match (&run.result, &output) {
-                (Some(result), _) => Value::String(inline(result)?),
-                (None, Some(output)) => inline(output)?,
+                (Some(result), _) => Value::String(inline(result)?.into()),
+                (None, Some(output)) => inline(output)?.into(),
                 // The card of a call whose result has not come in (the assistant message that carries it committed).
                 (None, None) => return Ok(None),
             };

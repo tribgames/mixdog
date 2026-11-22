@@ -194,7 +194,7 @@ impl RouteSession for SessionRouteAdapter {
     }
 
     async fn live_turn_messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
-        Ok(self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default())
+        Ok(self.directory.handle(thread).map(|handle| handle.turn_messages_snapshot()).unwrap_or_default())
     }
 
     fn has_user_conversation(&self, messages: &[Value]) -> bool {

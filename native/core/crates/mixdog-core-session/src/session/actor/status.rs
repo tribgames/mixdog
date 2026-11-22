@@ -202,7 +202,7 @@ impl SessionActor {
         if !moves {
             return None;
         }
-        let mut next = header.clone();
+        let mut next = Header::clone(header);
         for key in unset {
             next.shift_remove(*key);
         }

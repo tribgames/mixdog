@@ -112,9 +112,10 @@ pub(crate) fn live_result(
         if let Some(text) = run.call_id.as_deref().and_then(|call| abort_ended.get(call)) {
             // The card the Stop ended is finalized as cancelled (`finalizeOpenCards(…, { cancelled })`, tool-card-results.mjs:88-97).
             meta.status = Some(mixdog_protocol::ItemStatus::Interrupted);
+            let text = mixdog_protocol::SharedText::from(text.as_str());
             run.result = Some(mixdog_protocol::MaybeBlob::Inline(text.clone()));
             run.is_error = Some(true);
-            *output = Some(mixdog_protocol::MaybeBlob::Inline(Value::String(text.clone())));
+            *output = Some(mixdog_protocol::MaybeBlob::Inline(mixdog_protocol::ToolOutput::Text(text)));
         }
     }
     update

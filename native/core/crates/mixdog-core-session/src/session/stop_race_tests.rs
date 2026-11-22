@@ -400,7 +400,7 @@ async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
     });
     let expected = format!("Error: Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
     // The card is ended by the Stop: `interrupted`, which the client finalizes as a cancelled card.
-    assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected)), Some(true), Some(mixdog_protocol::ItemStatus::Interrupted))));
+    assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected.into())), Some(true), Some(mixdog_protocol::ItemStatus::Interrupted))));
 }
 
 /// Every run's prompt is noted as it reaches the provider (the script is the provider); a run of `first` waits for `gate`, any

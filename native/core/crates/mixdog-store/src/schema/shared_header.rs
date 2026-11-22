@@ -57,7 +57,7 @@ impl SharedHeader {
 
     /// Sets `key`, keeping its place if it is there already (as the map does). Returns the value it replaced.
     pub fn insert(&mut self, key: String, value: Value) -> Option<Arc<Value>> {
-        self.entries.insert(key, Arc::new(value))
+        self.entries.insert(key, share(value))
     }
 
     /// [`Self::insert`] of a value that is already shared: another header's, or one kept once for many sessions.
@@ -89,15 +89,152 @@ impl SharedHeader {
     }
 }
 
+/// A value of at least this many bytes of text is held once in the process: every header that is given an equal one holds
+/// the same allocation. A session's tool definitions, its deferred catalog and its prompt texts are such values, the same in
+/// every session of a route, and each loaded session held its own copy of them.
+const SHARED_ONCE_MIN_BYTES: usize = 2048;
+
+/// The large values headers hold now, by content hash. An entry whose headers are all gone is dropped when its bucket is
+/// next read, and the whole table is swept as it doubles.
+struct SharedOnce {
+    held: std::collections::HashMap<u64, Vec<std::sync::Weak<Value>>>,
+    sweep_at: usize,
+}
+
+static SHARED_ONCE: std::sync::Mutex<Option<SharedOnce>> = std::sync::Mutex::new(None);
+
+/// Whether `value` holds at least `left` bytes of text (strings and keys), counted only as far as that.
+fn weighs(value: &Value, left: &mut usize) -> bool {
+    match value {
+        Value::String(text) => *left = left.saturating_sub(text.len()),
+        Value::Array(items) => return items.iter().any(|item| weighs(item, left)),
+        Value::Object(map) => {
+            return map.iter().any(|(key, item)| {
+                *left = left.saturating_sub(key.len());
+                *left == 0 || weighs(item, left)
+            });
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => *left = left.saturating_sub(1),
+    }
+    *left == 0
+}
+
+fn hash_of(value: &Value, state: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    match value {
+        Value::Null => 0u8.hash(state),
+        Value::Bool(flag) => (1u8, flag).hash(state),
+        Value::Number(number) => (2u8, number).hash(state),
+        Value::String(text) => (3u8, text).hash(state),
+        Value::Array(items) => {
+            (4u8, items.len()).hash(state);
+            items.iter().for_each(|item| hash_of(item, state));
+        }
+        Value::Object(map) => {
+            (5u8, map.len()).hash(state);
+            for (key, item) in map {
+                key.hash(state);
+                hash_of(item, state);
+            }
+        }
+    }
+}
+
+/// `value` behind a count: its own, or for a large value the one every header with an equal value holds.
+fn share(value: Value) -> Arc<Value> {
+    if !weighs(&value, &mut { SHARED_ONCE_MIN_BYTES }) {
+        return Arc::new(value);
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_of(&value, &mut hasher);
+    let hash = std::hash::Hasher::finish(&hasher);
+    let mut guard = SHARED_ONCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let table = guard.get_or_insert_with(|| SharedOnce { held: std::collections::HashMap::new(), sweep_at: 64 });
+    let bucket = table.held.entry(hash).or_default();
+    bucket.retain(|held| held.strong_count() > 0);
+    if let Some(held) = bucket.iter().filter_map(std::sync::Weak::upgrade).find(|held| **held == value) {
+        return held;
+    }
+    let value = Arc::new(value);
+    bucket.push(Arc::downgrade(&value));
+    if table.held.len() >= table.sweep_at {
+        table.held.retain(|_, bucket| {
+            bucket.retain(|held| held.strong_count() > 0);
+            !bucket.is_empty()
+        });
+        table.sweep_at = (table.held.len() * 2).max(64);
+    }
+    value
+}
+
+/// What the folds of a header read and change of it, whichever type holds it (`completion_receipts`, `work_stops`).
+pub trait HeaderMap {
+    fn value(&self, key: &str) -> Option<&Value>;
+    fn value_mut(&mut self, key: &str) -> Option<&mut Value>;
+    /// The value at `key` to change in place, `default()` set there first when the header has none.
+    fn value_or_insert(&mut self, key: &str, default: fn() -> Value) -> &mut Value;
+}
+
+impl HeaderMap for Map<String, Value> {
+    fn value(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+
+    fn value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.get_mut(key)
+    }
+
+    fn value_or_insert(&mut self, key: &str, default: fn() -> Value) -> &mut Value {
+        self.entry(key).or_insert_with(default)
+    }
+}
+
+impl HeaderMap for SharedHeader {
+    fn value(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+
+    fn value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        self.get_mut(key)
+    }
+
+    fn value_or_insert(&mut self, key: &str, default: fn() -> Value) -> &mut Value {
+        Arc::make_mut(self.entries.entry(key.to_owned()).or_insert_with(|| Arc::new(default())))
+    }
+}
+
+impl<T: HeaderMap + Clone> HeaderMap for Arc<T> {
+    fn value(&self, key: &str) -> Option<&Value> {
+        (**self).value(key)
+    }
+
+    fn value_mut(&mut self, key: &str) -> Option<&mut Value> {
+        Arc::make_mut(self).value_mut(key)
+    }
+
+    fn value_or_insert(&mut self, key: &str, default: fn() -> Value) -> &mut Value {
+        Arc::make_mut(self).value_or_insert(key, default)
+    }
+}
+
+/// As the map's index: the value at a key the header holds.
+impl std::ops::Index<&str> for SharedHeader {
+    type Output = Value;
+
+    fn index(&self, key: &str) -> &Value {
+        self.get(key).expect("no entry found for key")
+    }
+}
+
 impl From<Map<String, Value>> for SharedHeader {
     fn from(map: Map<String, Value>) -> Self {
-        Self { entries: map.into_iter().map(|(key, value)| (key, Arc::new(value))).collect() }
+        Self { entries: map.into_iter().map(|(key, value)| (key, share(value))).collect() }
     }
 }
 
 impl FromIterator<(String, Value)> for SharedHeader {
     fn from_iter<I: IntoIterator<Item = (String, Value)>>(entries: I) -> Self {
-        Self { entries: entries.into_iter().map(|(key, value)| (key, Arc::new(value))).collect() }
+        Self { entries: entries.into_iter().map(|(key, value)| (key, share(value))).collect() }
     }
 }
 
@@ -202,6 +339,36 @@ mod tests {
         assert_eq!(header.keys().collect::<Vec<_>>(), map.keys().collect::<Vec<_>>());
         assert_eq!(header.to_map(), map);
         assert_eq!((header.len(), header.contains_key("id"), header.contains_key("gone")), (4, true, false));
+    }
+
+    /// A large value is one allocation for every header given an equal one, however each came by it (read from bytes, set,
+    /// converted from a map), and a small value is each header's own. A header that changes its large value in place takes
+    /// a copy and leaves the others' as it was; that copy is its own until a header is given the value again.
+    #[test]
+    fn a_large_value_is_held_once_by_every_header_that_holds_an_equal_one() {
+        let catalog = json!((0..64).map(|n| json!({ "name": format!("tool-{n}"), "description": "d".repeat(64) })).collect::<Vec<_>>());
+        let map = |model: &str| {
+            let Value::Object(map) = json!({ "model": model, "deferredToolCatalog": catalog.clone() }) else { unreachable!() };
+            map
+        };
+        let first = SharedHeader::from(map("a"));
+        let read: SharedHeader = serde_json::from_slice(&serde_json::to_vec(&map("b")).unwrap()).unwrap();
+        let mut set = SharedHeader::new();
+        set.insert("deferredToolCatalog".into(), catalog.clone());
+        for other in [&read, &set] {
+            assert!(Arc::ptr_eq(first.get_shared("deferredToolCatalog").unwrap(), other.get_shared("deferredToolCatalog").unwrap()));
+        }
+        let (small_a, small_b) = (SharedHeader::from(map("m")), SharedHeader::from(map("m")));
+        assert!(!Arc::ptr_eq(small_a.get_shared("model").unwrap(), small_b.get_shared("model").unwrap()), "a small value is not looked up");
+
+        set.get_mut("deferredToolCatalog").unwrap()[0]["name"] = json!("changed");
+        assert_eq!(first.get("deferredToolCatalog"), Some(&catalog));
+        assert!(Arc::ptr_eq(first.get_shared("deferredToolCatalog").unwrap(), read.get_shared("deferredToolCatalog").unwrap()));
+        assert!(!Arc::ptr_eq(first.get_shared("deferredToolCatalog").unwrap(), set.get_shared("deferredToolCatalog").unwrap()));
+        let given = || SharedHeader::from_iter([("deferredToolCatalog".to_owned(), set.get("deferredToolCatalog").unwrap().clone())]);
+        let (changed, again) = (given(), given());
+        assert!(Arc::ptr_eq(changed.get_shared("deferredToolCatalog").unwrap(), again.get_shared("deferredToolCatalog").unwrap()));
+        assert!(!Arc::ptr_eq(changed.get_shared("deferredToolCatalog").unwrap(), first.get_shared("deferredToolCatalog").unwrap()));
     }
 
     /// A key written twice in the bytes keeps its first place and its last value, as the map reads it.

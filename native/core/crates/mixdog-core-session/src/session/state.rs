@@ -160,7 +160,9 @@ pub(crate) struct PendingApprovalRow {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SessionState {
-    pub header: Header,
+    /// One allocation shared by the session's two states and its published live header while they say the same; a change
+    /// copies it for the state it changes (`Arc::make_mut`), and the states meet again once both have folded it.
+    pub header: Arc<Header>,
     pub history_rev: u64,
     pub lineage_start: u64,
     /// Runs started without a terminal phase, with their drafts (`draft` records).
@@ -390,10 +392,10 @@ mod tests {
     fn the_header_states_the_cwd_the_window_and_the_tool_mode() {
         let mut state = SessionState::new(10);
         assert_eq!(state.runtime(StorageState::Ok).tool_mode.as_deref(), Some("full"));
-        state.header.insert("cwd".into(), json!("/work"));
-        state.header.insert("rawContextWindow".into(), json!(128000));
-        state.header.insert("effectiveContextWindowPercent".into(), json!(100));
-        state.header.insert("toolMode".into(), json!("readonly"));
+        Arc::make_mut(&mut state.header).insert("cwd".into(), json!("/work"));
+        Arc::make_mut(&mut state.header).insert("rawContextWindow".into(), json!(128000));
+        Arc::make_mut(&mut state.header).insert("effectiveContextWindowPercent".into(), json!(100));
+        Arc::make_mut(&mut state.header).insert("toolMode".into(), json!("readonly"));
         let (route, context, runtime) = (state.route(), state.context(), state.runtime(StorageState::Ok));
         assert_eq!((route.cwd.as_deref(), route.session_forked_from), (Some("/work"), None));
         assert_eq!((context.raw_context_window, context.effective_context_window_percent, context.compact_boundary_tokens), (Some(128000), Some(100), Some(0)));
@@ -419,11 +421,11 @@ mod tests {
         let mut state = SessionState::new(10);
         let route = json!({ "provider": "p", "model": "m", "effort": "ultra", "effectiveEffort": "high" });
         let pick = mixdog_core_ports::ports::route::held_route_pick(route.as_object().unwrap());
-        state.header.insert("pendingRoute".into(), Value::Object(pick));
+        Arc::make_mut(&mut state.header).insert("pendingRoute".into(), Value::Object(pick));
         assert_eq!(state.route().effort.as_deref(), Some("high"));
         let asked = json!({ "provider": "p", "model": "m", "effort": "ultra" });
         let pick = mixdog_core_ports::ports::route::held_route_pick(asked.as_object().unwrap());
-        state.header.insert("pendingRoute".into(), Value::Object(pick));
+        Arc::make_mut(&mut state.header).insert("pendingRoute".into(), Value::Object(pick));
         assert_eq!(state.route().effort.as_deref(), Some("ultra"), "no clamp, the asked effort");
     }
 
@@ -543,13 +545,13 @@ impl SessionState {
 
     fn apply_record(&mut self, record: &Record, display: &Display, ordinal: Option<u64>) {
         if let Some(qid) = completion_receipt_of(record) {
-            mixdog_store::completion_receipts::record(&mut self.header, &qid);
+            mixdog_store::completion_receipts::record(Arc::make_mut(&mut self.header), &qid);
             self.queue.retain(|q| q.qid != qid);
         }
         match record {
             Record::Session(session) => {
                 if let Slot::Inline(header) = &session.header {
-                    self.header = header.clone();
+                    self.header = Arc::new(header.clone());
                 }
                 if let Some(ordinal) = ordinal {
                     self.lineage_start = ordinal + 1;
@@ -606,7 +608,7 @@ impl SessionState {
                     Some(Slot::Inline(body)) => Some(body),
                     _ => None,
                 };
-                let gone = mixdog_store::work_stops::apply(&mut self.header, stop.sid.as_str(), stop.phase, body);
+                let gone = mixdog_store::work_stops::apply(Arc::make_mut(&mut self.header), stop.sid.as_str(), stop.phase, body);
                 self.queue.retain(|q| !gone.contains(&q.qid));
             }
             Record::Op(_) | Record::Checkpoint(_) => {}
@@ -639,11 +641,12 @@ impl SessionState {
             }
             route.turn_effort = None;
         }
+        let header = Arc::make_mut(&mut self.header);
         for key in &change.unset {
-            self.header.shift_remove(key);
+            header.shift_remove(key);
         }
         for (key, value) in &change.set {
-            self.header.insert(key.clone(), value.clone());
+            header.insert(key.clone(), value.clone());
         }
         self.sections.title = title_of(&self.header);
     }
