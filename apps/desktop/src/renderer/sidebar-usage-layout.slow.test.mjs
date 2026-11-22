@@ -169,8 +169,7 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
   await page.waitForFunction(() => document.querySelectorAll('[data-usage-pin]').length === 3);
   assert.equal(await stackHeight(), usagePinStackHeight(3));
 
-  // Every window's bar: its painted share of the track, caps included, and its
-  // drawn band, from the computed stroke the stylesheet leaves on it.
+  // Every window's capsule: its fill's share of the capsule and its drawn band.
   const bars = await page.evaluate(() =>
     [...document.querySelectorAll('[data-usage-window]')].map((bar) => {
       const track = bar.querySelector('.rail-usage-pin-track');
@@ -178,12 +177,9 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
       const slot = bar.closest('[data-usage-pin]').getAttribute('data-usage-pin');
       const key = `${slot}:${bar.getAttribute('data-usage-window')}`;
       const box = track.getBoundingClientRect();
-      const thickness = Number.parseFloat(getComputedStyle(track).strokeWidth);
-      const band = { top: box.top + box.height / 2 - thickness / 2, thickness };
+      const band = { top: box.top, thickness: box.height, left: box.left, width: box.width };
       if (!fill) return { key, painted: 0, band };
-      const style = getComputedStyle(fill);
-      const capped = style.strokeLinecap === 'butt' ? 0 : Number.parseFloat(style.strokeWidth);
-      return { key, painted: (fill.getBBox().width + capped) / track.getBBox().width, band };
+      return { key, painted: fill.getBBox().width / track.getBBox().width, band };
     })
   );
   // getBBox reports single-precision floats.
@@ -196,11 +192,14 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
   assert.ok(near(painted['claude:W'], 1), `100% painted ${painted['claude:W']}`);
   assert.equal(painted['opencode-go-oauth:M'], 0);
 
-  // One 3px bar, or two 2px bars a pixel apart with the short window on top.
+  // 17x2 capsules on whole pixels: one, or two a pixel apart with the short
+  // window on top.
   const band = Object.fromEntries(bars.map((bar) => [bar.key, bar.band]));
-  assert.equal(band['codex:W'].thickness, 3);
-  assert.equal(band['claude:5H'].thickness, 2);
-  assert.equal(band['claude:W'].thickness, 2);
+  for (const capsule of Object.values(band)) {
+    assert.equal(capsule.thickness, 2);
+    assert.equal(capsule.width, 17);
+    assert.ok(Number.isInteger(capsule.left) && Number.isInteger(capsule.top), JSON.stringify(capsule));
+  }
   assert.equal(band['claude:W'].top - (band['claude:5H'].top + 2), 1);
 
   // The mark at glyph size, the bar centred 3px under its ink.
