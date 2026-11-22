@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { prefetchMarkdownAsts } from './markdown-worker-client';
-import { isPlainTextMarkdown } from './streaming-markdown';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcript-virtual-cache';
 
@@ -8,13 +7,12 @@ import { TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcript-virtual-cache';
 const PREFETCH_ROWS = 12;
 
 /** The exact text a settled reply's row parses (transcript-row's
- *  MarkdownResponse renders a settled reply as one body of `item.text`). */
+ *  MarkdownResponse renders a settled reply as the parse of `item.text`). */
 function settledReplyText(row: TranscriptRowModel | undefined): string {
   if (row?._tag !== 'AssistantPart') return '';
   const item = row.item;
   if (item.kind !== 'assistant' || item.streaming) return '';
-  const text = String(item.text || '');
-  return isPlainTextMarkdown(text) ? '' : text;
+  return String(item.text || '');
 }
 
 /** Parses settled replies just beyond the mounted range in the parser worker, so they mount from the cache. */

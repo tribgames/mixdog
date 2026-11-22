@@ -1,3 +1,4 @@
+import { emptyStateHost } from './empty-state-host';
 import { ChevronDown, FilePlus, FolderPlus, ListCollapse, RefreshCw } from 'lucide-react';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -592,7 +593,11 @@ export const FilesRootPane = memo(function FilesRootPane({
     onControls?.({ ...controlsHandle.current, refreshing, canCollapseAll });
   }, [onControls, refreshing, canCollapseAll]);
   if (!projectPath)
-    return <p className="utility-dock-empty mx-empty-state">{t('Open a project to browse its files.')}</p>;
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Open a project to browse its files.')}
+      </p>
+    );
   const openFile = (rel: string, mode: 'preview' | 'pinned' = 'preview') =>
     onOpenFile ? onOpenFile(projectPath, rel, mode) : void openEditorFileExternally(projectPath, rel);
   const absOf = (rel: string) => explorerAbsolutePath(projectPath, rel);
@@ -1020,7 +1025,9 @@ export const FilesRootPane = memo(function FilesRootPane({
         >
           {rootVisible && treeItems}
           {rootVisible && rows.length === 0 && !editing && rootEntriesEmpty && (
-            <p className="utility-dock-empty mx-empty-state">{t('Empty folder.')}</p>
+            <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+              {t('Empty folder.')}
+            </p>
           )}
           {mutationError && <ErrorNotice error={mutationError} />}
         </div>

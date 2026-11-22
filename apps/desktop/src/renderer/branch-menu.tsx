@@ -45,6 +45,7 @@ import {
   worktreeFailureText,
 } from './worktree-branch-model';
 import { clearBranchMenuReads } from './branch-menu-data';
+import { emptyStateHost } from './empty-state-host';
 
 export { useBranchMenuData } from './branch-menu-data';
 
@@ -719,11 +720,13 @@ function BranchMenuContents({
         {rows.length === 0 &&
           !newName &&
           (loading ? (
-            <p className="branch-menu-empty mx-empty-state" data-loading role="status">
+            <p className="branch-menu-empty mx-empty-state" ref={emptyStateHost} data-loading role="status">
               {t('Loading branches…')}
             </p>
           ) : (
-            <p className="branch-menu-empty mx-empty-state">{t('No matching branches.')}</p>
+            <p className="branch-menu-empty mx-empty-state" ref={emptyStateHost}>
+              {t('No matching branches.')}
+            </p>
           ))}
       </div>
     </>

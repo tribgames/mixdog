@@ -30,6 +30,7 @@ import {
   type RecordValue,
 } from './capability-data';
 import { desktopBridge, openExternalOn, openExternalUrl } from './desktop-bridge';
+import { emptyStateHost } from '../empty-state-host';
 
 export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown> {
   return preloadCapabilitySettings(api).then((next) =>
@@ -580,7 +581,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const withoutAccounts = useProvidersWithoutAccounts(api, oauthIds);
   if (loading || !poolsReady) {
     return (
-      <div className="settings-panel-placeholder mx-empty-state" role="status" aria-busy="true">
+      <div className="settings-panel-placeholder mx-empty-state" ref={emptyStateHost} role="status" aria-busy="true">
         <span>{t('Loading providers…')}</span>
       </div>
     );

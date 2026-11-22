@@ -294,6 +294,14 @@ export function BottomPanel({
 }): React.JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const syncOverlay = useBottomPanelOverlay(panelRef, open, height);
+  // The cell it sits in shapes its corners by it (pane-layout.css), not by a
+  // :has() over the cell's children.
+  useLayoutEffect(() => {
+    const cell = open ? panelRef.current?.parentElement : null;
+    if (!cell) return undefined;
+    cell.setAttribute('data-bottom-panel-open', '');
+    return () => cell.removeAttribute('data-bottom-panel-open');
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     beginBootSurface('bottom-panel', activeTab);

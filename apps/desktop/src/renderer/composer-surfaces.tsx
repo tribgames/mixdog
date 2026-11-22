@@ -20,6 +20,7 @@ import { type desktopComposerSlashCommands, desktopSlashCommandDescription } fro
 import { holdFieldFocusOnPress } from './surface-input-focus';
 import { oneLine } from './text-format';
 import type { DictationState } from './use-composer-dictation';
+import { emptyStateHost } from './empty-state-host';
 
 type Anchor = RefObject<HTMLFormElement | null>;
 type Panel = RefObject<HTMLDivElement | null>;
@@ -225,7 +226,7 @@ export function MentionPalette({
         );
       })}
       {items.length === 0 && (
-        <p className="mx-empty-state" role="status">
+        <p className="mx-empty-state" ref={emptyStateHost} role="status">
           {loading ? t('Searching project files…') : t('No matching files.')}
         </p>
       )}
@@ -293,12 +294,12 @@ export function SkillMentionPalette({
         </button>
       ))}
       {results.length === 0 && available && (
-        <p className="mx-empty-state" role="status">
+        <p className="mx-empty-state" ref={emptyStateHost} role="status">
           {t('No matching skills.')}
         </p>
       )}
       {!available && (
-        <p className="mx-empty-state" role="status">
+        <p className="mx-empty-state" ref={emptyStateHost} role="status">
           {/* One line: the settings link reads inline after the note. */}
           <span>
             {t('No skills are on.')}{' '}

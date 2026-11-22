@@ -7,6 +7,7 @@ import type { InspectFinding, PageInspection } from '../shared/visualize-inspect
 import { t } from './i18n';
 import { visualizeRequestId } from './visualize-feedback-gate';
 import { requestVisualizeElementPin } from './visualize-elements-store';
+import { emptyStateHost } from './empty-state-host';
 
 /** How long a page has to answer before the list calls it unavailable. */
 const ANSWER_TIMEOUT_MS = 1_500;
@@ -271,7 +272,9 @@ function InspectionReport({
           ))}
         </ul>
       ) : (
-        <p className="visualize-elements-empty mx-empty-state">{t('No layout findings.')}</p>
+        <p className="visualize-elements-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No layout findings.')}
+        </p>
       )}
       {inspection.outline.length ? (
         <>
@@ -378,7 +381,9 @@ export function VisualizeElements({
             {reading.state === 'ready' ? (
               <InspectionReport inspection={reading.inspection} hover={hover} pin={pin} />
             ) : (
-              <p className="visualize-elements-empty mx-empty-state">{unreadyMessage(reading)}</p>
+              <p className="visualize-elements-empty mx-empty-state" ref={emptyStateHost}>
+                {unreadyMessage(reading)}
+              </p>
             )}
           </div>
         );

@@ -14,6 +14,7 @@ import {
   unmountSurfaceRoot,
 } from './surface-slots';
 import { cachedShellProfiles, loadShellProfiles } from './terminal-shell-profiles';
+import { syncExpandedSurfaceFlag } from './expanded-surface-flag';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -114,6 +115,7 @@ export function useSessionTerminalSurfaces(
       placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
       applySurfaceInteractivity(surface.container, selected?.[1].exiting !== true);
+      syncExpandedSurfaceFlag();
       return selected;
     }
     surface.expanded = false;
@@ -124,6 +126,7 @@ export function useSessionTerminalSurfaces(
     // takes a synthetic desktop viewport, but resizing a hidden PTY would send
     // a false SIGWINCH and restore the wrong row count on return.
     surface.container.dataset.parked = 'true';
+    syncExpandedSurfaceFlag();
     return null;
   }, []);
 
@@ -237,6 +240,7 @@ export function useSessionTerminalSurfaces(
       expandedSurfaceRect(undefined, false, surface);
       unmountSurfaceRoot(surface.root);
       surface.container.remove();
+      syncExpandedSurfaceFlag();
       surfaces.current.delete(sessionId);
       for (const terminalId of releaseSessionTerminalTabs(sessionId)) disposeTerminalSurface(terminalId);
     },

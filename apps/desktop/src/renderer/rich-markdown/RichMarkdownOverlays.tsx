@@ -5,6 +5,7 @@ import { useMobileBack } from '../mobile-back';
 import { copyTextToClipboard } from '../text-format';
 import type { RichMarkdownBlockCommand, RichMarkdownPromptKind } from './rich-markdown-commands';
 import { frontMatterLines } from './rich-markdown-frontmatter';
+import { emptyStateHost } from '../empty-state-host';
 
 /** Content-relative anchor of a floating panel (scrolls with the text). */
 export interface OverlayPoint {
@@ -87,7 +88,9 @@ export function RichMarkdownSuggestMenu({
           </div>
         ))
       ) : (
-        <div className="rich-markdown-suggest-empty mx-empty-state">{t('No matches')}</div>
+        <div className="rich-markdown-suggest-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No matches')}
+        </div>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
 import { contextMenuRowProps, type ScmContextMenuState } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
+import { emptyStateHost } from './empty-state-host';
 
 type RowMenuOpener = (label: string, point: { x: number; y: number }, items: ScmContextMenuState['items']) => void;
 
@@ -95,7 +96,7 @@ export function WorkRulesSection({
         </div>
       )}
       {workflows.length === 0 && (
-        <div className="utility-dock-empty mx-empty-state">
+        <div className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
           <p>{t('No workflows.')}</p>
         </div>
       )}

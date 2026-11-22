@@ -11,6 +11,7 @@ import {
   useMixyStatus,
 } from './mixy-identity';
 import type { RecordValue } from './desktop-types';
+import { emptyStateHost } from './empty-state-host';
 import './mixy-first.css';
 
 export { MIXY_AGENT_ID, MIXY_AVATAR, MIXY_DEFAULT_NAME };
@@ -67,7 +68,7 @@ export async function createMixy(run: Run, payload: RecordValue): Promise<boolea
 /** The empty Agents pane before Mixy exists: one action reopens the dialog. */
 export function MixyEmptyState({ onCreate }: { onCreate(): void }) {
   return (
-    <div className="utility-dock-empty mixy-empty mx-empty-state">
+    <div className="utility-dock-empty mixy-empty mx-empty-state" ref={emptyStateHost}>
       <p>{t('No bots.')}</p>
       <button type="button" className="mixy-empty-create" onClick={onCreate}>
         {t('Create representative bot')}

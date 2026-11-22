@@ -1,7 +1,6 @@
 import { ChevronDown, GitCommitHorizontal, GitPullRequest, SlidersHorizontal, Upload } from 'lucide-react';
 import { parseIslandGitRequestText } from './island-git-request';
 import {
-  Suspense,
   createContext,
   memo,
   useCallback,
@@ -14,7 +13,6 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useAttachmentContextMenu } from './attachment-context-menu';
-import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
 import { MarkdownOpenFileContext, MarkdownSessionContext, MarkdownTranscriptItemContext } from './MarkdownLink';
 import type { TranscriptItem } from './desktop-types';
 import { isOtherDevice } from '../shared/session-devices';
@@ -24,13 +22,7 @@ import { useRoomContacts } from './agent-room-parts';
 import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import { localizeHeartbeatBreakerNotice, localizeRouteFallbackNotice } from './error-notice-copy';
 import MarkdownBody from './MarkdownBody';
-import {
-  createStreamingMarkdownCache,
-  healStreamingMarkdownTail,
-  isPlainTextMarkdown,
-  resolveStreamingMarkdownChunks,
-} from './streaming-markdown';
-import StreamingMarkdownBody from './StreamingMarkdownBody';
+import { MarkdownResponse } from './MarkdownResponse';
 import { dropStreamFadeTimeline, type StreamFadeTimeline, streamFadeTimeline } from './markdown-stream-fade';
 import {
   preloadSyncMarkdownParser,
@@ -38,7 +30,6 @@ import {
   syncMarkdownParserLoad,
 } from './markdown-worker-client';
 import { CopyControl } from './transcript-primitives';
-import { noteStreamCommit } from './transcript-stream-metrics';
 import { REVEAL_JOIN_CHARS, useTranscriptTextReveal } from './use-transcript-text-reveal';
 import { type BackgroundWorkCounts, CompletionStatus, ModelSwitchDivider } from './transcript-status';
 import { shouldSuppressFullyFailedToolItem } from './transcript-tool-model';
@@ -108,11 +99,6 @@ function SentPasteBlock({ text }: { text?: string }) {
   );
 }
 
-const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: string }) {
-  if (isPlainTextMarkdown(text)) return <p>{text}</p>;
-  return <MarkdownBody text={text} copyControl={CopyControl} />;
-});
-
 function useStreamFade(
   key: string,
   text: string,
@@ -145,99 +131,6 @@ function useStreamFade(
   }, [timeline, live, key]);
   return { timeline: live ? timeline : null, live };
 }
-
-const MarkdownResponse = memo(function MarkdownResponse({
-  text,
-  streaming,
-  fadeTimeline = null,
-}: {
-  text: string;
-  streaming: boolean;
-  /** The reply's fade timeline (useStreamFade); null: nothing fades. */
-  fadeTimeline?: StreamFadeTimeline | null;
-}) {
-  const markdownCache = useRef(createStreamingMarkdownCache());
-  const workerPipeline = useRef(streaming);
-  const markdownRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (streaming) noteStreamCommit(text.length);
-  }, [streaming, text]);
-  // A reply keeps only the blocks near the reader in the DOM; one still
-  // arriving or fading in also keeps its last body, which is not final yet.
-  const [parking] = useState(createBlockParking);
-  const growing = streaming || Boolean(fadeTimeline);
-  useLayoutEffect(() => {
-    parking.attach(markdownRef.current, true, growing);
-  }, [parking, growing]);
-  useEffect(() => () => parking.attach(null, false), [parking]);
-  if (streaming) workerPipeline.current = true;
-  // Every reply loads the main-thread parser: a reply that arrives whole, or
-  // the next settled row, then paints parsed in its first commit.
-  useEffect(() => {
-    void preloadSyncMarkdownParser();
-  }, []);
-  const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
-  // A reply that streamed here and ended: its text parses in the commit that
-  // ends it, so the rest shows at once.
-  const final = !streaming && workerPipeline.current;
-  // The chunks cut `text` in order: each starts where the ones before end.
-  let chunkOffset = 0;
-  const renderedChunks = markdownParts.stableChunks.map((chunk, index) => {
-    const offset = chunkOffset;
-    chunkOffset += chunk.length;
-    return (
-      <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
-        {workerPipeline.current ? (
-          <StreamingMarkdownBody
-            text={chunk}
-            sync
-            final={final}
-            fadeTimeline={fadeTimeline}
-            fadeOffset={offset}
-            copyControl={CopyControl}
-          />
-        ) : (
-          <StableMarkdownBody text={chunk} />
-        )}
-      </Suspense>
-    );
-  });
-  if (markdownParts.unstableText) {
-    const unstableParseText = streaming
-      ? healStreamingMarkdownTail(markdownParts.unstableText)
-      : markdownParts.unstableText;
-    renderedChunks.push(
-      <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.unstableKey}>
-        {workerPipeline.current ? (
-          <StreamingMarkdownBody
-            text={markdownParts.unstableText}
-            parseText={unstableParseText}
-            parse={markdownParts.parseUnstable}
-            sync
-            final={final}
-            fadeTimeline={fadeTimeline}
-            fadeOffset={chunkOffset}
-            copyControl={CopyControl}
-          />
-        ) : (
-          <StableMarkdownBody text={markdownParts.unstableText} />
-        )}
-      </Suspense>
-    );
-  }
-  // `streamed`: this mount watched the reply arrive (22-markdown.css keeps its
-  // line breaks greedy, also once it settles).
-  return (
-    <MarkdownBlockParkingContext.Provider value={parking}>
-      <div
-        ref={markdownRef}
-        className={`markdown ${streaming ? 'streaming' : ''}${workerPipeline.current ? ' streamed' : ''}`}
-      >
-        {renderedChunks}
-      </div>
-    </MarkdownBlockParkingContext.Provider>
-  );
-});
 
 export function transcriptItemsEqual(previous: TranscriptItem | undefined, next: TranscriptItem | undefined): boolean {
   // Snapshot deltas preserve identity, avoiding retained value copies of large

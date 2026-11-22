@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import type { VisualizePaneText, VisualizePaneView } from '../shared/visualize';
 import { t } from './i18n';
 import { highlightSourceLines, type SourceToken, visualizeSourceLanguage } from './visualize-source';
+import { emptyStateHost } from './empty-state-host';
 
 function Token({ token }: { token: SourceToken }) {
   return token.classes.reduceRight<ReactNode>(
@@ -52,8 +53,18 @@ export function VisualizeSource({
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
-  if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
-  if (!loaded) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
+  if (error)
+    return (
+      <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
+        {error}
+      </div>
+    );
+  if (!loaded)
+    return (
+      <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Loading…')}
+      </div>
+    );
   const copy = () => {
     void navigator.clipboard?.writeText(text).then(
       () => setCopied(true),

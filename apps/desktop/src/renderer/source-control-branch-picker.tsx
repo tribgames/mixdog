@@ -10,6 +10,7 @@ import { commitImmediateOverlay } from './immediate-overlay';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { actionTitle, type ScmContextMenuItem } from './ScmContextMenu';
 import { operationInProgressReason } from './source-control-actions';
+import { emptyStateHost } from './empty-state-host';
 
 interface BranchCapabilities {
   list: boolean;
@@ -221,9 +222,15 @@ export function SourceControlBranchPicker({
               </button>
             </header>
             <div className="dock-scm-branch-list">
-              {loading && <p className="mx-empty-state">{t('Loading branches…')}</p>}
+              {loading && (
+                <p className="mx-empty-state" ref={emptyStateHost}>
+                  {t('Loading branches…')}
+                </p>
+              )}
               {!loading && visibleBranches.length === 0 && (
-                <p className="mx-empty-state">{t('No matching branches.')}</p>
+                <p className="mx-empty-state" ref={emptyStateHost}>
+                  {t('No matching branches.')}
+                </p>
               )}
               {(
                 [

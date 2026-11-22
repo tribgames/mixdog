@@ -2,6 +2,7 @@ import { CircleCheck, CircleX, TriangleAlert } from 'lucide-react';
 import { t } from './i18n';
 import { record } from './record-utils';
 import { resolveDesktopSlashCommand, type SettingsSection } from './slash-commands';
+import { emptyStateHost } from './empty-state-host';
 
 type DoctorLevel = 'ok' | 'warn' | 'fail';
 
@@ -126,7 +127,11 @@ export function DoctorBody({
 
   return (
     <div className="doctor-surface">
-      {!report && <p className="doctor-surface-note mx-empty-state">{t('No data available.')}</p>}
+      {!report && (
+        <p className="doctor-surface-note mx-empty-state" ref={emptyStateHost}>
+          {t('No data available.')}
+        </p>
+      )}
       {report?.busy && (
         <p className="doctor-surface-note" role="status">
           {t('Another command is running. Try again when it finishes.')}

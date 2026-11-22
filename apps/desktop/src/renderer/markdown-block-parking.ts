@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import { markdownWorkCounts } from './markdown-work-counts';
 
 /** Attribute of a top-level block's element: the block's id. */
 export const UNIT_ATTRIBUTE = 'data-md-unit';
@@ -33,13 +34,16 @@ export interface ParkedBlocks {
 
 export interface BlockParking extends ParkedBlocks {
   /** The reply's `.markdown` element, and whether its blocks may park now.
-   *  `growing`: the reply is still arriving or fading in, so the blocks of
-   *  its last body stay mounted. */
+   *  `growing`: the reply is still arriving or fading in, so its held
+   *  blocks stay mounted. */
   attach(container: HTMLElement | null, enabled: boolean, growing?: boolean): void;
-  /** A body's blocks are other blocks now: the boxes measured for the former
-   *  ones (ids `${body}:…`) are dropped, and those measured next to one of
-   *  them. */
-  release(body: string): void;
+  /** Block `id` shows other content now, or left: the box measured for it is
+   *  dropped, and those measured next to it, and what was kept for its code
+   *  blocks (places `${id}/…`). */
+  release(id: string): void;
+  /** While the reply grows, block `id` stays mounted (the open block and the
+   *  one before it). */
+  hold(id: string, held: boolean): void;
   /** The blocks inside one block of this reply, each its own body (the
    *  stretches of lines of a code block): they park against the reply's
    *  scroller while the reply's own may, and while it grows the last two
@@ -110,31 +114,19 @@ function basisOf(container: HTMLElement): string {
   return `${container.getBoundingClientRect().width}|${style.fontSize}|${style.lineHeight}|${style.fontFamily}`;
 }
 
-/** A block id is its body's id and the block's place in it (MarkdownAstBody). */
-const bodyOf = (id: string) => id.slice(0, id.lastIndexOf(':'));
-
 /** The id of the block `element` is, mounted or parked. */
 const blockId = (element: Element) => element.getAttribute(UNIT_ATTRIBUTE) ?? element.getAttribute(PARKED_ATTRIBUTE);
 
-/** The body the reply's last block belongs to. */
-function lastBodyOf(container: HTMLElement): string | null {
-  for (let node = container.lastElementChild; node; node = node.previousElementSibling) {
-    const id = blockId(node);
-    if (id !== null) return bodyOf(id);
-  }
-  return null;
-}
+/** The block a code block's place is in (PLACE_PROP: `${block}/${index}`). */
+const blockOf = (place: string) => place.slice(0, place.lastIndexOf('/'));
 
-/** Whether the block `element` is of `body`, or the one right before it. */
-function atBody(element: Element, body: string | null): boolean {
-  if (body === null) return false;
-  for (let node: Element | null = element; node; node = node.nextElementSibling) {
-    const id = blockId(node);
-    if (id === null) continue;
-    if (bodyOf(id) === body) return true;
-    if (node !== element) return false;
+/** Whether at most one block follows `element` in its holder. */
+function amongLastTwo(element: Element): boolean {
+  let after = 0;
+  for (let node = element.nextElementSibling; node; node = node.nextElementSibling) {
+    if (blockId(node) !== null && ++after > 1) return false;
   }
-  return false;
+  return true;
 }
 
 function measureBlock(element: HTMLElement, rect: DOMRect, basis: string): ParkedBlock | null {
@@ -173,17 +165,30 @@ function nearView(rect: DOMRect, view: DOMRect): boolean {
 }
 
 /** The parking of the blocks one element holds, against a given scroller.
- *  `beforePark`: a block is about to leave the DOM. */
-function createParking(beforePark?: (element: HTMLElement) => void) {
+ *  `beforePark`: a block is about to leave the DOM. `lastTwo`: while the
+ *  holder grows its last two blocks stay, as well as those held by id. */
+function createParking(beforePark?: (element: HTMLElement) => void, lastTwo = false) {
   const boxes = new Map<string, ParkedBlock>();
+  /** By block: the boxes measured next to it. */
+  const besideOf = new Map<string, Set<string>>();
   const listeners = new Map<string, () => void>();
   const observed = new Set<Element>();
   let container: HTMLElement | null = null;
   let scroller: HTMLElement | null = null;
   let observer: IntersectionObserver | null = null;
+  /** The holder's own changes (its children, and their ids and visibility)
+   *  since the last sync: a sync looks at those and their neighbours only. */
+  let changes: MutationObserver | null = null;
+  /** Its records delivered before the sync that reads them. */
+  let delivered: MutationRecord[] = [];
+  /** The next sync looks at every block (a new observer knows none). */
+  let syncAll = true;
   let growing = false;
-  /** Blocks out of reach that stayed for being in the last body of a growing reply. */
-  const held = new Set<Element>();
+  /** Blocks that stay while the holder grows, by id. */
+  const heldIds = new Set<string>();
+  /** Blocks out of reach that stayed for that. */
+  const stayed = new Map<string, Element>();
+  const stays = (id: string, element: Element) => growing && (heldIds.has(id) || (lastTwo && amongLastTwo(element)));
   /** Blocks out of reach that stayed for a selection over them, and the ids of
    *  those returning for one. */
   const selected = new Set<Element>();
@@ -194,9 +199,28 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
   /** Blocks returning above the reader from a box of another basis: the box's height. */
   const returnedAbove = new Map<string, number>();
 
+  const forget = (id: string) => {
+    const box = boxes.get(id);
+    if (!box) return false;
+    boxes.delete(id);
+    for (const near of box.beside) {
+      const ids = besideOf.get(near);
+      ids?.delete(id);
+      if (ids?.size === 0) besideOf.delete(near);
+    }
+    return true;
+  };
+
   const set = (id: string, box: ParkedBlock | null) => {
-    if (box) boxes.set(id, box);
-    else if (!boxes.delete(id)) return;
+    const had = forget(id);
+    if (box) {
+      boxes.set(id, box);
+      for (const near of box.beside) {
+        const ids = besideOf.get(near) ?? new Set<string>();
+        ids.add(id);
+        besideOf.set(near, ids);
+      }
+    } else if (!had) return;
     listeners.get(id)?.();
   };
 
@@ -263,7 +287,6 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
     const near = (rect: DOMRect) => nearView(rect, view);
     const selection = selectionOver();
     const basis = basisOf(container);
-    const unsettled = growing ? lastBodyOf(container) : null;
     const returning: string[] = [];
     const parking: Array<[string, ParkedBlock, HTMLElement]> = [];
     const latest = new Map<Element, IntersectionObserverEntry>();
@@ -286,8 +309,8 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
       }
       const id = element.getAttribute(UNIT_ATTRIBUTE);
       if (!id || !measured || entry.isIntersecting || near(rect)) continue;
-      if (atBody(element, unsettled)) {
-        held.add(element);
+      if (stays(id, element)) {
+        stayed.set(id, element);
         continue;
       }
       if (selection?.containsNode(element, true)) {
@@ -308,8 +331,11 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
   const stop = () => {
     observer?.disconnect();
     observer = null;
+    changes?.disconnect();
+    changes = null;
+    delivered = [];
     observed.clear();
-    held.clear();
+    stayed.clear();
     selected.clear();
     selectedIds.clear();
     document.removeEventListener('selectionchange', onSelection);
@@ -327,7 +353,56 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
       rootMargin: `${REACH_VIEWPORTS * 100}% 0px`,
     });
     document.addEventListener('selectionchange', onSelection);
+    if (container) {
+      changes = new MutationObserver((records) => {
+        delivered.push(...records);
+        parking.sync();
+      });
+      changes.observe(container, {
+        childList: true,
+        subtree: true,
+        attributeFilter: [UNIT_ATTRIBUTE, PARKED_ATTRIBUTE, 'hidden'],
+      });
+    }
+    syncAll = true;
     parking.sync();
+  };
+
+  /** The holder's blocks a sync looks at: all of them, or those its changes
+   *  since the last one touched and their neighbours. */
+  const syncTargets = (holder: HTMLElement): Element[] => {
+    const records = [...delivered, ...(changes?.takeRecords() ?? [])];
+    delivered = [];
+    if (syncAll) {
+      syncAll = false;
+      return [...holder.children];
+    }
+    const touched = new Set<Element>();
+    const touch = (node: Node | null) => {
+      if (node instanceof Element && node.parentElement === holder) touched.add(node);
+    };
+    for (const record of records) {
+      if (record.type === 'childList' && record.target === holder) {
+        for (const node of record.removedNodes) {
+          if (!(node instanceof Element)) continue;
+          observer?.unobserve(node);
+          observed.delete(node);
+        }
+        for (const node of record.addedNodes) touch(node);
+        touch(record.previousSibling);
+        touch(record.nextSibling);
+      } else if (record.type === 'attributes') touch(record.target);
+    }
+    // A block's neighbours are what its parked box was measured against.
+    const targets = new Set<Element>();
+    for (const element of touched) {
+      targets.add(element);
+      const previous = shownSibling(element, 'previousElementSibling');
+      const next = shownSibling(element, 'nextElementSibling');
+      if (previous) targets.add(previous);
+      if (next) targets.add(next);
+    }
+    return [...targets];
   };
 
   const parking = {
@@ -336,7 +411,7 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
       return () => {
         if (listeners.get(id) !== listener) return;
         listeners.delete(id);
-        if (!away) boxes.delete(id);
+        if (!away) forget(id);
       };
     },
     parked: (id: string) => boxes.get(id) ?? null,
@@ -394,37 +469,45 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
       queueMicrotask(() => {
         syncQueued = false;
         if (!observer || !container) return;
-        for (const element of observed) {
-          if (element.isConnected) continue;
-          observer.unobserve(element);
-          observed.delete(element);
-        }
-        const shown = [...container.children].filter((element) => !unshown(element));
-        const ids = shown.map(blockId);
+        // Blocks that return for the reader or a selection are looked for
+        // among all of them; a growing reply's sync has none.
+        const changed = syncTargets(container);
+        const targets = returnedAbove.size > 0 || selectedIds.size > 0 ? [...container.children] : changed;
         const displaced: string[] = [];
         let grown = 0;
-        shown.forEach((element, index) => {
-          const id = ids[index];
-          if (id === null) return;
+        const neighbour = (element: Element, side: 'previousElementSibling' | 'nextElementSibling') => {
+          const node = shownSibling(element, side);
+          return node ? blockId(node) : undefined;
+        };
+        for (const element of targets) {
+          if (unshown(element) || element.parentElement !== container) continue;
+          const id = blockId(element);
+          if (id === null) continue;
           const box = boxes.get(id);
-          if (box && (box.beside[0] !== ids[index - 1] || box.beside[1] !== ids[index + 1])) displaced.push(id);
+          if (
+            box &&
+            (box.beside[0] !== neighbour(element, 'previousElementSibling') ||
+              box.beside[1] !== neighbour(element, 'nextElementSibling'))
+          ) {
+            displaced.push(id);
+          }
           const before = returnedAbove.get(element.getAttribute(UNIT_ATTRIBUTE) ?? '');
           if (before !== undefined) grown += element.getBoundingClientRect().height - before;
           if (selectedIds.delete(element.getAttribute(UNIT_ATTRIBUTE) ?? '')) selected.add(element);
-          if (observed.has(element)) return;
+          if (observed.has(element)) continue;
           observed.add(element);
-          observer?.observe(element);
-        });
+          observer.observe(element);
+        }
+        markdownWorkCounts.parkingEntries += targets.length;
         returnedAbove.clear();
         noteGrownAbove(container.closest('.transcript-virtual-row'), grown);
         for (const id of displaced) set(id, null);
-        // The observer reports a block only when it crosses the reach: a held
-        // block no longer at the last body is observed anew, which reports it
+        // The observer reports a block only when it crosses the reach: one
+        // that stayed and no longer has to is observed anew, which reports it
         // again.
-        const unsettled = held.size > 0 && growing ? lastBodyOf(container) : null;
-        for (const element of held) {
-          if (element.isConnected && atBody(element, unsettled)) continue;
-          held.delete(element);
+        for (const [id, element] of stayed) {
+          if (element.isConnected && stays(id, element)) continue;
+          stayed.delete(id);
           if (!observed.has(element)) continue;
           observer.unobserve(element);
           observer.observe(element);
@@ -433,9 +516,15 @@ function createParking(beforePark?: (element: HTMLElement) => void) {
         if (selected.size > 0) releaseSelected(selectionOver());
       });
     },
-    release(body: string) {
-      const own = (id: string) => id.startsWith(`${body}:`);
-      for (const [id, box] of [...boxes]) if (own(id) || box.beside.some(own)) set(id, null);
+    release(id: string) {
+      const near = besideOf.get(id);
+      markdownWorkCounts.parkingEntries += 1 + (near?.size ?? 0);
+      set(id, null);
+      if (near) for (const other of [...near]) set(other, null);
+    },
+    hold(id: string, held: boolean) {
+      if (held) heldIds.add(id);
+      else if (heldIds.delete(id) && stayed.has(id)) parking.sync();
     },
   };
   return parking;
@@ -447,6 +536,8 @@ export function createBlockParking(): BlockParking {
   const inner = new Map<Parking, HTMLElement>();
   /** Those whose holder left the DOM, by its place. */
   const away = new Map<string, Parking>();
+  /** Those places by the block they are in. */
+  const awayIn = new Map<string, Set<string>>();
   // A block that leaves the DOM takes the holders in it along: all of theirs
   // is parked first, so that back in the DOM none of them is whole.
   const blocks = createParking((element) => {
@@ -458,10 +549,12 @@ export function createBlockParking(): BlockParking {
     subscribe: blocks.subscribe,
     parked: blocks.parked,
     sync: blocks.sync,
-    release(body) {
-      blocks.release(body);
-      for (const place of [...away.keys()]) if (place.startsWith(`${body}/`)) away.delete(place);
+    release(id) {
+      blocks.release(id);
+      for (const place of awayIn.get(id) ?? []) away.delete(place);
+      awayIn.delete(id);
     },
+    hold: blocks.hold,
     attach(element, enabled, grows = false) {
       // IntersectionObserver is missing only in test DOMs.
       const parks = enabled && typeof IntersectionObserver !== 'undefined';
@@ -472,11 +565,14 @@ export function createBlockParking(): BlockParking {
       for (const [part, holder] of inner) part.place(holder, scroller, growing);
     },
     inner(place) {
-      const part = (place !== null && away.get(place)) || createParking();
+      const part = (place !== null && away.get(place)) || createParking(undefined, true);
       /** Where the holder is away from. */
       let left = place;
       const back = () => {
-        if (left !== null && away.get(left) === part) away.delete(left);
+        if (left !== null && away.get(left) === part) {
+          away.delete(left);
+          awayIn.get(blockOf(left))?.delete(left);
+        }
         left = null;
       };
       return {
@@ -494,7 +590,11 @@ export function createBlockParking(): BlockParking {
           inner.delete(part);
           part.leave();
           left = from;
-          if (from !== null) away.set(from, part);
+          if (from === null) return;
+          away.set(from, part);
+          const places = awayIn.get(blockOf(from)) ?? new Set<string>();
+          places.add(from);
+          awayIn.set(blockOf(from), places);
         },
       };
     },

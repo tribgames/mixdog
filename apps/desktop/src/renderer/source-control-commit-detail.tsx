@@ -7,6 +7,7 @@ import { ScmPathText } from './ScmPathText';
 import { ScmStatusIcon, scmStatusKind } from './ScmStatusIcon';
 import { emptySummary, unknownAuthor, type SourceControlDiffRequest } from './source-control-support';
 import { fileBaseName } from './text-format';
+import { emptyStateHost } from './empty-state-host';
 
 /** Compact `YYYY-MM-DD HH:mm` for the byline; the full locale string stays
  *  in the tooltip. Falls back to the raw value when git gave no ISO date. */
@@ -28,10 +29,24 @@ function copyButtonTitle(copyState: { ok: boolean } | null | undefined): string 
 }
 
 function commitPatchBody(patch: string | null | undefined) {
-  if (patch === undefined || patch === null) return <p className="mx-empty-state">{t('Loading diff…')}</p>;
-  if (patch.startsWith('Error:')) return <p className="mx-empty-state">{patch}</p>;
+  if (patch === undefined || patch === null)
+    return (
+      <p className="mx-empty-state" ref={emptyStateHost}>
+        {t('Loading diff…')}
+      </p>
+    );
+  if (patch.startsWith('Error:'))
+    return (
+      <p className="mx-empty-state" ref={emptyStateHost}>
+        {patch}
+      </p>
+    );
   if (patch) return <GitFileDiff patch={patch} mode="unified" />;
-  return <p className="mx-empty-state">{t('No textual diff.')}</p>;
+  return (
+    <p className="mx-empty-state" ref={emptyStateHost}>
+      {t('No textual diff.')}
+    </p>
+  );
 }
 
 export function SourceControlCommitDetail({
@@ -151,7 +166,9 @@ export function SourceControlCommitDetail({
         );
       })}
       {detail && detailFiles.length === 0 && (
-        <p className="utility-dock-empty mx-empty-state">{t('No file changes in this commit.')}</p>
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No file changes in this commit.')}
+        </p>
       )}
     </div>
   );

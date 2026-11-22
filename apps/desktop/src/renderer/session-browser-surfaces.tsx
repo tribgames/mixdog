@@ -18,6 +18,7 @@ import {
   renderSurfaceRoot,
   unmountSurfaceRoot,
 } from './surface-slots';
+import { syncExpandedSurfaceFlag } from './expanded-surface-flag';
 import './session-browser-surfaces.css';
 
 type BrowserSurfaceSlot = {
@@ -95,6 +96,7 @@ export function useSessionBrowserSurfaces(
       placeFixedSurface(surface.container, rect, selected?.[0]);
       surface.container.dataset.parked = 'false';
       applySurfaceInteractivity(surface.container, selected?.[1].exiting !== true);
+      syncExpandedSurfaceFlag();
       return selected;
     }
     surface.expanded = false;
@@ -110,6 +112,7 @@ export function useSessionBrowserSurfaces(
     }px`;
     surface.container.dataset.parked = 'true';
     surface.container.dataset.remoteViewed = remoteViewed ? 'true' : 'false';
+    syncExpandedSurfaceFlag();
     return null;
   }, []);
 
@@ -198,6 +201,7 @@ export function useSessionBrowserSurfaces(
     expandedSurfaceRect(undefined, false, surface);
     queueMicrotask(() => unmountSurfaceRoot(surface.root));
     surface.container.remove();
+    syncExpandedSurfaceFlag();
     surfaces.current.delete(sessionId);
   }, []);
 
@@ -224,6 +228,7 @@ export function useSessionBrowserSurfaces(
     () => () => {
       for (const surface of surfaces.current.values()) {
         surface.container.remove();
+        syncExpandedSurfaceFlag();
         queueMicrotask(() => unmountSurfaceRoot(surface.root));
       }
       surfaces.current.clear();

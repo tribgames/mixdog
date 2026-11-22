@@ -27,6 +27,7 @@ import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refres
 import { prefetchDiffView } from './lazy-widgets';
 import { navigationKey } from './text-format';
 import { fetchSessionDiffFilePatch } from './session-diff-cache';
+import { emptyStateHost } from './empty-state-host';
 
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: 'diff' }>;
 
@@ -189,14 +190,18 @@ export function GitDiffPane({
   let body: ReactNode;
   if (patch === null) {
     body = (
-      <p className="workspace-git-diff-state mx-empty-state">
+      <p className="workspace-git-diff-state mx-empty-state" ref={emptyStateHost}>
         <ProgressSpinner size={16} /> {t('Loading diff…')}
       </p>
     );
   } else if (error) {
     body = <ErrorNotice error={error} />;
   } else if (!patch) {
-    body = <p className="workspace-git-diff-state mx-empty-state">{t('No textual differences.')}</p>;
+    body = (
+      <p className="workspace-git-diff-state mx-empty-state" ref={emptyStateHost}>
+        {t('No textual differences.')}
+      </p>
+    );
   } else if (hunks.length === 0) {
     body = <FileDiffBody patch={patch} mode={mode} />;
   } else {

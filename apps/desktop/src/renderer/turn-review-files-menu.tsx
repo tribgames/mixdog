@@ -33,6 +33,7 @@ import {
 import { acquireTitleBarDim } from './titlebar-dim';
 import { bumpTurnChangesEpoch } from './turn-changes-model';
 import type { TurnReviewFileEntry } from './turn-review-model';
+import { emptyStateHost } from './empty-state-host';
 
 const MENU_ITEM = "[role='menuitem']:not(:disabled)";
 /** `.turn-review-files-row`'s desktop height (15-composer.css); the open list
@@ -393,7 +394,11 @@ export function TurnReviewFilesMenu({
             onKeyDown={onKeyDown}
           >
             {/* A source picked here with no files keeps the menu, saying so. */}
-            {files.size === 0 && <p className="turn-review-files-empty mx-empty-state">{ready ? emptyText : ''}</p>}
+            {files.size === 0 && (
+              <p className="turn-review-files-empty mx-empty-state" ref={emptyStateHost}>
+                {ready ? emptyText : ''}
+              </p>
+            )}
             {/* Every changed file in one scrolling list; a row opens its diff. */}
             <div ref={list} className="turn-review-files-list">
               {listNodes}

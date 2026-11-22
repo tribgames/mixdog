@@ -32,6 +32,7 @@ import { ProviderIcon } from './provider-display';
 import { PROVIDER_ACCOUNTS_CHANGED, readAll as readAllUsageAccountPools } from './usage-account-pools';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 import { invokeOrHeld } from './section-capabilities';
+import { emptyStateHost } from './empty-state-host';
 import './provider-accounts.css';
 
 export { PROVIDER_ACCOUNTS_CHANGED };
@@ -721,12 +722,14 @@ export function ProviderAccountsList({
         </header>
       )}
       {!pool && !error && (
-        <div className="provider-accounts-notice mx-empty-state" role="status">
+        <div className="provider-accounts-notice mx-empty-state" ref={emptyStateHost} role="status">
           {t('Loading…')}
         </div>
       )}
       {pool && !pool.accounts.length && (
-        <div className="provider-accounts-notice mx-empty-state">{t('No connected accounts.')}</div>
+        <div className="provider-accounts-notice mx-empty-state" ref={emptyStateHost}>
+          {t('No connected accounts.')}
+        </div>
       )}
       <ol className="provider-accounts-list" ref={listRef}>
         {pool?.accounts.map((account, index) => {

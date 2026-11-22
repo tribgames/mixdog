@@ -14,6 +14,7 @@ import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
+import { emptyStateHost } from './empty-state-host';
 
 /** The host's OS app on the desktop; on a paired device the file downloads
  *  (openEditorFileExternally routes it) under the Download / Share label. */
@@ -31,7 +32,9 @@ export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs
   return (
     <div className="editor-pane">
       {breadcrumbs}
-      <div className="editor-pane-notice mx-empty-state">{children}</div>
+      <div className="editor-pane-notice mx-empty-state" ref={emptyStateHost}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -258,7 +261,11 @@ export function EditorPanePreviewSurface({
   const body = (zoom: { scale: number } | null) => (
     <>
       {!loaded && !error && (
-        <div className="editor-pane-preview-loading mx-empty-state mx-empty-state-cover" role="status">
+        <div
+          className="editor-pane-preview-loading mx-empty-state mx-empty-state-cover"
+          ref={emptyStateHost}
+          role="status"
+        >
           <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
           <p>{t('Loading preview…')}</p>
         </div>

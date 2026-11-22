@@ -1,17 +1,11 @@
 import {
-  Children,
-  cloneElement,
   createElement,
   Fragment,
-  isValidElement,
   memo,
-  type ContextType,
-  type ReactElement,
   type ReactNode,
   useCallback,
   useContext,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -21,8 +15,7 @@ import { jsx, jsxs } from 'react/jsx-runtime';
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
 import type { MarkdownAstRoot } from './markdown-ast';
-import { MarkdownBlock } from './markdown-block';
-import { MarkdownBlockParkingContext, PLACE_PROP, UNIT_ATTRIBUTE } from './markdown-block-parking';
+import { PLACE_PROP } from './markdown-block-parking';
 import { highlightMentions, MarkdownMentionNamesContext } from './markdown-mentions';
 import { markdownComponents, type MarkdownCopyControl } from './markdown-components';
 import { applyStreamFade, STREAM_FADE_BOX_TAGS, type StreamFadeTimeline } from './markdown-stream-fade';
@@ -71,15 +64,16 @@ function useBodyFade(
   body: MarkdownAstRoot,
   fadeTimeline: StreamFadeTimeline | null,
   fadeOffset: number,
-  fadeEnd: number | undefined
+  fadeEnd: number | undefined,
+  fadeFrom: number
 ) {
   // Once the last fade it shows ended the body renders again, unwrapped: no
   // wrapper outlives its fade.
   const [faded, fadeEnded] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `faded` marks the render after a fade ended.
   const fresh = useMemo(
-    () => (fadeTimeline ? applyStreamFade(body, fadeOffset, fadeTimeline, performance.now(), fadeEnd) : null),
-    [body, fadeTimeline, fadeOffset, fadeEnd, faded]
+    () => (fadeTimeline ? applyStreamFade(body, fadeOffset, fadeTimeline, performance.now(), fadeEnd, fadeFrom) : null),
+    [body, fadeTimeline, fadeOffset, fadeEnd, fadeFrom, faded]
   );
   const until = fresh?.until ?? 0;
   // What this tree brings on screen starts fading as it commits; the row
@@ -103,24 +97,54 @@ function useBodyFade(
   return fresh && fresh.until > 0 ? fresh : null;
 }
 
-function useBlockParkingLifecycle(
-  body: MarkdownAstRoot,
-  parking: ContextType<typeof MarkdownBlockParkingContext>,
-  bodyId: string
-) {
-  // A new tree is new blocks: a box measured for the former ones is dropped
-  // before paint.
-  const measured = useRef(body);
-  useLayoutEffect(() => {
-    if (measured.current !== body) parking?.release(bodyId);
-    measured.current = body;
-    parking?.sync();
-  });
-  // The body left the reply: other blocks stand next to its neighbours now.
-  useLayoutEffect(() => () => parking?.sync(), [parking]);
-  // And nothing is kept for its code blocks. They leave in the commit's layout
-  // phase, which this cleanup comes after.
-  useEffect(() => () => parking?.release(bodyId), [parking, bodyId]);
+/** How a body's text fades in: its reply's timeline, where the offsets of its
+ *  tree count from in the reply, and the text of the reply it shows [from,
+ *  end) (`end`: by default all revealed so far). */
+export interface MarkdownAstFade {
+  timeline: StreamFadeTimeline | null;
+  offset: number;
+  from: number;
+  end: number | undefined;
+}
+
+/** `root` as React elements, fading in as `fade` says. `place`: where the
+ *  tree is in a reply whose blocks park (null: they do not): each code block
+ *  is told its place under it, under which what is parked of its lines is
+ *  kept while the block around it is out of the DOM (markdown-code-lines). */
+export function useMarkdownAst(
+  root: MarkdownAstRoot,
+  copyControl: MarkdownCopyControl,
+  fade: MarkdownAstFade,
+  place: string | null
+): ReactNode {
+  const mentionNames = useContext(MarkdownMentionNamesContext);
+  const body = useMemo(() => (mentionNames ? highlightMentions(root, mentionNames) : root), [root, mentionNames]);
+  const shown = useBodyFade(body, fade.timeline, fade.offset, fade.end, fade.from);
+  // A body that faded keeps the box components once its fades ended, so
+  // unwrapping never remounts its items and rows.
+  const boxed = useRef(false);
+  if (shown) boxed.current = true;
+  const base = markdownComponents(copyControl);
+  let components = base;
+  if (boxed.current) components = { ...base, ...fadeBoxes };
+  if (shown) for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
+  let codes = 0;
+  const placed =
+    (create: typeof jsx): typeof jsx =>
+    (type, props, key) =>
+      create(
+        type,
+        type === components.pre ? { ...(props as object), [PLACE_PROP]: `${place}/${codes++}` } : props,
+        key
+      );
+  return toJsxRuntime((shown?.root ?? body) as never, {
+    Fragment,
+    jsx: place === null ? jsx : placed(jsx),
+    jsxs: place === null ? jsxs : placed(jsxs),
+    components: components as never,
+    ignoreInvalidStyle: true,
+    passKeys: true,
+  }) as ReactNode;
 }
 
 // A streamed token re-renders the owner while the same parse stays on screen;
@@ -142,52 +166,10 @@ export default memo(function MarkdownAstBody({
    *  of it revealed so far). */
   fadeEnd?: number;
 }) {
-  const mentionNames = useContext(MarkdownMentionNamesContext);
-  const parking = useContext(MarkdownBlockParkingContext);
-  const bodyId = useId();
-  const body = useMemo(() => (mentionNames ? highlightMentions(root, mentionNames) : root), [root, mentionNames]);
-  const shown = useBodyFade(body, fadeTimeline, fadeOffset, fadeEnd);
-  // A body that faded keeps the box components once its fades ended, so
-  // unwrapping never remounts its items and rows.
-  const boxed = useRef(false);
-  if (shown) boxed.current = true;
-  const base = markdownComponents(copyControl);
-  let components = base;
-  if (boxed.current) components = { ...base, ...fadeBoxes };
-  if (shown) for (const tag of shown.tags) (components as Record<string, unknown>)[tag] = StreamFadeWord;
-  useBlockParkingLifecycle(body, parking, bodyId);
-  // Each code block is told its place in the body, under which what is parked
-  // of its lines is kept while the block around it is out of the DOM
-  // (markdown-code-lines).
-  let codes = 0;
-  const placed =
-    (create: typeof jsx): typeof jsx =>
-    (type, props, key) =>
-      create(
-        type,
-        type === components.pre ? { ...(props as object), [PLACE_PROP]: `${bodyId}/${codes++}` } : props,
-        key
-      );
-  // The tree is converted once, as without parking; only its top-level
-  // elements are then held one by one.
-  const rendered = toJsxRuntime((shown?.root ?? body) as never, {
-    Fragment,
-    jsx: parking ? placed(jsx) : jsx,
-    jsxs: parking ? placed(jsxs) : jsxs,
-    components: components as never,
-    ignoreInvalidStyle: true,
-    passKeys: true,
-  }) as ReactNode;
-  if (!parking || !isValidElement<{ children?: ReactNode }>(rendered) || rendered.type !== Fragment) return rendered;
-  // Each top-level block is its own component, so one far from the reader can
-  // leave the DOM (markdown-block-parking).
-  return Children.toArray(rendered.props.children).map((child, index) => {
-    if (!isValidElement(child)) return child;
-    const id = `${bodyId}:${index}`;
-    return (
-      <MarkdownBlock key={child.key} id={id} parking={parking}>
-        {cloneElement(child as ReactElement<Record<string, unknown>>, { [UNIT_ATTRIBUTE]: id })}
-      </MarkdownBlock>
-    );
-  });
+  return useMarkdownAst(
+    root,
+    copyControl,
+    { timeline: fadeTimeline, offset: fadeOffset, from: fadeOffset, end: fadeEnd },
+    null
+  );
 });

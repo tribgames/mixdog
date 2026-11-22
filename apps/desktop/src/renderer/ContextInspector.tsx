@@ -7,6 +7,7 @@ import MarkdownBody from './MarkdownBody';
 import { CopyControl } from './transcript-primitives';
 // @ts-expect-error Shared context map has no separate declaration file.
 import { buildContextMap } from '../../../../packages/protocol-client/src/rows/context-inspection.mjs';
+import { emptyStateHost } from './empty-state-host';
 
 type Category = { key: string; label: string; tokens: number; estimatedTokens?: number; count: number };
 type Entry = {
@@ -230,7 +231,11 @@ function entryListContents({
               </div>
             );
           })}
-        {!entries.length && <p className="mx-empty-state">{t('No entries.')}</p>}
+        {!entries.length && (
+          <p className="mx-empty-state" ref={emptyStateHost}>
+            {t('No entries.')}
+          </p>
+        )}
       </div>
     </>
   );
@@ -371,7 +376,7 @@ export function ContextInspector({
   let detail: ReactNode;
   if (!selected) {
     detail = (
-      <div className="context-detail-empty mx-empty-state">
+      <div className="context-detail-empty mx-empty-state" ref={emptyStateHost}>
         <p>{t('Select a category to list its entries here.')}</p>
       </div>
     );

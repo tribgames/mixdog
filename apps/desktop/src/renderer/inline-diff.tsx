@@ -7,6 +7,7 @@ import { parseUnifiedDiff } from './renderer-logic.mjs';
 import { GitFileDiff } from './ReviewPane';
 import { fileBaseName } from './text-format';
 import { useHighlightedRows } from './transcript-tool-panel';
+import { emptyStateHost } from './empty-state-host';
 
 export type DiffLineKind = 'ctx' | 'add' | 'del';
 export type DiffLine = { kind: DiffLineKind; oldNo: number; newNo: number; text: string };
@@ -214,7 +215,12 @@ export function FileDiffBody({
 }) {
   const hunks = useMemo(() => patchHunks(patch), [patch]);
   if (mode === 'split') return <GitFileDiff patch={patch} mode="split" hideHunkHeader={hideHunkHeader} />;
-  if (hunks.length === 0) return <p className="inline-diff-empty mx-empty-state">{t('No textual differences.')}</p>;
+  if (hunks.length === 0)
+    return (
+      <p className="inline-diff-empty mx-empty-state" ref={emptyStateHost}>
+        {t('No textual differences.')}
+      </p>
+    );
   return <InlineDiff hunks={hunks} language={language} whole={whole} />;
 }
 

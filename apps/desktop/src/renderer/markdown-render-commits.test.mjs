@@ -242,16 +242,15 @@ test('replies mounting in one commit share one frame of synchronous parsing; one
   });
 });
 
-test('streaming more text never changes the blocks that were already complete', async () => {
+test('streaming more text never changes the blocks that were already complete, and the open block keeps its element as it completes', async () => {
   await withDom(async ({ host, root }) => {
     await preloadMarkdownBody();
     await preloadSyncMarkdownParser();
     const text = `${SETTLED_REPLY}\n\nTail ${Date.now()} keeps growing word by word.`;
     // Cut points through every construct: mid-link, mid-list, mid-table,
-    // inside the open fence, and the settled end.
+    // inside the open fence.
     const cuts = [];
     for (let at = 40; at < text.length; at += 17) cuts.push(at);
-    cuts.push(text.length);
     const render = (end, streaming) =>
       act(async () =>
         root.render(
@@ -261,9 +260,9 @@ test('streaming more text never changes the blocks that were already complete', 
         )
       );
     let complete = [];
-    for (const [index, end] of cuts.entries()) {
-      const streaming = index < cuts.length - 1;
-      await render(end, streaming);
+    let open = null;
+    for (const end of cuts) {
+      await render(end, true);
       const markdown = host.querySelector('.markdown');
       assert.ok(markdown, `markdown at ${end}`);
       assert.equal(host.querySelector('[data-transcript-pending]'), null, `no unparsed block at ${end}`);
@@ -274,8 +273,15 @@ test('streaming more text never changes the blocks that were already complete', 
         assert.equal(block.node.outerHTML, block.html, `complete block changed at ${end}`);
       }
       const blocks = [...markdown.children].filter((node) => !node.hasAttribute('hidden'));
+      // The block that was still open keeps its element as it completes.
+      if (open && blocks.length > complete.length + 1) {
+        assert.ok(open.isConnected, `the open block remounted as it completed at ${end}`);
+      }
+      open = blocks.at(-1) ?? null;
       complete = blocks.slice(0, -1).map((node) => ({ node, html: node.outerHTML }));
     }
+    // Ended, it shows its whole text's parse in the commit that ends it.
+    await render(text.length, false);
     assert.deepEqual(
       { ...firstCommitShape(host), heading: host.querySelector('h2')?.textContent },
       {
@@ -287,6 +293,56 @@ test('streaming more text never changes the blocks that were already complete', 
         pending: false,
       }
     );
+  });
+});
+
+// Each reply streams cold (no part of it parsed before) and is read whole after.
+const STREAMED_REPLIES = {
+  'fence in a list item': '1. Install:\n\n   ```bash\n   npm i\n   ```\n\n2. Next step\n\nAfter.',
+  'reference defined later': 'See [guide][g].\n\nMore.\n\n[g]: https://example.com\n\nEnd.',
+  'definition before its use': '[d]: https://example.com/docs\n\nSee [the docs][d] here.\n\nEnd.',
+  footnotes: 'A claim[^1] here and[^2] there.\n\nMore[^1].\n\n[^2]: Second.\n\n[^1]: The source.\n\nEnd.',
+  'display math with a blank line': 'Text\n\n$$\na = b\n\nc = d\n$$\n\nAfter.',
+  'nested quotes': '> a\n> > b\n\n> c\n\nd',
+  'a list that a full group of blocks grows': `${Array.from({ length: 31 }, (_, index) => `P${index}.`).join('\n\n')}\n\n- one\n\n- - - more`,
+  'a quote a setext underline continues': '> quoted\n---flag',
+  'a footnote that continues past a blank line': 'Call[^a].\n\n[^a]: first.\n\n    Second paragraph.\n\nEnd',
+  'a reference split across quote lines': '> [a\n> b]\n\n[a b]: /guide\n\nEnd',
+  'a reply that ends on a definition': 'See [g].\n\n[g]: /guide',
+  'an autolink literal': 'Contact help@example.com.',
+  'one plain line': 'Done.',
+  'lists, table and code':
+    '- one\n- two\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```\n\nTail **done**.',
+};
+
+test('a streamed reply ends, in the commit that ends it, as the same reply read whole', async () => {
+  await withDom(async ({ host, root }) => {
+    await preloadMarkdownBody();
+    await preloadSyncMarkdownParser();
+    const markup = () => host.querySelector('.markdown').innerHTML;
+    for (const [name, text] of Object.entries(STREAMED_REPLIES)) {
+      let firstCommit = null;
+      const render = (id, end, streaming) =>
+        act(async () =>
+          root.render(
+            React.createElement(
+              React.Profiler,
+              { id, onRender: () => (firstCommit ??= markup()) },
+              React.createElement(TranscriptRow, {
+                key: id,
+                item: { id, kind: 'assistant', text: text.slice(0, end), streaming },
+              })
+            )
+          )
+        );
+      for (let end = 1; end < text.length; end += 3) await render(`${name} streamed`, end, true);
+      firstCommit = null;
+      await render(`${name} streamed`, text.length, false);
+      const ended = firstCommit;
+      await render(`${name} whole`, text.length, false);
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+      assert.equal(ended, markup(), name);
+    }
   });
 });
 
@@ -322,6 +378,22 @@ test('markdown component types are created once per copy control', () => {
   assert.equal(markdownComponents(First).pre, components.pre);
   assert.equal(markdownComponents(First).table, components.table);
   assert.notEqual(markdownComponents(Second).pre, components.pre);
+});
+
+test('a table states on its element whether it is wide or narrow', () => {
+  const table = (columns) =>
+    [
+      `| ${Array.from({ length: columns }, (_, index) => `h${index}`).join(' | ')} |`,
+      `|${'---|'.repeat(columns)}`,
+      `| ${Array.from({ length: columns }, (_, index) => `c${index}`).join(' | ')} |`,
+    ].join('\n');
+  const tag = (columns) =>
+    renderToStaticMarkup(
+      React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(table(columns)), copyControl: () => null })
+    ).match(/<table[^>]*>/)[0];
+  assert.equal(tag(3), '<table data-narrow="">');
+  assert.equal(tag(4), '<table>');
+  assert.equal(tag(6), '<table data-wide="">');
 });
 
 test('table cells holding Han or Kana are marked to wrap between characters', () => {

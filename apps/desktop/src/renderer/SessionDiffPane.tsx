@@ -26,6 +26,7 @@ import { useSessionDiffRequests } from './use-session-diff-requests';
 import { useSessionDiffRevert } from './use-session-diff-revert';
 import { useSessionDiffRows } from './use-session-diff-rows';
 import { sessionDiffTabView, useSessionDiffTabs, type SessionDiffFileTabs } from './use-session-diff-tabs';
+import { emptyStateHost } from './empty-state-host';
 
 /** Every state renders inside the same flex-column frame, so an empty, loading
  *  or failed pane centres its message on both axes exactly like the other
@@ -122,10 +123,20 @@ function sessionDiffStatus(
   { loading, ready, unsupported, error }: { loading: boolean; ready: boolean; unsupported: boolean; error: string },
   onRetry: () => void
 ): ReactNode {
-  if (!sessionId) return <p className="utility-dock-empty mx-empty-state">{t('Open a session to view its diff.')}</p>;
+  if (!sessionId)
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Open a session to view its diff.')}
+      </p>
+    );
   if (loading && !ready) return <InitialSurface />;
   if (error) return <ErrorNotice error={error} onRetry={onRetry} />;
-  if (unsupported) return <p className="utility-dock-empty mx-empty-state">{t('Session diff is unavailable.')}</p>;
+  if (unsupported)
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Session diff is unavailable.')}
+      </p>
+    );
   return null;
 }
 
@@ -315,7 +326,7 @@ export function SessionDiffPane({
   if (awaitingFile) body = <InitialSurface />;
   else if (rows.length === 0) {
     body = (
-      <p className="utility-dock-empty mx-empty-state">
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
         {repository ? sessionChangesEmptyText(source) : t('No changes from this session.')}
       </p>
     );

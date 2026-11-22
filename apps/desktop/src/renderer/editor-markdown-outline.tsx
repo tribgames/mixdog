@@ -3,6 +3,7 @@
 // outline reads the DOM instead of parsing the source.
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import { t } from './i18n';
+import { emptyStateHost } from './empty-state-host';
 
 export interface OutlineHeading {
   id: string;
@@ -135,7 +136,9 @@ export function EditorOutline({ headings, activeId }: { headings: readonly Outli
   return (
     <nav className="editor-outline" aria-label={t('Table of contents')}>
       {headings.length === 0 ? (
-        <p className="editor-outline-empty mx-empty-state">{t('No headings')}</p>
+        <p className="editor-outline-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No headings')}
+        </p>
       ) : (
         <ul>
           {headings.map((heading, index) => (

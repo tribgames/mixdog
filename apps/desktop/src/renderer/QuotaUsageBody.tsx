@@ -45,6 +45,7 @@ import {
 } from './usage-stats-model';
 import { clearQuotaFocus, writeQuotaSubscription } from './usage-surface-mode';
 import { subscribeAccountSwitches } from './usage-dashboard-store';
+import { emptyStateHost } from './empty-state-host';
 
 type QuotaView = StatsView | 'window';
 type QuotaQuery = {
@@ -266,7 +267,9 @@ function QuotaTable({
           <tbody>
             <tr>
               <td className="usage-empty" colSpan={10}>
-                <div className="mx-empty-state">{t('No usage in this period.')}</div>
+                <div className="mx-empty-state" ref={emptyStateHost}>
+                  {t('No usage in this period.')}
+                </div>
               </td>
             </tr>
           </tbody>
@@ -665,7 +668,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
         </p>
       )}
       {empty ? (
-        <p className="quota-empty mx-empty-state">
+        <p className="quota-empty mx-empty-state" ref={emptyStateHost}>
           <b>{t('No OAuth usage recorded yet.')}</b>
           <span>{t('Recorded from now on whenever provider usage is checked.')}</span>
         </p>

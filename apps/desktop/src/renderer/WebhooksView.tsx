@@ -41,6 +41,7 @@ import { copyTextToClipboard } from './text-format';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
 import type { RecordValue } from './desktop-types';
+import { emptyStateHost } from './empty-state-host';
 
 type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects' | 'getTaskWorkspace'>>;
 
@@ -773,7 +774,7 @@ export function WebhooksPane({
           </RoutineSideGroups>
         )}
         {!loading && !noBot && visible.length === 0 && (
-          <div className="utility-dock-empty mx-empty-state">
+          <div className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
             <p>{t('No webhooks.')}</p>
           </div>
         )}

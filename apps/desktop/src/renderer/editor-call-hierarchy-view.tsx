@@ -7,6 +7,7 @@ import { MIXDOG_EDITOR_SCROLLBAR } from './editor-monaco-bootstrap';
 import type { CallHierarchyPreview, readCallHierarchyLayout } from './editor-pane-model';
 import { monaco, resolveThemeColor } from './monaco-setup';
 import { t } from './i18n';
+import { emptyStateHost } from './empty-state-host';
 
 function hierarchyTitle(loading: boolean, direction: string, rootName: string): string {
   if (loading) return t('Loading…');
@@ -137,10 +138,20 @@ export function CallHierarchyPeek({
         }}
       >
         <div className="editor-call-hierarchy-preview">
-          {preview?.loading && <p className="mx-empty-state">{t('Loading…')}</p>}
-          {preview && !preview.loading && preview.error && <p className="mx-empty-state">{preview.error}</p>}
+          {preview?.loading && (
+            <p className="mx-empty-state" ref={emptyStateHost}>
+              {t('Loading…')}
+            </p>
+          )}
+          {preview && !preview.loading && preview.error && (
+            <p className="mx-empty-state" ref={emptyStateHost}>
+              {preview.error}
+            </p>
+          )}
           {!preview && (
-            <p className="mx-empty-state">{state.error || (state.loading ? t('Loading…') : t('No results'))}</p>
+            <p className="mx-empty-state" ref={emptyStateHost}>
+              {state.error || (state.loading ? t('Loading…') : t('No results'))}
+            </p>
           )}
           {preview && !preview.loading && !preview.error && (
             <Editor
@@ -213,10 +224,18 @@ export function CallHierarchyPeek({
           aria-label={state.direction === 'incoming' ? t('Incoming Calls') : t('Outgoing Calls')}
           tabIndex={0}
         >
-          {state.loading && <p className="mx-empty-state">{t('Loading…')}</p>}
-          {!state.loading && state.error && <p className="mx-empty-state">{state.error}</p>}
+          {state.loading && (
+            <p className="mx-empty-state" ref={emptyStateHost}>
+              {t('Loading…')}
+            </p>
+          )}
+          {!state.loading && state.error && (
+            <p className="mx-empty-state" ref={emptyStateHost}>
+              {state.error}
+            </p>
+          )}
           {!state.loading && !state.error && !state.rows.length && (
-            <p className="mx-empty-state">
+            <p className="mx-empty-state" ref={emptyStateHost}>
               {state.direction === 'incoming'
                 ? t("No callers of '{{name}}'", { name: state.root?.name || '' })
                 : t("No calls from '{{name}}'", { name: state.root?.name || '' })}

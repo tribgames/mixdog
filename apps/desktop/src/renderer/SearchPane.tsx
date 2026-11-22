@@ -6,6 +6,7 @@ import { FilesRootPane, SetiFileIcon } from './ExplorerTree';
 import { t } from './i18n';
 import { scheduleEditorPanePrefetch } from './lazy-widgets';
 import { useWorkspaceSearch, type SearchContentResults, type SearchNameResults } from './use-workspace-search';
+import { emptyStateHost } from './empty-state-host';
 
 const EMPTY_CHANGED_FILES = new Set<string>();
 const ignoreFilesReadyChange = () => {};
@@ -30,7 +31,12 @@ function SearchNameResultList({
   onOpenFile?(project: string, rel: string, mode?: 'preview' | 'pinned'): void;
 }) {
   const totalNameHits = results.reduce((sum, result) => sum + result.paths.length, 0);
-  if (totalNameHits === 0) return <p className="utility-dock-empty mx-empty-state">{t('No matching files.')}</p>;
+  if (totalNameHits === 0)
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('No matching files.')}
+      </p>
+    );
   return (
     <div
       className="workbench-search-results"
@@ -80,7 +86,12 @@ function SearchContentResultList({
   onOpenFileAt?(project: string, rel: string, line?: number): void;
 }) {
   const totalMatches = results.reduce((sum, result) => sum + result.matchCount, 0);
-  if (results.length === 0) return <p className="utility-dock-empty mx-empty-state">{t('No results found.')}</p>;
+  if (results.length === 0)
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('No results found.')}
+      </p>
+    );
   return (
     <div
       className="workbench-search-results"
@@ -190,13 +201,17 @@ export const SearchPane = memo(function SearchPane({
     }
     if (contentsMode) {
       return (
-        <p className="utility-dock-empty mx-empty-state">
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
           {folders.length === 0 ? t('Open a project to search files.') : t('Search project files by name or contents.')}
         </p>
       );
     }
     if (folders.length === 0)
-      return <p className="utility-dock-empty mx-empty-state">{t('Open a project to browse its files.')}</p>;
+      return (
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+          {t('Open a project to browse its files.')}
+        </p>
+      );
     return (
       <FilesRootPane
         projectPath={projectPath}

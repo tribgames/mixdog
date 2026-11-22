@@ -17,6 +17,7 @@ import {
   reviewerStateLabel,
   splitPrDiff,
 } from './pull-requests-model';
+import { emptyStateHost } from './empty-state-host';
 
 /** The pull request's detail, its per-file diffs and the checked-out branch,
  *  reloaded when eload is called or an action run through un succeeds. */
@@ -136,7 +137,9 @@ export function PullRequestConversationPanel({
             ))}
           </div>
         ) : (
-          <div className="dock-pr-empty-row mx-empty-state">{t('No conversation yet.')}</div>
+          <div className="dock-pr-empty-row mx-empty-state" ref={emptyStateHost}>
+            {t('No conversation yet.')}
+          </div>
         )}
       </section>
       {detail.state === 'OPEN' && (
@@ -220,7 +223,9 @@ export function PullRequestChecksPanel({ detail }: { detail: DesktopPullRequestD
             ))}
           </div>
         ) : (
-          <div className="dock-pr-empty-row mx-empty-state">{t('No reviewers requested.')}</div>
+          <div className="dock-pr-empty-row mx-empty-state" ref={emptyStateHost}>
+            {t('No reviewers requested.')}
+          </div>
         )}
         {detail.reviewDecision && (
           <p className="dock-pr-review-decision" data-checks={reviewDecisionTone(detail.reviewDecision)}>
@@ -285,14 +290,20 @@ export function PullRequestFilesPanel({
                   {patch ? (
                     <GitFileDiff patch={patch} mode="unified" />
                   ) : (
-                    <p className="mx-empty-state">{t('No textual diff.')}</p>
+                    <p className="mx-empty-state" ref={emptyStateHost}>
+                      {t('No textual diff.')}
+                    </p>
                   )}
                 </div>
               )}
             </section>
           );
         })}
-        {detail.files.length === 0 && <div className="dock-pr-empty-row mx-empty-state">{t('0 changed files')}</div>}
+        {detail.files.length === 0 && (
+          <div className="dock-pr-empty-row mx-empty-state" ref={emptyStateHost}>
+            {t('0 changed files')}
+          </div>
+        )}
       </section>
     </div>
   );

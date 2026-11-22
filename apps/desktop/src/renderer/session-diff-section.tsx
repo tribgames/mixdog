@@ -20,6 +20,7 @@ import { type RowExtent, rowWindowLayout, useRowWindow, windowedRows } from './s
 import { fileBaseName } from './text-format';
 import { toolActivityCodeLanguage } from './transcript-tool-format';
 import { middleTruncatedDirectory } from './turn-changes-model';
+import { emptyStateHost } from './empty-state-host';
 
 function sectionBody(
   row: SessionDiffRow,
@@ -29,10 +30,15 @@ function sectionBody(
   onOpenFile: (() => void) | undefined
 ) {
   if (collapsed) return null;
-  if (row.reason) return <p className="inline-diff-empty mx-empty-state">{t('No diff was recorded for this file.')}</p>;
+  if (row.reason)
+    return (
+      <p className="inline-diff-empty mx-empty-state" ref={emptyStateHost}>
+        {t('No diff was recorded for this file.')}
+      </p>
+    );
   if (sessionDiffRowTooLarge(row)) {
     return (
-      <p className="inline-diff-empty session-diff-too-large mx-empty-state">
+      <p className="inline-diff-empty session-diff-too-large mx-empty-state" ref={emptyStateHost}>
         {/* One line: the action reads as an inline link after the note. */}
         <span>
           {t('This file is too large to display here.')}
@@ -53,11 +59,20 @@ function sectionBody(
       </p>
     );
   }
-  if (row.patchPending) return <p className="inline-diff-empty mx-empty-state">{t('Loading diff…')}</p>;
+  if (row.patchPending)
+    return (
+      <p className="inline-diff-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Loading diff…')}
+      </p>
+    );
   const failedText = t('Could not load this diff. Refresh to try again.');
   // With nothing readable the failure stands in for the diff.
   if (row.patchFailed && row.parts.length === 0) {
-    return <p className="inline-diff-empty mx-empty-state">{failedText}</p>;
+    return (
+      <p className="inline-diff-empty mx-empty-state" ref={emptyStateHost}>
+        {failedText}
+      </p>
+    );
   }
   // A newer read that failed keeps the last text readable, with the failure beside it.
   const failed = row.patchFailed ? <p className="inline-diff-empty">{failedText}</p> : null;

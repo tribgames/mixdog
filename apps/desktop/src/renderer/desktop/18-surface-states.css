@@ -260,13 +260,15 @@
 }
 /* An in-flow state's container (a block scroller, a grid list, a flex row)
    lays it out as one column, so the state fills what the container's other
-   children leave free instead of hugging the top. A table cell stays a cell. */
-:not([hidden], td, th):has(> .mx-empty-state:where(:not(.mx-empty-state-cover))) {
+   children leave free instead of hugging the top. A table cell stays a cell.
+   The state marks its container itself (empty-state-host.ts): a :has() over
+   every element's children restyled all of them on each insertion. */
+[data-empty-state-host]:not([hidden], td, th) {
   display: flex;
   flex-direction: column;
 }
 /* Its siblings keep their block size (headers, windowed-list spacers): only
    the state gives way when the container is short. */
-:not([hidden], td, th):has(> .mx-empty-state:where(:not(.mx-empty-state-cover))) > :not(.mx-empty-state) {
+[data-empty-state-host]:not([hidden], td, th) > :not(.mx-empty-state) {
   flex-shrink: 0;
 }

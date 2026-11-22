@@ -6,11 +6,11 @@ import {
   parseLiveMarkdownAst,
   parseSettledMarkdownAstNow,
   readCachedStreamingMarkdownAst,
+  SYNC_MARKDOWN_PARSE_BUDGET_MS,
   SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS,
   syncMarkdownParser,
 } from './markdown-worker-client';
 import MarkdownAstBody from './MarkdownAstBody';
-import type { StreamFadeTimeline } from './markdown-stream-fade';
 import { containsFencedCodeMarkdown, MarkdownSourceFallback } from './MarkdownSourceFallback';
 import { noteStreamSyncParse, noteStreamWorkerParse } from './transcript-stream-metrics';
 
@@ -45,41 +45,26 @@ function promoteMarkdownAst(
   return { text: parsedText, source, root };
 }
 
-/** A main-thread parse slower than this hands longer text back to the worker.
- *  (Size cap: SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS in markdown-worker-client.) */
-const SYNC_MARKDOWN_PARSE_BUDGET_MS = 8;
-
 const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   text,
   parseText,
   parse,
   sync,
-  final,
   live,
-  fadeTimeline,
-  fadeOffset,
   copyControl,
 }: {
   text: string;
   parseText: string;
   parse: boolean;
   sync: boolean;
-  /** The text a streamed reply ended with: it parses on the main thread in
-   *  the commit that ends the reply, whatever its length, so the rest of the
-   *  reply shows at once (never after a worker round trip). */
-  final: boolean;
-  /** A streamed reply's growing tail: its parses never enter the shared cache. */
+  /** A growing tail: its parses never enter the shared cache. */
   live: boolean;
-  fadeTimeline: StreamFadeTimeline | null;
-  fadeOffset: number;
   copyControl: MarkdownCopyControl;
 }) {
   const slowAt = useRef(Number.POSITIVE_INFINITY);
   const lastSync = useRef<RenderedMarkdownAst | null>(null);
   const parser =
-    sync &&
-    parse &&
-    (final || (parseText.length <= SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS && parseText.length < slowAt.current))
+    sync && parse && parseText.length <= SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS && parseText.length < slowAt.current
       ? syncMarkdownParser()
       : null;
   const syncRoot = useMemo(() => {
@@ -155,15 +140,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
 
   if (usable) {
     return (
-      <MarkdownAstBody
-        root={usable.root}
-        copyControl={copyControl}
-        fadeTimeline={fadeTimeline}
-        fadeOffset={fadeOffset}
-        // An older parse covers only the text it was parsed from: the rest
-        // comes on screen (and starts fading) when its parse lands.
-        fadeEnd={fadeOffset + usable.source.length}
-      />
+      <MarkdownAstBody root={usable.root} copyControl={copyControl} />
     );
   }
   if (showFencedSourceFallback) {
@@ -186,22 +163,13 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parseText,
   parse = true,
   sync = false,
-  final = false,
-  fadeTimeline = null,
-  fadeOffset = 0,
   copyControl,
 }: {
   text: string;
   parseText?: string;
   parse?: boolean;
-  /** Live reply: small text parses on the main thread (see SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS). */
+  /** Live text: small text parses on the main thread (see SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS). */
   sync?: boolean;
-  /** A streamed reply's ending text: it parses in the commit that shows it. */
-  final?: boolean;
-  /** A streamed reply's timeline: its text fades in (markdown-stream-fade). */
-  fadeTimeline?: StreamFadeTimeline | null;
-  /** Where this chunk starts in the reply. */
-  fadeOffset?: number;
   copyControl: MarkdownCopyControl;
 }) {
   return (
@@ -210,10 +178,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
       parseText={parseText ?? text}
       parse={parse}
       sync={sync}
-      final={final}
       live={sync && parseText !== undefined}
-      fadeTimeline={fadeTimeline}
-      fadeOffset={fadeOffset}
       copyControl={copyControl}
     />
   );

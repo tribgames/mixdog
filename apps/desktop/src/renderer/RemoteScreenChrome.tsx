@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 
 import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { t } from './i18n';
+import { emptyStateHost } from './empty-state-host';
 import './remote-screen.css';
 
 /** Row 1 of the sheet: the monitor chip on the left, ⋯ and close on the right.
@@ -49,5 +50,9 @@ export function ScreenHeaderRow({
 /** The browser pane's state card (`.browser-remote-empty`), filling its
  *  nearest positioned box. */
 export function ScreenStateCard({ children }: { children: ReactNode }) {
-  return <div className="browser-remote-empty mx-empty-state mx-empty-state-cover">{children}</div>;
+  return (
+    <div className="browser-remote-empty mx-empty-state mx-empty-state-cover" ref={emptyStateHost}>
+      {children}
+    </div>
+  );
 }

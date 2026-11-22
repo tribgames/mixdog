@@ -19,6 +19,7 @@ import {
   trendPeriodLabel,
 } from './usage-stats-model';
 import type { Grain, Metric, Row, StatsView, TrendBucket, TrendGrouping } from './usage-stats-model';
+import { emptyStateHost } from './empty-state-host';
 
 /** Provider identity, not rank or metric, owns the colour of every band. */
 function TrendBar({
@@ -219,7 +220,11 @@ export function UsageTrend({
           )}
         </div>
       )}
-      {!loading && !(peak > 0) && <p className="stats-trend-empty mx-empty-state">{trendEmptyText(metric, series)}</p>}
+      {!loading && !(peak > 0) && (
+        <p className="stats-trend-empty mx-empty-state" ref={emptyStateHost}>
+          {trendEmptyText(metric, series)}
+        </p>
+      )}
       <footer data-single={axisStart === axisEnd ? 'true' : undefined}>
         <span>{axisStart}</span>
         {axisStart !== axisEnd && <span>{axisEnd}</span>}

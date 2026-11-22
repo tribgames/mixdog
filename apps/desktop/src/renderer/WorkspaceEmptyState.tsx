@@ -5,6 +5,7 @@ import type React from 'react';
 
 import { t } from './i18n';
 import { usePhoneSurfaceMarked } from './mobile-surface';
+import { emptyStateHost } from './empty-state-host';
 
 // 23-A is the high-contrast in-app mark. Watermarks crop to the glyph bounds
 // so the visible mark fills the box like a letterpress.
@@ -24,7 +25,7 @@ export function BrandTile({ crop = false }: { crop?: boolean } = {}): React.JSX.
 export function WorkspaceEmptyState(): React.JSX.Element {
   const phone = usePhoneSurfaceMarked();
   return (
-    <div className="workspace-empty mx-empty-state" data-testid="workspace-empty">
+    <div className="workspace-empty mx-empty-state" ref={emptyStateHost} data-testid="workspace-empty">
       <div className="thread-welcome">
         <span className="welcome-logo" aria-hidden="true">
           <BrandTile crop />

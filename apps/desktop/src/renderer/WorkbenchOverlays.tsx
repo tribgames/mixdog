@@ -21,6 +21,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { isPhoneSurfaceMarked } from './mobile-surface';
 import { acquireModalLayer } from './modal-layer';
 import { acquireTitleBarDim } from './titlebar-dim';
+import { emptyStateHost } from './empty-state-host';
 
 export type WorkbenchQuickAccessMode = 'files' | 'commands';
 
@@ -496,7 +497,7 @@ export function WorkbenchQuickAccess({
         </div>
         <div className="workbench-quick-results" role="listbox" aria-label={commandMode ? t('Commands') : t('Files')}>
           {rows.length === 0 && (
-            <p className="mx-empty-state" role="status">
+            <p className="mx-empty-state" ref={emptyStateHost} role="status">
               {listMessage}
             </p>
           )}

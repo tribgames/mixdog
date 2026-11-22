@@ -13,6 +13,7 @@ import { ExtensionDetailDialog, ExtensionField, ExtensionSection } from './setti
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import './desktop/extension-dialog.css';
 import { ProjectEditorCache, readProjectMemories, type ProjectMemoryCatalog } from './project-editor-data';
+import { emptyStateHost } from './empty-state-host';
 
 type ProjectEditTarget = { path: string | null; title: string };
 
@@ -345,7 +346,11 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                     setEditError,
                     setMemoryBusy,
                   })}
-                {memoriesLoading && <p className="projects-memory-empty mx-empty-state">{t('Loading…')}</p>}
+                {memoriesLoading && (
+                  <p className="projects-memory-empty mx-empty-state" ref={emptyStateHost}>
+                    {t('Loading…')}
+                  </p>
+                )}
                 {!memoriesLoading && memoryCatalog && memoryScope && memories.length > 0 && (
                   <div className="core-memory-list">
                     {memories.map((entry) =>
@@ -371,10 +376,14 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                   </div>
                 )}
                 {!memoriesLoading && memoryCatalog && !memoryScope && (
-                  <p className="projects-memory-empty mx-empty-state">{t('Memory is temporarily unavailable.')}</p>
+                  <p className="projects-memory-empty mx-empty-state" ref={emptyStateHost}>
+                    {t('Memory is temporarily unavailable.')}
+                  </p>
                 )}
                 {!memoriesLoading && memoryScope && memories.length === 0 && (
-                  <p className="projects-memory-empty mx-empty-state">{t('No memories yet.')}</p>
+                  <p className="projects-memory-empty mx-empty-state" ref={emptyStateHost}>
+                    {t('No memories yet.')}
+                  </p>
                 )}
               </div>
             </div>

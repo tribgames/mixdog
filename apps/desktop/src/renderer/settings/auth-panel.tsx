@@ -1,3 +1,4 @@
+import { emptyStateHost } from '../empty-state-host';
 import { Globe, KeyRound, MoreHorizontal, Search } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -156,15 +157,17 @@ function LoginList({
         </>
       )}
       {!loaded ? (
-        <p className="settings-empty mx-empty-state">{t('Loading…')}</p>
+        <p className="settings-empty mx-empty-state" ref={emptyStateHost}>
+          {t('Loading…')}
+        </p>
       ) : noLogins ? (
-        <p className="settings-empty mx-empty-state">
+        <p className="settings-empty mx-empty-state" ref={emptyStateHost}>
           {t(
             'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
           )}
         </p>
       ) : shown.length === 0 ? (
-        <p className="settings-empty mx-empty-state">
+        <p className="settings-empty mx-empty-state" ref={emptyStateHost}>
           {query.trim() ? t('No results found.') : t('No saved logins yet.')}
         </p>
       ) : (
