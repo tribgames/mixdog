@@ -108,7 +108,13 @@ export function AgentsSection({
         const name = `${group.role} ${group.rows.length}`;
         return (
           <div key={group.key} className="session-rail-group" data-group={group.key}>
-            <RailFold id={group.key} name={name} open={shown} onToggle={() => folds.setGroups({ [group.key]: !shown })} />
+            <RailFold
+              id={group.key}
+              name={group.role}
+              count={group.rows.length}
+              open={shown}
+              onToggle={() => folds.setGroups({ [group.key]: !shown })}
+            />
             {shown && (
               <div
                 className="composer-island-jobs composer-island-agents schedules-list agent-pool-list"

@@ -156,16 +156,18 @@ export function RailSection({
   );
 }
 
-/** A fold inside a category (a to-do group, an agent state): its name, then
- *  the chevron, as on the category's own head. */
+/** A fold inside a category (a to-do group, an agent role): its name, the
+ *  chevron, then how many it holds, in the order of the category's own head. */
 export function RailFold({
   id,
   name,
+  count,
   open,
   onToggle,
 }: {
   id: string;
   name: string;
+  count?: number;
   open: boolean;
   onToggle(): void;
 }) {
@@ -177,6 +179,7 @@ export function RailFold({
       ) : (
         <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
       )}
+      {count != null && <span className="session-rail-ct">{count}</span>}
     </button>
   );
 }
