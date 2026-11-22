@@ -219,8 +219,8 @@ test('a slot still loading draws a dashed line per window instead of a capsule',
   assert.deepEqual(
     tracks('claude').map((track) => [track.tagName.toLowerCase(), track.getAttribute('y1'), track.getAttribute('stroke-width')]),
     [
-      ['line', '1', '2'],
-      ['line', '4', '2'],
+      ['line', '1.5', '3'],
+      ['line', '5.5', '3'],
     ]
   );
   assert.deepEqual(fills('claude'), []);

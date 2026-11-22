@@ -37,12 +37,13 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Capsule tops in the 17x5 meter under the mark: one 2px capsule in the
- *  middle, or two a pixel apart with the short window on top. */
-const METER_LENGTH = 17;
-const CAPSULE_HEIGHT = 2;
-const SINGLE_BAR = [1];
-const STACKED_BARS = [0, 3];
+/** Capsule tops in the 27x7 meter under the mark: one 3px capsule, or two a
+ *  pixel apart with the short window on top. */
+const METER_LENGTH = 27;
+const METER_HEIGHT = 7;
+const CAPSULE_HEIGHT = 3;
+const SINGLE_BAR = [0];
+const STACKED_BARS = [0, 4];
 
 /** The slot's meter: a faint capsule per drawn window, its toned fill clipped
  *  to the capsule; while loading, a dashed line in its place. */
@@ -50,7 +51,12 @@ function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
   const clipId = useId();
   const tops = entry.bars.length > 1 ? STACKED_BARS : SINGLE_BAR;
   return (
-    <svg className="rail-usage-pin-meter" viewBox={`0 0 ${METER_LENGTH} 5`} aria-hidden="true" focusable="false">
+    <svg
+      className="rail-usage-pin-meter"
+      viewBox={`0 0 ${METER_LENGTH} ${METER_HEIGHT}`}
+      aria-hidden="true"
+      focusable="false"
+    >
       {entry.bars.map((bar, index) => {
         const y = tops[index];
         if (entry.pending) {
@@ -106,6 +112,7 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
             className="rail-usage-pin-brand"
             key={entry.key}
             data-usage-pin={entry.key}
+            data-bars={entry.bars.length}
             aria-busy={entry.pending || undefined}
             data-tooltip={entry.tooltip}
           >
