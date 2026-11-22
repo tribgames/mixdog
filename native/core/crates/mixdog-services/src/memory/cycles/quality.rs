@@ -145,7 +145,7 @@ pub struct Parsed {
     pub summary: String,
 }
 
-/// `parseCycle1LineFormat`: `1-3,5|element|category|summary`, one chunk per line.
+/// `parseCycle1LineFormat`: `1-3,5|element|category|summary`, one chunk per line; a well-formed line repeated is read once.
 pub fn parse_cycle1_line_format(raw: &str) -> Option<Vec<Parsed>> {
     let list = JsRegex::new_static(r"^\d+(?:\s*-\s*\d+)?(?:\s*,\s*\d+(?:\s*-\s*\d+)?)*$", "");
     let text = js_trim(raw);
@@ -172,13 +172,17 @@ pub fn parse_cycle1_line_format(raw: &str) -> Option<Vec<Parsed>> {
             }
             indexes.extend((from as i64)..=(to as i64));
         }
-        chunks.push(Parsed {
+        let chunk = Parsed {
             idx_list: indexes,
             parse_error: None,
             element: js_trim(parts[1]).to_owned(),
             category: js_trim(parts[2]).to_lowercase(),
             summary: js_trim(&parts[3..].join("|")).to_owned(),
-        });
+        };
+        // The same chunk written twice says nothing a second time.
+        if !chunks.contains(&chunk) {
+            chunks.push(chunk);
+        }
     }
     Some(chunks)
 }

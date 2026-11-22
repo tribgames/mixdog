@@ -117,6 +117,36 @@ fn each_way_a_chunk_can_be_wrong_is_named_and_the_rows_it_leaves_are_omitted() {
     }
 }
 
+#[tokio::test]
+async fn a_line_repeated_word_for_word_is_read_once() {
+    let rows = [big_row("word ".repeat(400))];
+    let (generated, calls) = generate(&rows, 16_000.0, |_| "1|Plan|task|decided\n 1 | Plan | Task | decided ".into()).await;
+    assert_eq!(calls.len(), 1);
+    assert!(generated.invalid_chunks.is_empty(), "{:?}", generated.invalid_chunks);
+    assert_eq!(generated.chunks.len(), 1);
+    assert_eq!(generated.chunks[0].summary, "decided");
+    assert!(generated.raw_row_ids.is_empty());
+}
+
+#[test]
+fn lines_that_differ_over_a_row_or_name_a_row_not_given_are_not_repaired() {
+    let rows = [row(10, "a"), row(11, "a"), row(12, "a")];
+    let shared = parse_cycle1_line_format("1,2|Build|task|Fix the build\n2,3|Release|decision|Defer the release").unwrap();
+    let verdict = validate_cycle1_grouping(Some(&shared), &rows);
+    assert!(verdict.accepted.is_empty());
+    assert_eq!(verdict.invalid.iter().map(|i| i.reason.as_str()).collect::<Vec<_>>(), ["duplicate_member_ids", "duplicate_member_ids"]);
+    // Only the rows the failing lines name fail.
+    let partly = parse_cycle1_line_format("1|Build|task|Fix the build\n2,3|Release|decision|Defer\n3|Release|fact|Deferred").unwrap();
+    let verdict = validate_cycle1_grouping(Some(&partly), &rows);
+    assert_eq!(verdict.accepted.iter().map(|c| c.idx_list.clone()).collect::<Vec<_>>(), [vec![1]]);
+    assert_eq!(verdict.omitted, [2, 3]);
+    for reply in ["2|Deploy|fact|Production deployment succeeded", "3-2|Deploy|fact|s", "1,3|Deploy|fact|s"] {
+        let verdict = validate_cycle1_grouping(Some(&parse_cycle1_line_format(reply).unwrap()), &rows[..1]);
+        assert!(verdict.accepted.is_empty(), "{reply}");
+        assert_eq!(verdict.invalid[0].reason, "out_of_range_idx", "{reply}");
+    }
+}
+
 #[test]
 fn no_reply_at_all_is_not_a_valid_grouping() {
     let verdict = validate_cycle1_grouping(None, &[row(1, "a")]);
