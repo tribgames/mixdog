@@ -117,9 +117,42 @@ function boundaryItem(s: SessionFold, held: readonly string[], shown: string): n
 const ownRow: RowOwner = (row, item) => void rowItems.set(row, item);
 const itemOfRow = (row: Obj): string | undefined => rowItems.get(row);
 
-/** The rows a positioned fold shows on its live tail: the run of the followed tail, then the rows no stored record shows yet. */
+/** Where a row no stored record shows stands: after the tail's record at this position (null: before them all). A row
+ *  arrives after the records stored by then and before the ones stored later, and some never get a record of their own. */
+const looseAfter = new WeakMap<Obj, string | null>();
+
+/** The newest record of the followed tail. */
+const tailEnd = (held: HeldWindow): string | null => tailRun(held)?.positions.at(-1) ?? null;
+
+/** `loose` with `row`: in the place of the row of its id, where that one stood; else last, after the tail as it is now. */
+function withLoose(held: HeldWindow, loose: readonly Obj[], row: Obj): Obj[] {
+  const { items, at } = upsert(loose, row);
+  const prior = loose[at];
+  looseAfter.set(row, prior ? (looseAfter.get(prior) ?? null) : tailEnd(held));
+  return items;
+}
+
+/** The rows a positioned fold shows on its live tail: the run of the followed tail, each row no stored record shows
+ *  after the record it arrived after (one whose record left the tail: before them all). */
 function positionedItems(held: HeldWindow, loose: readonly Obj[]): Obj[] {
-  return [...runRows(held, tailRun(held)), ...loose];
+  const run = tailRun(held);
+  if (loose.length === 0 || !run) return [...runRows(held, run), ...loose];
+  const after = new Map<string | null, Obj[]>();
+  for (const row of loose) {
+    const anchor = looseAfter.get(row) ?? null;
+    const at = anchor !== null && run.positions.includes(anchor) ? anchor : null;
+    const shown = after.get(at);
+    if (shown) shown.push(row);
+    else after.set(at, [row]);
+  }
+  const rows = [...(after.get(null) ?? [])];
+  for (const position of run.positions) {
+    const unit = held.units.get(position);
+    if (unit) for (const row of unit.rows) rows.push(row);
+    const shown = after.get(position);
+    if (shown) for (const row of shown) rows.push(row);
+  }
+  return rows;
 }
 
 const heldItemSets = new WeakMap<ReadonlyMap<string, HeldUnit>, ReadonlySet<string>>();
@@ -154,7 +187,7 @@ function settleLive(s: SessionFold): SessionFold {
   const { streaming: _streaming, ...identity } = live.identity;
   const row: Obj = { ...identity, text: live.lines + live.rest };
   rowItems.set(row, live.id);
-  return { ...withHeld(s, s.held, upsert(s.loose ?? [], row).items, false), live: null };
+  return { ...withHeld(s, s.held, withLoose(s.held, s.loose ?? [], row), false), live: null };
 }
 
 /** The folding of a notification a positioned fold reads its own way; undefined for one it folds as any fold does. */
@@ -178,7 +211,7 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
       const fields =
         p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
       let loose: readonly Obj[] = s.loose ?? [];
-      for (const folded of rows) loose = upsert(loose, folded).items;
+      for (const folded of rows) loose = withLoose(held, loose, folded);
       return { ...withHeld(s, held, loose, false), live, fields };
     }
     case 'thread/transcript/changed': {
@@ -193,7 +226,16 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
       if (!changed) return s;
       // The rows shown for the record until it was stored give way to its unit.
       const gone = new Set<unknown>([...changed.items, ...changed.rows.map((row) => row.id)]);
-      const loose = (s.loose ?? []).filter((row) => !gone.has(rowItems.get(row)) && !gone.has(row.id));
+      const prior = s.loose ?? [];
+      const taken = (row: Obj) => gone.has(rowItems.get(row)) || gone.has(row.id);
+      const loose = prior.filter((row) => !taken(row));
+      // What arrived after the rows the record takes the place of stands after the record.
+      const first = prior.findIndex(taken);
+      const positions = tailRun(changed.window)?.positions ?? [];
+      const at = positions.indexOf(changed.position);
+      if (first >= 0 && at >= 0)
+        for (const row of prior.slice(first + 1))
+          if (positions.indexOf(looseAfter.get(row) ?? '') < at) looseAfter.set(row, changed.position);
       const next = withHeld(s, changed.window, loose, true);
       return s.live && changed.items.includes(s.live.id) ? withLive(next, null) : next;
     }
@@ -478,6 +520,8 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   }
   if (p.window !== undefined) {
     const held = windowChanged(undefined, p.window, ownRow);
+    // A snapshot's rows of no record are newer than every record it holds.
+    for (const row of items) looseAfter.set(row, tailEnd(held));
     const shown = positionedItems(held, items);
     transcriptCache.set(shown, yield* mergeToolRowsSteps(shown));
     const fold: SessionFold = {

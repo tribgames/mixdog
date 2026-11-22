@@ -275,3 +275,23 @@ test('a positioned client resumes with positionedWindow, takes window frames at 
   assert.equal(shown.transcriptHistory, 'held');
   await client.close();
 });
+
+test('a row no record ever holds stays where it arrived, before the records stored after it', () => {
+  const shown = (id: string, type = 'userMessage') =>
+    ({ item: { type, id, ...(type === 'userMessage' ? { content: [{ type: 'text', text: id }] } : { text: id }), meta: {} } });
+  const stored = (after: string, id: string) => ({
+    lineage: 1,
+    change: { op: 'insert', after: pos(after), unit: unit(user(id)) },
+  });
+  let s = snapshot(['r1', 'r2']);
+  // A prompt is shown, its turn is stopped (a row of no record), and only then is the prompt's record stored.
+  s = at(s, 'item/completed', shown('u3'));
+  s = at(s, 'item/completed', shown('stopped', 'agentMessage'));
+  s = at(s, 'thread/transcript/changed', stored('r2', 'u3'));
+  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped']);
+  // The next prompt and its record come after the stop.
+  s = at(s, 'item/completed', shown('u4'));
+  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped', 'u4']);
+  s = at(s, 'thread/transcript/changed', stored('u3', 'u4'));
+  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped', 'u4']);
+});
