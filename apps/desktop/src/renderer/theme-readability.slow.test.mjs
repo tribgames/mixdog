@@ -335,7 +335,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
           .getElementById('contrast-rail')
           .insertAdjacentHTML(
             'beforeend',
-            `<span class="rail-usage-pin-brand"><span class="rail-usage-pin-mark"></span><svg class="rail-usage-pin-meter"><line class="rail-usage-pin-track"></line><line class="rail-usage-pin-fill ${tone}"></line></svg></span>`
+            `<span class="rail-usage-pin-brand"><span class="rail-usage-pin-mark"></span><svg class="rail-usage-pin-meter"><rect class="rail-usage-pin-track"></rect><rect class="rail-usage-pin-fill ${tone}"></rect></svg></span>`
           );
         document
           .getElementById('contrast-popup')
@@ -382,9 +382,9 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         ].map((element) => {
           // The rail draws a ring with no figure; the popup meter keeps its bar and figure.
           if (element.closest('#contrast-rail')) {
-            const track = composite(getComputedStyle(element.querySelector('.rail-usage-pin-track')).stroke, frame);
+            const track = composite(getComputedStyle(element.querySelector('.rail-usage-pin-track')).fill, frame);
             const arc = element.querySelector('.rail-usage-pin-fill');
-            const fill = composite(getComputedStyle(arc).stroke, track);
+            const fill = composite(getComputedStyle(arc).fill, track);
             return { name: arc.getAttribute('class'), surface: frame, track, fill, text: null };
           }
           const track = composite(getComputedStyle(element.querySelector(':scope > i')).backgroundColor, popup);

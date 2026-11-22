@@ -43,35 +43,38 @@
   width: 24px;
   height: 24px;
 }
+/* 17px wide so the capsules start on a whole pixel of the 47px rail. */
 .rail-usage-pin-meter {
   position: absolute;
   top: 19px;
-  left: calc(50% - 9px);
-  width: 18px;
+  left: calc(50% - 8.5px);
+  width: 17px;
   height: 5px;
   overflow: visible;
 }
-/* The track is the gauge's own ink, faint, on the fill's stroke: an empty bar
-   still reads as a meter at zero. */
+/* The capsule is the gauge's own ink, faint: an empty one still reads as a
+   meter at zero. Not --mx-meter-track, which the light rail band swallows. */
 .rail-usage-pin-track {
-  stroke: color-mix(in srgb, var(--mx-meter-fill) 30%, transparent);
+  --rail-usage-pin-track: color-mix(in srgb, var(--mx-meter-fill) 30%, transparent);
+  fill: var(--rail-usage-pin-track);
 }
 /* Calm resting fill (a blue fill at rest is too eye-catching): quiet ink until
    the warning/danger tones below take over. Each bar tones by its own window. */
 .rail-usage-pin-fill {
-  stroke: var(--mx-meter-fill);
+  fill: var(--mx-meter-fill);
 }
 /* The toned fill carries the tone alone, so it takes the status text inks,
    not the brighter meter fills. */
 .rail-usage-pin-fill.tone-warning {
-  stroke: var(--mx-warning);
+  fill: var(--mx-warning);
 }
 .rail-usage-pin-fill.tone-danger {
-  stroke: var(--mx-danger);
+  fill: var(--mx-danger);
 }
-/* Loading: a dashed track under a dimmed mark, never mistaken for the solid
-   empty track of a 0% slot. Five dashes span the 18-unit bar end to end. */
+/* Loading: a dashed line in the track's ink under a dimmed mark, never
+   mistaken for the solid empty capsule of a 0% slot. */
 .rail-usage-pin-brand[aria-busy="true"] .rail-usage-pin-track {
+  stroke: var(--rail-usage-pin-track);
   stroke-dasharray: 2 2;
 }
 .rail-usage-pin-brand[aria-busy="true"] svg[data-provider-icon] {

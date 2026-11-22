@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type React from 'react';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { DesktopUpdaterState } from '../shared/contract';
 import {
@@ -37,36 +37,54 @@ const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => und
 
 type UsagePinRow = ReturnType<typeof useUsageRailPin>['usagePinRows'][number];
 
-/** Bars (centre line, stroke) in the 18x5 meter under the mark: one 3px bar,
- *  or two 2px bars a pixel apart with the short window on top. */
-const METER_LENGTH = 18;
-const SINGLE_BAR = [{ y: 2.5, width: 3 }];
-const STACKED_BARS = [
-  { y: 1, width: 2 },
-  { y: 4, width: 2 },
-];
+/** Capsule tops in the 17x5 meter under the mark: one 2px capsule in the
+ *  middle, or two a pixel apart with the short window on top. */
+const METER_LENGTH = 17;
+const CAPSULE_HEIGHT = 2;
+const SINGLE_BAR = [1];
+const STACKED_BARS = [0, 3];
 
-/** The slot's meter: a faint track per drawn window under its own toned fill. */
+/** The slot's meter: a faint capsule per drawn window, its toned fill clipped
+ *  to the capsule; while loading, a dashed line in its place. */
 function UsagePinMeter({ entry }: { entry: UsagePinRow }) {
-  const bars = entry.bars.length > 1 ? STACKED_BARS : SINGLE_BAR;
+  const clipId = useId();
+  const tops = entry.bars.length > 1 ? STACKED_BARS : SINGLE_BAR;
   return (
     <svg className="rail-usage-pin-meter" viewBox={`0 0 ${METER_LENGTH} 5`} aria-hidden="true" focusable="false">
       {entry.bars.map((bar, index) => {
-        const { y, width } = bars[index];
-        const percent = entry.pending ? 0 : (displayUsagePercent(bar.percent) ?? 0);
+        const y = tops[index];
+        if (entry.pending) {
+          const centre = y + CAPSULE_HEIGHT / 2;
+          return (
+            <g key={bar.label} data-usage-window={bar.label}>
+              <line
+                className="rail-usage-pin-track"
+                x1="0"
+                y1={centre}
+                x2={METER_LENGTH}
+                y2={centre}
+                strokeWidth={CAPSULE_HEIGHT}
+              />
+            </g>
+          );
+        }
+        const percent = displayUsagePercent(bar.percent) ?? 0;
+        const capsule = { x: 0, y, width: METER_LENGTH, height: CAPSULE_HEIGHT, rx: CAPSULE_HEIGHT / 2 };
+        const clip = `${clipId}-${index}`;
         return (
           <g key={bar.label} data-usage-window={bar.label}>
-            <line className="rail-usage-pin-track" x1="0" y1={y} x2={METER_LENGTH} y2={y} strokeWidth={width} />
+            <clipPath id={clip}>
+              <rect {...capsule} />
+            </clipPath>
+            <rect className="rail-usage-pin-track" {...capsule} />
             {percent > 0 && (
-              <line
+              <rect
                 className={`rail-usage-pin-fill${usageToneClass(bar.percent)}`}
-                x1="0"
-                y1={y}
-                x2={(METER_LENGTH * percent) / 100}
-                y2={y}
-                strokeWidth={width}
-                // Butt caps end the fill exactly at its percentage.
-                strokeLinecap="butt"
+                clipPath={`url(#${clip})`}
+                x="0"
+                y={y}
+                width={(METER_LENGTH * percent) / 100}
+                height={CAPSULE_HEIGHT}
               />
             )}
           </g>

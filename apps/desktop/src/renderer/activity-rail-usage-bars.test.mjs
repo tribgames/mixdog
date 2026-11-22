@@ -25,8 +25,9 @@ const dashboard = {
   ],
 };
 
-async function mountRail(t, { shortLong = false, usage = dashboard } = {}) {
+async function mountRail(t, { shortLong = false, usage = dashboard, roster } = {}) {
   const { root } = installTestDom(t, { expose: ['HTMLElement', 'Node', 'Element'], rootId: 'root' });
+  if (roster) window.localStorage.setItem('mixdog.desktop.usage-rail-roster.v1', JSON.stringify(roster));
   // jsdom has no layout: give the rail room for the pinned stack.
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 2000 });
   globalThis.ResizeObserver = class {
@@ -43,7 +44,7 @@ async function mountRail(t, { shortLong = false, usage = dashboard } = {}) {
       return { ...stored };
     },
   };
-  publishUsageDashboard(usage);
+  if (usage) publishUsageDashboard(usage);
   const props = {
     settingsOpen: false,
     onOpenSettings() {},
@@ -63,12 +64,12 @@ async function mountRail(t, { shortLong = false, usage = dashboard } = {}) {
 
 const brand = (key) => document.querySelector(`[data-usage-pin="${key}"]`);
 const tracks = (key) => [...brand(key).querySelectorAll('.rail-usage-pin-track')];
-const length = (line) => Number(line.getAttribute('x2')) - Number(line.getAttribute('x1'));
+const width = (rect) => Number(rect.getAttribute('width'));
 // Each drawn bar's fill as [class, percent of its track], top bar first.
 const fills = (key) =>
   [...brand(key).querySelectorAll('.rail-usage-pin-fill')].map((fill) => [
     fill.getAttribute('class'),
-    Math.round((1e4 * length(fill)) / length(fill.parentElement.querySelector('.rail-usage-pin-track'))) / 100,
+    Math.round((1e4 * width(fill)) / width(fill.parentElement.querySelector('.rail-usage-pin-track'))) / 100,
   ]);
 
 // The flyout body loads asynchronously: open it and wait for its menu.
@@ -146,15 +147,23 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
     [...brand('claude').querySelectorAll('[data-usage-window]')].map((bar) => bar.getAttribute('data-usage-window')),
     ['5H', 'W']
   );
-  const [top, bottom] = tracks('claude').map((track) => Number(track.getAttribute('y1')));
+  const [top, bottom] = tracks('claude').map((track) => Number(track.getAttribute('y')));
   assert.ok(top < bottom);
-  // Each track runs under its fill on the same line and stroke.
+  // Each capsule runs under its fill on the same band, the fill clipped to it.
   for (const track of tracks('claude')) {
     const fill = track.parentElement.querySelector('.rail-usage-pin-fill');
-    for (const attribute of ['y1', 'stroke-width']) {
+    for (const attribute of ['y', 'height']) {
       assert.equal(track.getAttribute(attribute), fill.getAttribute(attribute));
     }
+    const clip = fill.getAttribute('clip-path').match(/^url\(#(.+)\)$/)[1];
+    const capsule = track.parentElement.querySelector('clipPath').firstElementChild;
+    assert.equal(track.parentElement.querySelector('clipPath').id, clip);
+    for (const attribute of ['x', 'y', 'width', 'height', 'rx']) {
+      assert.equal(capsule.getAttribute(attribute), track.getAttribute(attribute));
+    }
   }
+  const clips = [...document.querySelectorAll('.rail-usage-pin-meter clipPath')].map((clip) => clip.id);
+  assert.equal(new Set(clips).size, clips.length, 'every capsule clip id is unique');
   assert.equal(
     toggle().getAttribute('aria-description'),
     'Claude · 5-hour 99% · weekly 41%; OpenCode Go OAuth · monthly 10%'
@@ -198,6 +207,19 @@ test('a two-window provider draws two bars, each in the tone of its own window',
   assert.equal(tracks('claude').length, 1);
   assert.deepEqual(fills('claude'), []);
   assert.equal(brand('claude').getAttribute('aria-busy'), null);
+});
+
+test('a slot still loading draws a dashed line per window instead of a capsule', async (t) => {
+  await mountRail(t, { shortLong: true, usage: null, roster: [{ key: 'claude', bars: 2 }] });
+  assert.equal(brand('claude').getAttribute('aria-busy'), 'true');
+  assert.deepEqual(
+    tracks('claude').map((track) => [track.tagName.toLowerCase(), track.getAttribute('y1'), track.getAttribute('stroke-width')]),
+    [
+      ['line', '1', '2'],
+      ['line', '4', '2'],
+    ]
+  );
+  assert.deepEqual(fills('claude'), []);
 });
 
 test('the pin switch in the portaled menu survives a real pointer press and saves the pin', async (t) => {
