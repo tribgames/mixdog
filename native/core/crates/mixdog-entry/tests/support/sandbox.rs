@@ -26,6 +26,14 @@ impl Sandbox {
         for folder in ["home/AppData/Roaming", "home/AppData/Local", "host-data", "tmp", "work"] {
             std::fs::create_dir_all(dir.path().join(folder)).unwrap();
         }
+        // First-run setup done: the terminal interface opens its setup wizard over the prompt otherwise.
+        let config = serde_json::json!({ "agent": { "onboarding": {
+            "completed": true,
+            "version": 1,
+            "completedAt": "2026-01-01T00:00:00.000Z",
+            "starterGuide": { "closed": true, "welcomed": true, "visited": [] }
+        } } });
+        std::fs::write(dir.path().join("host-data/mixdog-config.json"), config.to_string()).unwrap();
         Self { dir }
     }
 
