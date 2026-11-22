@@ -73,7 +73,7 @@ for (const label of ['release-gate.yml', 'rust-core-unix.yml']) {
       for (const step of stepsOf(job)) {
         if (!step.uses?.startsWith('actions/download-artifact@')) continue;
         // a pattern download (the evidence of every leg, the nextest listings) names a family; the composite upload-evidence action and
-        // the listing upload of core-tests produce them, and the reconciliation fails when a declared one is absent
+        // the listing upload of core-list produce them, and the reconciliation fails when a declared one is absent
         if (step.with.pattern) {
           assert.ok(name === 'complete', `${name} downloads a pattern`);
           continue;
@@ -407,20 +407,27 @@ test('release-gate.yml: a split cache restore never falls back to an entry built
 });
 
 test('release-gate.yml: every lane filter is checked against the compiled test list of the archive core-build makes, before a release', () => {
-  const tests = gate.jobs['core-tests-linux'];
-  assert.deepEqual(needsOf(tests), ['changes', 'core-build-linux']);
-  const index = stepsOf(tests).findIndex(
+  const lists = gate.jobs['core-list-linux'];
+  assert.deepEqual(needsOf(lists), ['changes', 'core-build-linux']);
+  const index = stepsOf(lists).findIndex(
     (step) => step.name === 'Check that every lane filter selects a compiled test'
   );
-  const download = stepsOf(tests).findIndex((step) => step.uses?.startsWith('actions/download-artifact@'));
-  assert.ok(download >= 0 && index > download, 'the check runs on the downloaded archive');
-  const step = stepsOf(tests)[index];
-  assert.equal(step.if, "matrix.os == 'linux' && matrix.part == 1");
-  assert.match(
-    step.run,
-    /cargo nextest list --archive-file core-tests\.tar\.zst --workspace-remap native\/core --message-format json/
+  const download = stepsOf(lists).findIndex((step) => step.uses?.startsWith('actions/download-artifact@'));
+  const listing = stepsOf(lists).findIndex((step) => step.id === 'ignored-audit');
+  assert.ok(download >= 0 && listing > download && index > listing, 'the check reads the listing of the downloaded archive');
+  assert.ok(
+    index < stepsOf(lists).findIndex((step) => step.uses?.startsWith('actions/upload-artifact@')),
+    'a failed check uploads no listing'
   );
-  assert.match(step.run, /node scripts\/ci\/check-lane-filters\.mjs nextest-list\.json/);
+  const step = stepsOf(lists)[index];
+  assert.equal(step.if, "matrix.os == 'linux'");
+  // the unfiltered listing of every test the archive compiled
+  assert.match(
+    stepsOf(lists)[listing].run,
+    /cargo nextest list --archive-file core-tests\.tar\.zst --workspace-remap native\/core --config-file native\/core\/\.config\/nextest\.toml --message-format json > rust-lists\/all\.json/
+  );
+  assert.match(step.run, /node scripts\/ci\/check-lane-filters\.mjs rust-lists\/all\.json/);
+  assert.doesNotMatch(JSON.stringify(gate.jobs['core-tests-linux']), /check-lane-filters|nextest list/, 'no leg lists');
   // a pull request archive holds only some crates; a main push or manual run archives all and requires every lane package
   assert.match(step.run, /CORE_SCOPE" != all .*--allow-missing-packages/s);
   assert.match(step.env.CORE_SCOPE, /needs\.changes\.outputs\.core_scope/);
@@ -856,23 +863,32 @@ test('desktop-package.yml: the Windows runtime step takes a receipt and no skip 
 });
 
 test('release-gate.yml: every system lists its archive unfiltered for the reconciliation, the reader scan is advisory, and every standalone Rust lane has a check', () => {
-  const rust = stepsOf(gate.jobs['core-tests-linux']).find(
+  const rust = stepsOf(gate.jobs['core-list-linux']).find(
     (step) => step.name === 'List the archive (unfiltered, and per profile that runs ignored tests)'
   );
-  // every system's archive is listed whatever the scope of the run: a macOS-only ignored test is seen by no other leg
-  assert.equal(rust.if, 'matrix.part == 1');
+  // every system's archive is listed whatever the scope of the run: a macOS-only ignored test is seen by no other leg. A job of
+  // its own per system, selected with that system's test legs and waiting for its archive alone, with one set of steps.
+  assert.equal(rust.if, undefined);
   assert.equal(rust.env.OS, '${{ matrix.os }}');
+  for (const os of ['linux', 'macos', 'windows']) {
+    const list = gate.jobs[`core-list-${os}`];
+    assert.deepEqual(needsOf(list), ['changes', `core-build-${os}`]);
+    assert.equal(list.if, gate.jobs[`core-tests-${os}`].if);
+    assert.deepEqual(list.strategy.matrix.include.map((entry) => entry.os), [os]);
+    assert.deepEqual(list.steps, gate.jobs['core-list-linux'].steps);
+    assert.ok(needsOf(gate.jobs.complete).includes(`core-list-${os}`));
+  }
   for (const profile of ['pg', 'services-pg'])
     assert.ok(read('scripts/ci/core-select.mjs').includes(`name: '${profile}'`), profile);
   assert.match(rust.run, /for profile in pg services-pg/);
   assert.match(rust.run, /--profile "\$profile" --run-ignored only --message-format json/);
   assert.match(rust.run, /\[\[ "\$OS" != windows \]\]/);
   assert.doesNotMatch(
-    JSON.stringify(gate.jobs['core-tests-linux']),
+    JSON.stringify(gate.jobs['core-list-linux']),
     /check-skips\.mjs rust/,
     'a listing that matches a profile credits nothing'
   );
-  const upload = stepsOf(gate.jobs['core-tests-linux']).find(
+  const upload = stepsOf(gate.jobs['core-list-linux']).find(
     (step) => step.uses?.startsWith('actions/upload-artifact@') && /rust-lists/.test(step.with.name)
   );
   assert.equal(upload.with.name, 'rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}');

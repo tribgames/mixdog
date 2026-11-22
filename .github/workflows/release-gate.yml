@@ -58,15 +58,16 @@ env:
 # longest part, so it is built once per system and its tests run from that build in
 # parallel legs:
 #
-#   changes ---> core-build-linux ---> core-tests-linux (N legs), core-pg (a leg per profile), core-entry
-#      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-pg-macos (both profiles)
-#      +-------> core-build-windows -> core-tests-windows (N legs)
+#   changes ---> core-build-linux ---> core-tests-linux (N legs), core-list-linux, core-pg (a leg per profile), core-entry
+#      +-------> core-build-macos ---> core-tests-macos (at most 3 legs), core-list-macos, core-pg-macos (both profiles)
+#      +-------> core-build-windows -> core-tests-windows (N legs), core-list-windows
 #      +-------> mixdogd-linux ---> core-entry, desktop-slow, runtime-slow;  mixdogd-windows ---> desktop-computer
 #      +--> core-lint (clippy, plain stable compile)   rustfmt   core-doctests   core-real (release mixdogd, node real-core tests)
 #      +--> runtime, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
 #
 # A push and a pull request build and test on Linux only the crates the change can affect and the
-# crates that depend on them (scripts/ci/core-select.mjs); the full gate (every gate call, the
+# crates that depend on them (scripts/ci/core-select.mjs), a push against the last commit the core's
+# jobs passed on (scripts/ci/core-base.mjs); the full gate (every gate call, the
 # nightly run, a manual full_gate run) runs every crate on the three systems. The Rust jobs restore
 # the compiled third-party dependencies from a cache that a build of every crate on main refreshes. The dev mixdogd is built on a
 # runner of its own beside the archive, not after it: its feature set recompiles most of the
@@ -194,6 +195,16 @@ jobs:
             # Both sides of a rename: a module moved out of a crate leaves that crate's #[path] or mod line behind.
             git diff --no-renames --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
           fi
+          # A push selects the Rust core's crates against the last commit the core's jobs passed on (scripts/ci/core-base.mjs), which
+          # a run that failed in another lane also is; no such commit, no answer, or one that cannot be fetched leaves the list above.
+          cp /tmp/changed /tmp/changed-core
+          if [[ "$EVENT_NAME" == push ]]; then
+            CORE_BASE=$(node scripts/ci/core-base.mjs --repository "$GITHUB_REPOSITORY" --branch "$BRANCH") || CORE_BASE=""
+            echo "Selecting the Rust core against the last commit its jobs passed on: ${CORE_BASE:-none}"
+            if [[ -n "$CORE_BASE" && "$CORE_BASE" != "$BASE" ]] && git fetch --no-tags --depth=1 origin "$CORE_BASE" && git cat-file -e "${CORE_BASE}^{commit}" 2>/dev/null; then
+              git diff --no-renames --name-only "$CORE_BASE" "$GITHUB_SHA" > /tmp/changed-core
+            fi
+          fi
           # Gate selection patterns (grep -E). deploy.yml's RELEASE_CRITICAL_PATHS
           # (native, scripts, src, packages, bin and the package manifests) is the
           # set of roots RUNTIME_RE selects from; keep the two in step.
@@ -291,7 +302,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=(--changed /tmp/changed --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
+          args=(--changed /tmp/changed-core --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
           if [[ "$FULL" == true ]]; then args+=(--all); fi
           node scripts/ci/core-select.mjs "${args[@]}" | tee -a "$GITHUB_OUTPUT"
       # A partial selection (a push's or a pull request's crates) is resolved here, once, against the whole build: each round of
@@ -2158,11 +2169,11 @@ jobs:
   # The legs. Each downloads its system's archive and runs one partition of it: `count` deals the
   # tests (in binary and name order) out one by one, so the neighbouring tests of a heavy module
   # (a matrix of crash points, a set of real-git replays) land in different legs. N legs per system
-  # is the test count over 4,000 (at most 4): the last whole run summed 4,370 s over 15,902 tests, so a
-  # leg of 4,000 tests is about 1,100 s of work for the four cores of a hosted runner, about 4.5 minutes
-  # beside the groups that run one at a time (nextest.toml: the Postgres cluster tests, the migration
-  # crash matrices) and the setup. macOS has at most three legs; Windows, whose tests run about twice as long, one per
-  # 3,000 tests and at most six (core-select.mjs SYSTEMS).
+  # is the test count over the tests a leg takes (core-select.mjs SYSTEMS): on Linux one per 3,000 and at most six, since a
+  # leg's setup (checkout, toolchain, font, archive download, package install) is about a minute and four legs left the
+  # slowest partition at 173-199 s of the 656 s that run 45068609184 summed over 19,085 tests; macOS has at most three
+  # legs; Windows, whose tests run about twice as long, one per 3,000 tests and at most six. The listings are a job of
+  # their own (core-list-<os>), so no leg waits for them.
   core-tests-linux:
     name: core-tests (${{ matrix.os }} ${{ matrix.part }}/${{ matrix.of }})
     needs: [changes, core-build-linux]
@@ -2192,7 +2203,8 @@ jobs:
       # Windows: nextest unpacks the archive into the temporary folder (1m11s a time to C:, the system disk, in run 44959677392),
       # and the tests make their folders there; both move to D:, the runner's local disk, where the checkout is. The workflow
       # retire replays need a folder on another volume than the temporary folder: on C: then (MIXDOG_TEST_OTHER_VOLUME below).
-      - name: Put the temporary folder on drive D (Windows)
+      - &tmp-on-d
+        name: Put the temporary folder on drive D (Windows)
         if: runner.os == 'Windows'
         run: |
           mkdir -p "$RUNNER_TEMP/tmp" /c/mixdog-other-volume
@@ -2242,63 +2254,6 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
-      # The lanes of release.yml `rust-lanes` (scripts/rust-core/k1-lanes.mjs) run `cargo test -p <package> <filter>`, and
-      # a filter that selects no test fails that job after the packagers have started. Here, on the first Linux leg, each
-      # lane's package and filter are checked against the test list of the archive core-build compiled (module
-      # declarations, #[path], renamed modules and inherited gating already resolved): the gate fails first. A libtest
-      # filter is a substring of the test's full name and nextest lists the same names, so the check is `contains`
-      # over the un-ignored tests of the package (scripts/ci/check-lane-filters.mjs). A pull request's archive holds
-      # only the changed crates and their dependents, so a lane whose package is not in it is skipped there.
-      - name: Check that every lane filter selects a compiled test
-        if: matrix.os == 'linux' && matrix.part == 1
-        env:
-          CORE_SCOPE: ${{ needs.changes.outputs.core_scope }}
-        run: |
-          flags=()
-          if [[ "$CORE_SCOPE" != all ]]; then flags+=(--allow-missing-packages); fi
-          cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --message-format json > nextest-list.json
-          node scripts/ci/check-lane-filters.mjs nextest-list.json "${flags[@]}"
-      # An ignored test proves nothing in this run, and a listing that matches a profile's filter proves nothing either: the reconciliation
-      # (job `complete`, scripts/ci/coverage/reconcile.mjs) needs the profile run to have PASSED the test (core-pg, core-entry) or
-      # an exact reviewed exception for it (scripts/ci/coverage/exceptions.json) with the ignore disposition this leg's listing states. The
-      # listings made here are the build variant's inventory fragments: the unfiltered list of every test the archive compiled, and for each
-      # profile that runs ignored tests on this system the tests its filter schedules (routing only, never evidence). They are uploaded
-      # once per system as rust-lists-<os>. Windows has no Postgres leg, so it has no profile lists; macOS has its Postgres legs.
-      #
-      # The interactive scenarios of mixdog-entry (tests/node_free.rs) are ignored because they need the development mixdogd this
-      # run's `mixdogd` job makes (mixdog-cli/dev-controls includes mixdog-ai/test-support): job core-entry runs them against that
-      # artifact, so no partition here waits for a daemon.
-      - name: List the archive (unfiltered, and per profile that runs ignored tests)
-        id: ignored-audit
-        if: matrix.part == 1
-        env:
-          OS: ${{ matrix.os }}
-          PART: ${{ matrix.part }}
-          OF: ${{ matrix.of }}
-        run: |
-          mkdir -p rust-lists
-          # which invocation made the listing: this leg, at this commit (cli.mjs reconcile checks it against the plan's list leg)
-          printf '{"leg":"%s","sha":"%s"}\n' "${OS}/core-tests/${PART}of${OF}" "$(git rev-parse HEAD)" > rust-lists/binding.json
-          cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --message-format json > rust-lists/all.json
-          if [[ "$OS" != windows ]]; then
-            for profile in pg services-pg; do
-              cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
-                --profile "$profile" --run-ignored only --message-format json > "rust-lists/$profile.json"
-            done
-          fi
-          if [[ "$OS" == linux ]]; then
-            cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
-              --run-ignored only -E 'package(mixdog-entry) & binary(node_free)' --message-format json > rust-lists/entry.json
-          fi
-      - name: Upload the unfiltered nextest listings of this build variant
-        if: matrix.part == 1
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}
-          overwrite: true
-          path: rust-lists
-          if-no-files-found: error
-          retention-days: 14
       # Without the install scripts, as the full install was: the tests read no postinstall output (prune-embedding-runtime,
       # native-layout's js-runtime.json) and no addon build (sharp, onnxruntime-node, esbuild, fsevents, protobufjs); every
       # test that needs a js-runtime.json writes its own beside the binary it starts. apps/relay is not installed: its
@@ -2371,6 +2326,125 @@ jobs:
         shell: bash
     env: *core-tests-env
     steps: *core-tests-steps
+
+  # The listings of each system's archive, beside its test legs rather than on the first of them, where they held the leg that
+  # ended the run (run 45068609184: 135 s of listing on top of its partition). The listing reads the archive alone and runs
+  # no test. Selected as the system's test legs are, and named in plan.json `listLegs`, whose list leg each binding names.
+  core-list-linux:
+    name: core-list (${{ matrix.os }})
+    needs: [changes, core-build-linux]
+    if: needs.changes.outputs.core == 'true'
+    timeout-minutes: 30
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-22.04 }
+    defaults:
+      run:
+        shell: bash
+    steps: &core-list-steps
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - *tmp-on-d
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - uses: ./.github/actions/install-nextest
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
+      # An ignored test proves nothing in this run, and a listing that matches a profile's filter proves nothing either: the reconciliation
+      # (job `complete`, scripts/ci/coverage/reconcile.mjs) needs the profile run to have PASSED the test (core-pg, core-entry) or
+      # an exact reviewed exception for it (scripts/ci/coverage/exceptions.json) with the ignore disposition this listing states. The
+      # listings made here are the build variant's inventory fragments: the unfiltered list of every test the archive compiled, and for each
+      # profile that runs ignored tests on this system the tests its filter schedules (routing only, never evidence). They are uploaded
+      # once per system as rust-lists-<os>. Windows has no Postgres leg, so it has no profile lists; macOS has its Postgres legs.
+      #
+      # The interactive scenarios of mixdog-entry (tests/node_free.rs) are ignored because they need the development mixdogd this
+      # run's `mixdogd` job makes (mixdog-cli/dev-controls includes mixdog-ai/test-support): job core-entry runs them against that
+      # artifact, so no partition waits for a daemon.
+      - name: List the archive (unfiltered, and per profile that runs ignored tests)
+        id: ignored-audit
+        env:
+          OS: ${{ matrix.os }}
+        run: |
+          mkdir -p rust-lists
+          # which invocation made the listing: this job, at this commit (cli.mjs reconcile checks it against the plan's list leg)
+          printf '{"leg":"%s","sha":"%s"}\n' "${OS}/core-list/1of1" "$(git rev-parse HEAD)" > rust-lists/binding.json
+          cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml --message-format json > rust-lists/all.json
+          if [[ "$OS" != windows ]]; then
+            for profile in pg services-pg; do
+              cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
+                --profile "$profile" --run-ignored only --message-format json > "rust-lists/$profile.json"
+            done
+          fi
+          if [[ "$OS" == linux ]]; then
+            cargo nextest list --archive-file core-tests.tar.zst --workspace-remap native/core --config-file native/core/.config/nextest.toml \
+              --run-ignored only -E 'package(mixdog-entry) & binary(node_free)' --message-format json > rust-lists/entry.json
+          fi
+      # The lanes of release.yml `rust-lanes` (scripts/rust-core/k1-lanes.mjs) run `cargo test -p <package> <filter>`, and
+      # a filter that selects no test fails that job after the packagers have started. Here, on Linux, each lane's package
+      # and filter are checked against the unfiltered list of the archive core-build compiled (module declarations, #[path],
+      # renamed modules and inherited gating already resolved): the gate fails first. A libtest filter is a substring of the
+      # test's full name and nextest lists the same names, so the check is `contains` over the un-ignored tests of the
+      # package (scripts/ci/check-lane-filters.mjs); the names and the #[ignore]s it reads are the same in every profile's
+      # listing. A pull request's archive holds only the changed crates and their dependents, so a lane whose package is not
+      # in it is skipped there.
+      - name: Check that every lane filter selects a compiled test
+        if: matrix.os == 'linux'
+        env:
+          CORE_SCOPE: ${{ needs.changes.outputs.core_scope }}
+        run: |
+          flags=()
+          if [[ "$CORE_SCOPE" != all ]]; then flags+=(--allow-missing-packages); fi
+          node scripts/ci/check-lane-filters.mjs rust-lists/all.json "${flags[@]}"
+      - name: Upload the unfiltered nextest listings of this build variant
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rust-lists-${{ env.GATE_KEY }}-${{ matrix.os }}
+          overwrite: true
+          path: rust-lists
+          if-no-files-found: error
+          retention-days: 14
+
+  core-list-macos:
+    name: core-list (${{ matrix.os }})
+    needs: [changes, core-build-macos]
+    if: needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true'
+    timeout-minutes: 30
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { os: macos, runner: macos-15 }
+    defaults:
+      run:
+        shell: bash
+    steps: *core-list-steps
+
+  core-list-windows:
+    name: core-list (${{ matrix.os }})
+    needs: [changes, core-build-windows]
+    if: needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true'
+    timeout-minutes: 30
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { os: windows, runner: windows-2022 }
+    defaults:
+      run:
+        shell: bash
+    steps: *core-list-steps
 
   # nextest does not run doctests: the rustdoc blocks of mixdog-core-api and mixdog-image-egress (scripts/ci/run-doctest.mjs, a slot
   # each), compiled by `cargo test --doc` on the dependencies core-build keeps. Its own job beside core-build, not a step of the first
@@ -2948,7 +3022,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd-linux, mixdogd-windows, core-tests-linux, core-tests-macos, core-tests-windows, core-doctests, core-entry, core-pg, core-pg-macos, core-lint, rustfmt, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build-linux, core-build-macos, core-build-windows, mixdogd-linux, mixdogd-windows, core-tests-linux, core-tests-macos, core-tests-windows, core-list-linux, core-list-macos, core-list-windows, core-doctests, core-entry, core-pg, core-pg-macos, core-lint, rustfmt, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -2984,6 +3058,9 @@ jobs:
           CORE_TESTS_LINUX: ${{ needs.core-tests-linux.result }}
           CORE_TESTS_MACOS: ${{ needs.core-tests-macos.result }}
           CORE_TESTS_WINDOWS: ${{ needs.core-tests-windows.result }}
+          CORE_LIST_LINUX: ${{ needs.core-list-linux.result }}
+          CORE_LIST_MACOS: ${{ needs.core-list-macos.result }}
+          CORE_LIST_WINDOWS: ${{ needs.core-list-windows.result }}
           CORE_DOCTESTS: ${{ needs.core-doctests.result }}
           CORE_ENTRY: ${{ needs.core-entry.result }}
           CORE_PG: ${{ needs.core-pg.result }}
@@ -3017,6 +3094,9 @@ jobs:
           SEL_CORE_TESTS_LINUX: ${{ needs.changes.outputs.core == 'true' }}
           SEL_CORE_TESTS_MACOS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true' }}
           SEL_CORE_TESTS_WINDOWS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true' }}
+          SEL_CORE_LIST_LINUX: ${{ needs.changes.outputs.core == 'true' }}
+          SEL_CORE_LIST_MACOS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_macos == 'true' }}
+          SEL_CORE_LIST_WINDOWS: ${{ needs.changes.outputs.core == 'true' && needs.changes.outputs.core_windows == 'true' }}
           SEL_CORE_DOCTESTS: ${{ needs.changes.outputs.core_doctests != '[]' }}
           SEL_CORE_ENTRY: ${{ needs.changes.outputs.core_entry == 'true' }}
           SEL_CORE_PG: ${{ needs.changes.outputs.core_pg == 'true' }}
@@ -3063,6 +3143,9 @@ jobs:
           gate core-tests-linux "$SEL_CORE_TESTS_LINUX" "$CORE_TESTS_LINUX"
           gate core-tests-macos "$SEL_CORE_TESTS_MACOS" "$CORE_TESTS_MACOS"
           gate core-tests-windows "$SEL_CORE_TESTS_WINDOWS" "$CORE_TESTS_WINDOWS"
+          gate core-list-linux "$SEL_CORE_LIST_LINUX" "$CORE_LIST_LINUX"
+          gate core-list-macos "$SEL_CORE_LIST_MACOS" "$CORE_LIST_MACOS"
+          gate core-list-windows "$SEL_CORE_LIST_WINDOWS" "$CORE_LIST_WINDOWS"
           gate core-doctests "$SEL_CORE_DOCTESTS" "$CORE_DOCTESTS"
           gate core-entry "$SEL_CORE_ENTRY" "$CORE_ENTRY"
           gate core-pg "$SEL_CORE_PG" "$CORE_PG"

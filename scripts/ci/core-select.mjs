@@ -29,8 +29,10 @@ export const TESTS_PER_LEG = 4000;
 // Postgres job and core-real's release build (run 44943772315: four legs, two Postgres legs and core-real queued two legs 4 and
 // 7 minutes behind the archive). Windows runs a partition of 4,000 tests in 8-9 minutes where Linux takes 3-4 (run 44959677392),
 // after the longest archive build: it takes 3,000 tests a leg and up to six legs, when the Linux runners the other lanes used are free.
+// Linux takes 3,000 a leg and up to six too: its legs end a push's run, each pays about a minute of setup, and four legs of 19,085
+// tests ran partitions of 116-199 s (run 45068609184), so six bring the slowest near two minutes of tests beside that minute.
 export const SYSTEMS = [
-  { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '', maxLegs: 4 },
+  { os: 'linux', runner: 'ubuntu-22.04', nextest: 'linux', exe: '', maxLegs: 6, testsPerLeg: 3000 },
   { os: 'macos', runner: 'macos-15', nextest: 'mac', exe: '', maxLegs: 3 },
   { os: 'windows', runner: 'windows-2022', nextest: 'windows-tar', exe: '.exe', maxLegs: 6, testsPerLeg: 3000 },
 ];

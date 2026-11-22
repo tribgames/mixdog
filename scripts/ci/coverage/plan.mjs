@@ -32,6 +32,7 @@ export const planDigest = (plan) => digestOf(plan);
 
 const LEG_FIELDS = new Set(['id', 'os', 'workflow', 'job', 'slots']);
 const SLOT_FIELDS = new Set(['id', 'producer', 'parent']);
+const LIST_LEG_FIELDS = new Set(['id', 'os', 'workflow', 'job']);
 
 /**
  * The obligation a plan reference names: `<leg>#<slot>`. A bare leg id stands for its one slot; a leg with several slots must be named
@@ -101,6 +102,15 @@ function legProblems(plan, problems) {
     legIds.add(leg.id);
     slotProblems(leg, Array.isArray(leg.slots) ? leg.slots : [], problems);
   }
+  // list legs: a gate job that lists a build variant's archive and runs no test, so it has no slot and leaves no receipt
+  for (const leg of plan.listLegs ?? []) {
+    if (!leg.id || !OSES.has(leg.os) || !leg.workflow || !leg.job)
+      problems.push(`list leg ${JSON.stringify(leg.id)} needs an id, an os, a workflow and a job`);
+    for (const field of Object.keys(leg))
+      if (!LIST_LEG_FIELDS.has(field)) problems.push(`list leg ${leg.id} has the unknown field ${field}`);
+    if (legIds.has(leg.id)) problems.push(`leg ${leg.id} is declared twice`);
+    legIds.add(leg.id);
+  }
 }
 
 /** Routing names the gate's own legs: a join leg is only a replacement of an exception, never where a test is routed. */
@@ -169,12 +179,15 @@ function rustProblems(plan, problems) {
       problems.push(`rust absent rule ${JSON.stringify(rule.glob)} needs a glob, its variants, a reason and an owner`);
   for (const unit of plan.rust?.doctests ?? [])
     clauseProblems(plan, problems, `rust doctests of ${unit.manifestDir}`, unit.requires);
-  for (const variant of plan.rust?.variants ?? [])
+  for (const variant of plan.rust?.variants ?? []) {
     refProblems(plan, problems, `rust variant ${variant.name}`, [
       ...variant.testLegs,
-      variant.listLeg,
       ...Object.values(variant.profileLegs ?? {}).flat(),
     ]);
+    const list = (plan.listLegs ?? []).find((leg) => leg.id === variant.listLeg);
+    if (!list || list.os !== variant.os)
+      problems.push(`rust variant ${variant.name} names the list leg ${variant.listLeg}, which no list leg of ${variant.os} is`);
+  }
 }
 
 /** Structural problems of a plan: the reviewed document must name an owner everywhere a decision is recorded. */

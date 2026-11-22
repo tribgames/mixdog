@@ -395,7 +395,7 @@
       ]
     },
     {
-      "id": "linux/core-tests/1of4",
+      "id": "linux/core-tests/1of6",
       "os": "linux",
       "workflow": "release-gate.yml",
       "job": "core-tests-linux",
@@ -407,7 +407,7 @@
       ]
     },
     {
-      "id": "linux/core-tests/2of4",
+      "id": "linux/core-tests/2of6",
       "os": "linux",
       "workflow": "release-gate.yml",
       "job": "core-tests-linux",
@@ -419,7 +419,7 @@
       ]
     },
     {
-      "id": "linux/core-tests/3of4",
+      "id": "linux/core-tests/3of6",
       "os": "linux",
       "workflow": "release-gate.yml",
       "job": "core-tests-linux",
@@ -431,7 +431,31 @@
       ]
     },
     {
-      "id": "linux/core-tests/4of4",
+      "id": "linux/core-tests/4of6",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "core-tests-linux",
+      "slots": [
+        {
+          "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "linux/core-tests/5of6",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "core-tests-linux",
+      "slots": [
+        {
+          "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "linux/core-tests/6of6",
       "os": "linux",
       "workflow": "release-gate.yml",
       "job": "core-tests-linux",
@@ -617,6 +641,26 @@
           "producer": "nextest"
         }
       ]
+    }
+  ],
+  "listLegs": [
+    {
+      "id": "linux/core-list/1of1",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "core-list-linux"
+    },
+    {
+      "id": "macos/core-list/1of1",
+      "os": "macos",
+      "workflow": "release-gate.yml",
+      "job": "core-list-macos"
+    },
+    {
+      "id": "windows/core-list/1of1",
+      "os": "windows",
+      "workflow": "release-gate.yml",
+      "job": "core-list-windows"
     }
   ],
   "joinLegs": [
@@ -1283,12 +1327,14 @@
       {
         "name": "linux",
         "os": "linux",
-        "listLeg": "linux/core-tests/1of4#ci",
+        "listLeg": "linux/core-list/1of1",
         "testLegs": [
-          "linux/core-tests/1of4#ci",
-          "linux/core-tests/2of4#ci",
-          "linux/core-tests/3of4#ci",
-          "linux/core-tests/4of4#ci"
+          "linux/core-tests/1of6#ci",
+          "linux/core-tests/2of6#ci",
+          "linux/core-tests/3of6#ci",
+          "linux/core-tests/4of6#ci",
+          "linux/core-tests/5of6#ci",
+          "linux/core-tests/6of6#ci"
         ],
         "profileLegs": {
           "pg": ["linux/core-pg/pg"],
@@ -1299,7 +1345,7 @@
       {
         "name": "macos",
         "os": "macos",
-        "listLeg": "macos/core-tests/1of3#ci",
+        "listLeg": "macos/core-list/1of1",
         "testLegs": [
           "macos/core-tests/1of3#ci",
           "macos/core-tests/2of3#ci",
@@ -1313,7 +1359,7 @@
       {
         "name": "windows",
         "os": "windows",
-        "listLeg": "windows/core-tests/1of6#ci",
+        "listLeg": "windows/core-list/1of1",
         "testLegs": [
           "windows/core-tests/1of6#ci",
           "windows/core-tests/2of6#ci",
@@ -1613,7 +1659,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "e51c44bda8312d58c66480c7edcc162c5ee1ef1f10fc9c7c6633e23b6529410e"
+        "digest": "cf17b1b91a3729dd33798bf2ebde76d02996f1149a61beee50428b92336d63cf"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",
