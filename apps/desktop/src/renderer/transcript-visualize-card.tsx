@@ -464,7 +464,7 @@ function useTurnPreviews({
   const changesSession = turnChanges ? (surface?.sessionId ?? '') : '';
   const checkpointId = turnChanges?.checkpointId ?? '';
   const running = turnCardHeld(turnChanges, surface?.turnRunning);
-  const { reply } = useTurnChanges({
+  const { reply, fresh } = useTurnChanges({
     sessionId: changesSession,
     checkpointId,
     boundary: turnChanges?.boundary ?? '',
@@ -518,7 +518,8 @@ function useTurnPreviews({
   useEffect(() => {
     if (trailingEnd) claimTurnPreviewEnd(changesSession, endTurnKey, checkpointId);
   }, [trailingEnd, changesSession, endTurnKey, checkpointId]);
-  const settled = Boolean(reply) && !running && heldSince === null;
+  // The opens are due once this end's own record has answered, not the one kept of an earlier end while it is read.
+  const settled = fresh && Boolean(reply) && !running && heldSince === null;
   useEffect(() => {
     if (!settled || !turnPreviewOpenPending(changesSession, checkpointId)) return;
     takeTurnPreviewOpen(changesSession, checkpointId);

@@ -250,6 +250,29 @@ test('a wake that closes the same checkpoint again keeps the card standing throu
   assert.equal(view.cards(), 1);
 });
 
+test('a wake’s end written before its reply settles leaves the card on the end it stood on', async (t) => {
+  const view = await mountPane(t);
+  view.sealed = true;
+  await view.render({ items: [prompt, reply, done], busy: false });
+  assert.equal(view.cards(), 1);
+  const wakeReply = { kind: 'assistant', id: 'wake-reply', text: 'The worker is done.', at: 9_100 };
+  const arriving = { ...wakeReply, streaming: true };
+  // The same checkpoint is closed again by an end that names the reply still arriving.
+  const wakeDone = { ...done, id: 'wake-done', finalAssistantId: 'wake-reply', at: 9_500 };
+  await view.render({ items: [prompt, reply, done], busy: true, liveItem: arriving, activityAt: 9_000 });
+  const before = view.tags();
+  assert.equal(view.cards(), 1);
+  await act(async () =>
+    view.root.render(h(view.Pane, { items: [prompt, reply, done, wakeDone], busy: true, liveItem: arriving, activityAt: 9_000 }))
+  );
+  assert.equal(view.cards(), 1, 'the end is not shown before its reply: the card has not moved');
+  assert.deepEqual(view.tags(), before);
+  await act(async () => view.root.render(h(view.Pane, { items: [prompt, reply, done, wakeDone, wakeReply], busy: true })));
+  assert.equal(view.cards(), 1, 'moved with the reply, shown from the reply held');
+  await view.render({ items: [prompt, reply, done, wakeDone, wakeReply], busy: false });
+  assert.equal(view.cards(), 1);
+});
+
 test('an end that names a reply still arriving closes no earlier reply of its turn', async (t) => {
   const view = await mountPane(t);
   const first = { kind: 'assistant', id: 'first', text: 'I will check.', at: 1_500 };
