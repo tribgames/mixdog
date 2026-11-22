@@ -92,6 +92,23 @@ export interface DesktopSessionContentMatch {
   sessionId: string;
   snippet: string;
   rank: number;
+  /** Where the hit's record stands in the session's history; absent for a row indexed before positions were stored. */
+  position?: string;
+}
+
+/** Where the reader of a positioned transcript is, as the window the core holds follows it (protocol-client `TranscriptMove`):
+ *  on the live tail, at the oldest rows shown, at the newest rows of a stretch shown apart from the tail, or opening the
+ *  transcript at a record. */
+export type DesktopTranscriptMove =
+  | { readonly kind: 'follow' }
+  | { readonly kind: 'older' }
+  | { readonly kind: 'newer' }
+  | { readonly kind: 'at'; readonly position: string };
+
+/** A prompt the session can be rewound to (`thread/rewindTargets/list`): `position` is what the rewind names. */
+export interface DesktopRewindTarget {
+  position: string;
+  text: string;
 }
 
 /** One active row from the merged child/Lead lifecycle pools. */

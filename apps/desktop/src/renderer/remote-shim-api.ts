@@ -274,6 +274,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // Older history by position; a host that predates it rejects the call and
     // the page falls back to growing its window.
     readTranscriptHistory: (sessionId, request) => call('readTranscriptHistory', [sessionId, request]),
+    // The window the core holds of a positioned transcript follows the reader; its rows arrive as the session's state.
+    moveTranscriptWindow: (sessionId, move) => call<boolean>('moveTranscriptWindow', [sessionId, move]),
+    listRewindTargets: (sessionId, options) => call('listRewindTargets', [sessionId, options ?? {}]),
     // What this page paints, apart from the delivery subscription below: the
     // desktop holds a notification back only for a session named here.
     reportScreenSessions: (sessionIds) => {

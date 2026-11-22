@@ -4,6 +4,20 @@ import { streamPositionReached } from './api.ts';
 import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
 import { itemRows, mergeToolRows, mergeToolRowsFrom, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
+import {
+  cutAfter,
+  emptied,
+  runRows,
+  tailRun,
+  transcriptChanged,
+  unitShowing,
+  viewRun,
+  windowChanged,
+  type HeldUnit,
+  type HeldWindow,
+  type RowOwner,
+  type WindowRun,
+} from './positioned.ts';
 
 /** The projection the UI reads: a flat record of `DesktopSessionState` fields. */
 export type DesktopSessionState = Readonly<Record<string, Json>>;
@@ -67,6 +81,11 @@ export interface SessionFold {
   /** The history resets (`thread/historyReset`: a rewind, a clear) folded since the snapshot: the window after one is another
    *  window, even when it still begins at the same item (`transcriptGeneration`). */
   readonly generation?: number;
+  /** A positioned subscription's window (`thread/snapshot.window`): the stored records it holds. `items` are then the rows of
+   *  the run that holds the followed tail, then `loose`. */
+  readonly held?: HeldWindow;
+  /** Of a positioned fold: the rows no stored record it holds shows yet (the running turn's, live-only rows), oldest first. */
+  readonly loose?: readonly Obj[];
 }
 
 /** The core item each row was folded from (a row's id is not always its item's: a prompt's row is named by its submission). */
@@ -91,6 +110,127 @@ function boundaryItem(s: SessionFold, held: readonly string[], shown: string): n
   while (at >= 0 && s.items[at]!.id !== shown) at--;
   const item = at < 0 ? undefined : rowItems.get(s.items[at]!);
   return item === undefined ? -1 : held.lastIndexOf(item);
+}
+
+// ───────────────────────────── a positioned window ─────────────────────────────
+
+const ownRow: RowOwner = (row, item) => void rowItems.set(row, item);
+const itemOfRow = (row: Obj): string | undefined => rowItems.get(row);
+
+/** The rows a positioned fold shows on its live tail: the run of the followed tail, then the rows no stored record shows yet. */
+function positionedItems(held: HeldWindow, loose: readonly Obj[]): Obj[] {
+  return [...runRows(held, tailRun(held)), ...loose];
+}
+
+const heldItemSets = new WeakMap<ReadonlyMap<string, HeldUnit>, ReadonlySet<string>>();
+/** The core items the window's records show. */
+function heldItems(held: HeldWindow): ReadonlySet<string> {
+  let ids = heldItemSets.get(held.units);
+  if (!ids) {
+    ids = new Set([...held.units.values()].flatMap((unit) => unit.items));
+    heldItemSets.set(held.units, ids);
+  }
+  return ids;
+}
+
+/** `s` holding `held` and `loose`; `told`: the change is a publication of its own (no `thread/frame` follows a window's
+ *  change), so the frame count moves with it. */
+function withHeld(s: SessionFold, held: HeldWindow, loose: readonly Obj[], told: boolean): SessionFold {
+  return {
+    ...s,
+    held,
+    loose,
+    items: positionedItems(held, loose),
+    structureRevision: s.structureRevision + 1,
+    ...(told ? { frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) + 1 } : {}),
+  };
+}
+
+/** A turn's boundary: a reply still streamed whose record has not reached the window yet stays shown, settled, until it does. */
+function settleLive(s: SessionFold): SessionFold {
+  const live = s.live;
+  if (!live || !s.held) return withLive(s, null);
+  if (heldItems(s.held).has(live.id)) return withLive(s, null);
+  const { streaming: _streaming, ...identity } = live.identity;
+  const row: Obj = { ...identity, text: live.lines + live.rest };
+  rowItems.set(row, live.id);
+  return { ...withHeld(s, s.held, upsert(s.loose ?? [], row).items, false), live: null };
+}
+
+/** The folding of a notification a positioned fold reads its own way; undefined for one it folds as any fold does. */
+function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotification): SessionFold | undefined {
+  const p = asObj(n.params);
+  switch (n.method) {
+    case 'turn/started':
+    case 'turn/completed':
+      return settleLive(s);
+    case 'item/started':
+    case 'item/completed': {
+      // A record's rows reach the window as its unit (`thread/transcript/changed`); these are the running turn's and the
+      // live-only rows.
+      const item = asObj(p.item);
+      const rows = itemRows(item);
+      const [row] = rows;
+      if (row === undefined || (typeof item.id === 'string' && heldItems(held).has(item.id))) return s;
+      if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
+      for (const folded of rows) rowItems.set(folded, String(item.id));
+      const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
+      const fields =
+        p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
+      let loose: readonly Obj[] = s.loose ?? [];
+      for (const folded of rows) loose = upsert(loose, folded).items;
+      return { ...withHeld(s, held, loose, false), live, fields };
+    }
+    case 'thread/transcript/changed': {
+      if (p.change === undefined) {
+        // The feed moved on with a frame that tells other subscriptions a record's rows; what it carries beside them is ours.
+        return p.roomView === undefined
+          ? s
+          : { ...s, fields: withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView) };
+      }
+      if (p.lineage !== held.lineage) return s;
+      const changed = transcriptChanged(held, p.change, ownRow);
+      if (!changed) return s;
+      // The rows shown for the record until it was stored give way to its unit.
+      const gone = new Set<unknown>([...changed.items, ...changed.rows.map((row) => row.id)]);
+      const loose = (s.loose ?? []).filter((row) => !gone.has(rowItems.get(row)) && !gone.has(row.id));
+      const next = withHeld(s, changed.window, loose, true);
+      return s.live && changed.items.includes(s.live.id) ? withLive(next, null) : next;
+    }
+    case 'thread/window/changed':
+      return withHeld(s, windowChanged(held, p, ownRow), s.loose ?? [], true);
+    case 'thread/historyReset': {
+      // A clear leaves nothing. A rewind keeps what the history holds up to its boundary: the records after it in its run go
+      // (and the tail's run, when the boundary lies in an older one); a boundary no record held names lies outside every
+      // range cut through, and the core's rebase of the window says which ranges went. The rows of no record are newer than
+      // the boundary either way.
+      const boundary = p.fromItemId === undefined ? undefined : String(p.fromItemId);
+      const at = boundary === undefined ? undefined : unitShowing(held, boundary, itemOfRow);
+      const cut = boundary === undefined ? emptied(held) : at === undefined ? held : cutAfter(held, at);
+      return {
+        ...withHeld(s, cut, [], false),
+        live: null,
+        history: p.hasOlder === true ? 'older' : s.history,
+        generation: (s.generation ?? 0) + 1,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The rows of a run shown apart from the tail, merged as the transcript is; the same array while the run holds the same
+ *  units, so a change elsewhere in the window does not make the reader's rows anew. */
+const viewRowsCache = new WeakMap<HeldUnit, { units: readonly HeldUnit[]; rows: Obj[] }>();
+function viewRowsOf(held: HeldWindow, run: WindowRun): Obj[] {
+  const units = run.positions.flatMap((position) => held.units.get(position) ?? []);
+  const first = units[0];
+  const known = first ? viewRowsCache.get(first) : undefined;
+  if (known && known.units.length === units.length && known.units.every((unit, at) => unit === units[at]))
+    return known.rows;
+  const rows = mergeToolRows(runRows(held, run));
+  if (first) viewRowsCache.set(first, { units, rows });
+  return rows;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -336,6 +476,26 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
       }
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
+  if (p.window !== undefined) {
+    const held = windowChanged(undefined, p.window, ownRow);
+    const shown = positionedItems(held, items);
+    transcriptCache.set(shown, yield* mergeToolRowsSteps(shown));
+    const fold: SessionFold = {
+      sessionId: String(asObj(p.thread).id ?? ''),
+      items: shown,
+      fields: fieldsOfState(asObj(p.state)),
+      live: null,
+      structureRevision: shown.length ? 1 : 0,
+      frames: 0,
+      framedRevision: shown.length ? 1 : 0,
+      origin: {},
+      history: p.hasOlder === true ? 'older' : 'held',
+      generation: 0,
+      held,
+      loose: items,
+    };
+    return live ? withLive(fold, live) : fold;
+  }
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
   // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
   // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
@@ -370,6 +530,10 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
     const p = asObj(n.params);
     const section = SECTIONS[n.method];
     if (section) return { ...s, fields: withSection(s.fields, section, p.value) };
+    if (s.held) {
+      const positioned = applyPositioned(s, s.held, n);
+      if (positioned) return positioned;
+    }
     switch (n.method) {
       case 'thread/promptHistory/updated':
         return withField(s, 'promptHistoryList', promptHistoryOf(s.fields.promptHistoryList, asObj(p.value)));
@@ -590,6 +754,11 @@ export function desktopSessionState(
   if (fold.generation !== undefined) out.transcriptGeneration = fold.generation;
   const windowStart = fold.coreItems?.[0];
   if (windowStart !== undefined) out.transcriptWindowStart = windowStart;
+  if (fold.held) {
+    Object.assign(out, positionedFields(fold, fold.held));
+    if (out.transcriptHistory === 'older') out.transcriptHasOlder = true;
+    else delete out.transcriptHasOlder;
+  }
   if (fold.items.length) out.transcriptSpilled = { epoch: 0, rows: 0 };
   if (hostShellJobs !== undefined) out.hostShellJobs = hostShellJobs;
   if (fold.live) Object.assign(out, liveFields(fold.live));
@@ -599,6 +768,25 @@ export function desktopSessionState(
     out.toolApprovalsWaiting = approval.waiting;
   }
   return withRoomView(out);
+}
+
+/** What a positioned fold states of its window: `transcriptHistory` of the tail's run (whether it continues toward older
+ *  rows), where it begins, and the run the reader is shown apart from it (`transcriptViewItems`, with whether it continues
+ *  either way: `transcriptHistoryBefore`, `transcriptHistoryAfter`). */
+function positionedFields(fold: SessionFold, held: HeldWindow): Obj {
+  const tail = tailRun(held);
+  const view = viewRun(held);
+  const history = tail ? (tail.older === null ? 'held' : 'older') : (fold.history ?? 'held');
+  return {
+    transcriptPositioned: true,
+    transcriptWindowVersion: held.version,
+    transcriptHistory: history,
+    ...(tail ? { transcriptWindowStart: tail.positions[0]! } : {}),
+    transcriptTailRows: tail?.rows ?? 0,
+    transcriptViewItems: view ? viewRowsOf(held, view) : null,
+    transcriptHistoryBefore: view ? view.older !== null : false,
+    transcriptHistoryAfter: view ? view.newer !== null : false,
+  };
 }
 
 function nextApproval(requests: readonly ServerRequest[], sessionId: string): { card: Obj; waiting: number } | null {

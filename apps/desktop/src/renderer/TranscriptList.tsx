@@ -52,6 +52,8 @@ type TranscriptListProps = {
   onSelectionAutoScroll(delta: number): void;
   /** Who paints the rows: an agent chat's rows learn their heights apart. */
   surface?: TranscriptRowSurface;
+  /** Set to a function that scrolls the first row `match` accepts to the middle of the viewport; false when no row does. */
+  revealRef?: MutableRefObject<((match: (row: TranscriptRowModel) => boolean) => boolean) | null>;
 };
 
 /** The virtualized transcript timeline; one instance per session (the caller keys it). */
@@ -70,6 +72,7 @@ export function TranscriptList({
   touchHoldsCorrections = noTouchScroll,
   onSelectionAutoScroll,
   surface = 'coding',
+  revealRef,
 }: TranscriptListProps) {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
@@ -206,6 +209,14 @@ export function TranscriptList({
     restoreReadingAnchor,
   });
   const { measureRow, bindSpacer } = useTranscriptRowRegistration({ spacer, content, virtualizerRef });
+  if (revealRef)
+    revealRef.current = (match) => {
+      const index = rowsRef.current.findIndex(match);
+      const instance = virtualizerRef.current;
+      if (index < 0 || !instance) return false;
+      instance.scrollToIndex(index, { align: 'center' });
+      return true;
+    };
 
   useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight, deviation });
   useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes, settleHeldShrinks });

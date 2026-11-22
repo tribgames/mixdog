@@ -40,6 +40,8 @@ export const DIRECT_KEYS = {
     'previewSession',
     'prefetchSession',
     'readTranscriptHistory',
+    'moveTranscriptWindow',
+    'listRewindTargets',
     'setVisibleSessions',
     'getSnapshot',
     'subscribeState',

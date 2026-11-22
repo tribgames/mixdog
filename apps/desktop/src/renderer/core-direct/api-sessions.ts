@@ -214,6 +214,9 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     },
     readTranscriptHistory: async (sessionId, request) =>
       withDirectErrors((await session.chat()).readTranscriptHistory(trimmed(sessionId), request, true)),
+    moveTranscriptWindow: (sessionId, move) => withDirectErrors(session.moveTranscriptWindow(trimmed(sessionId), move)),
+    listRewindTargets: (sessionId, options) =>
+      withDirectErrors(session.listRewindTargets(trimmed(sessionId), options)),
     setVisibleSessions: (sessionIds) => states.setVisible(sessionIds),
 
     // ── the states ──

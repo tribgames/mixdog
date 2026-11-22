@@ -624,6 +624,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onQueuedRestored,
   });
   const selector = useComposerMessageSelector({
+    sessionId: sessionId || '',
     userMessages,
     restoring,
     setRestoring,

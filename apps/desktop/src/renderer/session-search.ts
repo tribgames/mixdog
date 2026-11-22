@@ -28,6 +28,8 @@ export interface SessionSearchRow {
   session: DesktopSessionSummary;
   /** Present only when the row came from a message-content hit. */
   snippet?: string;
+  /** The hit's record in the session's history: the session opens there. */
+  position?: string;
 }
 
 /** Title matches keep their order; content hits follow in rank order for
@@ -48,7 +50,7 @@ export function mergeSessionContentMatches(
     const session = catalog.get(hit.sessionId);
     if (!session || listed.has(session.id)) continue;
     listed.add(session.id);
-    rows.push({ session, snippet: hit.snippet });
+    rows.push({ session, snippet: hit.snippet, ...(hit.position ? { position: hit.position } : {}) });
   }
   return rows;
 }

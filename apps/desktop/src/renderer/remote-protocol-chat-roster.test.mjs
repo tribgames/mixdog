@@ -230,7 +230,7 @@ test('the adapter the switch point loads claims exactly the chat calls the deskt
     ...DIRECT_KEYS.sessions.filter((name) => !SESSION_CALLS_ELSEWHERE.includes(name)),
     ...CHAT_CALLS_BESIDES,
   ];
-  assert.equal(expected.length, 39);
+  assert.equal(expected.length, 41);
   for (const name of expected) assert.equal(typeof adapter.calls[name], 'function', name);
   assert.deepEqual(Object.keys(adapter.calls).sort(), [...expected].sort());
 });

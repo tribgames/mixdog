@@ -1,10 +1,17 @@
 import {
   desktopSessionState,
+  moveTranscriptWindow,
   sessionReducer,
   type ProtocolClient,
   type SessionFold,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import type { DesktopSessionStateUpdate, DesktopSessionSummary, SessionSnapshot } from '../contract';
+import type {
+  DesktopRewindTarget,
+  DesktopSessionStateUpdate,
+  DesktopSessionSummary,
+  DesktopTranscriptMove,
+  SessionSnapshot,
+} from '../contract';
 import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
 import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-host';
 import {
@@ -45,6 +52,13 @@ export interface SessionLane {
   ): Promise<boolean>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
+  /** The window a positioned thread's subscription holds follows the reader (protocol-client `moveTranscriptWindow`). */
+  moveTranscriptWindow(sessionId: string, move: DesktopTranscriptMove): Promise<boolean>;
+  /** `thread/rewindTargets/list`: the prompts a rewind can name, newest first. */
+  listRewindTargets(
+    sessionId: string,
+    options?: { cursor?: string; limit?: number }
+  ): Promise<{ data: DesktopRewindTarget[]; nextCursor?: string }>;
   /** Whether an attach still owes a usable transcript; held projections must not be delivered meanwhile. */
   transcriptPending(sessionId: string): boolean;
   /** The threads whose changes this lane's listeners use (a window's shown sessions and its reads): a change of any other
@@ -235,7 +249,8 @@ export function createSessionLane({
       if (readTraceId) publisher.expectRead(sessionId, readTraceId);
       // A read that names no rows is a read of the state: the state held answers it and no resume is sent. Filling the
       // screen is the renderer's own page request.
-      if (typeof itemLimit !== 'number') {
+      // A positioned window grows by the reader's moves, never by a larger snapshot.
+      if (typeof itemLimit !== 'number' || fold.held) {
         publish(sessionId);
         return true;
       }
@@ -260,6 +275,18 @@ export function createSessionLane({
     },
     requestSessionStateResync(sessionId) {
       publish(sessionId);
+    },
+    async moveTranscriptWindow(sessionId, move) {
+      const client = held();
+      return client ? moveTranscriptWindow(client, sessionId, move) : false;
+    },
+    async listRewindTargets(sessionId, options) {
+      const page = (await call('thread/rewindTargets/list', {
+        threadId: sessionId,
+        ...(options?.cursor ? { cursor: options.cursor } : {}),
+        ...(options?.limit ? { limit: options.limit } : {}),
+      })) as { data?: DesktopRewindTarget[]; nextCursor?: string };
+      return { data: page.data ?? [], ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
     },
     transcriptPending,
     setInterest(next) {

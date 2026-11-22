@@ -273,6 +273,8 @@ function laneFrameWithRetainedShellJobs(prior: Snapshot | null, next: Snapshot):
 
 function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snapshot): Snapshot {
   if (!prior || !sameLaneSession(prior, next)) return next;
+  // A positioned window states every row it holds: rows it let go are released, never kept above it.
+  if ((next as Record<string, unknown>).transcriptPositioned === true) return next;
   const priorItems = laneTranscript(prior);
   if (!priorItems || priorItems.length === 0) return next;
   const nextItems = laneTranscript(next);

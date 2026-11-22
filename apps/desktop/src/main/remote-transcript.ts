@@ -356,20 +356,32 @@ export function remoteTranscriptSnapshot(snapshot: unknown, historyEnd = 0): unk
     ? remotePromptHistory(record.promptHistoryList)
     : record.promptHistoryList;
   const historyCut = history !== record.promptHistoryList;
-  let items = record.items;
-  if (Array.isArray(record.items)) {
-    let dropped = false;
-    const projected = record.items.map((item, index) => {
-      const next = remoteTranscriptRow(item, index < historyEnd).row;
-      if (next !== item) dropped = true;
-      return next;
-    });
-    if (dropped) items = projected;
-  }
-  if (items === record.items && !historyCut) return snapshot;
+  const items = remoteRows(record.items, historyEnd);
+  // A positioned window's stretch shown apart from its tail is history the reader scrolled to.
+  const viewItems = remoteRows(record.transcriptViewItems, Number.POSITIVE_INFINITY);
+  if (items === record.items && viewItems === record.transcriptViewItems && !historyCut) return snapshot;
   return {
     ...record,
     ...(items !== record.items ? { items } : {}),
+    ...(viewItems !== record.transcriptViewItems ? { transcriptViewItems: viewItems } : {}),
     ...(historyCut ? { promptHistoryList: history } : {}),
   };
+}
+
+const projectedRows = new WeakMap<readonly unknown[], { historyEnd: number; rows: unknown[] }>();
+/** `rows` as the phone is shown them (`remoteTranscriptRow`), the first `historyEnd` as history; the list itself when no row
+ *  changes, and the same projection for the same list. */
+function remoteRows(rows: unknown, historyEnd: number): unknown {
+  if (!Array.isArray(rows)) return rows;
+  const known = projectedRows.get(rows);
+  if (known && known.historyEnd === historyEnd) return known.rows;
+  let dropped = false;
+  const projected = rows.map((item, index) => {
+    const next = remoteTranscriptRow(item, index < historyEnd).row;
+    if (next !== item) dropped = true;
+    return next;
+  });
+  const result = dropped ? projected : rows;
+  projectedRows.set(rows, { historyEnd, rows: result });
+  return result;
 }

@@ -27,6 +27,8 @@ import type {
   DesktopSubmitOptions,
   DesktopTranscriptHistoryPage,
   DesktopTranscriptHistoryRequest,
+  DesktopTranscriptMove,
+  DesktopRewindTarget,
   DesktopUpdaterState,
   SessionSnapshot,
   DesktopStreamPosition,
@@ -732,6 +734,14 @@ export interface DesktopApi {
     sessionId: string,
     request: DesktopTranscriptHistoryRequest
   ): Promise<DesktopTranscriptHistoryPage>;
+  /** A positioned transcript (`transcriptPositioned`): the window the core holds for this connection follows the reader. The
+   *  rows it brings, and those it lets go, arrive as the session's state. False when the move could not be served. */
+  moveTranscriptWindow?(sessionId: string, move: DesktopTranscriptMove): Promise<boolean>;
+  /** The prompts the session can be rewound to, newest first, from the stored history (not the rows this window holds). */
+  listRewindTargets?(
+    sessionId: string,
+    options?: { cursor?: string; limit?: number }
+  ): Promise<{ data: DesktopRewindTarget[]; nextCursor?: string }>;
   /** Replay a visible lane after its renderer baseline was lost. `cachedOnly` only redelivers an already published live frame. */
   resyncSessionState?(sessionId: string, options?: { fresh?: boolean; cachedOnly?: boolean }): void | Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */

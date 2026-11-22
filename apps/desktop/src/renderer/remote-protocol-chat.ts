@@ -11,14 +11,21 @@ import type {
   DesktopSessionContentMatch,
   DesktopShellStopResult,
   DesktopSubmitOptions,
+  DesktopRewindTarget,
   DesktopTranscriptHistoryPage,
   DesktopTranscriptHistoryRequest,
+  DesktopTranscriptMove,
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
 import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-sections';
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { mergeToolRows, rowsOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
+import {
+  mergeToolRows,
+  moveTranscriptWindow,
+  rowsOf,
+  sessionStateOf,
+} from '../../../../packages/protocol-client/src/index.ts';
 import { createChatHostApi, READ_NOT_HELD, READ_NOT_VIEWED, type ChatHostShared } from './remote-chat-host';
 import { callSharingControlThread } from './remote-capability-lane';
 import { followSessionStates, type SessionStateFollower } from './remote-session-states';
@@ -95,6 +102,8 @@ export interface ChatShared {
   whenSettled(id: string): Promise<void>;
   /** The pending server request whose card shows `cardId`; an id no card shows is passed on as it is. */
   approvalRequestId(cardId: string): string;
+  /** The window a positioned thread's subscription holds follows the reader (protocol-client `moveTranscriptWindow`). */
+  moveWindow(threadId: string, move: DesktopTranscriptMove): Promise<boolean>;
   /** The phone's transcript window (main/remote-phone-transcript.ts `createPhoneTranscript`, kept out of this bundle's imports as
    *  main code): the states the phone is shown pass through its `view`. */
   transcript: {
@@ -177,7 +186,33 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       (await service('markSessionRead', [sessionId, messageCount, consumedUnread])) === true,
     searchSessionContent: async (query: string): Promise<DesktopSessionContentMatch[]> => {
       const hits = await service('searchSessionContent', [query]);
-      return Array.isArray(hits) ? hits.map(({ sessionId, snippet, rank }) => ({ sessionId, snippet, rank })) : [];
+      return Array.isArray(hits)
+        ? hits.map(({ sessionId, snippet, rank, position }) => ({
+            sessionId,
+            snippet,
+            rank,
+            ...(typeof position === 'string' && position ? { position } : {}),
+          }))
+        : [];
+    },
+    moveTranscriptWindow: (sessionId: string, move: DesktopTranscriptMove): Promise<boolean> =>
+      shared.moveWindow(sessionId, move),
+    listRewindTargets: async (
+      sessionId: string,
+      options: { cursor?: string; limit?: number } = {}
+    ): Promise<{ data: DesktopRewindTarget[]; nextCursor?: string }> => {
+      const page = record(
+        await send({
+          method: 'thread/rewindTargets/list',
+          params: {
+            threadId: sessionId,
+            ...(options.cursor ? { cursor: options.cursor } : {}),
+            ...(options.limit ? { limit: options.limit } : {}),
+          },
+        })
+      );
+      const data = Array.isArray(page.data) ? (page.data as DesktopRewindTarget[]) : [];
+      return { data, ...(typeof page.nextCursor === 'string' ? { nextCursor: page.nextCursor } : {}) };
     },
     renameSession: (sessionId: string, title: string): Promise<void> => lane.renameSession(sessionId, title),
     continueSessionInModel: (sessionId: string, route: DesktopModelSelection): Promise<boolean> =>
@@ -631,7 +666,9 @@ const CHAT_CALLS = [
   'getTaskWorkspace',
   'inheritSession',
   'listProviderModels',
+  'listRewindTargets',
   'markSessionRead',
+  'moveTranscriptWindow',
   'openAgentHome',
   'prefetchSession',
   'provideSecretInput',
@@ -908,6 +945,7 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
       return asked ? String(asked.id) : cardId;
     },
     transcript: foldTranscript(client),
+    moveWindow: (threadId, move) => moveTranscriptWindow(client, threadId, move),
     // The client's own fold of thread items into transcript rows (`rowsOf`: a row and the compaction dividers after it, then `mergeToolRows`).
     foldRows: (items) => mergeToolRows(items.flatMap((item) => rowsOf(item as never))),
   };
@@ -987,6 +1025,8 @@ export const foldTranscript = (client: FoldClient): ChatShared['transcript'] => 
     const fold = client.store.thread(threadId)?.state;
     const origin = fold?.origin;
     if (!fold || !origin) return Promise.resolve(false);
+    // A positioned window grows by the reader's moves (`moveTranscriptWindow`), never by a larger snapshot.
+    if (fold.held) return Promise.resolve(true);
     const shown = (state as { items?: readonly unknown[] } | null)?.items?.length ?? 0;
     const items = pageWindow(fold, shown, limit);
     // The thread's start is held, or the rows asked for are shown already; or nothing older can join the window.

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useMemo, useRef } from 'react';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentRoom } from './agent-room-store';
 import { MarkdownMentionNamesContext } from './markdown-mentions';
@@ -15,6 +15,7 @@ import { TranscriptDevicesContext, TranscriptViewerDeviceContext } from './trans
 import type { TranscriptRowModel } from './transcript-rows';
 import { useScrollProgress } from './scroll-progress';
 import { TranscriptList } from './TranscriptList';
+import { useTranscriptJump } from './transcript-jump';
 import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
 import type { ConversationTimeline } from './use-conversation-timeline';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
@@ -181,6 +182,13 @@ export function ConversationTranscript({
   const { viewport, content, follow } = view;
   useScrollProgress(viewport, ':scope > .transcript-scroll-fade');
   const { requestEarlierTranscript, requestLaterTranscript, transcriptHistoryActive } = source;
+  const revealRef = useRef<((match: (row: TranscriptRowModel) => boolean) => boolean) | null>(null);
+  useTranscriptJump({
+    sessionId: draftMode ? '' : routeSessionId,
+    rows: timeline.transcriptRows,
+    leaveTail: follow.pause,
+    reveal: revealRef,
+  });
   const revealed = timeline.transcriptRevealed;
   const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
   const showWelcome = conversationShowsWelcome({
@@ -280,6 +288,7 @@ export function ConversationTranscript({
                 scrollToEndRef={view.scrollToEndRef}
                 renderRow={renderRow}
                 surface={agentMode ? agentSurface : 'coding'}
+                revealRef={revealRef}
               />
             )}
           </TranscriptRowContexts>
