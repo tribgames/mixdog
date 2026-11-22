@@ -141,7 +141,7 @@ export function useDraftPanePreferences({
     repaintDrafts,
   });
   // A stage names its draft when it comes from a pane's own controls (an
-  // unfocused pane's session panel); only the focused draft's working
+  // unfocused pane's pickers); only the focused draft's working
   // values follow it, the others repaint from their entry.
   const stagesFocusedDraft = useCallback(
     (draftKey?: string) => !draftKey || draftKey === focusedDraftKey(selectionRef.current),

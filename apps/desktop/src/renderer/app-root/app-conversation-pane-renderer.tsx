@@ -278,8 +278,8 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           draftModelSelection: draftKey ? prefs.modelSelection : undefined,
           draftWorkflow: draftKey ? prefs.workflow : undefined,
           draftOrchestrationMode: draftKey ? prefs.orchestrationMode : undefined,
-          // Each pane's pickers stage its own draft, focused or not: its
-          // session panel is operated without the pane taking focus.
+          // Each pane's pickers stage its own draft, focused or not: a
+          // pane's controls are operated without the pane taking focus.
           onDraftModelSelection: draftKey
             ? (selection) => options.stageNewTaskModelSelection(selection, draftKey)
             : undefined,
