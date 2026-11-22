@@ -3821,7 +3821,8 @@ async fn the_real_store_reads_the_whole_history_oldest_first() {
     turn(&handle, "one", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     turn(&handle, "two", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    // Settled: the rewind below reads the history, which a turn whose end is not stored yet refuses (`settled_idle`).
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     let ids = |items: Vec<mixdog_protocol::ThreadItem>| items.iter().map(|i| i.id().clone()).collect::<Vec<_>>();
     let shown: Vec<_> = handle.cell.view.load_full().items.iter().map(|i| i.id().clone()).collect();
     assert_eq!(ids(directory.history_items(&handle.id).await.expect("history")), shown);

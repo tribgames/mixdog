@@ -485,6 +485,33 @@ async fn kill_releases_a_reader_held_by_a_stalled_client() {
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
 }
 
+/// The width a shell's answer to the size query names, once the answer is whole.
+fn reported_width(answer: &str) -> Option<u16> {
+    if cfg!(windows) {
+        // `mode con`: five "<label>:   <number>" lines in the system's language (lines, columns, keyboard rate and
+        // delay, code page); the columns are the second.
+        let values: Vec<u16> = answer
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .filter_map(|(_, value)| {
+                let digits: String = value.trim_start().chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().ok()
+            })
+            .collect();
+        (values.len() >= 5).then(|| values[1])
+    } else {
+        // `stty size`: "31 97" on a line of its own.
+        answer.split_inclusive('\n').filter(|line| line.ends_with('\n')).find_map(|line| {
+            let mut parts = line.split_whitespace();
+            let (rows, cols) = (parts.next()?, parts.next()?);
+            if parts.next().is_some() || rows.parse::<u16>().is_err() {
+                return None;
+            }
+            cols.parse().ok()
+        })
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pty_session_echoes_input_and_follows_resizes() {
     let m = manager();
@@ -503,13 +530,37 @@ async fn pty_session_echoes_input_and_follows_resizes() {
     }
     m.resize_pty(&h, PtySize { cols: 97, rows: 31 }).unwrap();
     assert_eq!(m.info(&h).unwrap().pty, Some(PtySize { cols: 97, rows: 31 }));
+    // A console applies the sizes it is sent in their order, each some time after the call that sent it returned
+    // (release gate run 45055219445: `mode con` answered a size from the middle of the storm). The last size wins once
+    // they are all applied: the shell is asked until it answers that one.
     let query = if cfg!(windows) { "mode con\r" } else { "stty size\r" };
-    m.write_input(&h, query.as_bytes().to_vec()).unwrap();
+    let mut events = m.subscribe(&h, Some(0)).unwrap();
+    let mut seen = String::new();
+    let settled = async {
+        loop {
+            let from = seen.len();
+            m.write_input(&h, query.as_bytes().to_vec()).unwrap();
+            let width = loop {
+                match events.next().await.expect("the feed ends with the exit event") {
+                    ProcessEvent::Output { bytes, .. } => seen.push_str(&text(&bytes)),
+                    ProcessEvent::Exited { .. } => panic!("the shell ended before it was told to: {seen:?}"),
+                }
+                if let Some(width) = reported_width(&seen[from..]) {
+                    break width;
+                }
+            };
+            if width == 97 {
+                return;
+            }
+        }
+    };
+    let reported = tokio::time::timeout(WAIT, settled).await;
+    assert!(reported.is_ok(), "the shell reports the final width: {seen:?}");
+    drop(events);
     m.write_input(&h, b"exit\r".to_vec()).unwrap();
     let (bytes, exit) = collect(&m, &h).await;
     let out = text(&bytes);
     assert!(out.contains("MIXDOG_PTY_OK"), "{out:?}");
-    assert!(out.contains("97"), "the shell reports the final width: {out:?}");
     assert_eq!(exit.status, ExitStatus::Code(0));
     assert_eq!(m.resize_pty(&h, PtySize { cols: 10, rows: 10 }), Err(ProcessError::AlreadyExited));
 }
