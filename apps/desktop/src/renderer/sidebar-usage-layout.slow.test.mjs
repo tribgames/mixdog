@@ -202,19 +202,31 @@ test('the pinned rail stack is as tall as the room budget, and each bar paints e
   }
   assert.equal(band['claude:W'].top - (band['claude:5H'].top + 2), 1);
 
-  // The mark at glyph size, the bar centred 3px under its ink.
+  // Each slot is one 44px rail cell with the mark centred on it as the
+  // Settings gear is on its cell, the meter centred under the mark.
   const slots = await page.evaluate(() =>
     [...document.querySelectorAll('[data-usage-pin]')].map((slot) => {
+      const box = slot.getBoundingClientRect();
       const icon = slot.querySelector('svg[data-provider-icon]').getBoundingClientRect();
       const meter = slot.querySelector('.rail-usage-pin-meter').getBoundingClientRect();
       return {
+        height: box.height,
         icon: icon.width,
+        middle: icon.top + icon.height / 2 - box.top,
         centred: icon.left + icon.width / 2 - (meter.left + meter.width / 2),
-        gap: meter.top - (icon.bottom - 4),
+        meter: meter.top - box.top,
       };
     })
   );
-  for (const slot of slots) assert.deepEqual(slot, { icon: 24, centred: 0, gap: 3 });
+  for (const slot of slots) assert.deepEqual(slot, { height: 44, icon: 26, middle: 22, centred: 0, meter: 34 });
+  // The marks wear the gear's resting ink.
+  const inks = await page.evaluate(() =>
+    ['.sidebar-usage-toggle svg[data-provider-icon]', '.sidebar-settings-button .codicon'].map((selector) => {
+      const style = getComputedStyle(document.querySelector(selector));
+      return [style.color, style.opacity];
+    })
+  );
+  assert.deepEqual(inks[0], inks[1]);
 });
 
 test('quota windows are two lines: label, reset and percent over a full-width 3px track', async (t) => {

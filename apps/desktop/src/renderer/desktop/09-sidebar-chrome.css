@@ -2,51 +2,44 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* Pinned usage: the rail button trades the pie glyph for a
-   per-brand stack — each provider's icon over its usage bar, no figure. */
-/* No min-height: the block is exactly its rows and padding, the numbers
-   rail-usage-pin-room.ts budgets (one slot is 16 + 25 = 41px). */
+   per-brand stack — each provider's icon over its usage bar, no figure. It
+   keeps the rail's own ink, so hover and the open flyout brighten it like
+   Settings below. */
+/* No min-height: the block is exactly its rows, the numbers
+   rail-usage-pin-room.ts budgets (one slot is one 44px rail cell). */
 .activity-rail > .sidebar-usage-toggle.is-pinned {
   height: auto;
   /* Yields only after the destination nav has hit its floor, and clips its
      own last brand row instead of overflowing onto the Settings cell. */
   flex: 0 1 auto;
   overflow: hidden;
-  padding: 8px 0;
-  /* A monitoring readout must stay readable at rest — never the rail's 40%
-     inactive ghost ink. */
-  color: var(--mx-text-soft);
 }
-/* Rows sit 11px apart (rail-usage-pin-room.ts), wider than the 3px between a
-   mark and its own bar, so each bar reads as its mark's; six slots still fit
-   under nine destinations in a 700px window. */
 .rail-usage-pin-stack {
   display: grid;
-  gap: 11px;
   justify-items: center;
   width: 100%;
 }
-/* One 25px slot (rail-usage-pin-room.ts budgets 25): the mark's 24px box
-   rides 4px up, where its glyph leaves the box empty, so the ink spans
-   0-16px; the 5px meter sits 3px under the ink. */
+/* One 44px slot on the rail's cell pitch: the mark's ink centres 22px down,
+   where the Settings gear's does in its cell, and the 5px meter sits 3px
+   under the ink. */
 .rail-usage-pin-brand {
   position: relative;
   display: block;
   width: 100%;
-  height: 25px;
+  height: 44px;
 }
-/* The mark at the rail's glyph size: a 24px box inks about the 16px of the
-   22px destination glyphs. */
+/* A 26px box inks about the 19px of the 22px Settings gear. */
 .rail-usage-pin-mark {
   position: absolute;
-  top: -4px;
-  left: calc(50% - 12px);
-  width: 24px;
-  height: 24px;
+  top: 9px;
+  left: calc(50% - 13px);
+  width: 26px;
+  height: 26px;
 }
 /* 17px wide so the capsules start on a whole pixel of the 47px rail. */
 .rail-usage-pin-meter {
   position: absolute;
-  top: 19px;
+  top: 34px;
   left: calc(50% - 8.5px);
   width: 17px;
   height: 5px;
@@ -86,15 +79,15 @@
   position: absolute;
   inset: 0;
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
 }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
 .rail-usage-pin-mark > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
   inset: -2px;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
 }
 /* Expanded accounts: the account index sits on the mark's bottom-right
    corner, clear of the bar, bright for the account in use, muted for the
