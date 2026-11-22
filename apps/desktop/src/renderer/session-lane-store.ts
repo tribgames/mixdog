@@ -458,6 +458,7 @@ export function createSessionLaneStore({
     maxEntries,
     maxBytes,
     subscribed: (sessionId) => (listeners.get(sessionId)?.size || 0) > 0,
+    evicted: (sessionId) => decorator.forget?.(sessionId),
   });
   const notificationKeys = new Map<string, object>();
   /** Each session's shown feed position and who hears it move, and the sessions whose lane ended as gone. */
@@ -733,11 +734,11 @@ export function createSessionLaneStore({
           // The cancelled notification carried the deferred position: with no pane left to catch up, it shows at once, as in
           // `apply` without a listener.
           notify(sessionId);
+          const cached = snapshots.get(sessionId) !== undefined;
           snapshots.release(sessionId);
           syncApprovals();
-          // An unmounted lane that is no longer cached has nothing displayed
-          // to keep stable; a cached one keeps its baseline for re-entry.
-          if (!snapshots.get(sessionId)) decorator.forget?.(sessionId);
+          // A lane that never reached the cache has no eviction to end its baseline; a cached one is forgotten when evicted.
+          if (!cached) decorator.forget?.(sessionId);
         }
       };
     },
