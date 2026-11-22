@@ -97,12 +97,11 @@ export interface DesktopSessionContentMatch {
 }
 
 /** Where the reader of a positioned transcript is, as the window the core holds follows it (protocol-client `TranscriptMove`):
- *  on the live tail, at the oldest rows shown, at the newest rows of a stretch shown apart from the tail, or opening the
- *  transcript at a record. */
+ *  on the live tail, reading the rows `first`..`last` (the ids of the first and last transcript items in its view), or
+ *  opening the transcript at a record. */
 export type DesktopTranscriptMove =
   | { readonly kind: 'follow' }
-  | { readonly kind: 'older' }
-  | { readonly kind: 'newer' }
+  | { readonly kind: 'read'; readonly first: string; readonly last: string }
   | { readonly kind: 'at'; readonly position: string };
 
 /** A prompt the session can be rewound to (`thread/rewindTargets/list`): `position` is what the rewind names. */

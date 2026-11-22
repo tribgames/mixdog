@@ -23,10 +23,13 @@ export function useConversationFollowEffects({
   transcriptRows,
   transcriptSessionKey,
   viewport,
+  windowGeneration,
 }: {
   armFollow: () => void;
   following: boolean;
   scrollToEndRef: { current: (behavior?: ScrollBehavior) => void };
+  /** A positioned transcript's generation (`transcriptGeneration`); undefined for a window whose rows are the transcript's. */
+  windowGeneration?: number;
   settledItems: readonly TranscriptItem[];
   transcriptRows: unknown;
   transcriptSessionKey: string;
@@ -43,18 +46,24 @@ export function useConversationFollowEffects({
     // different offsets across the first frames (re-entry jump/flicker).
     armFollow();
   }, [armFollow, transcriptSessionKey]);
-  const transcriptSwapRef = useRef({ sessionKey: '', count: 0 });
+  const transcriptSwapRef = useRef({ sessionKey: '', count: 0, generation: windowGeneration });
   useLayoutEffect(() => {
     const count = settledRowCount(settledItems);
     const previous = transcriptSwapRef.current;
-    transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count };
+    transcriptSwapRef.current = { sessionKey: transcriptSessionKey, count, generation: windowGeneration };
     // Session entry owns its own arm. A same-length head-id change is a lane
     // republish, not compaction — that used to fire a second scrollToEnd.
     if (previous.sessionKey !== transcriptSessionKey) return;
-    if (!previous.count || !count || count >= previous.count) return;
+    // A positioned window lets go of rows far from the reader, so fewer rows are no shrink of the transcript: a history
+    // reset (a rewind, a clear) is one, and names itself.
+    const shrank =
+      windowGeneration === undefined
+        ? Boolean(previous.count && count && count < previous.count)
+        : previous.generation !== undefined && previous.generation !== windowGeneration;
+    if (!shrank) return;
     armFollow();
     scrollToEndRef.current();
-  }, [armFollow, scrollToEndRef, settledItems, transcriptSessionKey]);
+  }, [armFollow, scrollToEndRef, settledItems, transcriptSessionKey, windowGeneration]);
   const overflowCheck = useRef(0);
   const latest = useRef({ armFollow, following });
   latest.current = { armFollow, following };

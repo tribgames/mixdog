@@ -612,6 +612,57 @@ test('a wheel ramp holds measured-size corrections off scrollTop until its scrol
   }
 });
 
+test('a wheel that keeps turning at the top lands the history held above it', async () => {
+  const { createTouchScrollDeviation } = await import('./transcript-list-touch-deviation.ts');
+  const clock = { now: 300_000 };
+  let native = 40;
+  const writes = [];
+  const mount = await mountFollowHook({ sessionKey: 'wheel-top', leafTag: 'div', leafId: 'space', clock });
+  const { React, viewport, leaf: space, frame } = mount;
+  let deviation = null;
+  try {
+    Object.defineProperty(viewport, 'clientHeight', { configurable: true, get: () => 400 });
+    Object.defineProperty(viewport, 'scrollHeight', { configurable: true, get: () => 4000 });
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      get: () => native,
+      set: (value) => {
+        writes.push(value);
+        native = value;
+      },
+    });
+    deviation = createTouchScrollDeviation({
+      getViewport: () => viewport,
+      getSpacer: () => space,
+      hasTouchScroll: () => mount.follow.holdsScrollCorrections(),
+      clampAtEdge: () => mount.follow.touchHoldsCorrections(),
+      markProgrammaticScroll: (top, intended) => mount.follow.markProgrammaticScroll(top, intended),
+    });
+    const wheelUp = () =>
+      React.act(async () => mount.follow.handleWheel({ deltaY: -100, target: viewport, currentTarget: viewport }));
+    await React.act(async () => mount.follow.handleScroll());
+    clock.now += 1_000;
+    await wheelUp();
+    // A page of history arrives above the reader while the wheel scrolls: its 900px are held as a row offset.
+    assert.equal(deviation.hold(native + 900), true);
+    await frame();
+    assert.deepEqual(writes, [], 'held while the wheel still has room to scroll');
+    // The wheel reaches native 0 and keeps turning there: no scroll event comes any more.
+    native = 0;
+    for (let notch = 0; notch < 3; notch += 1) {
+      clock.now += 40;
+      await wheelUp();
+    }
+    assert.equal(mount.follow.holdsScrollCorrections(), true, 'the wheel still owns the viewport');
+    await frame();
+    assert.deepEqual(writes, [900], 'the held history lands, so the wheel can scroll into it');
+    assert.equal(space.style.transform, '');
+  } finally {
+    deviation?.cancel();
+    await mount.dispose();
+  }
+});
+
 test('a touch scroll owns the transcript from its drag until scrollend ends the fling, and off iOS holds no corrections', async () => {
   const mount = await mountFollowHook({ sessionKey: 'touch-latch' });
   const { viewport, leaf: row } = mount;
