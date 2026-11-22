@@ -5,9 +5,11 @@
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 
 use mixdog_core_api::call::{CallContext, CoreRequest};
 use mixdog_core_api::feed::Window;
@@ -44,6 +46,11 @@ fn say(line: &str) {
 }
 
 const TAG: &str = "RK:";
+
+/// The child is about to do `what`: the parent names it when the child says nothing more.
+fn at(what: &str) {
+    say(&format!("AT {what}"));
+}
 
 /// Holds the calling thread until the parent kills the process.
 fn held(what: &str) -> ! {
@@ -117,13 +124,18 @@ async fn recovery_kill_child() {
     let committed = Arc::new(tokio::sync::Notify::new());
     dies_after_call(&rig, "call_1", committed.clone());
     if stage == "seed" {
+        at("opening the store");
         let directory = SessionDirectory::new(rig.deps_on(real_store(&dir).await));
+        at("starting the thread");
         let handle = start_thread(&directory).await;
+        at("starting the turn");
         turn(&handle, "read a", "op-1").await;
+        at("waiting for the call row");
         super::testing::awaiting(|| "the tool call row to be durable".to_owned(), committed.notified()).await;
         held(handle.id.as_str());
     }
     let id = mixdog_core_api::ids::ThreadId::from(std::env::var(THREAD).expect("the thread").as_str());
+    at("opening the store");
     let store: Arc<dyn super::ThreadStore> = match std::env::var(POINT) {
         Ok(point) => {
             let (point, seen) = (point.parse::<usize>().expect("a point"), Arc::new(AtomicUsize::new(0)));
@@ -141,6 +153,7 @@ async fn recovery_kill_child() {
     let mut deps = rig.deps_parts(store);
     deps.transcript = Arc::new(super::transcript::RecordTranscript::new());
     let directory = SessionDirectory::new(Arc::new(deps));
+    at("opening the thread");
     let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     if stage == "verify" {
         assert_recovered_once(&reopened).await;
@@ -152,11 +165,13 @@ async fn recovery_kill_child() {
 /// the call closed as cancelled and the cancelled end of the turn, each once (Node shows the stored restart line as a cancelled
 /// end, `restore.mjs` `isTranscriptCancelledStatusText`).
 async fn assert_recovered_once(reopened: &Arc<super::SessionHandle>) {
+    at("reading the recovered conversation");
     let read = CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(read) = reopened.request(read).await.expect("read") else { panic!("a value") };
     let messages = read["messages"].as_array().expect("messages");
     let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
     assert_eq!(shown, [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")], "{read}");
+    at("attaching a client");
     let connection = MockConnection::new(ConnectionId(1), MockLimits::default());
     let source: Arc<dyn FeedSource> = reopened.clone();
     let attached = mixdog_core_api::feed::subscribe(&source, SubscriptionId::from("sub1"), Window::LastItems(50), None, &connection).expect("attach");
@@ -173,7 +188,7 @@ async fn assert_recovered_once(reopened: &Arc<super::SessionHandle>) {
     assert_eq!(count(&|item| item["type"] == "toolCall" && said(item, "Cancelled")), 1, "the cancelled call once: {items:?}");
     assert_eq!(count(&|item| item["type"] == "turnEnd" && item["status"] == "cancelled"), 1, "the cancelled end of the turn once: {items:?}");
 }
-#[allow(clippy::disallowed_methods, reason = "the parent starts the child from this test binary")]
+#[allow(clippy::disallowed_methods, reason = "the parent starts the child from this test binary and reads its output on a thread")]
 fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>) -> Ended {
     let mut command = Command::new(std::env::current_exe().expect("this test binary"));
     command
@@ -194,20 +209,79 @@ fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>
         command.creation_flags(0x0800_0000);
     }
     let mut child = command.spawn().expect("the child starts");
-    for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
-        let line = line.expect("a line");
+    // The child's lines come through a channel, so the wait for the next one has an end.
+    let (tx, lines) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().expect("piped");
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if tx.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let mut at = "starting".to_owned();
+    loop {
+        let line = match lines.recv_timeout(CHILD_SILENCE) {
+            Ok(line) => line.expect("a line"),
+            Err(RecvTimeoutError::Disconnected) => panic!("the {stage} child (point {point:?}) ended at \"{at}\" without finishing: {:?}", child.wait()),
+            Err(RecvTimeoutError::Timeout) => silent(&mut child, stage, point, &at),
+        };
         let Some((_, report)) = line.split_once(TAG) else { continue };
         if let Some(what) = report.strip_prefix("HELD ") {
             child.kill().expect("the child is killed");
             child.wait().expect("the child is gone");
             return Ended::Held(what.to_owned());
         }
+        if let Some(phase) = report.strip_prefix("AT ") {
+            at = phase.to_owned();
+        }
         if report == "DONE" {
+            // Its output ends when it has exited: a child that finished and does not leave is silent too.
+            loop {
+                match lines.recv_timeout(CHILD_SILENCE) {
+                    Ok(_) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => silent(&mut child, stage, point, "its exit, after DONE"),
+                }
+            }
             assert!(child.wait().expect("the child ended").success(), "the {stage} child failed");
             return Ended::Done;
         }
     }
-    panic!("the {stage} child ended without finishing: {:?}", child.wait());
+}
+
+/// How long a child may say nothing before the parent fails with where it was: past the 30 s of the child's own waits
+/// (`testing::awaiting`), which say what they waited for, and well inside the runner's limit for the test.
+const CHILD_SILENCE: Duration = Duration::from_secs(40);
+
+/// The child said nothing for [`CHILD_SILENCE`]: it is ended, and the test fails with the last place it reported and
+/// what its threads were doing.
+fn silent(child: &mut Child, stage: &str, point: Option<usize>, at: &str) -> ! {
+    let running = matches!(child.try_wait(), Ok(None));
+    let threads = threads_of(child.id());
+    let _ = child.kill();
+    let ended = child.wait();
+    panic!(
+        "the {stage} child (point {point:?}) said nothing for {CHILD_SILENCE:?} at \"{at}\"; still running: {running}; its threads: {threads}; ended as {ended:?}"
+    );
+}
+
+/// Each thread of the process `pid` by name, with the system call it is in (its number and arguments, `proc(5)`
+/// `/proc/<pid>/task/<tid>/syscall`): which thread waits, and on a lock, a flush or a read.
+#[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods, reason = "the parent reads the state of the child it started")]
+fn threads_of(pid: u32) -> String {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return "unreadable".to_owned() };
+    let thread = |task: std::fs::DirEntry| {
+        let read = |name: &str| std::fs::read_to_string(task.path().join(name)).map_or_else(|error| error.to_string(), |text| text.trim().to_owned());
+        format!("{} [{}]", read("comm"), read("syscall"))
+    };
+    tasks.flatten().map(thread).collect::<Vec<_>>().join("; ")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn threads_of(_pid: u32) -> String {
+    "not read on this system".to_owned()
 }
 /// A fork taken after a recovery inherits its rows, mark included; a kill in the fork's own turn and the recovery of it must close
 /// only the fork's turn: the parent's cancelled result and restart line are not derived again, and no client read shows the mark.
