@@ -99,8 +99,9 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
     return (
       <span className="rail-usage-pin-stack">
         {rows.map((entry) => (
-          // No figure: the bar and its tone carry the reading; the exact
-          // values live in the tooltip, the button's description and the flyout.
+          // The mark, its bar, then the figure the bar stands for (the long
+          // window, or the highest one when two bars are drawn); every window's
+          // value lives in the tooltip, the button's description and the flyout.
           <span
             className="rail-usage-pin-brand"
             key={entry.key}
@@ -115,6 +116,11 @@ function usagePinGlyph(rows: readonly UsagePinRow[], loading: boolean) {
               )}
             </span>
             <UsagePinMeter entry={entry} />
+            {!entry.pending && (
+              <small className="rail-usage-pin-figure" aria-hidden="true">
+                {displayUsagePercent(entry.percent) ?? 0}%
+              </small>
+            )}
           </span>
         ))}
       </span>

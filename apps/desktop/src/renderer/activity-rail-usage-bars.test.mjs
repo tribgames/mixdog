@@ -115,15 +115,18 @@ test('the usage flyout closes on Escape and on a press outside it, not on a pres
 
 test('the rail draws one bar per brand by default and saves the chosen two-bar mode in settings', async (t) => {
   const { root, props, stored } = await mountRail(t);
-  // One bar for the long window under the mark, no figure; the values live in
-  // the tooltip and in the Usage button's description, slot by slot, which
-  // names every window the tooltip does, drawn or not.
+  // One bar for the long window under the mark, then that window's figure; every
+  // window's value lives in the tooltip and in the Usage button's description,
+  // slot by slot, which names every window the tooltip does, drawn or not.
   assert.deepEqual(fills('claude'), [['rail-usage-pin-fill', 41]]);
   const meter = brand('claude').querySelector('.rail-usage-pin-meter');
   assert.equal(meter.previousElementSibling, brand('claude').querySelector('.rail-usage-pin-mark'));
   assert.ok(meter.previousElementSibling.querySelector('svg[data-provider-icon]'));
   assert.equal(brand('claude').querySelector('circle'), null);
-  assert.equal(brand('claude').querySelector('small'), null);
+  const figure = () => brand('claude').querySelector('.rail-usage-pin-figure');
+  assert.equal(figure().textContent, '41%');
+  assert.equal(figure().previousElementSibling, meter);
+  assert.equal(figure().getAttribute('aria-hidden'), 'true', 'the button’s description already reads it');
   assert.equal(brand('claude').getAttribute('role'), null);
   const toggle = () => document.querySelector('.sidebar-usage-toggle');
   assert.equal(toggle().getAttribute('aria-label'), 'Usage');
@@ -147,6 +150,7 @@ test('the rail draws one bar per brand by default and saves the chosen two-bar m
     [...brand('claude').querySelectorAll('[data-usage-window]')].map((bar) => bar.getAttribute('data-usage-window')),
     ['5H', 'W']
   );
+  assert.equal(figure().textContent, '99%', 'two bars: the figure is the highest window');
   const [top, bottom] = tracks('claude').map((track) => Number(track.getAttribute('y')));
   assert.ok(top < bottom);
   // Each capsule runs under its fill on the same band, the fill clipped to it.
@@ -220,6 +224,7 @@ test('a slot still loading draws a dashed line per window instead of a capsule',
     ]
   );
   assert.deepEqual(fills('claude'), []);
+  assert.equal(brand('claude').querySelector('.rail-usage-pin-figure'), null, 'no figure before the quota is read');
 });
 
 test('the pin switch in the portaled menu survives a real pointer press and saves the pin', async (t) => {
