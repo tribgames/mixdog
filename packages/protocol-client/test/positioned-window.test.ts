@@ -8,7 +8,7 @@ import { connect } from '../src/client.ts';
 import { MockNetwork } from '../src/mock.ts';
 import { desktopSessionState, sessionReducer, sessionStateOf } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
-import { moveTranscriptWindow, windowWant, WINDOW_TAIL_MAX_ROWS } from '../src/transcript-window.ts';
+import { moveTranscriptWindow, windowWant, WINDOW_VIEW_MAX_ROWS } from '../src/transcript-window.ts';
 
 type O = Record<string, any>;
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
@@ -145,7 +145,52 @@ test('a rewind cuts what follows its boundary and a clear leaves nothing', () =>
   assert.equal(s.held!.units.size, 0);
 });
 
-test('the moves a reader asks for: a page above, a bounded stretch, the tail read anew, a hit opened', () => {
+test('following keeps the tail and the pages joined to it however far they grew, and asks for nothing', () => {
+  // A tail followed through a long turn: far more rows than the reader's bound for pages read elsewhere.
+  const grownIds = Array.from({ length: WINDOW_VIEW_MAX_ROWS + 300 }, (_, i) => `g${String(i).padStart(4, '0')}`);
+  let s = snapshot(grownIds);
+  assert.equal(windowWant(s.held!, { kind: 'follow' }), null, 'a grown tail is not read anew');
+  // A page read above it is one stretch with it: sending a prompt from there (a follow) lets none of it go.
+  s = at(s, 'thread/window/changed', {
+    windowVersion: 11,
+    lineage: 1,
+    ranges: [
+      { id: 'tail', older: cont(pos(grownIds[0]!)), newer: end },
+      { id: 'q:above', older: cont(pos('f0')), newer: cont(pos(grownIds[0]!)) },
+    ],
+    removed: [],
+    added: [{ range: 'q:above', units: units(['f0', 'f1', grownIds[0]!]) }],
+    followTail: true,
+  });
+  assert.equal(windowWant(s.held!, { kind: 'follow' }), null);
+  // A hit opened elsewhere keeps the tail as it is: no tail is read beside the range asked for.
+  assert.deepEqual(windowWant(s.held!, { kind: 'at', position: pos('a3') })?.ranges, [
+    { at: 'retain', id: 'tail' },
+    { at: 'around', position: pos('a3'), before: 96, after: 96 },
+  ]);
+  // The stretch opened there is what a reader back on the tail lets go: the tail's run stays, and that is all it asks.
+  s = at(s, 'thread/window/changed', {
+    windowVersion: 12,
+    lineage: 1,
+    ranges: [
+      { id: 'tail', older: cont(pos(grownIds[0]!)), newer: end },
+      { id: 'q:above', older: cont(pos('f0')), newer: cont(pos(grownIds[0]!)) },
+      { id: 'q:hit', older: cont(pos('a1')), newer: cont(pos('a5')) },
+    ],
+    removed: [],
+    added: [{ range: 'q:hit', units: units(['a1', 'a2', 'a3', 'a4', 'a5']) }],
+    followTail: true,
+  });
+  const back = windowWant(s.held!, { kind: 'follow' });
+  assert.deepEqual(
+    back?.ranges.map((range) => (range as O).id).sort(),
+    ['q:above', 'tail'],
+    'only the stretch apart from the tail is let go'
+  );
+  assert.equal(back?.followTail, true);
+});
+
+test('the moves a reader asks for: a page above, a bounded stretch, a hit opened', () => {
   const s = snapshot(['r20', 'r21']);
   // Fewer rows than the lead lie above the reader's view: the page above is asked for. A row no record holds stands at
   // the newest end.
@@ -165,9 +210,6 @@ test('the moves a reader asks for: a page above, a bounded stretch, the tail rea
     { at: 'retain', id: 'tail' },
     { at: 'around', position: pos('r3'), before: 96, after: 96 },
   ]);
-  // A tail grown past its bound is read anew when the reader follows it.
-  const grown = snapshot(Array.from({ length: WINDOW_TAIL_MAX_ROWS + 1 }, (_, i) => `g${i}`));
-  assert.deepEqual(windowWant(grown.held!, { kind: 'follow' }), { ranges: [], followTail: true, pinned: [] });
   // Pages above the tail. The way back down shows the rows held: nothing is asked for, and nothing let go, while the
   // reader's view has the lead on both sides or the stretch is within its bound.
   let paged = snapshot(['p9999']);

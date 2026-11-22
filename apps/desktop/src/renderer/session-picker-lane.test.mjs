@@ -292,7 +292,6 @@ test("a pane's view of a positioned state carries the window's facts to the tran
   const facts = {
     transcriptPositioned: true,
     transcriptWindowVersion: 7,
-    transcriptTailRows: 31,
     transcriptViewItems: [{ id: 'r1' }],
     transcriptHistoryBefore: true,
     transcriptHistoryAfter: true,

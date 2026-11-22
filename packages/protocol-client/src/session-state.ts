@@ -878,7 +878,6 @@ function positionedFields(fold: SessionFold, held: HeldWindow): Obj {
     transcriptWindowVersion: held.version,
     transcriptHistory: history,
     ...(tail ? { transcriptWindowStart: tail.positions[0]! } : {}),
-    transcriptTailRows: tail?.rows ?? 0,
     transcriptViewItems: view ? viewRowsOf(held, view) : null,
     transcriptHistoryBefore: view ? view.older !== null : false,
     transcriptHistoryAfter: view ? view.newer !== null : false,

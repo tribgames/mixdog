@@ -15,7 +15,6 @@ export {
   moveTranscriptWindow,
   windowWant,
   WINDOW_PAGE_ROWS,
-  WINDOW_TAIL_MAX_ROWS,
   WINDOW_VIEW_MAX_ROWS,
 } from './transcript-window.ts';
 export type { TranscriptMove, WindowWant } from './transcript-window.ts';

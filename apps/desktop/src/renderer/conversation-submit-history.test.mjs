@@ -3,6 +3,44 @@ import test from 'node:test';
 import React, { act, useState } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
 
+test('a positioned pane following a tail grown long asks the core for nothing; a stretch opened apart is let go once', async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><main></main>',
+    jsdom: { url: 'https://mixdog.test/' },
+  });
+  const { createRoot } = await import('react-dom/client');
+  const { useTranscriptWindow } = await import('./use-transcript-history.ts');
+  const moves = [];
+  window.mixdogDesktop = {
+    moveTranscriptWindow: async (sessionId, move) => {
+      moves.push(move.kind);
+      return true;
+    },
+  };
+  const tail = Array.from({ length: 400 }, (_, index) => ({ id: `r${index}` }));
+  const facts = (version, viewItems = null) => ({ viewItems, viewOlder: false, viewNewer: false, version });
+  let shown;
+  function Pane({ positioned }) {
+    shown = useTranscriptWindow('s', tail, true, true, undefined, undefined, positioned).items;
+    return null;
+  }
+  const root = createRoot(document.querySelector('main'));
+  try {
+    // The tail grows as records arrive: each is another window version.
+    for (const version of [1, 2, 3]) await act(async () => root.render(React.createElement(Pane, { positioned: facts(version) })));
+    assert.deepEqual(moves, [], 'no tail is read anew, whatever its length');
+    assert.equal(shown.length, 400, 'every row followed stays shown');
+    // A stretch opened apart from the tail (a search hit), with the reader following again.
+    await act(async () => root.render(React.createElement(Pane, { positioned: facts(4, [{ id: 'hit' }]) })));
+    assert.deepEqual(moves, ['follow']);
+    await act(async () => root.render(React.createElement(Pane, { positioned: facts(5) })));
+    assert.deepEqual(moves, ['follow'], 'and nothing more once it is gone');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('sending from history shows the live conversation without waiting for another page or host acknowledgement', async () => {
   const { document, restore } = installTestDom(null, {
     html: '<!doctype html><main></main>',

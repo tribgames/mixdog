@@ -19,8 +19,6 @@ export const WINDOW_LEAD_ROWS = 144;
 /** The most rows held for the reader apart from the tail's range: past it, ranges far from the reader's view are let go.
  *  Wide enough that the way back down an ordinary read shows the rows it already holds, with none read again. */
 export const WINDOW_VIEW_MAX_ROWS = 2_048;
-/** Rows the followed tail's range may grow to while the reader follows it before it is read anew from the newest record. */
-export const WINDOW_TAIL_MAX_ROWS = 192;
 /** A range is let go only when all of it lies farther than this from the reader's view: a page would not be asked for
  *  there again until the reader moved a page toward it. */
 const WINDOW_KEEP_ROWS = WINDOW_LEAD_ROWS + WINDOW_PAGE_ROWS;
@@ -114,10 +112,9 @@ export function windowWant(held: HeldWindow, move: TranscriptMove): WindowWant |
   const runs = windowRuns(held);
   const tail = runs.find((run) => run.tail);
   const view = viewRun(held);
-  const tailRange = held.ranges.find((range) => range.id === TAIL_RANGE);
-  const tailRows = rowsOfRanges(held, [TAIL_RANGE]);
-  // The tail's range is kept while it is small; grown past its bound it is let go, and following the tail reads it anew.
-  const tailKept = tailRange !== undefined && tailRange.positions.length > 0 && tailRows <= WINDOW_TAIL_MAX_ROWS;
+  // The followed tail's range is never let go, however far it has grown: it is the standing hold on what arrives, and
+  // a tail read anew from the newest record would take the rows before it from the stretch the reader is shown.
+  const tailHeld = held.ranges.some((range) => range.id === TAIL_RANGE);
   const asked = (kept: Iterable<string>, add?: WindowRangeWant): WindowWant => ({
     ranges: [...[...kept].map(retain), ...(add ? [add] : [])],
     followTail: true,
@@ -125,12 +122,9 @@ export function windowWant(held: HeldWindow, move: TranscriptMove): WindowWant |
   });
   switch (move.kind) {
     case 'follow': {
-      // Only the tail's run is kept, and only while it is within the reader's bound; everything else is let go.
-      const kept = new Set<string>();
-      if (tailKept && tail) {
-        if (tail.rows <= WINDOW_VIEW_MAX_ROWS) for (const id of tail.ranges) kept.add(id);
-        else kept.add(TAIL_RANGE);
-      }
+      // The tail's run stays whole (the pages read above the tail are one stretch with it); a stretch opened apart
+      // from it is let go. The reader's bound is for pages far from a reader who left the tail (`read`).
+      const kept = new Set(tail?.ranges ?? []);
       const held_ = new Set(held.ranges.map((range) => range.id));
       const same = held.followTail && kept.size === held_.size && [...kept].every((id) => held_.has(id));
       return same ? null : asked(kept);
@@ -144,8 +138,7 @@ export function windowWant(held: HeldWindow, move: TranscriptMove): WindowWant |
       const newer = !run.tail && run.newer !== null && at.rowsAfter < WINDOW_LEAD_ROWS;
       if (!older && !newer) return null;
       const kept = keptNear(held, at, older);
-      // The followed tail's own range stays with its run; apart from the reader's stretch it stays while it is small.
-      if (run.tail || tailKept) kept.add(TAIL_RANGE);
+      if (tailHeld) kept.add(TAIL_RANGE);
       return asked(
         kept,
         older
@@ -156,7 +149,7 @@ export function windowWant(held: HeldWindow, move: TranscriptMove): WindowWant |
     case 'at': {
       const shown = [tail, view].some((run) => run?.positions.includes(move.position));
       if (shown) return null;
-      return asked(tailKept ? [TAIL_RANGE] : [], {
+      return asked(tailHeld ? [TAIL_RANGE] : [], {
         at: 'around',
         position: move.position,
         before: WINDOW_PAGE_ROWS,
