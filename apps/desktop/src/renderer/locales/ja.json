@@ -6502,5 +6502,6 @@
   "Island": "アイランド",
   "Session info: Hidden": "表示しない",
   "This turn's changes are still being recorded.": "このターンの変更はまだ記録中です。",
-  "Waiting for its turn": "順番を待っています"
+  "Waiting for its turn": "順番を待っています",
+  "All {{count}}": "すべて {{count}}"
 }

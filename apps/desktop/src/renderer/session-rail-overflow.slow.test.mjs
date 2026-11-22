@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -20,6 +21,7 @@ const HARNESS = `
   import { ChangesSection } from './session-rail-changes';
   import { useSessionRailFolds } from './session-rail-folds';
   import { installScrollbarMetrics } from './scrollbar-metrics';
+  import { initUiLanguage } from './i18n';
   import './session-rail.css';
 
   const SESSION = 'busy-session';
@@ -78,7 +80,14 @@ const HARNESS = `
   const pool = [lead, ...Array.from({ length: 7 }, (_, i) => ({
     tag: long('agent-' + i), sessionId: 'agent-' + i, ownerSessionId: SESSION, parentSessionId: SESSION,
     agent: 'worker', provider: 'anthropic', model: long('claude-opus'), effort: 'medium', status: i % 3 ? 'running' : 'completed', stage: i % 3 ? 'streaming' : 'completed',
-    startedAt: now - 3_600_000 * 9, settledAt: i % 3 ? 0 : now, todo: { completed: 12, total: 99, current: long('current step') },
+    startedAt: now - 3_600_000 * 9, turnStartedAt: i % 3 ? now - 3_600_000 * 9 : null, settledAt: i % 3 ? 0 : now,
+    todo: { completed: 12, total: 99, current: long('current step') },
+  })),
+  // Short names, one with a step list and one without, beside the long ones.
+  ...['a', 'b'].map((tag, i) => ({
+    tag, sessionId: 'short-' + tag, ownerSessionId: SESSION, parentSessionId: SESSION, agent: 'worker', provider: 'anthropic',
+    model: long('claude-opus'), effort: 'medium', status: 'running', stage: 'streaming', startedAt: now - 60_000,
+    turnStartedAt: now - 60_000, todo: i ? null : { completed: 1, total: 4, current: 'read' },
   }))];
   const shells = Array.from({ length: 5 }, (_, i) => ({
     key: 'shell-' + i, kind: 'shell', label: 'npm run ' + long('script-' + i) + ' -- --watch --reporter=verbose',
@@ -133,6 +142,69 @@ const HARNESS = `
     createRoot(document.getElementById('root')).render(<Rail />);
   };
 
+  // The Agents card alone at the panel's narrowest, with the mockup's 46 agents (7 running, 6 waiting, 33
+  // finished), in \`language\` (its catalog given).
+  let cardRoot = null;
+  window.mountAgents46 = async (language, catalog) => {
+    // The page has no storage: the language comes the way the tests pin theirs (MIXDOG_UI_LANGUAGE).
+    window.process.env.MIXDOG_UI_LANGUAGE = language;
+    await initUiLanguage(async () => ({ default: catalog }));
+    const owner = 'card-46-' + language;
+    const agent = (i, state) => ({
+      tag: 'agent-' + i, sessionId: owner + '-' + i, ownerSessionId: owner, parentSessionId: owner, agent: 'worker',
+      provider: 'anthropic', model: 'claude-opus', effort: 'medium',
+      ...(state === 'run' ? { status: 'running', stage: 'streaming', turnStartedAt: now - 61_000, todo: { completed: 1, total: 5 } }
+        : state === 'wait' ? { status: 'running', stage: 'resource_wait' } : { status: 'completed', stage: 'completed' }),
+    });
+    const agents = [{ tag: 'lead:' + owner, sessionId: owner, ownerSessionId: owner, agent: 'lead', status: 'idle', stage: 'idle' },
+      ...Array.from({ length: 46 }, (_, i) => agent(i, i < 7 ? 'run' : i < 13 ? 'wait' : 'done'))];
+    function Card() {
+      const folds = useSessionRailFolds(owner);
+      return <aside className="session-rail" style={{ width: 300 }}>
+        <div className="session-rail-body"><div className="session-rail-content">
+          <AgentsSection open onToggle={noop} folds={folds} sessionId={owner} agents={islandAgentRows(agents, owner)}
+            poolRows={agents} busy={false} shellKeys={null} />
+        </div></div>
+      </aside>;
+    }
+    cardRoot?.unmount();
+    document.getElementById('root').replaceChildren();
+    installScrollbarMetrics();
+    cardRoot = createRoot(document.getElementById('root'));
+    cardRoot.render(<Card />);
+  };
+  // The state tabs: one line, nothing past the card, every tab within the line's scroll, and the picked one in view.
+  window.agentTabs = () => {
+    const line = document.querySelector('[role="tablist"]');
+    const card = line.closest('.session-rail-sec').getBoundingClientRect();
+    const box = line.getBoundingClientRect();
+    const tabs = [...line.querySelectorAll('[role="tab"]')].map((tab) => {
+      const rect = tab.getBoundingClientRect();
+      return { text: tab.textContent, selected: tab.getAttribute('aria-selected') === 'true', top: rect.top, left: rect.left, right: rect.right };
+    });
+    const style = getComputedStyle(line);
+    return {
+      tabs,
+      overflowX: style.overflowX,
+      scrollWidth: line.scrollWidth,
+      clientWidth: line.clientWidth,
+      scrollLeft: line.scrollLeft,
+      // A visible bar would take height from the line's box.
+      barHeight: line.offsetHeight - line.clientHeight - line.clientTop * 2,
+      line: { left: box.left, right: box.right, padding: Number.parseFloat(style.paddingLeft) },
+      card: { left: card.left, right: card.right },
+      font: getComputedStyle(line.querySelector('[role="tab"]')).font,
+    };
+  };
+
+  // Each working agent's step mark: its row's name and where the mark stands.
+  window.stepMarks = () =>
+    [...document.querySelectorAll('.session-rail-agent > .agent-todo-mark')].map((mark) => ({
+      name: mark.parentElement.querySelector('.agent-pool-name').textContent,
+      left: mark.getBoundingClientRect().left,
+      nameRight: mark.parentElement.querySelector('.agent-pool-name').getBoundingClientRect().right,
+    }));
+
   // Every row, head and foot: nothing past its own box, and neither the panel
   // nor a list inside a sheet scrolls sideways.
   window.overflows = () => {
@@ -181,7 +253,8 @@ const HARNESS = `
   };
 `;
 
-test('the panel at 400px with a busy session: nothing overflows its row', async (t) => {
+/** A page with the fixture's bundle and the app's styles loaded. */
+async function openFixture(t) {
   const [bundle, styles] = await Promise.all([
     build({
       stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
@@ -236,6 +309,11 @@ test('the panel at 400px with a busy session: nothing overflows its row', async 
   await page.addScriptTag({ content: 'window.process = { env: {}, platform: "win32", argv: [], versions: {} };' });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   assert.deepEqual(errors, [], 'the fixture loads');
+  return { page, errors };
+}
+
+test('the panel at 400px with a busy session: nothing overflows its row', async (t) => {
+  const { page, errors } = await openFixture(t);
   await page.evaluate(() => window.mountFixture());
   await page.waitForSelector('[data-category="worktrees"] .session-rail-row');
   await page.waitForSelector('[data-category="changes"] .session-rail-row');
@@ -248,4 +326,74 @@ test('the panel at 400px with a busy session: nothing overflows its row', async 
   assert.deepEqual(categories, ['info', 'context', 'goal', 'todo', 'agents', 'shells', 'worktrees', 'changes']);
   assert.ok(count > 30, `rows measured: ${count}`);
   assert.equal(out.length, 0, out.join('\n'));
+  // The step mark has a column of its own: it stands at one place in a row with a short name and with a long one.
+  const marks = await page.evaluate(() => window.stepMarks());
+  assert.ok(marks.some(({ name }) => name === 'a') && marks.some(({ name }) => name.length > 40), JSON.stringify(marks));
+  assert.ok(marks.every(({ left }) => Math.abs(left - marks[0].left) < 0.5), JSON.stringify(marks));
+  assert.ok(marks.every(({ left, nameRight }) => nameRight <= left), 'a long name ends before the mark');
+});
+
+test("the Agents card's state tabs stay on one line at 300px with 46 agents, in English and the widest locale", async (t) => {
+  const { page, errors } = await openFixture(t);
+  const keys = ['All {{count}}', 'Running {{count}}', 'Waiting {{count}}', 'Finished {{count}}'];
+  const counts = [46, 7, 6, 33];
+  const localeDir = new URL('./locales/', import.meta.url);
+  const catalogs = Object.fromEntries(
+    readdirSync(localeDir).map((file) => [file.replace(/\.json$/, ''), JSON.parse(readFileSync(new URL(file, localeDir), 'utf8'))])
+  );
+  const check = async (language) => {
+    await page.evaluate((lang, catalog) => window.mountAgents46(lang, catalog), language, catalogs[language] ?? {});
+    await page.waitForSelector('[role="tab"]');
+    await page.evaluate(() => document.fonts.ready);
+    const read = () => page.evaluate(() => window.agentTabs());
+    const shown = await read();
+    const where = `${language}: ${JSON.stringify(shown)}`;
+    const words = keys.map((key, index) => (catalogs[language]?.[key] ?? key).replace('{{count}}', String(counts[index])));
+    assert.deepEqual(shown.tabs.map(({ text }) => text), words, where);
+    assert.ok(shown.tabs.every(({ top }) => Math.abs(top - shown.tabs[0].top) < 0.5), `one line: ${where}`);
+    assert.ok(shown.line.right <= shown.card.right + 0.5 && shown.line.left >= shown.card.left - 0.5, `inside the card: ${where}`);
+    assert.equal(shown.barHeight, 0, `no visible scrollbar: ${where}`);
+    // Whatever does not fit is within the line's sideways scroll.
+    const end = shown.line.left - shown.scrollLeft + shown.scrollWidth;
+    assert.ok(shown.tabs.every(({ right }) => right <= end + 0.5), `reachable by the scroll: ${where}`);
+    if (shown.scrollWidth > shown.clientWidth) assert.equal(shown.overflowX, 'auto', where);
+    // The picked tab is brought into view, by keyboard and by pointer.
+    const inView = (state) => {
+      const tab = state.tabs.find(({ selected }) => selected);
+      return tab.left >= state.line.left + state.line.padding - 0.5 && tab.right <= state.line.right - state.line.padding + 0.5;
+    };
+    await page.focus('[role="tab"][aria-selected="true"]');
+    await page.keyboard.press('End');
+    const atEnd = await read();
+    assert.equal(atEnd.tabs.at(-1).selected, true, language);
+    assert.ok(inView(atEnd), `the last tab in view: ${language}: ${JSON.stringify(atEnd)}`);
+    await page.keyboard.press('Home');
+    assert.ok(inView(await read()), `the first tab in view: ${language}`);
+    // A press, from the line scrolled back to its start (a driver's click would scroll the tab in itself).
+    await page.evaluate(() => {
+      document.querySelector('[role="tablist"]').scrollLeft = 0;
+      document.querySelector('[role="tab"][data-filter="finished"]').click();
+    });
+    const clicked = await read();
+    assert.equal(clicked.tabs.at(-1).selected, true);
+    assert.ok(inView(clicked), `a pressed tab in view: ${language}: ${JSON.stringify(clicked)}`);
+    return shown;
+  };
+  const english = await check('en');
+  // The locale whose four words, with the mockup's counts, run widest in the tabs' own type.
+  const widths = await page.evaluate(
+    (font, words) => {
+      const context = document.createElement('canvas').getContext('2d');
+      context.font = font;
+      return Object.fromEntries(Object.entries(words).map(([language, list]) => [language, list.reduce((sum, word) => sum + context.measureText(word).width, 0)]));
+    },
+    english.font,
+    Object.fromEntries(
+      Object.entries(catalogs).map(([language, catalog]) => [language, keys.map((key, index) => catalog[key].replace('{{count}}', String(counts[index])))])
+    )
+  );
+  const widest = Object.entries(widths).sort((a, b) => b[1] - a[1])[0][0];
+  const wide = await check(widest);
+  assert.ok(wide.scrollWidth > wide.clientWidth, `the widest locale (${widest}) scrolls sideways`);
+  assert.deepEqual(errors, []);
 });

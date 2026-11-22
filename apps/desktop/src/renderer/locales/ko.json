@@ -6503,5 +6503,6 @@
   "Island": "아일랜드",
   "Session info: Hidden": "표기 없음",
   "This turn's changes are still being recorded.": "이번 턴 변경 사항을 아직 기록하는 중입니다.",
-  "Waiting for its turn": "차례를 기다리는 중"
+  "Waiting for its turn": "차례를 기다리는 중",
+  "All {{count}}": "전체 {{count}}"
 }

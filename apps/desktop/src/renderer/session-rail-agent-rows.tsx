@@ -1,6 +1,6 @@
 // The session panel's agent rows: a working agent in the island's row grammar
-// (brand mark, its name with the step progress beside it over the step in
-// hand, time over tokens) and a finished one on a single muted line.
+// (brand mark, its name and the step progress in a column of its own over the
+// step in hand, time over tokens) and a finished one on a single muted line.
 import { useId } from 'react';
 import type { DesktopAgentActivityState } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow } from '../shared/contract';
@@ -66,35 +66,39 @@ export function RailAgentRow({ row, name, tokens, posInSet, setSize, ownerSessio
       onOpenSession={onOpenSession}
     >
       <AgentProviderMark agent={agent} />
-      <span className="schedules-row-copy">
-        <span className="session-rail-agent-named">
-          <b className="agent-pool-name">{name}</b>
-          <AgentTodoMark todo={agent.todo} id={`${id}-step`} />
-        </span>
-        <span className="session-rail-agent-line session-rail-cut" id={`${id}-line`}>
-          {line}
-        </span>
+      <b className="agent-pool-name">{name}</b>
+      <AgentTodoMark todo={agent.todo} id={`${id}-step`} />
+      <span className="agent-activity-status" id={`${id}-status`}>
+        <RailAgentElapsed state={row.state} agent={agent} />
       </span>
-      <span className="agent-pool-figures">
-        <span className="agent-activity-status" id={`${id}-status`}>
-          <RailAgentElapsed state={row.state} agent={agent} />
-        </span>
-        {tokens !== undefined && (
-          <span
-            className="composer-island-agent-tokens"
-            title={t('Total {{tokens}} tokens', { tokens: formatCompactTokens(tokens) })}
-          >
-            {formatCompactTokens(tokens)}
-          </span>
-        )}
+      <span className="session-rail-agent-line" id={`${id}-line`}>
+        {line}
       </span>
+      {tokens !== undefined && (
+        <span
+          className="composer-island-agent-tokens"
+          title={t('Total {{tokens}} tokens', { tokens: formatCompactTokens(tokens) })}
+        >
+          {formatCompactTokens(tokens)}
+        </span>
+      )}
     </AgentRowFrame>
   );
 }
 
-/** A finished agent under its group's "Finished N": mark, name, then how long
- *  it ran and its tokens; its end state is read out, not shown. */
-export function RailFinishedAgent({ row, name, tokens, posInSet, setSize, ownerSessionId, onOpenSession }: RailAgentRowProps) {
+/** A finished agent, under its group's "Finished N" (depth 1) or listed by
+ *  itself (depth 0): mark, name, then how long it ran and its tokens; its end
+ *  state is read out, not shown. */
+export function RailFinishedAgent({
+  row,
+  name,
+  tokens,
+  depth,
+  posInSet,
+  setSize,
+  ownerSessionId,
+  onOpenSession,
+}: RailAgentRowProps & { depth: number }) {
   const { agent } = row.node;
   const statusId = useId();
   const worked = workedMs(agent);
@@ -104,7 +108,7 @@ export function RailFinishedAgent({ row, name, tokens, posInSet, setSize, ownerS
   return (
     <AgentRowFrame
       agent={agent}
-      depth={1}
+      depth={depth}
       parentSessionId={row.node.parentSessionId}
       posInSet={posInSet}
       setSize={setSize}

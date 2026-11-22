@@ -6502,5 +6502,6 @@
   "Island": "灵动岛",
   "Session info: Hidden": "不显示",
   "This turn's changes are still being recorded.": "本轮更改仍在记录中。",
-  "Waiting for its turn": "等待轮到它"
+  "Waiting for its turn": "等待轮到它",
+  "All {{count}}": "全部 {{count}}"
 }
