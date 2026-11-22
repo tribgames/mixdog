@@ -1,5 +1,6 @@
-// The session panel: cards in the margin right of a pane's conversation. How
-// wide they may be there, and the slot their body is drawn into.
+// The session panel: cards right of a pane's reading column. How wide they
+// may be there, what the conversation gives up for them, and the slot their
+// body is drawn into.
 import { useSyncExternalStore } from 'react';
 import { PANE_SIDE_DOCK_SHEET_FRAME_WIDTH, SESSION_RAIL_WIDTH_KEY } from './pane-side-dock-model';
 
@@ -8,8 +9,9 @@ export const SESSION_RAIL_MIN_WIDTH = 300;
 export const SESSION_RAIL_MAX_WIDTH = 560;
 /** The transcript scrollbar's lane, right of the cards (session-rail.css). */
 export const SESSION_RAIL_GAP = 8;
-/** The conversation's reading column and composer at their widest
- *  (--pane-column's cap in 12-transcript.css). */
+/** The conversation width that holds the reading column and composer in
+ *  full: --pane-column's 800px floor between its two 24px insets
+ *  (12-transcript.css). */
 export const PANE_READING_COLUMN_MAX = 848;
 
 export function clampSessionRailWidth(width: number): number {
@@ -17,12 +19,15 @@ export function clampSessionRailWidth(width: number): number {
   return Math.round(Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, value)));
 }
 
-/** The cards' width in a pane cell `cellWidth` wide (the cell's width, not
- *  the window's), 0 when they have no room. Nothing gives way to them: a dock
- *  beside the conversation keeps its width (`dockWidth`), and the reading
- *  column and composer stay centred at their widest. The cards take the
- *  margin that leaves on the right, down to their own minimum; with less they
- *  are not shown, and the composer keeps its island and controls. */
+/** The cards in a pane cell `cellWidth` wide (the cell's width, not the
+ *  window's): their `width`, 0 when they have no room, and the `reserve` the
+ *  conversation gives up on its right for them. A dock beside the
+ *  conversation keeps its width (`dockWidth`), and the reading column and
+ *  composer keep their widest: the cards take what the two margins beside
+ *  that column add up to, down to their own minimum. While the right margin
+ *  alone holds them nothing moves (`reserve` 0); with less the conversation
+ *  re-centres left of them. With no room they are not shown, and the composer
+ *  keeps its island and controls. */
 export function sessionRailFit({
   cellWidth,
   dockWidth,
@@ -32,11 +37,14 @@ export function sessionRailFit({
   /** 0 when no dock is open beside the conversation (none, or one below it). */
   dockWidth: number;
   railPref: number;
-}): number {
+}): { width: number; reserve: number } {
   const dockReserve = dockWidth > 0 ? PANE_SIDE_DOCK_SHEET_FRAME_WIDTH + dockWidth : 0;
-  const margin = Math.floor((cellWidth - dockReserve - PANE_READING_COLUMN_MAX) / 2);
-  const room = margin - SESSION_RAIL_GAP;
-  return room < SESSION_RAIL_MIN_WIDTH ? 0 : Math.min(clampSessionRailWidth(railPref), room);
+  const margins = cellWidth - dockReserve - PANE_READING_COLUMN_MAX;
+  const room = margins - SESSION_RAIL_GAP;
+  if (room < SESSION_RAIL_MIN_WIDTH) return { width: 0, reserve: 0 };
+  const width = Math.min(clampSessionRailWidth(railPref), room);
+  const taken = width + SESSION_RAIL_GAP;
+  return { width, reserve: margins / 2 >= taken ? 0 : taken };
 }
 
 // ── The one width every pane's panel takes, live ─────────────────────────

@@ -27,20 +27,23 @@ export function sessionRailWidthForKey(key: string, width: number): number | nul
   return null;
 }
 
-/** The session panel's column in a pane cell: the margin right of the
- *  conversation's reading column, with its resize edge and the body slot the
- *  pane's conversation draws its cards into. It has no frame or title row of
- *  its own. */
+/** The session panel's column in a pane cell, right of the conversation's
+ *  reading column, with its resize edge and the body slot the pane's
+ *  conversation draws its cards into. It has no frame or title row of its
+ *  own. */
 export function SessionRailCard({
   leafId,
   sessionId,
   width,
+  reserve,
   onFocusPane,
 }: {
   leafId: string;
   /** The session the pane shows: only its conversation draws here. */
   sessionId: string;
   width: number;
+  /** The width the conversation re-centres left of; 0 while its right margin holds the cards. */
+  reserve: number;
   /** Present while the pane is not the focused one: a press in the panel selects it, as a press in the dock does. */
   onFocusPane?: () => void;
 }) {
@@ -50,6 +53,15 @@ export function SessionRailCard({
     publishSessionRailSlot(leafId, { element: body, sessionId });
   }, [leafId, body, sessionId]);
   useLayoutEffect(() => () => publishSessionRailSlot(leafId, null), [leafId]);
+  // What the conversation gives up on its right (spent in session-rail.css).
+  useLayoutEffect(() => {
+    const cell = root.current?.parentElement;
+    if (!cell) return undefined;
+    cell.style.setProperty('--session-rail-reserve', `${reserve}px`);
+    return () => {
+      cell.style.removeProperty('--session-rail-reserve');
+    };
+  }, [reserve]);
   // The edge's drag sets the one width every pane's panel takes; a cancel
   // puts back the width chosen before it, not this pane's fitted one.
   const dragRailWidth = usePanelWidthDrag({

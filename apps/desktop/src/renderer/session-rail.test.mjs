@@ -23,24 +23,29 @@ import { requestOpenModelPicker, OPEN_MODEL_PICKER_EVENT } from './model-picker-
 
 const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
 
-// The pane width whose margin beside the centred reading column holds cards `width` wide.
-const paneFor = (width) => PANE_READING_COLUMN_MAX + 2 * (width + SESSION_RAIL_GAP);
+// The pane width in which the reading column at its widest and cards `width` wide just fit.
+const paneFor = (width) => PANE_READING_COLUMN_MAX + width + SESSION_RAIL_GAP;
 
-test('the panel takes the margin beside the reading column at its widest: it yields to its minimum, then is not shown', () => {
+test('the panel takes the two margins beside the reading column at its widest: it yields to its minimum, then is not shown', () => {
   const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: 0, railPref: SESSION_RAIL_DEFAULT_WIDTH });
-  assert.equal(fit(paneFor(400)), 400);
-  assert.equal(fit(paneFor(400) + 500), 400, 'no wider than its preferred width');
-  assert.equal(fit(paneFor(400) - 2), 399, 'a narrower margin: the panel gives up width, the conversation none');
-  assert.equal(fit(paneFor(300)), 300);
-  assert.equal(fit(paneFor(300) - 1), 0, 'the composer at its widest would not fit beside it: the island instead');
+  // The right margin alone holds the cards: nothing moves.
+  const roomy = PANE_READING_COLUMN_MAX + 2 * (400 + SESSION_RAIL_GAP);
+  assert.deepEqual(fit(roomy), { width: 400, reserve: 0 });
+  assert.deepEqual(fit(roomy + 500), { width: 400, reserve: 0 }, 'no wider than its preferred width');
+  // Less than that: the conversation re-centres left of them, still at its widest.
+  assert.deepEqual(fit(roomy - 1), { width: 400, reserve: 400 + SESSION_RAIL_GAP });
+  assert.deepEqual(fit(paneFor(400)), { width: 400, reserve: 400 + SESSION_RAIL_GAP });
+  assert.deepEqual(fit(paneFor(400) - 1), { width: 399, reserve: 399 + SESSION_RAIL_GAP }, 'then the panel gives up width');
+  assert.deepEqual(fit(paneFor(300)), { width: 300, reserve: 300 + SESSION_RAIL_GAP });
+  assert.deepEqual(fit(paneFor(300) - 1), { width: 0, reserve: 0 }, 'the composer at its widest would not fit: the island');
 });
 
 test('a dock beside the conversation keeps its width; the panel fits in what is left', () => {
   const dock = PANE_SIDE_DOCK_DEFAULT_WIDTH;
   const fit = (cellWidth) => sessionRailFit({ cellWidth, dockWidth: dock, railPref: SESSION_RAIL_DEFAULT_WIDTH });
-  assert.equal(fit(paneFor(400) + FRAME + dock), 400);
-  assert.equal(fit(paneFor(300) + FRAME + dock), 300);
-  assert.equal(fit(paneFor(300) + FRAME + dock - 1), 0);
+  assert.equal(fit(paneFor(400) + FRAME + dock).width, 400);
+  assert.equal(fit(paneFor(300) + FRAME + dock).width, 300);
+  assert.equal(fit(paneFor(300) + FRAME + dock - 1).width, 0);
 });
 
 test('the panel belongs to the session the pane shows: a draft, a retained or another conversation keeps its composer', () => {
@@ -74,18 +79,18 @@ test('one calculation places the dock and the panel from the pane cell', async (
   // A file diff beside the dock needs its two columns: at 1,100 px the conversation has no margin for the panel beside
   // them, so it is not shown (the composer keeps its controls).
   const narrow = layout(1100);
-  assert.equal(narrow.rail, 0);
+  assert.equal(narrow.rail.width, 0);
   assert.equal(narrow.dock.pairShowing, true);
-  // With room for the pair and a margin beside the reading column, the panel is shown and the dock keeps its width.
+  // With room for the pair and margins beside the reading column, the panel is shown and the dock keeps its width.
   const wide = layout(paneFor(400) + FRAME + 800);
-  assert.equal(wide.rail, 400);
+  assert.equal(wide.rail.width, 400);
   assert.equal(wide.dock.overlay, false);
   assert.equal(wide.dock.pairShowing, true);
   assert.equal(wide.dock.baseAsideWidth + wide.dock.diffWidth, 800);
   // A dock below the chat takes none of the conversation's width.
-  assert.equal(layout(paneFor(400), true).rail, 400);
+  assert.equal(layout(paneFor(400), true).rail.width, 400);
   // Off: the dock alone.
-  assert.equal(paneDockRailLayout({ cellWidth: 3000, bottom: false, sheetFrame: FRAME, rail: null, dock: pair }).rail, 0);
+  assert.equal(paneDockRailLayout({ cellWidth: 3000, bottom: false, sheetFrame: FRAME, rail: null, dock: pair }).rail.width, 0);
 });
 
 test('one panel width, live in every pane; the resize edge takes keys', async (t) => {
@@ -129,10 +134,20 @@ async function railCard(t, props) {
   };
   proto.hasPointerCapture ??= (id) => captured.has(id);
   const element = (next = {}) =>
-    React.createElement(SessionRailCard, { leafId: 'leaf-rail', sessionId: LEAD, width: 400, ...props, ...next });
+    React.createElement(SessionRailCard, { leafId: 'leaf-rail', sessionId: LEAD, width: 400, reserve: 0, ...props, ...next });
   await act(async () => root.render(element()));
   return { document, root, element };
 }
+
+test('the conversation is told the room it gives up for the panel, and is given it back when the panel goes', async (t) => {
+  const view = await railCard(t, { reserve: 344 });
+  const cell = view.document.querySelector('.session-rail').parentElement;
+  assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), '344px');
+  await act(async () => view.root.render(view.element({ reserve: 0 })));
+  assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), '0px');
+  await act(async () => view.root.render(null));
+  assert.equal(cell.style.getPropertyValue('--session-rail-reserve'), '');
+});
 
 test("a press on the panel's frame selects its pane, so what is typed next goes to that pane", async (t) => {
   let selected = 0;

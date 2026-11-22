@@ -20,7 +20,7 @@ const HARNESS = `
   import { installScrollbarMetrics } from './scrollbar-metrics';
   import { SessionRailCard } from './SessionRailCard';
 
-  function Pane({ card }) {
+  function Pane({ card, reserve }) {
     return <div className="pane-cell" style={{ height: 700 }}>
       <div className="workspace-tabs-shell" style={{ height: 44 }} />
       <div className="pane-surface-stack">
@@ -41,14 +41,14 @@ const HARNESS = `
           </div>
         </div>
       </div>
-      {card > 0 && <SessionRailCard leafId="leaf" sessionId="s" width={card} />}
+      {card > 0 && <SessionRailCard leafId="leaf" sessionId="s" width={card} reserve={reserve} />}
     </div>;
   }
   let root;
-  window.mountFixture = (card) => {
+  window.mountFixture = (card, reserve) => {
     installScrollbarMetrics();
     root ??= createRoot(document.getElementById('root'));
-    root.render(<Pane card={card} />);
+    root.render(<Pane card={card} reserve={reserve} />);
   };
   window.measure = () => {
     const box = (selector) => {
@@ -71,7 +71,7 @@ const HARNESS = `
   };
 `;
 
-test("the session panel's cards stand in the margin of the conversation: nothing in it moves for them", async (t) => {
+test("the session panel's cards stand right of the reading column: in its margin, or the conversation re-centres left of them", async (t) => {
   const [bundle, styles] = await Promise.all([
     build({
       stdin: { resolveDir, loader: 'tsx', contents: HARNESS },
@@ -110,9 +110,9 @@ test("the session panel's cards stand in the margin of the conversation: nothing
   await page.addScriptTag({ content: 'window.process = { env: {}, platform: "win32", argv: [], versions: {} };' });
   await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   assert.deepEqual(errors, [], 'the fixture loads');
-  const at = async (width, card) => {
+  const at = async (width, card, reserve = 0) => {
     await page.setViewport({ width, height: 800 });
-    await page.evaluate((next) => window.mountFixture(next), card);
+    await page.evaluate((next, room) => window.mountFixture(next, room), card, reserve);
     await page.evaluate(() => window.measure());
     await new Promise((resolve) => setTimeout(resolve, 100));
     return page.evaluate(() => window.measure());
@@ -132,14 +132,17 @@ test("the session panel's cards stand in the margin of the conversation: nothing
   assert.ok(wide.card.bottom < wide.cell.bottom - 300, 'the column hugs its cards');
   assert.ok(wide.sheet.right - wide.sheet.left > 300, 'the cards take the column');
 
-  // The narrowest pane the layout shows them in, at their narrowest: still clear of the reading column.
-  const pane = PANE_READING_COLUMN_MAX + 2 * (SESSION_RAIL_MIN_WIDTH + SESSION_RAIL_GAP);
-  assert.equal(sessionRailFit({ cellWidth: pane, dockWidth: 0, railPref: 400 }), SESSION_RAIL_MIN_WIDTH);
+  // The narrowest pane the layout shows them in: the conversation re-centres left of them, the composer still at
+  // its widest, and the transcript, its scrollbar and the composer keep one right edge.
+  const pane = PANE_READING_COLUMN_MAX + SESSION_RAIL_MIN_WIDTH + SESSION_RAIL_GAP;
+  const fit = sessionRailFit({ cellWidth: pane, dockWidth: 0, railPref: 400 });
+  assert.deepEqual(fit, { width: SESSION_RAIL_MIN_WIDTH, reserve: SESSION_RAIL_MIN_WIDTH + SESSION_RAIL_GAP });
   const plain = await at(pane, 0);
-  const tight = await at(pane, SESSION_RAIL_MIN_WIDTH);
-  near(tight.row.right, plain.row.right, 'the reading column stays where it was');
-  near(tight.scroller.right, plain.scroller.right, 'and so does the scrollbar');
-  assert.ok(tight.card.left >= tight.row.right, `beside the reading column: ${tight.card.left} < ${tight.row.right}`);
-  assert.ok(tight.card.left >= tight.composer.right, 'and beside the composer');
+  const tight = await at(pane, fit.width, fit.reserve);
+  assert.ok(tight.composer.right - tight.composer.left >= 800, 'the composer keeps its full column');
+  near(tight.scroller.right, pane - fit.reserve, 'the transcript ends where the conversation does');
+  assert.ok(tight.composer.right <= tight.scroller.right, 'and the composer inside it');
+  assert.ok(tight.card.left >= tight.scroller.right - 1, `the cards stand right of the scrollbar: ${tight.card.left} < ${tight.scroller.right}`);
+  assert.ok(tight.row.right <= tight.card.left, 'and of the reading column');
   assert.deepEqual(errors, []);
 });
