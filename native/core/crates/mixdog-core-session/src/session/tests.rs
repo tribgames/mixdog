@@ -4554,7 +4554,8 @@ async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_
         let directory = SessionDirectory::new(rig.deps_on(store.clone()));
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        // Settled, as the test above: an empty `run` alone does not say the events the run sent last are applied.
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
         assert_eq!(
             compaction_rows(&handle),
             [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
