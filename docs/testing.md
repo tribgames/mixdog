@@ -335,7 +335,21 @@ consumes it (the test runs the selection over a table of paths).
   ignored interactive scenarios of `mixdog-entry` (`tests/node_free.rs`) drive the dev daemon, so `core-entry` (leg
   `linux/core-entry/1of1`, the Linux variant's `entry` profile) runs them from the Linux archive against the Linux daemon. A pull
   request and a push archive the changed crates and their reverse dependencies (the whole workspace for a core input outside
-  the crates); the full gate archives the whole workspace. Only a build of every crate on main writes the dependency cache. The
+  the crates); the full gate archives the whole workspace. Only a build of every crate on main writes the dependency cache.
+  On Linux, every run but the full gate first restores the workspace build cache: the whole build folder (target, the
+  registry, the git checkouts) of the newest earlier build whose key matches exactly in the runner image, the toolchain, the
+  rustc wrapper and this cache's script, the build environment (every `RUST*`, `CARGO*`, `MIXDOG_*`, compiler and linker
+  variable) and the dependency files, so cargo rebuilds the crates a change reaches and their dependents and reuses the other
+  libraries and test binaries (`scripts/ci/core-target-cache.mjs`). Freshness stays cargo's own, on modification times the
+  script derives from content: a tracked file or directory keeps the time recorded with it only while its git blob or tracked
+  listing is the recorded one, and anything else gets a time newer than every restored file, so an output built from other
+  content is never fresh (cargo's `-Zchecksum-freshness` is not used: it leaves build-script inputs on modification times, and
+  the workspace-hack's build script, rerun on every checkout, would rebuild the 73 crates that depend on it). An entry that
+  lacks a file of its own list or has one at another size, a miss and an eviction remove the folders and the build starts
+  from the dependency cache as before; a build that changed a tracked file, a pull request and a save that fails write no
+  entry. The full gate, and with it every release, restores none. Every other Linux run writes one (one archive per save,
+  keyed by the run); GitHub evicts the least recently used entries past the repository's 10 GB, and an older entry of this
+  cache is not read again once a newer one exists. The
   doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg
   `linux/core-doctests/1of1`, beside the build on its dependency cache. The development `mixdogd`, the release `mixdogd` of
   `core-real` and the relay of `relay-rust` are kept in a store (`actions/cache`) keyed by their inputs (`core-select.mjs`

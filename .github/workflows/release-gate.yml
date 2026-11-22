@@ -1910,6 +1910,15 @@ jobs:
   # build state are removed from it (scripts/ci/prune-core-target.mjs): an entry is the size of the
   # dependencies, one per system, and a pull request reads the main entry without writing one.
   #
+  # On Linux, a run that is not the full gate first restores the whole build folder of an earlier build (the workspace build
+  # cache, scripts/ci/core-target-cache.mjs): cargo then rebuilds what the change reaches and reuses the rest, test binaries
+  # included. Its key holds everything cargo's own freshness check does not see: the runner image, the toolchain, the rustc
+  # wrapper, the build environment and the dependency files; the newest entry of that prefix is restored. Freshness inside it is
+  # cargo's, on modification times the script derives from content (a file or directory keeps the time recorded with it only
+  # while its content is the recorded one; anything else is newer than every restored file). A miss, an eviction or an entry
+  # that fails its own file list leaves the dependency cache's build, as without it. Every Linux run but a pull request's saves
+  # its entry; the full gate (every release) builds without restoring one.
+  #
   # One build job per system, and test jobs per system that need only that build: the legs of a system start when its own
   # archive is uploaded, not when the slowest system's is (run 44943772315: Linux's archive was ready at 19.5 minutes,
   # Windows' at 27.1, and every leg waited for macOS's at 28.4). The jobs of a kind share their steps (YAML anchors). The
@@ -1958,6 +1967,43 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
+      - uses: ./.github/actions/install-nextest
+      # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
+      # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
+      # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
+      # plain stable on each system the archive is for.
+      - uses: ./.github/actions/rustc-threads
+      # After every step that sets the build's environment: the variables cargo, rustc and build scripts read are in the key.
+      - name: Key the workspace build cache (Linux)
+        id: ws-key
+        if: runner.os == 'Linux'
+        env:
+          DEPS: ${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
+          TOOLS: ${{ hashFiles('scripts/ci/rustc-threads.rs', '.github/actions/rustc-threads/action.yml', 'scripts/ci/core-target-cache.mjs') }}
+          TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
+        run: |
+          set -euo pipefail
+          build_env=$(env | grep -E '^(RUST|CARGO|MIXDOG_|CC|CXX|AR|LD|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|PKG_CONFIG|SOURCE_DATE_EPOCH|TARGET_|HOST_)' | LC_ALL=C sort | sha256sum | cut -c1-16)
+          echo "prefix=core-target-linux-$RUNNER_ARCH-$ImageOS-$ImageVersion-$TOOLCHAIN-${TOOLS:0:16}-$build_env-${DEPS:0:16}-" >> "$GITHUB_OUTPUT"
+      - name: Restore the workspace build (Linux)
+        id: ws
+        if: runner.os == 'Linux' && needs.changes.outputs.full != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: ${{ steps.ws-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.ws-key.outputs.prefix }}
+      # An entry that does not hold every file of its own list at its size, or no entry, removes the three folders.
+      - name: Check the restored workspace build (Linux)
+        id: ws-check
+        if: runner.os == 'Linux'
+        env:
+          RESTORED: ${{ steps.ws.outputs.cache-matched-key }}
+        run: node scripts/ci/core-target-cache.mjs check --paths native/core/target ~/.cargo/registry ~/.cargo/git --restored "$RESTORED"
+      # Only looked up after a workspace build was restored: the deciding output is cache-hit, for the save of this entry below.
       - name: Restore the compiled dependencies
         id: deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1970,12 +2016,14 @@ jobs:
           restore-keys: |
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
-      - uses: ./.github/actions/install-nextest
-      # The parallel front end for the workspace crates, whose chain (mixdog-core-session, mixdog-core, its test build) is the
-      # floor of the build while the other cores wait (scripts/ci/rustc-threads.rs). The test archive only: nothing a release
-      # ships, nor core-real's or the dev daemon's mixdogd, is built through it, and core-lint compiles the same selection on
-      # plain stable on each system the archive is for.
-      - uses: ./.github/actions/rustc-threads
+          lookup-only: ${{ steps.ws-check.outputs.warm == 'true' }}
+      # Every run, the full gate's included: without a restored record every tracked file is newer than every restored file, as
+      # after a checkout.
+      - name: Date the tracked sources by their content (Linux)
+        if: runner.os == 'Linux'
+        env:
+          WARM: ${{ steps.ws-check.outputs.warm }}
+        run: node scripts/ci/core-target-cache.mjs stamp --root . --target native/core/target --warm "$WARM"
       - name: Build the test binaries once (nextest archive)
         env:
           # The selection `changes` resolved against the whole build (core_build_args, core_build_features), which core-lint also
@@ -2011,6 +2059,20 @@ jobs:
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
+      # Before the dependency entry below prunes the folder. A build that changed a tracked file saves nothing.
+      - name: List the files of the workspace build (Linux)
+        id: ws-seal
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
+        run: node scripts/ci/core-target-cache.mjs seal --root . --paths native/core/target ~/.cargo/registry ~/.cargo/git
+      - name: Save the workspace build (Linux)
+        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-seal.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/core/target
+          key: ${{ steps.ws-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
       # Only a build of every crate writes the entry: a push's selection compiles the dependencies of its crates alone, and an
       # entry of those would be an exact hit that every later build compiles the rest after.
       - name: Keep only the third-party dependencies in the cache

@@ -199,7 +199,7 @@ test('release-gate.yml: only a push to main writes the Rust dependency cache', (
   assert.ok(removed < build.findIndex((step) => step.uses?.startsWith('actions/cache/save@')));
   for (const name of ['core-build-linux', 'core-build-macos', 'core-build-windows', 'core-lint', 'core-real']) {
     const save = stepsOf(gate.jobs[name]).filter(
-      (step) => step.uses?.startsWith('actions/cache/save@') && !/steps\.store\./.test(step.with.key)
+      (step) => step.uses?.startsWith('actions/cache/save@') && !/steps\.(store|ws-key)\./.test(step.with.key)
     );
     assert.equal(save.length, 1, `${name} saves the cache once`);
     assert.match(save[0].if, /refs\/heads\/main/);
@@ -209,6 +209,35 @@ test('release-gate.yml: only a push to main writes the Rust dependency cache', (
       `${name} uses restore and save, not a cache that saves on every miss`
     );
   }
+});
+
+test('release-gate.yml: the workspace build cache is restored on Linux outside the full gate, checked and dated before the build, and saved before the dependency prune', () => {
+  const steps = stepsOf(gate.jobs['core-build-linux']);
+  const at = (predicate) => steps.findIndex(predicate);
+  const key = at((step) => step.id === 'ws-key');
+  const restore = at((step) => step.id === 'ws');
+  const checked = at((step) => step.id === 'ws-check');
+  const deps = at((step) => step.id === 'deps');
+  const dated = at((step) => /core-target-cache\.mjs stamp/.test(step.run ?? ''));
+  const compile = at((step) => /cargo nextest archive/.test(step.run ?? ''));
+  const sealed = at((step) => step.id === 'ws-seal');
+  const saved = at((step) => step.uses?.startsWith('actions/cache/save@') && /steps\.ws-key\./.test(step.with.key));
+  const pruned = at((step) => /prune-core-target\.mjs/.test(step.run ?? ''));
+  const wrapper = at((step) => step.uses === './.github/actions/rustc-threads');
+  assert.ok(wrapper < key && key < restore && restore < checked && checked < deps && deps < dated && dated < compile);
+  assert.ok(compile < sealed && sealed < saved && saved < pruned);
+  // the release's gate never starts from an entry; every key part cargo does not check is an exact part of the prefix
+  assert.equal(steps[restore].if, "runner.os == 'Linux' && needs.changes.outputs.full != 'true'");
+  assert.equal(steps[restore].with['restore-keys'], '${{ steps.ws-key.outputs.prefix }}');
+  assert.equal(steps[saved].with.key, steps[restore].with.key);
+  assert.equal(steps[saved].with.path, steps[restore].with.path);
+  assert.match(steps[key].run, /\$ImageOS-\$ImageVersion-\$TOOLCHAIN-\$\{TOOLS:0:16\}-\$build_env-\$\{DEPS:0:16\}-/);
+  assert.match(steps[key].env.TOOLS, /rustc-threads\.rs.*rustc-threads\/action\.yml.*core-target-cache\.mjs/);
+  assert.equal(steps[key].env.DEPS, steps[deps].with.key.match(/\$\{\{ hashFiles\([^}]*\) \}\}/)[0]);
+  assert.match(steps[checked].run, /--restored "\$RESTORED"/);
+  assert.equal(steps[deps].with['lookup-only'], "${{ steps.ws-check.outputs.warm == 'true' }}");
+  assert.equal(steps[dated].if, "runner.os == 'Linux'");
+  assert.match(steps[saved].if, /steps\.ws-seal\.outputs\.save == 'true'/);
 });
 
 test('release-gate.yml: the desktop replays and fast shards build no Rust and depend on no producer', () => {
