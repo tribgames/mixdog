@@ -12,10 +12,10 @@
 //   npm run dev:isolated:list
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, openSync, readFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, openSync, readFileSync, statSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -690,6 +690,51 @@ export async function instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, 
   return env;
 }
 
+/** The core the instance's app will start (src/main/protocol/local-core.ts `coreBinaryPath`): `MIXDOGD_BIN`, else `mixdogd` on
+ *  PATH. An instance's profile is new, so no core can already serve it: with no binary it can run, the app builds, opens and
+ *  never starts. */
+export function assertCoreBinary(
+  env,
+  {
+    platform = process.platform,
+    cwd = desktopDir,
+    // Windows runs any file it can read; elsewhere a file without the execute bit fails the spawn (EACCES) like a missing one.
+    canRun = (path) => {
+      try {
+        if (!statSync(path).isFile()) return false;
+        if (platform !== 'win32') accessSync(path, constants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  } = {}
+) {
+  const bin = env.MIXDOGD_BIN || 'mixdogd';
+  const names = platform === 'win32' && !/\.[^\\/.]+$/.test(bin) ? [bin, `${bin}.exe`, `${bin}.com`] : [bin];
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH');
+  const searched = /[\\/]/.test(bin)
+    ? [cwd]
+    : [
+        ...(platform === 'win32' ? [cwd] : []),
+        ...String((pathKey && env[pathKey]) || '')
+          .split(delimiter)
+          .filter(Boolean),
+      ];
+  for (const directory of searched) {
+    for (const name of names) {
+      const candidate = resolve(directory, name);
+      if (canRun(candidate)) return candidate;
+    }
+  }
+  throw new Error(
+    env.MIXDOGD_BIN
+      ? `MIXDOGD_BIN names no file that can be run (${env.MIXDOGD_BIN}): the app could not start its core. Name a built mixdogd and start again.`
+      : 'No core to start: MIXDOGD_BIN is not set and PATH has no mixdogd that can be run, so the app could not start its core. ' +
+        'Set MIXDOGD_BIN to a built mixdogd (laid out by apps/desktop/scripts/dev-core-install.mjs) and start again.'
+  );
+}
+
 async function waitForRenderer({ cdpPort, rendererPort, launcher, timeoutMs, logPath }) {
   const deadline = Date.now() + timeoutMs;
   const rendererOrigin = `http://127.0.0.1:${rendererPort}/`;
@@ -759,6 +804,7 @@ export async function startInstance({
       });
     }
     if (configOverlay) await applyConfigOverlay(env.MIXDOG_DATA_DIR, configOverlay);
+    assertCoreBinary(env);
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();

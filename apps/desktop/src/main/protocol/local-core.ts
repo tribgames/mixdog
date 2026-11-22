@@ -348,6 +348,7 @@ export function resolveLocalCore({
   desktopConfirmationPipe = false,
   reports,
   spawnImpl = spawn,
+  beginCapture,
 }: {
   runtimeRoot: string;
   /** The binary to start, or how to choose it at each launch ([`coreLaunchPath`]): chosen once at the app's start, a
@@ -367,6 +368,8 @@ export function resolveLocalCore({
   reports?: { attempt(): LaunchAttempt; confirmed(): BootFailure | null };
   /** The spawn of a launch; tests pass their own. */
   spawnImpl?: typeof spawn;
+  /** Where a launch keeps the core's stderr and exit record (`<data>/daemon-crash`); tests pass their own. */
+  beginCapture?: NonNullable<Parameters<typeof launchCore>[0]>['beginCapture'];
 }): () => Promise<WsEndpoint> {
   return async () => {
     await environmentReady();
@@ -391,6 +394,7 @@ export function resolveLocalCore({
               onLaunched?.(child);
               return child;
             }) as typeof spawn,
+            ...(beginCapture ? { beginCapture } : {}),
           });
         },
         readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,

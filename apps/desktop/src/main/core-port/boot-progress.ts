@@ -8,7 +8,8 @@ export interface BootProgress {
   readonly boot: number | null;
 }
 
-/** A start that ends the same way each time it is tried: the core process exits at boot for the same recorded reason. */
+/** A start that trying again will not change: the core process exits at boot for the same recorded reason, cannot be started at
+ *  all, or was waited for the launcher's whole limit without serving. */
 export interface BootFailure {
   /** The launcher's own sentence: what the core ended with and the last thing it said. */
   readonly message: string;
@@ -137,12 +138,22 @@ export class BootReports implements BootReportSource {
   }
 
   /** Whether a failed attempt is the same recorded exit as the one before it (same exit code, signal and recorded reason, a different capture of it):
-   *  then trying again will not change it. The launcher's sentence and the stderr it quotes are detail, not identity. */
+   *  then trying again will not change it. The launcher's sentence and the stderr it quotes are detail, not identity. A failure with no exit
+   *  (no process started, or the wait ran out) is confirmed the first time. */
   private record(error: unknown): unknown {
     // Once confirmed, no attempt (one already in flight included) changes it: it ends the same way, or another, and the latch stands.
     if (this.failure) return Object.assign(error as Error, { coreLaunchFailed: this.failure });
     const exit = (error as { coreExit?: ExitRecord } | null)?.coreExit;
-    if (!exit) return error;
+    if (!exit) {
+      // No exit to compare. The binary could not be started (`coreSpawnFailed`), or the launcher's whole wait ended with no serving
+      // core (`coreDiscovery`: blocked, stalled, or nothing published): asking again repeats it out of sight, so it is confirmed at
+      // once. A core that serves later withdraws it (failure-recovery.ts).
+      const held = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : null;
+      if (!held || (held.coreSpawnFailed === undefined && !('coreDiscovery' in held))) return error;
+      this.failure = { message: error instanceof Error ? error.message : String(error), exitCode: null, stderrPath: null };
+      this.emit();
+      return Object.assign(error as Error, { coreLaunchFailed: this.failure });
+    }
     const signature = JSON.stringify([exit.code ?? null, exit.signal ?? null, exit.reason ?? null]);
     const path = exit.stderrPath ?? null;
     // One exit seen by two overlapping attempts is one record.
