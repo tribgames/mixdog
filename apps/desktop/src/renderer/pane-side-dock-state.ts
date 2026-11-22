@@ -473,7 +473,11 @@ function usePaneSessionRails(leafIds: readonly string[], leafKey: string) {
       return live.length === current.size ? current : new Set(live);
     });
   }, [leafKey]);
+  // What storage holds: the set read at mount is not written back.
+  const storedRef = useRef(rails);
   useEffect(() => {
+    if (storedRef.current === rails) return;
+    storedRef.current = rails;
     try {
       window.localStorage.setItem(SESSION_RAIL_KEY, JSON.stringify([...rails]));
     } catch {

@@ -1,3 +1,5 @@
+import { preloadSyncMarkdownParser } from './markdown-worker-client';
+
 let markdownBodyReady = false;
 let markdownBodyPromise: Promise<typeof import('./MarkdownBody')> | null = null;
 
@@ -16,7 +18,9 @@ export function preloadMarkdownBody(): Promise<typeof import('./MarkdownBody')> 
     if (delayMs > 0) {
       await new Promise((resolve) => window.setTimeout(resolve, delayMs));
     }
-    const module = await import('./MarkdownBody');
+    // A reply read from history shows the parse of its text: with the parser
+    // loaded too, its first commit paints it.
+    const [module] = await Promise.all([import('./MarkdownBody'), preloadSyncMarkdownParser()]);
     markdownBodyReady = true;
     return module;
   })().catch((error) => {
