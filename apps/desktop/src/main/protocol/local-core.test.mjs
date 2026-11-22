@@ -649,8 +649,8 @@ test('a core that exits at boot with the same recorded outcome again is a start 
   assert.equal(reports.current().failure.exitCode, 3);
   assert.equal(reports.current().failure.stderrPath, 'd');
   assert.match(reports.current().failure.message, /pid 4002/, "the launcher's sentence is the detail shown");
-  const timeout = new Error('core is not ready: booting');
-  assert.equal(outcome(timeout), timeout, 'a wait that ran out is not an exit');
+  const unrelated = new Error('EACCES: daemon.json');
+  assert.equal(outcome(unrelated), unrelated, "an error that is neither an exit nor the launcher's verdict is not confirmed");
   reports.attempt().succeeded();
   assert.equal(reports.current().failure, null, 'a core observed serving supersedes it');
   reports.attempt().failed(exited('e0'));
@@ -659,6 +659,83 @@ test('a core that exits at boot with the same recorded outcome again is a start 
   reports.retry();
   assert.equal(reports.current().failure, null);
   assert.equal(permanent(outcome(exited('e', 7))), false, 'a different outcome after Try again is a new first');
+});
+
+test('a core whose binary cannot be started is a confirmed failure at the first attempt, and is not started again until Try again', async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'local-core-'));
+  context.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const reports = new BootReports();
+  const heard = [];
+  reports.subscribe((report) => heard.push(report.failure));
+  let spawns = 0;
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: join('res', 'core', 'mixdogd.exe'),
+    environmentReady: async () => {},
+    reports,
+    beginCapture: (options) => beginDaemonSpawnCapture({ ...options, dataDir, prune: false }),
+    spawnImpl: () => {
+      spawns += 1;
+      const child = Object.assign(new EventEmitter(), { unref() {} });
+      queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn mixdogd ENOENT'), { code: 'ENOENT' })));
+      return child;
+    },
+    ensure: (options) =>
+      ensureCore({
+        ...options,
+        sleep: async () => {},
+        readDiscovery: async () => {
+          throw Object.assign(new Error('no core is running'), { name: 'CoreDiscoveryError', code: 'absent' });
+        },
+      }),
+  });
+  const first = await resolve().catch((error) => error);
+  assert.match(first.message, /cannot start .*mixdogd\.exe: spawn mixdogd ENOENT/);
+  assert.ok(first.coreLaunchFailed, 'the window is answered launchFailed, not an error to redial on');
+  assert.equal(first.coreLaunchFailed, reports.confirmed());
+  assert.deepEqual(heard, [{ message: first.message, exitCode: null, stderrPath: null }]);
+  const second = await resolve().catch((error) => error);
+  assert.equal(second.coreLaunchFailed, reports.confirmed());
+  assert.equal(spawns, 1, 'a redial does not start it again');
+  reports.retry();
+  await resolve().catch(() => {});
+  assert.equal(spawns, 2, 'Try again does');
+  assert.ok(reports.confirmed());
+});
+
+test("a wait for the core that ends with none serving (never published, stalled, blocked) is confirmed when the launcher's limit runs out", async () => {
+  const LIMIT_MS = 2_000;
+  const waitedOut = async (discovery) => {
+    const reports = new BootReports();
+    let clock = 0;
+    const resolve = resolveLocalCore({
+      runtimeRoot: 'unused',
+      bin: 'mixdogd',
+      environmentReady: async () => {},
+      reports,
+      ensure: (options) =>
+        ensureCore({
+          ...options,
+          readyTimeoutMs: LIMIT_MS,
+          now: () => clock,
+          sleep: async (ms) => {
+            clock += ms;
+          },
+          readDiscovery: async () => discovery,
+          ping: async () => ({ answered: false, stalledMs: 0 }),
+        }),
+    });
+    const error = await resolve().catch((thrown) => thrown);
+    assert.equal(error.coreLaunchFailed, reports.confirmed());
+    return { error, clock, failure: reports.current().failure };
+  };
+  const held = { rpcPort: null, pid: process.pid, controlPort: null, token: null, rebuild: null };
+  const booting = await waitedOut({ ...held, state: 'booting', blocked: null });
+  assert.match(booting.failure.message, /core is not ready: the core is booting/);
+  assert.equal(booting.clock, LIMIT_MS, 'after the whole wait, once');
+  const blocked = await waitedOut({ ...held, state: 'blocked', blocked: { reason: 'dataVersion' } });
+  assert.match(blocked.failure.message, /the core is blocked \(\{"reason":"dataVersion"\}\)/);
+  assert.equal(blocked.clock, 0, 'a blocked core is not waited for');
 });
 
 test('a confirmed failure stays until the user chooses Try again: other attempts do not clear it, and no launch is made meanwhile', async () => {

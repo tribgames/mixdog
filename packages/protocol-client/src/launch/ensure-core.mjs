@@ -29,6 +29,11 @@ export function launchCore({
 } = {}) {
   return new Promise((resolve, reject) => {
     const capture = beginCapture({ launcher: 'core', log });
+    // `coreSpawnFailed`: no process was started (a missing or unrunnable binary), so there is no exit to wait for or compare.
+    const notStarted = (error) =>
+      Object.assign(new Error(`cannot start ${bin}: ${error.message}`), {
+        coreSpawnFailed: { bin, code: error?.code ?? null },
+      });
     let child;
     try {
       const args = desktopConfirmationPipe ? ['serve', '--desktop-confirmation-pipe'] : ['serve'];
@@ -36,11 +41,11 @@ export function launchCore({
       child = spawnImpl(bin, args, { detached, stdio: [pipe, pipe, capture.stderrStdio], windowsHide: true, env });
     } catch (error) {
       capture.noteSpawnError(error);
-      reject(new Error(`cannot start ${bin}: ${error.message}`));
+      reject(notStarted(error));
       return;
     }
     capture.track(child, { detached });
-    child.once('error', (error) => reject(new Error(`cannot start ${bin}: ${error.message}`)));
+    child.once('error', (error) => reject(notStarted(error)));
     child.once('spawn', () => {
       child.stderr?.unref?.();
       child.unref();

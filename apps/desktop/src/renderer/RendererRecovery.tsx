@@ -302,7 +302,7 @@ export function DesktopLoadingSurface({
   );
 }
 
-/** The first screen of a window whose core ends at boot the same way each time it is started: what happened in plain words, the
+/** The first screen of a window whose core cannot be started, never served, or ends at boot the same way each time: what happened in plain words, the
  *  cause on request, and a way to try again (the window loads again, which asks main to start the core once more). */
 export function DesktopBootFailure({ failure }: { failure: { message: string; stderrPath: string | null } }) {
   const detail = [failure.message, failure.stderrPath].filter(Boolean).join('\n');

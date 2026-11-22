@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
 import {
   acquireLease,
   allocatePorts,
+  assertCoreBinary,
   assertIsolation,
   copyDevAuth,
   instanceEnv,
@@ -414,6 +415,48 @@ test('a start with --copy-auth is refused, and cleaned up, when the GPT access t
   await assert.rejects(
     startInstance({ name: 'expired', copyAuth: true, root: isolated, devProfileDir: profile, timeoutMs: 1000 }),
     /GPT sign-in .* is expired.*Open the kept dev app once/
+  );
+  assert.deepEqual(await readdir(join(isolated, 'instances')), []);
+  assert.deepEqual(await readdir(join(isolated, 'leases')), []);
+});
+
+test('the core an instance would start is found as the app finds it: MIXDOGD_BIN, else mixdogd on PATH', () => {
+  const bin = join(fixtureBase, 'core', 'mixdogd.exe');
+  const onPath = join(fixtureBase, 'tools', 'mixdogd.exe');
+  const only = (...files) => ({ platform: 'win32', cwd: join(fixtureBase, 'cwd'), canRun: (path) => files.includes(path) });
+  assert.equal(assertCoreBinary({ MIXDOGD_BIN: bin }, only(bin)), bin);
+  assert.equal(assertCoreBinary({ Path: [join(fixtureBase, 'empty'), join(fixtureBase, 'tools')].join(delimiter) }, only(onPath)), onPath);
+  assert.throws(() => assertCoreBinary({ MIXDOGD_BIN: bin, Path: join(fixtureBase, 'tools') }, only(onPath)), /MIXDOGD_BIN names no file that can be run/);
+  assert.throws(() => assertCoreBinary({ Path: join(fixtureBase, 'empty') }, only(bin)), /MIXDOGD_BIN is not set and PATH has no mixdogd that can be run/);
+});
+
+test(
+  'a core without execute permission is refused like a missing one',
+  { skip: process.platform === 'win32' && 'Windows has no execute bit' },
+  async (t) => {
+    const root = await tempRoot(t);
+    const bin = join(root, 'mixdogd');
+    await writeFile(bin, '', { mode: 0o644 });
+    assert.throws(() => assertCoreBinary({ MIXDOGD_BIN: bin }), /MIXDOGD_BIN names no file that can be run/);
+    assert.throws(() => assertCoreBinary({ PATH: root }), /PATH has no mixdogd that can be run/);
+    await chmod(bin, 0o755);
+    assert.equal(assertCoreBinary({ MIXDOGD_BIN: bin }), bin);
+    assert.equal(assertCoreBinary({ PATH: root }), bin);
+  }
+);
+
+test('a start with no core to run is refused before anything is built, and cleaned up', async (t) => {
+  const root = await tempRoot(t);
+  const saved = process.env.MIXDOGD_BIN;
+  process.env.MIXDOGD_BIN = join(root, 'absent', 'mixdogd.exe');
+  t.after(() => {
+    if (saved === undefined) delete process.env.MIXDOGD_BIN;
+    else process.env.MIXDOGD_BIN = saved;
+  });
+  const isolated = join(root, 'isolated');
+  await assert.rejects(
+    startInstance({ name: 'nocore', root: isolated, timeoutMs: 1000 }),
+    /MIXDOGD_BIN names no file that can be run/
   );
   assert.deepEqual(await readdir(join(isolated, 'instances')), []);
   assert.deepEqual(await readdir(join(isolated, 'leases')), []);
