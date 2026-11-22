@@ -70,7 +70,9 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       fullLabelWidths.set(key, needed);
       evictOldest(fullLabelWidths, FULL_LABEL_WIDTHS_MAX);
     };
-    const overflows = () => pill.scrollWidth > pill.clientWidth;
+    // Read as laid out: a segment still gliding to its place (useIslandGlide)
+    // paints past the pill's edge without overflowing it.
+    const overflows = () => withoutGlides(island, () => pill.scrollWidth > pill.clientWidth);
     const budget = () => room - 2 * petIslandReserveFor(island);
     const fitLabels = (contentChanged: boolean) => {
       if (room < 0) return;
@@ -168,6 +170,208 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       fonts?.removeEventListener?.('loadingdone', refit);
     };
   }, [islandRef, pillRef]);
+}
+
+/** The island's own glides (useIslandGlide): one id, so a later change can
+ *  find and restart them. */
+export const ISLAND_GLIDE_ID = 'island-glide';
+const GLIDE_TIMING: KeyframeAnimationOptions = {
+  id: ISLAND_GLIDE_ID,
+  duration: 200,
+  easing: 'cubic-bezier(0.2, 0, 0, 1)',
+};
+/** Changes smaller than this are left to land in place. */
+const GLIDE_MIN_PX = 0.5;
+/** What can move the pill's segments or a panel's rows and height. */
+const GLIDE_ATTRIBUTES = [
+  'data-mode',
+  'data-expanded',
+  'data-compact',
+  'data-fit-tight',
+  'data-fit-pips',
+  'data-fit-glyph',
+  'hidden',
+  'style',
+];
+
+/** The element's own glides, its ::before frame's included (which only a
+ *  subtree query lists). */
+function glides(element: Element): Animation[] {
+  return element
+    .getAnimations({ subtree: true })
+    .filter(
+      (animation) => animation.id === ISLAND_GLIDE_ID && (animation.effect as KeyframeEffect | null)?.target === element
+    );
+}
+
+/** The translation a running glide paints over the element's laid-out box. */
+function glideOffset(element: Element): { x: number; y: number } {
+  if (!glides(element).length) return { x: 0, y: 0 };
+  const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+  return { x: matrix.m41, y: matrix.m42 };
+}
+
+/** Reads the island (or a list in it) as laid out: its glides are held at
+ *  their end for the read (no painted offset, no height held by a panel's
+ *  glide), then resume where they were. */
+export function withoutGlides<T>(island: Element, read: () => T): T {
+  const running =
+    typeof island.getAnimations === 'function'
+      ? island.getAnimations({ subtree: true }).filter((animation) => animation.id === ISLAND_GLIDE_ID)
+      : [];
+  const times = running.map((animation) => animation.currentTime);
+  for (const animation of running) animation.currentTime = Number(animation.effect?.getComputedTiming().endTime);
+  try {
+    return read();
+  } finally {
+    running.forEach((animation, index) => {
+      animation.currentTime = times[index] ?? null;
+    });
+  }
+}
+
+function glideTo(element: Element, keyframes: Keyframe[], options: KeyframeAnimationOptions = {}): Animation {
+  return element.animate(keyframes, { ...GLIDE_TIMING, ...options });
+}
+
+/** The island never jumps when something in it changes size or place: a
+ *  segment that comes or goes, a count that gains a digit, a panel row that
+ *  arrives, leaves or moves, a panel that grows or shrinks. Each change is
+ *  laid out at once (nothing waits on the motion), then painted from where
+ *  things were and eased to where they are: the pill's segments slide and its
+ *  frame's edges follow them, a panel's rows slide to their new places and
+ *  its height eases (its body scrolls meanwhile, so the header and footer
+ *  ride the edge). A new segment or row fades in where it lands. Nothing
+ *  moves under reduced motion, and nothing is watched while the island's
+ *  surface is not shown (`active`): it starts again from where things are. */
+export function useIslandGlide(
+  islandRef: RefObject<HTMLDivElement | null>,
+  pillRef: RefObject<HTMLDivElement | null>,
+  active: boolean
+) {
+  useLayoutEffect(() => {
+    const island = islandRef.current;
+    const pill = pillRef.current;
+    // jsdom (the logic tests) has no Web Animations: there nothing glides.
+    if (!active || !island || !pill || typeof island.animate !== 'function') return undefined;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let mode: string | null = null;
+    let segments = new Map<Element, number>();
+    let frame: { left: number; right: number } | null = null;
+    let panelHeight = -1;
+    let rows = new Map<Element, number>();
+
+    const visibleSegments = () =>
+      Array.from(pill.children).filter(
+        (child) => !child.classList.contains('composer-island-reserve') && child.getClientRects().length > 0
+      );
+    const listRows = () => Array.from(island.querySelector('.composer-island-jobs')?.children ?? []);
+    const frameInsets = () => {
+      if (!glides(island).some((animation) => (animation.effect as KeyframeEffect | null)?.pseudoElement)) {
+        return { left: 0, right: 0 };
+      }
+      const style = getComputedStyle(island, '::before');
+      return { left: Number.parseFloat(style.left) || 0, right: Number.parseFloat(style.right) || 0 };
+    };
+    const settleFrame = () => {
+      if (!glides(island).some((animation) => animation.playState === 'running')) island.removeAttribute('data-glide');
+    };
+
+    const record = () => {
+      mode = island.getAttribute('data-mode');
+      segments = new Map(visibleSegments().map((segment) => [segment, segment.getBoundingClientRect().left]));
+      const box = island.getBoundingClientRect();
+      frame = mode === 'pill' && box.width > 0 ? { left: box.left, right: box.right } : null;
+      panelHeight = mode === 'panel' ? box.height : -1;
+      rows = new Map(listRows().map((row) => [row, (row as HTMLElement).offsetTop]));
+    };
+    const cancelAll = () => {
+      for (const element of [island, ...segments.keys(), ...rows.keys(), ...visibleSegments(), ...listRows()]) {
+        for (const animation of glides(element)) animation.cancel();
+      }
+      island.removeAttribute('data-glide');
+    };
+
+    const glide = () => {
+      const nextMode = island.getAttribute('data-mode');
+      if (reducedMotion.matches || nextMode !== mode) {
+        // A new shape (pill, panel, approval, flash) has its own entry; reduced
+        // motion lands every change in place.
+        cancelAll();
+        record();
+        return;
+      }
+      // Where everything is painted now: the last laid-out place plus any glide
+      // still running toward it.
+      const paintedSegments = new Map<Element, number>();
+      for (const [segment, left] of segments) {
+        if (segment.isConnected) paintedSegments.set(segment, left + glideOffset(segment).x);
+      }
+      const insets = frameInsets();
+      const paintedFrame = frame && { left: frame.left + insets.left, right: frame.right - insets.right };
+      const heightGliding = glides(island).some(
+        (animation) => !(animation.effect as KeyframeEffect | null)?.pseudoElement
+      );
+      const paintedHeight = heightGliding ? island.getBoundingClientRect().height : panelHeight;
+      const paintedRows = new Map<Element, number>();
+      for (const [row, top] of rows) if (row.isConnected) paintedRows.set(row, top + glideOffset(row).y);
+      cancelAll();
+      record();
+
+      if (mode === 'pill') {
+        for (const [segment, left] of segments) {
+          const from = paintedSegments.get(segment);
+          if (from === undefined) glideTo(segment, [{ opacity: 0 }, { opacity: 1 }]);
+          else if (Math.abs(from - left) > GLIDE_MIN_PX) {
+            glideTo(segment, [{ transform: `translateX(${from - left}px)` }, { transform: 'none' }]);
+          }
+        }
+        if (paintedFrame && frame) {
+          const left = paintedFrame.left - frame.left;
+          const right = frame.right - paintedFrame.right;
+          if (Math.abs(left) > GLIDE_MIN_PX || Math.abs(right) > GLIDE_MIN_PX) {
+            island.setAttribute('data-glide', '');
+            glideTo(
+              island,
+              [
+                { left: `${left}px`, right: `${right}px` },
+                { left: '0px', right: '0px' },
+              ],
+              {
+                pseudoElement: '::before',
+              }
+            ).finished.then(settleFrame, settleFrame);
+          }
+        }
+      }
+      if (mode === 'panel') {
+        if (paintedHeight >= 0 && Math.abs(paintedHeight - panelHeight) > GLIDE_MIN_PX) {
+          glideTo(island, [{ height: `${paintedHeight}px` }, { height: `${panelHeight}px` }]);
+        }
+        for (const [row, top] of rows) {
+          const from = paintedRows.get(row);
+          if (from === undefined) {
+            if (paintedRows.size > 0) glideTo(row, [{ opacity: 0 }, { opacity: 1 }]);
+          } else if (Math.abs(from - top) > GLIDE_MIN_PX) {
+            glideTo(row, [{ transform: `translateY(${from - top}px)` }, { transform: 'none' }]);
+          }
+        }
+      }
+    };
+
+    record();
+    const mutation = new MutationObserver(glide);
+    mutation.observe(island, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributeFilter: GLIDE_ATTRIBUTES,
+    });
+    return () => {
+      mutation.disconnect();
+      cancelAll();
+    };
+  }, [islandRef, pillRef, active]);
 }
 
 /** How long an emptied island keeps its slot before the slot eases shut:

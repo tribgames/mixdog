@@ -1630,8 +1630,15 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   display: grid;
   gap: 2px;
 }
+/* The list's headings ("Remaining", the "Rest" and "Done" folds, a phase's
+   name) are one voice: the same type, the same height, starting on the rows'
+   mark column. A fold carries its chevron after its words. */
 .session-goal-group-label {
-  margin: 2px 0 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
@@ -1651,9 +1658,9 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-fold {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 8px;
   border: 0;
   border-radius: 9px;
@@ -1661,6 +1668,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-minor);
   text-align: left;
   cursor: pointer;
 }
@@ -1744,7 +1753,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 .session-goal-tasks li.session-goal-phase {
   display: block;
-  padding: 8px 8px 2px;
+  padding: 5px 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
@@ -1905,6 +1914,10 @@ html[data-mixdog-mobile-tabs] .session-goal-body {
 html[data-mixdog-mobile-tabs] .session-goal-fold,
 html[data-mixdog-mobile-tabs] .session-goal-link {
   min-height: var(--mx-touch, 44px);
+}
+/* The phone's rows have no inline inset: its headings start with them. */
+html[data-mixdog-mobile-tabs] :is(.session-goal-group-label, .session-goal-fold, .session-goal-tasks li.session-goal-phase) {
+  padding-inline: 0;
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
   grid-template-columns: 16px minmax(0, 1fr);

@@ -19,8 +19,7 @@ import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 import { BranchRowActions } from './branch-row-actions';
 import { useMobileBack } from './mobile-back';
-import { IslandPanelFoot, TidyButton } from './IslandPanelFoot';
-import { MxIcon } from './MxIcon';
+import { IslandPanelFoot, IslandPanelHead, TidyButton } from './IslandPanelFoot';
 import { ProgressSpinner } from './ProgressSpinner';
 import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { useSurfaceActive } from './surface-activity';
@@ -336,7 +335,10 @@ export function useBranchMenuActions({
       close();
       return;
     }
-    if (locked) return;
+    if (locked) {
+      setNotice(t("Can't switch while work is running"));
+      return;
+    }
     void selectBranch(row.name, false);
   };
   const createBranch = () => {
@@ -964,21 +966,7 @@ export function BranchIslandPanel({
       data-locked={contents.locked || undefined}
       onKeyDown={(event) => moveMenuFocus(event, panel.current, onClose)}
     >
-      <div className="composer-island-phead">
-        <span className="composer-island-tab" data-active="true">
-          {title}
-        </span>
-        {meta && <span className="composer-island-phead-meta">{meta}</span>}
-        <button
-          type="button"
-          className="composer-island-close"
-          aria-label={t('Close')}
-          title={t('Close')}
-          onClick={onClose}
-        >
-          <MxIcon name="close-small" size={16} />
-        </button>
-      </div>
+      <IslandPanelHead chip={title} meta={meta} onClose={onClose} />
       <div className="composer-island-pbody branch-menu-body">
         <BranchMenuContents
           {...contents}
@@ -1130,6 +1118,8 @@ function BranchMenuRow({
       data-branch={row.name}
       data-mark={row.mark || undefined}
       data-pending={pending || undefined}
+      // Held only by running work: the row stays readable and says why when pressed.
+      data-locked={(locked && switches && !row.disabled && !busy) || undefined}
       aria-disabled={row.disabled || busy || (locked && switches) || undefined}
       title={
         row.mark === 'external' && row.path

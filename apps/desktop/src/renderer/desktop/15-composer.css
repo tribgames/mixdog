@@ -171,6 +171,9 @@
   --composer-island-edge: inset 0 0 0 0.5px var(--mx-border), var(--mx-raised);
   --composer-island-wash: var(--mx-hover);
   --composer-island-rule: var(--mx-border-muted);
+  /* Every panel's width and the one inset its header, list and footer share. */
+  --island-panel-width: 560px;
+  --island-panel-inset: 14px;
   position: relative;
   z-index: 1;
   min-width: 0;
@@ -235,6 +238,24 @@
 /* Collapsed, the island is one capsule like its pill row. */
 .composer-island:is([data-mode="pill"], [data-mode="flash"]) {
   border-radius: var(--mx-radius-pill);
+}
+/* While the pill changes width (useIslandGlide) its frame is a layer of its
+   own whose edges ease from the old width to the new one, so the capsule
+   never jumps under segments that slide. */
+.composer-island[data-mode="pill"][data-glide] {
+  overflow: visible;
+  background: none;
+  box-shadow: none;
+}
+.composer-island[data-mode="pill"][data-glide]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--composer-island-bg);
+  box-shadow: var(--composer-island-edge);
+  pointer-events: none;
 }
 :where(.composer-island-slot[data-entry]) .composer-island[data-mode="flash"] {
   animation-name: composer-island-pop-flash;
@@ -642,14 +663,23 @@
 /* The files menu: every changed file in one scrolling list (dir muted, name,
    +/− counts), with Delete history and View changes fixed below. */
 .turn-review-files-list {
+  min-height: 0;
   max-height: min(240px, 36dvh);
+  /* The rows' wash reaches past the text by their own inset; the scrollbar
+     keeps a gutter of its own, so it never sits on the +/− counts. */
+  margin-inline: -8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+/* Its list scrolls itself: the panel body only holds it, at the shared inset. */
+.composer-island-panel.turn-review-files-panel > .composer-island-pbody {
+  scrollbar-gutter: auto;
+  padding-inline: var(--island-panel-inset);
 }
 .turn-review-files-row {
   width: 100%;
-  min-height: 26px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -671,12 +701,25 @@
 .turn-review-files-path {
   min-width: 0;
   flex: 1 1 auto;
+  display: flex;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The folder gives way first; the name keeps its room until it alone
+   overflows. */
 .turn-review-files-dir {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--mx-text-muted);
+}
+.turn-review-files-name {
+  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .turn-review-files-row > .diff-stats {
   flex: none;
@@ -689,14 +732,6 @@
 .turn-review-files-row > .diff-stats em {
   color: var(--mx-danger);
   font-style: normal;
-}
-.turn-review-files-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-  padding: 8px 2px 0;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
 }
 .turn-review-files-foot > .composer-island-button.danger {
   color: var(--mx-danger);
@@ -712,21 +747,47 @@
   color: var(--mx-danger);
   font-style: normal;
 }
-/* Expanded tabs: a 560px panel with a tab header and a close button. */
+/* Expanded tabs: one panel family with a header (title chip, counts, close),
+   a body and a footer (IslandPanelHead / IslandPanelFoot). */
 .composer-island-panel,
-.composer-island-approval,
-.composer-island .session-goal-panel {
-  width: 560px;
+.composer-island-approval {
+  width: var(--island-panel-width);
   max-width: 100%;
 }
-/* The pill is nowrap; the Goal drawer's text wraps inside the panel. */
-.composer-island .session-goal-panel {
-  white-space: normal;
-}
-/* The to-do list reads better wide, but never past the window. */
+/* The Goal drawer is wider: its steps are sentences. The pill is nowrap; the
+   drawer's text wraps inside the panel. */
 .composer-island .session-goal-panel {
   width: 680px;
-  max-width: min(100%, calc(100vw - 24px));
+  max-width: 100%;
+  white-space: normal;
+}
+/* Wrapped panel text breaks between words, Korean included, never inside one
+   (a word longer than the line still breaks). */
+:is(.composer-island-panel, .composer-island .session-goal-panel) {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+/* A panel never takes more than the room above the composer: the header and
+   footer keep their height and only the body scrolls, so the close button
+   and the panel's actions stay in reach when the room is short (a phone's
+   keyboard is up, a short window). Panels a segment carries inside the pill
+   (files, branch, git) take the bound through the pill; the Goal drawer
+   bounds its own body (22-markdown.css). */
+.composer-island-stage > .composer-island[data-mode="panel"] {
+  display: flex;
+  flex-direction: column;
+}
+.composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-pill:not([hidden]),
+.composer-island-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-pill:not([hidden]) {
+  align-items: stretch;
+}
+.composer-island-panel > :is(.composer-island-phead, .composer-island-panel-foot) {
+  flex: none;
 }
 .composer-island-phead {
   min-height: 44px;
@@ -782,6 +843,46 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
+}
+/* Shell rows share their list's columns (icon, command, state, buttons), so
+   a clock gaining a digit or a button changing its label moves no other
+   row's text. The state and button columns hold the common widths. */
+ul.composer-island-jobs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(4rem, auto);
+  align-content: start;
+  column-gap: 10px;
+}
+ul.composer-island-jobs > .composer-island-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+}
+.composer-island-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+/* IslandColumnSizer: the state column's every label, unseen, in that column
+   (the third of both lists); capped so a rare long word does not take a
+   narrow panel's names. */
+.composer-island-col-sizer {
+  grid-column: 3;
+  max-width: 9rem;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  visibility: hidden;
+  list-style: none;
+}
+.composer-island-col-sizer > * {
+  white-space: nowrap;
+}
+@container composer-island (max-width: 479px) {
+  .composer-island-col-sizer {
+    max-width: 5.5rem;
+  }
 }
 /* More rows below the fold: a shadow over the list's bottom edge. */
 .composer-island-jobs[data-more] + .composer-island-panel-foot {
@@ -879,6 +980,7 @@
 }
 .composer-island-row-dismiss {
   flex: none;
+  min-width: 4rem;
   line-height: var(--island-row-button-line, 20px);
 }
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
@@ -905,8 +1007,15 @@
   outline: 1px solid var(--mx-accent);
   outline-offset: 2px;
 }
-/* Agents: the Agents window's own row (AgentPoolRow), flat in the panel, on
-   the list's shared columns (.agent-pool-list) through its item wrapper. */
+/* Agents (AgentIslandRow): the Agents window's row grammar, flat in the panel
+   on the list's shared columns: the brand mark, the name over the model line
+   (the step mark leads it), and the figures (state over the row's token
+   total). The figures column is as wide as its longest label
+   (IslandColumnSizer), so a clock gaining a digit or a row changing state
+   moves no other row's columns. */
+.composer-island-jobs.composer-island-agents.agent-pool-list {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
 .composer-island-agent-item,
 .composer-island-agents .agent-pool-row {
   grid-column: 1 / -1;
@@ -931,28 +1040,43 @@
   cursor: pointer;
   user-select: none;
 }
-.composer-island-agent-item {
-  position: relative;
+/* The model line: the model, then the agent's step mark. A long model name
+   gives way; the mark stays whole. */
+.island-agent-route {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-/* A row with its own ledger total: the state rides the name's line and the
-   total the supporting line, both at the right edge. */
-.composer-island-agent-item[data-tokens="true"] .agent-activity-status {
-  align-self: flex-start;
-  /* As wide as the total below it, so the model line ends before the total. */
-  min-width: 4.5rem;
+.island-agent-route > .agent-todo-mark::before {
+  content: "·";
+  margin-inline-end: 2px;
+}
+.island-agent-route > .agent-route-summary {
+  min-width: 0;
+}
+.agent-pool-figures {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: center;
+}
+/* State on the name's line, the total on the model's: the two columns read
+   as two aligned lines. */
+.composer-island-agents .agent-pool-figures > .agent-activity-status {
+  height: 20px;
+  line-height: 20px;
 }
 .composer-island-agent-tokens {
-  position: absolute;
-  right: 0;
-  bottom: 6px;
-  max-width: 4.5rem;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--mx-text-muted);
-  font-size: 12px;
+  font-size: var(--mx-font-micro);
+  line-height: 18px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }
 /* State counts beside the panel title: quiet, one line. */
 .composer-island-phead-meta {
@@ -1157,16 +1281,52 @@
    list: the panel's line or actions on the left, its tidy action at the right
    end, which never leaves the row's last slot. The list above keeps 4px of
    its inset before the rule, as the branch panel always did. */
-.composer-island-panel-foot {
+.composer-island-panel-foot,
+.composer-island .turn-review-files-foot,
+.composer-island .session-goal-controls {
+  min-height: 48px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 10px 14px 12px;
+  gap: 8px 12px;
+  padding: 8px var(--island-panel-inset);
   border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+/* The files and Goal footers live inside their body (a menu's items, the
+   drawer's grid): they reach its edges like the shared footer. */
+.composer-island .turn-review-files-foot {
+  justify-content: flex-end;
+  margin: 8px calc(-1 * var(--island-panel-inset)) -12px;
+}
+.composer-island .session-goal-controls {
+  justify-content: flex-end;
+  margin: 0 calc(-1 * var(--island-panel-inset)) -12px;
 }
 .composer-island-panel > .composer-island-pbody:has(+ .composer-island-panel-foot) {
   padding-bottom: 4px;
+}
+/* Every panel body scrolls inside the panel with the same inset as its
+   header and footer; the scrollbar has a reserved gutter on both edges, so
+   the bar never sits against the text, and rows keep their width when the
+   list starts to overflow. */
+.composer-island-panel > .composer-island-pbody {
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+  padding-inline: calc(var(--island-panel-inset) - var(--mx-scrollbar-size, 8px));
+}
+/* The Goal drawer's scrolling content keeps the panel's text inset with its
+   scrollbar in a gutter of its own. */
+.composer-island .session-goal-content {
+  scrollbar-gutter: stable both-edges;
+  margin-inline: calc(-1 * var(--mx-scrollbar-size, 8px));
+}
+/* The usage line takes the footer's free room; the action keeps its end. */
+.composer-island-panel-foot > .composer-island-summary {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .composer-island-panel-foot-end {
   display: flex;
@@ -1188,7 +1348,7 @@
 }
 .composer-island-button,
 .composer-island .session-goal-control {
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
   border: 0;
   border-radius: var(--mx-radius-md);
@@ -1646,9 +1806,29 @@ html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash
   width: 16px;
   height: 16px;
 }
+/* Touch targets: every panel button is 40px tall, and the footer row holds
+   it with its own 8px. */
 html[data-mixdog-mobile-tabs] .composer-island-button {
-  height: 32px;
+  height: 40px;
   padding-inline: 12px;
+}
+html[data-mixdog-mobile-tabs] :is(.composer-island-panel-foot, .composer-island .turn-review-files-foot) {
+  min-height: 56px;
+  column-gap: 8px;
+}
+/* The scrollbars are hidden here: no gutter to make up for. */
+html[data-mixdog-mobile-tabs] .composer-island .session-goal-content {
+  margin-inline: 0;
+}
+/* Long names read whole on a narrow panel: two lines before the ellipsis. */
+@container composer-island (max-width: 479px) {
+  .composer-island-jobs .agent-pool-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 html[data-mixdog-mobile-tabs] .composer-island-pbody {
   padding: 10px 14px 12px;
@@ -1663,7 +1843,7 @@ html[data-mixdog-mobile-tabs] .composer-island-pfoot {
 html[data-mixdog-mobile-tabs] .composer-island-row {
   min-height: var(--mx-touch-row-main);
   gap: 10px;
-  --island-row-button-height: 32px;
+  --island-row-button-height: 40px;
   --island-row-button-line: 18px;
 }
 html[data-mixdog-mobile-tabs] .composer-island-ptitle {
