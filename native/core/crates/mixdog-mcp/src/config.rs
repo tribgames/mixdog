@@ -91,6 +91,8 @@ pub struct OAuthBinding {
     pub client: Option<StaticClient>,
     /// A catalog connector that needs a built-in sign-in client this build has none of.
     pub client_unavailable: Option<String>,
+    /// A catalog connector at the catalog's own sign-in address: without stored tokens it cannot connect.
+    pub requires_sign_in: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

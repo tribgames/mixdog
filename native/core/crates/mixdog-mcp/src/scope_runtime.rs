@@ -621,6 +621,20 @@ impl ScopeRuntime {
                 // The toggle connects its own servers only (`reconnectSingleMcpServer`).
                 let Some(work) = self.hub.apply_at_tracked(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) else { return };
                 let waits = self.awaited(scope, &targets);
+                // A connection keeps the sign-in it was opened as. After a sign-out or another account's sign-in, every
+                // server of the scope that holds a connection of the old one, ready or still opening, lets it go: an
+                // account's own server and a server that shares the credential included; the ones reconnected below
+                // are not connected twice.
+                let replaced: Vec<_> = self
+                    .hub
+                    .servers_in(scope)
+                    .into_iter()
+                    .flat_map(|server| std::iter::once(Arc::clone(&server)).chain(server.account_servers()))
+                    .filter(|server| server.sign_in_replaced() && !kept.iter().any(|kept| Arc::ptr_eq(kept, server)))
+                    .collect();
+                for server in replaced {
+                    server.leave_replaced_sign_in().await;
+                }
                 // A connection another scope shares is not restarted: `reconnectSingleMcpServer` gives up only this
                 // scope's use of it and adopts it again (`_closeServer`, `connectServer`, mcp/client.mjs:1367-1374, 1425-1426).
                 for server in kept {

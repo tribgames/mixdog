@@ -63,6 +63,9 @@ pub struct OAuthEnv {
     /// `<plugin data>`; the marker files go under `mcp-oauth/`.
     pub plugin_data: PathBuf,
     pub io: DurabilityIo,
+    /// The identity of the installation these sign-ins belong to ([`super::store::installation_identity`]): two
+    /// installations over one secret store keep a sign-in each. `None`: the name every installation shares.
+    pub installation: Option<String>,
 }
 
 /// The stored value, field-compatible with the entries the Node product wrote.
@@ -75,6 +78,10 @@ struct Entry {
     revision: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tokens: Option<Value>,
+    /// Which grant the tokens are of: kept by a renewal, new with the tokens of another authorization. An entry stored
+    /// before grants were named has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grant: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     client_information: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -102,6 +109,26 @@ fn refresh_token(entry: &Entry) -> Option<String> {
 struct Cache {
     generation: Option<u64>,
     entry: Option<Entry>,
+    /// The stored entry when it is bound to another address than this server's: never used, kept for a rollback.
+    elsewhere: Option<Entry>,
+}
+
+impl Cache {
+    fn stored(&self) -> Option<&Entry> {
+        self.entry.as_ref().or(self.elsewhere.as_ref())
+    }
+}
+
+/// Which sign-in `stored` is ([`Authorizer::sign_in`]): a value of the stored entry itself, so it is another one
+/// exactly when another grant's tokens, or none, are stored, and the same one through every renewal. No tokens: `0`.
+fn sign_in_of(stored: Option<&Entry>) -> u64 {
+    let Some(entry) = stored.filter(|entry| entry.tokens.is_some()) else { return 0 };
+    let digest = Sha256::new().chain_update(entry.url.as_bytes()).chain_update([0u8]).chain_update(entry.grant.as_deref().unwrap_or_default().as_bytes()).finalize();
+    u64::from_be_bytes(digest[..8].try_into().expect("eight bytes")).max(1)
+}
+
+fn revision_of(text: &str) -> Option<String> {
+    serde_json::from_str::<Entry>(text).ok().map(|entry| entry.revision)
 }
 
 struct Credential {
@@ -111,7 +138,11 @@ struct Credential {
     status: Mutex<Option<CredentialStatus>>,
     /// An explicit login or sign-out supersedes a pending switch or its rollback; a token refresh doesn't.
     login_version: AtomicU64,
+    /// Which sign-in is stored ([`sign_in_of`]), as the last write or read of the entry left it. Nothing else sets it.
+    sign_in: AtomicU64,
     sign_in_required: AtomicBool,
+    /// How many [`LoginInProgress`] are held, whichever scope's sign-in object began them.
+    logins_in_progress: AtomicU64,
 }
 
 struct CredentialStatus {
@@ -149,7 +180,9 @@ impl Credential {
             generation: AtomicU64::new(0),
             status: Mutex::new(None),
             login_version: AtomicU64::new(0),
+            sign_in: AtomicU64::new(0),
             sign_in_required: AtomicBool::new(false),
+            logins_in_progress: AtomicU64::new(0),
         });
         all.insert(key, Arc::downgrade(&credential));
         credential
@@ -186,7 +219,10 @@ pub struct McpOAuth {
     binding: OAuthBinding,
     protocol: Protocol,
     files: MarkerFiles,
+    /// What the marker files are named after, and the secret-store account of a sign-in no installation owns.
     account: String,
+    /// The secret-store account: this installation's own.
+    secret_account: String,
     credential: Arc<Credential>,
     cache: Mutex<Cache>,
     /// Every token this connection held: an error echoing one stays scrubbed after a refresh.
@@ -199,9 +235,39 @@ pub struct McpOAuth {
     refusal: Mutex<Option<String>>,
 }
 
+/// A login of a credential in progress, from before the connect that asks the server for its challenge until the login
+/// ended, however it ended. While one is held the server is dialled by every connect of the credential, signed in or not
+/// ([`Authorizer::sign_in_absent`]).
+pub struct LoginInProgress(Arc<Credential>);
+
+impl LoginInProgress {
+    fn of(credential: &Arc<Credential>) -> Self {
+        credential.logins_in_progress.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(credential))
+    }
+}
+
+impl Clone for LoginInProgress {
+    fn clone(&self) -> Self {
+        Self::of(&self.0)
+    }
+}
+
+impl Drop for LoginInProgress {
+    fn drop(&mut self) {
+        self.0.logins_in_progress.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// The secret-store account of a sign-in: a digest of its key, nothing else.
 pub fn account_of(credential_key: &str) -> String {
     let digest = Sha256::digest(credential_key.as_bytes());
+    format!("mcp-oauth.{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// The secret-store account of a sign-in of the installation `installation`.
+pub fn secret_account_of(installation: &str, credential_key: &str) -> String {
+    let digest = Sha256::new().chain_update(installation.as_bytes()).chain_update([0u8]).chain_update(credential_key.as_bytes()).finalize();
     format!("mcp-oauth.{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>())
 }
 
@@ -225,9 +291,11 @@ fn store_error(error: super::store::StoreError) -> OAuthError {
 impl McpOAuth {
     pub fn new(binding: OAuthBinding, env: &OAuthEnv) -> Result<Arc<Self>, String> {
         let account = account_of(&binding.credential_key);
+        let secret_account = env.installation.as_deref().map_or_else(|| account.clone(), |id| secret_account_of(id, &binding.credential_key));
         Ok(Arc::new(Self {
-            credential: Credential::shared(&env.store, account.clone()),
+            credential: Credential::shared(&env.store, secret_account.clone()),
             account,
+            secret_account,
             binding,
             protocol: Protocol::new()?,
             files: MarkerFiles::new(env.plugin_data.clone(), env.io),
@@ -252,6 +320,11 @@ impl McpOAuth {
     /// asking for more scope), unless a request was answered since: what an explicit sign-in starts from (`authorizedFetch`).
     pub fn refusal_challenge(&self) -> Option<String> {
         self.refusal.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Marks a login of this credential in progress until the answer, and every clone of it, is dropped.
+    pub fn login_in_progress(&self) -> LoginInProgress {
+        LoginInProgress::of(&self.credential)
     }
 
     /// Every token this connection held, for scrubbing errors and results.
@@ -302,23 +375,42 @@ impl McpOAuth {
         Ok(cache)
     }
 
+    /// The stored entry's text: the installation's own, else the one it wrote under the name every installation shared
+    /// (the entry its own marker names, and no other), read where it is. Nothing is written or removed by a read: what
+    /// the installation stores from then on goes under its own name, and the shared entry stays as it is.
+    async fn stored(&self) -> Result<Option<String>, OAuthError> {
+        let store = &self.credential.store;
+        let own = store.get(&self.secret_account).await.map_err(store_error)?;
+        if own.is_some() || self.secret_account == self.account {
+            return Ok(own);
+        }
+        // The markers are the installation's own: the revision they list is of the entry it wrote.
+        let Some(revision) = self.files.revision(&self.account).await.map_err(store_error)? else { return Ok(None) };
+        let shared = store.get(&self.account).await.map_err(store_error)?;
+        Ok(shared.filter(|text| revision_of(text).as_deref() == Some(revision.as_str())))
+    }
+
+    /// `stored` as this server's entry, or as one bound to another address: that one is no entry of this server, never
+    /// used and replaced by its next sign-in.
+    fn sorted(&self, stored: Option<Entry>) -> (Option<Entry>, Option<Entry>) {
+        match stored {
+            Some(entry) if entry.url == self.binding.url.as_str() => (Some(entry), None),
+            other => (None, other),
+        }
+    }
+
     async fn load_locked(&self, cache: &mut Cache) -> Result<(), OAuthError> {
         let generation = self.credential.generation.load(Ordering::Relaxed);
         if cache.generation != Some(generation) {
-            let saved = self.credential.store.get(&self.account).await.map_err(store_error)?;
-            let entry = match saved {
-                Some(text) => {
-                    let entry: Entry = serde_json::from_str(&text).map_err(|_| OAuthError::ReauthenticationRequired)?;
-                    // An entry of another URL is never used for this server.
-                    if entry.url != self.binding.url.as_str() {
-                        return Err(OAuthError::ReauthenticationRequired);
-                    }
-                    Some(entry)
-                }
+            let stored = match self.stored().await? {
+                Some(text) => Some(serde_json::from_str::<Entry>(&text).map_err(|_| OAuthError::ReauthenticationRequired)?),
                 None => None,
             };
+            self.credential.sign_in.store(sign_in_of(stored.as_ref()), Ordering::SeqCst);
+            let (entry, elsewhere) = self.sorted(stored);
             self.hold(entry.as_ref());
             cache.entry = entry;
+            cache.elsewhere = elsewhere;
             cache.generation = Some(generation);
         }
         Ok(())
@@ -333,8 +425,18 @@ impl McpOAuth {
         self.files.write_identity(&self.account, who).await.map_err(store_error)
     }
 
+    /// Stores `entry`. `store_first`: the entry is a renewal of the stored grant or a whole entry put back, and keeps
+    /// the grant it names. Any other write whose tokens are not the stored ones stores another grant, named here
+    /// unless the entry brings a name of its own (an earlier entry put back).
+    /// Which sign-in is stored ([`Authorizer::sign_in`]) follows from the entry the store took, in this write.
     async fn replace(&self, cache: &mut Cache, mut entry: Entry, store_first: bool) -> Result<(), OAuthError> {
-        entry.revision = rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect();
+        let random = || rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let (stored_tokens, stored_grant) = cache.stored().map(|stored| (stored.tokens.clone(), stored.grant.clone())).unwrap_or_default();
+        let other_tokens = entry.tokens.is_some() && entry.tokens != stored_tokens;
+        if !store_first && other_tokens && (entry.grant.is_none() || entry.grant == stored_grant) {
+            entry.grant = Some(random());
+        }
+        entry.revision = random();
         let text = serde_json::to_string(&entry).map_err(|e| OAuthError::Store(e.to_string()))?;
         // A new sign-in can still fail without replacing the old grant. Stage the markers first.
         // A provider-confirmed rotation cannot be undone; persist it even if a marker cannot be written.
@@ -342,21 +444,22 @@ impl McpOAuth {
             if !store_first {
                 self.write_markers(Some(&entry)).await?;
             }
-            self.credential.store.set(&self.account, &text).await.map_err(store_error)
+            self.credential.store.set(&self.secret_account, &text).await.map_err(store_error)
         };
         let previous = self.credential.generation.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = write.await {
-            if !store_first && let Err(restore) = self.write_markers(cache.entry.as_ref()).await {
+            if !store_first && let Err(restore) = self.write_markers(cache.stored()).await {
                 tracing::warn!(%restore, "MCP OAuth status markers could not be restored");
             }
             return Err(error);
         }
+        self.credential.sign_in.store(sign_in_of(Some(&entry)), Ordering::SeqCst);
         if store_first && let Err(error) = self.write_markers(Some(&entry)).await {
             tracing::warn!(%error, "MCP OAuth credential was stored but its status markers could not be updated");
         }
         *self.credential.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(CredentialStatus::of(Some(&entry)));
         self.hold(Some(&entry));
-        cache.entry = Some(entry);
+        (cache.entry, cache.elsewhere) = self.sorted(Some(entry));
         cache.generation = Some(previous.wrapping_add(1));
         self.credential.sign_in_required.store(false, Ordering::SeqCst);
         Ok(())
@@ -370,12 +473,14 @@ impl McpOAuth {
 
     async fn erase(&self, cache: &mut Cache) -> Result<(), OAuthError> {
         let previous = self.credential.generation.fetch_add(1, Ordering::Relaxed);
-        self.credential.store.delete(&self.account).await.map_err(store_error)?;
+        self.credential.store.delete(&self.secret_account).await.map_err(store_error)?;
+        self.credential.sign_in.store(0, Ordering::SeqCst);
         if let Err(error) = self.write_markers(None).await {
             tracing::warn!(%error, "MCP OAuth credential was erased but its status markers could not be updated");
         }
         *self.credential.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(CredentialStatus::of(None));
         cache.entry = None;
+        cache.elsewhere = None;
         cache.generation = Some(previous.wrapping_add(1));
         Ok(())
     }
@@ -457,8 +562,19 @@ impl McpOAuth {
     /// server where it documents a revocation endpoint. True when the server confirmed it.
     pub async fn sign_out(&self, revoke: bool) -> Result<bool, OAuthError> {
         let mut cache = self.lock_cache().await;
-        let saved = self.credential.store.get(&self.account).await.map_err(store_error)?;
+        let saved = self.stored().await?;
         let entry: Option<Entry> = saved.as_deref().and_then(|text| serde_json::from_str(text).ok());
+        // The marker is what keeps an entry under the shared name from being read again, so the sign-out is recorded
+        // there first: one that cannot record itself has not signed out, and changes nothing.
+        let unrecorded = |error: OAuthError| async {
+            if let Err(restore) = self.write_markers(entry.as_ref()).await {
+                tracing::warn!(%restore, "MCP OAuth status markers could not be restored");
+            }
+            error
+        };
+        if let Err(error) = self.write_markers(None).await {
+            return Err(unrecorded(error).await);
+        }
         let mut revoked = false;
         if revoke && let Some(entry) = &entry {
             let endpoint = entry.discovery.as_ref().and_then(Discovery::revocation_endpoint);
@@ -468,7 +584,9 @@ impl McpOAuth {
             }
         }
         self.credential.login_version.fetch_add(1, Ordering::Relaxed);
-        self.erase(&mut cache).await?;
+        if let Err(error) = self.erase(&mut cache).await {
+            return Err(unrecorded(error).await);
+        }
         Ok(revoked)
     }
 
@@ -489,7 +607,14 @@ impl McpOAuth {
 
     /// The sign-in flow of this server, as the login mechanism runs it.
     pub fn login_flow(self: &Arc<Self>, server: &str, mode: AccountMode) -> McpLoginFlow {
-        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false, challenge: Challenge::default() }
+        McpLoginFlow {
+            oauth: Arc::clone(self),
+            target: LoginTarget::McpServer(server.to_owned()),
+            mode,
+            transactional: false,
+            challenge: Challenge::default(),
+            in_progress: self.login_in_progress(),
+        }
     }
 
     /// A sign-in beside the stored one, in any mode (an account of a multi-account connector):
@@ -506,10 +631,41 @@ impl Authorizer for McpOAuth {
         McpOAuth::sign_in_required(self)
     }
 
+    fn sign_in(&self) -> u64 {
+        self.credential.sign_in.load(Ordering::SeqCst)
+    }
+
+    /// Known before any dial only: a catalog connector at the catalog's sign-in address with no usable tokens stored.
+    /// A refusal met while talking to a server proves nothing about its next connect. Never while a login of the
+    /// credential is in progress ([`LoginInProgress`]): that login starts from what the server answers a connect with.
+    async fn sign_in_absent(&self) -> bool {
+        if !self.binding.requires_sign_in || self.credential.logins_in_progress.load(Ordering::SeqCst) > 0 {
+            return false;
+        }
+        let mut cache = self.lock_cache().await;
+        let absent = match self.load_locked(&mut cache).await {
+            Ok(()) => cache.entry.as_ref().is_none_or(|entry| entry.tokens.is_none()),
+            // An entry that cannot be read is no sign-in.
+            Err(OAuthError::ReauthenticationRequired) => true,
+            // A store that did not answer says nothing about the sign-in.
+            Err(_) => false,
+        };
+        if absent {
+            self.credential.sign_in_required.store(true, Ordering::SeqCst);
+        }
+        absent
+    }
+
     async fn token(&self) -> Result<Option<String>, TransportError> {
         // An unreadable keychain must not block a server that needs no authentication.
         let Ok(cache) = self.load().await else { return Ok(None) };
         Ok(cache.entry.as_ref().and_then(access_token))
+    }
+
+    /// The token and the sign-in it is of, from one read of the entry.
+    async fn token_as(&self) -> Result<Option<(u64, Option<String>)>, TransportError> {
+        let Ok(cache) = self.load().await else { return Ok(None) };
+        Ok(Some((sign_in_of(cache.stored()), cache.entry.as_ref().and_then(access_token))))
     }
 
     async fn renew(&self, rejected: Option<String>, challenge: Option<String>) -> Result<(), TransportError> {
@@ -571,6 +727,8 @@ pub struct McpLoginFlow {
     transactional: bool,
     /// The `WWW-Authenticate` challenge that asked for the sign-in.
     challenge: Challenge,
+    /// Held by the flow, and by each login it starts until that login ended.
+    in_progress: LoginInProgress,
 }
 
 impl McpLoginFlow {
@@ -620,6 +778,7 @@ impl LoginFlow for McpLoginFlow {
         });
         let (oauth, mode, transactional, challenge, task_control) =
             (Arc::clone(&self.oauth), self.mode, self.transactional, self.challenge.clone(), Arc::clone(&control));
+        let in_progress = self.in_progress.clone();
         mixdog_rt::spawn("mcp.oauth.login", mixdog_rt::TaskClass::Work, async move {
             let last = match oauth.run_login(mode, transactional, challenge, &task_control).await {
                 Ok(account) => LoginState::Done { account },
@@ -627,6 +786,8 @@ impl LoginFlow for McpLoginFlow {
                 Err(Stop::Expired) => LoginState::Failed(LoginFailure::Expired),
                 Err(Stop::Failed(error)) => LoginState::Failed(failure_of(error)),
             };
+            // Over before its last state is read: whoever acts on that state meets the rule as it stands again.
+            drop(in_progress);
             task_control.emit(last);
         });
         Ok(Box::new(Session { control, delivered_terminal: false.into() }))

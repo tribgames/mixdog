@@ -629,7 +629,12 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         admin,
         declarations: Arc::new(DeclarationCache::new()),
         maintenance: tokens.maintenance_io,
-        oauth_env: OAuthEnv { store: inputs.secret_store.clone(), plugin_data: data_dir.clone(), io: tokens.durability_io },
+        oauth_env: OAuthEnv {
+            store: inputs.secret_store.clone(),
+            plugin_data: data_dir.clone(),
+            io: tokens.durability_io,
+            installation: mixdog_mcp::oauth::installation_identity(data_dir),
+        },
         env: process_env.clone(),
         surface: inputs.surface.clone(),
         health: Arc::new(AccountHealth::default()),

@@ -270,6 +270,7 @@ fn login_credentials(server: &str, stored: Option<&Entry>, in_memory: bool) -> E
         creds.discovery = stored.discovery.clone();
         if !in_memory {
             creds.tokens = stored.tokens.clone();
+            creds.grant = stored.grant.clone();
             creds.identity = stored.identity.clone();
         }
     }
@@ -405,7 +406,8 @@ impl Run<'_> {
         let mut cache = self.oauth.load().await?;
         self.require_current(cache.generation)?;
         self.abort.check()?;
-        let previous = cache.entry.clone();
+        // What was stored, an entry bound to another address included: a rollback puts back what the sign-in replaced.
+        let previous = cache.stored().cloned();
         let version = self.oauth.credential.login_version.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         self.oauth.replace(&mut cache, entry, false).await?;
         // A switch that was cancelled during its write must not escape the gate as a new grant.
@@ -440,6 +442,8 @@ impl Run<'_> {
             self.login_version = self.oauth.credential.login_version.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         }
         self.oauth.replace(cache, self.creds.clone(), rotated).await?;
+        // The grant the write named is the one this login goes on storing.
+        self.creds.grant = cache.entry.as_ref().and_then(|entry| entry.grant.clone());
         self.generation = cache.generation;
         Ok(())
     }

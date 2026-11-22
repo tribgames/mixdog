@@ -42,7 +42,7 @@ pub struct HttpTransport {
     version: Mutex<Option<String>>,
     incoming: IncomingTx,
     shutdown: CancellationToken,
-    auth: Option<Arc<dyn Authorizer>>,
+    auth: Option<Arc<crate::transport::OpenedAs>>,
     /// Where the Google calls of a built-in Google connector's server go (that server answers in this process).
     google: Option<Arc<dyn GoogleFetch>>,
     /// The server a Gmail app-password connector's reserved address is answered by (in this process).
@@ -93,7 +93,7 @@ impl HttpTransport {
                 version: Mutex::new(None),
                 incoming,
                 shutdown: CancellationToken::new(),
-                auth,
+                auth: auth.map(crate::transport::OpenedAs::new),
                 google,
                 gmail: None,
             },
@@ -394,6 +394,68 @@ mod tests {
         assert_eq!(seen, ["renew old", "refused again old with Bearer error=\"insufficient_scope\", scope=\"second\""]);
     }
 
+    /// The session a signed-in request opened is ended as the same sign-in: a server that asks every request for its
+    /// token would refuse a `DELETE` without one, and keep the session.
+    #[tokio::test]
+    async fn the_session_is_ended_with_the_token_it_was_opened_with() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (ended, mut ends) = unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let ended = ended.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
+                    let method = head.split(' ').next().unwrap_or_default().to_owned();
+                    let bearer = head.lines().find_map(|line| line.strip_prefix("authorization: bearer ")).unwrap_or_default().trim().to_owned();
+                    let _ = ended.send((method, bearer, head.contains("mcp-session-id: s1")));
+                    let reply = if head.starts_with("delete ") {
+                        "HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+                    } else {
+                        let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nmcp-session-id: s1\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        /// A stored sign-in that another account's replaces.
+        struct Switched {
+            token: Mutex<&'static str>,
+            sign_in: std::sync::atomic::AtomicU64,
+        }
+        #[async_trait::async_trait]
+        impl Authorizer for Switched {
+            async fn token(&self) -> Result<Option<String>, TransportError> {
+                Ok(Some((*self.token.lock().unwrap()).to_owned()))
+            }
+            async fn renew(&self, _: Option<String>, _: Option<String>) -> Result<(), TransportError> {
+                Err(TransportError::AuthRequired)
+            }
+            fn sign_in(&self) -> u64 {
+                self.sign_in.load(std::sync::atomic::Ordering::SeqCst)
+            }
+        }
+        let auth = Arc::new(Switched { token: Mutex::new("old"), sign_in: 0.into() });
+        let url = Url::parse(&format!("http://{addr}/mcp")).unwrap();
+        let (transport, _rx) = HttpTransport::new(url, &BTreeMap::new(), Some(auth.clone())).unwrap();
+        let ping = || serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "ping"});
+        transport.post_message(ping()).await.unwrap();
+        // Another account signs in while the connection is open.
+        *auth.token.lock().unwrap() = "new";
+        auth.sign_in.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        transport.post_message(ping()).await.unwrap();
+        transport.close().await;
+        let seen = [ends.recv().await.unwrap(), ends.recv().await.unwrap(), ends.recv().await.unwrap()];
+        let as_opened = |method: &str, session: bool| (method.to_owned(), "old".to_owned(), session);
+        assert_eq!(seen, [as_opened("post", false), as_opened("post", true), as_opened("delete", true)], "every request of the connection is the sign-in it was opened as");
+    }
+
     #[test]
     fn the_reconnect_delay_grows_by_half_each_attempt_up_to_the_cap_and_yields_to_the_server() {
         assert_eq!(reconnect_delay(0, None), Duration::from_millis(1000));
@@ -529,14 +591,22 @@ impl Transport for HttpTransport {
         self.shutdown.cancel();
         let has_session = self.session.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         if has_session {
-            // Tells the server the session is over; the answer does not matter.
-            let _ = STARTUP.bound_head(self.decorate(self.client.delete(self.url.clone())).send()).await;
+            // Tells the server the session is over, as whoever opened it; the answer does not matter.
+            let mut request = self.decorate(self.client.delete(self.url.clone()));
+            if let Some(token) = self.auth.as_ref().and_then(|auth| auth.held()) {
+                request = request.bearer_auth(token);
+            }
+            let _ = STARTUP.bound_head(request.send()).await;
         }
         let _ = self.incoming.send(Incoming::Closed(CloseCause { reason: "closed by client".to_owned(), stderr_tail: String::new() }));
     }
 
     fn set_protocol_version(&self, version: &str) {
         *self.version.lock().unwrap_or_else(|e| e.into_inner()) = Some(version.to_owned());
+    }
+
+    fn opened_as(&self) -> Option<u64> {
+        self.auth.as_ref().and_then(|auth| auth.opened_as())
     }
 
     fn initialized(&self) {

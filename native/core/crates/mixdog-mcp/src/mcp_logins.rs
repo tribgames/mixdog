@@ -100,6 +100,8 @@ struct Flow {
     /// A status is read and published as one step, so the feed never ends on an older one.
     publishing: Mutex<()>,
     session: Mutex<Option<Arc<dyn LoginSession>>>,
+    /// Cancelled with the flow: ends the backend's start, which has no session to cancel yet.
+    stop: tokio_util::sync::CancellationToken,
     cancelled: AtomicBool,
     timed_out: AtomicBool,
 }
@@ -234,6 +236,7 @@ impl McpLogins {
     async fn cancel_flow(flow: &Arc<Flow>) -> Value {
         if flow.is_pending() {
             flow.cancelled.store(true, Ordering::SeqCst);
+            flow.stop.cancel();
             let session = lock(&flow.session).clone();
             if let Some(session) = session {
                 session.cancel();
@@ -265,6 +268,7 @@ impl McpLogins {
                 feeds: Arc::clone(&self.feeds),
                 publishing: Mutex::new(()),
                 session: Mutex::new(None),
+                stop: tokio_util::sync::CancellationToken::new(),
                 cancelled: AtomicBool::new(false),
                 timed_out: AtomicBool::new(false),
             });
@@ -421,7 +425,13 @@ impl Driver {
 
     async fn drive(&self, url_tx: oneshot::Sender<String>) {
         let flow = &self.flow;
-        let started = self.backend.start(&flow.name, self.mode, self.beside).await;
+        // The start is this login's: cancelling or replacing the login ends it wherever it waits, and with it whatever
+        // it held; a start that already answered is cancelled through its session below.
+        let started = tokio::select! {
+            biased;
+            () = flow.stop.cancelled() => return self.end(State::Cancelled, None),
+            started = self.backend.start(&flow.name, self.mode, self.beside) => started,
+        };
         let session: Arc<dyn LoginSession> = match started {
             Ok(Started::Browser(session)) => Arc::from(session),
             Ok(Started::Connected) => return self.complete().await,

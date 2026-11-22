@@ -554,7 +554,10 @@ export async function copyDevAuth(
   }
   const secretsDir = join(source, 'secrets');
   if (await lstatTrusted(trustedRoot, secretsDir, { optional: true })) {
-    const secrets = (await readDevDir(secretsDir)).filter((name) => name.endsWith('.dpapi'));
+    // A connector sign-in is a grant whose refresh token rotates: the instance signs in for itself.
+    const secrets = (await readDevDir(secretsDir)).filter(
+      (name) => name.endsWith('.dpapi') && !name.startsWith('mcp-oauth.')
+    );
     if (secrets.length) await mkdir(join(dataDir, 'secrets'), { recursive: true });
     for (const entry of secrets) {
       await assertDevFile(trustedRoot, join(secretsDir, entry));

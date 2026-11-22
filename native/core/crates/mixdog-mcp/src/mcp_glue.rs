@@ -167,6 +167,8 @@ pub struct McpGlue {
     toggle_chains: Mutex<HashMap<String, ToggleChain>>,
     /// The scopes' connection lifecycle (serialization, generations, readiness, ownership).
     scopes: Arc<ScopeRuntime>,
+    /// Signalled each time a sign-in begins waiting for an account's own server.
+    account_waits: tokio::sync::Notify,
 }
 
 /// The MCP scope of a session as the session layer opens and releases it: the scope id is created
@@ -266,11 +268,18 @@ impl McpGlue {
             oauths: Mutex::default(),
             plugin_servers: Mutex::default(),
             toggle_chains: Mutex::default(),
+            account_waits: tokio::sync::Notify::new(),
         })
     }
 
     pub fn hub(&self) -> &Arc<McpHub> {
         &self.hub
+    }
+
+    /// The signal that a sign-in began waiting for an account's own server, for a test that answers the server only then.
+    #[cfg(feature = "test-support")]
+    pub fn account_waits(&self) -> &tokio::sync::Notify {
+        &self.account_waits
     }
 
     /// The scopes' connection lifecycle, for a test's watch of its operations.
@@ -593,17 +602,19 @@ impl McpGlue {
         self.oauth_of(&cfg)
     }
 
-    /// The sign-in object of `cfg`: the live server's own, else one shared by credential key.
+    /// The sign-in object of `cfg`: the live server's own, else one shared by credential key. Either is the one of
+    /// `cfg` only while it was made for the address `cfg` names: a token is sent to the address its object holds.
     fn oauth_of(&self, cfg: &Value) -> Option<Arc<McpOAuth>> {
         let binding = self.binding_of(cfg)?;
+        let made_for = |oauth: &Arc<McpOAuth>| oauth.binding().credential_key == binding.credential_key && oauth.binding().url == binding.url;
         if let Some(name) = cfg.get("name").and_then(Value::as_str)
             && let Some(live) = self.live_oauth(name)
-            && live.binding().credential_key == binding.credential_key
+            && made_for(&live)
         {
             return Some(live);
         }
         let mut all = lock(&self.oauths);
-        if let Some(found) = all.get(&binding.credential_key) {
+        if let Some(found) = all.get(&binding.credential_key).filter(|found| made_for(found)) {
             return Some(Arc::clone(found));
         }
         let key = binding.credential_key.clone();
@@ -849,6 +860,26 @@ impl McpGlue {
         }
         (false, error)
     }
+
+    /// Waits until the connect a reconnect scheduled for account `name`'s own server ended, connected or failed. A
+    /// connector answers its reconnect as soon as any account of it is ready, which may be before this one's server
+    /// answered. The wait is as long as that connect: within its startup budget, and with the budget disabled until the
+    /// server settles or the login that waits is cancelled. Not an account, or no such server: no wait.
+    async fn account_connect_settled(&self, catalog: &Catalog, name: &str) {
+        let Some(target) = account_target(&catalog.servers, name) else { return };
+        let Some(server) = self.live_server(&target.server_name).and_then(|connector| connector.account_server(name)) else { return };
+        let scheduled = lock(&server.scheduled_start).clone();
+        let Some(ended) = scheduled else { return };
+        // Signalled by the wait itself, when it is first polled: an arm that did not await it signals nothing.
+        let settled = async {
+            self.account_waits.notify_one();
+            ended.cancelled().await;
+        };
+        match server.config().startup_timeout {
+            Some(budget) => drop(mixdog_rt::time::timeout(budget + Duration::from_secs(5), settled).await),
+            None => settled.await,
+        }
+    }
 }
 
 #[async_trait]
@@ -943,8 +974,13 @@ impl LoginBackend for Bridge {
         // The catalog read here may be newer than the one the request was checked against.
         let catalog = glue.resolve_catalog().await;
         let (account, named) = sign_in_target(&catalog.servers, name)?;
+        // The login is in progress for the whole of this start: either reconnect below dials the server whatever is
+        // stored, a sign-in the status still lists after its secret went included.
+        let _login = glue.oauth_of(&named).map(|oauth| oauth.login_in_progress());
         // 연결 / 다시 인증 of a signed-in server: its stored sign-in (refreshed as needed) is tried first.
         let signed_in = glue.oauth_value(&named).await.is_some_and(|s| s["signedIn"] == json!(true));
+        // A signed-in switch reconnects nothing here.
+        let reconnects = !(signed_in && mode == AccountMode::Switch);
         if signed_in && mode != AccountMode::Switch {
             let (connected, _) = glue.reconnect_one(name).await;
             if connected && (account.is_none() || glue.account_error(&catalog, name).is_empty()) {
@@ -959,8 +995,12 @@ impl LoginBackend for Bridge {
         if !signed_in {
             glue.reconnect_one(name).await;
         }
-        // The account, or its connector server, may have been switched off while it reconnected: what signs in is what
-        // the configuration holds now, and nothing that was switched off is contacted.
+        // Only a connect this start caused is waited for.
+        if reconnects {
+            glue.account_connect_settled(&catalog, name).await;
+        }
+        // The account, or its connector server, may have been switched off or removed while it reconnected: what signs in
+        // is what the configuration holds now, and nothing that was switched off is contacted.
         let (_, named) = sign_in_target(&glue.resolve_catalog().await.servers, name)?;
         // The connection just made holds the refusal of its own endpoint.
         let oauth = glue.oauth_of(&named).ok_or_else(no_oauth)?;
