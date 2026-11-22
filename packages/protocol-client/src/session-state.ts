@@ -117,9 +117,21 @@ function boundaryItem(s: SessionFold, held: readonly string[], shown: string): n
 const ownRow: RowOwner = (row, item) => void rowItems.set(row, item);
 const itemOfRow = (row: Obj): string | undefined => rowItems.get(row);
 
-/** Where a row no stored record shows stands: after the tail's record at this position (null: before them all). A row
- *  arrives after the records stored by then and before the ones stored later, and some never get a record of their own. */
-const looseAfter = new WeakMap<Obj, string | null>();
+/** Where a row no stored record shows stands. A row arrives after the records stored by then and before the ones stored
+ *  later, and some never get a record of their own. */
+interface Place {
+  /** The record it stands after (`before`: before); null: before every record. */
+  readonly at: string | null;
+  readonly before?: boolean;
+  /** The record is known to be stored: the window held it, or the core says it lies above the records a snapshot
+   *  carried. Until then a named record is one still to arrive. */
+  stored: boolean;
+  /** A snapshot's row the core named no record for, put at the tail's end as it was then: it is never taken for a
+   *  row of the history above the tail. */
+  readonly guessed?: boolean;
+}
+const loosePlace = new WeakMap<Obj, Place>();
+const FIRST: Place = { at: null, stored: true };
 
 /** The newest record of the followed tail. */
 const tailEnd = (held: HeldWindow): string | null => tailRun(held)?.positions.at(-1) ?? null;
@@ -128,30 +140,46 @@ const tailEnd = (held: HeldWindow): string | null => tailRun(held)?.positions.at
 function withLoose(held: HeldWindow, loose: readonly Obj[], row: Obj): Obj[] {
   const { items, at } = upsert(loose, row);
   const prior = loose[at];
-  looseAfter.set(row, prior ? (looseAfter.get(prior) ?? null) : tailEnd(held));
+  loosePlace.set(row, prior ? (loosePlace.get(prior) ?? FIRST) : { at: tailEnd(held), stored: true });
   return items;
 }
 
 /** The rows a positioned fold shows on its live tail: the run of the followed tail, each row no stored record shows
- *  after the record it arrived after (one whose record left the tail: before them all). */
+ *  beside the record it stands after (or before). One whose record is still to arrive stands after them all until it
+ *  does. One whose stored record is not in the run stands in the history above it and is not shown while the run
+ *  continues there (it returns with its record); in a run that reaches the thread's start it stands before them all. */
 function positionedItems(held: HeldWindow, loose: readonly Obj[]): Obj[] {
   const run = tailRun(held);
   if (loose.length === 0 || !run) return [...runRows(held, run), ...loose];
-  const after = new Map<string | null, Obj[]>();
+  const first: Obj[] = [];
+  const last: Obj[] = [];
+  const before = new Map<string, Obj[]>();
+  const after = new Map<string, Obj[]>();
+  const inRun = new Set(run.positions);
   for (const row of loose) {
-    const anchor = looseAfter.get(row) ?? null;
-    const at = anchor !== null && run.positions.includes(anchor) ? anchor : null;
-    const shown = after.get(at);
-    if (shown) shown.push(row);
-    else after.set(at, [row]);
+    const place = loosePlace.get(row) ?? FIRST;
+    if (place.at === null) first.push(row);
+    else if (inRun.has(place.at)) {
+      place.stored = true;
+      const beside = place.before ? before : after;
+      const shown = beside.get(place.at);
+      if (shown) shown.push(row);
+      else beside.set(place.at, [row]);
+    } else {
+      if (held.units.has(place.at)) place.stored = true;
+      if (place.guessed) first.push(row);
+      else if (!place.stored) last.push(row);
+      else if (run.older === null) first.push(row);
+    }
   }
-  const rows = [...(after.get(null) ?? [])];
+  const rows = first;
   for (const position of run.positions) {
+    for (const row of before.get(position) ?? []) rows.push(row);
     const unit = held.units.get(position);
     if (unit) for (const row of unit.rows) rows.push(row);
-    const shown = after.get(position);
-    if (shown) for (const row of shown) rows.push(row);
+    for (const row of after.get(position) ?? []) rows.push(row);
   }
+  for (const row of last) rows.push(row);
   return rows;
 }
 
@@ -233,9 +261,14 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
       const first = prior.findIndex(taken);
       const positions = tailRun(changed.window)?.positions ?? [];
       const at = positions.indexOf(changed.position);
+      // A row that names a record of its own (one still to arrive, or one of the history above) keeps it.
       if (first >= 0 && at >= 0)
-        for (const row of prior.slice(first + 1))
-          if (positions.indexOf(looseAfter.get(row) ?? '') < at) looseAfter.set(row, changed.position);
+        for (const row of prior.slice(first + 1)) {
+          const place = loosePlace.get(row) ?? FIRST;
+          const stands = place.at === null ? -1 : positions.indexOf(place.at);
+          if (!place.before && (place.at === null || stands >= 0) && stands < at)
+            loosePlace.set(row, { at: changed.position, stored: true });
+        }
       const next = withHeld(s, changed.window, loose, true);
       return s.live && changed.items.includes(s.live.id) ? withLive(next, null) : next;
     }
@@ -502,9 +535,22 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const source = Array.isArray(p.items) ? p.items : [];
   const items: Obj[] = [];
   const coreItems: string[] = [];
+  // Of a positioned snapshot: where each row of no record stands, as the core states it (`ext.shownAfter`, or
+  // `ext.shownBefore` for a row no record of the view precedes; `ext.shownStored`: that record lies above the records
+  // the snapshot carries).
+  const named = new Map<Obj, Place>();
   let live: Live | null = null;
   for (let i = 0; i < source.length; i++) {
-    const item = asObj(source[i]);
+    const sent = asObj(source[i]);
+    const { shownAfter, shownBefore, shownStored, ...ext } = asObj(asObj(sent.meta).ext);
+    const stored = shownStored === true;
+    const place: Place | undefined =
+      typeof shownAfter === 'string'
+        ? { at: shownAfter, stored }
+        : typeof shownBefore === 'string'
+          ? { at: shownBefore, before: true, stored }
+          : undefined;
+    const item: Obj = place ? { ...sent, meta: { ...asObj(sent.meta), ext } } : sent;
     const id = typeof item.id === 'string' ? item.id : undefined;
     if (id !== undefined) coreItems.push(id);
     // The reply the turn is streaming (the core's in-progress item, its text so far) is the live row `item/started` and its deltas
@@ -514,6 +560,7 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     else
       for (const folded of rowsOf(item)) {
         if (id !== undefined) rowItems.set(folded, id);
+        if (place) named.set(folded, { ...place });
         items.push(folded);
       }
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
@@ -524,8 +571,9 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     // copy of it gives way, as a row does when its record arrives.
     const recorded = new Set([...held.units.values()].flatMap((unit) => unit.rows.map((row) => row.id)));
     const loose = items.filter((row) => !recorded.has(row.id));
-    // A snapshot's rows of no record are newer than every record it holds.
-    for (const row of loose) looseAfter.set(row, tailEnd(held));
+    // A snapshot's row of no record stands where the core names; one it names no record for (a core that names none, a
+    // view of no record) is taken for newer than every record held.
+    for (const row of loose) loosePlace.set(row, named.get(row) ?? { at: tailEnd(held), stored: true, guessed: true });
     const shown = positionedItems(held, loose);
     transcriptCache.set(shown, yield* mergeToolRowsSteps(shown));
     const fold: SessionFold = {
