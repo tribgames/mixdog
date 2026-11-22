@@ -500,13 +500,12 @@ fn reported_width(answer: &str) -> Option<u16> {
             .collect();
         (values.len() >= 5).then(|| values[1])
     } else {
-        // `stty size`: "31 97" on a line of its own.
+        // `stty size`: a line ending in "31 97". The prompt of the query stands before it when the query was typed
+        // ahead of that prompt ("$ 31 97").
         answer.split_inclusive('\n').filter(|line| line.ends_with('\n')).find_map(|line| {
-            let mut parts = line.split_whitespace();
-            let (rows, cols) = (parts.next()?, parts.next()?);
-            if parts.next().is_some() || rows.parse::<u16>().is_err() {
-                return None;
-            }
+            let mut parts = line.split_whitespace().rev();
+            let (cols, rows) = (parts.next()?, parts.next()?);
+            rows.parse::<u16>().ok()?;
             cols.parse().ok()
         })
     }
