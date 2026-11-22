@@ -3,9 +3,14 @@ name = "mixdog-app-server-daemon"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
 
 [features]
 # Replay-only: the service answering `replay/storesSettled` (replay_stores_settled.rs) over the session directory's

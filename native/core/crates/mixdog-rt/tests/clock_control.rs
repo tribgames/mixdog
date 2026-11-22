@@ -328,7 +328,7 @@ struct Core {
 fn launch(role: &str, address: &str, env: &[(&str, String)]) -> Core {
     let mut command = Command::new(std::env::current_exe().expect("this test binary"));
     command
-        .args(["core", "--exact", "--nocapture", "--test-threads=1"])
+        .args(["clock_control::core", "--exact", "--nocapture", "--test-threads=1"])
         .env(ROLE, role)
         .env(virtual_clock::ENV, address)
         .env(virtual_clock::TOKEN_ENV, TOKEN)

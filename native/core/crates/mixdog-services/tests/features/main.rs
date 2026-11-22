@@ -21,3 +21,6 @@ mod native_asset;
 mod scheduler;
 mod tidy;
 mod voice;
+
+#[path = "../auto_effort_label_matches_judge.rs"]
+mod auto_effort_label_matches_judge;

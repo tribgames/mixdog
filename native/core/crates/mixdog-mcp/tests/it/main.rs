@@ -43,3 +43,6 @@ async fn oauth_seams() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 mod stored_publisher_suite;
+
+#[path = "../output_schema_lane.rs"]
+mod output_schema_lane;

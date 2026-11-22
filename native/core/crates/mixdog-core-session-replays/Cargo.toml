@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 description = "The replays of Node's recordings against mixdog-core-session, outside the library so an edit rebuilds one test target, not the library's unit-test binary."
+autotests = false
 
 [lints]
 workspace = true
@@ -13,22 +14,9 @@ workspace = true
 doctest = false
 test = false
 
-# One target per area: an edit of a replay rebuilds its area only.
 [[test]]
-name = "agents"
-path = "tests/agents/main.rs"
-
-[[test]]
-name = "quota"
-path = "tests/quota/main.rs"
-
-[[test]]
-name = "stores"
-path = "tests/stores/main.rs"
-
-[[test]]
-name = "threads"
-path = "tests/threads/main.rs"
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

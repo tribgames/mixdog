@@ -21,8 +21,8 @@ use mixdog_store::schema::record::Header;
 use serde_json::Value;
 use serde_json::json;
 
-use crate::testing::World;
-use crate::testing::open_world;
+use super::testing::World;
+use super::testing::open_world;
 
 struct Facts;
 

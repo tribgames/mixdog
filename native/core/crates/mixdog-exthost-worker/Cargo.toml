@@ -3,6 +3,7 @@ name = "mixdog-exthost-worker"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -17,19 +18,8 @@ path = "src/bin/ext_worker_dev.rs"
 required-features = ["test-support"]
 
 [[test]]
-name = "pdf_render_ocr"
-path = "tests/pdf_render_ocr.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "pool_e2e"
-path = "tests/pool_e2e.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "office_journal"
-path = "tests/office_journal.rs"
-required-features = ["test-support"]
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 base64 = { workspace = true }

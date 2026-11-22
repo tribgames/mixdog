@@ -14,7 +14,7 @@ mod unix_pty {
     use vte::{Params, Parser, Perform};
 
     const CHILD_ENV: &str = "MIXDOG_TERM_PTY_CHILD";
-    const CHILD_TEST: &str = "unix_pty::pty_child";
+    const CHILD_TEST: &str = "console_pty::unix_pty::pty_child";
     const LIMIT: Duration = Duration::from_secs(15);
 
     // ---- the child --------------------------------------------------------------------------------------------------

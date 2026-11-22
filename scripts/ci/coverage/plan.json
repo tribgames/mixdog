@@ -403,14 +403,6 @@
         {
           "id": "ci",
           "producer": "nextest"
-        },
-        {
-          "id": "doc",
-          "producer": "doctest"
-        },
-        {
-          "id": "doc-image-egress",
-          "producer": "doctest"
         }
       ]
     },
@@ -487,7 +479,7 @@
       ]
     },
     {
-      "id": "windows/core-tests/1of4",
+      "id": "windows/core-tests/1of6",
       "os": "windows",
       "workflow": "release-gate.yml",
       "job": "core-tests-windows",
@@ -499,7 +491,7 @@
       ]
     },
     {
-      "id": "windows/core-tests/2of4",
+      "id": "windows/core-tests/2of6",
       "os": "windows",
       "workflow": "release-gate.yml",
       "job": "core-tests-windows",
@@ -511,7 +503,7 @@
       ]
     },
     {
-      "id": "windows/core-tests/3of4",
+      "id": "windows/core-tests/3of6",
       "os": "windows",
       "workflow": "release-gate.yml",
       "job": "core-tests-windows",
@@ -523,7 +515,7 @@
       ]
     },
     {
-      "id": "windows/core-tests/4of4",
+      "id": "windows/core-tests/4of6",
       "os": "windows",
       "workflow": "release-gate.yml",
       "job": "core-tests-windows",
@@ -531,6 +523,46 @@
         {
           "id": "ci",
           "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "windows/core-tests/5of6",
+      "os": "windows",
+      "workflow": "release-gate.yml",
+      "job": "core-tests-windows",
+      "slots": [
+        {
+          "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "windows/core-tests/6of6",
+      "os": "windows",
+      "workflow": "release-gate.yml",
+      "job": "core-tests-windows",
+      "slots": [
+        {
+          "id": "ci",
+          "producer": "nextest"
+        }
+      ]
+    },
+    {
+      "id": "linux/core-doctests/1of1",
+      "os": "linux",
+      "workflow": "release-gate.yml",
+      "job": "core-doctests",
+      "slots": [
+        {
+          "id": "doc",
+          "producer": "doctest"
+        },
+        {
+          "id": "doc-image-egress",
+          "producer": "doctest"
         }
       ]
     },
@@ -1281,12 +1313,14 @@
       {
         "name": "windows",
         "os": "windows",
-        "listLeg": "windows/core-tests/1of4#ci",
+        "listLeg": "windows/core-tests/1of6#ci",
         "testLegs": [
-          "windows/core-tests/1of4#ci",
-          "windows/core-tests/2of4#ci",
-          "windows/core-tests/3of4#ci",
-          "windows/core-tests/4of4#ci"
+          "windows/core-tests/1of6#ci",
+          "windows/core-tests/2of6#ci",
+          "windows/core-tests/3of6#ci",
+          "windows/core-tests/4of6#ci",
+          "windows/core-tests/5of6#ci",
+          "windows/core-tests/6of6#ci"
         ],
         "profileLegs": {}
       }
@@ -1380,7 +1414,7 @@
         "manifestDir": "native/core/crates/mixdog-core-api",
         "requires": [
           {
-            "anyOf": ["linux/core-tests/1of4#doc"]
+            "anyOf": ["linux/core-doctests/1of1#doc"]
           }
         ]
       },
@@ -1388,7 +1422,7 @@
         "manifestDir": "native/core/crates/mixdog-image-egress",
         "requires": [
           {
-            "anyOf": ["linux/core-tests/1of4#doc-image-egress"]
+            "anyOf": ["linux/core-doctests/1of1#doc-image-egress"]
           }
         ]
       }
@@ -1405,7 +1439,18 @@
     "linux-native-tools.yml",
     "release.yml"
   ],
-  "dynamicMatrixJobs": ["runtime", "mixdogd", "core-tests-linux", "core-tests-macos", "core-tests-windows", "core-pg"],
+  "dynamicMatrixJobs": [
+    "runtime",
+    "core-tests-linux",
+    "core-tests-macos",
+    "core-tests-windows",
+    "core-pg",
+    "core-build-linux",
+    "core-build-macos",
+    "core-build-windows",
+    "core-lint",
+    "core-real"
+  ],
   "gateCallIfAllowed": ["deploy.yml#coverage-gate"],
   "sinks": [
     {
@@ -1555,12 +1600,12 @@
     "fullCondition": "needs.changes.outputs.full == 'true'",
     "verdictJobs": {
       "release-gate.yml#inventory": {
-        "if": "needs.changes.outputs.full == 'true'",
+        "if": "needs.changes.outputs.source_inventory == 'true'",
         "diagnostics": ["Upload the inventory report"],
         "commands": [
           "node scripts/ci/coverage/cli.mjs inventory --root . --sha \"$EXPECTED_SHA\" --out \"$RUNNER_TEMP/coverage/manifest.json\" --report \"$RUNNER_TEMP/coverage/errors.json\""
         ],
-        "digest": "2e5c4fc37eb9b47d60c800d33ea0d74bb090634d34faf5cb5b0e4e4fd94a73ef"
+        "digest": "acdae553c4ae30c084cb376e9822244ccccc1b587342207e05b0b728fba49b1a"
       },
       "release-gate.yml#complete": {
         "if": "always()",
@@ -1568,7 +1613,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "59c4244502209d02e52e74edb83419f07fd80c68b313584a6a189fbc9d14157c"
+        "digest": "e51c44bda8312d58c66480c7edcc162c5ee1ef1f10fc9c7c6633e23b6529410e"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",

@@ -3,6 +3,7 @@ name = "mixdog-relay"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -22,34 +23,8 @@ path = "src/main.rs"
 test-support = []
 
 [[test]]
-name = "smtp"
-path = "tests/smtp.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "feedback_service"
-path = "tests/feedback_service.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "native_push"
-path = "tests/native_push.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "legs_core"
-path = "tests/legs_core.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "feedback_http"
-path = "tests/feedback_http.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "legs_ingress"
-path = "tests/legs_ingress.rs"
-required-features = ["test-support"]
+name = "it"
+path = "tests/it/main.rs"
 
 [dependencies]
 base64 = { workspace = true }
@@ -99,18 +74,3 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-u
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-js = { workspace = true, features = ["prefilter-probe"] }
 mixdog-relay = { path = ".", features = ["test-support"] }
-
-[[test]]
-name = "legs_phone"
-path = "tests/legs_phone.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "media_proxy"
-path = "tests/media_proxy.rs"
-required-features = ["test-support"]
-
-[[test]]
-name = "push_ice_frames"
-path = "tests/push_ice_frames.rs"
-required-features = ["test-support"]

@@ -5154,8 +5154,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "actions_live",
-        "a_background_session_of_each_format_saves_renders_and_leaves_no_office_process"
+        "it",
+        "actions_live::a_background_session_of_each_format_saves_renders_and_leaves_no_office_process"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5172,8 +5172,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "actions_live",
-        "a_deck_written_elsewhere_is_reloaded_into_the_running_application"
+        "it",
+        "actions_live::a_deck_written_elsewhere_is_reloaded_into_the_running_application"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5190,8 +5190,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "actions_live",
-        "a_workbook_with_a_zero_dpi_is_repaired_when_the_session_reopens_it"
+        "it",
+        "actions_live::a_workbook_with_a_zero_dpi_is_repaired_when_the_session_reopens_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5208,8 +5208,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "containment_live",
-        "a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup"
+        "it",
+        "containment_live::a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5222,7 +5222,7 @@
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-office-com/Cargo.toml", "test", "containment_live", "stand_in"],
+      "id": ["rust", "native/core/crates/mixdog-office-com/Cargo.toml", "test", "it", "containment_live::stand_in"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -5238,8 +5238,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "containment_live",
-        "the_sweep_ends_a_hidden_word_left_by_a_dead_host_and_spares_a_visible_one"
+        "it",
+        "containment_live::the_sweep_ends_a_hidden_word_left_by_a_dead_host_and_spares_a_visible_one"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5256,8 +5256,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "dispatch_live",
-        "dispatch_live_roundtrip"
+        "it",
+        "dispatch_live::dispatch_live_roundtrip"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5274,8 +5274,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "excel_edit_live",
-        "a_new_workbook_is_edited_operation_by_operation_and_read_back"
+        "it",
+        "excel_edit_live::a_new_workbook_is_edited_operation_by_operation_and_read_back"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5292,8 +5292,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "excel_read_live",
-        "a_new_workbook_reads_whole_by_pages_for_its_selection_and_for_its_issues"
+        "it",
+        "excel_read_live::a_new_workbook_reads_whole_by_pages_for_its_selection_and_for_its_issues"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5306,7 +5306,7 @@
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-office-com/Cargo.toml", "test", "host_protocol", "live::host_live_sta"],
+      "id": ["rust", "native/core/crates/mixdog-office-com/Cargo.toml", "test", "it", "host_protocol::live::host_live_sta"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -5322,8 +5322,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "platform_live",
-        "installed_fonts_equal_what_system_drawing_lists"
+        "it",
+        "platform_live::installed_fonts_equal_what_system_drawing_lists"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5340,8 +5340,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "platform_live",
-        "the_process_and_file_helpers_answer_for_this_process"
+        "it",
+        "platform_live::the_process_and_file_helpers_answer_for_this_process"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5358,8 +5358,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "platform_live",
-        "the_running_object_table_and_the_windows_of_a_live_office"
+        "it",
+        "platform_live::the_running_object_table_and_the_windows_of_a_live_office"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5376,8 +5376,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "ppt_edit_live",
-        "the_editor_meets_what_every_scenario_expects_and_leaves_no_process"
+        "it",
+        "ppt_edit_live::the_editor_meets_what_every_scenario_expects_and_leaves_no_process"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5394,8 +5394,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "ppt_read_live",
-        "the_reader_reads_the_deck_the_dispatch_layer_made"
+        "it",
+        "ppt_read_live::the_reader_reads_the_deck_the_dispatch_layer_made"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5412,8 +5412,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "session_live",
-        "an_attach_session_closing_leaves_the_users_excel_running_with_the_workbook_open"
+        "it",
+        "session_live::an_attach_session_closing_leaves_the_users_excel_running_with_the_workbook_open"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5430,8 +5430,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "session_live",
-        "background_sessions_create_save_and_close_without_leaving_an_office_process"
+        "it",
+        "session_live::background_sessions_create_save_and_close_without_leaving_an_office_process"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5448,8 +5448,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "switch_word_live",
-        "cancelling_a_long_render_closes_the_document_and_the_host_exits_by_itself"
+        "it",
+        "switch_word_live::cancelling_a_long_render_closes_the_document_and_the_host_exits_by_itself"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5466,8 +5466,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "switch_word_live",
-        "every_word_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process"
+        "it",
+        "switch_word_live::every_word_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5484,8 +5484,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "word_edit_live",
-        "a_background_document_is_edited_through_the_registered_editor"
+        "it",
+        "word_edit_live::a_background_document_is_edited_through_the_registered_editor"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5502,8 +5502,8 @@
         "rust",
         "native/core/crates/mixdog-office-com/Cargo.toml",
         "test",
-        "word_read_live",
-        "a_background_document_is_read_through_the_registered_reader"
+        "it",
+        "word_read_live::a_background_document_is_read_through_the_registered_reader"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5520,8 +5520,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_border_set_on_a_block_rules_the_lines_between_its_cells_as_the_portable_writer_does"
+        "features",
+        "live_com::excel::excel_a_border_set_on_a_block_rules_the_lines_between_its_cells_as_the_portable_writer_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5538,8 +5538,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_chart_ended_at_to_column_reaches_that_column_in_the_workbook_font"
+        "features",
+        "live_com::excel::excel_a_chart_ended_at_to_column_reaches_that_column_in_the_workbook_font"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5556,8 +5556,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_cut_label_a_figure_run_into_its_label_and_faint_ink_are_reported_on_excel_as_portably"
+        "features",
+        "live_com::excel::excel_a_cut_label_a_figure_run_into_its_label_and_faint_ink_are_reported_on_excel_as_portably"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5574,8 +5574,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_fit_by_width_alone_leaves_the_printed_length_free_as_the_portable_file_does"
+        "features",
+        "live_com::excel::excel_a_fit_by_width_alone_leaves_the_printed_length_free_as_the_portable_file_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5592,8 +5592,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_multi_column_fit_is_not_widened_by_a_line_of_text_alone_in_its_row"
+        "features",
+        "live_com::excel::excel_a_multi_column_fit_is_not_widened_by_a_line_of_text_alone_in_its_row"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5610,8 +5610,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_pivot_over_korean_fields_takes_korean_captions"
+        "features",
+        "live_com::excel::excel_a_pivot_over_korean_fields_takes_korean_captions"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5628,8 +5628,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_protected_form_reads_back_allows_and_reports_its_entry_cells_as_the_portable_file_does"
+        "features",
+        "live_com::excel::excel_a_protected_form_reads_back_allows_and_reports_its_entry_cells_as_the_portable_file_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5646,8 +5646,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_text_excel_would_type_as_a_date_a_number_or_a_truth_value_stays_text"
+        "features",
+        "live_com::excel::excel_a_text_excel_would_type_as_a_date_a_number_or_a_truth_value_stays_text"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5664,8 +5664,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_a_validation_takes_its_choices_and_its_rule_in_the_forms_the_contract_names_them"
+        "features",
+        "live_com::excel::excel_a_validation_takes_its_choices_and_its_rule_in_the_forms_the_contract_names_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5682,8 +5682,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_an_appended_row_is_formatted_as_the_last_row_is_as_the_portable_writer_formats_it"
+        "features",
+        "live_com::excel::excel_an_appended_row_is_formatted_as_the_last_row_is_as_the_portable_writer_formats_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5700,8 +5700,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_charts_and_pictures_are_reviewed_against_the_print_area_and_each_other_on_excel_too"
+        "features",
+        "live_com::excel::excel_charts_and_pictures_are_reviewed_against_the_print_area_and_each_other_on_excel_too"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5718,8 +5718,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_copy_sheet_copies_and_insert_columns_takes_a_column_letter"
+        "features",
+        "live_com::excel::excel_copy_sheet_copies_and_insert_columns_takes_a_column_letter"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5736,8 +5736,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_freeze_panes_freezes_a_row_and_a_column_on_an_opened_workbook_as_the_portable_writer_does"
+        "features",
+        "live_com::excel::excel_freeze_panes_freezes_a_row_and_a_column_on_an_opened_workbook_as_the_portable_writer_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5754,8 +5754,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_freeze_panes_freezes_above_and_left_of_the_cell_it_names_under_a_tall_title_band"
+        "features",
+        "live_com::excel::excel_freeze_panes_freezes_above_and_left_of_the_cell_it_names_under_a_tall_title_band"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5772,8 +5772,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::excel_the_snapshot_names_hidden_rows_and_columns_and_reads_formulas_from_the_sheet"
+        "features",
+        "live_com::excel::excel_the_snapshot_names_hidden_rows_and_columns_and_reads_formulas_from_the_sheet"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5790,8 +5790,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "excel::persistent_excel_sessions_own_one_document_and_preserve_utf8_text"
+        "features",
+        "live_com::excel::persistent_excel_sessions_own_one_document_and_preserve_utf8_text"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5808,8 +5808,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "other::attach_attach_selects_the_exact_workbook_across_multiple_excel_instances"
+        "features",
+        "live_com::other::attach_attach_selects_the_exact_workbook_across_multiple_excel_instances"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5826,8 +5826,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "other::author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck"
+        "features",
+        "live_com::other::author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5844,8 +5844,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "other::compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_table_cell_alike_on_both_backends"
+        "features",
+        "live_com::other::compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_table_cell_alike_on_both_backends"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5862,8 +5862,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "other::compat_native_office_creates_and_reopens_template_and_macro_enabled_file_kinds"
+        "features",
+        "live_com::other::compat_native_office_creates_and_reopens_template_and_macro_enabled_file_kinds"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5880,8 +5880,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_document"
+        "features",
+        "live_com::other::contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_document"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5898,8 +5898,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::persistent_powerpoint_sessions_create_save_and_read_unicode_content"
+        "features",
+        "live_com::powerpoint::persistent_powerpoint_sessions_create_save_and_read_unicode_content"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5916,8 +5916,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_bar_chart_reads_top_down_or_bottom_up_as_category_order_asks_and_says_when_it_reads_bottom_up"
+        "features",
+        "live_com::powerpoint::powerpoint_a_bar_chart_reads_top_down_or_bottom_up_as_category_order_asks_and_says_when_it_reads_bottom_up"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5934,8 +5934,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_cover_picture_is_cropped_about_its_focus_centred_by_default"
+        "features",
+        "live_com::powerpoint::powerpoint_a_cover_picture_is_cropped_about_its_focus_centred_by_default"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5952,8 +5952,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_data_refresh_moves_a_last_point_accent_to_the_new_last_point"
+        "features",
+        "live_com::powerpoint::powerpoint_a_data_refresh_moves_a_last_point_accent_to_the_new_last_point"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5970,8 +5970,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_data_refresh_that_names_no_categories_keeps_the_charts_own_as_the_portable_writer_does"
+        "features",
+        "live_com::powerpoint::powerpoint_a_data_refresh_that_names_no_categories_keeps_the_charts_own_as_the_portable_writer_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -5988,8 +5988,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_footer_and_page_number_on_a_dark_slide_take_the_portable_writers_quiet_ink_and_place"
+        "features",
+        "live_com::powerpoint::powerpoint_a_footer_and_page_number_on_a_dark_slide_take_the_portable_writers_quiet_ink_and_place"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6006,8 +6006,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_large_glyph_its_box_holds_is_not_an_overflow_words_past_the_box_still_are"
+        "features",
+        "live_com::powerpoint::powerpoint_a_large_glyph_its_box_holds_is_not_an_overflow_words_past_the_box_still_are"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6024,8 +6024,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_named_face_a_transparency_and_paragraph_spacing_are_written_as_the_portable_file_writes_them"
+        "features",
+        "live_com::powerpoint::powerpoint_a_named_face_a_transparency_and_paragraph_spacing_are_written_as_the_portable_file_writes_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6042,8 +6042,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_row_set_table_data_adds_takes_the_type_of_the_last_row_as_the_portable_writer_repeats_it"
+        "features",
+        "live_com::powerpoint::powerpoint_a_row_set_table_data_adds_takes_the_type_of_the_last_row_as_the_portable_writer_repeats_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6060,8 +6060,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_a_template_page_keeps_its_own_background_on_import"
+        "features",
+        "live_com::powerpoint::powerpoint_a_template_page_keeps_its_own_background_on_import"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6078,8 +6078,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_default_layout_and_data_label_names_work_in_any_powerpoint_language"
+        "features",
+        "live_com::powerpoint::powerpoint_default_layout_and_data_label_names_work_in_any_powerpoint_language"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6096,8 +6096,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_new_chart_numbers_take_the_label_and_base_line_fields_beside_them"
+        "features",
+        "live_com::powerpoint::powerpoint_new_chart_numbers_take_the_label_and_base_line_fields_beside_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6114,8 +6114,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_qa_repairs_a_box_past_the_slide_edge_after_fitting_another"
+        "features",
+        "live_com::powerpoint::powerpoint_qa_repairs_a_box_past_the_slide_edge_after_fitting_another"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6132,8 +6132,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_set_footer_on_a_layout_without_a_footer_placeholder_lands_where_the_portable_writer_puts_it"
+        "features",
+        "live_com::powerpoint::powerpoint_set_footer_on_a_layout_without_a_footer_placeholder_lands_where_the_portable_writer_puts_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6150,8 +6150,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_set_shape_null_takes_the_fill_and_the_outline_away_as_the_portable_writer_does"
+        "features",
+        "live_com::powerpoint::powerpoint_set_shape_null_takes_the_fill_and_the_outline_away_as_the_portable_writer_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6168,8 +6168,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "powerpoint::powerpoint_trendline_codes_and_error_bar_sides_read_as_the_portable_writer_reads_them"
+        "features",
+        "live_com::powerpoint::powerpoint_trendline_codes_and_error_bar_sides_read_as_the_portable_writer_reads_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6186,8 +6186,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::persistent_word_sessions_create_save_and_read_unicode_content"
+        "features",
+        "live_com::word::persistent_word_sessions_create_save_and_read_unicode_content"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6204,8 +6204,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_background_word_session_reports_and_settles_a_redline_like_the_portable_reader"
+        "features",
+        "live_com::word::word_a_background_word_session_reports_and_settles_a_redline_like_the_portable_reader"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6222,8 +6222,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_background_word_session_writes_the_header_the_picture_and_the_page_number_where_the_portable_writer_does"
+        "features",
+        "live_com::word::word_a_background_word_session_writes_the_header_the_picture_and_the_page_number_where_the_portable_writer_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6240,8 +6240,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_chart_lands_as_a_picture_that_names_its_figures"
+        "features",
+        "live_com::word::word_a_chart_lands_as_a_picture_that_names_its_figures"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6258,8 +6258,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_column_inserted_one_past_the_last_lands_at_the_end_and_one_further_is_refused_as_portably"
+        "features",
+        "live_com::word::word_a_column_inserted_one_past_the_last_lands_at_the_end_and_one_further_is_refused_as_portably"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6276,8 +6276,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_column_of_words_after_a_column_of_figures_takes_a_gutter"
+        "features",
+        "live_com::word::word_a_column_of_words_after_a_column_of_figures_takes_a_gutter"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6294,8 +6294,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_korean_list_counts_1_ga_1_any_other_1_a_i_and_lists_join_and_open_as_the_portable_file_does"
+        "features",
+        "live_com::word::word_a_korean_list_counts_1_ga_1_any_other_1_a_i_and_lists_join_and_open_as_the_portable_file_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6312,8 +6312,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_link_or_note_placed_by_paragraph_lands_at_the_end_of_its_text"
+        "features",
+        "live_com::word::word_a_link_or_note_placed_by_paragraph_lands_at_the_end_of_its_text"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6330,8 +6330,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_note_mark_goes_at_the_end_of_the_word_the_cited_phrase_ends_in"
+        "features",
+        "live_com::word::word_a_note_mark_goes_at_the_end_of_the_word_the_cited_phrase_ends_in"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6348,8 +6348,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_page_or_column_break_stands_in_a_plain_paragraph_of_its_own_as_the_portable_writer_writes_it"
+        "features",
+        "live_com::word::word_a_page_or_column_break_stands_in_a_plain_paragraph_of_its_own_as_the_portable_writer_writes_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6366,8 +6366,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_paragraph_holds_an_exact_line_when_asked_and_a_minimum_otherwise"
+        "features",
+        "live_com::word::word_a_paragraph_holds_an_exact_line_when_asked_and_a_minimum_otherwise"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6384,8 +6384,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_provenance_comment_cites_its_source_in_the_copy_language"
+        "features",
+        "live_com::word::word_a_provenance_comment_cites_its_source_in_the_copy_language"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6402,8 +6402,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_row_or_table_the_document_lacks_is_refused_with_the_tables_it_holds_as_the_portable_writer_says_it"
+        "features",
+        "live_com::word::word_a_row_or_table_the_document_lacks_is_refused_with_the_tables_it_holds_as_the_portable_writer_says_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6420,8 +6420,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_section_laid_out_in_columns_reads_back_its_columns_and_their_spacing_as_the_portable_reader_reads_them"
+        "features",
+        "live_com::word::word_a_section_laid_out_in_columns_reads_back_its_columns_and_their_spacing_as_the_portable_reader_reads_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6438,8 +6438,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_a_two_level_header_merges_right_to_left_and_a_shifted_cell_is_explained"
+        "features",
+        "live_com::word::word_a_two_level_header_merges_right_to_left_and_a_shifted_cell_is_explained"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6456,8 +6456,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_an_edit_of_a_table_of_contents_entry_says_what_to_edit_instead"
+        "features",
+        "live_com::word::word_an_edit_of_a_table_of_contents_entry_says_what_to_edit_instead"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6474,8 +6474,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_appended_blocks_read_as_the_portable_writer_lays_them_out"
+        "features",
+        "live_com::word::word_appended_blocks_read_as_the_portable_writer_lays_them_out"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6492,8 +6492,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_consecutive_paragraphs_append_as_one_block_and_read_back_one_by_one_in_their_own_formats"
+        "features",
+        "live_com::word::word_consecutive_paragraphs_append_as_one_block_and_read_back_one_by_one_in_their_own_formats"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6510,8 +6510,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_excel_an_unlabelled_picture_is_reported_on_the_office_backend_as_it_is_portably"
+        "features",
+        "live_com::word::word_excel_an_unlabelled_picture_is_reported_on_the_office_backend_as_it_is_portably"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6528,8 +6528,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_move_paragraph_moves_the_paragraph_instead_of_deleting_it"
+        "features",
+        "live_com::word::word_move_paragraph_moves_the_paragraph_instead_of_deleting_it"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6546,8 +6546,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_name_sets_the_latin_face_alone_and_leaves_the_hangul_face_to_name_east_asia"
+        "features",
+        "live_com::word::word_name_sets_the_latin_face_alone_and_leaves_the_hangul_face_to_name_east_asia"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6564,8 +6564,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_placed_list_items_hung_clauses_set_paragraph_format_lists_and_a_contents_range_read_as_the_portable_file_does"
+        "features",
+        "live_com::word::word_placed_list_items_hung_clauses_set_paragraph_format_lists_and_a_contents_range_read_as_the_portable_file_does"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6582,8 +6582,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_set_list_numbers_and_nests_items_at_the_level_asked_as_the_portable_writer_lists_them"
+        "features",
+        "live_com::word::word_set_list_numbers_and_nests_items_at_the_level_asked_as_the_portable_writer_lists_them"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6600,8 +6600,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_set_paragraph_text_rewrites_a_table_cell_paragraph_without_adding_one"
+        "features",
+        "live_com::word::word_set_paragraph_text_rewrites_a_table_cell_paragraph_without_adding_one"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6618,8 +6618,8 @@
         "rust",
         "native/core/crates/mixdog-office/Cargo.toml",
         "test",
-        "live_com",
-        "word::word_two_tables_added_in_a_row_stay_two_tables"
+        "features",
+        "live_com::word::word_two_tables_added_in_a_row_stay_two_tables"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6636,8 +6636,8 @@
         "rust",
         "native/core/crates/mixdog-ooxml/Cargo.toml",
         "test",
-        "ooxml_validator_cache",
-        "live_validator_accepts_blank_documents"
+        "it",
+        "ooxml_validator_cache::live_validator_accepts_blank_documents"
       ],
       "platform": "linux",
       "kind": "ignored",
@@ -6654,8 +6654,8 @@
         "rust",
         "native/core/crates/mixdog-ooxml/Cargo.toml",
         "test",
-        "ooxml_validator_cache",
-        "live_validator_accepts_blank_documents"
+        "it",
+        "ooxml_validator_cache::live_validator_accepts_blank_documents"
       ],
       "platform": "macos",
       "kind": "ignored",
@@ -6672,8 +6672,8 @@
         "rust",
         "native/core/crates/mixdog-ooxml/Cargo.toml",
         "test",
-        "ooxml_validator_cache",
-        "live_validator_accepts_blank_documents"
+        "it",
+        "ooxml_validator_cache::live_validator_accepts_blank_documents"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -6686,7 +6686,7 @@
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_exit"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_exit"],
       "platform": "linux",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6699,21 +6699,21 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
+            "it",
+            "soffice_lifecycle::a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
+            "it",
+            "soffice_lifecycle::a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_exit"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_exit"],
       "platform": "macos",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6726,21 +6726,21 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
+            "it",
+            "soffice_lifecycle::a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
+            "it",
+            "soffice_lifecycle::a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_exit"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_exit"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6753,21 +6753,21 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
+            "it",
+            "soffice_lifecycle::a_failed_run_says_what_the_program_wrote_trimmed_or_else_its_exit_code"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
+            "it",
+            "soffice_lifecycle::a_run_that_succeeds_is_done_even_when_nobody_reads_its_output"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_flood"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_flood"],
       "platform": "linux",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6780,14 +6780,14 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
+            "it",
+            "soffice_lifecycle::a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_flood"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_flood"],
       "platform": "macos",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6800,14 +6800,14 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
+            "it",
+            "soffice_lifecycle::a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_flood"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_flood"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6820,14 +6820,14 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
+            "it",
+            "soffice_lifecycle::a_failed_run_reports_a_bounded_slice_of_what_it_wrote_to_stderr"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_launcher"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_launcher"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6840,14 +6840,14 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_cancelled_run_on_windows_stops_what_the_launcher_started_with_it"
+            "it",
+            "soffice_lifecycle::a_cancelled_run_on_windows_stops_what_the_launcher_started_with_it"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_sleeper"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_sleeper"],
       "platform": "linux",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6860,28 +6860,28 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_cancelled_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_cancelled_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_timed_out_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_timed_out_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_cancelled_before_it_starts_is_reported_cancelled"
+            "it",
+            "soffice_lifecycle::a_run_cancelled_before_it_starts_is_reported_cancelled"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_sleeper"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_sleeper"],
       "platform": "macos",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6894,28 +6894,28 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_cancelled_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_cancelled_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_timed_out_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_timed_out_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_cancelled_before_it_starts_is_reported_cancelled"
+            "it",
+            "soffice_lifecycle::a_run_cancelled_before_it_starts_is_reported_cancelled"
           ]
         ]
       }
     },
     {
-      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "soffice_lifecycle", "fake_sleeper"],
+      "id": ["rust", "native/core/crates/mixdog-ooxml/Cargo.toml", "test", "it", "soffice_lifecycle::fake_sleeper"],
       "platform": "windows",
       "kind": "ignored",
       "reasonCode": "nextest-ignored",
@@ -6928,22 +6928,22 @@
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_cancelled_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_cancelled_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_timed_out_run_is_reported_only_after_its_process_has_exited"
+            "it",
+            "soffice_lifecycle::a_timed_out_run_is_reported_only_after_its_process_has_exited"
           ],
           [
             "rust",
             "native/core/crates/mixdog-ooxml/Cargo.toml",
             "test",
-            "soffice_lifecycle",
-            "a_run_cancelled_before_it_starts_is_reported_cancelled"
+            "it",
+            "soffice_lifecycle::a_run_cancelled_before_it_starts_is_reported_cancelled"
           ]
         ]
       }
@@ -8292,8 +8292,8 @@
         "rust",
         "native/core/crates/mixdog-term/Cargo.toml",
         "test",
-        "console_pty",
-        "windows_console::windows_console_modes"
+        "it",
+        "console_pty::windows_console::windows_console_modes"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -8364,8 +8364,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "first_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::first_frame_is_not_slower_than_node"
       ],
       "platform": "linux",
       "kind": "ignored",
@@ -8382,8 +8382,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "first_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::first_frame_is_not_slower_than_node"
       ],
       "platform": "macos",
       "kind": "ignored",
@@ -8400,8 +8400,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "first_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::first_frame_is_not_slower_than_node"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -8418,8 +8418,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "keystroke_to_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::keystroke_to_frame_is_not_slower_than_node"
       ],
       "platform": "linux",
       "kind": "ignored",
@@ -8436,8 +8436,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "keystroke_to_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::keystroke_to_frame_is_not_slower_than_node"
       ],
       "platform": "macos",
       "kind": "ignored",
@@ -8454,8 +8454,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "keystroke_to_frame_is_not_slower_than_node"
+        "it",
+        "perf_pty::keystroke_to_frame_is_not_slower_than_node"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -8472,8 +8472,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "streaming_throughput_is_not_lower_than_node"
+        "it",
+        "perf_pty::streaming_throughput_is_not_lower_than_node"
       ],
       "platform": "linux",
       "kind": "ignored",
@@ -8490,8 +8490,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "streaming_throughput_is_not_lower_than_node"
+        "it",
+        "perf_pty::streaming_throughput_is_not_lower_than_node"
       ],
       "platform": "macos",
       "kind": "ignored",
@@ -8508,8 +8508,8 @@
         "rust",
         "native/core/crates/mixdog-tui/Cargo.toml",
         "test",
-        "perf_pty",
-        "streaming_throughput_is_not_lower_than_node"
+        "it",
+        "perf_pty::streaming_throughput_is_not_lower_than_node"
       ],
       "platform": "windows",
       "kind": "ignored",
@@ -8884,7 +8884,7 @@
       "platform": "windows",
       "kind": "skip",
       "reasonCode": "uncoded",
-      "reasonTemplate": "WGC capability probe reported Windows.Graphics.Capture unavailable on this host: ${capability.reason}",
+      "reasonText": "WGC capability probe reported Windows.Graphics.Capture unavailable on this host: GraphicsCaptureItem::CreateForWindow failed: The parameter is incorrect. Could not capture the given window.",
       "owner": "release-engineering",
       "reason": "the hosted Windows runner's compositor refuses a capture item (GraphicsCaptureItem::CreateForWindow answers E_INVALIDARG for every window, release-gate runs 35088208105 and 44959677392); the test skips only when the independent probe in fixtures/wgc-capability.mjs proves that, and runs fully wherever WGC works",
       "replacement": {

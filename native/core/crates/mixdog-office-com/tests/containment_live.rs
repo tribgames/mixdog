@@ -1,6 +1,6 @@
 //! The containment of an Office host against the real operating system and a real Microsoft Office. Every test is
 //! `#[ignore]`d and runs only on request on a Windows machine
-//! (`cargo test -p mixdog-office-com --test containment_live -- --ignored`); the Office case also needs
+//! (`cargo test -p mixdog-office-com --test it -- --ignored containment_live::`); the Office case also needs
 //! `MIXDOG_TEST_LIVE_OFFICE=1`, since it starts Word.
 //!
 //! * `a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup`: a stand-in for the ext-host worker runs in a kill-on-close
@@ -88,7 +88,7 @@ fn worker() {
     std::io::stdin().read_line(&mut go).expect("go");
     let mut command = Command::new(std::env::current_exe().expect("exe"));
     command
-        .args(["--ignored", "--exact", "stand_in", "--nocapture"])
+        .args(["--ignored", "--exact", "containment_live::stand_in", "--nocapture"])
         .env(ROLE, "host")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -164,7 +164,7 @@ fn a_host_outlives_a_killed_worker_and_runs_its_eof_cleanup() {
     let mark = dir.join("eof.mark");
     let job = kill_on_close_job_allowing_breakaway();
     let mut worker = Command::new(std::env::current_exe().expect("exe"))
-        .args(["--ignored", "--exact", "stand_in", "--nocapture"])
+        .args(["--ignored", "--exact", "containment_live::stand_in", "--nocapture"])
         .env(ROLE, "worker")
         .env(MARK, &mark)
         .stdin(Stdio::piped())

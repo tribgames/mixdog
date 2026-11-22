@@ -3,9 +3,14 @@ name = "mixdog-office"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
+
+[[test]]
+name = "features"
+path = "tests/features/main.rs"
 
 [dependencies]
 indexmap = { workspace = true, features = ["serde"] }

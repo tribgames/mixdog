@@ -1,5 +1,5 @@
 //! The Word reader against real Microsoft Word. Every test is `#[ignore]`: it starts Word, so it runs only on request
-//! (`cargo test -p mixdog-office-com --test word_read_live -- --ignored`) on a Windows machine with Word and
+//! (`cargo test -p mixdog-office-com --test it -- --ignored word_read_live::`) on a Windows machine with Word and
 //! `MIXDOG_TEST_LIVE_OFFICE=1`. Without that variable a test that was asked for ends at once and says it did nothing.
 //!
 //! A background document is created, read through the registered `docx` reader (snapshot, snapshot of one paragraph, issues,
