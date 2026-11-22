@@ -25,15 +25,8 @@ export class SessionLaneCache {
       maxEntries: number;
       maxBytes: number;
       subscribed(sessionId: string): boolean;
-      /** A cached lane was evicted (budget, release or `evictInactive`), not replaced or cleared. */
-      evicted?(sessionId: string): void;
     }
   ) {}
-
-  private evict(sessionId: string): void {
-    this.entries.delete(sessionId);
-    this.options.evicted?.(sessionId);
-  }
 
   get size(): number {
     return this.entries.size;
@@ -74,7 +67,7 @@ export class SessionLaneCache {
       // budget. No need to traverse the rest of an already oversized frame.
       const bytes = Math.min(limit + 1, 2 * estimateRetainedChars(entry.snapshot, limit / 2));
       if (bytes > limit) {
-        this.evict(sessionId);
+        this.delete(sessionId);
         this.prune();
         return;
       }
@@ -94,14 +87,14 @@ export class SessionLaneCache {
     for (const [sessionId, entry] of this.entries) {
       if (this.entries.size <= maxEntries && inactive <= maxBytes) break;
       if (this.options.subscribed(sessionId)) continue;
-      this.evict(sessionId);
+      this.entries.delete(sessionId);
       inactive -= entry.bytes;
     }
   }
 
   evictInactive(): void {
     for (const sessionId of this.entries.keys()) {
-      if (!this.options.subscribed(sessionId)) this.evict(sessionId);
+      if (!this.options.subscribed(sessionId)) this.delete(sessionId);
     }
   }
 
