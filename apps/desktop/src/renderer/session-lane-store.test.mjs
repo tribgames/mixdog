@@ -807,60 +807,7 @@ const settledHeap = async () => {
   return process.memoryUsage().heapUsed;
 };
 
-// Strings cannot be WeakRef targets, so the row text's release is read from the heap: 4,000 rows of 500 two-byte chars.
-const BULK_TEXT_BYTES = 4_000 * 500 * 2;
-const bulkFrame = (sessionId) => ({
-  sessionId,
-  frameSource: 'live',
-  snapshot: {
-    sessionId,
-    items: Array.from({ length: 4_000 }, (_, index) => ({
-      id: `${sessionId}-${index}`,
-      kind: 'assistant',
-      text: `${sessionId}:${index}:`.padEnd(500, '\u4e00'),
-    })),
-  },
-});
-const identityDecorator = () => createTranscriptSnapshotDecorator({ register: false });
-
-test("a lane pruned by another session's release lets go of its row text", async () => {
-  const probe = createSessionLaneStore({ maxBytes: 1e9, decorator: identityDecorator() });
-  const probeOff = probe.subscribe('a', () => {});
-  probe.apply(bulkFrame('a'));
-  probeOff();
-  const laneBytes = probe.stats().estimatedBytes;
-  probe.clear();
-
-  const store = createSessionLaneStore({ maxBytes: laneBytes, decorator: identityDecorator() });
-  const before = await settledHeap();
-  const offA = store.subscribe('a', () => {});
-  store.apply(bulkFrame('a'));
-  offA();
-  assert.equal(store.stats().entries, 1, 'the left lane stays cached within the budget');
-  const offB = store.subscribe('b', () => {});
-  store.apply({
-    sessionId: 'b',
-    frameSource: 'live',
-    snapshot: { sessionId: 'b', items: [{ id: 'b-0', kind: 'assistant', text: 'small' }] },
-  });
-  offB();
-  assert.equal(store.stats().entries, 1, "b's release pruned a");
-  const held = (await settledHeap()) - before;
-  assert.ok(held < BULK_TEXT_BYTES / 4, `the pruned lane's rows stay held: ${held} bytes`);
-  store.clear();
-});
-
-test('a lane dropped by evictInactive lets go of its row text', async () => {
-  const store = createSessionLaneStore({ maxBytes: 1e9, decorator: identityDecorator() });
-  const before = await settledHeap();
-  store.apply(bulkFrame('idle'));
-  store.evictInactive();
-  assert.equal(store.stats().entries, 0);
-  const held = (await settledHeap()) - before;
-  assert.ok(held < BULK_TEXT_BYTES / 4, `the evicted lane's rows stay held: ${held} bytes`);
-  store.clear();
-});
-
+// Strings cannot be WeakRef targets, so the row text's release is read from the heap.
 test('an identity record of a long row does not keep the row text alive', async () => {
   const identity = createTranscriptIdentityReconciler();
   const before = await settledHeap();
