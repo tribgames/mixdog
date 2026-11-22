@@ -1,4 +1,4 @@
-import { type ComponentProps, lazy, type RefObject, Suspense, useEffect, useMemo, useState } from 'react';
+import { type ComponentProps, lazy, type RefObject, Suspense, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
@@ -12,34 +12,11 @@ import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
 import { useSessionInfoDisplay } from './pane-side-dock-hooks';
-import { draftRailOwner, sessionRailHost, useSessionRailSlot } from './session-rail-layout';
-import { DraftRail, type DraftRailContext } from './session-rail-draft';
+import { sessionRailHost, useSessionRailSlot } from './session-rail-layout';
 import { useSurfaceActive } from './surface-activity';
 
 // The panel's categories load with the first panel shown, as the island's Goal does.
-type SessionRailComponent = (typeof import('./SessionRail'))['default'];
-let loadedSessionRail: SessionRailComponent | null = null;
-const loadSessionRail = () =>
-  import('./SessionRail').then((module) => {
-    loadedSessionRail = module.default;
-    return module;
-  });
-const LazySessionRail = lazy(loadSessionRail);
-
-/** The session panel's cards: drawn directly once their module is loaded (a
- *  New Task's panel loads it, so the first message's session draws them in
- *  its commit), through the lazy boundary until then. */
-function SessionRailCards(props: ComponentProps<SessionRailComponent>) {
-  // Chosen once per mount: turning from the lazy boundary to the loaded
-  // component would remount the cards.
-  const [Loaded] = useState(() => loadedSessionRail);
-  if (Loaded) return <Loaded {...props} />;
-  return (
-    <Suspense fallback={null}>
-      <LazySessionRail {...props} />
-    </Suspense>
-  );
-}
+const SessionRail = lazy(() => import('./SessionRail'));
 
 export type ConversationComposerDockProps = Pick<
   ConversationProps,
@@ -97,9 +74,8 @@ function routeContextTokens(routeSnapshot: Snapshot): number | undefined {
   return tokens > 0 ? tokens : undefined;
 }
 
-/** What the New Task context bar's pickers act on: project, workflow,
- *  delegation and branch. The session panel's draft Info rows take the same. */
-function conversationDraftContext({
+/** The New Task context bar: project, workflow, delegation and branch. */
+function conversationContextBar({
   snapshot,
   routeSnapshot,
   draftMode,
@@ -116,55 +92,54 @@ function conversationDraftContext({
   draftOrchestrationMode,
   onDraftOrchestrationMode,
   submission: { actions },
-}: ConversationComposerDockProps): DraftRailContext {
+}: ConversationComposerDockProps) {
   const routeBusy = !draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy);
-  return {
-    project: {
-      projects,
-      activePath: activeProjectPath,
-      activeLabel: activeProjectLabel,
-      disabled: transitioning || Boolean(snapshot.busy),
-      onClear: onClearProject,
-      onSelect: onSelectProject,
-    },
-    workflow: {
-      workflow: (draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null,
-      disabled: transitioning || routeBusy,
-      invokeResult: actions.composerInvokeResult,
-      applySnapshot: actions.composerApplySnapshot,
-      onDraftChange: onDraftWorkflow,
-    },
-    delegation: {
-      mode: draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode),
-      disabled: transitioning || routeBusy,
-      invokeResult: actions.composerInvokeResult,
-      applySnapshot: actions.composerApplySnapshot,
-      onDraftChange: onDraftOrchestrationMode,
-    },
-    // Branch/worktree is picked in a New Task's context bar only.
-    branch: {
-      sessionId: draftMode ? '' : String(routeSnapshot.sessionId || ''),
-      draftId,
-      projectPath: draftMode ? activeProjectPath : routeProject,
-      disabled: transitioning || routeBusy,
-      refreshKey: [
+  // Branch/worktree is picked in a New Task's context bar only.
+  const branchChip = (
+    <BranchChip
+      sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
+      draftId={draftId}
+      projectPath={draftMode ? activeProjectPath : routeProject}
+      disabled={transitioning || routeBusy}
+      refreshKey={[
         Boolean(routeSnapshot.busy),
         Boolean(routeSnapshot.commandBusy),
         routeSnapshot.workspace?.revision ?? '',
         routeSnapshot.workspace?.cwd ?? '',
-      ].join(':'),
-    },
-  };
-}
-
-/** The New Task context bar: project, workflow, delegation and branch. */
-function conversationContextBar(context: DraftRailContext) {
+      ].join(':')}
+    />
+  );
   return (
     <ComposerContextChips
-      project={<ProjectContextSelector {...context.project} />}
-      workflow={<WorkflowSelect {...context.workflow} />}
-      delegation={<OrchestrationModeSelect {...context.delegation} />}
-      branch={<BranchChip {...context.branch} />}
+      project={
+        <ProjectContextSelector
+          projects={projects}
+          activePath={activeProjectPath}
+          activeLabel={activeProjectLabel}
+          disabled={transitioning || Boolean(snapshot.busy)}
+          onClear={onClearProject}
+          onSelect={onSelectProject}
+        />
+      }
+      workflow={
+        <WorkflowSelect
+          workflow={(draftWorkflow || (routeSnapshot.workflow as RecordValue | null)) ?? null}
+          disabled={transitioning || routeBusy}
+          invokeResult={actions.composerInvokeResult}
+          applySnapshot={actions.composerApplySnapshot}
+          onDraftChange={onDraftWorkflow}
+        />
+      }
+      delegation={
+        <OrchestrationModeSelect
+          mode={draftOrchestrationMode ?? (draftMode ? null : routeSnapshot.orchestrationMode)}
+          disabled={transitioning || routeBusy}
+          invokeResult={actions.composerInvokeResult}
+          applySnapshot={actions.composerApplySnapshot}
+          onDraftChange={onDraftOrchestrationMode}
+        />
+      }
+      branch={branchChip}
     />
   );
 }
@@ -240,42 +215,16 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   // conversation's island and the controls under its composer.
   const railSlot = useSessionRailSlot(props.paneLeafId ?? '');
   const onScreen = useSurfaceActive();
-  // A New Task's panel carries the pickers of its context bar instead.
-  const contextPickers = showProjectSelector && !agentMode;
-  const draftContext = contextPickers ? conversationDraftContext(props) : null;
-  const railHost = sessionRailHost(railSlot, {
-    sessionId: draftMode ? (contextPickers ? draftRailOwner(draftId) : '') : reviewSessionId,
-    onScreen,
-  });
+  const railHost = sessionRailHost(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
   const railShown = Boolean(railHost);
   // Settings → Session info: Hidden draws neither the panel nor the island.
   const islandOff = useSessionInfoDisplay() === 'none';
-  const railModel = {
-    ...route,
-    sessionId: routeSessionId,
-    modelDisabled: transitioning,
-    tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
-    invokeResult: actions.composerInvokeResult,
-    applySnapshot: actions.composerApplySnapshot,
-    onOpenSettings: actions.composerOnOpenSettings,
-    // A draft's pick stages the draft, as the control under the composer does.
-    onDraftModelSelection,
-    onRoutePreferenceApplied,
-  };
-  // A New Task's panel draws at once; the session's cards it turns into on
-  // the first message load meanwhile.
-  const draftRailShown = railShown && draftMode;
-  useEffect(() => {
-    if (draftRailShown) void loadSessionRail();
-  }, [draftRailShown]);
   return (
     <>
       {railHost &&
         createPortal(
-          draftMode && draftContext ? (
-            <DraftRail draft={draftContext} model={railModel} answersModelPickerRequests={reviewActive} />
-          ) : (
-            <SessionRailCards
+          <Suspense fallback={null}>
+            <SessionRail
               sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
               reviewSessionId={reviewSessionId}
               workspace={routeSnapshot.workspace ?? null}
@@ -289,7 +238,16 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
               reviewActive={reviewActive}
               reviewBusy={reviewBusy}
               pendingInput={pendingInput}
-              model={railModel}
+              model={{
+                ...route,
+                sessionId: routeSessionId,
+                modelDisabled: transitioning,
+                tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
+                invokeResult: actions.composerInvokeResult,
+                applySnapshot: actions.composerApplySnapshot,
+                onOpenSettings: actions.composerOnOpenSettings,
+                onRoutePreferenceApplied,
+              }}
               sessionChoices={sessionChoices}
               onOpenSessionDiff={onOpenSessionDiff}
               onOpenAgentSession={onOpenAgentSession}
@@ -297,7 +255,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
               onAddProject={props.onAddProject}
               onOpenCommandSurface={actions.composerOnOpenCommandSurface}
             />
-          ),
+          </Suspense>,
           railHost
         )}
     <ComposerDock
@@ -343,8 +301,8 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         sessionChoices={sessionChoices}
         // Before the first message the pickers stand in for the readout.
         contextBar={
-          draftContext && !railShown ? (
-            <div className="composer-model-line-context">{conversationContextBar(draftContext)}</div>
+          showProjectSelector && !agentMode ? (
+            <div className="composer-model-line-context">{conversationContextBar(props)}</div>
           ) : undefined
         }
         usageReadout={draftMode ? undefined : usageReadout}

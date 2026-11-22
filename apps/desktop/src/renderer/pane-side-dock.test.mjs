@@ -24,6 +24,7 @@ import { DockHeaderRow } from './pane-dock-chrome.tsx';
 import { usePublishDockPanelActions } from './dock-panel-actions.ts';
 import { sessionSideDockEntryForSession } from './session-side-surface-policy.ts';
 import { sideFileKey } from './side-file-tabs.ts';
+import { navigationKey } from './text-format.ts';
 
 // The formatter wraps long selectors across lines; compare them as single-spaced text.
 
@@ -1967,6 +1968,45 @@ test('desktop dock: the Changes tab still leads the file tabs', async () => {
       [...header.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent),
       ['Changes', 'Screenshot 2025-10-18.png']
     );
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test("a New Task's pane draws no session panel; its session's pane does", async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node'],
+  });
+  const { renderPaneSideDockView } = await import('./app-shell-side-dock.tsx');
+  const Icon = () => React.createElement('span');
+  const context = {
+    paneWorkspace: { focusLeaf() {} },
+    paneSideDocks: { entryFor: () => closed() },
+    sessionSurfaces: {
+      sessionSideSurfaces: new Map(),
+      sessionDiffs: new Map(),
+      sessionPanelViews: new Map(),
+      sessionSurfaceSources: new Map(),
+      panelViewFronts: new Set(),
+      terminalSurfaces: { prewarm() {} },
+    },
+    workbenchSideLayout: { layout: { left: [], right: [['source-control']] } },
+    sideViewDescriptors: new Map([['source-control', { id: 'source-control', label: 'Source Control', icon: Icon }]]),
+    paneProjectPathFor: () => '',
+    renderRightView: () => null,
+  };
+  const pane = (selection) =>
+    renderPaneSideDockView({ id: 'pane-draft', activeKey: navigationKey(selection), tabs: [selection] }, true, context);
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => root.render(pane({ kind: 'new', draftId: 'd1' })));
+    assert.ok(document.querySelector('.pane-side-dock'), 'the pane dock is drawn');
+    assert.equal(document.querySelector('.session-rail'), null, 'no card, no resize edge');
+    assert.equal(document.getElementById('root').style.getPropertyValue('--session-rail-reserve'), '', 'no reserve');
+    await act(async () => root.render(pane({ kind: 'session', id: 's1' })));
+    assert.ok(document.querySelector('.session-rail'), 'the panel comes with the session');
   } finally {
     await act(async () => root.unmount());
     restore();
