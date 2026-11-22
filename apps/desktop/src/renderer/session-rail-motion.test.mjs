@@ -138,6 +138,16 @@ test('two cards leaving one after the other each close where they stood', async 
   assert.deepEqual(panel.shown(), ['agents', 'shells', 'changes']);
 });
 
+test('a card back after another has come to stand past its closing one opens where it belongs', async (t) => {
+  const panel = await mountPanel(t);
+  await panel.render('s1', ['shells', 'changes']);
+  await panel.render('s1', ['changes']);
+  await panel.render('s1', ['agents', 'changes']);
+  await panel.render('s1', ['agents', 'shells', 'changes']);
+  assert.deepEqual(panel.shown(), ['shells (leaving)', 'agents', 'shells', 'changes'], 'the order of the panel’s own cards is kept');
+  assert.equal(panel.running().at(-1).frames[0].height, '0px', 'it opens from nothing, the old one closing on its own');
+});
+
 test('a card moved in the order neither opens nor closes', async (t) => {
   const panel = await mountPanel(t);
   await panel.render('s1', ['info', 'todo', 'context']);

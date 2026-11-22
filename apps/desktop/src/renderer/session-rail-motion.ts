@@ -79,11 +79,18 @@ function railMotion(root: HTMLElement): RailMotion {
     fold(card, standing(card), closed());
   };
 
+  const adjoins = (closing: HTMLElement, card: HTMLElement) => {
+    let node = closing.nextElementSibling;
+    while (node && node !== card && leaving.has(node as HTMLElement)) node = node.nextElementSibling;
+    return node === card;
+  };
+
   const arrive = (card: HTMLElement) => {
     present.add(card);
     // The same category back before its last card has closed: the new card takes its place and goes on from there.
-    // Only closing cards stand between the two, so the order React keeps is untouched.
-    const twin = [...leaving].find((other) => other.dataset.category === card.dataset.category);
+    // Only where nothing but closing cards stands between the two, so the order React keeps is untouched; with a
+    // card of the panel between them the old one closes where it is and the new one opens where it belongs.
+    const twin = [...leaving].find((other) => other.dataset.category === card.dataset.category && adjoins(other, card));
     if (twin) {
       root.insertBefore(card, twin);
       const from = standing(twin);
