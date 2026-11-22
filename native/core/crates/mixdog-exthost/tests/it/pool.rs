@@ -60,17 +60,48 @@ fn busy(status: &[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> usize {
     status.iter().filter(|s| matches!(s.state, ExtWorkerState::Busy { .. })).count()
 }
 
-/// Whether `pid` is a live process.
+/// Whether `pid` is a live process. One that has died, or can no longer run (SIGKILL pending), counts as gone while it is
+/// still unreaped: a helper is the worker's child, not the pool's, so once its worker is reaped init reaps it, on init's schedule.
 async fn alive(pid: u32) -> bool {
     process_exists(pid)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn process_exists(pid: u32) -> bool {
-    // SAFETY: signal 0 only asks whether the process exists.
-    let found = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
-    // A process of another user exists too.
-    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    const PF_EXITING: u64 = 0x4;
+    const SIGKILL_BIT: u64 = 1 << (libc::SIGKILL - 1);
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // `pid (comm) state ppid pgrp session tty_nr tpgid flags ...`; `comm` may hold spaces and parentheses.
+    let mut fields = stat[stat.rfind(')').expect("stat has a comm") + 1..].split_whitespace();
+    let state = fields.next().expect("stat has a state");
+    let flags: u64 = fields.nth(5).expect("stat has flags").parse().expect("flags are a number");
+    if matches!(state, "Z" | "X" | "x") || flags & PF_EXITING != 0 {
+        return false;
+    }
+    let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
+        return false;
+    };
+    !status
+        .lines()
+        .filter_map(|line| line.strip_prefix("SigPnd:").or_else(|| line.strip_prefix("ShdPnd:")))
+        .any(|mask| u64::from_str_radix(mask.trim(), 16).expect("a hex signal mask") & SIGKILL_BIT != 0)
+}
+
+#[cfg(target_os = "macos")]
+fn process_exists(pid: u32) -> bool {
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `proc_bsdinfo` is plain data of `size` bytes that `proc_pidinfo` fills; a zombie is reported too, with `SZOMB`.
+    let (filled, info) = unsafe {
+        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+        (libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size), info)
+    };
+    if filled != size {
+        // A process of another user exists too.
+        return std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    }
+    info.pbi_status != libc::SZOMB
 }
 
 #[cfg(windows)]
