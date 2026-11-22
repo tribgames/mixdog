@@ -1078,7 +1078,8 @@ ul.composer-island-jobs > .composer-island-row {
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
-/* State counts beside the panel title: quiet, one line. */
+/* State counts beside the panel title, quiet: on its line while they fit,
+   wrapping among themselves in the room before the close button. */
 .composer-island-phead-meta {
   min-width: 0;
   flex: 1 1 0;
@@ -1094,32 +1095,6 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-phead-meta b {
   color: var(--mx-text);
   font-weight: 500;
-}
-/* Counts wrap among themselves, never under the close button. When the pane is
-   too narrow for them beside the title (a phone, a split pane, a long
-   translation) they take their own second line. */
-@container composer-island (max-width: 559px) {
-  .composer-island-phead:has(> .composer-island-phead-meta) {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-rows: 44px auto;
-    grid-template-areas:
-      "tab . close"
-      "meta meta meta";
-    column-gap: 8px;
-    padding-bottom: 10px;
-  }
-  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-tab {
-    grid-area: tab;
-  }
-  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-close {
-    grid-area: close;
-    margin-inline-start: 0;
-  }
-  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-phead-meta {
-    grid-area: meta;
-    margin: 0 11px;
-  }
 }
 /* The usage readout as the agents panel's footer line: flush with the
    footer's inset, and not a button. */
