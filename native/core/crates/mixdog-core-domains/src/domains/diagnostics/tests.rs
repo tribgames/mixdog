@@ -70,7 +70,7 @@ impl DoctorSources for Scripted {
     async fn channel_setup(&self) -> Probe {
         self.probe("channelSetup").await
     }
-    async fn skills_status(&self) -> Probe {
+    async fn skills_status(&self, _thread: Option<&ThreadId>) -> Probe {
         self.probe("skills").await
     }
     async fn plugins_status(&self) -> Probe {
@@ -332,4 +332,28 @@ async fn a_repeated_op_runs_the_checks_once() {
     let again = value(&*rig.service, request("diagnostics/runDoctor", params, Some(5))).await.unwrap();
     assert_eq!(first, again);
     assert_eq!(rig.sources.notices.lock().unwrap().len(), 1);
+}
+
+/// Of a name several sources ship, the doctor counts only the skill in use as active: a hidden one is neither active nor
+/// disabled, though its switch is on.
+#[test]
+fn a_hidden_skill_is_not_counted_active() {
+    let status = json!({"skills": [
+        {"name": "review", "state": "inUse", "enabled": true},
+        {"name": "review", "state": "hidden", "enabled": true},
+        {"name": "lint", "state": "off", "enabled": false},
+    ]});
+    let report = report_registry("skills", &status).expect("a verdict");
+    assert_eq!(report.detail, "1/3 active · 1 disabled");
+}
+
+/// A skill row the project scope keeps off is reported outside this project, not disabled.
+#[test]
+fn a_skill_off_for_its_scope_is_outside_this_project() {
+    let status = json!({"skills": [
+        {"name": "setup", "state": "off", "offBy": "scope", "enabled": false},
+        {"name": "setup", "state": "inUse", "enabled": true},
+    ]});
+    let report = report_registry("skills", &status).expect("a verdict");
+    assert_eq!(report.detail, "1/2 active · 1 outside this project");
 }

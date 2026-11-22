@@ -41,7 +41,7 @@ export function composerSkillCatalog(value: unknown): ComposerSkillCatalog {
     const name = typeof skill?.name === 'string' ? skill.name.trim() : '';
     if (!name) continue;
     if (skillAvailable(skill)) enabled.add(name);
-    else if (skill?.enabled === false) disabled.add(name);
+    else if (skill?.state === 'off') disabled.add(name);
   }
   for (const name of enabled) disabled.delete(name);
   return { selectable: selectableComposerSkills(value), enabled, disabled };
@@ -54,10 +54,14 @@ const catalogKey = (sessionId?: string | null, projectPath?: string | null) =>
 
 async function readSkillsStatus(sessionId?: string | null, projectPath?: string | null): Promise<unknown> {
   if (sessionId) {
-    return (await window.mixdogDesktop.invokeCapability({ capability: 'skillsStatus', sessionId })).value;
+    // Scoped to the session's own folder: only what this session can run.
+    return (
+      await window.mixdogDesktop.invokeCapability({ capability: 'skillsStatus', sessionId, args: [{ scoped: true }] })
+    ).value;
   }
+  // No Project is the empty project identity: the task workspace the task will run in.
   const [result] = await window.mixdogDesktop.readCapabilities([
-    { capability: 'skillsStatus', ...(projectPath ? { args: [{ projectPath }] } : {}) },
+    { capability: 'skillsStatus', args: [{ projectPath: projectPath || '' }] },
   ]);
   if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
   return result.value;
@@ -152,6 +156,7 @@ function refreshMountedCatalogs(): void {
 // through the plugin that bundles it).
 const SKILL_CATALOG_MUTATIONS = new Set<string>([
   'setDisabledSkills',
+  'setSkillEnabled',
   'setExtensionScope',
   'addSkill',
   'saveSkill',

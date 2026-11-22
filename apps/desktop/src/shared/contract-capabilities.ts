@@ -94,6 +94,8 @@ export const DESKTOP_CAPABILITIES = [
   'probeMcpServerAuth',
   'getDisabledSkills',
   'setDisabledSkills',
+  // setSkillEnabled(key, enabled): one source's skill (`<sourceKey>:<name>`) on or off.
+  'setSkillEnabled',
   'setExtensionScope',
   'skillsStatus',
   'skillContent',

@@ -7041,6 +7041,30 @@
       }
     },
     {
+      "class": "C2",
+      "method": "skills/setSkillEnabled",
+      "mutation": {
+        "domain": "skills",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "skills",
+        "field": "threadId",
+        "kind": "threadOrDomain"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "SkillsSetSkillEnabledParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "threadOrNone"
+      }
+    },
+    {
       "class": "C1",
       "method": "plugins/pluginsStatus",
       "mutation": {

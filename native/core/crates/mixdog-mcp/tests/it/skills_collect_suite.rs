@@ -1,5 +1,5 @@
-//! Collecting skills from the global, plugin and bundled roots, and which collected skill is offered: the first of a name wins in root
-//! order, a skill outside a plugin lives in a folder of its own name, a document that does not parse is skipped, and a bundled skill that
+//! Collecting skills from the global, plugin and bundled roots, and which collected skill is offered: every root's skill of a name is
+//! collected in root order, a skill outside a plugin lives in a folder of its own name, a document that does not parse is skipped, and a bundled skill that
 //! needs a feature follows that feature rather than the switched-off list.
 #![allow(clippy::disallowed_methods, reason = "test fixtures lay out skill folders")]
 
@@ -31,7 +31,7 @@ async fn collected(data: PathBuf, roots: Vec<SkillRoot>) -> Vec<mixdog_mcp::skil
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_first_root_to_hold_a_name_wins_and_every_skill_carries_its_source_and_plugin() {
+async fn every_roots_skill_of_a_name_is_collected_in_root_order_with_its_source_and_plugin() {
     let dir = tempfile::tempdir().unwrap();
     let (global, plugin, bundled) = (dir.path().join("global"), dir.path().join("plugin"), dir.path().join("bundled"));
     write(&global, "shared/SKILL.md", &document("shared", "From the user.", ""));
@@ -49,8 +49,9 @@ async fn the_first_root_to_hold_a_name_wins_and_every_skill_carries_its_source_a
     let row = |name: &str| {
         skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("{name} missing from {:?}", skills.iter().map(|s| &s.name).collect::<Vec<_>>()))
     };
-    assert_eq!(skills.len(), 4);
-    assert_eq!((row("shared").description.as_str(), row("shared").source, row("shared").plugin.clone()), ("From the user.", SkillSource::Global, None));
+    assert_eq!(skills.len(), 6);
+    let shared: Vec<(&str, String)> = skills.iter().filter(|s| s.name == "shared").map(|s| (s.description.as_str(), s.key())).collect();
+    assert_eq!(shared, [("From the user.", "global:shared".to_owned()), ("From the plugin.", "plugin:acme:shared".to_owned()), ("From the bundle.", "builtin:shared".to_owned())]);
     assert_eq!((row("mine").when_to_use.as_str(), row("mine").source), ("on request", SkillSource::Global));
     assert_eq!((row("planted").source, row("planted").plugin.as_deref()), (SkillSource::Plugin, Some("acme")));
     assert_eq!((row("builtin-only").source, row("builtin-only").requires.clone()), (SkillSource::Builtin, vec!["jsRuntime".to_owned()]));

@@ -389,6 +389,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
 
   const effectivePending = hydrating ? 'settings-hydrating' : pending;
   const closeCreate = useCallback(() => onCreateOpenChange?.(false), [onCreateOpenChange]);
+  const openCreate = useCallback(() => onCreateOpenChange?.(true), [onCreateOpenChange]);
   const context = useMemo<PanelContext>(
     () => ({
       api,
@@ -408,6 +409,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       openCategory: onOpenCategory,
       createOpen,
       closeCreate,
+      openCreate,
       active,
     }),
     [
@@ -415,6 +417,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       api,
       checkDesktopUpdate,
       closeCreate,
+      openCreate,
       confirm,
       createOpen,
       data,

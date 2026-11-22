@@ -5288,6 +5288,14 @@
     },
     {
       "list": "actions",
+      "name": "setSkillEnabled",
+      "target": {
+        "kind": "method",
+        "target": "skills/setSkillEnabled"
+      }
+    },
+    {
+      "list": "actions",
       "name": "setEffort",
       "target": {
         "kind": "method",

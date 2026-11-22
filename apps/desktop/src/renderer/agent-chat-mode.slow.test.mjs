@@ -860,7 +860,7 @@ async function mountComposer(t) {
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
       if (request.capability === 'getVoiceStatus') return { value: { installed: false } };
-      if (request.capability === 'skillsStatus') return { value: { skills: [{ name: 'deploy', enabled: true }] } };
+      if (request.capability === 'skillsStatus') return { value: { skills: [{ name: 'deploy', state: 'inUse' }] } };
       return { value: {} };
     },
     searchProjectFiles: async () => ['src/a.ts'],

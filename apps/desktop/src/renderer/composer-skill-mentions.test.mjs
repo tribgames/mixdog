@@ -37,10 +37,10 @@ const { Composer } = await import('./Composer.tsx');
 
 const STATUS = {
   skills: [
-    { name: 'release-notes', enabled: true, description: 'Write release notes from changes' },
-    { name: 'api-review', enabled: true, description: 'Review public API changes' },
-    { name: 'figma-handoff', enabled: false, description: 'Turn designs into specs' },
-    { name: 'pptx', enabled: true, source: 'builtin', description: 'MODEL_ONLY' },
+    { name: 'release-notes', state: 'inUse', description: 'Write release notes from changes' },
+    { name: 'api-review', state: 'inUse', description: 'Review public API changes' },
+    { name: 'figma-handoff', state: 'off', description: 'Turn designs into specs' },
+    { name: 'pptx', state: 'inUse', source: 'builtin', description: 'MODEL_ONLY' },
   ],
 };
 
@@ -74,7 +74,7 @@ test('$ inside Markdown code never opens the skill palette', () => {
 
 test('reserved mention names are never palette rows or highlighted, but stay + chip skills', () => {
   const status = {
-    skills: ['home', 'path', '300', 'release-notes'].map((name) => ({ name, enabled: true, description: '' })),
+    skills: ['home', 'path', '300', 'release-notes'].map((name) => ({ name, state: 'inUse', description: '' })),
   };
   const catalog = composerSkillCatalog(status);
   assert.deepEqual(
@@ -123,15 +123,32 @@ test('catalog: enabled includes built-ins, the palette lists only custom skills,
   assert.deepEqual(disabledMentionedSkills('figma$figma-handoff', catalog), []);
 });
 
+test('catalog: of several sources of one name only the one in use counts, though every row says enabled', () => {
+  const catalog = composerSkillCatalog({
+    skills: [
+      { name: 'review', sourceKey: 'global', state: 'inUse', enabled: true, activeHere: false, scope: ['C:/other'] },
+      { name: 'review', sourceKey: 'plugin:acme', state: 'hidden', enabled: true, activeHere: true },
+      { name: 'lint', sourceKey: 'global', state: 'off', enabled: false },
+      { name: 'lint', sourceKey: 'plugin:acme', state: 'inUse', enabled: true, activeHere: true },
+    ],
+  });
+  assert.deepEqual(
+    catalog.selectable.map((skill) => skill.name),
+    ['lint']
+  );
+  assert.deepEqual([...catalog.enabled], ['lint']);
+  assert.deepEqual([...catalog.disabled], []);
+});
+
 // skillsStatus as the runtime's scope decoration returns it for a session
 // whose cwd is C:/project.
 const SCOPED_STATUS = {
   skills: [
-    { name: 'release-notes', enabled: true, scope: null, inheritedScope: null, activeHere: true },
-    { name: 'elsewhere', enabled: true, scope: ['C:/other'], inheritedScope: null, activeHere: false },
+    { name: 'release-notes', state: 'inUse', scope: null, inheritedScope: null, activeHere: true },
+    { name: 'elsewhere', state: 'inUse', scope: ['C:/other'], inheritedScope: null, activeHere: false },
     {
       name: 'plugin-here',
-      enabled: true,
+      state: 'inUse',
       scope: null,
       inheritedScope: ['C:/project'],
       activeHere: true,
@@ -139,13 +156,13 @@ const SCOPED_STATUS = {
     },
     {
       name: 'plugin-elsewhere',
-      enabled: true,
+      state: 'inUse',
       scope: null,
       inheritedScope: ['C:/other'],
       activeHere: false,
       owner: { kind: 'plugin', id: 'other' },
     },
-    { name: 'image', enabled: true, source: 'builtin', scope: null, inheritedScope: null, activeHere: true },
+    { name: 'image', state: 'inUse', source: 'builtin', scope: null, inheritedScope: null, activeHere: true },
   ],
 };
 
@@ -261,7 +278,7 @@ const typeInto = async (input, value, caret = value.length) => {
   });
 };
 
-async function mountSkillComposer(t, id, { status = STATUS, ...overrides } = {}) {
+async function mountSkillComposer(t, id, { status = STATUS, answer, ...overrides } = {}) {
   const reads = [];
   const settingsOpened = [];
   const catalog = { status };
@@ -275,7 +292,7 @@ async function mountSkillComposer(t, id, { status = STATUS, ...overrides } = {})
     },
     readCapabilities: async (requests) => {
       reads.push(requests);
-      return [{ ok: true, value: catalog.status }];
+      return [{ ok: true, value: answer ? answer(requests[0]) : catalog.status }];
     },
     searchProjectFiles: async () => ['src/app.ts'],
     rendererDiagnostic() {},
@@ -326,10 +343,16 @@ async function mountSkillComposer(t, id, { status = STATUS, ...overrides } = {})
 const compositionEvent = (view, type) =>
   act(async () => view.input.dispatchEvent(new window.CompositionEvent(type, { bubbles: true })));
 
+test('composer: an open session asks for the skills scoped to itself', async (t) => {
+  const view = await mountSkillComposer(t, 'skill-mention-scope');
+  assert.deepEqual(view.reads, [
+    [{ capability: 'skillsStatus', sessionId: 'skill-mention-scope', args: [{ scoped: true }] }],
+  ]);
+});
+
 test('composer: the $ palette opens mid-sentence, filters, inserts on Tab or click, and Escape dismisses', async (t) => {
   const view = await mountSkillComposer(t, 'skill-mention-test');
   const { palette, rows, tokens, type, key } = view;
-  assert.deepEqual(view.reads[0], [{ capability: 'skillsStatus', sessionId: 'skill-mention-test' }]);
 
   // `$` mid-sentence lists the custom skills only (pptx is typed, not listed).
   await type('이번 주 커밋 정리해서 $');
@@ -459,7 +482,7 @@ test('composer: a skill toggled elsewhere updates palette, highlight and off not
   assert.equal(view.reads.length, readsBefore, 'unrelated mutations do not re-read skills');
 
   const toggled = (name, enabled) => ({
-    skills: STATUS.skills.map((skill) => (skill.name === name ? { ...skill, enabled } : skill)),
+    skills: STATUS.skills.map((skill) => (skill.name === name ? { ...skill, state: enabled ? 'inUse' : 'off' } : skill)),
   });
   view.catalog.status = toggled('api-review', false);
   assert.equal(document.activeElement, view.input);
@@ -507,13 +530,42 @@ test('composer: a new-task draft reads skills for its selected Project, and re-r
   assert.deepEqual(view.tokens(), ['$plugin-here']);
   assert.equal(view.status(), '');
 
-  // A draft with no Project (task workspace) sends no argument.
+  // A draft with no Project names the empty project identity (the task workspace), as creating the task does.
   const switched = view.reads.length;
   await view.show({ projectScope: 'C:/other' });
   assert.deepEqual(view.reads[switched], [{ capability: 'skillsStatus', args: [{ projectPath: 'C:/other' }] }]);
   const local = view.reads.length;
   await view.show({ projectScope: '' });
-  assert.deepEqual(view.reads[local], [{ capability: 'skillsStatus' }]);
+  assert.deepEqual(view.reads[local], [{ capability: 'skillsStatus', args: [{ projectPath: '' }] }]);
+});
+
+test('composer: a draft with no Project offers the skill its task workspace will use', async (t) => {
+  // Two plugins ship `review`; the higher-priority one is restricted to another Project. Unscoped, it wins the name; in
+  // the task workspace it is off for its scope and the other plugin's `review` is the one the task will load.
+  const row = (sourceKey, description, state, offBy = null) => ({
+    name: 'review',
+    key: `${sourceKey}:review`,
+    sourceKey,
+    source: 'plugin',
+    description,
+    state,
+    offBy,
+    enabled: state === 'inUse',
+  });
+  const unscoped = { skills: [row('plugin:high', 'Elsewhere', 'inUse'), row('plugin:low', 'Here', 'hidden')] };
+  const workspace = { skills: [row('plugin:high', 'Elsewhere', 'off', 'scope'), row('plugin:low', 'Here', 'inUse')] };
+  const answer = (request) => (request.args?.[0]?.projectPath === '' ? workspace : unscoped);
+  resetSkillCatalogReadsForTests();
+  const draft = { sessionId: '', identityScope: 'draft:workspace', projectScope: '' };
+  const view = await mountSkillComposer(t, 'skill-mention-workspace', { answer, ...draft });
+  assert.deepEqual(view.reads[0], [{ capability: 'skillsStatus', args: [{ projectPath: '' }] }]);
+  await view.type('$rev');
+  assert.deepEqual(view.rows(), ['$review']);
+  const descriptions = Array.from(
+    view.palette()?.querySelectorAll('[role="option"] .skill-mention-description') || [],
+    (node) => node.textContent
+  );
+  assert.deepEqual(descriptions, ['Here']);
 });
 
 test('skill catalog reads are single-flight with a minimum age; focus never re-reads, signals force', async () => {

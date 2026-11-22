@@ -122,10 +122,9 @@ impl ExtItem {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Handler {
     McpServers,
-    /// The Skills list: the skills it was built from and the disabled set its rows show.
+    /// The Skills list: the status rows it was built from.
     Skills {
         skills: Vec<Value>,
-        disabled: super::disabled_skills::SkillSet,
     },
     ProjectSkills,
     SkillDetail(Value),
@@ -354,7 +353,12 @@ pub fn service_call(host: &mut dyn ExtensionsHost, name: &str, args: Value) -> R
 /// `readStatus(store, method, key, failureLabel)`: one daemon status list. A method the store lacks, a falsy answer, a missing
 /// or non-list field all give an empty list; a failure is reported and gives `None`, so the caller paints nothing.
 pub fn read_status(host: &mut dyn ExtensionsHost, method: &str, key: &str, label: &str) -> Option<Map<String, Value>> {
-    match host.store_call(method, json!([])) {
+    read_status_with(host, method, json!([]), key, label)
+}
+
+/// [`read_status`] of a call with `args`.
+pub fn read_status_with(host: &mut dyn ExtensionsHost, method: &str, args: Value, key: &str, label: &str) -> Option<Map<String, Value>> {
+    match host.store_call(method, args) {
         Err(error) => {
             host.push_notice(&format!("{label} failed: {error}"), Tone::Error);
             None

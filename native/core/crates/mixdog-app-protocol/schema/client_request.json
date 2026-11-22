@@ -10860,10 +10860,39 @@
       ],
       "type": "object"
     },
+    "SkillsSetSkillEnabledParams": {
+      "additionalProperties": false,
+      "description": "Params of `skills/setSkillEnabled`.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "key": {
+          "description": "A `skillsStatus` row's `key` (`<sourceKey>:<name>`, e.g. `plugin:acme:setup`): that source's skill alone is switched.",
+          "type": "string"
+        },
+        "opId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "key",
+        "opId"
+      ],
+      "type": "object"
+    },
     "SkillsSkillContentParams": {
       "description": "Params of `skills/skillContent`.",
       "properties": {
         "name": {
+          "description": "A skill name, or a `skillsStatus` row's `key` (`<sourceKey>:<name>`, e.g. `plugin:acme:setup`) for that source's skill.",
           "type": "string"
         },
         "threadId": {
@@ -21723,6 +21752,29 @@
         },
         "params": {
           "$ref": "#/definitions/SkillsSetDisabledSkillsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's session configure action `setSkillEnabled`: switches one status row's skill in the stored disabled list.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "skills/setSkillEnabled"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SkillsSetSkillEnabledParams"
         }
       },
       "required": [

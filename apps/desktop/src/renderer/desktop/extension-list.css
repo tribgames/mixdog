@@ -178,17 +178,6 @@
 .session-sidebar-panels .extensions-pane .settings-group-body {
   gap: 4px;
 }
-/* A page whose one group holds nothing: the empty state stands in the middle
-   of the rail, as on the other rail pages. */
-.session-sidebar-panels
-  .extensions-pane
-  .capability-settings-content:has(> .settings-group:only-child .utility-dock-empty),
-.session-sidebar-panels
-  .extensions-pane
-  .capability-settings-content
-  > .settings-group:only-child:has(.utility-dock-empty) {
-  align-content: stretch;
-}
 .session-sidebar-panels .extensions-pane .schedules-row.utilities-row.extensions-row {
   height: 31px;
   min-height: 31px;
@@ -199,4 +188,130 @@
 }
 .session-sidebar-panels .extensions-pane .extensions-row > .utilities-row-chevron {
   grid-row: 1;
+}
+
+/* Skills: one collapsible category per source (own, each plugin). The heading
+   is the sidebar's collapsible heading. */
+.skills-pane .skills-category {
+  min-width: 0;
+  display: grid;
+  gap: var(--mx-rail-list-gap, 4px);
+}
+.skills-pane .skills-category + .skills-category {
+  margin-top: 8px;
+}
+/* A long plugin name truncates; the count and chevron stay on the rail. */
+.skills-pane .skills-category .sidebar-heading-toggle > span {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skills-pane .skills-category .sidebar-heading-toggle > small {
+  flex: 0 0 auto;
+}
+.skills-pane .skills-category-list {
+  min-width: 0;
+  display: grid;
+  gap: var(--mx-rail-list-gap, 4px);
+}
+/* "All / Same names only": the Schedules sort chips' face (routines.css). */
+.skills-pane .skills-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.skills-pane .skills-filter > button {
+  height: 24px;
+  padding: 0 10px;
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.skills-pane .skills-filter > button[aria-pressed="true"] {
+  border-color: transparent;
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.skills-pane .skills-filter > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+/* A skill row: the open button (icon, name, status tag, status line) and the
+   source's switch on the trailing edge. One line unless a status line names
+   the source in use instead or the built-in it replaces. */
+.session-sidebar-panels .skills-pane .schedules-row.skills-row {
+  min-height: 31px;
+  gap: 8px;
+  padding-block: 0;
+  padding-right: 6px;
+}
+.session-sidebar-panels .skills-pane .schedules-row.skills-row:has(.skills-row-note) {
+  padding-block: 6px;
+}
+.skills-row-open,
+.skills-pane .skills-invite {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 1px;
+  align-items: center;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.skills-row-open {
+  flex: 1 1 auto;
+  align-self: stretch;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.skills-row-open:focus-visible {
+  outline: 0;
+}
+.skills-row-open:disabled {
+  cursor: default;
+}
+:is(.skills-row-open, .skills-invite) > .utilities-row-copy {
+  display: contents;
+}
+.skills-row .sidebar-resource-title {
+  grid-area: 1 / 2;
+}
+.skills-pane .skills-row .skills-row-note {
+  grid-area: 2 / 2;
+}
+.skills-pane .skills-invite .skills-row-note {
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.skills-row[data-enabled="false"] :is(.extensions-row-icon, .sidebar-resource-title > b) {
+  opacity: var(--mx-op-disabled);
+}
+/* Phone: touch-size rows; the switch and chips keep their faces and grow
+   their hit frames. */
+html[data-mixdog-mobile-tabs] .session-sidebar-panels .skills-pane .schedules-row.skills-row {
+  min-height: var(--mx-touch, 44px);
+}
+html[data-mixdog-mobile-tabs] .skills-pane .skills-row > .compact-switch::after,
+html[data-mixdog-mobile-tabs] .skills-pane .skills-filter > button::after {
+  content: "";
+  position: absolute;
+  inset: -12px -6px;
+}
+html[data-mixdog-mobile-tabs] .skills-pane .skills-filter > button {
+  position: relative;
+  height: 32px;
+}
+html[data-mixdog-mobile-tabs] .skills-pane .skills-filter > button::after {
+  inset: -6px -3px;
 }

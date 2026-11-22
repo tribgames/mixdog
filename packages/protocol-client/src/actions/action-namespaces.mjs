@@ -304,6 +304,7 @@ export const ACTION_NAMESPACES = Object.freeze({
     'removeSkill',
     'reloadSkills',
     'setDisabledSkills',
+    'setSkillEnabled',
   ],
   plugins: ['pluginsStatus', 'addPlugin', 'updatePlugin', 'setPluginEnabled', 'removePlugin', 'reloadPlugins'],
   hooks: ['hooksStatus', 'addHookRule', 'deleteHookRule', 'setHookRuleEnabled'],

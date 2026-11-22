@@ -131,18 +131,19 @@ test('a project path is absolute in either syntax on the phone, the host platfor
   const skills = (projectPath) => ({ capability: 'skillsStatus', args: [{ projectPath }] });
   const phone = async (projectPath) =>
     adapter.calls.invokeCapability([skills(projectPath)], { ctx: {}, client: () => ({}), declareLane() {} });
-  for (const path of ['C:/work', 'C:\\work', '/work']) {
+  // The empty project identity is a draft with no Project (the task workspace), accepted on both.
+  for (const path of ['C:/work', 'C:\\work', '/work', '']) {
     // The phone's rule takes either syntax (it gets as far as the client, which is not a real one here).
     await assert.rejects(
       () => phone(path),
-      (error) => !/projectPath is invalid/.test(error.message),
+      (error) => !/projectPath (is invalid|must be a string)/.test(error.message),
       path
     );
   }
-  await assert.rejects(() => phone('work'), /projectPath is invalid/);
-  for (const path of ['C:/work', '/work', 'work']) {
+  for (const path of ['work', ' ']) await assert.rejects(() => phone(path), /projectPath is invalid/, path);
+  for (const path of ['C:/work', '/work', '', 'work', ' ']) {
     const ask = () => requiredDesktopCapabilityRequest(skills(path));
-    if (isAbsolute(path)) assert.doesNotThrow(ask, path);
+    if (path === '' || isAbsolute(path)) assert.doesNotThrow(ask, path);
     else assert.throws(ask, /projectPath is invalid/, path);
   }
 });

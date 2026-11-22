@@ -391,7 +391,7 @@ const MODEL_SELECTION_KEYS = new Set([
 ]);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick', 'withCatalogState']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh', 'unlockKeychain', 'recheckKeychain']);
-const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath']);
+const SKILLS_STATUS_OPTION_KEYS = new Set(['projectPath', 'scoped']);
 // A secret value has no key here: it travels only through provideSecretInput.
 const TOOL_APPROVAL_KEYS = new Set([
   'approved',
@@ -505,6 +505,7 @@ export const CAPABILITY_ARITY = {
   probeMcpServerAuth: [1, 1],
   getDisabledSkills: [0, 0],
   setDisabledSkills: [1, 1],
+  setSkillEnabled: [2, 2],
   setExtensionScope: [2, 3],
   skillsStatus: [0, 1],
   skillContent: [1, 1],
@@ -1350,13 +1351,28 @@ function validateCapabilityArgs(
       throw new TypeError('provider setup options are invalid.');
     }
   }
+  if (capability === 'setSkillEnabled') {
+    requiredString(args[0], 'skill key', 4_096);
+    if (typeof args[1] !== 'boolean') throw new TypeError('enabled must be a boolean.');
+  }
   // A new-task draft asks for skills as its selected Project would see them.
   // Only an absolute path passes here; the host then resolves it to a
   // registered Project (or its managed worktree) and refuses anything else.
+  // A draft with no Project names the empty project identity, as creating
+  // that task does: the host answers for the task workspace.
+  // `scoped: true` is a session asking about its own folder.
   if (capability === 'skillsStatus' && args.length) {
     const options = optionalPlainRecord(args[0]);
     if (!options) throw new TypeError('skills status options are invalid.');
     requireAllowedKeys(options, SKILLS_STATUS_OPTION_KEYS, 'skills status options');
+    if (options.scoped !== undefined) {
+      if (options.scoped !== true) throw new TypeError('skills status scoped must be true.');
+      if (typeof input.sessionId !== 'string' || !input.sessionId) {
+        throw new TypeError("skills status scoped needs the session's threadId.");
+      }
+      if (options.projectPath === undefined) return;
+    }
+    if (options.projectPath === '') return;
     const projectPath = requiredString(options.projectPath, 'projectPath', 4_096);
     if (!isAbsolutePath(projectPath) || projectPath.includes('\0')) throw new TypeError('projectPath is invalid.');
   }

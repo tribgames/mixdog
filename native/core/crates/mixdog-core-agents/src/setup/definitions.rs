@@ -77,7 +77,10 @@ impl DefinitionSetup {
                 // frontmatter fields come from the catalog row.
                 let resource = service_call(self.skills.as_ref(), "skills/skillContent", json!({ "name": name })).await?;
                 let status = service_call(self.skills.as_ref(), "skills/skillsStatus", json!({})).await?;
-                let row = status["skills"].as_array().and_then(|rows| rows.iter().find(|row| row["name"] == name)).cloned().unwrap_or(json!({}));
+                // Every source's skill of the name has a row; the one read is the one whose file the content came from.
+                let rows = status["skills"].as_array().map(Vec::as_slice).unwrap_or_default();
+                let named = || rows.iter().filter(|row| row["name"] == name);
+                let row = named().find(|row| row["filePath"] == resource["filePath"]).or_else(|| named().next()).cloned().unwrap_or(json!({}));
                 let text = |key: &str| row.get(key).filter(|v| truthy(Some(v))).cloned().unwrap_or(json!(""));
                 Ok(json!({
                     "name": name,

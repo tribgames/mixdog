@@ -174,8 +174,8 @@ test('an empty usage table centres its line in the visible table body, the heade
   }
 });
 
-// The Bots page without a bot and the Skills page without a skill kept their
-// line under the page header while Projects and Schedules centred theirs.
+// The Bots page without a bot kept its line under the page header while
+// Projects and Schedules centred theirs.
 test('a rail page with nothing in it centres its empty state in the page', async (t) => {
   const page = await openPage(
     t,
@@ -183,9 +183,6 @@ test('a rail page with nothing in it centres its empty state in the page', async
       import { createRoot } from 'react-dom/client';
       import { ArrangedSections } from './agent-section-order';
       import { MixyEmptyState } from './mixy-first';
-      import { SkillsPanel } from './settings/extension-panels';
-      import './settings/settings.css';
-      import './desktop/31-extensions.css';
       createRoot(document.getElementById('bots')).render(
         <ArrangedSections
           order={['bots', 'rooms', 'agents']}
@@ -193,31 +190,15 @@ test('a rail page with nothing in it centres its empty state in the page', async
           blocks={{ bots: () => <MixyEmptyState onCreate={() => {}} />, rooms: () => null, agents: () => null }}
         />
       );
-      createRoot(document.getElementById('skills')).render(
-        <SkillsPanel
-          api={{}}
-          data={{ __loadedSections: ['skills'], skills: { skills: [] } }}
-          snapshot={{}}
-          pending=""
-          run={async () => undefined}
-          confirm={() => {}}
-          refreshExtensions={async () => {}}
-        />
-      );
     `,
-    // Each page inside the rail column the shell gives it.
-    `<div id="frame" style="display:flex;width:520px;height:700px">
+    // The page inside the rail column the shell gives it.
+    `<div id="frame" style="display:flex;width:260px;height:700px">
       <aside class="utility-dock" style="display:flex;flex-direction:column;width:260px">
         <div class="utility-dock-body" style="flex:1 1 0;min-height:0">
           <div class="utility-dock-pane" style="height:100%">
-            <div id="bots" class="schedules-page agent-activity-page" data-page></div></div></div></aside>
-      <div class="session-sidebar-scroll session-sidebar-panels" style="display:flex;flex-direction:column;width:260px">
-        <div class="extensions-pane skills-pane schedules-pane"><div class="schedules-page" data-page>
-          <div class="pane-surface-gate"><div class="pane-surface-gate-content">
-            <div id="skills" class="capability-settings-content"></div></div></div></div></div></div></div>`
+            <div id="bots" class="schedules-page agent-activity-page" data-page></div></div></div></aside></div>`
   );
   await page.waitForSelector('#bots .mixy-empty');
-  await page.waitForSelector('#skills .utility-dock-empty');
   const measure = (selector) =>
     page.$eval(selector, (empty) => {
       const area = empty.closest('[data-page]');
@@ -237,10 +218,7 @@ test('a rail page with nothing in it centres its empty state in the page', async
     });
   for (const height of [700, 420]) {
     await resize(page, 520, height);
-    for (const [name, selector] of [
-      ['Bots', '#bots .mixy-empty'],
-      ['Skills', '#skills .utility-dock-empty'],
-    ]) {
+    for (const [name, selector] of [['Bots', '#bots .mixy-empty']]) {
       const { pageHeight, fills, dy } = await measure(selector);
       assert.ok(pageHeight > height - 40, `the ${name} page takes the ${height}px rail (${pageHeight})`);
       assert.ok(fills > 0.99, `the ${name} empty state takes the page (${fills})`);

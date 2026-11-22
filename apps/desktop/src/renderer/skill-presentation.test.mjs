@@ -38,7 +38,7 @@ test('every shipped skill and built-in feature has translated UI descriptions in
       i18next.addResourceBundle(language, 'translation', catalog);
       await i18next.changeLanguage(language);
       for (const [index, name] of names.entries()) {
-        const skill = { name, source: 'builtin', description: 'MODEL_ONLY_TEXT', enabled: true };
+        const skill = { name, source: 'builtin', description: 'MODEL_ONLY_TEXT', state: 'inUse' };
         const description = skillDisplayDescription(skill);
         assert.notEqual(description, originals[index], `${language}: ${name}`);
         assert.notEqual(description, 'MODEL_ONLY_TEXT');

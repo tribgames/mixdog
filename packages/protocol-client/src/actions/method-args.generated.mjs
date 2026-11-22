@@ -203,6 +203,7 @@ export const METHOD_ARGS = Object.freeze({
   'skills/removeSkill': { thread: true, args: ["input"] },
   'skills/saveSkill': { thread: true, args: ["input"] },
   'skills/setDisabledSkills': { thread: true, args: ["names"] },
+  'skills/setSkillEnabled': { thread: true, args: ["key","enabled"] },
   'skills/skillContent': { thread: true, args: ["name"] },
   'skills/skillsStatus': { thread: true, args: ["options"] },
   'thread/agentControl': { thread: true, args: ["args"] },

@@ -71,7 +71,8 @@ pub trait DoctorSources: Send + Sync {
     async fn channel_settings(&self) -> Probe;
     async fn channel_worker_status(&self) -> Probe;
     async fn channel_setup(&self) -> Probe;
-    async fn skills_status(&self) -> Probe;
+    /// `skillsStatus()`: scoped to the folder of the session `thread` names, unscoped without one.
+    async fn skills_status(&self, thread: Option<&ThreadId>) -> Probe;
     async fn plugins_status(&self) -> Probe;
     async fn hooks_status(&self) -> Probe;
     /// The json → log session migration:
@@ -311,11 +312,24 @@ fn report_providers(active: &str, setup: &Value) -> Option<Verdict> {
 /// The entries active in this project, and the disabled / out-of-project counts both
 /// registries append before their own breakage markers.
 fn scoped(entries: &[Value]) -> (Vec<&Value>, String) {
-    let enabled = |e: &Value| e.get("enabled") != Some(&Value::Bool(false));
+    // A skill row carries its `state`: only the one in use of a name runs, a hidden one is neither active nor disabled.
+    fn state(e: &Value) -> Option<&str> {
+        e.get("state").and_then(Value::as_str)
+    }
+    let enabled = |e: &Value| match state(e) {
+        Some(state) => state == "inUse",
+        None => e.get("enabled") != Some(&Value::Bool(false)),
+    };
+    // A skill row the project scope keeps off is outside this project, not disabled.
+    let out_of_scope = |e: &Value| state(e) == Some("off") && e.get("offBy").and_then(Value::as_str) == Some("scope");
+    let off = |e: &Value| match state(e) {
+        Some(state) => state == "off" && !out_of_scope(e),
+        None => !enabled(e),
+    };
     let here = |e: &Value| e.get("activeHere") != Some(&Value::Bool(false));
     let active: Vec<&Value> = entries.iter().filter(|e| enabled(e) && here(e)).collect();
-    let disabled = entries.iter().filter(|e| !enabled(e)).count();
-    let outside = entries.iter().filter(|e| enabled(e) && !here(e)).count();
+    let disabled = entries.iter().filter(|e| off(e)).count();
+    let outside = entries.iter().filter(|e| (enabled(e) && !here(e)) || out_of_scope(e)).count();
     let mut detail = String::new();
     if disabled > 0 {
         detail.push_str(&format!(" · {disabled} disabled"));
@@ -716,7 +730,7 @@ async fn run_check(
             let setup = if running == Some(false) { sources.channel_setup().await? } else { None };
             Ok(report_channels(worker.as_ref(), setup.as_ref()))
         }
-        "skills" => Ok(object(sources.skills_status().await)?.and_then(|s| report_registry("skills", &s))),
+        "skills" => Ok(object(sources.skills_status(thread).await)?.and_then(|s| report_registry("skills", &s))),
         "plugins" => Ok(object(sources.plugins_status().await)?.and_then(|s| report_registry("plugins", &s))),
         "hooks" => Ok(object(sources.hooks_status().await)?.and_then(|h| report_hooks(&h))),
         "data" => {

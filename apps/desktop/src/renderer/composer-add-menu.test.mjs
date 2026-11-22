@@ -34,14 +34,14 @@ async function mountSkillMenu() {
   const attached = { count: 0 };
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
-      assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session' });
+      assert.deepEqual(request, { capability: 'skillsStatus', sessionId: 'menu-session', args: [{ scoped: true }] });
       return {
         value: {
           skills: [
-            { name: 'pdf', enabled: true },
-            { name: 'off', enabled: false },
-            { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
-            { name: 'plugin-elsewhere', enabled: true, inheritedScope: ['C:/other'], activeHere: false },
+            { name: 'pdf', state: 'inUse' },
+            { name: 'off', state: 'off' },
+            { name: 'elsewhere', state: 'inUse', scope: ['C:/other'], activeHere: false },
+            { name: 'plugin-elsewhere', state: 'inUse', inheritedScope: ['C:/other'], activeHere: false },
           ],
         },
       };
@@ -208,8 +208,8 @@ test("a new-task draft's add menu lists the skills its selected Project sees", a
           ok: true,
           value: {
             skills: [
-              { name: 'team-only', enabled: true, scope: ['C:/project'], activeHere: true },
-              { name: 'elsewhere', enabled: true, scope: ['C:/other'], activeHere: false },
+              { name: 'team-only', state: 'inUse', scope: ['C:/project'], activeHere: true },
+              { name: 'elsewhere', state: 'inUse', scope: ['C:/other'], activeHere: false },
             ],
           },
         },

@@ -596,6 +596,7 @@ fn the_skill_list_is_fetched_only_while_a_mention_is_typed_and_kept_when_the_fet
     assert_eq!(fetch_mention_skills(&mut fake, false), None);
     assert!(fake.log.is_empty(), "no mention, no fetch");
     assert_eq!(fetch_mention_skills(&mut fake, true), Some(vec![json!({"name": "pdf"})]));
+    assert_eq!(fake.log.last(), Some(&json!(["call", "skillsStatus", [{"scoped": true}]])), "the session asks about itself");
     fake.script("skillsStatus", ok(json!({"skills": "none"})));
     assert_eq!(fetch_mention_skills(&mut fake, true), Some(Vec::new()));
     fake.script("skillsStatus", Err("down".to_owned()));

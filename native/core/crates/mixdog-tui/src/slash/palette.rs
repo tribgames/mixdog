@@ -76,8 +76,9 @@ fn skill_str<'a>(skill: &'a Value, key: &str) -> Option<&'a str> {
     skill.get(key).and_then(Value::as_str)
 }
 
-/// `skillMentionItems(skills, query)`: enabled, in-project (not `activeHere: false`) non-built-in skills whose name starts
-/// with the query, then those that merely contain it, each alphabetical.
+/// `skillMentionItems(skills, query)`: the skills that can run in this session (the scoped status row's `state` is `inUse`:
+/// of a name only the source's skill in use here) and not built-in, whose name starts with the query, then those that merely
+/// contain it, each alphabetical.
 pub fn skill_mention_items(skills: &[Value], query: &str) -> Vec<PaletteItem> {
     let needle = js_to_lowercase(query);
     let usable: Vec<&Value> = skills
@@ -85,8 +86,7 @@ pub fn skill_mention_items(skills: &[Value], query: &str) -> Vec<PaletteItem> {
         .filter(|skill| {
             skill_str(skill, "name").is_some_and(|name| {
                 !name.is_empty()
-                    && skill.get("enabled") != Some(&Value::Bool(false))
-                    && skill.get("activeHere") != Some(&Value::Bool(false))
+                    && skill_str(skill, "state") == Some("inUse")
                     && skill_str(skill, "source") != Some("builtin")
                     && !is_reserved_mention_name(name)
             })
@@ -178,13 +178,14 @@ pub fn mention_active(prompt_draft: &str, prompt_caret: Option<i64>) -> bool {
     skill_mention_query(prompt_draft, prompt_caret).is_some()
 }
 
-/// `useSkillMentionSkills(store, active)`: the skill list for the `$name` palette, fetched each time a mention starts. `None`
-/// keeps the list the caller already holds (no mention is being typed, or the fetch failed).
+/// `useSkillMentionSkills(store, active)`: the skill list for the `$name` palette, fetched each time a mention starts, as the
+/// session asking about itself (`scoped`), so a skill its project scope keeps out of this session's folder is not in use.
+/// `None` keeps the list the caller already holds (no mention is being typed, or the fetch failed).
 pub fn fetch_mention_skills(host: &mut dyn SlashHost, active: bool) -> Option<Vec<Value>> {
     if !active {
         return None;
     }
-    let status = host.store_call("skillsStatus", json!([])).ok()?;
+    let status = host.store_call("skillsStatus", json!([{"scoped": true}])).ok()?;
     Some(status.get("skills").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 
@@ -237,11 +238,11 @@ mod tests {
 
     fn skills() -> Vec<Value> {
         vec![
-            json!({"name": "pdf-tools", "description": "PDF work", "source": "global", "enabled": true}),
-            json!({"name": "deploy", "description": "Ship it", "source": "global", "enabled": true}),
-            json!({"name": "report-pdf", "description": "Reports", "source": "plugin", "enabled": true}),
-            json!({"name": "pdf-off", "description": "Disabled", "source": "global", "enabled": false}),
-            json!({"name": "pdf", "description": "Built-in", "source": "builtin", "enabled": true}),
+            json!({"name": "pdf-tools", "description": "PDF work", "source": "global", "state": "inUse"}),
+            json!({"name": "deploy", "description": "Ship it", "source": "global", "state": "inUse"}),
+            json!({"name": "report-pdf", "description": "Reports", "source": "plugin", "state": "inUse"}),
+            json!({"name": "pdf-off", "description": "Disabled", "source": "global", "state": "off"}),
+            json!({"name": "pdf", "description": "Built-in", "source": "builtin", "state": "inUse"}),
         ]
     }
 
@@ -306,13 +307,28 @@ mod tests {
     #[test]
     fn rows_drop_skills_outside_this_project_and_reserved_names() {
         let mut all = skills();
-        all.push(json!({"name": "pdf-elsewhere", "source": "global", "enabled": true, "activeHere": false}));
-        all.push(json!({"name": "pdf-here", "source": "plugin", "enabled": true, "activeHere": true}));
-        all.push(json!({"name": "path", "source": "global", "enabled": true}));
-        all.push(json!({"name": "300", "source": "global", "enabled": true}));
-        assert_eq!(names(&skill_mention_items(&all, "pdf")), ["pdf-here", "pdf-tools", "report-pdf"]);
+        all.push(json!({"name": "pdf-elsewhere", "source": "plugin", "state": "off", "offBy": "scope"}));
+        all.push(json!({"name": "pdf-elsewhere", "source": "global", "state": "inUse"}));
+        all.push(json!({"name": "pdf-here", "source": "plugin", "state": "inUse"}));
+        all.push(json!({"name": "path", "source": "global", "state": "inUse"}));
+        all.push(json!({"name": "300", "source": "global", "state": "inUse"}));
+        assert_eq!(names(&skill_mention_items(&all, "pdf")), ["pdf-elsewhere", "pdf-here", "pdf-tools", "report-pdf"]);
         assert!(skill_mention_items(&all, "pa").is_empty());
         assert!(skill_mention_items(&all, "3").is_empty());
+    }
+
+    /// Of a name several sources ship, only the source's skill in use can run: the hidden row is not offered, though its
+    /// switch is on.
+    #[test]
+    fn a_name_in_several_sources_offers_only_the_skill_in_use() {
+        let all = vec![
+            json!({"name": "review", "description": "Mine", "source": "global", "state": "inUse", "enabled": true}),
+            json!({"name": "review", "description": "Theirs", "source": "plugin", "state": "hidden", "enabled": true}),
+        ];
+        let rows = skill_mention_items(&all, "rev");
+        assert_eq!(rows.len(), 1);
+        let PaletteItem::Skill { description, .. } = &rows[0] else { panic!("a skill row") };
+        assert_eq!(description, "Mine");
     }
 
     #[test]

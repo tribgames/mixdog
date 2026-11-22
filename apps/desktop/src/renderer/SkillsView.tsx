@@ -8,8 +8,8 @@ import { useSurfaceNavigationReset } from './surface-activity';
 import './settings/settings.css';
 import './desktop/31-extensions.css';
 
-// The rail's Skills destination: only the user's own skills, in the
-// extension list grammar, with the editor and dialogs of the skills panel.
+// The rail's Skills destination: the user's own skills and each plugin's, one
+// category per source, with the editor and dialogs of the skills panel.
 export const SkillsPane = memo(function SkillsPane({ active }: { active: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
   useSurfaceNavigationReset(active, () => setCreateOpen(false));

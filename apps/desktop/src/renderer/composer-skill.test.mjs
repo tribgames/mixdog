@@ -41,11 +41,11 @@ test('menu offers enabled custom skills, not disabled or unavailable entries', (
   assert.deepEqual(
     selectableComposerSkills({
       skills: [
-        { name: 'pdf', enabled: true, description: 'PDF files' },
-        { name: 'private-skill', enabled: true },
-        { name: 'disabled', enabled: false },
+        { name: 'pdf', state: 'inUse', description: 'PDF files' },
+        { name: 'private-skill', state: 'inUse' },
+        { name: 'disabled', state: 'off' },
         { name: 'unknown-status' },
-        { name: 'pdf', enabled: true },
+        { name: 'pdf', state: 'inUse' },
       ],
     }),
     [
@@ -58,11 +58,11 @@ test('menu offers enabled custom skills, not disabled or unavailable entries', (
 test('built-in skills stay off the menu and custom skills keep their reported order', () => {
   const names = selectableComposerSkills({
     skills: [
-      { name: 'team-review', enabled: true, description: 'Team review' },
-      { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
-      { name: 'release-notes', enabled: true, description: 'Release notes' },
-      { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
-      { name: 'history-recall', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+      { name: 'team-review', state: 'inUse', description: 'Team review' },
+      { name: 'pdf', state: 'inUse', source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+      { name: 'release-notes', state: 'inUse', description: 'Release notes' },
+      { name: 'setup', state: 'inUse', owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
+      { name: 'history-recall', state: 'inUse', source: 'builtin', description: 'MODEL_ONLY_TEXT' },
     ],
   }).map((skill) => skill.name);
   assert.deepEqual(names, ['team-review', 'release-notes']);

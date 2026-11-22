@@ -10683,6 +10683,18 @@
     "expected": null
   },
   {
+    "case": "skills status of a draft with no project",
+    "method": "skills/skillsStatus",
+    "params": {
+      "threadId": "thread-1",
+      "options": {
+        "projectPath": ""
+      }
+    },
+    "path": null,
+    "expected": null
+  },
+  {
     "case": "skills status path padded",
     "method": "skills/skillsStatus",
     "params": {

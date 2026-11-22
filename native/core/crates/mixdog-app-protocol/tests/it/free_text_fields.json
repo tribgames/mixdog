@@ -3640,6 +3640,7 @@
     "request plugins/updatePlugin /plugin/name",
     "request skills/removeSkill /input/name",
     "request skills/saveSkill /input/originalName",
+    "request skills/setSkillEnabled /key",
     "request skills/skillContent /name"
    ]
   },
@@ -4563,6 +4564,8 @@
     "request skills/saveSkill /threadId",
     "request skills/setDisabledSkills /opId",
     "request skills/setDisabledSkills /threadId",
+    "request skills/setSkillEnabled /opId",
+    "request skills/setSkillEnabled /threadId",
     "request skills/skillContent /threadId",
     "request skills/skillsStatus /threadId",
     "request statusline/read /sessionId",

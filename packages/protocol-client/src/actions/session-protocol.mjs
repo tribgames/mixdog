@@ -239,6 +239,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setCwd',
   'setDeveloperOption',
   'setDisabledSkills',
+  'setSkillEnabled',
   'setEffort',
   'setExtensionScope',
   'setFast',

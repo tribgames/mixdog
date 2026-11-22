@@ -334,7 +334,10 @@ markers are read with `status desktop`.
 
 - `status skills` plus `set_disabled_skills` manage activation.
   `set_disabled_skills` replaces the complete disabled list; inspect the
-  current list before changing one entry.
+  current list before changing one entry. An entry `<source>:<name>` (a row's
+  `key`: `global:…`, `plugin:<id>:…`, `builtin:…`) turns off that source's
+  skill only, and the next source's skill of the name is used; a bare name
+  turns the name off in every source.
 - User skills are machine-global. Enabled plugin skills and built-in skills are
   also discoverable; project-local `.mixdog/skills` directories are ignored.
 - MCP servers and plugins are machine-global integrations whose visibility may

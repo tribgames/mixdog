@@ -485,18 +485,20 @@ fn a_claim_that_was_closed_never_paints_again() {
 }
 
 #[test]
-fn the_disabled_set_is_read_once_and_written_back_through_the_store() {
-    use mixdog_tui::pickers::extensions::disabled_skills::{load_disabled_skills, set_disabled_skills};
-    let mut host = fake(json!({"getDisabledSkills": {"disabled": ["a", "b"]}, "setDisabledSkills": {"$throw": "disk full"}}));
+fn the_disabled_set_is_read_once_and_replaced_by_the_list_the_core_answers_to_a_switch() {
+    use mixdog_tui::pickers::extensions::disabled_skills::{load_disabled_skills, set_skill_enabled};
+    let mut host = fake(json!({
+        "getDisabledSkills": {"disabled": ["a", "b"]},
+        "setSkillEnabled": {"$seq": [{"disabled": ["b", "global:c"]}, {"$throw": "disk full"}]},
+    }));
     load_disabled_skills(&mut host);
     assert_eq!(host.disabled.names(), ["a", "b"]);
-    let mut next = host.disabled.clone();
-    next.remove("a");
-    next.insert("c");
-    set_disabled_skills(&mut host, next);
-    assert_eq!(host.disabled.names(), ["b", "c"]);
-    assert_eq!(host.log["calls"].last(), Some(&json!(["setDisabledSkills", ["b", "c"]])));
-    assert_eq!(host.log["notices"], vec![json!(["skill disable persist failed: disk full", "error"])]);
+    assert!(set_skill_enabled(&mut host, "global:c", false));
+    assert_eq!(host.log["calls"].last(), Some(&json!(["setSkillEnabled", "global:c", false])));
+    assert_eq!(host.disabled.names(), ["b", "global:c"]);
+    assert!(!set_skill_enabled(&mut host, "global:c", true));
+    assert_eq!(host.disabled.names(), ["b", "global:c"]);
+    assert_eq!(host.log["notices"], vec![json!(["skill toggle failed: disk full", "error"])]);
 
     let mut empty = fake(json!({"getDisabledSkills": {"disabled": []}}));
     load_disabled_skills(&mut empty);
@@ -504,6 +506,171 @@ fn the_disabled_set_is_read_once_and_written_back_through_the_store() {
     let mut failing = fake(json!({"getDisabledSkills": {"$throw": "down"}}));
     load_disabled_skills(&mut failing);
     assert!(failing.disabled.is_empty());
+}
+
+/// The status rows of `demo` from the user and plugin `acme` and the built-in `pdf`, in the states the core gave them.
+fn sourced_skills(own: Value, plugin: Value, pdf: Value) -> Value {
+    let row = |name: &str, key: &str, source_key: &str, source: &str, description: &str, state: Value| {
+        let mut row = json!({"name": name, "key": key, "sourceKey": source_key, "source": source, "description": description});
+        row.as_object_mut().unwrap().extend(state.as_object().unwrap().clone());
+        row
+    };
+    json!({"skills": [
+        row("demo", "global:demo", "global", "global", "Mine.", own),
+        row("demo", "plugin:acme:demo", "plugin:acme", "plugin", "Theirs.", plugin),
+        row("pdf", "builtin:pdf", "builtin", "builtin", "Docs.", pdf),
+    ]})
+}
+
+fn in_use() -> Value {
+    json!({"state": "inUse", "hiddenBy": null, "offBy": null})
+}
+
+fn hidden_by(source: &str) -> Value {
+    json!({"state": "hidden", "hiddenBy": source, "offBy": null})
+}
+
+fn off_by(reason: &str) -> Value {
+    json!({"state": "off", "hiddenBy": null, "offBy": reason})
+}
+
+/// `(value, label, marker, description)` of the Skills rows on screen.
+fn skill_rows(host: &Fake) -> Vec<(String, String, String, String)> {
+    host.live().expect("the Skills list").items.iter().map(|item| (item.value.clone(), item.label.clone(), item.marker.clone(), item.description.clone())).collect()
+}
+
+fn skill_row(value: &str, label: &str, marker: &str, description: &str) -> (String, String, String, String) {
+    (value.to_owned(), label.to_owned(), marker.to_owned(), description.to_owned())
+}
+
+/// A row's switch is one core call naming the row's key; the list then shows what the core reports, never a list the
+/// terminal rewrote itself.
+#[test]
+fn a_shared_name_shows_the_cores_row_states_and_a_switch_asks_the_core_for_that_row_alone() {
+    let before = sourced_skills(in_use(), hidden_by("global"), in_use());
+    let after = sourced_skills(off_by("source"), in_use(), in_use());
+    let mut host = fake(json!({
+        "skillsStatus": {"$seq": [before, after]},
+        "setSkillEnabled": {"disabled": ["global:demo"]},
+    }));
+    let mut ext = Extensions::new();
+    ext.open(&mut host, Opener::Skills, &json!({}));
+    assert_eq!(
+        skill_rows(&host),
+        [
+            skill_row("global:demo", "demo \u{b7} own", "\u{25cf}", "in use \u{b7} global \u{b7} Mine."),
+            skill_row("plugin:acme:demo", "demo \u{b7} plugin acme", "\u{25cc}", "hidden by own \u{b7} plugin \u{b7} Theirs."),
+            skill_row("pdf", "pdf", "\u{25cf}", "builtin \u{b7} Docs."),
+        ]
+    );
+    let panel = host.live().unwrap();
+    ext.select(&mut host, &panel, 0);
+    assert_eq!(host.log["calls"].last().map(|call| call[0].clone()), Some(json!("skillsStatus")));
+    assert!(host.log["calls"].contains(&json!(["setSkillEnabled", "global:demo", false])));
+    assert!(host.log["calls"].iter().all(|call| call[0] != "setDisabledSkills"));
+    assert_eq!(host.disabled.names(), ["global:demo"]);
+    assert!(host.log["notices"].contains(&json!(["skill disabled: demo (own) (prompt updates next session /clear)", "info"])));
+    assert_eq!(
+        skill_rows(&host)[..2],
+        [
+            skill_row("global:demo", "demo \u{b7} own", "\u{25cb}", "off \u{b7} global \u{b7} Mine."),
+            skill_row("plugin:acme:demo", "demo \u{b7} plugin acme", "\u{25cf}", "in use \u{b7} plugin \u{b7} Theirs."),
+        ]
+    );
+}
+
+/// Both views show the row's state as the core gives it, whatever the held list says: a built-in the list turned off offers
+/// its switch and no request, one whose feature is off offers neither a request nor an "enable".
+#[test]
+fn the_list_and_the_detail_of_a_builtin_show_the_cores_row_state() {
+    let unswitchable = |state: Value| {
+        let mut state = state;
+        state["switchable"] = json!(false);
+        state
+    };
+    for (pdf, marker, use_text, switch) in [
+        (off_by("source"), "\u{25cb}", "enable this skill first", Some("enable")),
+        (unswitchable(off_by("feature")), "\u{25cb}", "a feature it needs is off", None),
+        (unswitchable(off_by("scope")), "\u{25cb}", "not in this project", None),
+        (in_use(), "\u{25cf}", "write a request with this skill", Some("disable")),
+    ] {
+        let status = sourced_skills(in_use(), hidden_by("global"), pdf);
+        let mut host = Fake::new(&json!({"store": {"skillsStatus": status}, "disabled": ["GLOBAL:PDF", "pdf"]}));
+        let mut ext = Extensions::new();
+        ext.open(&mut host, Opener::Skills, &json!({}));
+        assert_eq!(skill_rows(&host)[2].2, marker, "{use_text}");
+        ext.open(&mut host, Opener::ProjectSkills, &json!({}));
+        let list = host.live().unwrap();
+        ext.select(&mut host, &list, 2);
+        let detail = host.live().expect("the detail panel");
+        assert_eq!(detail.items[0].description, use_text);
+        assert_eq!(matches!(detail.items[0].action, Action::Use), use_text == "write a request with this skill");
+        assert_eq!(detail.items.get(1).map(|item| item.value.as_str()), switch);
+    }
+}
+
+/// A row the core marks `switchable: false` (off for its feature or scope, or a built-in that follows its feature) has no
+/// switch: Enter, Left and Right on it send nothing to the core.
+#[test]
+fn a_row_without_a_switch_sends_nothing() {
+    let mut pdf = off_by("scope");
+    pdf["switchable"] = json!(false);
+    let mut host = fake(json!({"skillsStatus": sourced_skills(in_use(), hidden_by("global"), pdf), "setSkillEnabled": {"disabled": []}}));
+    let mut ext = Extensions::new();
+    ext.open(&mut host, Opener::Skills, &json!({}));
+    let panel = host.live().unwrap();
+    assert!(matches!(panel.items[2].action, Action::Noop));
+    ext.select(&mut host, &panel, 2);
+    assert!(host.log["calls"].iter().all(|call| call[0] != "setSkillEnabled"));
+}
+
+/// A project-skills row whose name another source also ships opens a detail panel that names its source; a hidden row cannot
+/// be run, since a request runs the name's skill in use.
+#[test]
+fn the_detail_of_a_shared_name_names_its_source_and_a_hidden_row_is_not_run() {
+    let status = sourced_skills(in_use(), hidden_by("global"), in_use());
+    let mut host = fake(json!({"skillsStatus": status}));
+    let mut ext = Extensions::new();
+    ext.open(&mut host, Opener::ProjectSkills, &json!({}));
+    let list = host.live().expect("the project skills");
+    assert_eq!(list.items[1].value, "plugin:acme:demo");
+    ext.select(&mut host, &list, 1);
+    let detail = host.live().expect("the detail panel");
+    assert_eq!(detail.title, "Skill \u{b7} demo \u{b7} plugin acme");
+    assert!(matches!(detail.items[0].action, Action::Noop));
+    assert_eq!(detail.items[0].description, "another source's skill of this name is in use");
+
+    ext.open(&mut host, Opener::ProjectSkills, &json!({}));
+    let list = host.live().unwrap();
+    ext.select(&mut host, &list, 0);
+    let detail = host.live().unwrap();
+    assert_eq!(detail.title, "Skill \u{b7} demo \u{b7} own");
+    ext.select(&mut host, &detail, 0);
+    let prompt = host.settings.clone().expect("the request prompt");
+    assert_eq!((prompt.label.as_str(), prompt.fields.get("skillName")), ("Skill \u{b7} demo \u{b7} own", Some(&json!("demo"))));
+
+    ext.open(&mut host, Opener::ProjectSkills, &json!({}));
+    let list = host.live().unwrap();
+    ext.select(&mut host, &list, 2);
+    assert_eq!(host.live().unwrap().title, "Skill \u{b7} pdf");
+}
+
+/// The project skills list what this session can run: it asks as the session about itself, and a plugin skill the core
+/// answers off for its scope is not offered to run, nor switched.
+#[test]
+fn the_project_skills_ask_for_the_session_and_a_skill_outside_its_scope_is_not_run() {
+    let mut plugin = off_by("scope");
+    plugin["switchable"] = json!(false);
+    let mut host = fake(json!({"skillsStatus": sourced_skills(in_use(), plugin, in_use())}));
+    let mut ext = Extensions::new();
+    ext.open(&mut host, Opener::ProjectSkills, &json!({}));
+    assert_eq!(host.log["calls"].last(), Some(&json!(["skillsStatus", {"scoped": true}])));
+    let list = host.live().expect("the project skills");
+    ext.select(&mut host, &list, 1);
+    let detail = host.live().expect("the detail panel");
+    assert!(matches!(detail.items[0].action, Action::Noop));
+    assert_eq!(detail.items[0].description, "not in this project");
+    assert_eq!(detail.items.len(), 1);
 }
 
 #[test]
