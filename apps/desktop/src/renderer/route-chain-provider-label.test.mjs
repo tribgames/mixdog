@@ -68,6 +68,10 @@ test('each route chain row names how its route signs in beside the model', async
     { model: codex, provider: 'OpenAI OAuth' },
     { model: sonnet, provider: 'Anthropic OAuth' },
   ]);
+  // The sign-in reads last, after the model and how it runs.
+  for (const label of host.querySelectorAll('.model-trigger .model-route-label')) {
+    assert.equal(label.lastElementChild.className, 'model-route-label-provider');
+  }
   // aria-label replaces the visible text, so the name itself must tell the rows apart.
   const names = [...host.querySelectorAll('.model-trigger')].map((button) => button.getAttribute('aria-label'));
   assert.deepEqual(names, [

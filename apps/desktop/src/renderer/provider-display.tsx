@@ -365,26 +365,27 @@ export function ModelRouteLabel({
           <span className="model-route-label-blue">Blue</span>
         </>
       )}
-      {provider && (
-        <>
-          {(parts.model || blue) && ' '}
-          <small className="model-route-label-provider">{provider}</small>
-        </>
-      )}
       {parts.effort && (
         <>
-          {(parts.model || blue || provider) && ' '}
+          {(parts.model || blue) && ' '}
           <span className="model-route-label-effort">{parts.effort}</span>
         </>
       )}
       {parts.fast && (
         <>
-          {(parts.model || blue || provider || parts.effort) && ' '}
+          {(parts.model || blue || parts.effort) && ' '}
           {ultra ? (
             <span className="model-route-label-ultra">Ultrafast</span>
           ) : (
             <span className="model-route-label-fast">{parts.fast}</span>
           )}
+        </>
+      )}
+      {/* Last: the model and how it runs read as one, the sign-in after them. */}
+      {provider && (
+        <>
+          {(parts.model || blue || parts.effort || parts.fast) && ' '}
+          <small className="model-route-label-provider">{provider}</small>
         </>
       )}
     </span>
