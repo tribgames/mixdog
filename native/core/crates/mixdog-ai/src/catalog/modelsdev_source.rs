@@ -234,14 +234,14 @@ impl ModelsDevSource {
         job.await.map_err(|e| e.to_string())?.ok_or_else(|| "not the catalog document".to_owned())
     }
 
-    /// The body is stored verbatim: it already parsed.
+    /// The body is stored verbatim: it already parsed. Not flushed: a copy the power took, or left unreadable, is fetched again.
     async fn store_best_effort(&self, fetched_at: u64, body: Vec<u8>) {
         let path = self.path.clone();
         let Ok(job) = self.io.write.submit(&CancellationToken::new(), move |lane| {
             let mut out = format!("{{\"fetchedAt\":{fetched_at},\"data\":").into_bytes();
             out.extend_from_slice(&body);
             out.extend_from_slice(b"}\n");
-            let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
+            let opts = mixdog_statefile::Opts { lock: true, fsync: false, ..mixdog_statefile::Opts::default() };
             mixdog_statefile::write_file(lane, &path, &out, &opts).map(drop)
         }) else {
             return;

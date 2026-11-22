@@ -51,7 +51,14 @@ async fn every_roots_skill_of_a_name_is_collected_in_root_order_with_its_source_
     };
     assert_eq!(skills.len(), 6);
     let shared: Vec<(&str, String)> = skills.iter().filter(|s| s.name == "shared").map(|s| (s.description.as_str(), s.key())).collect();
-    assert_eq!(shared, [("From the user.", "global:shared".to_owned()), ("From the plugin.", "plugin:acme:shared".to_owned()), ("From the bundle.", "builtin:shared".to_owned())]);
+    assert_eq!(
+        shared,
+        [
+            ("From the user.", "global:shared".to_owned()),
+            ("From the plugin.", "plugin:acme:shared".to_owned()),
+            ("From the bundle.", "builtin:shared".to_owned())
+        ]
+    );
     assert_eq!((row("mine").when_to_use.as_str(), row("mine").source), ("on request", SkillSource::Global));
     assert_eq!((row("planted").source, row("planted").plugin.as_deref()), (SkillSource::Plugin, Some("acme")));
     assert_eq!((row("builtin-only").source, row("builtin-only").requires.clone()), (SkillSource::Builtin, vec!["jsRuntime".to_owned()]));

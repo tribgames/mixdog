@@ -69,16 +69,49 @@ pub struct NoToolState {
     /// Segments before this index are answers the turn went on past.
     ended_parts_end: usize,
     /// Answers the turn went on past, one entry per tool boundary that sealed them, each as its
-    /// runs of text in order; `true` for a run a completion reminder cut short, which a later
-    /// answer replaces in the caller's report.
-    carried_answers: Vec<Vec<(String, bool)>>,
+    /// runs of text in order.
+    carried_answers: Vec<Vec<(String, Carried)>>,
     /// Indices into `parts` of the answers a completion reminder cut short.
     reminded_parts: Vec<usize>,
+    /// The segments before this index of `parts` precede input taken into the turn.
+    parts_before_input: usize,
     /// The newest kept answer was followed by nothing but todo bookkeeping.
     report_stands: bool,
     /// Successful reactions: the input each was left against and whether it
     /// answered that input.
     reactions: Vec<(String, bool)>,
+}
+
+/// How a run of carried text stands in the caller's report.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Carried {
+    Kept,
+    /// A completion reminder cut it short and a tool call other than `todo` followed: a later
+    /// answer replaces it.
+    Cut,
+    /// Only `todo` calls followed it, so the answer after them continues it. Once another tool
+    /// call or new input follows, a `reminded` run is cut short and any other is no answer.
+    Todo {
+        reminded: bool,
+    },
+}
+
+impl Carried {
+    /// The run once something other than a `todo` call followed it; `None` for no answer.
+    fn past_boundary(self) -> Option<Self> {
+        match self {
+            Self::Todo { reminded: true } => Some(Self::Cut),
+            Self::Todo { reminded: false } => None,
+            kept_or_cut => Some(kept_or_cut),
+        }
+    }
+}
+
+fn push_run(runs: &mut Vec<(String, Carried)>, text: &str, carried: Carried) {
+    match runs.last_mut() {
+        Some((run, flag)) if *flag == carried => run.push_str(text),
+        _ => runs.push((text.to_owned(), carried)),
+    }
 }
 
 pub(crate) fn join_reports<S: AsRef<str>>(parts: &[S]) -> String {
@@ -90,6 +123,22 @@ impl NoToolState {
     /// the kept answer's.
     pub(crate) fn note_new_input(&mut self) {
         self.report_stands = false;
+        self.end_todo_runs();
+        self.parts_before_input = self.parts.len();
+    }
+
+    /// Something other than a `todo` call followed the carried runs: what only `todo` calls
+    /// followed is no longer part of the next answer.
+    fn end_todo_runs(&mut self) {
+        for runs in &mut self.carried_answers {
+            runs.retain_mut(|(_, carried)| match carried.past_boundary() {
+                Some(next) => {
+                    *carried = next;
+                    true
+                }
+                None => false,
+            });
+        }
     }
 
     fn reset_output_limit(&mut self) {
@@ -123,7 +172,10 @@ impl NoToolState {
     /// The text each tool boundary sealed, its runs joined as they were written; `reminded` keeps
     /// the runs a completion reminder cut short.
     fn carried(&self, reminded: bool) -> Vec<String> {
-        self.carried_answers.iter().map(|runs| runs.iter().filter(|(_, cut)| reminded || !cut).map(|(text, _)| text.as_str()).collect()).collect()
+        self.carried_answers
+            .iter()
+            .map(|runs| runs.iter().filter(|(_, carried)| reminded || *carried != Carried::Cut).map(|(text, _)| text.as_str()).collect())
+            .collect()
     }
 
     /// The turn's own segments before `upto`, without the answers a completion reminder cut short,
@@ -399,9 +451,9 @@ impl Run {
         Ok(Outcome::Continue)
     }
 
-    /// A tool batch ran with `calls`; its result messages start at
-    /// `results_from`.
-    pub(crate) async fn note_tool_batch_completed(&mut self, calls: &[ToolCall], results_from: usize) -> Result<(), AgentError> {
+    /// A tool batch ran with `calls`, which the model sent with the text `said`; its result
+    /// messages start at `results_from`.
+    pub(crate) async fn note_tool_batch_completed(&mut self, calls: &[ToolCall], said: &str, results_from: usize) -> Result<(), AgentError> {
         self.no_tool.continuations_since_tool_batch = 0;
         self.env.guards.note_progress();
         let results = self.messages[results_from..].to_vec();
@@ -409,22 +461,32 @@ impl Run {
         if let Some(stale) = stale {
             self.push(AgentMessage::sourced(Source::Hook, stale)).await?;
         }
-        if self.no_tool.ended_parts_end > 0 {
-            let end = self.no_tool.ended_parts_end.min(self.no_tool.parts.len());
-            // One entry per run of segments with the same flag, so the order of the answers holds.
-            let mut runs: Vec<(String, bool)> = Vec::new();
-            for index in 0..end {
-                let reminded = self.no_tool.reminded_parts.contains(&index);
-                match runs.last_mut() {
-                    Some((text, flag)) if *flag == reminded => text.push_str(&self.no_tool.parts[index]),
-                    _ => runs.push((self.no_tool.parts[index].clone(), reminded)),
-                }
+        let todo_only = calls.iter().all(|call| call.name == TODO_TOOL);
+        if !todo_only {
+            self.no_tool.end_todo_runs();
+        }
+        let end = self.no_tool.ended_parts_end.min(self.no_tool.parts.len());
+        let before_input = self.no_tool.parts_before_input;
+        // One entry per run of segments with the same flag, so the order of the answers holds.
+        let mut runs: Vec<(String, Carried)> = Vec::new();
+        for (index, part) in self.no_tool.parts.iter().enumerate() {
+            let reminded = self.no_tool.reminded_parts.contains(&index);
+            let carried = if index < end && !reminded { Carried::Kept } else { Carried::Todo { reminded } };
+            let carried = if todo_only && index >= before_input { Some(carried) } else { carried.past_boundary() };
+            if let Some(carried) = carried {
+                push_run(&mut runs, part, carried);
             }
+        }
+        if todo_only && !mixdog_js::js_trim(said).is_empty() {
+            push_run(&mut runs, &format!("{}\n\n", mixdog_js::js_trim_end(said)), Carried::Todo { reminded: false });
+        }
+        if !runs.is_empty() {
             self.no_tool.carried_answers.push(runs);
         }
         self.no_tool.reminded_parts.clear();
         self.no_tool.ended_parts_end = 0;
-        if calls.iter().any(|call| call.name != TODO_TOOL) {
+        self.no_tool.parts_before_input = 0;
+        if !todo_only {
             self.no_tool.report_stands = false;
         }
         // The UI sealed its streaming row at a tool boundary; earlier

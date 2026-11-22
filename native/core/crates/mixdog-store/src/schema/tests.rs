@@ -252,7 +252,7 @@ fn migration_files_parse_and_encode_to_their_vectors() {
         round_trip::<JournalRecord>(&named.name, &named.payload);
         kinds.insert(kind_of(&named.payload));
     }
-    assert_eq!(kinds.len(), 7, "every journal kind has a vector");
+    assert_eq!(kinds.len(), 9, "every journal kind has a vector");
     let manifest: Manifest = round_trip("manifest", &doc.manifest);
     assert!(manifest.items.windows(2).all(|w| w[0].key < w[1].key), "items sorted by key");
     let complete: Complete = round_trip("complete", &doc.complete);

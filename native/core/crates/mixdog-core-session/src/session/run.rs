@@ -443,6 +443,7 @@ mod cancel_tests {
             cancel: cancel.clone(),
             ctl,
             provider: None,
+            call_epoch: Default::default(),
             meters: Arc::new(crate::session::testing::TestCompaction::default()),
             meters_provider: Arc::new(String::new),
             #[cfg(feature = "replay-settled")]
@@ -720,6 +721,8 @@ pub struct RunPort {
     pub(crate) ctl: mpsc::Sender<Ctl>,
     /// The header's `providerState` as acked at turn start.
     pub(crate) provider: Option<ProviderState>,
+    /// How many times calls have left the session's model context, as the session counts it now.
+    pub(crate) call_epoch: Arc<std::sync::atomic::AtomicU64>,
     /// The host that prices the thread's pressure, and the provider it prices on.
     pub(crate) meters: Arc<dyn super::turn_ops::ManualCompaction>,
     /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters
@@ -740,6 +743,18 @@ impl RunPort {
     /// read `session.providerState` (`ask-turn-loop-options.mjs:71`).
     pub async fn provider_state(&self) -> Option<ProviderState> {
         self.provider.clone()
+    }
+
+    /// How many times calls have left the session's model context (`mixdog_protocol::tool_call_ids::distinct_id`): the
+    /// session's count, which the ids of the calls that enter it carry.
+    pub fn call_epoch(&self) -> u64 {
+        self.call_epoch.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The run counts `epoch`: told before it queues a rewrite that takes calls out of the context, so the session, and
+    /// the header written with that rewrite, count no lower.
+    pub fn calls_left(&self, epoch: u64) {
+        self.call_epoch.fetch_max(epoch, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Today's `persistProviderState`: `Some` replaces the saved state as a whole (the adapter

@@ -52,17 +52,20 @@ impl Inner {
         if !workspace.is_bound() && same_path(&workspace.cwd, &workspace.project_path) {
             return Ok(json!({ "revision": workspace.revision, "workspace": workspace.to_value(), "unchanged": true }));
         }
-        let occupancy = self.ops.wt.branch_occupancy(std::path::Path::new(&workspace.project_path), Some(target), cancel).await?;
-        let branch = occupancy["occupancy"]
+        let branch = self.project_folder_branch(target, &workspace.project_path, cancel).await?;
+        let input = SelectBranch { branch, create: false, expected_revision: Some(workspace.revision), confirm_large: false, tx_id };
+        self.select_branch(target, input, own_turn, cancel).await
+    }
+
+    /// The branch checked out in the project folder, which `return` goes back to: a detached folder refuses.
+    pub(super) async fn project_folder_branch(&self, session: &str, project_path: &str, cancel: &CancellationToken) -> Result<String, ScmFailure> {
+        let occupancy = self.ops.wt.branch_occupancy(std::path::Path::new(project_path), Some(session), cancel).await?;
+        occupancy["occupancy"]
             .as_array()
             .and_then(|rows| rows.iter().find(|row| row["kind"] == "current"))
             .and_then(|row| row["branch"].as_str())
-            .map(str::to_owned);
-        let Some(branch) = branch else {
-            return Err(errors::unsupported_repo(Some(workspace.project_path.clone()), None));
-        };
-        let input = SelectBranch { branch, create: false, expected_revision: Some(workspace.revision), confirm_large: false, tx_id };
-        self.select_branch(target, input, own_turn, cancel).await
+            .map(str::to_owned)
+            .ok_or_else(|| errors::unsupported_repo(Some(project_path.to_owned()), None))
     }
 
     /// The desktop's "merge": into the confirmed merge target, then the cleanup autoCleanup allows.
@@ -128,6 +131,28 @@ impl Inner {
             return self.remove_orphan(&gone, force, cancel).await;
         }
         self.remove_worktree(target, force, None, target == caller, cancel).await
+    }
+}
+
+impl SessionWorkspaces {
+    /// The pending Project move `pending` of a session that may work in a managed worktree, carried out: back to the project
+    /// folder as the `git` tool's `return` does (the worktree kept), then [`Self::switch_project`], as one transition: the
+    /// session's turns wait for it, and a failure anywhere puts the session back in the worktree it left. The write of the
+    /// new folder takes `pending` off the record. Resolves the runtime cwd after the move.
+    pub async fn move_to_project(
+        &self,
+        session: &str,
+        cwd: &str,
+        desktop_session: Option<JsonValue>,
+        pending: JsonValue,
+        cancel: &CancellationToken,
+    ) -> Result<String, ScmFailure> {
+        if !self.inner.workspace(session)?.is_bound() {
+            return self.switch_project_moved(session, cwd, desktop_session, false, Some(pending), cancel).await;
+        }
+        self.inner.host.ensure_session(session).await?;
+        let target = Target::Project { cwd: cwd.to_owned(), desktop_session, pending };
+        self.inner.run_project_move(session, target, cancel).await.map(|_| cwd.to_owned())
     }
 }
 

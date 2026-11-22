@@ -184,7 +184,7 @@ async fn a_record_an_awaiting_header_update_appends_after_the_call_arrived_is_no
                 resume.notified().await;
                 let mut set = Map::new();
                 set.insert("title".to_owned(), json!("after"));
-                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
             })
         })
     };

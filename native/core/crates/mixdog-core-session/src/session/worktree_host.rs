@@ -75,6 +75,9 @@ pub struct WorkspaceChange {
     /// A Project switch's desktop classification (`persistProjectSelection`): the
     /// `desktopSession` to store, `None` to leave the session's as it is.
     pub desktop_session: Option<Value>,
+    /// The record's pending Project move (`pendingProjectMove`) this change carries out: it leaves the record in the same
+    /// write as the folder, while the record still holds that very move (a newer request stays pending).
+    pub project_move: Option<Value>,
 }
 
 #[async_trait]

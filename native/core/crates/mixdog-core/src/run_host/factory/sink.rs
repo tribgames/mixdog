@@ -25,6 +25,9 @@ pub(super) struct Observed {
     pub(super) drafted_calls: usize,
     pub(super) drafted_tools: bool,
     pub(super) undrafted_results: Vec<Value>,
+    /// The calls whose result the draft's file may hold and is to give up: each was run again
+    /// (`RunObserver::early_result_replaced`).
+    pub(super) undrafted_withdrawn: Vec<String>,
 }
 
 impl Observed {
@@ -53,6 +56,9 @@ impl Observed {
             let calls = row_of(&AgentMessage::assistant("", self.calls[self.drafted_calls..].to_vec()));
             body.insert("calls".into(), calls.get("toolCalls").cloned().unwrap_or_default());
             self.drafted_calls = self.calls.len();
+        }
+        if !self.undrafted_withdrawn.is_empty() {
+            body.insert("withdrawn".into(), json!(std::mem::take(&mut self.undrafted_withdrawn)));
         }
         if !self.undrafted_results.is_empty() {
             body.insert("results".into(), Value::Array(std::mem::take(&mut self.undrafted_results)));
@@ -439,9 +445,11 @@ impl TranscriptSink for PortSink {
         self.rows.record_turn(held.clone(), row.clone());
         if message.role() == Role::Tool {
             // The authoritative result is in the transcript now: an early notice of it is no longer pending
-            // (`recordToolResult` deletes it).
+            // (`recordToolResult` deletes it), and one the draft has not taken yet is not drafted behind its call's row.
             if let Some(id) = message.tool_call_id() {
-                lock(&self.jobs.observed).results.retain(|early| early.tool_call_id() != Some(id));
+                let mut observed = lock(&self.jobs.observed);
+                observed.results.retain(|early| early.tool_call_id() != Some(id));
+                observed.undrafted_results.retain(|early| early.get("toolCallId").and_then(Value::as_str) != Some(id));
             }
             if let Some(hook) = &self.on_tool_result {
                 hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
@@ -488,6 +496,14 @@ impl TranscriptSink for PortSink {
             dropped: rewrite.dropped.as_ref().map(dropped_of),
         };
         self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
+    }
+
+    fn call_epoch(&self) -> u64 {
+        self.port.call_epoch()
+    }
+
+    fn calls_left(&self, epoch: u64) {
+        self.port.calls_left(epoch);
     }
 
     fn message_id(&self) -> String {

@@ -718,6 +718,46 @@
       }
     },
     {
+      "class": "C1",
+      "method": "thread/window/set",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::thread::ThreadWindowSetParams",
+      "result": "v2::thread::ThreadWindowSetResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "thread/rewindTargets/list",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::thread::ThreadRewindTargetsListParams",
+      "result": "v2::thread::ThreadRewindTargetsListResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
       "class": "C2",
       "method": "thread/rewind",
       "mutation": {
@@ -12672,6 +12712,16 @@
     },
     {
       "delivery": "thread",
+      "method": "thread/transcript/changed",
+      "params": "ThreadTranscriptChangedParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/window/changed",
+      "params": "ThreadWindowChangedParams"
+    },
+    {
+      "delivery": "thread",
       "method": "thread/frame",
       "params": "ThreadFrameParams"
     },
@@ -13043,6 +13093,11 @@
     {
       "delivery": "app",
       "method": "migration/progress",
+      "params": "SectionUpdate"
+    },
+    {
+      "delivery": "app",
+      "method": "catalog/index/updated",
       "params": "SectionUpdate"
     },
     {

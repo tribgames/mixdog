@@ -436,16 +436,14 @@ fn subscribed_frame(id: &RequestId, mut result: serde_json::Map<String, Value>, 
 }
 
 impl Shared {
-    fn reject(&self, conn: &Connection, id: &RequestId, data: &ErrorData) {
-        // A closing connection no longer needs the answer.
-        let _ = conn.sink.send_control(error_frame(id, data));
+    /// Whether the answer entered the connection's outgoing queue: a closing connection no longer needs it.
+    fn reject(&self, conn: &Connection, id: &RequestId, data: &ErrorData) -> bool {
+        conn.sink.send_control(error_frame(id, data)).is_ok()
     }
 
-    /// Answers `error` unless it is the internal "connection closed" race (never on the wire).
-    fn reject_core(&self, conn: &Connection, id: &RequestId, error: &CoreError) {
-        if !matches!(error, CoreError::ConnectionClosed) {
-            self.reject(conn, id, &error_data(error));
-        }
+    /// Answers `error` unless it is the internal "connection closed" race (never on the wire); whether it was queued.
+    fn reject_core(&self, conn: &Connection, id: &RequestId, error: &CoreError) -> bool {
+        !matches!(error, CoreError::ConnectionClosed) && self.reject(conn, id, &error_data(error))
     }
 
     // ---- requests
@@ -678,11 +676,13 @@ impl Shared {
         let params = params.unwrap_or_else(empty_result);
         // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
         let after = AfterAnswer::default();
+        // The one place a request's end is told to what it kept: with an answer in the outgoing queue, or without.
+        let ended = |after: &AfterAnswer, queued: bool| if queued { after.answered() } else { after.release() };
         match self.dispatch(conn, (&id, origin), typed, (params, lone_surrogates), spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
-                self.finish(conn, &id, cleaned(outcome));
-                after.release();
+                let queued = self.finish(conn, &id, cleaned(outcome));
+                ended(&after, queued);
             }
             Dispatch::Later(class, work) => {
                 let shared = Arc::clone(self);
@@ -690,13 +690,13 @@ impl Shared {
                 let run = async move {
                     let outcome = cleaned(work.await);
                     drop(slot);
-                    match outcome {
+                    let queued = match outcome {
                         // Off the reader's turn an answer waits for the control reserve's room: several large ones asked for
                         // at once (a list page beside a transcript read) follow each other instead of ending the connection.
-                        Ok(Reply::Value(result)) => drop(owner.sink.send_answer(response_frame(&id, &result)).await),
+                        Ok(Reply::Value(result)) => owner.sink.send_answer(response_frame(&id, &result)).await.is_ok(),
                         outcome => shared.finish(&owner, &id, outcome),
-                    }
-                    after.release();
+                    };
+                    ended(&after, queued);
                 };
                 match scope {
                     Some(scope) => {
@@ -1067,33 +1067,32 @@ impl Shared {
 
     // ---- responses
 
-    /// Writes the outcome of a request. The slot of the request is already free.
-    fn finish(&self, conn: &Connection, id: &RequestId, outcome: Result<Reply, CoreError>) {
+    /// Writes the outcome of a request; whether its answer, a result or an error, entered the connection's outgoing queue.
+    /// The slot of the request is already free.
+    fn finish(&self, conn: &Connection, id: &RequestId, outcome: Result<Reply, CoreError>) -> bool {
         match outcome {
-            Ok(Reply::Value(result)) => {
-                let _ = conn.sink.send_control(response_frame(id, &result));
-            }
+            Ok(Reply::Value(result)) => conn.sink.send_control(response_frame(id, &result)).is_ok(),
             Ok(Reply::Subscribe(sub)) => self.finish_subscribe(conn, id, sub),
             Err(error) => self.reject_core(conn, id, &error),
         }
     }
 
-    fn finish_subscribe(&self, conn: &Connection, id: &RequestId, sub: Subscribe) {
+    /// [`finish`](Self::finish) of a subscribing reply.
+    fn finish_subscribe(&self, conn: &Connection, id: &RequestId, sub: Subscribe) -> bool {
         let Subscribe { result, feed, window, resume_from } = sub;
         let Value::Object(result) = result else {
             let error = internal("subscribing reply without an object result");
             return self.reject_core(conn, id, &error);
         };
         let feed_id = feed.feed_id();
-        let carried = resume_from.as_ref().is_some_and(|resume| {
+        let carried = resume_from.as_ref().and_then(|resume| {
             conn.answer_held_subscription(&feed_id, |held| {
                 let decision = feed.carries(held, &window, resume)?;
                 Some(conn.sink.send_control(subscribed_frame(id, result.clone(), held, &decision)))
             })
-            .is_some()
         });
-        if carried {
-            return;
+        if let Some(sent) = carried {
+            return sent.is_ok();
         }
         let sub_id = conn.next_subscription_id();
         let attached = match subscribe(&feed, sub_id.clone(), window, resume_from, &*conn.sink) {
@@ -1103,18 +1102,22 @@ impl Shared {
         let frame = subscribed_frame(id, result, &sub_id, &attached.decision);
         let registered = conn.register_subscription(feed_id.clone(), Sub { id: sub_id.clone(), feed: Arc::clone(&feed), live: false });
         match registered {
-            Registered::ConnectionClosed => return feed.detach(sub_id),
+            Registered::ConnectionClosed => {
+                feed.detach(sub_id);
+                return false;
+            }
             Registered::Replaced(Some(old)) => old.feed.detach(old.id),
             Registered::Replaced(None) => {}
         }
         let release = attached.release;
         if conn.send_attach_response(&feed_id, &sub_id, || conn.sink.send_control_release(frame, release)).is_err() {
-            return;
+            return false;
         }
         if feed_id == FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID) && conn.is_desktop_on(&feed_id) {
             self.outgoing.desktop_ready();
         }
         self.outgoing.redeliver(conn);
+        true
     }
 
     /// A response of a client: the answer to a `host/*` request it serves, or a decision on

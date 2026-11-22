@@ -160,6 +160,10 @@ crate::notification_definitions! {
     ReasoningTextDelta => "item/reasoning/textDelta" (ItemDeltaParams) @thread,
     ReasoningSummaryTextDelta => "item/reasoning/summaryTextDelta" (ItemDeltaParams) @thread,
     ThreadHistoryReset => "thread/historyReset" (ThreadHistoryResetParams) @thread,
+    /// A transcript event as a positioned subscription gets it, in place of `item/started` and `item/completed`.
+    ThreadTranscriptChanged => "thread/transcript/changed" (ThreadTranscriptChangedParams) @thread,
+    /// The ranges a positioned subscription holds, at the feed position it carries.
+    ThreadWindowChanged => "thread/window/changed" (ThreadWindowChangedParams) @thread,
     ThreadFrame => "thread/frame" (ThreadFrameParams) @thread,
     ThreadRuntimeUpdated => "thread/runtime/updated" (ThreadSectionParams<ThreadRuntime>) @thread,
     ThreadRouteUpdated => "thread/route/updated" (ThreadSectionParams<ThreadRoute>) @thread,
@@ -259,6 +263,8 @@ crate::notification_definitions! {
     CoreStateUpdated => "core/state/updated" (SectionUpdate) @app,
     CoreHealthUpdated => "core/health/updated" (SectionUpdate) @app,
     MigrationProgress => "migration/progress" (SectionUpdate) @app,
+    /// Section `catalogIndex`: the session index's build, while a rebuild of it runs behind the serving core.
+    CatalogIndexUpdated => "catalog/index/updated" (SectionUpdate) @app,
     /// Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).
     ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @app,
     // ---- scoped feeds (DS §2.1)

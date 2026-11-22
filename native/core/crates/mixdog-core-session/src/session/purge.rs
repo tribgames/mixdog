@@ -161,22 +161,33 @@ fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
     }
 }
 
-impl PurgeHooks {
-    /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
-    pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners {
-            data_dir,
-            mixdog_home,
-            maintenance,
-            read_state,
-            warm,
-            ingest_offsets,
-            transcripts: writers,
-            providers,
-            worker_turns,
-            agents,
-            retention,
-        } = owners;
+/// The owners of what a deleted session leaves in files outside its stored record.
+pub struct FileOwners {
+    /// `resolvePluginData()`.
+    pub data_dir: PathBuf,
+    /// `mixdogHome()`: the conversation transcripts live under its `projects`.
+    pub mixdog_home: PathBuf,
+    pub maintenance: MaintenanceIo,
+    /// The one read state of the read, edit and apply_patch tools.
+    pub read_state: Arc<ReadState>,
+    pub ingest_offsets: Option<Arc<dyn IngestOffsets>>,
+    pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
+}
+
+/// The purge hooks that remove files ([`PurgeHooks`]' members of the same names).
+pub struct FileHooks {
+    pub transcript_export: Arc<dyn PurgeHook>,
+    pub tool_result_offload: Arc<dyn PurgeHook>,
+    pub transcripts: Arc<dyn PurgeHook>,
+    pub read_cache: Arc<dyn PurgeHook>,
+    pub connector_accounts: Arc<dyn PurgeHook>,
+    pub compaction_archive: Arc<dyn PurgeHook>,
+    pub scratch_dir: Arc<dyn PurgeHook>,
+}
+
+impl FileHooks {
+    pub fn new(owners: FileOwners) -> Self {
+        let FileOwners { data_dir, mixdog_home, maintenance, read_state, ingest_offsets, transcripts: writers } = owners;
         let lane = maintenance;
         let data = data_dir.clone();
         let transcript_export = hook(move |id, _| {
@@ -234,18 +245,10 @@ impl PurgeHooks {
                 }
             })
         });
-        let cache_warm = hook(move |id, _| {
-            warm.purge_session(id);
-            done()
-        });
         let read_cache = hook(move |id, _| {
             read_state.forget_session(id);
             let state = read_state.clone();
             Box::pin(async move { state.settle().await })
-        });
-        let provider_connections = hook(move |id, _| {
-            providers.release_session(id);
-            done()
         });
         let data = data_dir.clone();
         let connector_accounts = hook(move |id, _| {
@@ -254,16 +257,6 @@ impl PurgeHooks {
                 if let Err(error) = mixdog_mcp::connector_accounts::forget_conversation(lane, &data, &id) {
                     tracing::warn!(%error, "session delete: connector accounts not forgotten");
                 }
-            })
-        });
-        let worker_turns = hook(move |id, _| {
-            worker_turns.forget(id);
-            done()
-        });
-        let agent_status = hook(move |id, _| {
-            let (agents, id) = (agents.clone(), id.to_owned());
-            Box::pin(async move {
-                agents.forget_deleted_session(&id).await;
             })
         });
         let data = data_dir.clone();
@@ -283,6 +276,34 @@ impl PurgeHooks {
             let legacy = data_dir.join("scratch").join(id);
             on_lane(lane, move |lane| remove_all(lane, &[dir, legacy]))
         });
+        Self { transcript_export, tool_result_offload, transcripts, read_cache, connector_accounts, compaction_archive, scratch_dir }
+    }
+}
+
+impl PurgeHooks {
+    /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
+    pub fn new(owners: PurgeOwners) -> Self {
+        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, transcripts, providers, worker_turns, agents, retention } =
+            owners;
+        let files = FileHooks::new(FileOwners { data_dir, mixdog_home, maintenance, read_state, ingest_offsets, transcripts });
+        let cache_warm = hook(move |id, _| {
+            warm.purge_session(id);
+            done()
+        });
+        let provider_connections = hook(move |id, _| {
+            providers.release_session(id);
+            done()
+        });
+        let worker_turns = hook(move |id, _| {
+            worker_turns.forget(id);
+            done()
+        });
+        let agent_status = hook(move |id, _| {
+            let (agents, id) = (agents.clone(), id.to_owned());
+            Box::pin(async move {
+                agents.forget_deleted_session(&id).await;
+            })
+        });
         let retention = hook(move |id, _| {
             let (retention, id) = (retention.clone(), id.to_owned());
             Box::pin(async move {
@@ -292,6 +313,19 @@ impl PurgeHooks {
                 }
             })
         });
+        Self::with_files(files, cache_warm, provider_connections, worker_turns, agent_status, retention)
+    }
+
+    /// The hooks over `files` and the hooks of the owners that keep a session's state in memory or in their own stores.
+    pub fn with_files(
+        files: FileHooks,
+        cache_warm: Arc<dyn PurgeHook>,
+        provider_connections: Arc<dyn PurgeHook>,
+        worker_turns: Arc<dyn PurgeHook>,
+        agent_status: Arc<dyn PurgeHook>,
+        retention: Arc<dyn PurgeHook>,
+    ) -> Self {
+        let FileHooks { transcript_export, tool_result_offload, transcripts, read_cache, connector_accounts, compaction_archive, scratch_dir } = files;
         Self {
             transcript_export,
             tool_result_offload,

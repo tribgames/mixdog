@@ -401,6 +401,13 @@ fn warnings_of(doc: &Doc) -> Vec<ConfigWarning> {
     warnings
 }
 
+/// The edit of [`Config::stamp_notifications`]: `notifications.migratedAt` into a document without the subtree.
+fn stamp_notifications_in(doc: &mut Doc, now_ms: i64) {
+    if get_in(doc, &["notifications"]).is_none() {
+        set_in(doc, &["notifications", "migratedAt"], Value::from(now_ms));
+    }
+}
+
 fn get_in<'a>(doc: &'a Doc, parts: &[&str]) -> Option<&'a Value> {
     let (first, rest) = parts.split_first()?;
     let mut node = doc.get(*first)?;
@@ -796,12 +803,13 @@ impl Config {
     /// Boot: Node's notification store, on its first load with no document, writes one stamped `migratedAt: now`
     /// (`notification-preferences.ts:228`). Without it nothing reads the stamp as anything but 0, and every
     /// paired phone app would start from bot chats only. Run once after `open`, like `separate_defaults`: the
-    /// golden-tested `open` itself writes nothing. An existing subtree is left as it is.
+    /// golden-tested `open` itself writes nothing. An existing subtree is left as it is, and the file is not rewritten.
     pub async fn stamp_notifications(&self, now_ms: i64) -> Result<Applied, ConfigError> {
+        if get_in(&self.full(), &["notifications"]).is_some() {
+            return Ok(Applied::default());
+        }
         self.update(move |doc| {
-            if get_in(doc, &["notifications"]).is_none() {
-                set_in(doc, &["notifications", "migratedAt"], Value::from(now_ms));
-            }
+            stamp_notifications_in(doc, now_ms);
             Ok(())
         })
         .await

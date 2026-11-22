@@ -5,8 +5,14 @@
 //! construction.
 
 use bytes::Bytes;
+use mixdog_app_protocol::v2::thread::ThreadTranscriptChangedParams;
+use mixdog_app_protocol::v2::thread::TranscriptChange;
+use mixdog_core_api::feed::FeedFrame;
+use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::ids::FeedEpoch;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_api::ids::TurnId;
 use serde::Serialize;
 
 /// One notification awaiting its seq.
@@ -14,12 +20,57 @@ use serde::Serialize;
 pub(crate) struct Note {
     pub method: &'static str,
     pub params: Bytes,
+    /// For a note that tells a record's rows: the params of the `thread/transcript/changed` a positioned subscription
+    /// gets in its place, with no row. `method` and `params` are then what every other one gets.
+    pub positioned: Option<Bytes>,
 }
+
+/// The method of a positioned transcript frame.
+pub(crate) const TRANSCRIPT_CHANGED: &str = "thread/transcript/changed";
 
 impl Note {
     pub fn new<T: Serialize>(method: &'static str, params: &T) -> Self {
-        Self { method, params: encode(params) }
+        Self { method, params: encode(params), positioned: None }
     }
+
+    /// The note of a record's rows: a positioned subscription is told the feed moved and is sent no row by it. The
+    /// record reaches it as its unit, by its grant ([`unit_frame`]).
+    pub fn of_record(mut self, lineage: u64, thread: &ThreadId, turn: &TurnId) -> Self {
+        let params = ThreadTranscriptChangedParams {
+            thread_id: thread.clone(),
+            lineage,
+            turn_id: Some(turn.clone()).filter(|turn| !turn.as_str().is_empty()),
+            change: None,
+            at_feed_position: None,
+            room_view: None,
+        };
+        self.positioned = Some(encode(&params));
+        self
+    }
+
+    /// The positioned form with `roomView` set: what an event carries beside the transcript reaches a positioned
+    /// subscription too.
+    pub fn with_room_view(&mut self, view: &serde_json::Value) {
+        let Some(params) = &self.positioned else { return };
+        if let Ok(mut params) = serde_json::from_slice::<serde_json::Value>(params) {
+            params["roomView"] = view.clone();
+            self.positioned = Some(encode(&params));
+        }
+    }
+}
+
+/// The frame of a stored record's unit for a subscription whose grant holds it: `thread/transcript/changed` with
+/// `change`, standing at `at`, which it does not advance.
+pub(crate) fn unit_frame(thread: &ThreadId, lineage: u64, change: TranscriptChange, feed: &FeedId, at: &FeedPosition) -> Bytes {
+    let params = ThreadTranscriptChangedParams {
+        thread_id: thread.clone(),
+        lineage,
+        turn_id: None,
+        change: Some(change),
+        at_feed_position: Some(mixdog_app_protocol::v2::feed::FeedPosition { epoch: at.epoch.clone(), seq: at.seq }),
+        room_view: None,
+    };
+    frame_of(TRANSCRIPT_CHANGED, &encode(&params), feed, &at.epoch, at.seq)
 }
 
 /// Compact JSON of a value whose types always serialize.
@@ -29,14 +80,24 @@ pub(crate) fn encode<T: Serialize>(value: &T) -> Bytes {
 
 /// `{"method":…,"params":…,"feed":{"id":…,"epoch":…,"seq":…}}` (`JsonRpcNotification`).
 pub(crate) fn frame(note: &Note, feed: &FeedId, epoch: &FeedEpoch, seq: u64) -> Bytes {
+    frame_of(note.method, &note.params, feed, epoch, seq)
+}
+
+/// The frame of `note` in every form a subscription may get it.
+pub(crate) fn feed_frame(note: &Note, feed: &FeedId, epoch: &FeedEpoch, seq: u64) -> FeedFrame {
+    let positioned = note.positioned.as_ref().map(|params| frame_of(TRANSCRIPT_CHANGED, params, feed, epoch, seq));
+    FeedFrame { seq, bytes: frame(note, feed, epoch, seq), positioned }
+}
+
+fn frame_of(method: &str, params: &Bytes, feed: &FeedId, epoch: &FeedEpoch, seq: u64) -> Bytes {
     // The frame's own length: a buffer that has to grow doubles, and the frame then holds twice its bytes for as long as
     // a ring or a lane keeps it (a thread's feed id and epoch alone are longer than a fixed allowance).
     const PUNCTUATION_AND_SEQ: usize = 100;
-    let mut out = Vec::with_capacity(note.params.len() + note.method.len() + feed.as_str().len() + epoch.as_str().len() + PUNCTUATION_AND_SEQ);
+    let mut out = Vec::with_capacity(params.len() + method.len() + feed.as_str().len() + epoch.as_str().len() + PUNCTUATION_AND_SEQ);
     out.extend_from_slice(b"{\"method\":");
-    serde_json::to_writer(&mut out, note.method).expect("string serializes");
+    serde_json::to_writer(&mut out, method).expect("string serializes");
     out.extend_from_slice(b",\"params\":");
-    out.extend_from_slice(&note.params);
+    out.extend_from_slice(params);
     out.extend_from_slice(b",\"feed\":{\"id\":");
     serde_json::to_writer(&mut out, feed.as_str()).expect("string serializes");
     out.extend_from_slice(b",\"epoch\":");

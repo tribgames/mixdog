@@ -35,7 +35,10 @@ impl Inner {
         let prior_lock = self.gate.workspace_cwd_lock(&[session]);
         let applied = self
             .host
-            .apply(session, WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved: moved.clone(), desktop_session: None })
+            .apply(
+                session,
+                WorkspaceChange { cwd: next.cwd.clone(), workspace: next.to_value(), moved: moved.clone(), desktop_session: None, project_move: None },
+            )
             .await?;
         journal.push(applied);
         let (gate, id) = (self.gate.clone(), session.to_owned());
@@ -376,7 +379,7 @@ impl Inner {
         let stored = self.host.session(session).and_then(|view| view.workspace);
         let state = match target {
             Target::Worktree { .. } => TransitionState::Provisioning,
-            Target::Branch { .. } => TransitionState::Switching,
+            Target::Branch { .. } | Target::Project { .. } => TransitionState::Switching,
             Target::Remove { .. } => TransitionState::Removing,
         };
         let marker = previous.in_transition(state, &tx_id).to_value();
@@ -390,6 +393,15 @@ impl Inner {
                     self.enter_project_branch(session, &previous, (branch, *create), &options, (&tx_id, &mut journal), cancel).await
                 }
                 Target::Remove { force } => self.remove_retained(session, &previous, *force, &mut journal, cancel).await,
+                Target::Project { cwd, desktop_session, pending } => {
+                    let branch = self.project_folder_branch(session, &previous.project_path, cancel).await?;
+                    self.enter_project_branch(session, &previous, (&branch, false), &options, (&tx_id, &mut journal), cancel).await?;
+                    #[cfg(any(test, feature = "test-support"))]
+                    if let Some(failure) = self.fail_project_switch.lock().unwrap().take() {
+                        return Err(failure);
+                    }
+                    self.switch_project(session, cwd, desktop_session.clone(), false, Some(pending.clone()), &mut journal, cancel).await.map(JsonValue::String)
+                }
             }
         }
         .await;
@@ -433,6 +445,10 @@ impl Inner {
             return Err(plain("workspace target branch must be a non-empty string."));
         }
         self.transition(session, Target::Branch { branch: branch.to_owned(), create }, options, cancel).await
+    }
+
+    pub(super) async fn run_project_move(self: &Arc<Self>, session: &str, target: Target, cancel: &CancellationToken) -> Result<JsonValue, ScmFailure> {
+        self.transition(session, target, Options::default(), cancel).await
     }
 
     pub(super) async fn run_worktree(

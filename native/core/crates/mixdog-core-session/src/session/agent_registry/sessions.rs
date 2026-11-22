@@ -131,7 +131,7 @@ impl AgentSessions {
             return Err("agent close all: an owner session is required".into());
         }
         let scope = Scope { caller_session_id: Some(owner.clone()), host_pid: None };
-        self.registry.refresh_tags_from_sessions(false, &scope).await;
+        self.registry.refresh_tags_from_sessions(false, &scope).await?;
         let mut report = CloseAllReport::default();
         let parts = CloseParts { registry: &*self.registry, sessions: self, tasks: board };
         for (tag, row) in self.registry.session_entries(false, &scope) {

@@ -30,7 +30,6 @@ use crate::blobs::BlobStore;
 use crate::encode::EncodeError;
 use crate::encode::Encoded;
 use crate::encode::PendingBlob;
-use crate::encode::body_slot;
 use crate::fold::Fold;
 use crate::fold::FoldError;
 use crate::fold::LineageIndex;
@@ -331,7 +330,7 @@ fn fold_at_anchor(record: Record, pos: FramePos, session_name: &str, resolve: &m
             Ok(Fold::from_session(&s, header, pos))
         }
         Record::Checkpoint(c) => {
-            let state = resolve_slot(&c.state, resolve).map_err(OpenError::Format)?;
+            let state = resolve_slot(&c.state, resolve).and_then(|state| crate::encode::checkpoint_in_line(state, resolve)).map_err(OpenError::Format)?;
             if state.covers_ordinal != pos.ordinal {
                 return Err(OpenError::Format(format!("checkpoint at {} covers {}", pos.ordinal, state.covers_ordinal)));
             }
@@ -1249,6 +1248,7 @@ impl LogWriter {
         let end = self.ready()?;
         self.alone(end)?;
         let deps = self.deps.clone();
+        let batch = self.narrow_changes(batch);
 
         // Phase 1 of the fold: may fail; nothing is written then.
         let mut lookup = blob_lookup_many(batch.iter().flat_map(|e| &e.blobs), &deps.blobs);
@@ -1383,9 +1383,36 @@ impl LogWriter {
         frames
     }
 
+    /// The batch with each header change in the form the log takes it: a map-valued key set over a map as the members that
+    /// changed, when that is fewer bytes (`header_patch`). Decided here because this fold's header is exactly what each
+    /// record lands on; a change that cannot be read or encoded again is written as it came, and so is all after it.
+    fn narrow_changes(&self, batch: Vec<Encoded>) -> Vec<Encoded> {
+        if !batch.iter().any(|encoded| matches!(encoded.record, Record::Meta(_))) {
+            return batch;
+        }
+        let mut moved = Some(crate::header_patch::Moved::default());
+        batch
+            .into_iter()
+            .map(|encoded| {
+                let (Record::Meta(meta), Some(seen)) = (&encoded.record, moved.as_mut()) else { return encoded };
+                let read = {
+                    let mut lookup = blob_lookup_many(encoded.blobs.iter(), &self.deps.blobs);
+                    resolve_slot(&meta.change, &mut lookup)
+                };
+                let Ok(change) = read else {
+                    moved = None;
+                    return encoded;
+                };
+                let Some(narrow) = seen.narrowed(&self.fold.header, &change) else { return encoded };
+                let record = Record::Meta(crate::schema::record::MetaRecord { op: meta.op.clone(), change: crate::schema::blob::Slot::Inline(narrow) });
+                crate::encode::encode_record(record).unwrap_or(encoded)
+            })
+            .collect()
+    }
+
     fn encode_checkpoint(&self) -> Result<Encoded, AppendError> {
-        let (state, blob) = body_slot(self.fold.checkpoint_state())?;
-        Ok(Encoded::new(Record::Checkpoint(CheckpointRecord { state }), blob.into_iter().collect())?)
+        let state = crate::schema::blob::Slot::Inline(self.fold.checkpoint_state());
+        Ok(crate::encode::encode_record(Record::Checkpoint(CheckpointRecord { state }))?)
     }
 
     /// `Dirty → RollingBack → Clean{acked}` (not applied) or `PendingRollback` (unknown).

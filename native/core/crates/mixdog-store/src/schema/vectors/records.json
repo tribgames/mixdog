@@ -22,6 +22,10 @@
    "payload": "{\"k\":\"meta\",\"op\":{\"id\":\"0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0b\",\"method\":\"thread/name/update\",\"digest\":\"sha256:a20b52fae57cc7a99c9651f1b573950fd211823e3ace3bb9c273c06430f24cd3\"},\"change\":{\"inline\":{\"set\":{\"worker\":{\"stage\":\"done\",\"status\":\"completed\",\"tag\":\"w1\"}},\"unset\":[]}}}"
   },
   {
+   "name": "meta_patch",
+   "payload": "{\"k\":\"meta\",\"change\":{\"inline\":{\"set\":{\"updatedAt\":1793306570000},\"unset\":[],\"patch\":{\"cacheTailBook\":{\"set\":{\"lastSendAt\":1793306570000},\"unset\":[],\"patch\":{\"receipts\":{\"set\":{},\"unset\":[],\"patch\":{\"anthropic|acct\":{\"set\":{\"12:0c62f876ef1dea830de9f32c2f4b46dd6d74d50d15896e09ef5a2fcd4ac7e1d7\":{\"ttlMs\":3600000,\"touchedAt\":1793306570000,\"extent\":4096}},\"unset\":[\"9:283bb9deef02e6843abfb538efa1eca70801bd8a701c3f98191e123496339247\"]}}}}}}}}}"
+  },
+  {
    "name": "item_message",
    "payload": "{\"k\":\"item\",\"iid\":\"msg_9f2c\",\"turn\":\"run_1\",\"role\":\"user\",\"form\":\"message\",\"model\":true,\"visible\":true,\"refs\":[\"sha256:6b9af93708359b3140cbedbdecb4622d937c5e13be6248a13fc166cbdf5d74a5\"],\"body\":{\"inline\":{\"content\":[{\"attachmentRef\":\"6b9af93708359b3140cbedbdecb4622d937c5e13be6248a13fc166cbdf5d74a5\",\"textKind\":\"file\",\"type\":\"text\"},{\"text\":\"줄\\n바꿈 \\\"quote\\\"\",\"type\":\"text\"}],\"meta\":{\"transcript\":{\"messageId\":\"msg_9f2c\"}},\"role\":\"user\"}}}"
   },
@@ -142,6 +146,10 @@
    "payload": "{\"k\":\"checkpoint\",\"state\":{\"inline\":{\"log_id\":\"aa00bb11cc22dd33ee44ff55\",\"covers_ordinal\":45,\"history_rev\":1,\"rows\":0,\"visible_rows\":0,\"base\":{\"session\":\"sess_daemon_1793306569908_63cc\",\"log_id\":\"4f1c2a9e0b7d3c5a6e8f9012\",\"end_ordinal_exclusive\":42},\"base_cut\":30,\"runs\":[],\"approvals\":[],\"queue\":[],\"header\":{}}}}"
   },
   {
+   "name": "checkpoint_header_blobs",
+   "payload": "{\"k\":\"checkpoint\",\"state\":{\"inline\":{\"log_id\":\"4f1c2a9e0b7d3c5a6e8f9012\",\"covers_ordinal\":12,\"history_rev\":1,\"rows\":8,\"visible_rows\":7,\"runs\":[],\"approvals\":[],\"queue\":[],\"header\":{\"id\":\"sess_daemon_1793306569908_63cc\",\"tools\":null,\"title\":\"시험 세션\",\"deferredToolCatalog\":null},\"header_blobs\":{\"deferredToolCatalog\":{\"digest\":\"sha256:652f55016243bf1b9f1bbea46d5749ef892dbe394e46de9d66ab1aacf0b4af57\",\"bytes\":219000,\"mediaType\":\"application/json\"},\"tools\":{\"digest\":\"sha256:f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281\",\"bytes\":30800,\"mediaType\":\"application/json\"}}}}}"
+  },
+  {
    "name": "checkpoint_blob",
    "payload": "{\"k\":\"checkpoint\",\"state\":{\"blob\":{\"digest\":\"sha256:4ba69735ca53765ed6a709edb56c6ea236b7193a3b29a6b390c346f0f4340e4e\",\"bytes\":270000,\"mediaType\":\"application/json\"}}}"
   }
@@ -150,6 +158,10 @@
   {
    "name": "plan",
    "payload": "{\"k\":\"plan\",\"manifest_sha256\":\"05b3abf2579a5eb66403cd78be557fd860633a1fe2103c7642030defe32c657f\",\"items\":11}"
+  },
+  {
+   "name": "sources",
+   "payload": "{\"k\":\"sources\",\"key\":\"session/sess_v145_1\",\"sources\":[{\"root\":\"data\",\"path\":\"sessions/sess_v145_1.json\",\"size\":48211,\"sha256\":\"ff6ad81591b167ccdaaa32259ab9173d31cd04a1857288d5d73fd42640896b46\",\"secret\":false}]}"
   },
   {
    "name": "staged",
@@ -172,12 +184,20 @@
    "payload": "{\"k\":\"quarantined\",\"key\":\"retain/data/sessions/sess_x.json.corrupt-1792542203590\",\"code\":\"carried_set_aside\"}"
   },
   {
+   "name": "expired",
+   "payload": "{\"k\":\"expired\",\"key\":\"session/sess_v145_2\",\"judged_at\":1794521836806}"
+  },
+  {
    "name": "disposed",
    "payload": "{\"k\":\"disposed\",\"key\":\"session/sess_v145_1\"}"
   },
   {
    "name": "phase",
    "payload": "{\"k\":\"phase\",\"phase\":\"verified_all\"}"
+  },
+  {
+   "name": "phase_judged",
+   "payload": "{\"k\":\"phase\",\"phase\":\"judged\",\"at\":1794521836806}"
   }
  ],
  "manifest": "{\"format\":1,\"roots\":{\"data\":\"C:/Users/u/.mixdog/data\",\"home\":\"C:/Users/u/.mixdog\",\"profile\":\"C:/Users/u/AppData/Roaming/mixdog-desktop\"},\"items\":[{\"key\":\"desktopProfile/agentRooms\",\"group\":\"desktopProfile\",\"kind\":\"agentRooms\",\"contract\":\"convert\",\"sources\":[{\"root\":\"profile\",\"path\":\"agent-rooms.json\",\"size\":18,\"sha256\":\"5d88c569d2370098e73150849dfd00558e22d05eb827ee0e2cfa3e4dc01e2227\",\"secret\":false}],\"target\":{\"stateTable\":{\"table\":\"rooms\"}}},{\"key\":\"desktopProfile/notificationPreferences\",\"group\":\"desktopProfile\",\"kind\":\"notificationPreferences\",\"contract\":\"convert\",\"sources\":[{\"root\":\"profile\",\"path\":\"notification-preferences.json\",\"size\":1892,\"sha256\":\"0a2f133eb9f7ca028a20aa3fcd7f6cb8a05a0e89c166e69e2fbd480a00be447d\",\"secret\":false}],\"target\":{\"configKey\":{\"key\":\"notifications\"}}},{\"key\":\"desktopProfile/relayE2ee\",\"group\":\"desktopProfile\",\"kind\":\"relayE2ee\",\"contract\":\"preserve\",\"sources\":[{\"root\":\"profile\",\"path\":\"relay-e2ee.json\",\"size\":695,\"sha256\":\"4008de34aeafc63c6e943af99a36a32127d00d3cfcc7c4b48b6547cb89dff133\",\"secret\":true}],\"target\":{\"file\":{\"root\":\"data\",\"path\":\"remote/e2ee.json\"}}},{\"key\":\"desktopProfile/sessionMetadata\",\"group\":\"desktopProfile\",\"kind\":\"sessionMetadata\",\"contract\":\"convert\",\"sources\":[],\"target\":\"sessions\"},{\"key\":\"index\",\"group\":\"data\",\"kind\":\"index\",\"contract\":\"convert\",\"sources\":[],\"target\":\"index\"},{\"key\":\"ledger\",\"group\":\"data\",\"kind\":\"ledger\",\"contract\":\"convert\",\"sources\":[{\"root\":\"data\",\"path\":\"usage/ledger.sqlite\",\"size\":4096,\"sha256\":\"fe14010b4fe83303852f0467c919ef9a7ca089b91e96e3aad7d426dd87079297\",\"secret\":false}],\"target\":\"ledger\"},{\"key\":\"retain/data/sessions/sess_x.json.corrupt-1792542203590\",\"group\":\"data\",\"kind\":\"setAside\",\"contract\":\"retain\",\"sources\":[{\"root\":\"data\",\"path\":\"sessions/sess_x.json.corrupt-1792542203590\",\"size\":140000,\"sha256\":\"11d510e067d2cdcd7559bd86d27a2f4c20babd43670346b97af99b522c1f0075\",\"secret\":false}]},{\"key\":\"retire/data/session-summaries.json\",\"group\":\"data\",\"kind\":\"retired\",\"contract\":\"retire\",\"sources\":[{\"root\":\"data\",\"path\":\"session-summaries.json\",\"size\":2400000,\"sha256\":\"4ea4eaeb87c45b93f931af22f3b163e7964895ac8faabe74671f9b87bed03995\",\"secret\":false}]},{\"key\":\"session/sess_v145_1\",\"group\":\"data\",\"kind\":\"session\",\"contract\":\"convert\",\"sources\":[{\"root\":\"data\",\"path\":\"sessions/sess_v145_1.compaction-archive.jsonl\",\"size\":5000,\"sha256\":\"404fcfb394d23199f6d95f1f36bd2beb6df8564f993f44517f6015fcd16101a9\",\"secret\":false},{\"root\":\"data\",\"path\":\"sessions/sess_v145_1.json\",\"size\":606000,\"sha256\":\"02bd175f329720378ce83dd56a1b6b1f5291a60182d6c54b5e0d1e8d248a267a\",\"secret\":false}],\"target\":{\"session\":{\"id\":\"sess_v145_1\"}}},{\"key\":\"store/goals\",\"group\":\"data\",\"kind\":\"goals\",\"contract\":\"preserve\",\"sources\":[{\"root\":\"data\",\"path\":\"goals/sess_v145_1.json\",\"size\":900,\"sha256\":\"0304523efff53f243d76dc81b7c271f922292543cead846ee714f066c3331e5f\",\"secret\":false}],\"target\":{\"file\":{\"root\":\"data\",\"path\":\"goals\"}}},{\"key\":\"store/projectsRegistry\",\"group\":\"data\",\"kind\":\"projectsRegistry\",\"contract\":\"preserve\",\"sources\":[{\"root\":\"home\",\"path\":\"projects.json\",\"size\":300,\"sha256\":\"2577c0f557b2e4b591e9587374c6330c9c64de8017d5a848a682a135251a6f6f\",\"secret\":false}],\"target\":{\"file\":{\"root\":\"home\",\"path\":\"projects.json\"}}}],\"shared\":[{\"file\":{\"root\":\"data\",\"path\":\"agent-workers.json\",\"size\":622000,\"sha256\":\"f5fe88ee08735ae259265495a93c8de2b0eacfecf0cd90b5821479be3199fa8c\",\"secret\":false},\"consumers\":[\"session/sess_v145_1\"]},{\"file\":{\"root\":\"profile\",\"path\":\"desktop-session-metadata.json\",\"size\":7596,\"sha256\":\"e76f96ad0464976a33e7bfa46ab384521cd0e5229a861bec1b8bdcf009ec7205\",\"secret\":false},\"consumers\":[\"desktopProfile/sessionMetadata\",\"session/sess_v145_1\"]}]}",

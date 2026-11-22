@@ -5,7 +5,10 @@
 //!
 //! Driver contract:
 //! - `plan` enumerates exactly its source set and adds items (and shared sources) to the
-//!   `PlanSink`; it never writes.
+//!   `PlanSink`; it never writes. A session's own files are named and not read
+//!   (`plan::late_item`): they are hashed when the session is converted and journaled before its
+//!   `stage` runs, so the plan a core waits for reads none of them. Every step is handed the item
+//!   with those journaled sources as its `sources`.
 //! - `stage` (convert and preserve contracts) writes output under
 //!   `cx.stage_dir(key)` only, which the framework empties first; it must produce the
 //!   same bytes on every run (SM §11.3.4). `Staged::Quarantine` ends the item.
@@ -18,6 +21,7 @@
 //! - Every step is idempotent: a resume re-enters the step the journal says is next.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -144,10 +148,56 @@ pub trait ItemDriver: Send + Sync {
     fn listed_meta(&self, _cx: &ItemContext<'_>, _session: &str) -> Result<Map<String, Value>> {
         Ok(Map::new())
     }
+    /// What the product's retention is asked about `item` before it is converted ([`Retention`]), its header read as far as
+    /// `fields`. `None` for an item that is always converted, and for a session whose header does not read (its conversion
+    /// says why).
+    fn retention_facts(&self, _cx: &ItemContext<'_>, _item: &ManifestItem, _fields: &[&str]) -> Result<Option<RetentionFacts>> {
+        Ok(None)
+    }
     /// Whether disposal of a verified item keeps its sources (they are the target).
     fn keeps_sources(&self, item: &ManifestItem) -> bool {
         item.contract == Contract::Preserve || matches!(item.target, Some(Target::Ledger))
     }
+}
+
+/// A session of the earlier version as a retention verdict reads it, before it is converted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RetentionFacts {
+    /// The fields asked for of the header its conversion would publish (the folded header, the parent link of the worker
+    /// index, what the desktop kept of it), with `worker` the worker row its conversion would install and `messageCount`
+    /// the number of messages it holds.
+    pub header: Map<String, Value>,
+    /// Deleting it is more than removing its own files: it has pending work (a queued message, an interrupted turn, an
+    /// unpublished compaction job), output nobody read, the only readable result of a reaped child, a goal, a worktree,
+    /// a connector conversation, or tool results another session may name. Such a session is converted whatever the verdict, and left to the product's retention.
+    pub bound: bool,
+}
+
+/// The product's retention, as a core that serves while the sessions convert answers for it: a session it deletes is
+/// not converted. The rules are the product's own; the migration holds none.
+pub trait Retention: Send + Sync {
+    /// The time the judgement is made at, epoch milliseconds. It is made once and journaled with its time; no later run
+    /// asks again.
+    fn now_ms(&self) -> u64;
+    /// The header fields [`Self::expired`] and [`Self::purge`] read: a stored header carries the session's whole context,
+    /// and the verdict reads and keeps these of every session.
+    fn fields(&self) -> Vec<String>;
+    /// Whether `session`, its header being `header`, is a session this retention can delete at all. One that is not (an
+    /// ordinary session) is in no tree and no verdict reads it: it may be converted before the judgement is made.
+    fn candidate(&self, session: &str, header: &Map<String, Value>) -> bool;
+    /// Of `sessions` (id and those fields of its header), the ones the product's retention deletes at `now_ms`. A tree of linked
+    /// sessions is judged whole over the sessions given; one with a member in `held` (converted already, or asked for
+    /// by a person who opens it) is left alone, as the product leaves a tree with a member in use. Everything the
+    /// product's own deletion would look at is the hook's to look at: the worker row a delete would leave behind, the
+    /// archive state it trusts.
+    fn expired(&self, sessions: &BTreeMap<String, Map<String, Value>>, held: &BTreeSet<String>, now_ms: u64) -> BTreeSet<String>;
+    /// `sessions` are settled as expired: none of them is listed as a session still to convert. Told again of the same
+    /// sessions by a run that resumes.
+    fn unlisted(&self, sessions: &[String]);
+    /// A session settled as expired is being disposed of: everything the product's delete does for a session beside
+    /// removing its stored record (its transcripts, its scratch folder, its read snapshots, what the product kept of it). Told again of the same session by a run
+    /// that resumes one cut here.
+    fn purge(&self, session: &str, header: &Map<String, Value>) -> std::result::Result<(), String>;
 }
 
 /// Header keys another kind group sets on a migrated session (one `meta` frame each),
@@ -209,6 +259,15 @@ pub struct ItemContext<'a> {
     pub(crate) blobs: &'a BlobStatuses,
     /// Item states when the current wave started.
     pub(crate) states: &'a BTreeMap<String, ItemState>,
+    /// The journaled sources of the items the manifest names files of without reading them; `None` where no such item
+    /// is read.
+    pub(crate) recorded: Option<&'a dyn SourceRecords>,
+}
+
+/// The sources of an item with `late_sources`.
+pub(crate) trait SourceRecords: Sync {
+    /// The journaled sources of `item`; hashed and journaled now when they are not yet.
+    fn sources_of(&self, item: &ManifestItem) -> Result<Arc<Vec<SourceFile>>>;
 }
 
 impl ItemContext<'_> {
@@ -246,6 +305,15 @@ impl ItemContext<'_> {
     /// before it trusts anything it read.
     pub fn open_source(&self, file: &SourceFile) -> Result<durable::OpenFile> {
         durable::open_verified(&self.source_path(file)?, file.size, &file.sha256)
+    }
+
+    /// The sources of `item`, which may be another item than the one this step works on: the manifest's, or the ones
+    /// journaled for its `late_sources` (hashed and journaled now when they are not yet).
+    pub fn sources_of(&self, item: &ManifestItem) -> Result<Arc<Vec<SourceFile>>> {
+        match self.recorded {
+            Some(recorded) => recorded.sources_of(item),
+            None => Ok(Arc::new(item.sources.clone())),
+        }
     }
 
     /// Shared sources `key` consumes, in manifest order.

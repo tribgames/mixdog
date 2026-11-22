@@ -49,6 +49,9 @@ impl SessionActor {
 
     pub(super) fn drain_pass(&mut self) {
         if self.turn_busy() || self.deleting {
+            // A turn's end drains the queue itself; a Project move's end does not, so a drain asked for while one is carried
+            // out (a reopened session's resume) is owed when it ends.
+            self.drain_held |= self.carrying();
             return;
         }
         // Nothing is dequeued while starts are held: the drain goes on once they are not (an unsaved turn's records

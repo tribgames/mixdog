@@ -66,7 +66,7 @@ pub trait RouteChange: Send + Sync {
     /// model rows, so a provider or model row edited since the route was seated (a custom provider's `contextWindow` override)
     /// reaches the running session. Nothing by default.
     fn turn_window(&self, _header: &Header) -> HeaderChange {
-        HeaderChange { set: Default::default(), unset: Vec::new() }
+        HeaderChange { set: Default::default(), unset: Vec::new(), patch: Default::default() }
     }
 }
 
@@ -328,10 +328,10 @@ mod tests {
     impl RouteChange for Change {
         fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool, _: &RouteLookups) -> HeaderChange {
             self.0.lock().unwrap().push((Value::Object(header.clone()), Value::Object(previous.clone()), cross));
-            HeaderChange { set: obj(json!({ "contextWindow": 200_000 })), unset: vec!["contextUsageSnapshot".into()] }
+            HeaderChange { set: obj(json!({ "contextWindow": 200_000 })), unset: vec!["contextUsageSnapshot".into()], patch: Default::default() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {
-            HeaderChange { set: Map::new(), unset: Vec::new() }
+            HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
         }
     }
     struct Quiet;
@@ -364,10 +364,10 @@ mod tests {
     #[async_trait::async_trait]
     impl RouteChange for NullWire {
         fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
-            HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new() }
+            HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new(), patch: Default::default() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {
-            HeaderChange { set: Map::new(), unset: Vec::new() }
+            HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
         }
     }
 
@@ -563,7 +563,7 @@ mod tests {
 
 /// `applyRouteFields(session, route)`: the route's own fields onto the session.
 fn route_fields(header: &Header, route: &Route) -> HeaderChange {
-    let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
     for key in ["provider", "model"] {
         if truthy(route.get(key)) {
             set(&mut change, key, route[key].clone());
@@ -674,7 +674,7 @@ impl SessionRouteAdapter {
         let update: super::actor::AwaitingHeaderUpdate = Box::new(move |header| {
             Box::pin(async move {
                 if header.get("closed") == Some(&Value::Bool(true)) {
-                    return HeaderChange { set: Map::new(), unset: Vec::new() };
+                    return HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
                 }
                 let lookups = change.lookups(&header, &route).await;
                 Self::route_write(&*change, &*clock, &header, &route, cross_provider, &lookups, extra, &seen)

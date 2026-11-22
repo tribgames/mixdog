@@ -411,7 +411,7 @@ async fn a_deferred_view_serves_an_attach_its_snapshot_and_the_frames_after_it()
     actor.run_to(10);
     use mixdog_core_api::feed::Feed as _;
     assert!(actor.feed.defers());
-    let deferred: Vec<FeedFrame> = (11..=20).map(|seq| FeedFrame { seq, bytes: Bytes::from(format!("e {seq} {} {seq}", seq % KEYS)) }).collect();
+    let deferred: Vec<FeedFrame> = (11..=20).map(|seq| FeedFrame::new(seq, Bytes::from(format!("e {seq} {} {seq}", seq % KEYS)))).collect();
     actor.feed.publish_deferred(&deferred).unwrap();
     actor.seq = 20;
     actor.feed.publish(&[], None).unwrap();
@@ -532,7 +532,7 @@ impl Actor {
         while self.seq < last {
             self.seq += 1;
             let seq = self.seq;
-            let frame = FeedFrame { seq, bytes: Bytes::from(format!("e {seq} {} {seq}", seq % self.keys)) };
+            let frame = FeedFrame::new(seq, Bytes::from(format!("e {seq} {} {seq}", seq % self.keys)));
             self.feed.publish(&[frame], None).unwrap();
         }
     }
@@ -675,7 +675,7 @@ fn a_snapshot_encode_never_blocks_a_publish() {
         let blocked = &blocked;
         let other = &mut other;
         scope.spawn(move || {
-            let frame = FeedFrame { seq: 1, bytes: Bytes::from_static(b"e 1 1 1") };
+            let frame = FeedFrame::new(1, Bytes::from_static(b"e 1 1 1"));
             blocked.publish(&[frame], None).unwrap();
             other.run_to(100);
             let reader = MockConnection::new(ConnectionId(2), limits);
@@ -702,7 +702,7 @@ fn ring_memory_stays_within_ring_bytes() {
     let mut rng = Rng(7);
     for seq in 1..=5000 {
         let len = 1 + (rng.next() % 700) as usize;
-        let frame = FeedFrame { seq, bytes: Bytes::from(vec![b'e'; len]) };
+        let frame = FeedFrame::new(seq, Bytes::from(vec![b'e'; len]));
         feed.publish(&[frame], None).unwrap();
         let held = feed.ring_held();
         assert!((1..=ring_bytes).contains(&held), "held {held} bytes after seq {seq}");
@@ -747,4 +747,233 @@ fn a_cached_snapshot_is_set_for_the_moment_of_each_delivery() {
     attach(&feed, &second, "b", Window::Fixed, None);
     assert_eq!(first_snapshot(&second), "s 0 wait=40");
     assert_eq!(encodes.load(Ordering::SeqCst), 1, "one encode served both");
+}
+
+// ── positioned grants ───────────────────────────────────────────────────────────────────
+
+mod positioned {
+    use mixdog_core_api::error::CoreError;
+    use mixdog_core_api::feed::GrantAsk;
+    use mixdog_core_api::feed::GrantRange;
+    use mixdog_core_api::feed::Held;
+
+    use super::*;
+
+    /// A view whose positioned snapshot holds the records 8..=10 of lineage 1 and follows the tail from 11.
+    struct TailView;
+
+    impl FeedView for TailView {
+        fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
+            Bytes::from(format!("snap@{}", at.seq))
+        }
+
+        fn at_window_version(&self, frame: Bytes, version: u64) -> Bytes {
+            Bytes::from(format!("{}v{version}", String::from_utf8_lossy(&frame)))
+        }
+
+        fn first_grant(&self, _window: &Window) -> Option<GrantAsk> {
+            Some(GrantAsk { lineage: 1, ranges: vec![GrantRange::of(8, 10)], tail_from: Some(11) })
+        }
+    }
+
+    fn feed(limits: MockLimits) -> Arc<CoreFeed> {
+        Arc::new(CoreFeed::new(FeedId::from("t"), epoch(5), Arc::new(TailView), feed_limits(limits), cpu()))
+    }
+
+    /// A frame that tells a record's rows: a positioned subscription gets it with no row.
+    fn row(seq: u64) -> FeedFrame {
+        FeedFrame { seq, bytes: Bytes::from(format!("legacy@{seq}")), positioned: Some(Bytes::from(format!("progress@{seq}"))) }
+    }
+
+    /// The stored record `ordinal` of `lineage`, delivered as it reads.
+    fn unit_of(feed: &Arc<CoreFeed>, lineage: u64, ordinal: u64) {
+        feed.deliver(lineage, ordinal, &format!("p{ordinal}"), Some("before"), None, &mut |held, at| {
+            let how = if held == Held::Tail { "insert" } else { "replace" };
+            Bytes::from(format!("{how}#{ordinal}@{}", at.seq))
+        });
+    }
+
+    fn unit(feed: &Arc<CoreFeed>, ordinal: u64) {
+        unit_of(feed, 1, ordinal);
+    }
+
+    fn ask(ranges: &[(u64, u64)], tail_from: Option<u64>) -> GrantAsk {
+        GrantAsk { lineage: 1, ranges: ranges.iter().map(|(first, last)| GrantRange::of(*first, *last)).collect(), tail_from }
+    }
+
+    fn sub(name: &str) -> SubscriptionId {
+        SubscriptionId::from(name)
+    }
+
+    /// What the connection's lanes were written, without its control frames.
+    fn lanes(conn: &MockConnection) -> Vec<String> {
+        conn.drain_text().into_iter().filter(|frame| !frame.starts_with("control:")).collect()
+    }
+
+    /// Changes `name`'s grant from `base` and fills the fence's slot with `told`; the new version.
+    fn regrant(feed: &Arc<CoreFeed>, name: &str, base: u64, to: GrantAsk, told: &str) -> u64 {
+        let fence = feed.regrant(&sub(name), base, to).expect("the grant changes");
+        fence.slot.fill(Bytes::from(format!("{told}@{}", fence.at.seq)));
+        fence.version
+    }
+
+    #[test]
+    fn a_stored_record_reaches_the_subscriptions_whose_grants_hold_it_and_no_other() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let (a, b, plain) =
+            (MockConnection::new(ConnectionId(1), limits), MockConnection::new(ConnectionId(2), limits), MockConnection::new(ConnectionId(3), limits));
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        attach(&feed, &b, "b", Window::Positioned(3), None);
+        attach(&feed, &plain, "p", Window::LastItems(3), None);
+        assert_eq!(lanes(&a), ["a:snap@0v0"]);
+        assert_eq!(lanes(&b), ["b:snap@0v0"]);
+        assert_eq!(lanes(&plain), ["p:snap@0"]);
+        let first = feed.grant(&sub("a")).expect("a positioned subscription holds a grant");
+        assert_eq!((first.version, first.spans(), first.tail_from), (0, vec![(8, 10)], Some(11)));
+        assert!(feed.grant(&sub("p")).is_none());
+        assert_eq!((feed.owner(&sub("a")), feed.owner(&sub("b")), feed.owner(&sub("gone"))), (Some(ConnectionId(1)), Some(ConnectionId(2)), None));
+
+        // A lets go of record 9 and keeps the tail; B keeps it. A frame that tells rows has none for either.
+        let released = regrant(&feed, "a", first.version, ask(&[(10, 10)], Some(11)), "released");
+        feed.publish(&[row(1), FeedFrame::new(2, Bytes::from_static(b"evt@2"))], None).unwrap();
+        unit(&feed, 9);
+        unit(&feed, 12);
+        assert_eq!(lanes(&a), ["a:released@0", "a:progress@1", "a:evt@2", "a:insert#12@2"], "nothing of the released record, and every seq");
+        assert_eq!(lanes(&b), ["b:progress@1", "b:evt@2", "b:replace#9@2", "b:insert#12@2"]);
+        assert_eq!(lanes(&plain), ["p:legacy@1", "p:evt@2"], "a subscription that did not opt in keeps today's frames");
+        // What the tail was sent is a range the subscription holds: a later change of it replaces.
+        let grown = feed.grant(&sub("b")).expect("held");
+        assert_eq!((grown.version, grown.tail_from), (first.version, Some(13)), "a record joining the tail is no change of the ranges named");
+        let tail = grown.ranges.iter().find(|range| &*range.id == mixdog_core_api::feed::TAIL_RANGE).expect("the tail's range");
+        assert_eq!((tail.first, tail.last, &*tail.to), (12, 12, "p12"));
+        unit(&feed, 12);
+        assert_eq!(lanes(&b), ["b:replace#12@2"]);
+        assert_eq!(lanes(&a), ["a:replace#12@2"]);
+
+        // A stops following the tail: a shrink, and its tail does not grow.
+        let shrunk = regrant(&feed, "a", released, ask(&[(10, 10)], None), "shrunk");
+        unit(&feed, 13);
+        assert_eq!(lanes(&a), ["a:shrunk@2"]);
+        assert_eq!(lanes(&b), ["b:insert#13@2"]);
+
+        // A pages back over record 9: a later change of it is A's again.
+        let paged = regrant(&feed, "a", shrunk, ask(&[(10, 10), (9, 9)], None), "added");
+        assert_eq!(feed.grant(&sub("a")).expect("held").spans(), [(9, 9), (10, 10)], "ascending, each as it was asked");
+        unit(&feed, 9);
+        assert_eq!(lanes(&a), ["a:added@2", "a:replace#9@2"]);
+        assert!(released < shrunk && shrunk < paged);
+        assert_eq!(feed.held(1).iter().filter(|range| (range.first, range.last) == (9, 9)).count(), 1);
+        assert!(feed.held(2).is_empty());
+
+        // An ask made of ranges the subscription no longer holds changes nothing.
+        assert!(matches!(feed.regrant(&sub("a"), shrunk, ask(&[], None)), Err(CoreError::PreconditionFailed { .. })));
+        assert!(matches!(feed.regrant(&sub("p"), 0, ask(&[], None)), Err(CoreError::InvalidParams { .. })));
+        assert_eq!(feed.grant(&sub("a")).expect("held").version, paged);
+    }
+
+    #[test]
+    fn a_grant_change_lands_at_its_fence_between_what_the_old_grant_was_sent_and_the_new() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        assert_eq!(lanes(&a), ["a:snap@0v0"]);
+        // Queued and not yet written when the grant changes: the old grant's unit.
+        unit(&feed, 9);
+        let fence = feed.regrant(&sub("a"), 0, ask(&[], Some(11))).expect("the grant changes");
+        assert_eq!(fence.at.seq, 0);
+        // Delivered while the change's message is still being encoded: by the new grant, behind the slot.
+        unit(&feed, 9);
+        unit(&feed, 11);
+        assert_eq!(lanes(&a), ["a:replace#9@0"], "nothing passes the unfilled slot");
+        fence.slot.fill(Bytes::from_static(b"changed"));
+        assert_eq!(lanes(&a), ["a:changed", "a:insert#11@0"]);
+    }
+
+    #[test]
+    fn a_subscription_gone_before_its_grant_is_installed_changes_nothing() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let (a, b) = (MockConnection::new(ConnectionId(1), limits), MockConnection::new(ConnectionId(2), limits));
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        attach(&feed, &b, "b", Window::Positioned(3), None);
+        lanes(&a);
+        lanes(&b);
+        feed.detach(sub("a"));
+        assert!(matches!(feed.regrant(&sub("a"), 0, ask(&[], None)), Err(CoreError::ConnectionClosed)));
+        unit(&feed, 9);
+        assert!(lanes(&a).is_empty());
+        assert_eq!(lanes(&b), ["b:replace#9@0"]);
+    }
+
+    #[test]
+    fn a_recovered_lane_starts_again_from_the_snapshots_grant_at_a_version_it_never_had() {
+        let limits = small_budget();
+        let feed = feed(limits);
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        assert_eq!(lanes(&a), ["a:snap@0v0"]);
+        // A holds an old range, record 3, and nothing of the tail; two demands at one seq take the versions 1 and 2.
+        let paged = regrant(&feed, "a", 0, ask(&[(3, 3)], None), "paged");
+        let again = regrant(&feed, "a", paged, ask(&[(3, 3)], None), "again");
+        assert_eq!((paged, again), (1, 2));
+        unit(&feed, 3);
+        assert_eq!(lanes(&a), ["a:paged@0", "a:again@0", "a:replace#3@0"]);
+        // More than the connection's event budget holds: the lane lags and is recovered by a snapshot, at feed seq 1.
+        feed.publish(&[FeedFrame::new(1, Bytes::from(vec![b'x'; 4096]))], None).unwrap();
+        assert!(matches!(feed.regrant(&sub("a"), again, ask(&[(3, 3)], None)), Err(CoreError::PreconditionFailed { .. })), "a lane being recovered");
+        assert_eq!(lanes(&a), ["a:snap@1v3"], "the snapshot states the version its grant took");
+        // The snapshot's ranges are all it holds, under a version no grant of this subscription had.
+        let recovered = feed.grant(&sub("a")).expect("held");
+        assert_eq!((recovered.version, recovered.spans(), recovered.tail_from), (3, vec![(8, 10)], Some(11)));
+        for stale in [0, paged, again] {
+            assert!(matches!(feed.regrant(&sub("a"), stale, ask(&[], None)), Err(CoreError::PreconditionFailed { .. })), "a demand of the grant {stale}");
+        }
+        unit(&feed, 3);
+        unit(&feed, 9);
+        assert_eq!(lanes(&a), ["a:replace#9@1"], "the old range is void");
+        // Asked again, from the snapshot's version, it is A's once more.
+        regrant(&feed, "a", recovered.version, ask(&[(3, 3), (8, 10)], Some(11)), "paged");
+        unit(&feed, 3);
+        assert_eq!(lanes(&a), ["a:paged@1", "a:replace#3@1"]);
+    }
+
+    #[test]
+    fn the_ring_counts_every_form_of_a_frame_it_holds() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        // Watched, so the ring keeps what it is given.
+        let a = MockConnection::new(ConnectionId(1), limits);
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        let (tagged, plain) = (row(1), FeedFrame::new(2, Bytes::from_static(b"evt@2")));
+        let held = "legacy@1".len() + "progress@1".len() + "evt@2".len();
+        assert_eq!(tagged.held_bytes() + plain.held_bytes(), held);
+        feed.publish(&[tagged, plain], None).unwrap();
+        assert_eq!(feed.ring_held(), held);
+    }
+
+    #[test]
+    fn a_lineage_change_rebases_each_grant_and_a_record_of_the_old_lineage_reaches_no_one() {
+        let limits = MockLimits::default();
+        let feed = feed(limits);
+        let (a, plain) = (MockConnection::new(ConnectionId(1), limits), MockConnection::new(ConnectionId(2), limits));
+        attach(&feed, &a, "a", Window::Positioned(3), None);
+        attach(&feed, &plain, "p", Window::LastItems(3), None);
+        lanes(&a);
+        lanes(&plain);
+        // A rewind to record 10: lineage 2 keeps 8..=9, and the tail follows from 10.
+        feed.publish(&[FeedFrame::new(1, Bytes::from_static(b"reset@1"))], None).unwrap();
+        let mut asked = Vec::new();
+        feed.rebase(&mut |sub, held, version, at| {
+            asked.push((sub.clone(), held.lineage, at.seq));
+            Some((GrantAsk { lineage: 2, ranges: vec![GrantRange::of(8, 9)], tail_from: Some(10) }, Bytes::from(format!("rebased@{version}"))))
+        });
+        assert_eq!(asked, [(sub("a"), 1, 1)], "only a positioned subscription holds a grant");
+        unit_of(&feed, 2, 12);
+        unit_of(&feed, 1, 9);
+        unit_of(&feed, 2, 9);
+        assert_eq!(lanes(&a), ["a:reset@1", "a:rebased@1", "a:insert#12@1", "a:replace#9@1"], "a record of the old lineage is not sent");
+        assert_eq!(lanes(&plain), ["p:reset@1"]);
+    }
 }

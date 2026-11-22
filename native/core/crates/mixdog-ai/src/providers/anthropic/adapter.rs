@@ -773,8 +773,9 @@ mod idle_tests {
         // Dropping the warm reader also drops its body, even though no terminal frame arrived.
         drop(body);
         let snapshot = gate.0.snapshot().expect("drop settled the observed write");
-        assert_eq!(snapshot["receipts"][0]["extent"], 9);
-        assert_eq!(snapshot["receipts"].as_array().unwrap().len(), 1);
+        let held: Vec<&Value> = snapshot["receipts"].as_object().unwrap().values().flat_map(|route| route.as_object().unwrap().values()).collect();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0]["extent"], 9);
     }
 
     #[test]

@@ -123,7 +123,8 @@ impl Cache {
 /// exactly when another grant's tokens, or none, are stored, and the same one through every renewal. No tokens: `0`.
 fn sign_in_of(stored: Option<&Entry>) -> u64 {
     let Some(entry) = stored.filter(|entry| entry.tokens.is_some()) else { return 0 };
-    let digest = Sha256::new().chain_update(entry.url.as_bytes()).chain_update([0u8]).chain_update(entry.grant.as_deref().unwrap_or_default().as_bytes()).finalize();
+    let digest =
+        Sha256::new().chain_update(entry.url.as_bytes()).chain_update([0u8]).chain_update(entry.grant.as_deref().unwrap_or_default().as_bytes()).finalize();
     u64::from_be_bytes(digest[..8].try_into().expect("eight bytes")).max(1)
 }
 

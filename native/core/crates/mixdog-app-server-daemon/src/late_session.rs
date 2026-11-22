@@ -877,6 +877,10 @@ impl mixdog_core_session::session::worktree::TurnAdmission for LateTurnAdmission
     ) -> Result<(), mixdog_scm::error::ScmFailure> {
         self.0.get().expect("turn admission bound (compose::verify_bound)").prepare(thread, start, cancel).await
     }
+
+    fn settled_move(&self, thread: &str, pending: serde_json::Value) -> Option<futures::future::BoxFuture<'static, Result<(), mixdog_core_api::CoreError>>> {
+        self.0.get()?.settled_move(thread, pending)
+    }
 }
 
 /// The room summaries' publish, bound once they exist. The rooms' daemon port republishes a room log's snapshot, `RoomSummaries` reads `ThreadListService`, which reads the

@@ -65,9 +65,11 @@ pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
     product_drivers(Arc::new(TestProjector), crate::session::context_blobs::testing::office(Arc::default()))
 }
 
-/// Paths and bytes of every file under the roots, the journal excluded.
+/// Paths and bytes of every file under the roots, the journal excluded (its frames lie in the order the converters wrote
+/// them), and what the journal holds of each session's sources.
 pub(crate) fn tree_digest(roots: &MigrationRoots) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
+    let mut out: BTreeMap<String, String> =
+        journaled_sources(roots).into_iter().map(|(key, sources)| (format!("sources of {key}"), serde_json::to_string(&sources).unwrap())).collect();
     for (name, root) in [("data", &roots.data), ("home", &roots.home)] {
         for rel in durable::walk_files(root).unwrap() {
             if rel == JOURNAL_PATH {
@@ -193,7 +195,7 @@ pub(crate) fn fixture(root: &Path) -> MigrationRoots {
 }
 
 pub(crate) fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
-    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault, verified: None })
+    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault, verified: None, retention: None })
 }
 
 /// The `reason.json` bodies of unexpected quarantines.
@@ -212,6 +214,20 @@ pub(crate) fn journal_records(roots: &MigrationRoots) -> Vec<JournalRecord> {
     let bytes = std::fs::read(roots.data.join(JOURNAL_PATH)).unwrap();
     let (frames, _) = crate::frame::scan(&bytes, 0);
     frames.iter().map(|f| serde_json::from_slice(&bytes[f.payload.clone()]).unwrap()).collect()
+}
+
+/// The sources the journal holds of each item it was given them for (none before the migration began).
+pub(crate) fn journaled_sources(roots: &MigrationRoots) -> BTreeMap<String, Vec<SourceFile>> {
+    if !roots.data.join(JOURNAL_PATH).exists() {
+        return BTreeMap::new();
+    }
+    let mut sources = BTreeMap::new();
+    for record in journal_records(roots) {
+        if let JournalRecord::Sources(entry) = record {
+            assert!(sources.insert(entry.key.as_str().to_owned(), entry.sources).is_none(), "{} has its sources journaled twice", entry.key.as_str());
+        }
+    }
+    sources
 }
 
 const REJECTED_SOURCE: &str = "legacy/reason.json";
@@ -333,6 +349,129 @@ fn classification_reads_a_log_only_home_and_rejects_changed_evidence() {
     assert!(matches!(back.home_evidence(|_, _| ()), Err(Blocked::SourceChanged { .. })));
 }
 
+/// The front a core waits for names a session's own files and hashes none of them; the files several sessions read are
+/// hashed there, once. A session's sizes and hashes are journaled when it is converted, ahead of its `staged` frame,
+/// and are those of the files as they lay.
+#[test]
+fn the_front_hashes_no_session_and_each_session_is_journaled_before_it_is_staged() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let Front::Pending(back) = migrator(&roots, None).front().unwrap() else { panic!("the sessions are left") };
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let a = manifest.items.iter().find(|i| i.key.as_str() == "session/sess_a").unwrap();
+    assert!(a.sources.is_empty(), "{:?}", a.sources);
+    let named: Vec<&str> = a.late_sources.iter().map(|s| s.path.as_str()).collect();
+    assert_eq!(
+        named,
+        [
+            "sessions/sess_a.compaction-archive.jsonl",
+            "sessions/sess_a.compaction-archive.pending",
+            "sessions/sess_a.json",
+            "turn-checkpoints/sess_a.json",
+            "turn-checkpoints/sess_a.jsonl"
+        ]
+    );
+    assert_eq!(journaled_sources(&roots), BTreeMap::new(), "the front journaled a session's sources");
+    for shared in ["agent-workers.json", "agent-workers-released.json", "session-pending/sess_a.json"] {
+        let file = &manifest.shared.iter().find(|s| s.file.path == shared).unwrap_or_else(|| panic!("{shared} is not shared")).file;
+        assert_eq!((file.size, file.sha256.clone()), durable::hash_file(&roots.data.join(shared)).unwrap(), "{shared}");
+    }
+    let as_they_lay: Vec<(String, (u64, String))> = named.iter().map(|rel| (rel.to_string(), durable::hash_file(&roots.data.join(rel)).unwrap())).collect();
+
+    back.run().unwrap();
+    let records = journal_records(&roots);
+    for key in ["session/sess_a", "session/sess_b"] {
+        let sources = records.iter().position(|r| matches!(r, JournalRecord::Sources(e) if e.key.as_str() == key)).unwrap_or_else(|| panic!("{key}"));
+        let staged = records.iter().position(|r| matches!(r, JournalRecord::Staged(e) if e.key.as_str() == key)).unwrap_or_else(|| panic!("{key}"));
+        assert!(sources < staged, "{key}: sources at frame {sources}, staged at frame {staged}");
+    }
+    let journaled: Vec<(String, (u64, String))> =
+        journaled_sources(&roots)["session/sess_a"].iter().map(|s| (s.path.clone(), (s.size, s.sha256.clone()))).collect();
+    assert_eq!(journaled, as_they_lay);
+}
+
+/// A session's source that changes after its size and hash were journaled is refused by the run that goes on and by a
+/// run that resumes it: nothing of the session is published, and the changed file stays.
+#[test]
+fn a_source_changed_after_it_was_journaled_is_refused_by_the_run_that_resumes() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let cut = "journal:sources:session/sess_a:after";
+    let stopped = migrator(&roots, Some(Arc::new(move |p: &str| if p == cut { Err(Blocked::Interrupted { point: p.into() }) } else { Ok(()) }))).run();
+    assert_eq!(stopped.unwrap_err(), Blocked::Interrupted { point: cut.into() });
+    let path = roots.data.join("sessions/sess_a.json");
+    let changed = String::from_utf8(std::fs::read(&path).unwrap()).unwrap().replacen(r#""title":"A""#, r#""title":"B""#, 1);
+    std::fs::write(&path, &changed).unwrap();
+
+    for _ in 0..2 {
+        let refused = migrator(&roots, None).run();
+        assert!(matches!(&refused, Err(Blocked::SourceChanged { path: found }) if *found == path), "{refused:?}");
+        assert!(!roots.data.join("sessions/sess_a").exists(), "the changed session was published");
+        assert!(!roots.data.join(COMPLETE_PATH).exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), changed, "the source stays as it is");
+    }
+}
+
+/// Disposal removes a session's source only while it is the file whose size and hash were journaled. One written anew
+/// after the session was verified blocks a one-shot run before anything of that session is removed, and behind a serving
+/// core it is the core's and stays.
+#[test]
+fn disposal_keeps_a_session_source_that_is_not_the_journaled_one() {
+    for serving in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let roots = fixture(dir.path());
+        let (path, log) = (roots.data.join("sessions/sess_b.json"), roots.data.join("sessions/sess_b.log.jsonl"));
+        let rewritten = path.clone();
+        let hook: FaultHook = Arc::new(move |point| {
+            if point == "counts:after" {
+                std::fs::write(&rewritten, b"written after the session was verified").unwrap();
+            }
+            Ok(())
+        });
+        let options = MigrateOptions { workers: 1, fault: Some(hook), verified: serving.then(|| Arc::new(|_: &str| {}) as VerifiedHook), retention: None };
+        let result = Migrator::new(roots.clone(), drivers(), options).run();
+        if serving {
+            result.unwrap();
+            assert!(!log.exists(), "the source that still matched was removed");
+        } else {
+            assert!(matches!(&result, Err(Blocked::SourceChanged { path: found }) if *found == path), "{result:?}");
+            assert!(log.exists(), "nothing of the session was removed");
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), b"written after the session was verified", "serving {serving}");
+    }
+}
+
+/// A session opened while the others wait is converted ahead of them, to the bytes it gets in its turn: the whole tree,
+/// the journaled sources included, is the one a run that converts it last leaves.
+#[test]
+fn a_session_asked_for_first_is_converted_to_the_bytes_of_its_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    // The manifest names the dir a run was in: both runs are in `base`.
+    let base = dir.path().join("run");
+    let serving = |ask: Option<&str>| {
+        let _ = std::fs::remove_dir_all(&base);
+        let roots = fixture(&base);
+        let order = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = order.clone();
+        let verified: VerifiedHook = Arc::new(move |id: &str| seen.lock().unwrap().push(id.to_owned()));
+        let options = MigrateOptions { workers: 1, fault: None, verified: Some(verified), retention: None };
+        let Front::Pending(back) = Migrator::new(roots.clone(), drivers(), options).front().unwrap() else { panic!("the sessions are left") };
+        if let Some(id) = ask {
+            assert!(back.waiting().first(id, Box::new(|| {})), "{id} is still to convert");
+        }
+        back.run().unwrap();
+        let order = order.lock().unwrap().clone();
+        (order, tree_digest(&roots))
+    };
+    let (in_turn, want) = serving(None);
+    assert!(in_turn.len() > 1, "{in_turn:?}");
+    let last = in_turn.last().unwrap().clone();
+    let (asked, got) = serving(Some(&last));
+    assert_eq!(asked[0], last, "the session asked for is converted first");
+    let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
+    assert!(diff.is_empty(), "{last} converted first and last differ in {diff:?}");
+}
+
 fn migrated_fixture() -> (tempfile::TempDir, MigrationRoots, mixdog_store::schema::migration::Complete) {
     let dir = tempfile::tempdir().unwrap();
     let roots = fixture(dir.path());
@@ -344,7 +483,16 @@ fn read_migrated_session(roots: &MigrationRoots, complete: &mixdog_store::schema
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, workers: 1, blobs: &blobs, states: &states };
+    let cx = ItemContext {
+        roots,
+        manifest: &manifest,
+        manifest_sha256: &complete.manifest_sha256,
+        fault: None,
+        workers: 1,
+        blobs: &blobs,
+        states: &states,
+        recorded: None,
+    };
     crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap()
 }
 
@@ -735,7 +883,7 @@ fn disposal_point(point: &str, seen: &mut BTreeMap<String, usize>) -> Option<(St
 }
 
 fn disposal_options(serving: bool, fault: Option<FaultHook>) -> MigrateOptions {
-    MigrateOptions { workers: 2, fault, verified: serving.then(|| Arc::new(|_: &str| {}) as VerifiedHook) }
+    MigrateOptions { workers: 2, fault, verified: serving.then(|| Arc::new(|_: &str| {}) as VerifiedHook), retention: None }
 }
 
 /// The child of the disposal kill test (a no-op unless the parent set `DISPOSAL_KILL_BASE`): two converters run the

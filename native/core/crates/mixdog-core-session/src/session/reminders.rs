@@ -297,5 +297,5 @@ pub fn acknowledge(header: &Header, revisions: &Revisions, now: i64) -> Option<H
     }
     let set: Header = after.iter().filter(|(key, value)| header.get(*key) != Some(*value)).map(|(key, value)| (key.clone(), value.clone())).collect();
     let unset: Vec<String> = header.keys().filter(|key| !after.contains_key(*key)).cloned().collect();
-    Some(HeaderChange { set, unset })
+    Some(HeaderChange { set, unset, patch: Default::default() })
 }

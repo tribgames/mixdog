@@ -319,6 +319,24 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
+    /// The ranges a positioned subscription wants to hold; granted by `thread/window/changed`.
+    ThreadWindowSet => "thread/window/set" {
+        params: v2::thread::ThreadWindowSetParams,
+        result: v2::thread::ThreadWindowSetResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The prompts a rewind can name, newest first, from the stored history.
+    ThreadRewindTargetsList => "thread/rewindTargets/list" {
+        params: v2::thread::ThreadRewindTargetsListParams,
+        result: v2::thread::ThreadRewindTargetsListResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Item-granular rewind (X8).
     ThreadRewind => "thread/rewind" {
         params: v2::thread::ThreadRewindParams,

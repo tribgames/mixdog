@@ -657,7 +657,7 @@ impl Inner {
             (Some(prev), Some((_, pw))) => Some(ThreadResumePosition { epoch: prev.feed.epoch.clone(), seq: prev.feed.seq, window: pw.clone() }),
             _ => None,
         };
-        to_json(&ThreadResumeParams { thread_id: thread_id.clone(), window: window.clone(), resume_from })
+        to_json(&ThreadResumeParams { thread_id: thread_id.clone(), window: window.clone(), resume_from, positioned_window: None })
     }
     fn app_params(&self) -> Json {
         let resume_from = self.lock().store.app.as_ref().map(|a| mixdog_app_protocol::v2::feed::FeedPosition { epoch: a.epoch.clone(), seq: a.seq });

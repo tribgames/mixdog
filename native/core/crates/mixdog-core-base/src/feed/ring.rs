@@ -9,13 +9,13 @@ use mixdog_core_api::feed::FeedFrame;
 pub(super) struct Ring {
     limit: usize,
     entries: VecDeque<Entry>,
-    /// Encoded bytes held: Σ frame lengths, ≤ `limit` between pushes.
+    /// Encoded bytes held: Σ of every form of every frame ([`FeedFrame::held_bytes`]), ≤ `limit` between pushes.
     held: usize,
 }
 
 struct Entry {
     frame: FeedFrame,
-    /// Bytes of every frame ever pushed, through this one.
+    /// Plain bytes of every frame ever pushed, through this one: what a replay into a lane with no grant reserves.
     end: u64,
 }
 
@@ -47,11 +47,11 @@ impl Ring {
     /// Appends `frame` (the feed's next seq) and evicts the oldest frames above the limit.
     pub fn push(&mut self, frame: FeedFrame) {
         let end = self.entries.back().map_or(0, |last| last.end) + frame.bytes.len() as u64;
-        self.held += frame.bytes.len();
+        self.held += frame.held_bytes();
         self.entries.push_back(Entry { frame, end });
         while self.held > self.limit {
             let evicted = self.entries.pop_front().expect("the ring holds the counted bytes");
-            self.held -= evicted.frame.bytes.len();
+            self.held -= evicted.frame.held_bytes();
         }
     }
 
@@ -59,7 +59,7 @@ impl Ring {
     pub fn drop_through(&mut self, seq: u64) {
         while self.entries.front().is_some_and(|entry| entry.frame.seq <= seq) {
             let dropped = self.entries.pop_front().expect("the front was just seen");
-            self.held -= dropped.frame.bytes.len();
+            self.held -= dropped.frame.held_bytes();
         }
     }
 

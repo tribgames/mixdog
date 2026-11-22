@@ -107,12 +107,16 @@ pub fn repair_before_send(messages: &mut Vec<AgentMessage>) -> bool {
     changed
 }
 
-/// A tool call id is unique within a transcript: local and compatible servers
-/// reuse ids across turns, and the pairing repairs drop a second assistant
-/// turn that reuses one. One of these serves one provider round
-/// (`createToolCallIdResolver`): a call keeps its id unless the history, an id
-/// this round already handed out or (in the final batch) another call of the
-/// batch holds it, and then gets the smallest free `<id>-<n>`.
+/// Where a tool call enters a session, and the one place its id is decided: a call's id is one no earlier call of
+/// the session had. A provider may give two calls the same id: local and compatible servers reuse ids across turns
+/// (`call_0` again), and an id made up for a provider that sends none can come out the same for the same call. One
+/// of these serves one provider round (`createToolCallIdResolver`). The calls still in the transcript are known, and a
+/// call is told apart from them, from the ids this round already handed out and (in the final batch) from the other
+/// calls of the batch. The calls that left it (a compaction took them out) are not known one by one: the session
+/// counts the times calls have left ([`Self::in_session`]), a call's id says which count it entered at
+/// ([`distinct_id`](mixdog_protocol::tool_call_ids::distinct_id)), and so it equals none of an earlier count. Under
+/// such an id the provider's own still goes back to it (`wire_id_map`). Everything after this point (a result's draft,
+/// its row, a recovery) names a call by its id alone.
 ///
 /// A call is seen twice per round: as the stream finishes it ([`Self::resolve`])
 /// and in the response's final batch ([`Self::resolve_all`]). The n-th call
@@ -121,6 +125,7 @@ pub fn repair_before_send(messages: &mut Vec<AgentMessage>) -> bool {
 /// distinct.
 pub struct ToolCallIds {
     history: HashSet<String>,
+    epoch: u64,
     handed_out: HashSet<String>,
     by_original: std::collections::HashMap<String, Vec<String>>,
 }
@@ -136,23 +141,39 @@ impl ToolCallIds {
             }
             history.extend(message.assistant_call_ids());
         }
-        Self { history, handed_out: HashSet::new(), by_original: std::collections::HashMap::new() }
+        Self { history, epoch: 0, handed_out: HashSet::new(), by_original: std::collections::HashMap::new() }
     }
 
-    fn is_taken(&self, id: &str, reserved: &HashSet<&str>) -> bool {
-        self.handed_out.contains(id) || reserved.contains(id) || self.history.contains(id)
+    /// The round of a session in which calls have left the transcript `epoch` times.
+    pub fn in_session(mut self, epoch: u64) -> Self {
+        self.epoch = epoch;
+        self
     }
 
-    fn allocate(&mut self, call: &mut ToolCall, reserved: &HashSet<&str>) {
+    /// The times calls have left a session whose transcript is `messages`, as far as the transcript says: the highest
+    /// count one of its calls entered at.
+    pub fn epoch_in(messages: &[AgentMessage]) -> u64 {
+        messages.iter().flat_map(AgentMessage::assistant_call_ids).map(|id| mixdog_protocol::tool_call_ids::epoch_of(&id)).max().unwrap_or(0)
+    }
+
+    fn is_taken(&self, id: &str) -> bool {
+        self.handed_out.contains(id) || self.history.contains(id)
+    }
+
+    /// The first free id of the call's provider id at this round's count. What it is told apart from is the ids already
+    /// held; a call later in the batch needs no place kept: its id is its own provider's text written out
+    /// (`distinct_id`), which no id made here for another provider id can equal.
+    fn allocate(&mut self, call: &mut ToolCall) {
+        use mixdog_protocol::tool_call_ids::distinct_id;
         let original = call.id.clone();
-        let mut id = original.clone();
-        if self.is_taken(&id, &HashSet::new()) {
-            let mut n = 2;
-            while self.is_taken(&format!("{original}-{n}"), reserved) {
-                n += 1;
+        let mut n = 1;
+        let id = loop {
+            let id = distinct_id(&original, self.epoch, n);
+            if !self.is_taken(&id) {
+                break id;
             }
-            id = format!("{original}-{n}");
-        }
+            n += 1;
+        };
         self.handed_out.insert(id.clone());
         self.by_original.entry(original).or_default().push(id.clone());
         call.id = id;
@@ -163,7 +184,7 @@ impl ToolCallIds {
         if call.id.is_empty() {
             return;
         }
-        self.allocate(call, &HashSet::new());
+        self.allocate(call);
     }
 
     /// The final batch of the response.
@@ -180,11 +201,7 @@ impl ToolCallIds {
             *nth += 1;
             match mapped {
                 Some(id) => call.id = id,
-                None => {
-                    // Ids later in the batch that no earlier pass has placed yet stay theirs.
-                    let reserved: HashSet<&str> = originals[index + 1..].iter().map(String::as_str).filter(|id| !id.is_empty()).collect();
-                    self.allocate(call, &reserved);
-                }
+                None => self.allocate(call),
             }
         }
     }
@@ -234,7 +251,64 @@ mod tests {
         let mut second = call("call_0");
         ids.resolve(&mut first);
         ids.resolve(&mut second);
-        assert_eq!(first.id, "call_0-2");
-        assert_eq!(second.id, "call_0-3");
+        assert_eq!(first.id, "call_0~0.2");
+        assert_eq!(second.id, "call_0~0.3");
+    }
+
+    /// A server may issue an id shaped like one a session makes. It enters as the server's own text, not as a call of
+    /// `c` at the first count, so a call the server later names `c` at that count takes a different id, and each goes
+    /// back to the server as it gave it.
+    #[test]
+    fn a_servers_id_shaped_like_a_sessions_enters_as_its_own_text() {
+        use mixdog_protocol::tool_call_ids::provider_id;
+        let mut issued = call("c~1");
+        ToolCallIds::new(&[]).resolve(&mut issued);
+        let mut later = call("c");
+        ToolCallIds::new(&[AgentMessage::user("summary")]).in_session(1).resolve(&mut later);
+        assert_ne!(issued.id, later.id, "two calls, two ids");
+        assert_eq!((provider_id(&issued.id).as_ref(), provider_id(&later.id).as_ref()), ("c~1", "c"));
+        assert_eq!(ToolCallIds::epoch_in(&[AgentMessage::assistant("", vec![issued])]), 0, "the server's `~1` is no count");
+    }
+
+    /// A provider gives a call the id of one the session held earlier and a compaction has since taken out of the
+    /// transcript, which no longer shows it. The call enters under an id of its own all the same, and so does every
+    /// later call under that provider id, in the same round, in the same count of compactions and after the next. The
+    /// provider is still answered under the id it gave.
+    #[test]
+    fn a_call_under_the_id_of_one_that_left_the_transcript_enters_under_an_id_of_its_own() {
+        use mixdog_protocol::tool_call_ids::{OPENAI_CHAT_IDS, wire_id_map};
+        let mut entered: Vec<String> = Vec::new();
+        // Before any compaction the call keeps its provider's id.
+        let mut first = call("call_0");
+        ToolCallIds::new(&[]).resolve(&mut first);
+        assert_eq!(first.id, "call_0");
+        entered.push(first.id);
+        // After one, the transcript is the summary alone: nothing in it says `call_0` was ever used.
+        let compacted = vec![AgentMessage::user("summary")];
+        assert_eq!(ToolCallIds::epoch_in(&compacted), 0);
+        let mut ids = ToolCallIds::new(&compacted).in_session(1);
+        let (mut again, mut twice, mut other) = (call("call_0"), call("call_0"), call("call_1"));
+        ids.resolve(&mut again);
+        ids.resolve(&mut twice);
+        ids.resolve(&mut other);
+        let mut batch = [call("call_0"), call("call_0"), call("call_1")];
+        ids.resolve_all(&mut batch);
+        assert_eq!([again.id.as_str(), twice.id.as_str(), other.id.as_str()], ["call_0~1", "call_0~1.2", "call_1~1"]);
+        assert_eq!(batch.each_ref().map(|call| call.id.as_str()), ["call_0~1", "call_0~1.2", "call_1~1"], "the batch carries what the stream handed out");
+        // The next round of the same count sees those calls in its transcript.
+        let transcript = vec![AgentMessage::user("summary"), AgentMessage::assistant("", batch.to_vec())];
+        assert_eq!(ToolCallIds::epoch_in(&transcript), 1, "a transcript says the count its calls entered at");
+        let mut third = call("call_0");
+        ToolCallIds::new(&transcript).in_session(1).resolve(&mut third);
+        assert_eq!(third.id, "call_0~1.3");
+        entered.extend(batch.into_iter().map(|call| call.id).chain([third.id]));
+        // After the next compaction, again with nothing of them left in the transcript.
+        let mut fourth = call("call_0");
+        ToolCallIds::new(&compacted).in_session(2).resolve(&mut fourth);
+        assert_eq!(fourth.id, "call_0~2");
+        assert_eq!(wire_id_map([fourth.id.as_str()], OPENAI_CHAT_IDS)[&fourth.id], "call_0", "the provider's own id goes back to it");
+        entered.push(fourth.id);
+        let distinct: HashSet<&String> = entered.iter().collect();
+        assert_eq!(distinct.len(), entered.len(), "no id of the session is given twice: {entered:?}");
     }
 }

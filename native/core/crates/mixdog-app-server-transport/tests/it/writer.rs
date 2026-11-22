@@ -52,7 +52,7 @@ fn publish(feed: &MockFeed, seqs: std::ops::RangeInclusive<u64>) {
 fn big_event(seq: u64) -> FeedFrame {
     let mut text = format!("evt@{seq}:");
     text.push_str(&"x".repeat(60_000));
-    FeedFrame { seq, bytes: Bytes::from(text) }
+    FeedFrame::new(seq, Bytes::from(text))
 }
 
 fn names(texts: Vec<String>) -> Vec<String> {
@@ -529,7 +529,7 @@ fn append(seq: u64, text: &str) -> FeedFrame {
         "params": { "threadId": "t", "turnId": "u", "itemId": "answer", "delta": text },
         "feed": { "id": "thread:t", "epoch": epoch(9), "seq": seq },
     });
-    FeedFrame { seq, bytes: Bytes::from(frame.to_string()) }
+    FeedFrame::new(seq, Bytes::from(frame.to_string()))
 }
 
 fn parsed(text: &str) -> serde_json::Value {
@@ -561,7 +561,7 @@ async fn a_resume_inside_a_coalesced_range_replays_from_the_next_position() {
 /// A frame of the app feed (or a thread's), as it is encoded: `method`, `params`, the feed stamp.
 fn frame_of(method: &str, params: serde_json::Value, seq: u64) -> FeedFrame {
     let frame = serde_json::json!({ "method": method, "params": params, "feed": { "id": "app", "epoch": epoch(9), "seq": seq } });
-    FeedFrame { seq, bytes: Bytes::from(frame.to_string()) }
+    FeedFrame::new(seq, Bytes::from(frame.to_string()))
 }
 
 /// A section update: the whole value of `(section, key)`, `revision` strictly increasing.

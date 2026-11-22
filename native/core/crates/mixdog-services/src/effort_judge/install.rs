@@ -96,11 +96,10 @@ pub async fn install_current_on(lane: CpuBulk, dir: &Path, manifest: &Manifest) 
     on_lane(lane, move || stamped_release(&dir) == release).await.map_err(InstallError::io)
 }
 
-/// Files in `dir` that are missing or differ from the manifest sha256. When any
-/// does, the stamp is removed so the folder reads as not installed and the next
-/// install fetches only those files (a crash can leave a stamped model with its
-/// tail zeroed: same size, wrong hash).
-pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) -> Result<Vec<String>, InstallError> {
+/// Files in `dir` that are missing or differ from the manifest sha256 (a crash
+/// can leave a stamped model with its tail zeroed: same size, wrong hash).
+/// Changes nothing.
+pub async fn damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) -> Result<Vec<String>, InstallError> {
     let mut bad = Vec::new();
     for (name, file) in manifest.files() {
         let target = dir.join(name);
@@ -109,10 +108,20 @@ pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) 
             bad.push(name.clone());
         }
     }
-    if !bad.is_empty() {
-        remove_forced(lane, &dir.join(STAMP)).await?;
-    }
     Ok(bad)
+}
+
+/// Fetches again what differs from the manifest. The stamp is removed first, so
+/// the folder reads as not installed until the files are whole.
+pub async fn reinstall(
+    dir: &Path,
+    manifest: &Manifest,
+    lane: CpuBulk,
+    progress: Option<&ProgressSink>,
+    cancel: &CancellationToken,
+) -> Result<(), InstallError> {
+    remove_forced(lane, &dir.join(STAMP)).await?;
+    install_model(dir, manifest, lane, progress, cancel).await
 }
 
 /// `rmSync(path, { force: true })` on `lane`: the shared forced removal (an absent file is fine,
@@ -209,9 +218,9 @@ pub async fn repair(
     if config.explicit {
         return Ok(Vec::new());
     }
-    let bad = invalidate_damaged(&config.dir, manifest, lane).await?;
+    let bad = damaged(&config.dir, manifest, lane).await?;
     if !bad.is_empty() {
-        install_model(&config.dir, manifest, lane, progress, cancel).await?;
+        reinstall(&config.dir, manifest, lane, progress, cancel).await?;
     }
     Ok(bad)
 }

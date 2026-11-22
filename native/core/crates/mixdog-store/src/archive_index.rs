@@ -50,12 +50,14 @@ pub(crate) fn divider_place(home: usize, ordinal: u64) -> (usize, u64) {
     (home, ordinal)
 }
 
-/// The live compactions of a lineage, loaded per level when first needed.
+/// The live compactions of a lineage that take anything out, loaded per level as far back as a row asked about needs:
+/// those after the row. The newest rows of a thread ask for the few compactions after them, not for every one it wrote.
 pub(crate) struct Compactions<'a> {
     c: &'a Connection,
     lineage: &'a [LineageLevel],
     cut: Option<u64>,
-    levels: Vec<Option<Vec<Compaction>>>,
+    /// Per level: the ordinal its compactions are loaded above, and those, oldest first.
+    levels: Vec<Option<(i64, Vec<Compaction>)>>,
 }
 
 impl<'a> Compactions<'a> {
@@ -63,31 +65,40 @@ impl<'a> Compactions<'a> {
         Compactions { c, lineage, cut, levels: (0..lineage.len()).map(|_| None).collect() }
     }
 
-    /// The compactions of level `j` a reader sees: below its range end and the cut, live as
-    /// of the fork point (the same bounds as its rows).
-    fn level(&mut self, j: usize) -> rusqlite::Result<&[Compaction]> {
-        if self.levels[j].is_none() {
+    /// The compactions of level `j` after ordinal `above` (`-1`: all) a reader sees: below its range end and the cut, live
+    /// as of the fork point (the same bounds as its rows). Those that take nothing out (`drop_mode` 1) decide no row.
+    fn level(&mut self, j: usize, above: i64) -> rusqlite::Result<&[Compaction]> {
+        let loaded = self.levels[j].as_ref().map(|(from, _)| *from);
+        if loaded.is_none_or(|from| above < from) {
             let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
             let level = &self.lineage[j];
             let asof = level.end.map_or(i64::MAX, clamp);
             let bound = if j > 0 { level.end.into_iter().chain(self.cut).min().map_or(i64::MAX, clamp) } else { i64::MAX };
+            // Up to where the level is loaded already: the rows of a page are asked about in turn, each a little further back.
+            let upto = loaded.map_or(bound, |from| bound.min(from.saturating_add(1)));
             let mut stmt = self.c.prepare_cached(
-                "SELECT ordinal, drop_mode FROM compactions WHERE session = ?1 AND ordinal < ?3
+                "SELECT ordinal, drop_mode FROM compactions WHERE session = ?1 AND ordinal > ?3 AND ordinal < ?4 AND drop_mode <> 1
                  AND (superseded_rev IS NULL OR superseded_rev >= ?2) ORDER BY ordinal",
             )?;
-            let rows = stmt.query_map(params![level.session, asof, bound], |r| {
+            let rows = stmt.query_map(params![level.session, asof, above, upto], |r| {
                 Ok(Compaction { session_level: j, ordinal: r.get::<_, i64>(0)? as u64, mode: DropMode::from_db(r.get(1)?).unwrap_or(DropMode::All) })
             })?;
-            self.levels[j] = Some(rows.collect::<Result<_, _>>()?);
+            let mut found: Vec<Compaction> = rows.collect::<Result<_, _>>()?;
+            if let Some((_, newer)) = self.levels[j].take() {
+                found.extend(newer);
+            }
+            self.levels[j] = Some((above, found));
         }
-        Ok(self.levels[j].as_deref().unwrap_or_default())
+        Ok(self.levels[j].as_ref().map(|(_, loaded)| loaded.as_slice()).unwrap_or_default())
     }
 
     /// The compactions that apply to a row at `ordinal` of `level`, split by how they decide: `(drop_mode All, drop_mode Ids)`.
     fn later_than(&mut self, level: usize, ordinal: u64) -> rusqlite::Result<(Vec<Compaction>, Vec<Compaction>)> {
         let (mut all, mut ids) = (Vec::new(), Vec::new());
         for j in 0..=level {
-            for comp in self.level(j)? {
+            // Every compaction of a level the row's own log was forked into applies; of its own log, those after it.
+            let above = if j == level { ordinal.min(i64::MAX as u64) as i64 } else { -1 };
+            for comp in self.level(j, above)? {
                 if j == level && comp.ordinal <= ordinal {
                     continue;
                 }
@@ -141,7 +152,11 @@ impl<'a> Compactions<'a> {
             let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
             let kept: bool =
                 self.c.prepare_cached(KEPT_ENTRY_SQL)?.query_row(params![self.lineage[comp.session_level].session, clamp(comp.ordinal), iid], |r| r.get(0))?;
-            everything |= !kept;
+            // The first compaction that did not keep the row took all of it out: no later one is asked.
+            if !kept {
+                everything = true;
+                break;
+            }
         }
         if everything {
             text = parts.text.is_some();

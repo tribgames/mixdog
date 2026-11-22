@@ -37,6 +37,7 @@ mod cards;
 #[cfg(test)]
 mod channel_notification_tests;
 pub mod close;
+pub mod completion_holders;
 mod completions;
 mod control;
 pub mod delegation;
@@ -130,6 +131,7 @@ pub mod tool_events;
 pub mod workspace_sight;
 pub use self::live_end::BuiltinSkills;
 pub use self::live_end::done_verb;
+pub mod read_trace;
 mod reads;
 mod routine_turn;
 pub mod turn_warm;
@@ -161,6 +163,8 @@ pub mod quota_resume_host;
 pub mod quota_resume_scheduler;
 #[cfg(test)]
 mod quota_resume_scheduler_rules_tests;
+#[cfg(test)]
+mod receipt_shed_tests;
 pub mod report_runtime;
 pub mod room_approval;
 pub mod room_member;
@@ -201,6 +205,7 @@ pub mod user_cwd;
 pub mod user_facts;
 pub mod user_text;
 mod view;
+mod window;
 pub mod worktree;
 
 #[cfg(test)]
@@ -601,6 +606,8 @@ pub struct SessionDeps {
     /// The one archive authority every reader and writer of a session's archive state goes through
     /// ([`mixdog_store::archive_state`], [`archive_trees`]).
     pub archive: Arc<mixdog_store::archive_state::ArchiveStates>,
+    /// Who can still deliver a completion to a session: what its completion receipts are kept for.
+    pub completion_holders: Arc<completion_holders::CompletionHolders>,
     /// `surfaceGeneration`: a delete moves it (`session-delete.mjs` `invalidatePreSessionToolSurface()`).
     /// A `thread/resume` attaches to a live thread and retargets no runtime, so it does not (Node's
     /// `resume.mjs` bumps because it swaps the runtime's current session); a thread loaded from disk is

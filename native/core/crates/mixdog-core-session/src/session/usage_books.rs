@@ -44,7 +44,7 @@ fn with_books<R>(books: &Books, provider: &str, f: impl FnOnce(&pressure::Books<
 }
 
 fn change(patch: Option<HeaderPatch>) -> Option<HeaderChange> {
-    patch.map(|patch| HeaderChange { set: patch.set, unset: patch.unset })
+    patch.map(|patch| HeaderChange { set: patch.set, unset: patch.unset, patch: Default::default() })
 }
 
 /// The change with the session's transcript-cache book (`cacheTailBook`) the call's owner settled, when it changed: the
@@ -52,7 +52,7 @@ fn change(patch: Option<HeaderPatch>) -> Option<HeaderChange> {
 /// (`lastProviderCacheTail`) is dropped with the first book written.
 pub(crate) fn with_tail_book(change: Option<HeaderChange>, book: Option<&Value>) -> Option<HeaderChange> {
     let Some(book) = book else { return change };
-    let mut change = change.unwrap_or(HeaderChange { set: Header::new(), unset: Vec::new() });
+    let mut change = change.unwrap_or(HeaderChange { set: Header::new(), unset: Vec::new(), patch: Default::default() });
     change.set.insert("cacheTailBook".into(), book.clone());
     change.unset.push("lastProviderCacheTail".into());
     Some(change)
@@ -160,7 +160,7 @@ pub(crate) fn stream_heartbeat(header: &Header, now: f64) -> Option<HeaderChange
     }
     let mut set = Header::new();
     set.insert("lastHeartbeatAt".into(), mixdog_js::json_number(now));
-    Some(HeaderChange { set, unset: Vec::new() })
+    Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() })
 }
 
 #[cfg(test)]

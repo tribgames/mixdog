@@ -273,6 +273,12 @@
     {
       "feed": "app",
       "keyed": false,
+      "notification": "catalog/index/updated",
+      "section": "catalogIndex"
+    },
+    {
+      "feed": "app",
+      "keyed": false,
       "notification": "review/diff/updated",
       "section": "reviewDiff"
     },

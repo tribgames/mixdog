@@ -187,7 +187,8 @@ pub(crate) fn rows_on(
     cursor: Option<ContextCursor>,
     limit: usize,
 ) -> Result<(Vec<ContextRow>, Option<ContextCursor>), DbError> {
-    let tx = c.unchecked_transaction()?;
+    let own = crate::sqlite::read_snapshot(c)?;
+    let tx: &Connection = own.as_deref().unwrap_or(c);
     let rev: i64 = tx.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
     let spans = plan(&tx, lineage, cut)?;
     let first = &spans[0];

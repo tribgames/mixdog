@@ -1361,10 +1361,10 @@ async fn open_state_and_config(b: &Built) -> Result<(Arc<StateRuntime>, Config, 
     // a pass of its own with its own backup. Once this returns the `desktop` section is separated, or (as in Node, where the app's catch wrote
     // `defaults-separation-failed` to its diagnostics log and went on) the failure is on record, the marker unset for the next start's retry.
     let desktop_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
-    let defaults_separation = crate::desktop_defaults::separate(&config, desktop_ms).await;
+    let defaults_separation = crate::desktop_defaults::separate(&config, desktop_ms, boot_ms).await;
     config.adopt_legacy_markdown_view(b.user_data_dir.clone()).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
     // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
-    // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
+    // reads `migrated_at()` and no longer sees 0 for a store nobody wrote). The desktop pass above carried it when it wrote.
     config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
     Ok((state, config, defaults_separation))
 }
@@ -3008,7 +3008,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .maintenance_io
             .submit(&b.cancel, move |lane| {
                 let _ = began.set(std::time::Instant::now());
-                mixdog_store::sqlite::SqliteStore::open_reporting(lane, thread, read, &data, Some(&rebuild))
+                mixdog_store::sqlite::SqliteStore::open_reporting(lane, thread, read, &data, Some(&rebuild), mixdog_store::sqlite::RepairStart::WithheldSet)
             })
             .map_err(|_| ComposeError::CatalogIndex("the maintenance lane refused the job".to_owned()))? // new variant, added with the flip
             .await
@@ -3025,6 +3025,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     for (step, ended) in catalog_index.boot_steps() {
         boot.boot_mark_at(&format!("catalog-index-{step}"), ended);
     }
+    crate::catalog_index_section::spawn(catalog_index.clone(), state.publisher.clone(), b.cancel.child_token());
     let archive_states = archive_states.map_err(|e| ComposeError::CatalogIndex(format!("the session archive authority: {e}")))?;
     boot.boot_mark("before-archive-states-bind");
     // The projection waits behind the catalog writer (seconds at start) and the first screen reads archive state through the bound
@@ -3099,6 +3100,19 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let owed_rewrites =
         store_threads.owe_marks(b.tokens.durability_io, Some(&b.rebuild)).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
     boot.boot_mark("sensitive-marks-owed");
+    // Only now, with this boot's withheld set committed: waiting for every repair starts them, and one that ran before the set
+    // was in would project what it withholds, or leave a session whose mark was settled just before a kill with nothing to
+    // release it.
+    if catalog_index.rebuilding() {
+        let (index, log) = (catalog_index.clone(), b.log.clone());
+        drop(mixdog_rt::spawn("catalog-index-rebuild-end", mixdog_rt::TaskClass::Work, async move {
+            let ended = index.reconciled().await;
+            log.boot_mark("catalog-index-rebuild-ended");
+            if let Err(error) = ended {
+                tracing::warn!("[index] the rebuild behind the serving core ended unfinished: {error:?}");
+            }
+        }));
+    }
     let mark_rewrites = MarkRewritesRun::start(owed_rewrites, b.cancel.child_token());
     b.acquired.on_release("sensitive-mark-rewrites", mark_rewrites.stop());
     // The stored sessions, shared with the search backfill and `StoredConsumers`; the snapshot cleanups, built once.
@@ -3340,6 +3354,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         reap.clone(),
         clock.clone(),
     ));
+    // A start whose index is being rebuilt holds the worker rows until the rebuild has them all and the restart has settled them
+    // (below): no reader sees a worker before that, nor the rows of part of the index.
+    if catalog_index.rebuilding() {
+        agent_registry.hold_worker_rows();
+    }
     // `sweepRestartFailures`: the recover call and every maintenance pass run it (the pass's timer is started below).
     let restart_sweeper = Arc::new(crate::restart_sweep::RestartSweeper {
         registry: Arc::downgrade(&agent_registry),
@@ -3635,12 +3654,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                             let restart_sweeper = restart_sweeper.clone();
                             drop(mixdog_rt::spawn("agent-restart-notify", mixdog_rt::TaskClass::Work, async move { restart_sweeper.notify().await }));
                         }
-                        mixdog_agent::agent_tool::host::Registry::refresh_tags_from_sessions(
+                        if let Err(error) = mixdog_agent::agent_tool::host::Registry::refresh_tags_from_sessions(
                             &*agent_registry,
                             true,
                             &mixdog_agent::agent_tool::scope::Scope { caller_session_id: None, host_pid: Some(pid) },
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::warn!("[agent] the worker rows could not be read for the recovery's tag refresh: {error}");
+                        }
                     }));
                 })
             },
@@ -3864,6 +3886,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let agents = agents.clone();
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
+                completion_holders: Arc::default(),
                 store: store_threads,
                 cache_tail: Arc::default(),
                 codec: Arc::new(mixdog_core_session::session::StoreCodec),
@@ -4281,6 +4304,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }))
         .map_err(|_| ComposeError::AlreadyBound("owner teardown"))?;
     directory.set_row_writes(workers.clone()).map_err(|_| ComposeError::AlreadyBound("row writes"))?;
+    directory
+        .deps()
+        .completion_holders
+        .bind(Arc::new(mixdog_core_session::session::completion_holders::ProducerHolds {
+            registry: agent_registry.clone(),
+            board: job_board.clone(),
+            shells: b.exec.clone(),
+        }))
+        .map_err(|_| ComposeError::AlreadyBound("completion holders"))?;
     // The idle release (`createIdleRelease`, agent-tool.mjs): an idle agent whose result was delivered is parked after 7 minutes.
     drop(mixdog_rt::spawn(
         "agent-idle-release",
@@ -4323,7 +4355,28 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The routine sessions of the channel stack (`LateRoutineSessions`): `CoreRoutineSessions::new(directory, unattended, spawn_flow, attachment_files, delivery)`.
     // Daemon start (`settleAgentResults`, `daemon.mjs:1108`): dead-owner worker rows are settled here; their failure notices are
     // queued at the end of the composition (below `verify_bound`), awaited (Node's resolves once the notices are queued).
-    {
+    // While the index is rebuilt behind the serving core, the settlement runs behind it too: its read of the stored worker
+    // rows is answered by the index once every session that could hold one is projected (or with the failure of one that
+    // was not), and the held rows open with the settlement's own result.
+    if catalog_index.rebuilding() {
+        let (registry, directory, reap, clock, log) = (agent_registry.clone(), directory.clone(), reap.clone(), clock.clone(), b.log.clone());
+        drop(mixdog_rt::spawn("agent-stale-rows-after-rebuild", mixdog_rt::TaskClass::Work, async move {
+            let live = mixdog_core_session::session::agent_registry::restart::Liveness {
+                probe: &crate::os_probe::OsProbe,
+                own_pid: u64::from(std::process::id()),
+                running: &|id| mixdog_core_session::session::agent_registry::LiveSessions::running(&*directory, id),
+                reap: &*reap,
+                now_ms: clock.now_ms(),
+            };
+            let settled = registry.recover_held_worker_rows(true, &live).await;
+            log.boot_mark("catalog-index-worker-rows-settled");
+            match settled {
+                Ok(_) => tracing::info!("[agent] worker rows settled after the index rebuild"),
+                // Every reader of the worker rows (the pool, a spawn's tag, the status) reports this failure from here on.
+                Err(error) => tracing::warn!("[agent] restart settlement after the index rebuild failed; the worker rows answer with its failure: {error}"),
+            }
+        }));
+    } else {
         let live = mixdog_core_session::session::agent_registry::restart::Liveness {
             probe: &crate::os_probe::OsProbe,
             own_pid: u64::from(std::process::id()),
@@ -4756,32 +4809,49 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Subscribe before seeding persisted idle sessions; announce() only covers later changes.
     // Composition has not started serving requests yet, so the initial rows precede live client work.
     boot.boot_mark("before-notifier-catalog-seed");
-    let mut notification_cursor: Option<String> = None;
-    loop {
-        let page = match thread_list.summaries_page(notification_cursor.clone(), 256).await {
-            Ok(page) => page,
-            Err(error) => {
-                (b.log.line_log())(&format!("[mixdog-turn-notification] initial catalog failed: {error}"));
-                break;
+    let seed = {
+        let (thread_list, input, log) = (thread_list.clone(), session_notifier.input(), b.log.line_log());
+        async move {
+            let mut notification_cursor: Option<String> = None;
+            loop {
+                let page = match thread_list.summaries_page(notification_cursor.clone(), 256).await {
+                    Ok(page) => page,
+                    Err(error) => {
+                        log(&format!("[mixdog-turn-notification] initial catalog failed: {error}"));
+                        break;
+                    }
+                };
+                for summary in page.rows {
+                    input.row(summary);
+                }
+                for (id, error) in page.failed {
+                    log(&format!("[mixdog-turn-notification] initial row {} failed: {error}", id.as_str()));
+                }
+                let next = page.next;
+                if next.is_none() {
+                    break;
+                }
+                if next == notification_cursor {
+                    log("[mixdog-turn-notification] initial catalog cursor did not advance");
+                    break;
+                }
+                notification_cursor = next;
             }
-        };
-        for summary in page.rows {
-            session_notifier.input().row(summary);
         }
-        for (id, error) in page.failed {
-            (b.log.line_log())(&format!("[mixdog-turn-notification] initial row {} failed: {error}", id.as_str()));
-        }
-        let next = page.next;
-        if next.is_none() {
-            break;
-        }
-        if next == notification_cursor {
-            (b.log.line_log())("[mixdog-turn-notification] initial catalog cursor did not advance");
-            break;
-        }
-        notification_cursor = next;
+    };
+    // A page of the catalog rests on every session: while the index still owes projections (a rebuild, the repairs of a
+    // start) it waits for them all, and the start does not wait with it. The seed then runs behind the serving core, once
+    // the catalog is whole; the rows the repairs write meanwhile reach the notifier as any other row change does.
+    if catalog_index.owes_projection() {
+        let log = b.log.clone();
+        drop(mixdog_rt::spawn("notifier-catalog-seed", mixdog_rt::TaskClass::Work, async move {
+            seed.await;
+            log.boot_mark("notifier-catalog-seed-ended");
+        }));
+    } else {
+        seed.await;
+        boot.boot_mark("notifier-catalog-seed-ended");
     }
-    boot.boot_mark("notifier-catalog-seed-ended");
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),

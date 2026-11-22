@@ -486,7 +486,7 @@ impl World {
                 };
                 let mut set = serde_json::Map::new();
                 set.insert("compaction".into(), json!({ "compactCount": n, "lastStage": "manual", "tag": tag }));
-                let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new() });
+                let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new(), patch: Default::default() });
                 matches!(directory.commit_compaction(&self.handle.id, snapshot, compaction, Some(header)).await, Ok(super::turn_ops::CompactionCommit::Applied))
             }
             Err(_) => false,

@@ -20,10 +20,23 @@ impl SessionWorkspaces {
         own_turn: bool,
         cancel: &CancellationToken,
     ) -> Result<String, ScmFailure> {
+        self.switch_project_moved(session, cwd, desktop_session, own_turn, None, cancel).await
+    }
+
+    /// [`Self::switch_project`] that carries out the pending Project move `project_move`, when one is given.
+    pub(super) async fn switch_project_moved(
+        &self,
+        session: &str,
+        cwd: &str,
+        desktop_session: Option<JsonValue>,
+        own_turn: bool,
+        project_move: Option<JsonValue>,
+        cancel: &CancellationToken,
+    ) -> Result<String, ScmFailure> {
         let inner = &self.inner;
         let leave = inner.gate.begin_transition(session, &format!("project:{}", new_tx_id()))?;
         let mut journal = Journal::default();
-        let outcome = inner.switch_project(session, cwd, desktop_session, own_turn, &mut journal, cancel).await;
+        let outcome = inner.switch_project(session, cwd, desktop_session, own_turn, project_move, &mut journal, cancel).await;
         if outcome.is_err() {
             journal.undo_all().await;
         }
@@ -33,12 +46,13 @@ impl SessionWorkspaces {
 }
 
 impl Inner {
-    async fn switch_project(
+    pub(super) async fn switch_project(
         self: &Arc<Self>,
         session: &str,
         cwd: &str,
         desktop_session: Option<JsonValue>,
         own_turn: bool,
+        project_move: Option<JsonValue>,
         journal: &mut Journal,
         cancel: &CancellationToken,
     ) -> Result<String, ScmFailure> {
@@ -53,7 +67,7 @@ impl Inner {
         }
         let (workspace, _) = workspace_for_project_selection(view.workspace.as_ref(), cwd);
         let record_moved = workspace != view.workspace;
-        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: workspace.unwrap_or(JsonValue::Null), moved: None, desktop_session };
+        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: workspace.unwrap_or(JsonValue::Null), moved: None, desktop_session, project_move };
         journal.push(self.host.apply(session, change).await?);
         // A record left behind releases the worker lock its worktree held.
         if record_moved {

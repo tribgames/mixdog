@@ -136,6 +136,34 @@ fn a_session_without_a_book_is_judged_by_the_send_its_header_records() {
     assert!(live(Book::from_json(&settled.to_json(), later + 2, Some(later)).judge(&route("a"), &manifest, later + 2)));
 }
 
+/// The book is persisted with each route's receipts as a map by block and digest, so one receipt's change is one member's;
+/// a book an earlier build persisted, with its receipts as a list, reads as the same book.
+#[test]
+fn a_book_persists_its_receipts_by_route_and_reads_the_listed_form_an_earlier_build_wrote() {
+    let (book, manifest) = proven("1h");
+    let json = book.to_json();
+    assert_eq!(json["v"], 5);
+    let held = json["receipts"][route("a").0.as_str()].as_object().expect("the route's receipts");
+    assert_eq!(held.len(), book.receipts().len());
+    let listed: Vec<Value> = held
+        .iter()
+        .map(|(at, r)| {
+            let (block, digest) = at.split_once(':').expect("block and digest");
+            assert_eq!(r.as_object().unwrap().keys().collect::<Vec<_>>(), ["ttlMs", "touchedAt", "extent"]);
+            json!({ "route": route("a").0, "block": block.parse::<u64>().unwrap(), "digest": digest, "ttlMs": r["ttlMs"], "touchedAt": r["touchedAt"], "extent": r["extent"] })
+        })
+        .collect();
+    let mut earlier = json.clone();
+    earlier["v"] = json!(4);
+    earlier["receipts"] = json!(listed);
+    for persisted in [&json, &earlier] {
+        let read = Book::from_json(persisted, T0 + 1, None);
+        assert_eq!(read.receipts(), book.receipts());
+        assert_eq!(read.to_json(), json, "written again in the present form");
+        assert!(live(read.judge(&route("a"), &manifest, T0 + 1)));
+    }
+}
+
 #[test]
 fn a_new_history_a_one_shot_and_a_system_only_write_are_judged_apart() {
     let book = Book::default();

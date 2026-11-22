@@ -31,7 +31,10 @@ mod purge_tests;
 mod released_tests;
 #[cfg(test)]
 mod retire_tests;
+pub mod rewind;
 mod withheld;
+use gate::Need;
+pub use gate::ProjectionError;
 pub use gate::RepairReport;
 #[cfg(test)]
 pub(crate) use withheld::WITHHELD_DDL;
@@ -75,6 +78,17 @@ use crate::worker::TagSession;
 use crate::worker::WorkerRow;
 use crate::worker::WorkerScope;
 
+/// What starts the repairs a store owes at open, besides the commit of the start's withheld set ([`SqliteStore::withhold`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepairStart {
+    /// Only that commit: an opener that always commits one before anything is served (the core's boot), so no access
+    /// that waits can start a repair that would project a session it withholds.
+    WithheldSet,
+    /// Also the first access that waits for a repair: an opener that may never commit one, whose waiter would else wait
+    /// for ever.
+    FirstWait,
+}
+
 /// SPEC R31 append transaction bounds.
 pub const APPEND_ROWS: usize = 512;
 pub const APPEND_BYTES: usize = 1 << 20;
@@ -82,6 +96,9 @@ pub const APPEND_BYTES: usize = 1 << 20;
 pub const STEP_ROWS: usize = 500;
 /// SPEC R31: `wal_checkpoint(PASSIVE)` once the WAL holds this many pages.
 pub const WAL_CHECKPOINT_PAGES: i32 = 1000;
+/// Added to the [`rebuild_key`] value of a session a rebuild projects first (one that may hold a worker row): the order sorts
+/// it ahead of every other, and a later start reads it back from the value.
+const REBUILD_FIRST: u64 = 1 << 52;
 /// SM §11.8: one history page reads at most this many frame bytes.
 pub const PAGE_MAX_BYTES: u64 = 4 << 20;
 /// Session search: the empty query lists this many rows.
@@ -103,6 +120,10 @@ pub enum DbError {
     Write(String),
     #[error("index writer stopped")]
     Stopped,
+    /// The repair of a session the request rests on failed in this start ([`ProjectionError::Failed`]): the index has no
+    /// answer, which is not to say the data is not there. It is not tried again before the next start.
+    #[error("index recovery failed for {session}: {reason}")]
+    Recovery { session: String, reason: String },
     /// The read lane's queue is full; the caller retries or reports busy.
     /// A lane refused the job as overloaded (its queue at the far bound, or no healthy worker);
     /// below that bound the job waits for a thread.
@@ -143,6 +164,12 @@ fn lane_lost(dropped: mixdog_rt::JobDropped) -> DbError {
         mixdog_rt::JobDropped::Wedged => DbError::LaneWedged,
         mixdog_rt::JobDropped::NotStarted | mixdog_rt::JobDropped::Dropped => DbError::LaneJobLost,
     }
+}
+
+/// One read snapshot for a read of several statements: `None` when `c` already reads in one (a gated read's), else a
+/// transaction of its own.
+pub(crate) fn read_snapshot(c: &Connection) -> rusqlite::Result<Option<Transaction<'_>>> {
+    if c.is_autocommit() { c.unchecked_transaction().map(Some) } else { Ok(None) }
 }
 
 pub(crate) fn open_connection(path: &Path) -> Result<Connection, DbError> {
@@ -236,6 +263,84 @@ fn runtime_ddl() -> String {
 /// The index database of a data dir.
 pub const INDEX_FILE: &str = "index/store.sqlite";
 
+/// The `modelParameters` member a version 19 `sessions.listed` takes, from the row's `summary` (which normalises the
+/// header's member: an object as it is, an array as an object keyed by index, anything else and absence as null): the
+/// header's object when only an object gives that summary, `None` when the summary does not tell which member the header
+/// held (null: absent, null or a scalar; an object keyed `0..n`: an object or an array). An empty object is taken as the
+/// header's: only an empty array also gives it, which the routes that write the member never do (they write objects), and
+/// either says the session has no parameters; repairing the rows that hold it was most rows of a long-used index.
+fn listed_model_parameters(summary: &serde_json::Value) -> Option<serde_json::Value> {
+    let Some(serde_json::Value::Object(parameters)) = summary.get("modelParameters") else { return None };
+    let from_array = !parameters.is_empty() && (0..parameters.len()).all(|i| parameters.contains_key(&i.to_string()));
+    (!from_array).then(|| serde_json::Value::Object(parameters.clone()))
+}
+
+/// Brings an index of version 18 to 19 in place, in one transaction: `sessions.listed` gains `modelParameters`, derived from
+/// the row's summary where that is lossless ([`listed_model_parameters`]); a row it cannot be derived for is marked dirty, so
+/// the start's repairs write it from its log. A dirty row is left to its repair, which writes the member; a row with no log
+/// under `data` (a pending row of the migration, which its adoption writes whole) keeps its members as they are. `Ok(false)`:
+/// the file is not an index of version 18, and is left as it is.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
+fn upgrade_from_18(data: &Path, path: &Path) -> Result<bool, DbError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let mut conn = open_connection(path)?;
+    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if app != INDEX_APPLICATION_ID || version != 18 {
+        return Ok(false);
+    }
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    {
+        let rows: Vec<(String, Option<String>, String)> = tx
+            .prepare("SELECT id, summary, listed FROM sessions WHERE listed IS NOT NULL AND dirty = 0 AND log_id <> ?1")?
+            .query_map([PENDING_LOG_ID], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut set = tx.prepare("UPDATE sessions SET listed = ?2 WHERE id = ?1")?;
+        let mut repair = tx.prepare("UPDATE sessions SET dirty = 1 WHERE id = ?1")?;
+        for (id, summary, listed) in rows {
+            let summary = summary.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            let parameters = summary.as_ref().and_then(listed_model_parameters);
+            match (parameters, serde_json::from_str::<serde_json::Value>(&listed)) {
+                (Some(parameters), Ok(serde_json::Value::Object(mut members))) => {
+                    members.insert("modelParameters".to_owned(), parameters);
+                    set.execute(params![id, serde_json::Value::Object(members).to_string()])?;
+                }
+                _ if data.join("sessions").join(&id).is_dir() => drop(repair.execute([id])?),
+                _ => {}
+            }
+        }
+    }
+    tx.pragma_update(None, "user_version", 19)?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// The index version 20 adds, as `sql/index.sql` declares it; one that is there already (a file of the newer shape
+/// stamped with the older version) is left.
+const HISTORY_TURN_INDEX: &str = "CREATE INDEX IF NOT EXISTS history_turn ON history(session, turn, ordinal) WHERE model = 1";
+
+/// Brings an index of version 19 to 20 in place, in one transaction: `history` gains its `history_turn` index, built from
+/// the rows it holds (one pass over the table). `Ok(false)`: the file is not an index of version 19, and is left as it is.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
+fn upgrade_from_19(path: &Path) -> Result<bool, DbError> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let mut conn = open_connection(path)?;
+    let app: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0))?;
+    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if app != INDEX_APPLICATION_ID || version != 19 {
+        return Ok(false);
+    }
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute_batch(HISTORY_TURN_INDEX)?;
+    tx.pragma_update(None, "user_version", 20)?;
+    tx.commit()?;
+    Ok(true)
+}
+
 /// Whether an open of the index failed because of the file itself: another identity, or
 /// bytes SQLite cannot read as a database.
 pub(crate) fn needs_rebuild(e: &DbError) -> bool {
@@ -309,17 +414,40 @@ impl RebuildProgress {
         }
     }
 }
-/// Projects every session of `data` into a staged database and publishes it over `path`.
-/// The old file's WAL and shared memory go first, so they never pair with the new file; a
-/// crash before the publish leaves a file that still fails its open and rebuilds again.
+/// Publishes over `path` an index that holds no session yet and owes each of `sessions` its rows ([`rebuild_key`]): the repairs
+/// project them from their logs behind the serving core, those of `first` (all of them when `None`) before the rest. The old
+/// file's WAL and shared memory go first, so they never pair with the new file; a crash before the publish leaves a file that
+/// still fails its open and is made anew again.
 #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path, sessions: &[String], progress: Option<&RebuildProgress>) -> Result<(), DbError> {
+fn fresh_index(
+    _lane: &InLane<MaintenanceIo>,
+    data: &Path,
+    path: &Path,
+    sessions: &[String],
+    first: Option<&std::collections::HashSet<String>>,
+) -> Result<(), DbError> {
     let failed = |e: String| DbError::Write(format!("index rebuild: {e}"));
     let dir = path.parent().expect("index file in a directory");
     crate::fsio::create_dir_durable(dir).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sweep_tmp_unlaned(dir).map_err(|e| failed(e.to_string()))?;
     let staged = crate::fsio::tmp_path(path);
-    project_into(data, &staged, sessions, &runtime_ddl(), progress).map_err(failed)?;
+    {
+        let mut conn = open_writer(&staged, Some(&runtime_ddl())).map_err(|e| failed(e.to_string()))?;
+        let tx = conn.transaction().map_err(|e| failed(e.to_string()))?;
+        {
+            let mut owe = tx.prepare("INSERT INTO meta (key, value) VALUES (?1, ?2)").map_err(|e| failed(e.to_string()))?;
+            for session in sessions {
+                let mut written = last_written_ms(&data.join("sessions").join(session));
+                if first.is_none_or(|first| first.contains(session)) {
+                    written += REBUILD_FIRST;
+                }
+                owe.execute(params![rebuild_key(session), written.to_string()]).map_err(|e| failed(e.to_string()))?;
+            }
+        }
+        tx.commit().map_err(|e| failed(e.to_string()))?;
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).map_err(|e| failed(e.to_string()))?;
+        conn.pragma_update(None, "journal_mode", "DELETE").map_err(|e| failed(e.to_string()))?;
+    }
     let whole = std::fs::OpenOptions::new().read(true).write(true).open(&staged).map_err(|e| failed(e.to_string()))?;
     crate::fsio::sync_file(&whole, &staged).map_err(|e| failed(e.to_string()))?;
     drop(whole);
@@ -332,6 +460,73 @@ fn rebuild(_lane: &InLane<MaintenanceIo>, data: &Path, path: &Path, sessions: &[
         }
     }
     crate::fsio::durable_rename(&staged, path).map_err(|e| failed(e.to_string()))
+}
+
+/// The sessions of `complete` that may hold a worker row, by the index being replaced at `path`: its worker and agent-only
+/// rows, the rows behind their log (dirty, or holed), and the sessions it does not list. `None` when it cannot tell (no
+/// file, or one it cannot read so): every session may then.
+fn worker_candidates(path: &Path, complete: &[String]) -> Option<std::collections::HashSet<String>> {
+    // Opened as it was left (its WAL read in): the file is replaced next, so nothing written to it here outlives the open.
+    let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).ok()?;
+    // A file that is not this index says nothing of any session: no "not a worker" is taken from it.
+    let identity: i32 = conn.pragma_query_value(None, "application_id", |r| r.get(0)).ok()?;
+    if identity != INDEX_APPLICATION_ID {
+        return None;
+    }
+    let ids = |sql: &str| -> Option<std::collections::HashSet<String>> {
+        let mut stmt = conn.prepare(sql).ok()?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).ok()?;
+        rows.collect::<Result<_, _>>().ok()
+    };
+    let listed = ids("SELECT id FROM sessions")?;
+    let mut first = ids("SELECT id FROM sessions WHERE worker IS NOT NULL OR worker_tag IS NOT NULL OR visibility = 'agent-only' OR dirty = 1")?;
+    first.extend(ids("SELECT substr(key, 6) FROM meta WHERE key >= 'hole:' AND key < 'hole;'")?);
+    first.extend(complete.iter().filter(|session| !listed.contains(*session)).cloned());
+    Some(first)
+}
+
+/// The sessions whose rows are behind their log at open: marked dirty, or holed.
+fn behind_their_log(c: &Connection) -> rusqlite::Result<Vec<String>> {
+    c.prepare_cached("SELECT id FROM sessions WHERE dirty = 1 UNION SELECT substr(key, 6) FROM meta WHERE key >= 'hole:' AND key < 'hole;'")?
+        .query_map([], |r| r.get(0))?
+        .collect()
+}
+
+/// The sessions a rebuild still owes that could hold a worker row ([`REBUILD_FIRST`]), most recently written first. A debt
+/// whose value does not say (it is no number) is one of them: only a recorded "not a candidate" leaves a session out.
+fn rebuild_first(c: &Connection) -> rusqlite::Result<Vec<String>> {
+    c.prepare_cached(
+        "SELECT substr(key, 9) FROM meta WHERE key >= 'rebuild:' AND key < 'rebuild;'
+         AND (CAST(value AS INTEGER) >= ?1 OR value NOT GLOB '[0-9]*')
+         ORDER BY CAST(value AS INTEGER) DESC, key",
+    )?
+    .query_map([REBUILD_FIRST as i64], |r| r.get(0))?
+    .collect()
+}
+
+/// The one set of worker candidates of an open, in the order they are repaired: what a reader of the worker rows waits for
+/// ([`Need::Workers`]) and what the repairs take ahead of the rest of a rebuild. Every session behind its log (dirty, or
+/// holed), whichever start projected or made it (its worker change may be in its log and not in the index), then the
+/// sessions the rebuild recorded as candidates when it replaced the index.
+fn worker_order(c: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut order = behind_their_log(c)?;
+    let behind: HashSet<String> = order.iter().cloned().collect();
+    order.extend(rebuild_first(c)?.into_iter().filter(|session| !behind.contains(session)));
+    Ok(order)
+}
+
+/// When the session's log was last written (its newest log file's modification, ms since the epoch); 0 when unreadable.
+#[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job of the index open")]
+fn last_written_ms(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("log."))
+        .filter_map(|entry| entry.metadata().ok()?.modified().ok())
+        .filter_map(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|at| at.as_millis() as u64)
+        .max()
+        .unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -881,23 +1076,11 @@ enum Command {
         op_id: String,
         ack: Ack,
     },
-    /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
-    Reproject {
-        rewrite: Rewritten,
-        ack: Ack,
-    },
-    /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
-    /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
-    Reconcile {
-        session: String,
-        frames: Vec<ProjectedFrame>,
-        finish: Option<Box<(CatalogHead, Option<String>)>>,
-        ack: mpsc::Sender<Result<(), DbError>>,
-    },
-    /// The reconcile of a session whose rows hold frames past its cursor ([`hole_key`]): they are rebuilt from its log.
-    /// Answered on a channel the lane job blocks on.
-    Refold {
-        rewrite: Rewritten,
+    /// One piece of the work of rebuilding a session's rows from its log ([`RepairWork`]): applied a transaction at a
+    /// time behind what the serving core writes ([`Writer::repair_step`]). Answered, after the commit that completes it,
+    /// on a channel its sender (a repair thread, a lane job) blocks on.
+    Repair {
+        work: RepairWork,
         ack: mpsc::Sender<Result<(), DbError>>,
     },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
@@ -908,6 +1091,116 @@ impl Command {
     fn closes(&self) -> bool {
         matches!(self, Command::Close)
     }
+}
+
+/// What is left of one writer transaction (SPEC R31): room is taken before the rows are written.
+#[derive(Debug, Clone, Copy)]
+struct Budget {
+    rows: usize,
+    bytes: usize,
+    cap: usize,
+}
+
+impl Budget {
+    fn new(cap: usize) -> Budget {
+        Budget { rows: cap, bytes: APPEND_BYTES, cap }
+    }
+
+    /// Room for `rows` more rows, taken when there is.
+    fn reserve(&mut self, rows: usize) -> bool {
+        let bytes = 64 * rows;
+        if rows > self.rows || bytes > self.bytes {
+            return false;
+        }
+        self.rows -= rows;
+        self.bytes -= bytes;
+        true
+    }
+
+    /// Nothing was taken from it: what does not fit it fits no transaction.
+    fn fresh(&self) -> bool {
+        self.rows == self.cap && self.bytes == APPEND_BYTES
+    }
+
+    /// `rows` written by an operation that sized itself to what was left.
+    fn charge(&mut self, rows: usize) {
+        self.rows = self.rows.saturating_sub(rows);
+        self.bytes = self.bytes.saturating_sub(64 * rows);
+    }
+
+    #[cfg(test)]
+    fn used(&self) -> usize {
+        self.cap - self.rows
+    }
+}
+
+/// Rows a transaction keeps for a session's row, its damage and its debt.
+const ROW_ROOM: usize = 4;
+
+/// Work a repair hands the writer. Each is resumable: a dispatch applies one transaction of it within a [`Budget`], and
+/// the writer looks at what the serving core queued before the next.
+enum RepairWork {
+    /// The rows of a session about to be replayed from its log go, [`STEP_ROWS`] a transaction, its fork edge kept. Its
+    /// hole is recorded in the first of those transactions, before any row goes.
+    Purge { session: String, started: bool },
+    /// Frames of a session's log, in order.
+    Replay(Box<Replay>),
+    /// The folded row, with which the session's debt is cleared.
+    Finish(Box<Finish>),
+    /// What a session whose folder is gone was owed.
+    Forget { session: String },
+}
+
+impl RepairWork {
+    fn session(&self) -> &str {
+        match self {
+            RepairWork::Purge { session, .. } | RepairWork::Forget { session } => session,
+            RepairWork::Replay(replay) => &replay.session,
+            RepairWork::Finish(finish) => &finish.session,
+        }
+    }
+}
+
+/// Frames of the session `session`, read from its log ([`RepairWork::Replay`]).
+struct Replay {
+    session: String,
+    /// The session the frames were folded as.
+    frames_session: String,
+    /// The head at the log's `session` frame, for a session the index holds no row of: written dirty before the frames.
+    start: Option<CatalogHead>,
+    frames: Vec<ProjectedFrame>,
+    /// Where it goes on: the next frame, and how much of that frame is in ([`apply_frame_part`]).
+    next: usize,
+    part: usize,
+    /// The folded row, when the session was read whole: it is then tried as one savepoint of a transaction shared with
+    /// other whole sessions, and nothing of it is committed apart.
+    finish: Option<Finish>,
+    /// It does not fit one transaction: it is applied in parts.
+    split: bool,
+    /// Part of it is committed: the session is holed until its complete row.
+    partial: bool,
+}
+
+impl Replay {
+    /// A session read whole of which nothing is committed, to be tried as one savepoint.
+    fn whole(&self) -> bool {
+        self.finish.is_some() && !self.split && !self.partial
+    }
+}
+
+/// The row of a session's folded log ([`RepairWork::Finish`]).
+struct Finish {
+    session: String,
+    head: CatalogHead,
+    damage: Option<String>,
+    dirty: DirtyMark,
+    /// A repair owed at open, which the gate certifies: the row sink is told of the row it leaves, and the session's debt
+    /// goes only in the transaction that writes its row, a fork's after its view.
+    recovery: bool,
+    /// The rows were replaced from a rewritten or refolded log: the WAL is truncated once the row is in.
+    replaced: bool,
+    /// The row waits for the fork's view, which the next dispatches compute.
+    viewing: bool,
 }
 
 /// The end of a journal writer that was closed cleanly: the log it wrote and where its last frame ends (the position the
@@ -941,9 +1234,27 @@ struct Retiring {
 /// The sessions a start has to repair, in id order: those marked dirty, and those whose rows hold frames past their cursor
 /// ([`hole_key`]), whatever a repair that was cut off left of their row (none, or a clean one with its frames not yet in).
 fn owed_repairs(c: &Connection) -> rusqlite::Result<Vec<String>> {
-    c.prepare_cached("SELECT id FROM sessions WHERE dirty = 1 UNION SELECT substr(key, 6) FROM meta WHERE key >= 'hole:' AND key < 'hole;' ORDER BY 1")?
+    c.prepare_cached(
+        "SELECT id FROM sessions WHERE dirty = 1 UNION SELECT substr(key, 6) FROM meta WHERE key >= 'hole:' AND key < 'hole;'
+         UNION SELECT substr(key, 9) FROM meta WHERE key >= 'rebuild:' AND key < 'rebuild;' ORDER BY 1",
+    )?
+    .query_map([], |r| r.get(0))?
+    .collect()
+}
+
+/// The sessions a rebuild of the index still owes ([`rebuild_key`]), most recently written first: the order they are projected
+/// in, so the top of the session list fills in first.
+fn rebuild_order(c: &Connection) -> rusqlite::Result<Vec<String>> {
+    c.prepare_cached("SELECT substr(key, 9) FROM meta WHERE key >= 'rebuild:' AND key < 'rebuild;' ORDER BY CAST(value AS INTEGER) DESC, key")?
         .query_map([], |r| r.get(0))?
         .collect()
+}
+
+/// The `meta` key of a session a rebuild of the index owes its rows (its value: when its log was last written, in ms). Written
+/// for every session when the index is made anew, it goes in the transaction that writes the session's complete row, so a stop
+/// or a kill leaves the rest owed to the next start.
+pub(crate) fn rebuild_key(session: &str) -> String {
+    format!("rebuild:{session}")
 }
 
 /// The `meta` key naming the activation that marked `session` (FORMAT.md §8.2), written in the mark's transaction.
@@ -1039,6 +1350,77 @@ struct SmallOut<'a> {
     acks: &'a mut Vec<Ack>,
     refused: &'a mut Vec<(Ack, String)>,
     edges: &'a mut Vec<RowEdge>,
+}
+
+/// One whole session of a rebuild inside a savepoint of [`Writer::replay_whole`]: the row dirty at the log's first frame,
+/// the frames, then the folded row clean with its damage, and with that row the session's debt and mark. Every row is
+/// taken from `budget` before it is written; `false` as soon as one does not fit, and the caller undoes the savepoint. The
+/// row changes join `edges`.
+fn whole_on(
+    tx: &Transaction<'_>,
+    replay: &Replay,
+    finish: &Finish,
+    labels: &PlaceholderLabels,
+    watch: bool,
+    archive: Option<&ArchiveSnapshot>,
+    edges: &mut Vec<RowEdge>,
+    budget: &mut Budget,
+) -> rusqlite::Result<bool> {
+    if !budget.reserve(ROW_ROOM + usize::from(replay.start.is_some())) {
+        return Ok(false);
+    }
+    let watch = watch && !withheld::is_withheld_in(tx, &replay.session)?;
+    let started = match &replay.start {
+        Some(start) => upsert_edge(tx, start, DirtyMark::Set, labels, watch, archive)?.1,
+        None => None,
+    };
+    let (mut next, mut part) = (0, 0);
+    if !apply_frames(tx, &replay.frames_session, &replay.frames, &mut next, &mut part, budget)? {
+        return Ok(false);
+    }
+    let (written, finished) = upsert_edge(tx, &finish.head, DirtyMark::Clear, labels, watch, archive)?;
+    if written > budget.bytes {
+        return Ok(false);
+    }
+    budget.bytes -= written;
+    // One change is told, from the row a reader saw before the savepoint (none, for a session the rebuild has not reached) to
+    // the folded one: the row written at the first frame is gone before the commit.
+    edges.extend(match (started, finished) {
+        (Some(started), Some(finished)) => Some(RowEdge { before: started.before, ..finished }),
+        (Some(started), None) => Some(started),
+        (None, finished) => finished,
+    });
+    if let Some(damage) = &finish.damage {
+        set_status_on(tx, &replay.session, SessionStatus::Damaged, Some(damage))?;
+    }
+    tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2, ?3)")?.execute([
+        mark_key(&replay.session),
+        hole_key(&replay.session),
+        rebuild_key(&replay.session),
+    ])?;
+    Ok(true)
+}
+
+/// One bounded step of purging `session`'s index rows: at most `rows` deletions, its fork edge (one per child) and
+/// catalog row counted, those two last. `true` once the catalog row is gone. With `keep_edge` (the purge that starts a
+/// replay of the session's log) the fork edge stays, so the base it names is at no moment a session nothing forks from.
+fn purge_slice(tx: &Transaction<'_>, session: &str, keep_edge: bool, rows: usize) -> rusqlite::Result<bool> {
+    let mut budget = rows;
+    for (table, key) in PURGE_TABLES {
+        let sql = format!("DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)");
+        budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
+        if budget == 0 {
+            return Ok(false);
+        }
+    }
+    if !keep_edge {
+        budget -= tx.prepare_cached("DELETE FROM fork_edges WHERE child = ?1")?.execute([session])?;
+        if budget == 0 {
+            return Ok(false);
+        }
+    }
+    tx.prepare_cached("DELETE FROM sessions WHERE id = ?1")?.execute([session])?;
+    Ok(true)
 }
 
 /// Applies one small command inside the append transaction: its ack joins `acks`, a row it changed joins `edges`.
@@ -1147,13 +1529,7 @@ fn apply_small(
             }
         }
         Command::Close => unreachable!("the writer stops before it queues a close"),
-        Command::Upsert { .. }
-        | Command::Project { .. }
-        | Command::Retire { .. }
-        | Command::Purge { .. }
-        | Command::Reproject { .. }
-        | Command::Refold { .. }
-        | Command::Reconcile { .. } => {
+        Command::Upsert { .. } | Command::Project { .. } | Command::Retire { .. } | Command::Purge { .. } | Command::Repair { .. } => {
             unreachable!("queued separately")
         }
     }
@@ -1178,10 +1554,20 @@ struct Writer {
     views: bool,
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
     purges: VecDeque<(String, Ack)>,
-    /// Sessions whose rows are rebuilt from a rewritten log, once the projections queued before are in.
-    reprojects: VecDeque<(Rewritten, Ack, u64)>,
     /// The retirements whose frames are in, by session, until the row is written.
     retires: HashMap<String, Retiring>,
+    /// The repairs' work taken and not yet done, in arrival order ([`Self::repair_step`]).
+    repairs: VecDeque<(RepairWork, mpsc::Sender<Result<(), DbError>>)>,
+    /// The row a listing may have answered of each session whose rows a repair is replacing: what its complete row is told
+    /// as a change from.
+    replaced: HashMap<String, Option<StoredRow>>,
+    /// Where the repairs' work is taken first, once the store's gate is there ([`gate::Ranks`]).
+    ranks: Arc<std::sync::OnceLock<gate::Ranks>>,
+    /// Which kind of work behind the serving core's took the last transaction ([`Self::dispatch`]).
+    turn: usize,
+    /// The data dir, for the seams of a test ([`reconcile_seam`]).
+    #[cfg(test)]
+    seam: Option<PathBuf>,
     seq: u64,
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
@@ -1212,6 +1598,11 @@ pub(crate) mod reconcile_seam {
 
     pub(crate) fn arm(data: &Path) {
         *ARMED.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    /// Whether the seam [`arm`] set for `data` has not been reached yet.
+    pub(crate) fn armed(data: &Path) -> bool {
+        ARMED.lock().expect("seam").as_deref() == Some(data)
     }
 
     /// The repair of `session` in `data` starts once the returned sender sends (or is dropped); the receiver is told when
@@ -1277,6 +1668,76 @@ pub(crate) mod reconcile_seam {
         }
         hit
     }
+
+    static FAILING_OF: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+
+    /// The next repair of `session` in `data` fails its first index write.
+    pub(crate) fn fail_session(data: &Path, session: &str) {
+        FAILING_OF.lock().expect("seam").push((data.to_path_buf(), session.to_owned()));
+    }
+
+    pub(super) fn fails_session(data: &Path, session: &str) -> bool {
+        let mut failing = FAILING_OF.lock().expect("seam");
+        let at = failing.iter().position(|(at, of)| at == data && of == session);
+        at.map(|at| failing.remove(at)).is_some()
+    }
+
+    static SLICES: Mutex<Vec<Held>> = Mutex::new(Vec::new());
+
+    /// The writer stops inside the next transaction of `session`'s repair work in `data` (a purge slice, or a part of
+    /// its frames) until the returned sender sends (or is dropped); the receiver is told when it got there.
+    pub(crate) fn hold_slice(data: &Path, session: &str) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+        let (release, held) = std::sync::mpsc::channel();
+        let (arrive, arrived) = std::sync::mpsc::channel();
+        SLICES.lock().expect("seam").push((data.to_path_buf(), session.to_owned(), arrive, held));
+        (release, arrived)
+    }
+
+    pub(super) fn wait_in_slice(data: &Path, session: &str) {
+        let mut slots = SLICES.lock().expect("seam");
+        if let Some(at) = slots.iter().position(|(at, of, ..)| at == data && of == session) {
+            let (_, _, arrive, held) = slots.remove(at);
+            drop(slots);
+            let _ = arrive.send(());
+            let _ = held.recv();
+        }
+    }
+
+    static SETTLES: Mutex<Vec<Held>> = Mutex::new(Vec::new());
+
+    /// The repair of `session` in `data` stops once its last transaction committed and before its outcome is settled
+    /// (no waiter woken, no progress told) until the returned sender sends (or is dropped); the receiver is told when
+    /// it got there.
+    pub(crate) fn hold_settle(data: &Path, session: &str) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+        let (release, held) = std::sync::mpsc::channel();
+        let (arrive, arrived) = std::sync::mpsc::channel();
+        SETTLES.lock().expect("seam").push((data.to_path_buf(), session.to_owned(), arrive, held));
+        (release, arrived)
+    }
+
+    pub(super) fn wait_before_settle(data: &Path, session: &str) {
+        let mut slots = SETTLES.lock().expect("seam");
+        if let Some(at) = slots.iter().position(|(at, of, ..)| at == data && of == session) {
+            let (_, _, arrive, held) = slots.remove(at);
+            drop(slots);
+            let _ = arrive.send(());
+            let _ = held.recv();
+        }
+    }
+
+    /// One transaction the writer committed: what it was of (`serving`, or a repair's `purge`, `whole`, `part`,
+    /// `finish`), the session of a repair's, and the rows it took of its budget.
+    pub(crate) type Commit = (&'static str, String, usize);
+    static COMMITS: Mutex<Vec<(PathBuf, Commit)>> = Mutex::new(Vec::new());
+
+    pub(super) fn committed(data: &Path, kind: &'static str, session: &str, rows: usize) {
+        COMMITS.lock().expect("seam").push((data.to_path_buf(), (kind, session.to_owned(), rows)));
+    }
+
+    /// The transactions the writer of `data` committed, in order.
+    pub(crate) fn commits(data: &Path) -> Vec<Commit> {
+        COMMITS.lock().expect("seam").iter().filter(|(at, _)| at == data).map(|(_, commit)| commit.clone()).collect()
+    }
 }
 
 /// The row of `session` a listing reads, as the connection's transaction holds it.
@@ -1330,8 +1791,13 @@ impl Writer {
             waiting: HashMap::new(),
             views,
             purges: VecDeque::new(),
-            reprojects: VecDeque::new(),
             retires: HashMap::new(),
+            repairs: VecDeque::new(),
+            replaced: HashMap::new(),
+            ranks: Arc::default(),
+            turn: 0,
+            #[cfg(test)]
+            seam: None,
             seq: 0,
             archive_reads: Arc::default(),
             append_rows: APPEND_ROWS,
@@ -1345,10 +1811,9 @@ impl Writer {
         self.seq += 1;
         let seq = self.seq;
         match cmd {
-            // Applied as it arrives: every request that names its session waits until that session's repair is done.
-            Command::Reconcile { session, frames, finish, ack } => {
-                let _ = ack.send(self.reconcile_apply(&session, &frames, finish.map(|finish| *finish)));
-            }
+            // Queued behind what the serving core writes ([`Self::dispatch`]): every request that names its session waits at
+            // the gate until that session's repair is done, so nothing else reads its rows meanwhile.
+            Command::Repair { work, ack } => self.repairs.push_back((work, ack)),
             Command::Upsert { head, dirty, ack } => {
                 let entry = self.upserts.entry(head.session.clone()).or_insert_with(|| (head.clone(), dirty, Vec::new(), seq));
                 // Coalesce: newest fields; a Set/Clear outranks an earlier Keep.
@@ -1365,40 +1830,362 @@ impl Writer {
             Command::Retire { projection, retirement, ack } => {
                 self.projections.push_back(Pending { projection, next: 0, ack: Some(ack), seq, retire: Some(retirement), hole: None });
             }
-            // Applied as it arrives, as the reconcile it belongs to.
-            Command::Refold { rewrite, ack } => {
-                let _ = ack.send(self.refold(&rewrite));
-            }
             Command::Purge { session, ack } => self.purges.push_back((session, ack)),
-            Command::Reproject { rewrite, ack } => self.reprojects.push_back((rewrite, ack, seq)),
             other => self.small.push_back(other),
         }
     }
 
-    fn idle(&self) -> bool {
-        self.upserts.is_empty()
-            && self.small.is_empty()
-            && self.projections.is_empty()
-            && !self.refold
-            && !self.views
-            && self.purges.is_empty()
-            && self.reprojects.is_empty()
+    /// Whether the serving core has a write queued: it goes before any work behind it.
+    fn serving_queued(&self) -> bool {
+        !(self.upserts.is_empty() && self.small.is_empty() && self.projections.is_empty())
     }
 
-    /// The rows of `rewrite`'s session rebuilt from its log. With `announce` (a repair owed at open, which no release
-    /// tells of), the row sink there is when the rebuild commits is told of the row it leaves, as the change from the row
-    /// the rebuild replaced.
-    fn reproject(&mut self, rewrite: &Rewritten, announce: bool) -> Result<(), String> {
+    fn idle(&self) -> bool {
+        self.repairs.is_empty() && !self.serving_queued() && !self.refold && !self.views && self.purges.is_empty()
+    }
+
+    /// One transaction of the repairs' work: the best-ranked piece (a requested session's and what it needs first, then a
+    /// worker candidate's, then the rest of a rebuild; oldest first among equals), one step of it. A piece that is not
+    /// done goes back where it was. A failure is answered to that piece's sender alone: the others stay queued.
+    fn repair_step(&mut self) {
+        let at = match self.ranks.get() {
+            Some(ranks) => (0..self.repairs.len()).min_by_key(|&at| ranks.of(self.repairs[at].0.session())).unwrap_or(0),
+            None => 0,
+        };
+        let Some((work, ack)) = self.repairs.remove(at) else { return };
+        match work {
+            RepairWork::Purge { session, started } => self.replay_purge(session, started, ack, at),
+            RepairWork::Replay(replay) if replay.whole() => self.replay_whole(replay, ack, at),
+            RepairWork::Replay(replay) => self.replay_part(replay, ack, at),
+            RepairWork::Finish(finish) => self.replay_finish(finish, ack, at),
+            RepairWork::Forget { session } => {
+                let _ = ack.send(self.forget_debt(&session).map_err(|e| DbError::Write(e.to_string())));
+            }
+        }
+    }
+
+    /// A piece of work not done yet, back where it was taken from.
+    fn requeue(&mut self, at: usize, work: RepairWork, ack: mpsc::Sender<Result<(), DbError>>) {
+        self.repairs.insert(at.min(self.repairs.len()), (work, ack));
+    }
+
+    /// One transaction of a commit trace a test reads ([`reconcile_seam::commits`]).
+    #[cfg(test)]
+    fn trace(&self, kind: &'static str, session: &str, rows: usize) {
+        if let Some(data) = &self.seam {
+            reconcile_seam::committed(data, kind, session, rows);
+        }
+    }
+
+    /// One slice of [`RepairWork::Purge`]. The first records the hole before any row goes, in the same transaction, and
+    /// keeps the row a listing may have answered.
+    fn replay_purge(&mut self, session: String, started: bool, ack: mpsc::Sender<Result<(), DbError>>, at: usize) {
+        let step_rows = self.step_rows;
+        let step = (|| -> rusqlite::Result<(bool, Option<Option<StoredRow>>)> {
+            let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            #[cfg(test)]
+            if let Some(data) = &self.seam {
+                reconcile_seam::wait_in_slice(data, &session);
+            }
+            let mut replaced = None;
+            if !started {
+                tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, '1') ON CONFLICT(key) DO NOTHING")?.execute([hole_key(&session)])?;
+                replaced = Some(stored_row(&tx, &session)?);
+            }
+            let done = purge_slice(&tx, &session, true, step_rows)?;
+            tx.commit()?;
+            Ok((done, replaced))
+        })();
+        match step {
+            Ok((done, replaced)) => {
+                #[cfg(test)]
+                self.trace("purge", &session, step_rows);
+                if let Some(replaced) = replaced {
+                    self.replaced.insert(session.clone(), replaced);
+                }
+                if done {
+                    let _ = ack.send(Ok(()));
+                } else {
+                    self.requeue(at, RepairWork::Purge { session, started: true }, ack);
+                }
+            }
+            Err(e) => {
+                let _ = ack.send(Err(DbError::Write(e.to_string())));
+            }
+        }
+    }
+
+    /// One transaction of sessions read whole: `first`, then each whole session queued behind it while it fits what is
+    /// left of the budget. Each is a savepoint; one that fails is undone and answered with its own failure. A session that
+    /// does not fit an empty transaction is not committed at all here: it goes on part by part ([`Self::replay_part`]).
+    fn replay_whole(&mut self, first: Box<Replay>, ack: mpsc::Sender<Result<(), DbError>>, at: usize) {
+        let watch = self.sink.get().is_some();
+        let archive = bound_archive(&self.archive);
+        let mut applied: Vec<(String, mpsc::Sender<Result<(), DbError>>)> = Vec::new();
+        let mut refused: Vec<(mpsc::Sender<Result<(), DbError>>, String)> = Vec::new();
+        // What goes back to the queue, in its order: a session that waits for the next transaction, or goes on in parts.
+        let mut back: Vec<(Box<Replay>, mpsc::Sender<Result<(), DbError>>)> = Vec::new();
+        let mut edges: Vec<RowEdge> = Vec::new();
+        let mut told = 0usize;
+        let mut budget = Budget::new(self.append_rows);
+        let (conn, queue, labels, sink) = (&mut self.conn, &mut self.repairs, &self.labels, &self.sink);
+        let result = (|| -> rusqlite::Result<()> {
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let mut next = Some((first, ack));
+            while let Some((mut replay, ack)) = next.take() {
+                let finish = replay.finish.take().expect("a whole session carries its row");
+                tx.execute_batch("SAVEPOINT whole")?;
+                let mut changed = Vec::new();
+                let mut left = budget;
+                let fits = whole_on(&tx, &replay, &finish, labels, watch, archive.as_deref(), &mut changed, &mut left);
+                replay.finish = Some(finish);
+                match fits {
+                    Ok(true) => {
+                        tx.execute_batch("RELEASE whole")?;
+                        budget = left;
+                        edges.extend(changed);
+                        applied.push((replay.session.clone(), ack));
+                    }
+                    Ok(false) => {
+                        tx.execute_batch("ROLLBACK TO whole; RELEASE whole")?;
+                        // Larger than a whole transaction: from here it is applied in parts.
+                        replay.split = budget.fresh();
+                        back.push((replay, ack));
+                        break;
+                    }
+                    Err(e) => {
+                        tx.execute_batch("ROLLBACK TO whole; RELEASE whole")?;
+                        refused.push((ack, format!("{}: {e}", replay.session)));
+                    }
+                }
+                // The next whole session queued, while room is left for the smallest.
+                if budget.rows > ROW_ROOM
+                    && let Some(at) = queue.iter().position(|(work, _)| matches!(work, RepairWork::Replay(replay) if replay.whole()))
+                    && let Some((RepairWork::Replay(replay), ack)) = queue.remove(at)
+                {
+                    next = Some((replay, ack));
+                }
+            }
+            if let Some(sink) = sink.get().filter(|_| !edges.is_empty()) {
+                sink.writing(edges.len());
+                told = edges.len();
+            }
+            tx.commit()
+        })();
+        for (replay, ack) in back.into_iter().rev() {
+            self.requeue(at, RepairWork::Replay(replay), ack);
+        }
+        for (ack, why) in refused {
+            let _ = ack.send(Err(DbError::Write(why)));
+        }
+        match result {
+            Ok(()) => {
+                #[cfg(test)]
+                self.trace("whole", applied.first().map_or("", |(session, _)| session.as_str()), budget.used());
+                if let Some(sink) = self.sink.get() {
+                    for edge in edges {
+                        sink.written(edge);
+                    }
+                }
+                // A fork of one of these may now have a view to finish.
+                self.views |= !applied.is_empty();
+                for (_, ack) in applied {
+                    let _ = ack.send(Ok(()));
+                }
+            }
+            Err(e) => {
+                if told > 0
+                    && let Some(sink) = self.sink.get()
+                {
+                    sink.dropped(told);
+                }
+                // The transaction's own failure is that of the sessions it held, and of no other: what is queued stays so.
+                for (_, ack) in applied {
+                    let _ = ack.send(Err(DbError::Write(e.to_string())));
+                }
+            }
+        }
+    }
+
+    /// One transaction of a session applied in parts: with the first, its hole (a session a rebuild owes is rebuilt from
+    /// its log by any start that finds it between here and its complete row) and its row, dirty; then frames while the
+    /// budget has room. With the last frame in, its folded row is the next piece of work.
+    fn replay_part(&mut self, mut replay: Box<Replay>, ack: mpsc::Sender<Result<(), DbError>>, at: usize) {
+        let archive = bound_archive(&self.archive);
+        let mut budget = Budget::new(self.append_rows);
+        let (mut next, mut part) = (replay.next, replay.part);
+        let (conn, labels) = (&mut self.conn, &self.labels);
+        #[cfg(test)]
+        let seam = &self.seam;
+        let step = (|| -> rusqlite::Result<(bool, Option<Option<StoredRow>>)> {
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            #[cfg(test)]
+            if let Some(data) = seam {
+                reconcile_seam::wait_in_slice(data, &replay.session);
+            }
+            if !replay.partial {
+                budget.reserve(1);
+                tx.prepare_cached("INSERT OR IGNORE INTO meta (key, value) SELECT ?1, '' WHERE EXISTS (SELECT 1 FROM meta WHERE key = ?2)")?
+                    .execute([hole_key(&replay.session), rebuild_key(&replay.session)])?;
+            }
+            let mut before = None;
+            if let Some(start) = &replay.start {
+                budget.reserve(1);
+                before = Some(stored_row(&tx, &replay.session)?);
+                upsert(&tx, start, DirtyMark::Set, labels, archive.as_deref())?;
+            }
+            let done = apply_frames(&tx, &replay.frames_session, &replay.frames, &mut next, &mut part, &mut budget)?;
+            tx.commit()?;
+            Ok((done, before))
+        })();
+        match step {
+            Ok((done, before)) => {
+                #[cfg(test)]
+                self.trace("part", &replay.session, budget.used());
+                if let Some(before) = before {
+                    self.replaced.entry(replay.session.clone()).or_insert(before);
+                }
+                (replay.partial, replay.start, replay.next, replay.part) = (true, None, next, part);
+                match (done, replay.finish.take()) {
+                    (false, finish) => {
+                        replay.finish = finish;
+                        self.requeue(at, RepairWork::Replay(replay), ack);
+                    }
+                    (true, Some(finish)) => self.requeue(at, RepairWork::Finish(Box::new(finish)), ack),
+                    (true, None) => {
+                        let _ = ack.send(Ok(()));
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = ack.send(Err(DbError::Write(format!("{}: {e}", replay.session))));
+            }
+        }
+    }
+
+    /// One transaction of a session's folded row. The row, its damage and the end of its debt (hole, rebuild, and with a
+    /// clean row its mark) are one transaction: the session stops being one a start repairs exactly when its complete
+    /// projection is readable. A fork whose row waits for its view has that view computed first, a step a dispatch, its
+    /// debt kept meanwhile; a view no step can compute fails the repair, with the debt left for the next start.
+    fn replay_finish(&mut self, mut finish: Box<Finish>, ack: mpsc::Sender<Result<(), DbError>>, at: usize) {
+        if finish.viewing {
+            self.view_step();
+            if !self.waiting.contains_key(&finish.session) {
+                finish.viewing = false;
+            } else if !self.views {
+                self.waiting.remove(&finish.session);
+                self.finish_unviewed(&finish, ack);
+                return;
+            }
+            self.requeue(at, RepairWork::Finish(finish), ack);
+            return;
+        }
+        let archive = bound_archive(&self.archive);
+        let session = finish.session.as_str();
+        let before = self.replaced.get(session).cloned();
+        let (conn, labels, sink) = (&mut self.conn, &self.labels, &self.sink);
+        // `Ok(None)`: the row waits for its view.
+        let step = (|| -> rusqlite::Result<Option<bool>> {
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            // A listing may have answered the row from before the repair: the sink is told of the change, as of any other
+            // row write. A session of the withheld set is told by its release, from the blank row.
+            let watch = finish.recovery && sink.get().is_some() && !withheld::is_withheld_in(&tx, session)?;
+            let (written, edge) = upsert_edge(&tx, &finish.head, finish.dirty, labels, watch, archive.as_deref())?;
+            if written == 0 && finish.recovery {
+                return Ok(None);
+            }
+            // The row left after a purge is told whatever it equals: a list read after the purge saw no row of the session.
+            let edge = match before {
+                Some(before) if watch && written > 0 => stored_row(&tx, session)?.map(|after| RowEdge { id: session.to_owned(), before, after }),
+                _ => edge,
+            };
+            if let Some(damage) = &finish.damage {
+                set_status_on(&tx, session, SessionStatus::Damaged, Some(damage))?;
+            }
+            tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+            if finish.dirty == DirtyMark::Clear {
+                tx.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([mark_key(session)])?;
+            }
+            commit_told(sink, tx, edge)?;
+            Ok(Some(written > 0))
+        })();
+        match step {
+            Ok(Some(_)) => {
+                #[cfg(test)]
+                self.trace("finish", session, ROW_ROOM);
+                self.replaced.remove(session);
+                // A fork whose base gained rows may now have a view to finish.
+                self.views = true;
+                let truncated = if finish.replaced { truncate_wal(&self.conn).map_err(DbError::Write) } else { Ok(()) };
+                let _ = ack.send(truncated);
+            }
+            Ok(None) => {
+                let runnable = (|| -> rusqlite::Result<bool> {
+                    let tx = self.conn.transaction()?;
+                    crate::message_index::view_runnable(&tx, session)
+                })();
+                match runnable {
+                    Ok(true) => {
+                        self.seq += 1;
+                        self.waiting.insert(session.to_owned(), (Arc::new(finish.head.clone()), self.seq));
+                        self.views = true;
+                        finish.viewing = true;
+                        self.requeue(at, RepairWork::Finish(finish), ack);
+                    }
+                    Ok(false) => self.finish_unviewed(&finish, ack),
+                    Err(e) => {
+                        self.replaced.remove(session);
+                        let _ = ack.send(Err(DbError::Write(format!("{session}: {e}"))));
+                    }
+                }
+            }
+            Err(e) => {
+                self.replaced.remove(session);
+                let _ = ack.send(Err(DbError::Write(format!("{session}: {e}"))));
+            }
+        }
+    }
+
+    /// The end of a fork's repair whose view no step can compute. A fork is repaired after its base, so the base is
+    /// settled here and its rows stop short of the fork point for good, as those of a base damaged below it do: that is
+    /// the base's state, recorded on the base, and no failure of the fork's own projection. The fork keeps the row its
+    /// own frames gave it, as a reconcile always left such a fork, with its damage; its hole and its rebuild debt go,
+    /// every frame of its own log being in. Its row stays marked, so the next start tries the view again.
+    fn finish_unviewed(&mut self, finish: &Finish, ack: mpsc::Sender<Result<(), DbError>>) {
+        let session = finish.session.as_str();
+        self.replaced.remove(session);
+        let step = (|| -> rusqlite::Result<()> {
+            let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            if let Some(damage) = &finish.damage {
+                set_status_on(&tx, session, SessionStatus::Damaged, Some(damage))?;
+            }
+            tx.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+            tx.commit()
+        })();
+        #[cfg(test)]
+        if step.is_ok() {
+            self.trace("finish", session, ROW_ROOM);
+        }
+        let _ = ack.send(step.map_err(|e| DbError::Write(format!("{session}: {e}"))));
+    }
+
+    /// What a session whose folder is gone was owed: nothing is left to rebuild it from.
+    fn forget_debt(&mut self, session: &str) -> rusqlite::Result<()> {
+        self.conn.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), rebuild_key(session)])?;
+        Ok(())
+    }
+
+    /// The rows of `rewrite`'s session rebuilt from its log before the store serves: the boot's own step, on the
+    /// connection no writer thread runs yet, so it has no queue to give way to and applies its transactions in a row.
+    /// The serving store rebuilds a session's rows as [`RepairWork`], a transaction a dispatch.
+    fn reproject_before_serving(&mut self, rewrite: &Rewritten) -> Result<(), String> {
         let Rewritten { data, session, dirty } = rewrite;
         let (data, session, dirty) = (data.as_path(), session.as_str(), *dirty);
         let labels = self.labels.clone();
         let rows = (|| -> Result<(), String> {
-            // What a reader held before the rebuild: read whether or not a sink is there yet.
-            let replaced = if announce { stored_row(&self.conn, session).map_err(|e| e.to_string())? } else { None };
+            self.conn.execute("INSERT INTO meta (key, value) VALUES (?1, '1') ON CONFLICT(key) DO NOTHING", [hole_key(session)]).map_err(|e| e.to_string())?;
             // The fork edge stays: a fork under rebuild still reads its base, which no purge may take meanwhile.
             while !self.purge_rows(session, true).map_err(|e| e.to_string())? {}
-            #[cfg(test)]
-            reconcile_seam::wait_in_rebuild(data);
             let dir = data.join("sessions").join(session);
             let mut fold = None;
             let damage = project_session(&mut self.conn, &dir, &crate::blobs::BlobStore::new(data), &mut fold, None)?
@@ -1408,71 +2195,39 @@ impl Writer {
             let archive = bound_archive(&self.archive);
             let tx = self.conn.transaction().map_err(|e| e.to_string())?;
             upsert(&tx, &head, dirty, &labels, archive.as_deref()).map_err(|e| e.to_string())?;
-            // The row left here is told whatever it equals: a list read after the purge saw no row of the session, even
-            // when the rebuild ends with the row from before it. Whether a sink is there to tell is the commit's to
-            // decide ([`commit_told`]). A session of the withheld set is told by its release, from the blank row.
-            let told = announce && !withheld::is_withheld_in(&tx, session).map_err(|e| e.to_string())?;
-            let left = if told { stored_row(&tx, session).map_err(|e| e.to_string())? } else { None };
-            let edge = left.map(|after| RowEdge { id: session.to_owned(), before: replaced, after });
             if let Some(damage) = damage {
                 set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage)).map_err(|e| e.to_string())?;
             }
             // The rows are the log's again, whatever projection of it was missed before: only here, with the complete row,
             // does the session stop being one a start has to repair ([`owed_repairs`]).
-            tx.execute("DELETE FROM meta WHERE key = ?1", [hole_key(session)]).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM meta WHERE key IN (?1, ?2)", [hole_key(session), rebuild_key(session)]).map_err(|e| e.to_string())?;
             if dirty == DirtyMark::Clear {
                 tx.execute("DELETE FROM meta WHERE key = ?1", [mark_key(session)]).map_err(|e| e.to_string())?;
             }
-            commit_told(&self.sink, tx, edge).map_err(|e| e.to_string())
+            tx.commit().map_err(|e| e.to_string())
         })();
         // A fork view over these rows settles in the maintenance steps.
         self.views = true;
         rows.and_then(|()| truncate_wal(&self.conn))
     }
 
-    /// Every queued rebuild, once no projection is queued before it. Projections queued after it (other threads' writes go on
-    /// meanwhile) do not hold it back: the log's own reads wait on the rebuild.
-    fn reproject_step(&mut self) {
-        while let Some(&(_, _, seq)) = self.reprojects.front()
-            && self.projections.front().is_none_or(|pending| pending.seq > seq)
-        {
-            let (rewrite, ack, _) = self.reprojects.pop_front().expect("the front rebuild");
-            let result = self.reproject(&rewrite, false);
-            let _ = ack.send(result.map_err(DbError::Write));
-        }
-    }
-
-    /// One bounded step of purging `session`'s index rows: at most `step_rows` deletions,
-    /// its fork edge (one per child) and catalog row counted, those two last. `true` once
-    /// the catalog row is gone. With `keep_edge` (the purge that starts a rebuild from the session's log) the fork edge
-    /// stays, so the base it names is at no moment a session nothing forks from.
+    /// One bounded step of purging `session`'s index rows ([`purge_slice`]), in a transaction of its own.
     fn purge_rows(&mut self, session: &str, keep_edge: bool) -> rusqlite::Result<bool> {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let mut budget = self.step_rows;
-        for (table, key) in PURGE_TABLES {
-            let sql = format!("DELETE FROM {table} WHERE ({key}) IN (SELECT {key} FROM {table} WHERE session = ?1 LIMIT ?2)");
-            budget -= tx.prepare_cached(&sql)?.execute(params![session, budget as i64])?;
-            if budget == 0 {
-                tx.commit()?;
-                return Ok(false);
-            }
-        }
-        if !keep_edge {
-            budget -= tx.prepare_cached("DELETE FROM fork_edges WHERE child = ?1")?.execute([session])?;
-            if budget == 0 {
-                tx.commit()?;
-                return Ok(false);
-            }
-        }
-        tx.prepare_cached("DELETE FROM sessions WHERE id = ?1")?.execute([session])?;
+        let done = purge_slice(&tx, session, keep_edge, self.step_rows)?;
         tx.commit()?;
-        Ok(true)
+        Ok(done)
     }
 
     fn boot_purge(&mut self, lane: &InLane<MaintenanceIo>, data: &Path, incomplete: &[String]) -> Result<(), DbError> {
         for session in incomplete {
             while !self.purge_rows(session, false)? {}
             self.forget_keys(session)?;
+        }
+        // A fork's edge is in the index only once its first frame is: while a session's projection is owed (a repair, a rebuild
+        // cut off), a missing edge is no proof that no fork reads a deleted session's log, so nothing is purged.
+        if !owed_repairs(&self.conn)?.is_empty() {
+            return Ok(());
         }
         loop {
             let next = self.conn.prepare_cached(PURGEABLE_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?;
@@ -1485,32 +2240,22 @@ impl Writer {
 
     /// The `meta` keys of a session whose rows were purged for good: it is neither marked nor owed a repair.
     fn forget_keys(&mut self, session: &str) -> rusqlite::Result<()> {
-        self.conn.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2)")?.execute([hole_key(session), mark_key(session)])?;
+        self.conn.prepare_cached("DELETE FROM meta WHERE key IN (?1, ?2, ?3)")?.execute([hole_key(session), mark_key(session), rebuild_key(session)])?;
         Ok(())
     }
 
-    /// The rows of a holed session rebuilt from its log ([`Command::Refold`]); the row it ends with is the first clean
-    /// one, and takes the hole's key with it. A session whose folder is gone has nothing to rebuild.
-    #[allow(clippy::disallowed_methods, reason = "blocking by contract: runs on the writer's own thread")]
-    fn refold(&mut self, rewrite: &Rewritten) -> Result<(), DbError> {
-        if !rewrite.data.join("sessions").join(&rewrite.session).is_dir() {
-            self.conn.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([hole_key(&rewrite.session)])?;
-            return Ok(());
-        }
-        self.reproject(rewrite, true).map_err(DbError::Write)
-    }
-
     #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
-    fn boot(
-        lane: &InLane<MaintenanceIo>,
-        data: &Path,
-        path: &Path,
-        progress: Option<&RebuildProgress>,
-        steps: &mut Vec<(&'static str, Instant)>,
-    ) -> Result<Writer, DbError> {
+    fn boot(lane: &InLane<MaintenanceIo>, data: &Path, path: &Path, steps: &mut Vec<(&'static str, Instant)>) -> Result<Writer, DbError> {
         let blobs = crate::blobs::BlobStore::new(data);
         let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
         steps.push(("rewrites-recovered", Instant::now()));
+        // An index the upgrade cannot read or write is the rebuild's, as any other it cannot open.
+        // Each step in turn: an index of version 18 takes both.
+        match upgrade_from_18(data, path).and_then(|from_18| Ok(upgrade_from_19(path)? || from_18)) {
+            Ok(true) => steps.push(("upgraded-in-place", Instant::now())),
+            Ok(false) => {}
+            Err(_) => steps.push(("in-place-upgrade-refused", Instant::now())),
+        }
         let existing = match path.exists().then(|| Writer::start(path)) {
             Some(Ok(writer)) => Some(writer),
             Some(Err(e)) if !needs_rebuild(&e) => return Err(e),
@@ -1522,7 +2267,8 @@ impl Writer {
         let mut writer = match existing {
             Some(writer) => writer,
             None => {
-                rebuild(lane, data, path, &complete, progress)?;
+                let first = worker_candidates(path, &complete);
+                fresh_index(lane, data, path, &complete, first.as_ref())?;
                 Writer::start(path).map_err(|e| match e {
                     DbError::Rebuild(why) => DbError::Write(format!("rebuilt index refused: {why}")),
                     e => e,
@@ -1535,32 +2281,15 @@ impl Writer {
         for session in rewritten {
             crate::log_rewrite::finish(lane, data, &session, &mut || {
                 let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear };
-                writer.reproject(&rewrite, false)
+                writer.reproject_before_serving(&rewrite)
             })
             .map_err(|e| DbError::Write(e.to_string()))?;
         }
-        Ok(writer)
-    }
-
-    /// One message of the reconcile (`reconcile`): the frames, then with `finish` the row
-    /// (and damage) of the session, which clears its dirty mark in the row's transaction.
-    fn reconcile_apply(&mut self, session: &str, frames: &[ProjectedFrame], finish: Option<(CatalogHead, Option<String>)>) -> Result<(), DbError> {
-        apply_all(&mut self.conn, session, frames)?;
-        let Some((head, damage)) = finish else { return Ok(()) };
-        let archive = bound_archive(&self.archive);
-        let tx = self.conn.transaction()?;
-        // A listing may have answered the row from before the repair: the sink is told of the change, as of any other
-        // row write. A session of the withheld set is told by its release, from the blank row.
-        let watch = self.sink.get().is_some() && !withheld::is_withheld_in(&tx, session)?;
-        let (_, edge) = upsert_edge(&tx, &head, DirtyMark::Clear, &self.labels, watch, archive.as_deref())?;
-        if let Some(damage) = damage {
-            set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage))?;
+        #[cfg(test)]
+        {
+            writer.seam = Some(data.to_path_buf());
         }
-        tx.prepare_cached("DELETE FROM meta WHERE key = ?1")?.execute([mark_key(session)])?;
-        commit_told(&self.sink, tx, edge)?;
-        // A fork whose base gained rows may now have a view to finish.
-        self.views = true;
-        Ok(())
+        Ok(writer)
     }
 
     /// One bounded step of the oldest purge (`purge_rows`).
@@ -1639,21 +2368,51 @@ impl Writer {
                     Err(_) => return,
                 }
             }
+            // Taking a command only queues it, so the drain ends with what has arrived.
             while let Ok(cmd) = rx.try_recv() {
                 if cmd.closes() {
                     return;
                 }
                 self.take(cmd);
             }
+            self.dispatch();
+        }
+    }
+
+    /// One transaction, after which [`Self::run`] takes what arrived meanwhile and decides again. What the serving core
+    /// queued goes first: a write queued when a step of the work behind it is chosen is committed before another such
+    /// step, and one that arrives just after waits behind that one transaction and no more. With nothing of the serving
+    /// core queued, one step of the work behind it: the fork views, the purges, the title refold and the repairs, each
+    /// kind in its turn.
+    fn dispatch(&mut self) {
+        if self.serving_queued() {
             self.append_transaction();
-            if self.refold {
-                self.maintenance_step();
+            return;
+        }
+        for _ in 0..4 {
+            self.turn = (self.turn + 1) % 4;
+            let ran = match self.turn {
+                0 if self.views => {
+                    self.view_step();
+                    true
+                }
+                1 if !self.purges.is_empty() => {
+                    self.purge_step();
+                    true
+                }
+                2 if self.refold => {
+                    self.maintenance_step();
+                    true
+                }
+                3 if !self.repairs.is_empty() => {
+                    self.repair_step();
+                    true
+                }
+                _ => false,
+            };
+            if ran {
+                return;
             }
-            if self.views {
-                self.view_step();
-            }
-            self.purge_step();
-            self.reproject_step();
         }
     }
 
@@ -1827,6 +2586,10 @@ impl Writer {
             sink.dropped(told);
         }
         debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
+        #[cfg(test)]
+        if result.is_ok() {
+            self.trace("serving", "", rows);
+        }
         if result.is_err() {
             // Nothing of the transaction is in: no retirement that waited on it is answered clean.
             acks.extend(self.retires.drain().map(|(_, retiring)| retiring.ack));
@@ -2075,6 +2838,14 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
         }
         FrameKind::Other => {}
     }
+    frame_tail(tx, session, frame)?;
+    Ok((used, true))
+}
+
+/// What every frame ends with, once its own rows are in: its op, its receipt, and the session's cursor past it.
+fn frame_tail(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame) -> rusqlite::Result<()> {
+    let (ordinal, file_no, offset) = pos_params(&frame.pos);
+    let len = frame.frame_len as i64;
     if let Some(op) = &frame.op {
         tx.prepare_cached(
             "INSERT INTO thread_ops (session, op_id, method, payload_digest, state, ordinal, file_no,
@@ -2098,7 +2869,97 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
          WHERE id = ?1",
     )?
     .execute(params![session, file_no, offset + len, ordinal + 1, frame.history_rev as i64, frame.rows as i64, frame.visible_rows as i64])?;
-    Ok((used, true))
+    Ok(())
+}
+
+/// One frame within what is left of `budget`, from the `done` parts of it already in: `(parts in now, frame complete)`.
+/// Room is taken before a row is written. A frame that fits a transaction goes in whole, or waits for the next when the
+/// room left is short of it; a compaction larger than a transaction goes in a row at a time, and a rewind in its own
+/// bounded steps, the cursor moving only with the last part. Only an item with more aliases than a transaction has rows
+/// goes in whole past the bound, alone in its transaction.
+fn apply_frame_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, done: usize, budget: &mut Budget) -> rusqlite::Result<(usize, bool)> {
+    let need = frame.rows() + 2;
+    match &frame.kind {
+        FrameKind::Rewind { .. } => {
+            // Its updates are idempotent and sized to the room they are given, at least one version (four rows).
+            let room = if budget.fresh() { budget.rows.max(4) } else { budget.rows };
+            if room < 4 {
+                return Ok((done, false));
+            }
+            let (used, complete) = apply_frame(tx, session, frame, room, room)?;
+            budget.charge(used + 2 * usize::from(complete));
+            Ok((done + used.max(1), complete))
+        }
+        FrameKind::Compacted { .. } if need > budget.cap => apply_compaction_part(tx, session, frame, done, budget),
+        _ => {
+            if !budget.reserve(need) {
+                if !(budget.fresh() && need > budget.cap) {
+                    return Ok((done, false));
+                }
+                budget.charge(need);
+            }
+            apply_frame(tx, session, frame, usize::MAX, usize::MAX)?;
+            Ok((done, true))
+        }
+    }
+}
+
+/// A compaction with more rows than one transaction holds, from part `done` on while `budget` has room: its own row, each
+/// dropped id, each replacement row, then its epoch with the frame's tail. Every part is written as the whole frame would
+/// write it, and a part written twice is the same row.
+fn apply_compaction_part(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, done: usize, budget: &mut Budget) -> rusqlite::Result<(usize, bool)> {
+    let FrameKind::Compacted { cid, at, rows, mode, dropped, silent } = &frame.kind else { unreachable!("a compaction") };
+    let (ordinal, file_no, offset) = pos_params(&frame.pos);
+    let len = frame.frame_len as i64;
+    let ids: Vec<(i64, &String)> =
+        dropped.iter().flat_map(|dropped| dropped.message_ids.iter().map(|id| (0, id)).chain(dropped.call_ids.iter().map(|id| (1, id)))).collect();
+    let total = 2 + ids.len() + rows.len();
+    let mut part = done;
+    while part < total {
+        if !budget.reserve(1) {
+            return Ok((part, false));
+        }
+        if part == 0 {
+            tx.prepare_cached(
+                "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
+                 boundary, at, drop_mode, silent, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
+            )?
+            .execute(params![session, ordinal, cid, file_no, offset, len, ordinal, at, *mode as i64, i64::from(*silent)])?;
+        } else if part <= ids.len() {
+            let (kind, id) = ids[part - 1];
+            tx.prepare_cached("INSERT OR IGNORE INTO compaction_dropped (session, kind, id, ordinal) VALUES (?1, ?2, ?3, ?4)")?
+                .execute(params![session, kind, id, ordinal])?;
+        } else if part <= ids.len() + rows.len() {
+            crate::message_index::add_compaction_row(tx, session, ordinal, (file_no, offset, len), rows, part - 1 - ids.len())?;
+        } else {
+            crate::message_index::add_compaction_epoch(tx, session, ordinal, rows)?;
+            frame_tail(tx, session, frame)?;
+        }
+        part += 1;
+    }
+    Ok((total, true))
+}
+
+/// `frames` from `*next` on while `budget` has room: one transaction's worth, with where it goes on (`next`, and `part` of
+/// that frame). `true` once every frame is in.
+fn apply_frames(
+    tx: &Transaction<'_>,
+    session: &str,
+    frames: &[ProjectedFrame],
+    next: &mut usize,
+    part: &mut usize,
+    budget: &mut Budget,
+) -> rusqlite::Result<bool> {
+    while *next < frames.len() {
+        let (done, complete) = apply_frame_part(tx, session, &frames[*next], *part, budget)?;
+        if !complete {
+            *part = done;
+            return Ok(false);
+        }
+        *part = 0;
+        *next += 1;
+    }
+    Ok(true)
 }
 
 /// Supersedes what the rewind frame at `ordinal` takes back down to `to`, within `budget` rows of writes (raised to a
@@ -2204,6 +3065,8 @@ struct Shared {
     /// the failure was noted: owed until a projection that read its state after that commits. A reader of the projected
     /// `archived` column settles them first ([`SqliteStore::search`]), so it never reads a row the authority disagrees with.
     archive_owed: Mutex<HashMap<String, u64>>,
+    /// How the sensitive rewrites of this start's withheld sessions ended, for those that wait for one ([`withheld::Rewrites`]).
+    rewrites: withheld::Rewrites,
     /// The writer's read sequence ([`Writer::archive_reads`]).
     archive_reads: Arc<std::sync::atomic::AtomicU64>,
     /// Projections a test makes fail.
@@ -2219,8 +3082,10 @@ struct Shared {
     archive_ack_hold: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
     /// The writer thread, joined by [`SqliteStore::close`].
     writer: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// The thread of the repairs owed at open, when there were any; joined by [`SqliteStore::close`].
-    repairs: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// The threads of the repairs owed at open, when there were any; joined by [`SqliteStore::close`].
+    repairs: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    /// [`SqliteStore::rebuilding`].
+    rebuilding: bool,
     /// [`SqliteStore::boot_steps`].
     boot_steps: Vec<(&'static str, Instant)>,
 }
@@ -2312,6 +3177,14 @@ pub struct PageCursor {
     pub before: u64,
 }
 
+/// Where the next newer page starts: the rows of lineage level `level` at or above `from`, then each newer level's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AfterCursor {
+    pub history_rev: u64,
+    pub level: usize,
+    pub from: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchCursor {
     pub archived: bool,
@@ -2340,39 +3213,60 @@ impl SqliteStore {
     /// create publishes `log.000000` before anything else, and a purge unlinks it first, so
     /// such a folder is a half-finished create or purge, which no rebuild indexes), with its
     /// id's index rows; then every deleted session no fork reads (`purge_deleted`).
+    /// The repairs owed at open start at the first access that waits for one, or the withheld set's commit: for an opener
+    /// that may never commit one (a tool, a test host).
     pub fn open(lane: &InLane<MaintenanceIo>, thread: SqliteWriterThread, read_lane: InteractiveIo, data: &Path) -> Result<SqliteStore, DbError> {
-        Self::open_reporting(lane, thread, read_lane, data, None)
+        Self::open_reporting(lane, thread, read_lane, data, None, RepairStart::FirstWait)
     }
 
-    /// [`Self::open`], reporting a rebuild's sessions done and total to `progress` as it runs.
+    /// [`Self::open`], reporting a rebuild's sessions done and total to `progress` as the repairs that make it run.
+    ///
+    /// An index that has to be made anew (missing, of another identity or format, or unreadable) is published empty with
+    /// every session owed its rows ([`fresh_index`]), so the open takes no longer than any other: the rows are projected
+    /// behind the serving core by the repairs, most recently written session first, on several threads. Until a session's
+    /// repair ends, an access that names it waits for that repair (asked for ahead of the rest), a listing does not hold it,
+    /// and a reader that decides from every row waits for them all ([`Self::reconciled`]). What is owed outlives a stop.
     #[allow(clippy::disallowed_methods, reason = "runs on the maintenance lane job (lane proof argument)")]
     pub fn open_reporting(
         lane: &InLane<MaintenanceIo>,
         thread: SqliteWriterThread,
         read_lane: InteractiveIo,
         data: &Path,
-        progress: Option<&RebuildProgress>,
+        progress: Option<&Arc<RebuildProgress>>,
+        start: RepairStart,
     ) -> Result<SqliteStore, DbError> {
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
         let mut boot_steps = Vec::new();
-        let writer = Writer::boot(lane, data, path, progress, &mut boot_steps)?;
+        let writer = Writer::boot(lane, data, path, &mut boot_steps)?;
         let dirty = owed_repairs(&writer.conn)?;
+        let rebuild = rebuild_order(&writer.conn)?;
+        let workers = worker_order(&writer.conn)?;
         boot_steps.push(("repairs-listed", Instant::now()));
+        let rebuilding = !rebuild.is_empty();
+        let progress = progress.filter(|_| rebuilding).cloned();
+        if let Some(progress) = &progress {
+            progress.begin(dirty.len());
+        }
         let rows = writer.sink.clone();
         let archive = writer.archive.clone();
         let archive_reads = writer.archive_reads.clone();
+        let ranks = writer.ranks.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread.spawn_thread("mixdog-index-writer", move |_| writer.run(rx)).map_err(|e| DbError::Write(e.to_string()))?;
-        let (gate, repairer) = gate::Gate::new(ReadPool::new(path, read_lane), sender, dirty);
-        // The repairs' own thread, off the read lane: it waits there until they may start ([`gate::Repairer::next`]).
-        let repairs = match repairer {
-            Some(repairer) => {
-                let data = data.to_path_buf();
-                Some(thread.spawn_thread("mixdog-index-repair", move |_| repair_owed(&repairer, &data)).map_err(|e| DbError::Write(e.to_string()))?)
+        let (gate, repairer) = gate::Gate::new(ReadPool::new(path, read_lane), sender, dirty, workers, rebuild, progress, start);
+        let _ = ranks.set(gate.ranks());
+        // The repairs' own threads, off the read lane: they wait there until they may start ([`gate::Repairer::next`]). A
+        // rebuild reads its logs on one per core, as the one before serving did; a start's own repairs take one.
+        let threads = if rebuilding { std::thread::available_parallelism().map_or(1, usize::from) } else { 1 };
+        let mut repairs = Vec::new();
+        if let Some(repairer) = repairer {
+            let repairer = Arc::new(repairer);
+            for _ in 0..threads {
+                let (repairer, data) = (repairer.clone(), data.to_path_buf());
+                repairs.push(thread.spawn_thread("mixdog-index-repair", move |_| repair_owed(&repairer, &data)).map_err(|e| DbError::Write(e.to_string()))?);
             }
-            None => None,
-        };
+        }
         let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
@@ -2380,6 +3274,7 @@ impl SqliteStore {
                 rows,
                 archive,
                 archive_owed: Mutex::default(),
+                rewrites: withheld::Rewrites::default(),
                 archive_reads,
                 #[cfg(any(test, feature = "test-support"))]
                 archive_faults: std::sync::atomic::AtomicUsize::new(0),
@@ -2391,10 +3286,22 @@ impl SqliteStore {
                 archive_ack_hold: Mutex::default(),
                 writer: Mutex::new(Some(handle)),
                 repairs: Mutex::new(repairs),
+                rebuilding,
                 boot_steps,
             }),
         };
         Ok(store)
+    }
+
+    /// Whether this open owes a rebuild of the index (made anew now, or by an earlier start that did not finish it): its rows
+    /// are being projected behind the serving core until [`Self::reconciled`] resolves.
+    pub fn rebuilding(&self) -> bool {
+        self.shared.rebuilding
+    }
+
+    /// Moves whenever the repairs owed at open move ([`Self::repairs`]): one ended, one was released, they stopped.
+    pub fn repairs_changed(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.shared.gate.changes()
     }
 
     /// The steps of this open, each with when it ended, in order: for the boot's phase log.
@@ -2402,17 +3309,19 @@ impl SqliteStore {
         self.shared.boot_steps.clone()
     }
 
-    /// Resolves once every session owed a repair at open ([`owed_repairs`]) had its repair: `Ok` when none failed, else
-    /// the first failure. For a caller that decides from every row at once (a sweep, a prune): the index is published
-    /// before the repairs, and an access that names sessions waits only for theirs; every other proceeds at once, the
-    /// rows of a session not yet repaired as its last run left them (dirty, so a listing answers it from its record).
+    /// Resolves once every session owed a repair at open ([`owed_repairs`]) is ready, the ones held for a sensitive
+    /// rewrite included: `Ok` when none failed, else the failure of one that did. It is the gate's verdict on
+    /// [`Need::All`], waited for with no read: every read whose answer is about the set of sessions takes the same verdict
+    /// with its snapshot, and a read that names sessions takes it on those alone.
     ///
-    /// The repairs run one session at a time on a thread of their own, a session an access waits for before the rest.
-    /// They start once this start's withheld set is committed ([`Self::withhold`]), or at the first access that waits
-    /// for one, this one included. A repair that fails leaves its session unavailable (every access that names it fails
-    /// with the reason) until the next start.
+    /// The repairs run on threads of their own: the sessions an access waits for and what they need first, then the
+    /// worker candidates, then the rest. They start once this start's withheld set is committed ([`Self::withhold`]), or,
+    /// for a store opened with [`RepairStart::FirstWait`], at the first access that waits for one, this one included. A
+    /// repair that fails is not tried again in this start: every access that rests on its session fails with
+    /// [`DbError::Recovery`], and what the session is owed stays in the index for the next start.
     pub fn reconciled(&self) -> impl Future<Output = Result<(), DbError>> + Send + 'static {
-        self.shared.gate.reconciled()
+        let settled = self.shared.gate.settled(Need::All);
+        async move { Ok(settled.await?) }
     }
 
     /// Where the repairs owed at open stand.
@@ -2426,10 +3335,33 @@ impl SqliteStore {
         self.shared.gate.waiters()
     }
 
+    /// The gate's verdict on the worker rows ([`Need::Workers`]), with no read.
+    #[cfg(test)]
+    pub(crate) fn worker_rows_projected(&self) -> impl Future<Output = Result<(), DbError>> + Send + 'static {
+        let settled = self.shared.gate.settled(Need::Workers);
+        async move { Ok(settled.await?) }
+    }
+
+    /// Resolves once no repair is queued or running; what is held for a rewrite or failed stays so, and certifies nothing.
+    #[cfg(test)]
+    pub(crate) async fn repairs_idle(&self) {
+        let mut changes = self.shared.gate.changes();
+        while self.shared.gate.report().pending != 0 {
+            changes.changed().await.expect("the gate lives");
+        }
+    }
+
     /// The sessions repaired so far, in the order their repairs ended.
     #[cfg(test)]
     pub(crate) fn repair_order(&self) -> Vec<String> {
         self.shared.gate.order()
+    }
+
+    /// The sessions the repair threads took so far, in the order they were handed out: a rebuild repairs on several
+    /// threads, so the order repairs end in is not the order they were given.
+    #[cfg(test)]
+    pub(crate) fn repair_taken(&self) -> Vec<String> {
+        self.shared.gate.taken()
     }
 
     /// The writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and its connection
@@ -2443,8 +3375,8 @@ impl SqliteStore {
             }
         });
         // After the pool closed: a repair in flight fails its next step, and its thread holds no file of the data dir on.
-        let repairs = self.shared.repairs.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-        if let Some(repairs) = repairs {
+        let repairs = std::mem::take(&mut *self.shared.repairs.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for repairs in repairs {
             let _ = repairs.join();
         }
     }
@@ -2617,8 +3549,11 @@ impl SqliteStore {
         if self.shared.refuse_reproject.swap(false, std::sync::atomic::Ordering::SeqCst) {
             return Err(DbError::Write("the test's injected rewrite projection failure".into()));
         }
-        let session = rewrite.session.clone();
-        self.ask_of(&session, |ack| Command::Reproject { rewrite, ack }).await
+        // The rewriter's own work on a session it may hold: it goes to the writer by the private way and waits at no gate
+        // (the session is not ready before this and its release are done). The log is decoded in this lane job, and the
+        // writer applies what it reads a transaction at a time, behind the serving core's writes.
+        let (pool, sender) = self.shared.gate.private();
+        pool.run_in_lane(move |_, _| replay_rewritten(&sender, &rewrite).map_err(DbError::Write)).await
     }
 
     /// Refuse the next request to replace a rewritten session's rows.
@@ -2632,42 +3567,50 @@ impl SqliteStore {
         self.ask(|ack| Command::Labels { labels, ack }).await
     }
 
-    /// A read that concerns no session in particular (a listing, a set): submitted at once.
+    /// The gated read of this store ([`gate::Gate::read_exact`]): each method names what its answer rests on, and no
+    /// caller chooses it.
     fn read<T: Send + 'static>(
         &self,
+        need: Need,
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
-        self.shared.gate.read(&[], f)
+        let read = self.shared.gate.read_exact(need, f);
+        async move { Ok(read.await?) }
     }
 
-    /// A read over `lineage`, which concerns every session of it.
-    async fn read_lineage<T: Send + 'static>(
+    /// A read over `lineage`: a fork is ready only with the bases it reads.
+    fn read_lineage<T: Send + 'static>(
         &self,
         lineage: Vec<LineageLevel>,
         f: impl FnOnce(&Connection, &[LineageLevel]) -> Result<T, DbError> + Send + 'static,
-    ) -> Result<T, DbError> {
-        self.shared.gate.recovered(&levels(&lineage)).await?;
-        self.read(move |c| f(c, &lineage)).await
+    ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
+        self.read(Need::of(&levels(&lineage)), move |c| f(c, &lineage))
     }
 
-    /// A read that concerns `sessions`: submitted once the repair of each, when it is owed one, ended.
+    /// A read of `sessions` by name.
     fn read_of<T: Send + 'static>(
         &self,
         sessions: &[&str],
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
-        self.shared.gate.read(sessions, f)
+        self.read(Need::of(sessions), f)
+    }
+
+    /// [`read_of`](Self::read_of) on the calling thread, for code already inside a lane job: the same verdict.
+    fn with_of<T>(&self, sessions: &[&str], f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
+        Ok(self.shared.gate.with_exact(&Need::of(sessions), f)?)
     }
 
     /// What the next start would have to repair if the process ended now ([`owed_repairs`]): the marked sessions and those
-    /// whose rows hold frames past their cursor, in id order. Empty: the next start repairs nothing.
+    /// whose rows hold frames past their cursor, in id order. Empty: the next start repairs nothing. The debts themselves,
+    /// not a projection: read as they stand.
     pub async fn owed_repairs(&self) -> Result<Vec<String>, DbError> {
-        self.read(|c| Ok(owed_repairs(c)?)).await
+        self.shared.gate.manifest(|c| Ok(owed_repairs(c)?)).await
     }
 
     /// RL §9.2 rule 5.
     pub async fn dirty_sessions(&self) -> Result<Vec<String>, DbError> {
-        self.read(|c| {
+        self.read(Need::All, |c| {
             let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE dirty = 1")?;
             let rows = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
             Ok(rows)
@@ -2683,7 +3626,7 @@ impl SqliteStore {
 
     /// Whether the projection has reached this exact durable log end, including its identity.
     pub fn history_projected_through_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, log_id: &str, end: FramePos) -> Result<bool, DbError> {
-        self.shared.gate.with_of(&[session], |c| {
+        self.with_of(&[session], |c| {
             Ok(c.prepare_cached(
                 "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND log_id = ?2
              AND projected_ordinal = ?3 AND projected_file_no = ?4 AND projected_offset = ?5)",
@@ -2697,7 +3640,7 @@ impl SqliteStore {
     /// the fork point and `cut`, live as of the fork (as history pages). Inside the open's
     /// J2 job on the read lane.
     pub fn prompts_on_lane(&self, _lane: &InLane<InteractiveIo>, lineage: &[LineageLevel], cut: Option<u64>) -> Result<Vec<String>, DbError> {
-        self.shared.gate.with_of(&levels(lineage), |c| {
+        self.with_of(&levels(lineage), |c| {
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             let mut own = c.prepare_cached(PROMPTS_SQL)?;
@@ -2745,12 +3688,12 @@ impl SqliteStore {
     /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
     /// behind itself.
     pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
-        self.shared.gate.with_of(&[session], |c| thread_op_on(c, session, op_id))
+        self.with_of(&[session], |c| thread_op_on(c, session, op_id))
     }
 
     /// The answer the first acceptance of submission `submission` of `session` got (`submissions`), on the read lane.
     pub fn submission_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, submission: &str) -> Result<Option<serde_json::Value>, DbError> {
-        self.shared.gate.with_of(&[session], |c| submission_on(c, session, submission))
+        self.with_of(&[session], |c| submission_on(c, session, submission))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
@@ -2762,7 +3705,7 @@ impl SqliteStore {
 
     /// `fenced_ops` inside a job already on the read lane.
     pub fn fenced_ops_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str) -> Result<Vec<String>, DbError> {
-        self.shared.gate.with_of(&[session], |c| fenced_ops_on(c, session))
+        self.with_of(&[session], |c| fenced_ops_on(c, session))
     }
 
     /// The compaction dividers of the display history placed before rows of
@@ -2789,7 +3732,7 @@ impl SqliteStore {
         from: u64,
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
-        self.shared.gate.with_of(&levels(lineage), |c| dividers_on(c, lineage, cut, level, from, to))
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| dividers_on(c, lineage, cut, level, from, to)))
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
@@ -2816,7 +3759,7 @@ impl SqliteStore {
             return Ok(None);
         }
         let sessions = vec![session.to_owned()];
-        Ok(self.read(move |c| listed_on(c, &sessions)).await?.pop().flatten())
+        Ok(self.shared.gate.manifest(move |c| listed_on(c, &sessions)).await?.pop().flatten())
     }
 
     /// [`listed`](Self::listed) of every session of a listing, in order and in one read, on the calling thread (a job of
@@ -2824,7 +3767,7 @@ impl SqliteStore {
     /// the one job, so a full queue is waited out there and never answered as "the index cannot say".
     pub fn listed_many(&self, _lane: &InLane<InteractiveIo>, sessions: &[String]) -> Result<Vec<Option<Option<String>>>, DbError> {
         let unavailable = self.shared.gate.unavailable();
-        let mut listed = self.shared.gate.with(|c| listed_on(c, sessions))?;
+        let mut listed = self.shared.gate.manifest_here(|c| listed_on(c, sessions))?;
         for (session, row) in sessions.iter().zip(&mut listed) {
             if unavailable.contains(session) {
                 *row = None;
@@ -2840,10 +3783,9 @@ impl SqliteStore {
     /// transcript is current), with the ordinal it is projected to.
     pub async fn offload_referencers(&self, own: &str, boot: &str) -> Result<OffloadReferencers, DbError> {
         // It decides from every session's row: a row not yet repaired may lack a reference its log holds.
-        self.reconciled().await?;
         let (own, boot) = (own.to_owned(), boot.to_owned());
         let segment = crate::offload_sources::segment_key(&crate::offload_sources::safe_segment(&own));
-        self.read(move |c| {
+        self.read(Need::All, move |c| {
             let unreadable: Option<String> =
                 c.prepare_cached("SELECT id FROM sessions WHERE deleted = 0 AND status <> 'ok' ORDER BY id LIMIT 1")?.query_row([], |r| r.get(0)).optional()?;
             let mut rows = c.prepare_cached(
@@ -2896,10 +3838,12 @@ impl SqliteStore {
         .await
     }
 
-    /// The sessions not deleted whose header carries `child`'s archived result (`archived_agents`).
+    /// The sessions not deleted whose header carries `child`'s archived result (`archived_agents`). A lookup from the
+    /// child to its parents: any session may be one, so an empty answer is one only with every session owed its rows
+    /// projected, and the failure of one of them is the answer instead.
     pub async fn archived_agent_parents(&self, child: &str) -> Result<Vec<String>, DbError> {
         let child = child.to_owned();
-        self.read(move |c| {
+        self.read(Need::All, move |c| {
             let mut stmt = c.prepare_cached(
                 "SELECT a.session FROM archived_agents a JOIN sessions s ON s.id = a.session
                  WHERE a.child = ?1 AND s.deleted = 0 AND s.log_id <> '' ORDER BY a.session",
@@ -2919,7 +3863,7 @@ impl SqliteStore {
 
     /// Every session the index holds as deleted, in one read ([`deleted`](Self::deleted) for all of them).
     pub async fn deleted_ids(&self) -> Result<std::collections::HashSet<String>, DbError> {
-        self.read(move |c| {
+        self.read(Need::All, move |c| {
             let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE deleted = 1")?;
             Ok(stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?)
         })
@@ -2934,13 +3878,33 @@ impl SqliteStore {
     /// index rows in maintenance steps of `STEP_ROWS` rows, the catalog row last. A base whose
     /// last fork went is removed in the same call. Run it after a delete; `open` runs the
     /// same purge at boot, so an interrupted removal resumes.
+    /// The purge the boot defers while projections are owed ([`Writer::boot_purge`]): it waits for the gate's verdict on
+    /// every session ([`Need::All`]) and then purges as any other does, each removal decided again on a certified read. A
+    /// failed repair defers it to the next start (`Err` with that failure): nothing is removed.
+    pub async fn purge_once_projected(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
+        self.shared.gate.settled(Need::All).await?;
+        self.purge_deleted(lane, data).await
+    }
+
+    /// Whether a session owed its rows at open is not ready: queued, running, held for its rewrite, or failed. While
+    /// one is, a missing fork edge or reference proves nothing, and nothing is removed for the lack of one.
+    pub fn owes_projection(&self) -> bool {
+        !matches!(self.shared.gate.settled_now(&Need::All), Ok(true))
+    }
+
     pub async fn purge_deleted(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
         let mut purged = Vec::new();
+        // As at boot ([`Writer::boot_purge`]): that no fork reads a deleted session is known only with every session's
+        // fork edge in. Until then (and for good in a start in which a repair failed) it is deferred, never concluded: a
+        // later purge (the next delete's, the deferred one, or the next start's) removes what this leaves.
+        if self.owes_projection() {
+            return Ok(purged);
+        }
         loop {
             // A session owing its sensitive rewrite is not removed while its rewrite may be moving its folder
             // (`PURGEABLE_ALL_SQL` leaves it out): a later purge (the next delete's, or the next start's) removes it once
-            // it is released.
-            let found = self.read(move |c| Ok(c.prepare_cached(PURGEABLE_ALL_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?));
+            // it is released. Each removal is decided on its own certified read of every session.
+            let found = self.read(Need::All, move |c| Ok(c.prepare_cached(PURGEABLE_ALL_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?));
             let Some(session) = found.await? else { return Ok(purged) };
             let dir = data.join("sessions").join(&session);
             lane.submit_wait(&CancellationToken::new(), move |lane| remove_session_dir(lane, &dir)).await.map_err(lane_unrun)?.await.map_err(lane_lost)??;
@@ -2954,7 +3918,7 @@ impl SqliteStore {
     /// (a cleaned tag; '' finds the rows without one), newest session first.
     pub async fn worker_rows(&self, tag: Option<&str>, scope: WorkerScope) -> Result<Vec<WorkerRow>, DbError> {
         let tag = tag.map(str::to_owned);
-        self.read(move |c| {
+        self.read(Need::Workers, move |c| {
             let sql = crate::worker::ROWS_SQL[usize::from(tag.is_some())][match scope {
                 WorkerScope::Owner(_) => 0,
                 WorkerScope::HostPid(_) => 1,
@@ -2995,8 +3959,9 @@ impl SqliteStore {
     pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
         #[cfg(test)]
         let hold = self.shared.worker_read_hold.lock().expect("hold").take();
-        self.read(move |c| {
-            let tx = c.unchecked_transaction()?;
+        self.read(Need::Workers, move |c| {
+            let own = read_snapshot(c)?;
+            let tx: &Connection = own.as_deref().unwrap_or(c);
             let (revision, floor, generation) =
                 tx.query_row(crate::worker::REVISION_SQL, [], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64)))?;
             let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
@@ -3004,13 +3969,12 @@ impl SqliteStore {
                 let mut stmt = tx.prepare_cached(crate::worker::INDEXED_ALL_SQL)?;
                 stmt.query_map([], indexed_session)?.collect::<Result<_, _>>()?
             } else {
-                indexed_since(&tx, since.map_or(0, |(_, rev)| rev) as i64, also)?
+                indexed_since(tx, since.map_or(0, |(_, rev)| rev) as i64, also)?
             };
             #[cfg(test)]
             if let Some(hold) = hold {
                 hold();
             }
-            tx.commit()?;
             Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
         })
         .await
@@ -3052,7 +4016,8 @@ impl SqliteStore {
     /// by the session's own `agentTag` (a cleaned tag) and owner.
     pub async fn newest_tag_session(&self, tag: &str, owner: &str) -> Result<Option<TagSession>, DbError> {
         let (tag, owner) = (tag.to_owned(), owner.to_owned());
-        self.read(move |c| {
+        // Any session may carry the tag: "none ran under it" is an answer only over every session.
+        self.read(Need::All, move |c| {
             Ok(c.prepare_cached(crate::worker::NEWEST_TAG_SQL)?
                 .query_row([&tag, &owner], |r| {
                     let summary: String = r.get(1)?;
@@ -3067,7 +4032,7 @@ impl SqliteStore {
     /// The list rows of the agent-only sessions (`visibility` 'agent-only'), the
     /// candidates of 1.4.5 agent rehydration; most recent activity first.
     pub async fn agent_only_sessions(&self) -> Result<Vec<String>, DbError> {
-        self.read(|c| {
+        self.read(Need::Workers, |c| {
             let mut stmt = c.prepare_cached(AGENT_ONLY_SQL)?;
             let rows = stmt.query_map([], |r| {
                 let summary: String = r.get(0)?;
@@ -3085,7 +4050,8 @@ impl SqliteStore {
             self.project_archive(Vec::new()).await?;
         }
         let (sql, arg, limit) = search_statement(query, limit);
-        self.read(move |c| {
+        // A page of matches over every session: it waits for each one owed its rows, and a failed one fails it.
+        self.read(Need::All, move |c| {
             let mut stmt = c.prepare_cached(&sql)?;
             let rows = stmt
                 .query_map(
@@ -3135,7 +4101,7 @@ impl SqliteStore {
         cursor: Option<crate::context::ContextCursor>,
         limit: usize,
     ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
-        let (rows, next) = self.shared.gate.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
+        let (rows, next) = self.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
         crate::context::read_frames(lane, sessions, rows, next)
     }
 
@@ -3152,7 +4118,7 @@ impl SqliteStore {
         'restart: loop {
             let (mut cursor, mut len) = (None, 0);
             loop {
-                match self.shared.gate.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                match self.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
                     Ok((rows, next)) => {
                         len += rows.len();
                         match next {
@@ -3182,7 +4148,7 @@ impl SqliteStore {
         let rows = 'restart: loop {
             let (mut cursor, mut seen, mut kept) = (None, 0usize, Vec::new());
             loop {
-                match self.shared.gate.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
+                match self.with_of(&levels(lineage), |c| crate::context::rows_on(c, lineage, cut, cursor, PAGE_ROWS)) {
                     Ok((rows, next)) => {
                         let before = seen;
                         seen += rows.len();
@@ -3209,7 +4175,36 @@ impl SqliteStore {
         cursor: Option<PageCursor>,
         limit: usize,
     ) -> Result<(Vec<HistoryRow>, Option<PageCursor>), DbError> {
-        self.shared.gate.with_of(&levels(lineage), |c| page_on(c, lineage, cut, cursor, limit))
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| page_on(c, lineage, cut, cursor, limit)))
+    }
+
+    /// [`Self::history_page_on_lane`] the other way: the rows from `cursor` on (the lineage's oldest row when none), oldest
+    /// first, and where the next newer page starts (`None`: these reach the newest row).
+    pub fn history_page_after_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        cursor: Option<AfterCursor>,
+        limit: usize,
+    ) -> Result<(Vec<HistoryRow>, Option<AfterCursor>), DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| page_after_on(c, lineage, cut, cursor, limit)))
+    }
+
+    /// `turn_messages_on` inside a job already on the read lane.
+    pub fn turn_messages_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        turns: &[String],
+    ) -> Result<Vec<(bool, bool)>, DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| turn_messages_on(c, lineage, cut, turns)))
+    }
+
+    /// The history revision the index holds the rows of `lineage`'s thread at: the one its pages are of.
+    pub fn history_rev_on_lane(&self, _lane: &InLane<InteractiveIo>, lineage: &[LineageLevel]) -> Result<u64, DbError> {
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| Ok(history_rev_on(c, lineage)?)))
     }
 
     /// `anchor_on`, as a job of the read pool.
@@ -3232,7 +4227,7 @@ impl SqliteStore {
         ids: &[String],
         alias: &str,
     ) -> Result<Option<HistoryAnchor>, DbError> {
-        self.shared.gate.with_of(&levels(lineage), |c| anchor_on(c, lineage, cut, ids, alias))
+        self.with_of(&levels(lineage), |c| counted(c, lineage, |c| anchor_on(c, lineage, cut, ids, alias)))
     }
 
     /// The live `compacted` frame whose replacement holds the entry `iid` (such as the
@@ -3252,7 +4247,7 @@ impl SqliteStore {
         cut: Option<u64>,
         iid: &str,
     ) -> Result<Option<CompactionEntry>, DbError> {
-        self.shared.gate.with_of(&levels(lineage), |c| compaction_entry_on(c, lineage, cut, iid))
+        self.with_of(&levels(lineage), |c| compaction_entry_on(c, lineage, cut, iid))
     }
 }
 
@@ -3560,18 +4555,37 @@ impl ProjectTo for Connection {
     }
 }
 
-/// The reconcile's way into the open index: each message is applied by the writer thread,
-/// and the lane job waits for it (one read chunk of frames in memory at a time).
-struct ToWriter<'a>(&'a mpsc::Sender<Command>);
+/// A log reader's way into the open index, off the writer's thread: each piece of work it hands over is applied by the
+/// writer a transaction at a time behind what the serving core writes, and the reader waits for the commit that completes
+/// it (one read chunk of frames in memory at a time). The log is decoded here, never on the writer.
+#[derive(Clone, Copy)]
+struct ToWriter<'a> {
+    sender: &'a mpsc::Sender<Command>,
+    /// The session the work is of: whose debt it settles, and whose turn it takes.
+    session: &'a str,
+}
 
 impl ToWriter<'_> {
-    fn send(&self, session: &str, frames: Vec<ProjectedFrame>, finish: Option<(CatalogHead, Option<String>)>) -> Result<(), String> {
+    fn send(&self, work: RepairWork) -> Result<(), String> {
         let (ack, done) = mpsc::channel();
-        let stopped = |_| "the index writer stopped".to_owned();
-        self.0
-            .send(Command::Reconcile { session: session.to_owned(), frames, finish: finish.map(Box::new), ack })
-            .map_err(|_| "the index writer stopped".to_owned())?;
-        done.recv().map_err(stopped)?.map_err(|e| e.to_string())
+        let stopped = || "the index writer stopped".to_owned();
+        self.sender.send(Command::Repair { work, ack }).map_err(|_| stopped())?;
+        done.recv().map_err(|_| stopped())?.map_err(|e| e.to_string())
+    }
+
+    /// `frames`, folded as `folded`; with `start`, the row written dirty before them.
+    fn replay(&self, folded: &str, start: Option<CatalogHead>, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        self.send(RepairWork::Replay(Box::new(Replay {
+            session: self.session.to_owned(),
+            frames_session: folded.to_owned(),
+            start,
+            frames,
+            next: 0,
+            part: 0,
+            finish: None,
+            split: true,
+            partial: false,
+        })))
     }
 }
 
@@ -3585,7 +4599,28 @@ impl ProjectTo for ToWriter<'_> {
         if frames.is_empty() {
             return Ok(());
         }
-        self.send(session, frames, None)
+        self.replay(session, None, frames)
+    }
+}
+
+/// The way into the open index of a session replayed from its first frame: the head at its `session` frame goes with the
+/// first frames, as the row written dirty before them.
+struct Streaming<'a> {
+    to: ToWriter<'a>,
+    start: Option<CatalogHead>,
+}
+
+impl ProjectTo for Streaming<'_> {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        self.start = Some(head.clone());
+        Ok(())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if frames.is_empty() && self.start.is_none() {
+            return Ok(());
+        }
+        self.to.replay(session, self.start.take(), frames)
     }
 }
 
@@ -3629,7 +4664,53 @@ impl ProjectTo for Adopting<'_> {
         if frames.is_empty() {
             return Ok(());
         }
-        ToWriter(self.sender).send(session, frames, None)
+        ToWriter { sender: self.sender, session }.replay(session, None, frames)
+    }
+}
+
+/// The way into the open index of a session a rebuild owes: what its log reads is held to go as one whole session
+/// ([`Replay::finish`]); past [`APPEND_ROWS`] frames it spills, and goes on a read chunk at a time ([`Streaming`]).
+struct Collecting<'a> {
+    to: ToWriter<'a>,
+    start: Option<CatalogHead>,
+    session: String,
+    frames: Vec<ProjectedFrame>,
+    spilled: bool,
+}
+
+impl Collecting<'_> {
+    /// What is held goes in a message, and nothing is held from here on.
+    fn spill(&mut self) -> Result<(), String> {
+        if std::mem::replace(&mut self.spilled, true) {
+            return Ok(());
+        }
+        let frames = std::mem::take(&mut self.frames);
+        if frames.is_empty() && self.start.is_none() {
+            return Ok(());
+        }
+        self.to.replay(&self.session, self.start.take(), frames)
+    }
+}
+
+impl ProjectTo for Collecting<'_> {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        self.start = Some(head.clone());
+        Ok(())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if self.spilled {
+            if frames.is_empty() && self.start.is_none() {
+                return Ok(());
+            }
+            return self.to.replay(session, self.start.take(), frames);
+        }
+        session.clone_into(&mut self.session);
+        self.frames.extend(frames);
+        if self.frames.len() > APPEND_ROWS {
+            return self.spill();
+        }
+        Ok(())
     }
 }
 
@@ -3645,18 +4726,20 @@ impl SqliteStore {
         self.ask(|ack| Command::Pending { sessions, ack }).await
     }
 
-    /// The sessions still listed by a pending row that have no log under `<data>/sessions`: listed, and not there.
+    /// The sessions still listed by a pending row that have no log under `<data>/sessions`: listed, and not there. What
+    /// its caller withdraws: the complete set, read once every session owed its rows is ready, or an error and nothing.
     #[allow(clippy::disallowed_methods, reason = "runs on the read lane job (lane proof argument)")]
     pub async fn pending_sessions(&self, data: &Path) -> Result<Vec<String>, DbError> {
         let sessions = data.join("sessions");
-        self.shared
+        Ok(self
+            .shared
             .gate
-            .read_in_lane(move |_, c| {
+            .read_exact_in_lane(Need::All, move |_, c| {
                 let mut stmt = c.prepare_cached("SELECT id FROM sessions WHERE log_id = ?1 AND deleted = 0")?;
                 let listed: Vec<String> = stmt.query_map([PENDING_LOG_ID], |r| r.get(0))?.collect::<Result<_, _>>()?;
                 Ok(listed.into_iter().filter(|id| !sessions.join(id).join(crate::log::log_name(0)).is_file()).collect())
             })
-            .await
+            .await?)
     }
 
     /// Brings a session whose folder another writer published under `<data>/sessions` while the index is open (the
@@ -3669,10 +4752,8 @@ impl SqliteStore {
     /// Blocks the calling thread on the log's reads and the writer's answers: it must be no runtime's thread.
     #[allow(clippy::disallowed_methods, reason = "blocking by contract: the caller is the migration's own thread")]
     pub fn adopt(&self, data: &Path, session: &str) -> Result<(), DbError> {
-        let held: Option<String> = self
-            .shared
-            .gate
-            .with_of(&[session], |c| Ok(c.prepare_cached("SELECT log_id FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?))?;
+        let held: Option<String> =
+            self.with_of(&[session], |c| Ok(c.prepare_cached("SELECT log_id FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?))?;
         // A pending row holds no frame: the row takes the log's identity at its first frame, dirty from there on, so a process
         // that ends after it leaves a session the boot reconcile finishes (and this, on the next run, leaves alone).
         let pending = match held.as_deref() {
@@ -3701,6 +4782,24 @@ impl SqliteStore {
     }
 }
 
+/// The rows of a rewritten session rebuilt from its log ([`SqliteStore::reproject`]): its rows purged, its hole recorded
+/// with the first of them, its log read here and replayed by the writer, then its row, with which the hole goes.
+#[allow(clippy::disallowed_methods, reason = "blocking by contract: runs inside a read lane job")]
+fn replay_rewritten(sender: &mpsc::Sender<Command>, rewrite: &Rewritten) -> Result<(), String> {
+    let Rewritten { data, session, dirty } = rewrite;
+    let to = ToWriter { sender, session };
+    to.send(RepairWork::Purge { session: session.clone(), started: false })?;
+    #[cfg(test)]
+    reconcile_seam::wait_in_rebuild(data);
+    let dir = data.join("sessions").join(session);
+    let mut fold = None;
+    let damage = project_session(&mut Streaming { to, start: None }, &dir, &crate::blobs::BlobStore::new(data), &mut fold, None)?
+        .err()
+        .map(|(error, at)| damage_text(&dir, at, &error));
+    let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
+    to.send(RepairWork::Finish(Box::new(Finish { session: session.clone(), head, damage, dirty: *dirty, recovery: false, replaced: true, viewing: false })))
+}
+
 /// The repairs a start owes (RL §9.2 rule 5), on their own thread: one session at a time, in the order the gate gives
 /// them, each settled as it ends so the accesses that wait for it go on while the rest are repaired.
 fn repair_owed(repairer: &gate::Repairer, data: &Path) {
@@ -3708,14 +4807,26 @@ fn repair_owed(repairer: &gate::Repairer, data: &Path) {
     while let Some((session, forced)) = repairer.next() {
         #[cfg(test)]
         reconcile_seam::wait_if_held(data, &session);
-        let outcome = match repair_session(repairer, data, &blobs, &session, forced) {
-            Ok(Some(outcome)) => outcome,
-            // The test seam: the process ended mid-repair. Dropping the repairer fails every access to what is pending.
-            Ok(None) => return,
-            Err(why) => gate::Repaired::Failed(format!("{session}: {why}")),
-        };
-        repairer.settle(&session, outcome);
+        if repair_and_settle(repairer, data, &blobs, &session, forced).is_none() {
+            // As a process ending there: nothing more is repaired, and what is pending stays so.
+            repairer.end();
+            return;
+        }
     }
+}
+
+/// [`repair_session`], then its outcome settled. `None`: the test seam ended the process mid-repair; dropping the repairer
+/// fails every access to what is pending.
+fn repair_and_settle(repairer: &gate::Repairer, data: &Path, blobs: &crate::blobs::BlobStore, session: &str, forced: bool) -> Option<()> {
+    let outcome = match repair_session(repairer, data, blobs, session, forced) {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => return None,
+        Err(why) => gate::Repaired::Failed(format!("{session}: {why}")),
+    };
+    #[cfg(test)]
+    reconcile_seam::wait_before_settle(data, session);
+    repairer.settle(session, outcome);
+    Some(())
 }
 
 /// The repair of one session: its log projected from the index's cursor on, then its row, written clean; rebuilt from its
@@ -3735,33 +4846,85 @@ fn repair_session(
     }
     let dir = data.join("sessions").join(session);
     let holed = pool.with(|c| Ok(c.prepare_cached("SELECT 1 FROM meta WHERE key = ?1")?.exists([hole_key(session)])?)).map_err(|e| e.to_string())?;
-    if !holed && !dir.is_dir() {
+    let owed_rebuild =
+        !holed && pool.with(|c| Ok(c.prepare_cached("SELECT 1 FROM meta WHERE key = ?1")?.exists([rebuild_key(session)])?)).map_err(|e| e.to_string())?;
+    if !holed && !owed_rebuild && !dir.is_dir() {
         return Ok(Some(gate::Repaired::Done));
     }
     #[cfg(test)]
-    if reconcile_seam::fails_here(data) {
+    if reconcile_seam::fails_here(data) || reconcile_seam::fails_session(data, session) {
         return Err("the test seam failed the index write".to_owned());
     }
-    let stopped = || "the index writer stopped".to_owned();
-    if holed {
-        // Its rows hold frames past its cursor, or a rebuild of them was cut off (its row is then gone, or clean with
-        // its frames not yet in): they are not continued from the cursor, but rebuilt from the log.
-        let (ack, done) = mpsc::channel();
-        let rewrite = Rewritten { data: data.to_path_buf(), session: session.to_owned(), dirty: DirtyMark::Clear };
-        sender.send(Command::Refold { rewrite, ack }).map_err(|_| stopped())?;
-        done.recv().map_err(|_| stopped())?.map_err(|e| e.to_string())?;
+    let to = ToWriter { sender, session };
+    if !dir.is_dir() {
+        // A session owed its rows whose folder went meanwhile: nothing is left to rebuild them from.
+        to.send(RepairWork::Forget { session: session.to_owned() })?;
         return Ok(Some(gate::Repaired::Done));
     }
-    let from = pool.with(|c| projected_on(c, session)).map_err(|e| e.to_string())?;
     let mut fold = None;
-    let mut to = ToWriter(sender);
-    let damage = project_session(&mut to, &dir, blobs, &mut fold, from)?.err().map(|(error, at)| damage_text(&dir, at, &error));
+    let mut collecting = None;
+    let read = if holed {
+        // Its rows hold frames past its cursor, or a rebuild of them was cut off (its row is then gone, or dirty with
+        // part of its frames in): they are not continued from the cursor. They go, the hole kept, and the log is replayed
+        // from its first frame, read here and applied by the writer a transaction at a time.
+        to.send(RepairWork::Purge { session: session.to_owned(), started: false })?;
+        #[cfg(test)]
+        reconcile_seam::wait_in_rebuild(data);
+        project_session(&mut Streaming { to, start: None }, &dir, blobs, &mut fold, None)?
+    } else if owed_rebuild {
+        // No row yet: the log is read whole for one transaction shared with the other repairs', or past its size the row
+        // is written dirty at the log's first frame and the frames follow.
+        let collected = collecting.insert(Collecting { to, start: None, session: session.to_owned(), frames: Vec::new(), spilled: false });
+        project_session(collected, &dir, blobs, &mut fold, None)?
+    } else {
+        let from = pool.with(|c| projected_on(c, session)).map_err(|e| e.to_string())?;
+        let mut to = to;
+        project_session(&mut to, &dir, blobs, &mut fold, from)?
+    };
+    let damage = read.err().map(|(error, at)| damage_text(&dir, at, &error));
     #[cfg(test)]
     if reconcile_seam::ends_here(data) {
         return Ok(None);
     }
     let head = fold.as_ref().map_or_else(|| unreadable_head(session), CatalogHead::of);
-    to.send(session, Vec::new(), Some((head, damage)))?;
+    let finish = |head, damage| Finish { session: session.to_owned(), head, damage, dirty: DirtyMark::Clear, recovery: true, replaced: holed, viewing: false };
+    if let Some(mut collected) = collecting {
+        // A fork's row waits for its base's view: it goes the way below, which computes the view once the base is in.
+        if !collected.spilled && head.base_session.is_none() {
+            to.send(RepairWork::Replay(Box::new(Replay {
+                session: session.to_owned(),
+                frames_session: std::mem::take(&mut collected.session),
+                start: collected.start.take(),
+                frames: std::mem::take(&mut collected.frames),
+                next: 0,
+                part: 0,
+                finish: Some(finish(head, damage)),
+                split: false,
+                partial: false,
+            })))?;
+            return Ok(Some(gate::Repaired::Done));
+        }
+        collected.spill()?;
+    }
+    // A fork is not ready before the base it reads: a base owed a repair too (a rebuild owes every session) is repaired
+    // first, by this thread when no other holds it. A base that failed fails the fork, and one held for its rewrite holds
+    // the fork until it is released.
+    if let Some(base) = head.base_session.as_deref() {
+        loop {
+            match repairer.take_or_wait(base, session) {
+                gate::Base::Take(forced) => {
+                    if repair_and_settle(repairer, data, blobs, base, forced).is_none() {
+                        return Ok(None);
+                    }
+                }
+                gate::Base::Ready => break,
+                gate::Base::Held => return Ok(Some(gate::Repaired::LeftFor(base.to_owned()))),
+                gate::Base::Failed(why) => return Err(format!("its base {base} was not recovered ({why})")),
+                gate::Base::Stopped => return Err("the index writer stopped".to_owned()),
+            }
+        }
+    }
+    to.send(RepairWork::Finish(Box::new(finish(head, damage))))?;
     Ok(Some(gate::Repaired::Done))
 }
 
@@ -3954,23 +5117,19 @@ fn now_ms() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
-/// `frames` in transactions of at most `APPEND_ROWS` rows.
+/// `frames` into a connection no serving core writes through (the migration's projector, a store before it serves), each
+/// transaction one step of [`apply_frames`]. The serving writer applies one such step a dispatch ([`Writer::replay_part`]),
+/// and looks at its queue between two.
 fn apply_all(conn: &mut Connection, session: &str, frames: &[ProjectedFrame]) -> rusqlite::Result<()> {
-    let mut i = 0;
-    while i < frames.len() {
+    let (mut next, mut part) = (0, 0);
+    loop {
         let tx = conn.transaction()?;
-        let mut rows = 0;
-        while i < frames.len() && rows < APPEND_ROWS {
-            let (used, complete) = apply_frame(&tx, session, &frames[i], APPEND_ROWS - rows, APPEND_ROWS)?;
-            rows += used;
-            if !complete {
-                break;
-            }
-            i += 1;
-        }
+        let done = apply_frames(&tx, session, frames, &mut next, &mut part, &mut Budget::new(APPEND_ROWS))?;
         tx.commit()?;
+        if done {
+            return Ok(());
+        }
     }
-    Ok(())
 }
 
 /// One compaction divider of the display history.
@@ -4016,36 +5175,111 @@ fn entry_switches(c: &Connection, lineage: &[LineageLevel], home: usize, ordinal
 }
 
 fn dividers_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, level: usize, from: u64, to: u64) -> Result<Vec<Divider>, DbError> {
+    // A divider sits at its compaction's own record (`archive_index::divider_place`): those of `level` in `[from, to)`
+    // are that level's compactions there, which the query bounds, so a window asks for no compaction outside it.
+    let Some(home) = lineage.get(level) else { return Ok(Vec::new()) };
+    let asof = home.end.map_or(i64::MAX, clamp_i64);
+    let to = clamp_i64(to).min(crate::archive_index::level_bound(lineage, cut, level));
+    let mut stmt = c.prepare_cached(
+        "SELECT ordinal, file_no, frame_offset, frame_len, cid, at FROM compactions
+         WHERE session = ?1 AND ordinal >= ?3 AND ordinal < ?4 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)
+         ORDER BY ordinal",
+    )?;
+    let found = stmt
+        .query_map(params![home.session, asof, clamp_i64(from), to], |r| {
+            Ok((r.get::<_, i64>(0)?, (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?), r.get::<_, String>(4)?, r.get::<_, Option<i64>>(5)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
     let mut out = Vec::new();
-    for (i, home) in lineage.iter().enumerate() {
-        let asof = home.end.map_or(i64::MAX, clamp_i64);
-        let mut stmt = c.prepare_cached(
-            "SELECT ordinal, file_no, frame_offset, frame_len, cid, at FROM compactions
-             WHERE session = ?1 AND ordinal < ?3 AND silent = 0 AND (superseded_rev IS NULL OR superseded_rev >= ?2)",
-        )?;
-        let found = stmt
-            .query_map(params![home.session, asof, crate::archive_index::level_bound(lineage, cut, i)], |r| {
-                Ok((r.get::<_, i64>(0)?, (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?), r.get::<_, String>(4)?, r.get::<_, Option<i64>>(5)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        for (ordinal, (file_no, offset, len), cid, at) in found {
-            let place = crate::archive_index::divider_place(i, ordinal as u64);
-            if place.0 == level && place.1 >= from && place.1 < to {
-                out.push(Divider {
-                    session: home.session.clone(),
-                    cid,
-                    pos: FramePos { ordinal: ordinal as u64, file_no, offset: offset as u64 },
-                    frame_len: len as u64,
-                    level: place.0,
-                    boundary: place.1,
-                    at,
-                    model_switches: entry_switches(c, lineage, i, ordinal)?,
-                });
+    for (ordinal, (file_no, offset, len), cid, at) in found {
+        let place = crate::archive_index::divider_place(level, ordinal as u64);
+        out.push(Divider {
+            session: home.session.clone(),
+            cid,
+            pos: FramePos { ordinal: ordinal as u64, file_no, offset: offset as u64 },
+            frame_len: len as u64,
+            level: place.0,
+            boundary: place.1,
+            at,
+            model_switches: entry_switches(c, lineage, level, ordinal)?,
+        });
+    }
+    Ok(out)
+}
+
+/// For each `(level, turn)`: whether a compaction took a model message of the turn out of the context, and whether one of
+/// its messages is left, over every message of the turn the reader of `lineage` sees. A page shows a turn's end as the
+/// whole history does, whichever of the turn's messages it holds itself.
+///
+/// The turn's messages are found by the turn (`history_turn`) in each level the reader sees, as the whole history keys
+/// them: the lookup costs the turn's own messages, wherever in its log they lie and whatever ran before them. It ends
+/// at the first message left: the answer is decided then.
+fn turn_messages_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, turns: &[String]) -> Result<Vec<(bool, bool)>, DbError> {
+    let mut compactions = crate::archive_index::Compactions::new(c, lineage, cut);
+    let mut out = Vec::with_capacity(turns.len());
+    for turn in turns {
+        let (mut gone, mut left) = (false, false);
+        for (level, home) in lineage.iter().enumerate() {
+            let (before, floor) = level_bounds(lineage, cut, level, u64::MAX);
+            let mut stmt = c.prepare_cached(TURN_MESSAGES_SQL)?;
+            let mut rows = stmt.query(params![home.session, clamp_i64(before), floor, turn])?;
+            while let Some(r) = rows.next()? {
+                let (ordinal, iid): (i64, String) = (r.get(0)?, r.get(1)?);
+                let facets = r.get::<_, Option<String>>(3)?.and_then(|f| serde_json::from_str::<crate::message_facets::Facets>(&f).ok());
+                let archived = match facets {
+                    Some(facets) if r.get::<_, i64>(2)? != 1 => compactions.verdict(level, ordinal as u64, &iid, &facets)?.archived,
+                    _ => false,
+                };
+                gone |= archived;
+                left |= !archived;
+                if left {
+                    break;
+                }
+            }
+            if left {
+                break;
             }
         }
+        out.push((gone, left));
     }
-    out.sort_by_key(|d| (d.boundary, d.pos.ordinal));
     Ok(out)
+}
+
+/// `read` with the steps of every statement it runs on `c` counted for the reader's session
+/// ([`read_count::take_steps`](crate::read_count::take_steps)): what a read costs its index, whichever statements serve
+/// it, as the connection itself reports them.
+#[cfg(any(test, feature = "test-support"))]
+fn counted<T>(c: &Connection, lineage: &[LineageLevel], read: impl FnOnce(&Connection) -> T) -> T {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering::Relaxed;
+
+    unsafe extern "C" fn step(steps: *mut std::ffi::c_void) -> std::ffi::c_int {
+        // SAFETY: `steps` is the counter registered with this handler, which lives until the handler is removed.
+        unsafe { &*steps.cast::<AtomicU64>() }.fetch_add(1, Relaxed);
+        0
+    }
+    struct Removed<'a>(&'a Connection);
+    impl Drop for Removed<'_> {
+        fn drop(&mut self) {
+            // SAFETY: the handle is this open connection's; a progress handler may be removed at any time.
+            unsafe { rusqlite::ffi::sqlite3_progress_handler(self.0.handle(), 0, None, std::ptr::null_mut()) };
+        }
+    }
+    let steps = AtomicU64::new(0);
+    // SAFETY: the handle is this open connection's, used on this thread alone; SQLite calls `step` with the pointer given
+    // here, once per step of a statement's program, only inside the statements `read` runs, and `removed` takes the
+    // handler off before `steps` goes, on a panic too. No other progress handler is installed on a reader's connection.
+    unsafe { rusqlite::ffi::sqlite3_progress_handler(c.handle(), 1, Some(step), std::ptr::from_ref(&steps).cast_mut().cast()) };
+    let removed = Removed(c);
+    let out = read(c);
+    drop(removed);
+    crate::read_count::add_steps(&lineage[0].session, steps.load(Relaxed));
+    out
+}
+
+#[cfg(not(any(test, feature = "test-support")))]
+fn counted<T>(c: &Connection, _lineage: &[LineageLevel], read: impl FnOnce(&Connection) -> T) -> T {
+    read(c)
 }
 
 type Page = (Vec<HistoryRow>, Option<PageCursor>);
@@ -4081,11 +5315,14 @@ fn anchor_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, ids: &[
     }
     let rev: i64 = c.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
     let marks = (0..ids.len()).map(|i| format!("?{}", i + 4)).collect::<Vec<_>>().join(",");
+    // Both by the id: the index of `iid` is named and the alias table leads its join. Left to itself the planner walks
+    // the level's primary key below `?2`, every row of the level, for each of the two.
     let by_iid = format!(
-        "SELECT min(h.ordinal), count(*) FROM history h WHERE h.session = ?1 AND h.iid IN ({marks}) AND h.ordinal < ?2 AND h.visible = 1
+        "SELECT min(h.ordinal), count(*) FROM history h INDEXED BY history_iid
+         WHERE h.session = ?1 AND h.iid IN ({marks}) AND h.ordinal < ?2 AND h.visible = 1
          AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)"
     );
-    let by_alias = "SELECT min(h.ordinal), count(*) FROM history_alias a JOIN history h ON h.session = a.session AND h.ordinal = a.ordinal
+    let by_alias = "SELECT min(h.ordinal), count(*) FROM history_alias a CROSS JOIN history h ON h.session = a.session AND h.ordinal = a.ordinal
          WHERE a.session = ?1 AND a.alias = ?4 AND h.ordinal < ?2 AND h.visible = 1
          AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)";
     let (mut found, mut named) = (None, 0u64);
@@ -4116,7 +5353,8 @@ fn kept_copies(c: &Connection, session: &str, iid: &str, ordinal: u64, floor: i6
             idx: k.get(4)?,
         })
     })?;
-    Ok(found.collect::<Result<_, _>>()?)
+    let found = found.collect::<Result<_, _>>()?;
+    Ok(found)
 }
 
 /// The model-switch boundaries anchored on the row: its own log's and each later level's up to its fork point, oldest level first.
@@ -4217,6 +5455,7 @@ fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: O
             cur.before = row.ordinal;
             out.push(row);
         }
+        drop(rows);
         if full {
             break;
         }
@@ -4229,23 +5468,92 @@ fn page_on(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>, cursor: O
     Ok((out, next))
 }
 
+fn history_rev_on(c: &Connection, lineage: &[LineageLevel]) -> rusqlite::Result<u64> {
+    let rev: i64 = c.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
+    Ok(rev as u64)
+}
+
+/// [`page_on`] from the other end: the rows from `cursor` on, oldest first (the deepest level is the oldest), under the
+/// same row and byte limits.
+fn page_after_on(
+    c: &Connection,
+    lineage: &[LineageLevel],
+    cut: Option<u64>,
+    cursor: Option<AfterCursor>,
+    limit: usize,
+) -> Result<(Vec<HistoryRow>, Option<AfterCursor>), DbError> {
+    let rev = history_rev_on(c, lineage)?;
+    let mut cur = match cursor {
+        Some(c) if c.history_rev != rev => return Err(DbError::CursorStale),
+        Some(c) => c,
+        None => AfterCursor { history_rev: rev, level: lineage.len() - 1, from: 0 },
+    };
+    let mut out = Vec::new();
+    let mut bytes = 0u64;
+    let mut compactions = crate::archive_index::Compactions::new(c, lineage, cut);
+    let mut left = true;
+    while left && out.len() < limit {
+        let level = &lineage[cur.level];
+        let (before, floor) = level_bounds(lineage, cut, cur.level, u64::MAX);
+        let mut stmt = c.prepare_cached(PAGE_AFTER_SQL)?;
+        let want = (limit - out.len()) as i64;
+        let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
+        let mut rows = stmt.query(params![level.session, clamp(before), floor, want, clamp(cur.from)])?;
+        let mut got = 0;
+        let mut full = false;
+        while let Some(r) = rows.next()? {
+            got += 1;
+            #[cfg(any(test, feature = "test-support"))]
+            crate::read_count::add(&lineage[0].session, 1);
+            let frame_len = r.get::<_, i64>(7)? as u64;
+            let amend = match r.get::<_, Option<i64>>(8)? {
+                Some(o) => Some((FramePos { ordinal: o as u64, file_no: r.get(9)?, offset: r.get::<_, i64>(10)? as u64 }, r.get::<_, i64>(11)? as u64)),
+                None => None,
+            };
+            let cost = frame_len + amend.map_or(0, |(_, l)| l);
+            if !out.is_empty() && bytes + cost > PAGE_MAX_BYTES {
+                full = true;
+                break;
+            }
+            bytes += cost;
+            let row = history_row(c, lineage, cur.level, floor, &mut compactions, r, (frame_len, amend))?;
+            cur.from = row.ordinal + 1;
+            out.push(row);
+        }
+        drop(rows);
+        if full {
+            break;
+        }
+        if (got as i64) < want {
+            match cur.level.checked_sub(1) {
+                Some(newer) => (cur.level, cur.from) = (newer, 0),
+                None => left = false,
+            }
+        }
+    }
+    Ok((out, left.then_some(cur)))
+}
+
 /// The live replacement copies (oldest compaction first) of message `?2` written after its
-/// row at `?3`, as of `?4` (the fork point, else `i64::MAX`).
-pub(crate) const KEPT_SQL: &str = "SELECT c.ordinal, c.file_no, c.frame_offset, c.frame_len, m.idx FROM message_rows m
+/// row at `?3`, as of `?4` (the fork point, else `i64::MAX`). The index is named: left to itself the planner walks the
+/// primary key from `?3` to the session's end, every message row every later compaction kept, for each history row.
+pub(crate) const KEPT_SQL: &str = "SELECT c.ordinal, c.file_no, c.frame_offset, c.frame_len, m.idx
+     FROM message_rows m INDEXED BY message_rows_iid
      JOIN compactions c ON c.session = m.session AND c.ordinal = m.ordinal
      WHERE m.session = ?1 AND m.iid = ?2 AND m.ordinal > ?3 AND m.ordinal < ?4 AND m.ver = m.ordinal
        AND (m.superseded_rev IS NULL OR m.superseded_rev >= ?4)
        AND (c.superseded_rev IS NULL OR c.superseded_rev >= ?4) ORDER BY m.ordinal";
 
 /// The model-switch boundaries in session `?1`'s log below `?4` anchored on row `?2` with
-/// iid `?3`, in record order.
-pub(crate) const MODEL_SWITCHES_SQL: &str = "SELECT provider, model_id, at FROM model_switches
+/// iid `?3`, in record order. The anchor's index is named, here and below: the planner otherwise walks every switch of
+/// the session below `?4`, for each row asked about.
+pub(crate) const MODEL_SWITCHES_SQL: &str = "SELECT provider, model_id, at FROM model_switches INDEXED BY model_switches_anchor
      WHERE session = ?1 AND anchor_ordinal = ?2 AND anchor_iid = ?3 AND ordinal < ?4 ORDER BY ordinal";
 
 /// The model-switch boundaries in session `?1`'s log below `?4` anchored on a replacement
 /// entry of session `?3`'s `compacted` frame at `?2`, with the entry's position.
 pub(crate) const ENTRY_SWITCHES_SQL: &str = "SELECT min(m.idx), s.ordinal, s.provider, s.model_id, s.at
-     FROM model_switches s JOIN message_rows m ON m.session = ?3 AND m.ordinal = s.anchor_ordinal
+     FROM model_switches s INDEXED BY model_switches_anchor JOIN message_rows m ON m.session = ?3 AND m.ordinal = s.anchor_ordinal
        AND m.iid = s.anchor_iid
      WHERE s.session = ?1 AND s.anchor_ordinal = ?2 AND s.ordinal < ?4 GROUP BY s.ordinal";
 
@@ -4257,6 +5565,21 @@ pub(crate) const PAGE_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.mo
      WHERE h.session = ?1 AND h.ordinal < ?2 AND h.visible = 1
        AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
      ORDER BY h.ordinal DESC LIMIT ?4";
+
+/// The visible model rows of turn `?4` below `?2` of a level, live for the reader at `?3`. The index is named: it is the
+/// one whose cost is the turn's rows, and a plan over the level's rows is the cost this statement must never have.
+pub(crate) const TURN_MESSAGES_SQL: &str = "SELECT h.ordinal, h.iid, h.form, h.facets FROM history h INDEXED BY history_turn
+     WHERE h.session = ?1 AND h.turn = ?4 AND h.ordinal < ?2 AND h.model = 1 AND h.visible = 1
+       AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)";
+
+/// [`PAGE_SQL`] the other way: the level's visible rows from `?5` on, oldest first.
+pub(crate) const PAGE_AFTER_SQL: &str = "SELECT h.ordinal, h.iid, h.turn, h.form, h.model, h.file_no, h.frame_offset, h.frame_len,
+       a.ordinal, a.file_no, a.frame_offset, a.frame_len,
+       h.facets
+     FROM history h LEFT JOIN amends a ON a.session = h.session AND a.ordinal = h.amend_ordinal
+     WHERE h.session = ?1 AND h.ordinal < ?2 AND h.ordinal >= ?5 AND h.visible = 1
+       AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)
+     ORDER BY h.ordinal ASC LIMIT ?4";
 
 pub(crate) const PROJECTED_SQL: &str = "SELECT projected_ordinal, projected_file_no, projected_offset FROM sessions WHERE id = ?1";
 
@@ -4426,7 +5749,7 @@ impl ReadPool {
 
 impl LineageIndex for SqliteStore {
     fn live_rows(&self, session: &str, from: u64, to: u64) -> Result<(u64, u64), LookupError> {
-        self.shared.gate.with_of(&[session], |c| {
+        self.with_of(&[session], |c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < to {
                 return Ok(Err(LookupError::Behind { projected, needed: to }));
@@ -4438,7 +5761,7 @@ impl LineageIndex for SqliteStore {
     }
 
     fn live_compaction_before(&self, session: &str, before: u64) -> Result<Option<FramePos>, LookupError> {
-        self.shared.gate.with_of(&[session], |c| {
+        self.with_of(&[session], |c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < before {
                 return Ok(Err(LookupError::Behind { projected, needed: before }));

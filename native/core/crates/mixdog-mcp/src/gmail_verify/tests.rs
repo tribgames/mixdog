@@ -329,10 +329,7 @@ async fn smtp_535_is_rejected_and_534_is_unavailable() {
     let rig = rig(Imap::gmail(), smtp, quick()).await;
     assert_eq!(
         rig.verifier.check(EMAIL, SECRET).await.unwrap_err(),
-        replied(
-            "REJECTED",
-            "535-5.7.8 Username and Password not accepted. For more information, go to https://support.google.com/mail/ abc - gsmtp"
-        )
+        replied("REJECTED", "535-5.7.8 Username and Password not accepted. For more information, go to https://support.google.com/mail/ abc - gsmtp")
     );
 
     let mut smtp = Smtp::gmail();
@@ -363,10 +360,7 @@ async fn a_wrapped_sign_in_link_in_a_refusal_keeps_its_address_and_loses_its_who
     smtp.auth = wrapped_link("534");
     let rig = rig(Imap::gmail(), smtp, quick()).await;
     let text = rig.verifier.check(EMAIL, SECRET).await.unwrap_err();
-    assert_eq!(
-        text,
-        replied("UNAVAILABLE", "534-5.7.14 <https://accounts.google.com/signin/continue> Please log in via your web browser and then try again.")
-    );
+    assert_eq!(text, replied("UNAVAILABLE", "534-5.7.14 <https://accounts.google.com/signin/continue> Please log in via your web browser and then try again."));
     assert!(!leaks_token(&text), "{text}");
 }
 

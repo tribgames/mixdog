@@ -369,6 +369,24 @@ struct Inner {
     /// Woken after every row change, for [`JobBoard::wait_terminal`].
     changed: tokio::sync::Notify,
     state: Mutex<State>,
+    /// The completions handed to the notifier that it has not taken yet, as (session, task id). Locked under `state`.
+    /// A row can be pruned while its completion is still on its way to the owner.
+    delivering: Mutex<Vec<(String, String)>>,
+}
+
+/// One entry of `Inner::delivering`, taken out when the notifier took the completion (or its task ended without).
+struct Delivering {
+    inner: Arc<Inner>,
+    entry: (String, String),
+}
+
+impl Drop for Delivering {
+    fn drop(&mut self) {
+        let mut delivering = self.inner.delivering.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(at) = delivering.iter().position(|entry| *entry == self.entry) {
+            delivering.swap_remove(at);
+        }
+    }
 }
 
 /// Effects of an operation, run after the lock is released.
@@ -398,6 +416,7 @@ impl JobBoard {
                 error_text: OnceLock::new(),
                 changed: tokio::sync::Notify::new(),
                 state: Mutex::new(State::default()),
+                delivering: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -456,8 +475,10 @@ impl JobBoard {
             }
         }
         for out in effects.send {
+            let delivering = Delivering { inner: self.inner.clone(), entry: (out.session.clone(), out.task_id.clone()) };
             let Some(notifier) = self.inner.notifier.clone() else { continue };
             drop(mixdog_rt::spawn("agent-job-notify", TaskClass::Work, async move {
+                let _delivering = delivering;
                 notifier.finished_at_hop(&ThreadId::from(out.session.as_str()), "agent", &out.task_id, &out.status, out.text, out.hop).await;
             }));
         }
@@ -616,6 +637,19 @@ impl JobBoard {
         state.tasks.iter().filter(|t| matches_scope(t, scope, true)).map(Self::snapshot).collect()
     }
 
+    /// The task ids of the jobs on the board whose completion `session_id` can still be told: its own and those that
+    /// notify it, running or finished, and those whose completion is on its way to it: the notifier is handed a
+    /// completion from a task of its own, and the job's row can be pruned before the owner has it. Whoever lets go of what
+    /// is not listed here must first take in everything the notifier was given before the listing (a session reads the
+    /// answer from the inbox its completions arrive in). A job that left the board otherwise is announced to nobody.
+    pub fn held_by(&self, session_id: &str) -> Vec<String> {
+        let holds = |held: &Option<String>| held.as_deref() == Some(session_id);
+        let state = self.lock();
+        let delivering = self.inner.delivering.lock().unwrap_or_else(|p| p.into_inner());
+        let sent = delivering.iter().filter(|(session, _)| session == session_id).map(|(_, task)| task.clone());
+        state.tasks.iter().filter(|t| holds(&t.notify_session) || holds(&t.session_id)).map(|t| t.task_id.clone()).chain(sent).collect()
+    }
+
     /// `hasActiveBackgroundTasks({ callerSessionId, surface: 'agent' })`: a job the session
     /// started (its caller, else its owner) is still running. A job with no session is nobody's.
     pub fn has_running(&self, session_id: &str) -> bool {
@@ -730,6 +764,7 @@ impl JobBoard {
             return false;
         }
         let (Some(session), Some(_)) = (task.notify_session.clone(), &self.inner.notifier) else { return false };
+        self.inner.delivering.lock().unwrap_or_else(|p| p.into_inner()).push((session.clone(), task.task_id.clone()));
         effects.send.push(Outgoing { session, task_id: task.task_id.clone(), status: task.status.clone(), text: notification_of(task), hop: task.hop });
         task.notified = true;
         task.notified_with_body |= has_body;

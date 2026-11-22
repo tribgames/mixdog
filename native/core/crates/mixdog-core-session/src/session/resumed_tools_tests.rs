@@ -21,7 +21,8 @@ async fn a_stored_thread_opened_for_use_takes_its_refreshed_tools() {
     first.shutdown().await;
 
     let refreshed = json!({ "toolSpec": "mcp", "tools": [{ "name": "read" }] });
-    *lock(&rig.resumed.change) = Some(HeaderChange { set: refreshed.as_object().unwrap().clone(), unset: vec!["toolExposureMode".into()] });
+    *lock(&rig.resumed.change) =
+        Some(HeaderChange { set: refreshed.as_object().unwrap().clone(), unset: vec!["toolExposureMode".into()], patch: Default::default() });
     let second = SessionDirectory::new(rig.deps());
     let opened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
     assert_eq!(*lock(&rig.resumed.asked), [id.as_str().to_owned()]);

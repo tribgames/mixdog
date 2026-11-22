@@ -120,6 +120,76 @@ impl ServingIndex for ServingProjector {
     }
 }
 
+/// The product's retention as the migration asks it about a session before converting it: the sub-agent rule's own verdict
+/// ([`mixdog_core_session::session::sub_agent_retention::deleted_before_conversion`]), and the product's purge for a session it
+/// removes. Bound to the core's index and directory once the core is composed, which is before any session is judged.
+pub struct ProductRetention {
+    core: OnceLock<(Arc<mixdog_store::sqlite::SqliteStore>, Arc<mixdog_core_session::session::SessionDirectory>)>,
+    runtime: tokio::runtime::Handle,
+    data: std::path::PathBuf,
+}
+
+impl mixdog_migrate::framework::Retention for ProductRetention {
+    fn now_ms(&self) -> u64 {
+        mixdog_core_session::session::sub_agent_retention::now_ms() as u64
+    }
+
+    fn fields(&self) -> Vec<String> {
+        mixdog_core_session::session::sub_agent_retention::judged_fields().into_iter().map(str::to_owned).collect()
+    }
+
+    fn candidate(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> bool {
+        mixdog_core_session::session::sub_agent_retention::member(session, header).is_some()
+    }
+
+    fn expired(
+        &self,
+        sessions: &std::collections::BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+        held: &std::collections::BTreeSet<String>,
+        now_ms: u64,
+    ) -> std::collections::BTreeSet<String> {
+        // Before the core's sessions are bound nothing is known of the archive authority: nothing is trusted, nothing expires.
+        let directory = self.core.get().map(|(_, directory)| directory);
+        let archive = |id: &str, header: &serde_json::Map<String, serde_json::Value>| match directory {
+            Some(directory) => (directory.archive_resolved(id, header), directory.archive_state(id, header).trusted()),
+            None => (header.clone(), false),
+        };
+        mixdog_core_session::session::sub_agent_retention::deleted_before_conversion(sessions, held, &archive, now_ms as f64)
+    }
+
+    fn unlisted(&self, sessions: &[String]) {
+        let Some((index, _)) = self.core.get() else { return };
+        let listed = match self.runtime.block_on(index.pending_sessions(&self.data)) {
+            Ok(listed) => listed,
+            Err(error) => {
+                tracing::warn!(%error, "the rows of sessions removed unconverted could not be read; they are withdrawn when the migration completes");
+                return;
+            }
+        };
+        for session in listed.iter().filter(|session| sessions.contains(session)) {
+            if let Err(error) = self.runtime.block_on(index.mark_deleted(session)) {
+                tracing::warn!(%error, session, "the row of a session removed unconverted could not be withdrawn yet");
+            }
+        }
+    }
+
+    fn purge(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+        let (_, directory) = self.core.get().ok_or("the core's sessions are not bound")?;
+        self.runtime.block_on(directory.purge_unconverted(session, header));
+        Ok(())
+    }
+}
+
+/// Runs what the front left, and tells `completed` when, and only when, it ran to the completion marker: what must not act on
+/// sessions half converted (retention) starts there, and a run that ends early leaves it to the start that resumes it.
+fn finish(back: Back, completed: impl FnOnce()) -> Result<mixdog_store::schema::migration::Complete, mixdog_migrate::error::Blocked> {
+    let outcome = back.run();
+    if outcome.is_ok() {
+        completed();
+    }
+    outcome
+}
+
 /// What the migration left for after the core serves ([`mixdog_migrate::run::Back`]): the sessions of the earlier version, converted one by one behind the serving core, each
 /// listed as soon as it is verified. Nobody waits for it: a person's first start after the update opens on the settings, the projects and the stores alone.
 pub struct Behind {
@@ -129,6 +199,7 @@ pub struct Behind {
     pool: Arc<ExtHostPool>,
     runtime: tokio::runtime::Handle,
     projector: Arc<ServingProjector>,
+    retention: Arc<ProductRetention>,
     /// Set when the core stops: the conversion ends at its next step, as a kill would end it, and the next start resumes it.
     stopped: Arc<AtomicBool>,
     /// What the earlier version listed of its sessions (`mixdog_migrate::session::listed`), read before the core composed.
@@ -246,14 +317,18 @@ impl Behind {
         clippy::disallowed_methods,
         reason = "the migration's own thread (RL §13): it blocks on files and on the index writer for as long as the sessions take"
     )]
+    /// `completed` runs on that thread once the conversion has run to its completion marker, never when it ends early.
     pub fn run(
         self,
         index: Arc<mixdog_store::sqlite::SqliteStore>,
+        directory: Arc<mixdog_core_session::session::SessionDirectory>,
         stop: mixdog_rt::CancellationToken,
         report: impl Fn(&str) + Send + 'static,
+        completed: impl FnOnce() + Send + 'static,
     ) -> std::io::Result<()> {
-        let Behind { back, pool, runtime, projector, stopped, data, .. } = self;
+        let Behind { back, pool, runtime, projector, retention, stopped, data, .. } = self;
         let _ = projector.index.set(index.clone());
+        let _ = retention.core.set((index.clone(), directory));
         drop(mixdog_rt::spawn("migration-stop", mixdog_rt::TaskClass::Work, async move {
             stop.cancelled().await;
             stopped.store(true, Ordering::SeqCst);
@@ -263,7 +338,7 @@ impl Behind {
             let _entered = runtime.enter();
             let began = std::time::Instant::now();
             report(&format!("migration: converting {sessions} sessions of the earlier version behind the serving core"));
-            let outcome = back.run();
+            let outcome = finish(back, completed);
             runtime.block_on(pool.close());
             let seconds = began.elapsed().as_secs();
             match outcome {
@@ -298,7 +373,9 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                 let projector = Arc::new(ServingProjector::default());
                 let stopped = Arc::new(AtomicBool::new(false));
                 let data = roots.data.clone();
+                let retention = Arc::new(ProductRetention { core: OnceLock::new(), runtime: runtime.clone(), data: data.clone() });
                 let options = MigrateOptions {
+                    retention: Some(retention.clone()),
                     // Half the machine: the sessions are listed sooner than the one-shot run's four converters would list them, and the serving core keeps the other half.
                     workers: std::thread::available_parallelism().map_or(4, usize::from).div_ceil(2).clamp(4, 12),
                     fault: Some({
@@ -328,7 +405,7 @@ fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtim
                             }
                         };
                         let listed = mixdog_migrate::session::listed::rows(&data);
-                        Ok(Some(Behind { back, legacy_homes, pool, runtime: runtime.clone(), projector, stopped, listed, data }))
+                        Ok(Some(Behind { back, legacy_homes, pool, runtime: runtime.clone(), projector, retention, stopped, listed, data }))
                     }
                     Ok(Front::Complete(_)) => {
                         runtime.block_on(pool.close());
@@ -479,8 +556,8 @@ mod tests {
             self.root.path().join("data")
         }
 
-        /// Boots the migration the way `migrate_data` does, over an environment of this run alone plus `extra`.
-        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
+        /// The roots of this run, over an environment of this run alone plus `extra`.
+        fn roots(&self, extra: &[(&str, std::path::PathBuf)]) -> MigrationRoots {
             let home = self.root.path().join("home");
             let mut vars: Vec<(String, OsString)> = [
                 ("APPDATA", self.app_data()),
@@ -497,10 +574,190 @@ mod tests {
             .collect();
             vars.extend(extra.iter().map(|(name, path)| ((*name).to_owned(), path.clone().into_os_string())));
             let env = move |name: &str| vars.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
-            let roots = migration_roots(&self.data(), &env, Some(home)).unwrap();
+            migration_roots(&self.data(), &env, Some(home)).unwrap()
+        }
+
+        /// Boots the migration the way `migrate_data` does.
+        fn migrate(&self, extra: &[(&str, std::path::PathBuf)]) {
             let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
             let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
-            mixdog_migrate::run::cli::migrate(roots, Arc::new(StoreProjector), office).unwrap();
+            mixdog_migrate::run::cli::migrate(self.roots(extra), Arc::new(StoreProjector), office).unwrap();
         }
+
+        /// The front of a serving core's migration: what is left is the sessions.
+        fn front(&self, fault: Option<mixdog_migrate::framework::FaultHook>) -> (tokio::runtime::Runtime, Back) {
+            let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+            let back = self.front_on(&runtime, fault, None);
+            (runtime, back)
+        }
+
+        /// [`Self::front`] on `runtime`, with the retention the core gives the migration.
+        fn front_on(
+            &self,
+            runtime: &tokio::runtime::Runtime,
+            fault: Option<mixdog_migrate::framework::FaultHook>,
+            retention: Option<Arc<dyn mixdog_migrate::framework::Retention>>,
+        ) -> Back {
+            let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
+            let options = MigrateOptions { workers: 1, fault, verified: Some(Arc::new(|_| {})), retention };
+            match mixdog_migrate::run::cli::front(self.roots(&[]), Arc::new(StoreProjector), office, options).unwrap() {
+                Front::Pending(back) => back,
+                Front::Complete(_) => panic!("the sessions are left"),
+            }
+        }
+    }
+
+    /// The product's verdict and its purge of a session removed unconverted, the purge over the real file hooks
+    /// (`purge::FileHooks`, with the read state's file store): what `ProductRetention` does through the composed core, without
+    /// the owners that keep a session's state in memory.
+    struct FilePurge {
+        hooks: mixdog_core_session::session::delete::PurgeHooks,
+        runtime: tokio::runtime::Handle,
+    }
+
+    impl FilePurge {
+        fn new(runtime: &tokio::runtime::Runtime, data: &Path, mixdog_home: &Path) -> Arc<Self> {
+            use mixdog_core_session::session::delete::PurgeHook;
+            let _entered = runtime.enter();
+            let tokens = mixdog_rt::testing::tokens();
+            let snapshots = Arc::new(mixdog_core::run_host::read_snapshots::FileSnapshotPersist::new(data));
+            let read_state = Arc::new(mixdog_tools::fs::ReadState::new(Some(mixdog_tools::fs::Persistence::new(snapshots, tokens.durability_io))));
+            let files = mixdog_core_session::session::purge::FileHooks::new(mixdog_core_session::session::purge::FileOwners {
+                data_dir: data.to_path_buf(),
+                mixdog_home: mixdog_home.to_path_buf(),
+                maintenance: tokens.maintenance_io,
+                read_state,
+                ingest_offsets: None,
+                transcripts: None,
+            });
+            let none =
+                || -> Arc<dyn PurgeHook> { Arc::new(|_: &str, _: &[String]| -> futures::future::BoxFuture<'static, ()> { Box::pin(std::future::ready(())) }) };
+            let hooks = mixdog_core_session::session::delete::PurgeHooks::with_files(files, none(), none(), none(), none(), none());
+            Arc::new(Self { hooks, runtime: runtime.handle().clone() })
+        }
+    }
+
+    impl mixdog_migrate::framework::Retention for FilePurge {
+        fn now_ms(&self) -> u64 {
+            mixdog_core_session::session::sub_agent_retention::now_ms() as u64
+        }
+        fn fields(&self) -> Vec<String> {
+            mixdog_core_session::session::sub_agent_retention::judged_fields().into_iter().map(str::to_owned).collect()
+        }
+        fn candidate(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> bool {
+            mixdog_core_session::session::sub_agent_retention::member(session, header).is_some()
+        }
+        fn expired(
+            &self,
+            sessions: &std::collections::BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+            held: &std::collections::BTreeSet<String>,
+            now_ms: u64,
+        ) -> std::collections::BTreeSet<String> {
+            let trusted = |_: &str, header: &serde_json::Map<String, serde_json::Value>| (header.clone(), true);
+            mixdog_core_session::session::sub_agent_retention::deleted_before_conversion(sessions, held, &trusted, now_ms as f64)
+        }
+        fn unlisted(&self, _: &[String]) {}
+        fn purge(&self, session: &str, header: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+            let cwds: Vec<String> = header.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned).into_iter().collect();
+            self.runtime.block_on(async {
+                for hook in self.hooks.unconverted_hooks() {
+                    hook.purge(session, &cwds).await;
+                }
+            });
+            Ok(())
+        }
+    }
+
+    /// A worker the retention deletes is removed unconverted. The serving core's run that finishes the migration removes
+    /// its project transcript, its scratch folder and its read snapshot with its sources; a run without the core
+    /// (`mixdogd migrate`) finishes nothing of it and leaves all of them where they are.
+    #[test]
+    fn a_skipped_workers_transcript_scratch_and_read_snapshot_go_with_the_core_and_stay_without_it() {
+        for with_core in [true, false] {
+            let run = Isolated::new();
+            let now = mixdog_core_session::session::sub_agent_retention::now_ms() as u64;
+            let day = 24 * 60 * 60 * 1000;
+            let cwd = run.root.path().join("proj").to_string_lossy().into_owned();
+            let worker = serde_json::json!({
+                "id": "sess_worker", "agent": "worker", "visibility": "agent-only", "ownerSessionId": "sess_lead", "parentSessionId": "sess_lead",
+                "cwd": cwd, "lastUsedAt": now - 8 * day, "messages": [{ "role": "user", "content": "hi" }]
+            });
+            let kept = serde_json::json!({ "id": "sess_kept", "lastUsedAt": now - day, "messages": [{ "role": "user", "content": "hi" }] });
+            let source = run.data().join("sessions").join("sess_worker.json");
+            let mixdog_home = run.root.path().join("home").join(".mixdog");
+            let transcript = mixdog_home.join("projects").join(mixdog_core_session::session::purge::project_slug(&cwd)).join("sess_worker.jsonl");
+            let scratch = mixdog_tools::exec::session_scratch_dir(&run.data(), "sess_worker").unwrap().join("note.txt");
+            let snapshot = run.data().join("read-snapshots").join("sess_worker.json");
+            durable::publish_file(&source, worker.to_string().as_bytes()).unwrap();
+            durable::publish_file(&run.data().join("sessions").join("sess_kept.json"), kept.to_string().as_bytes()).unwrap();
+            for of_worker in [&transcript, &scratch, &snapshot] {
+                durable::publish_file(of_worker, b"{}").unwrap();
+            }
+            let left = || [&source, &transcript, &scratch, &snapshot].map(|path| path.exists());
+            let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+            let retention = FilePurge::new(&runtime, &run.data(), &mixdog_home);
+            // The core is stopped once every session is settled, before anything is disposed of.
+            let cut = "counts:before";
+            let stop: mixdog_migrate::framework::FaultHook =
+                Arc::new(move |point| if point == cut { Err(mixdog_migrate::error::Blocked::Interrupted { point: cut.into() }) } else { Ok(()) });
+            let back = run.front_on(&runtime, Some(stop), Some(retention.clone()));
+            assert!(finish(back, || {}).is_err(), "the run ends before disposal");
+            assert!(!run.data().join("sessions").join("sess_worker").exists(), "the worker is not converted");
+            assert_eq!(left(), [true; 4], "nothing of the worker is removed before disposal");
+
+            if with_core {
+                let back = run.front_on(&runtime, None, Some(retention));
+                finish(back, || {}).unwrap();
+                assert_eq!(left(), [false; 4], "the core finishes the skip: sources, transcript, scratch and read snapshot");
+            } else {
+                let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };
+                let refused = mixdog_migrate::run::cli::migrate(run.roots(&[]), Arc::new(StoreProjector), office).unwrap_err();
+                assert!(refused.to_string().contains("start the core"), "{refused}");
+                assert_eq!(left(), [true; 4], "a run without the core removes nothing of the worker");
+            }
+        }
+    }
+
+    /// Retention starts when the conversion has run to its completion marker. A conversion that ends with an old parent
+    /// converted and its recently used child still to convert does not start it: it would judge the parent's tree by the
+    /// parent alone. The start that resumes the conversion and completes it starts retention, once.
+    #[test]
+    fn retention_starts_when_the_conversion_completes_and_not_while_a_child_is_still_to_convert() {
+        let run = Isolated::new();
+        let now = mixdog_core_session::session::sub_agent_retention::now_ms() as u64;
+        let day = 24 * 60 * 60 * 1000;
+        let session = |id: &str, last_used: u64, parent: &str| {
+            let body = format!(
+                r#"{{"id":"{id}","agent":"worker","ownerSessionId":"{parent}","parentSessionId":"{parent}","lastUsedAt":{last_used},"messages":[{{"role":"user","content":"hi"}}]}}"#
+            );
+            let path = run.data().join("sessions").join(format!("{id}.json"));
+            durable::publish_file(&path, body.as_bytes()).unwrap();
+            path
+        };
+        session("sess_parent", now - 30 * day, "sess_lead");
+        let child = session("sess_child", now - day, "sess_parent");
+        // The sessions convert newest file first: the child's file is the older one, so the parent converts before it.
+        std::fs::File::options().write(true).open(&child).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600)).unwrap();
+        let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let start = || {
+            let started = started.clone();
+            move || {
+                started.fetch_add(1, Ordering::SeqCst);
+            }
+        };
+        let cut = "journal:sources:session/sess_child:before";
+        let stop: mixdog_migrate::framework::FaultHook =
+            Arc::new(move |point| if point == cut { Err(mixdog_migrate::error::Blocked::Interrupted { point: cut.into() }) } else { Ok(()) });
+
+        let (_runtime, back) = run.front(Some(stop));
+        assert!(finish(back, start()).is_err(), "the conversion ends at the child");
+        assert!(run.data().join("sessions/sess_parent").is_dir(), "the old parent is converted");
+        assert!(!run.data().join("sessions/sess_child").exists(), "its child is still to convert");
+        assert_eq!(started.load(Ordering::SeqCst), 0, "retention must not see the parent without its child");
+
+        let (_runtime, back) = run.front(None);
+        finish(back, start()).unwrap();
+        assert!(run.data().join("sessions/sess_child").is_dir());
+        assert_eq!(started.load(Ordering::SeqCst), 1);
     }
 }

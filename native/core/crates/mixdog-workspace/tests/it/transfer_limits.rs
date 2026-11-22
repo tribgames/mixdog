@@ -122,22 +122,39 @@ fn a_2_gib_file_streams_with_memory_independent_of_its_size() {
     }
     assert_eq!((offset, pages), (SIZE, SIZE / RANGE_MAX_BYTES));
     let peak = peak_working_set();
-    // The peak is the whole process's and counts whole OS pages, so sizes are rounded up to the largest page of the systems this runs on
-    // (on Apple silicon's 16 KiB the two pages below are 1196 OS pages, and the unrounded bound was 1194.67 of them).
+    // The peak is the whole process's and counts whole OS pages: one step of it is the largest page of the systems this runs on.
     const OS_PAGE: u64 = 64 * 1024;
-    let whole = |bytes: u64| bytes.div_ceil(OS_PAGE) * OS_PAGE;
     // Independent of the size, as far as the peak shows it: the 496 pages read after the peak settled raise the observed peak by at most
     // one rounding step. Memory kept per range shows here only once it makes the process touch pages it had not.
     let later = peak.saturating_sub(settled);
     assert!(later <= OS_PAGE, "peak working set grew {later} bytes over the {} pages read after it had settled", pages - SETTLING);
-    // And small: two pages of bytes plus their base64 text, each buffer whole, and no third page. The peak is the whole process's,
-    // so what else it touched while it settled (its allocator's own pages, a stack that grew, code first run) is counted with the
-    // buffers and cannot be told from them below the size of one: on the Apple silicon runner it came to 234 838 bytes beside the two
-    // pages' 19 573 418 (release gate run 44959677392), where one rounding step had been allowed for it. What the peak
-    // decides is whether a further buffer was held, and the smallest is a page of bytes.
+    // And small: two pages of bytes plus their base64 text, each buffer whole in the system's own pages, and for what else the
+    // process touched while it settled (its allocator's own pages, a stack that grew, code first run) as many of the system's pages
+    // as the 64 KiB allowed before are of 4 KiB. That allowance was 4 pages where a page is 16 KiB, and the Apple silicon runner
+    // touched 13 (212 992 bytes beside the two pages' 19 595 264; release gate run 44959677392).
+    const OTHER_PAGES: u64 = 16;
+    let system_page = system_page();
+    let in_pages = |bytes: u64| bytes.div_ceil(system_page) * system_page;
     let growth = peak.saturating_sub(baseline);
-    let two_pages = 2 * (whole(RANGE_MAX_BYTES) + whole(RANGE_MAX_BYTES * 4 / 3));
-    let bound = two_pages + whole(RANGE_MAX_BYTES);
-    assert!(growth < bound, "peak working set grew {growth} bytes over {pages} pages: two pages are {two_pages}, a third would make it {bound}");
-    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (two pages: {two_pages}), {later} of them after page {SETTLING}");
+    let two_pages = 2 * (in_pages(RANGE_MAX_BYTES) + in_pages(RANGE_MAX_BYTES * 4 / 3));
+    let bound = two_pages + OTHER_PAGES * system_page;
+    assert!(
+        growth <= bound,
+        "peak working set grew {growth} bytes over {pages} pages (bound {bound}: two pages' {two_pages} and {OTHER_PAGES} pages of {system_page})"
+    );
+    eprintln!("streamed {pages} pages of a 2 GiB file; peak working set grew {growth} bytes (bound {bound}), {later} of them after page {SETTLING}");
+}
+
+/// The size of a page of this system's memory.
+#[cfg(unix)]
+fn system_page() -> u64 {
+    // SAFETY: `sysconf` takes a name and returns a number.
+    let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    u64::try_from(size).expect("a page size")
+}
+
+/// The size of a page of this system's memory: 4 KiB on every Windows these tests run on (x64 and Arm64).
+#[cfg(windows)]
+fn system_page() -> u64 {
+    4096
 }

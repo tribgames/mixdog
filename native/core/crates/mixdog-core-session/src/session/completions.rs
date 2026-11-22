@@ -96,6 +96,20 @@ pub fn execution(entry: &Value) -> Option<Value> {
     entry.get("execution").filter(|e| e.is_object()).cloned()
 }
 
+/// `meta` (a row's `meta.transcript`) naming the card that stands for the completions `entries` deliver (`cardId`, the
+/// first one's): only when a card stands for every one of them, so the row they are stored as shows nothing beside it.
+pub fn card_meta(meta: Option<Value>, entries: &[Value]) -> Option<Value> {
+    let card = |entry: &Value| entry.get("cardId").and_then(Value::as_str).filter(|card| !card.is_empty()).map(str::to_owned);
+    let delivered: Vec<&Value> = entries.iter().filter(|entry| !mixdog_js::js_trim(&text(entry)).is_empty()).collect();
+    let cards: Vec<String> = delivered.iter().filter_map(|entry| card(entry)).collect();
+    if cards.is_empty() || cards.len() != delivered.len() {
+        return meta;
+    }
+    let mut meta = meta.filter(Value::is_object).unwrap_or_else(|| json!({}));
+    meta["cardId"] = Value::String(cards[0].clone());
+    Some(meta)
+}
+
 /// The input row of the turn a completion starts: stored as a task notification with its
 /// execution, never as the user speaking (`ask-queue.mjs` `tailTurnFor`/`queuedTurnInput`).
 pub fn input_row(entry: &Value) -> Value {
@@ -165,6 +179,9 @@ pub fn batch_row(entries: &[Value]) -> Value {
                 transcript.insert(key.to_owned(), value.clone());
             }
         }
+    }
+    if let Some(Value::Object(carded)) = card_meta(None, entries) {
+        transcript.extend(carded);
     }
     // Always, one entry included (`{ ...meta, consumedExecutionIds }` for every task-notification batch): the turn's input row then
     // carries `meta.transcript`, which the turn's assistant rows take their message id, time and route from (`TurnStamp::of`).

@@ -90,6 +90,10 @@ impl SessionActor {
             }
             return;
         }
+        // A Project move being carried out ends first, as a turn does ([`Self::project_moved`]).
+        if self.carrying() {
+            return;
+        }
         self.delete_turn_ended();
     }
 
@@ -111,7 +115,7 @@ impl SessionActor {
             self.retry_due |= self.outbox.awaits_retry();
             return;
         };
-        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new(), patch: Default::default() }) });
         self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(marked)]);
     }
 
@@ -180,9 +184,10 @@ impl SessionActor {
         self.quiet() && !self.session_busy() && self.cell.deferring.load(SeqCst) == 0 && !self.cell.retention.held()
     }
 
-    /// Work that ends by itself is still under way: a delete, a turn's settle, a start, a Goal check, the run.
+    /// Work that ends by itself is still under way: a delete, a turn's settle, a start, a Goal check, the run, a Project move
+    /// being carried out.
     pub(super) fn finishing(&self) -> bool {
-        self.deleting || self.settling || self.starting || self.goal_checking || self.run.is_some()
+        self.deleting || self.settling || self.starting || self.goal_checking || self.run.is_some() || self.carrying()
     }
 
     /// Answers the closes that wait ([`Ctl::Closed`]): the session has left memory, or it stays loaded.
@@ -193,10 +198,11 @@ impl SessionActor {
         }
     }
 
-    /// Nothing is live: not deleting or settling, no run, no queued input, no pending approval,
-    /// no feed subscriber.
+    /// Nothing is live: not deleting or settling, no run, no Project move being carried out, no queued input, no pending
+    /// approval, no feed subscriber.
     pub(super) fn quiet(&self) -> bool {
         !(self.deleting
+            || self.carrying()
             || self.settling
             || self.starting
             || self.goal_checking
@@ -317,7 +323,7 @@ impl SessionActor {
         if let Some(book) = self.deps.cache_tail.unsaved(self.id.as_str()) {
             let mut set = serde_json::Map::new();
             set.insert("cacheTailBook".to_owned(), book);
-            self.accept_header(Some(HeaderChange { set, unset: Vec::new() }));
+            self.accept_header(Some(HeaderChange { set, unset: Vec::new(), patch: Default::default() }));
         }
         if !self.outbox.is_empty() {
             self.unload_due = true;

@@ -60,7 +60,6 @@ use super::seams::ContextRead;
 use super::seams::ContextStep;
 use super::seams::EncodedRecord;
 use super::seams::HeadRead;
-use super::seams::HistoryBefore;
 use super::seams::OpenedLog;
 use super::seams::RecordCodec;
 use super::seams::SessionLog;
@@ -219,9 +218,27 @@ struct OwedRewrites {
     failed: std::sync::Mutex<std::collections::HashSet<String>>,
     done: std::sync::atomic::AtomicU64,
     total: std::sync::atomic::AtomicU64,
+    /// Told when a session is released or its rewrite failed ([`Self::settled`]).
+    changed: tokio::sync::Notify,
 }
 
 impl OwedRewrites {
+    /// Resolves once `session` is no longer held for a rewrite still to come: it was released, or its rewrite failed
+    /// (it is then refused until the next start). Its rewrite is asked for next.
+    async fn settled(&self, session: &str) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let failed = self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(session);
+            if failed || !self.holds(session) {
+                return;
+            }
+            self.ask(session);
+            changed.await;
+        }
+    }
+
     /// Boot only ([`StoreThreads::owe_marks`], before anything is served): the one place `held` is added to.
     fn begin(&self, sessions: impl IntoIterator<Item = String>) {
         use std::sync::atomic::Ordering::SeqCst;
@@ -244,6 +261,7 @@ impl OwedRewrites {
     /// After the catalog's release of `session` committed.
     fn released(&self, session: &str) {
         self.held.write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(session);
+        self.changed.notify_waiters();
     }
 
     fn advance(&self) {
@@ -252,6 +270,7 @@ impl OwedRewrites {
 
     fn fail(&self, session: &str) {
         self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(session.to_owned());
+        self.changed.notify_waiters();
     }
 
     /// A read refused `session`: its rewrite goes next.
@@ -328,6 +347,9 @@ impl MarkRewrites {
                 Err(error) => {
                     tracing::warn!(thread = %session, "an owed sensitive rewrite failed; the session stays unread until the next start: {error:?}");
                     self.threads.owed.fail(&session);
+                    // A session whose index rows were held for this rewrite settles as failed there, and every access
+                    // that waited for it is woken with that; what it is owed stays in the index for the next start.
+                    self.threads.index.fail_withheld(&session, &format!("{error:?}"));
                     if let Some(progress) = &self.progress {
                         progress.fail();
                     }
@@ -461,7 +483,13 @@ impl LogShape {
 
     /// Whatever was written to the logs since they were read left this shape as it is.
     pub(super) fn stands(&self) -> bool {
-        self.logs.len() == self.shapes.len() && self.logs.iter().zip(&self.shapes).all(|(log, v)| mixdog_store::log_epoch::shape_settled(log) == Some(*v))
+        self.at_rest() && self.logs.iter().zip(&self.shapes).all(|(log, v)| mixdog_store::log_epoch::shape_settled(log) == Some(*v))
+    }
+
+    /// The logs were read with no operation that may change the shape running on them, before the read or during it:
+    /// every frame folded into this shape was acknowledged to its writer, or is one a start would find in the log.
+    fn at_rest(&self) -> bool {
+        self.logs.len() == self.shapes.len()
     }
 
     /// Both shapes are of one read of the logs.
@@ -948,6 +976,8 @@ pub struct Projector {
     marks_epoch: Arc<std::sync::atomic::AtomicU64>,
     /// A test's switch: the next projection is refused by the index.
     refuse_next: Arc<std::sync::atomic::AtomicBool>,
+    /// The count of projections the index has answered.
+    settled: tokio::sync::watch::Receiver<u64>,
 }
 impl Projector {
     /// Starts the forwarding task on the current Tokio runtime.
@@ -1013,6 +1043,8 @@ impl Projector {
         let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
         let marks_epoch: Arc<std::sync::atomic::AtomicU64> = Arc::default();
         let (marking_here, marks_lost_here, epoch_here) = (marking.clone(), marks_lost.clone(), marks_epoch.clone());
+        // Sent from the forwarding task alone: when it ends, a wait on the count ends with it.
+        let (answered, settled) = tokio::sync::watch::channel(0u64);
         #[cfg(feature = "replay-settled")]
         {
             let pending = pending.clone();
@@ -1053,6 +1085,8 @@ impl Projector {
                         }
                     }
                     done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    // After the loss is recorded: a read woken by this sees why its rows did not come.
+                    answered.send_modify(|answered| *answered += 1);
                     #[cfg(feature = "replay-settled")]
                     super::replay_settled::changed();
                 }
@@ -1107,7 +1141,33 @@ impl Projector {
             marks_lost,
             marks_epoch,
             refuse_next: Arc::default(),
+            settled,
         }
+    }
+
+    /// How many projections the index has answered, taken or not.
+    fn settled(&self) -> u64 {
+        *self.settled.borrow()
+    }
+
+    /// Resolves once the index has answered a projection after `mark` ([`settled`](Self::settled)); an error when the
+    /// forwarding task ended first, after which none is answered.
+    async fn settled_past(&self, mark: u64) -> Result<(), CoreError> {
+        let mut settled = self.settled.clone();
+        let reached = settled.wait_for(|answered| *answered > mark).await.map(drop);
+        reached.map_err(|_| internal("index-behind", &"the index projector stopped before it took a write the read needs"))
+    }
+
+    /// [`caught_up`](Self::caught_up) with no bound, for a page read: once everything sent before this was asked has been
+    /// through the index writer, in the queue's order, so behind a hold too (a rewrite holds the index so that a read
+    /// which waits sees the rewritten rows). Each answer is the wait's progress and the last of those sent its end; an
+    /// error when the projector stopped with some of them not taken.
+    async fn taken(&self) -> Result<(), CoreError> {
+        self.drained().await;
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            return Err(internal("index-behind", &"the index projector stopped before it took the writes acknowledged before this read"));
+        }
+        Ok(())
     }
 
     /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
@@ -1459,6 +1519,9 @@ pub struct StoreThreads {
     /// A test's pause between a marks read's snapshot and its check.
     #[cfg(any(test, feature = "test-support"))]
     after_snapshot: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// A test's pause, taken by the next page read between its first look at the index's revision and its rows.
+    #[cfg(any(test, feature = "test-support"))]
+    page_checked: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 impl super::thread_list::ListFence for StoreThreads {
     fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
@@ -1491,7 +1554,19 @@ impl StoreThreads {
             picked: std::sync::Mutex::default(),
             #[cfg(any(test, feature = "test-support"))]
             after_snapshot: std::sync::Mutex::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            page_checked: std::sync::Mutex::default(),
         }
+    }
+
+    /// Test support: `hold` runs inside the next page read, after its first look at the index's revision and before its rows.
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
+    pub(super) fn hold_page_read(&self, hold: impl FnOnce() + Send + 'static) {
+        *self.page_checked.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(hold));
     }
 
     /// Holds the index projections (as a rewrite does), for a test of what waits on them.
@@ -1543,6 +1618,16 @@ impl StoreThreads {
     fn read_gate(&self, id: &ThreadId) -> Result<std::sync::RwLockReadGuard<'_, u64>, CoreError> {
         self.owes_nothing(id.as_str())?;
         Ok(self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+
+    /// [`read_gate`](Self::read_gate) for a job that waits for nothing: `None` while a rewrite holds the logs.
+    fn try_read_gate(&self, id: &ThreadId) -> Result<Option<std::sync::RwLockReadGuard<'_, u64>>, CoreError> {
+        self.owes_nothing(id.as_str())?;
+        Ok(match self.gate.try_read() {
+            Ok(gate) => Some(gate),
+            Err(std::sync::TryLockError::Poisoned(gate)) => Some(gate.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        })
     }
 
     /// `coreMigrating` while `session` owes the rewrite [`Self::owe_marks`] found: nothing of its log is read before the
@@ -1727,6 +1812,20 @@ impl StoreThreads {
             return;
         }
         tracing::info!(owed, "index repairs owed at open: started behind the withheld set");
+        // The boot purge waits for every projection owed at open (a missing fork edge proves nothing before), so it runs
+        // here, as a task behind the serving core: it acts only once the index certifies every session, decides each
+        // removal again on a certified read, and a failed repair leaves everything in place for the next start.
+        let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
+        drop(mixdog_rt::spawn("index-deferred-purge", mixdog_rt::TaskClass::Work, async move {
+            if projector.caught_up().await.is_err() {
+                return;
+            }
+            match index.purge_once_projected(lane, data).await {
+                Ok(purged) if !purged.is_empty() => tracing::info!(purged = purged.len(), "deleted sessions purged once the index repairs ended"),
+                Ok(_) | Err(mixdog_store::sqlite::DbError::Stopped) => {}
+                Err(error) => tracing::warn!("the purge of deleted sessions waits for the next start: {error:?}"),
+            }
+        }));
         let index = self.index.clone();
         drop(mixdog_rt::spawn("index-repairs-report", mixdog_rt::TaskClass::Work, async move {
             let ended = index.reconciled().await;
@@ -2080,6 +2179,7 @@ impl StoreThreads {
     fn run_draft(&self, lane: &InLane<InteractiveIo>, dir: &Path, rid: &str, started: FramePos) -> Result<RunDraft, CoreError> {
         let mut draft = RunDraft::default();
         let mut landed = std::collections::HashSet::new();
+        let mut tool_rows = Vec::new();
         let mut from = started;
         loop {
             let read = log::read_forward(lane, dir, from, 1 << 20).map_err(|e| internal("drafts", &e))?;
@@ -2090,13 +2190,14 @@ impl StoreThreads {
                             draft.apply(&body);
                         }
                     }
-                    Record::Item(item)
-                        if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid)
-                            && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") =>
-                    {
-                        landed.insert(item.iid.as_str().to_owned());
-                        draft.message_committed();
-                    }
+                    Record::Item(item) if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid) => match item.role.as_ref().map(|role| role.as_str()) {
+                        Some("assistant") => {
+                            landed.insert(item.iid.as_str().to_owned());
+                            draft.message_committed();
+                        }
+                        Some("tool") => tool_rows.push(item.body.clone()),
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
@@ -2107,7 +2208,22 @@ impl StoreThreads {
             }
         }
         let bodies = mixdog_store::draft_file::read(lane, dir, rid).map_err(|e| internal("drafts", &e))?;
-        draft.apply_file(&bodies, |iid| landed.contains(iid));
+        // The calls the draft holds a result of, and those of them a row of the run answers in the log: a tool row's body
+        // (which may be out of line) is read only for a draft that holds results.
+        let call_of = |row: &Value| row.get("toolCallId").and_then(Value::as_str).map(str::to_owned);
+        let drafted: std::collections::HashSet<String> =
+            bodies.iter().filter_map(|body| body.get("results").and_then(Value::as_array)).flatten().filter_map(call_of).collect();
+        let mut answered = std::collections::HashSet::new();
+        if !drafted.is_empty() {
+            for body in &tool_rows {
+                if let Slot::Inline(row) = self.resolve(lane, body)?
+                    && let Some(call) = call_of(&row).filter(|call| drafted.contains(call))
+                {
+                    answered.insert(call);
+                }
+            }
+        }
+        draft.apply_file(&bodies, |iid| landed.contains(iid), |call| answered.contains(call));
         Ok(draft)
     }
 
@@ -2139,13 +2255,13 @@ impl StoreThreads {
         cut: Option<u64>,
         mut cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
-        cancel: Option<&mixdog_rt::CancellationToken>,
+        ctl: Option<&super::read_trace::ReadCtl>,
     ) -> Result<Option<StoredHistoryPage>, CoreError> {
         let mut rows = Vec::new();
         let mut marks = Vec::new();
         loop {
-            if let Some(cancel) = cancel {
-                check_turn_read_cancel(cancel)?;
+            if let Some(ctl) = ctl {
+                ctl.check()?;
             }
             // One row more than wanted says whether more are left: never an index row past what the page needs.
             let room = want - rows.len();
@@ -2154,10 +2270,13 @@ impl StoreThreads {
                 Err(DbError::CursorStale) => return Ok(None),
                 Err(e) => return Err(internal("history", &e)),
             };
+            if let Some(ctl) = ctl {
+                ctl.trace.index_rows(page.len());
+            }
             // Only the rows still wanted are read from the log.
             for row in page.iter().take(room) {
-                if let Some(cancel) = cancel {
-                    check_turn_read_cancel(cancel)?;
+                if let Some(ctl) = ctl {
+                    ctl.record()?;
                 }
                 rows.push(self.history_item(lane, id, row)?);
             }
@@ -2168,6 +2287,46 @@ impl StoreThreads {
             }
             // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
             // next page says whether any row is left (it is read, empty, and ends the history).
+            match next {
+                Some(next) => cursor = Some(next),
+                None => return Ok(Some((rows, marks, true))),
+            }
+        }
+    }
+
+    /// [`read_rows_marked`](Self::read_rows_marked) the other way: the `want` rows from `cursor` on (the lineage's oldest
+    /// row when none), oldest first, with their index rows, and whether they reach the newest row.
+    #[allow(clippy::too_many_arguments)]
+    fn read_rows_after(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        mut cursor: Option<mixdog_store::sqlite::AfterCursor>,
+        want: usize,
+        ctl: &super::read_trace::ReadCtl,
+    ) -> Result<Option<StoredHistoryPage>, CoreError> {
+        let mut rows = Vec::new();
+        let mut marks = Vec::new();
+        loop {
+            ctl.check()?;
+            let room = want - rows.len();
+            let (page, next) = match self.index.history_page_after_on_lane(lane, lineage, cut, cursor, WINDOW_ROWS.min(room.saturating_add(1))) {
+                Ok(page) => page,
+                Err(DbError::CursorStale) => return Ok(None),
+                Err(e) => return Err(internal("history", &e)),
+            };
+            ctl.trace.index_rows(page.len());
+            for row in page.iter().take(room) {
+                ctl.record()?;
+                rows.push(self.history_item(lane, id, row)?);
+            }
+            let more = page.len() > room;
+            marks.extend(page.into_iter().take(room));
+            if more {
+                return Ok(Some((rows, marks, false)));
+            }
             match next {
                 Some(next) => cursor = Some(next),
                 None => return Ok(Some((rows, marks, true))),
@@ -2189,12 +2348,13 @@ impl StoreThreads {
             self.wait(lane, barrier)?;
         }
         let _gate = self.read_gate(id)?;
+        let ctl = cancel.map(|cancel| super::read_trace::ReadCtl::untraced(cancel.clone()));
         loop {
             if let Some(cancel) = cancel {
                 check_turn_read_cancel(cancel)?;
             }
             let shape = self.shape(lane, id)?;
-            let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &shape.lineage, shape.base_cut, None, want, cancel)? else {
+            let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &shape.lineage, shape.base_cut, None, want, ctl.as_ref())? else {
                 continue;
             };
             if let Some(cancel) = cancel {
@@ -2215,10 +2375,10 @@ impl StoreThreads {
         complete: bool,
         trailing: bool,
     ) -> Result<Vec<super::seams::RowDecor>, CoreError> {
-        let archived = archived_ordinals(rows);
+        let archived = if complete && trailing { archived_ordinals(rows) } else { self.archived_among(lane, lineage, cut, rows)? };
         let mut decor: Vec<super::seams::RowDecor> =
             rows.iter().rev().map(|row| super::seams::RowDecor { archived: archived.contains(&row.ordinal), dividers_after: Vec::new() }).collect();
-        for divider in self.window_dividers(lane, lineage, cut, rows, !complete)? {
+        for divider in self.window_dividers(lane, lineage, cut, rows, !complete, trailing)? {
             // `before` counts the rows older than the divider: it follows the last of them.
             let Some(host) = divider.before.checked_sub(1) else { continue };
             if divider.before == decor.len() && !trailing {
@@ -2229,6 +2389,32 @@ impl StoreThreads {
             }
         }
         Ok(decor)
+    }
+
+    /// [`archived_ordinals`] of rows that are not the whole history, as the whole history decides them: a turn's end is
+    /// archived by every message of its turn, and those the rows do not hold are asked of the index. A turn one of whose
+    /// messages among the rows is left is settled by that.
+    fn archived_among(&self, lane: &InLane<InteractiveIo>, lineage: &[LineageLevel], cut: Option<u64>, rows: &[HistoryRow]) -> Result<Vec<u64>, CoreError> {
+        use std::collections::HashSet;
+        let left: HashSet<&str> = rows.iter().filter(|row| row.model && !row.archived).filter_map(|row| row.turn.as_deref()).collect();
+        let mut asked: Vec<String> = Vec::new();
+        for row in rows.iter().filter(|row| !row.model) {
+            let Some(turn) = row.turn.as_deref() else { continue };
+            if !left.contains(turn) && !asked.iter().any(|asked| asked == turn) {
+                asked.push(turn.to_owned());
+            }
+        }
+        let found = self.index.turn_messages_on_lane(lane, lineage, cut, &asked).map_err(|e| internal("history", &e))?;
+        let gone_whole = |turn: &str| asked.iter().position(|asked| asked == turn).is_some_and(|at| found[at].0 && !found[at].1);
+        Ok(rows
+            .iter()
+            .filter(|row| match (row.model, &row.turn) {
+                (true, _) => row.archived,
+                (false, Some(turn)) => gone_whole(turn),
+                (false, None) => false,
+            })
+            .map(|row| row.ordinal)
+            .collect())
     }
 
     /// The item record of one history row: its frame, its latest amend's body, and both
@@ -2259,6 +2445,7 @@ impl StoreThreads {
         cut: Option<u64>,
         rows: &[HistoryRow],
         has_older: bool,
+        trailing: bool,
     ) -> Result<Vec<super::seams::WindowDivider>, CoreError> {
         let level_of = |row: &HistoryRow| lineage.iter().position(|level| level.session == row.session);
         let shown: Vec<(usize, u64)> = rows.iter().filter_map(|row| level_of(row).map(|level| (level, row.ordinal))).collect();
@@ -2266,10 +2453,18 @@ impl StoreThreads {
             Some((level, ordinal)) if has_older => (level, ordinal),
             _ => (lineage.len().saturating_sub(1), 0),
         };
+        // Without the dividers that follow the newest row, none past it is asked for: a page deep in a long thread
+        // does not list every compaction since.
+        let newest = shown.first().copied().filter(|_| !trailing);
         let mut out = Vec::new();
         for level in (0..=deepest).rev() {
             let from = if level == deepest { from } else { 0 };
-            let found = self.index.dividers_on_lane(lane, lineage, cut, level, from, u64::MAX).map_err(|e| internal("dividers", &e))?;
+            let to = match newest {
+                Some((top, _)) if level < top => continue,
+                Some((top, ordinal)) if level == top => ordinal,
+                _ => u64::MAX,
+            };
+            let found = self.index.dividers_on_lane(lane, lineage, cut, level, from, to).map_err(|e| internal("dividers", &e))?;
             for divider in found {
                 let before = shown.iter().filter(|(shown, ordinal)| *shown > level || (*shown == level && *ordinal < divider.boundary)).count();
                 out.push(super::seams::WindowDivider {
@@ -2406,7 +2601,7 @@ impl ThreadStore for StoreThreads {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
         let archived = archived_ordinals(&rows);
-        let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some())?;
+        let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some(), true)?;
         let prompts = self.index.prompts_on_lane(lane, &lineage, fold.base_cut).map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
@@ -2602,30 +2797,163 @@ impl ThreadStore for StoreThreads {
         self.history_with_decor(lane, id, want, None)
     }
 
-    fn history_before(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, anchor: &str, rows: usize) -> Result<Option<HistoryBefore>, CoreError> {
-        self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate(id)?;
-        loop {
-            let opened = self.open(lane, id)?;
-            let lineage = self.lineage(lane, &opened.fold)?;
-            let cut = opened.fold.base_cut;
-            let (ids, alias) = match super::reads::history_cursor_iid(anchor) {
-                Some(iid) => (vec![iid.to_owned()], ""),
-                None => (anchor_iids(anchor), anchor),
-            };
-            let named = self.index.history_anchor_on_lane(lane, &lineage, cut, &ids, alias).map_err(|e| internal("history", &e))?;
-            let Some(named) = named else {
+    fn history_page(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        ask: &super::seams::PageAsk,
+        ctl: &super::read_trace::ReadCtl,
+    ) -> Result<super::seams::PageRead, CoreError> {
+        use super::seams::HeldBy;
+        use super::seams::PageAt;
+        use super::seams::PageRead;
+        ctl.check()?;
+        let Some(_gate) = self.try_read_gate(id)? else {
+            return Ok(PageRead::Held(HeldBy::Rewrite));
+        };
+        // Taken before the log and the index are read: a projection the index has not answered by now is answered past it.
+        let mark = self.projector.settled();
+        let shape = self.shape(lane, id)?;
+        let (lineage, cut, rev) = (&shape.lineage, shape.base_cut, shape.history_rev);
+        // The page is of revision `rev` with the cut of `shape` when the logs were at rest as they were read, the index
+        // was at `rev` before its first read and after its last (its revision only grows) and nothing reshaped the logs
+        // meanwhile: a rewind moves the shape's version before it writes, and holds it unsettled until its frames are
+        // synced or cut. Asked before the reads and again after them; `None`: so far the read holds.
+        let moved = || -> Result<Option<PageRead>, CoreError> {
+            let writing = || Ok(Some(PageRead::Held(HeldBy::Writer { logs: shape.logs.clone() })));
+            // A frame written and not yet synced is in the log for as long as its append runs, and is cut when the sync
+            // fails: nothing read meanwhile is a page's, and the index is not asked about it.
+            if !shape.at_rest() {
+                ctl.trace.restart();
+                return writing();
+            }
+            let held = self.index.history_rev_on_lane(lane, lineage).map_err(|e| internal("history", &e))?;
+            if held == rev && shape.stands() {
                 return Ok(None);
-            };
-            // The named record first, then the `rows` older.
-            let Some((mut records, marks, complete)) = self.read_rows_marked(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1), None)? else {
-                continue;
-            };
-            // The newest record is the cursor's own: what follows it belongs to the page that shows it.
-            let decor = self.page_decor(lane, &lineage, cut, &marks, complete, false)?;
-            records.reverse();
-            return Ok(Some(HistoryBefore { rev: opened.fold.history_rev, records, complete, named: named.named, decor }));
+            }
+            ctl.trace.restart();
+            // The index is past the logs as they were read: a rewind landed and was projected since.
+            if held > rev {
+                return Ok(Some(PageRead::Held(HeldBy::Index { behind: None })));
+            }
+            // An operation that may change the shape began after the read: asked again once it has ended.
+            if !shape.stands() {
+                return writing();
+            }
+            // The logs at rest hold a write the index lacks. Refused, it never comes; else its projection is on its way
+            // or about to be sent (a batch is in the log before it is), and is answered after `mark`, unless the write
+            // is cut first (a rollback that failed and runs again), which moves the shape.
+            if self.projector.rows_lost(id.as_str()) {
+                return Err(internal("index-behind", &"the index did not take a write of the thread: its rows are read again after the next start"));
+            }
+            let logs = shape.logs.iter().cloned().zip(shape.shapes.iter().copied()).collect();
+            Ok(Some(PageRead::Held(HeldBy::Index { behind: Some(super::seams::Behind { mark, logs }) })))
+        };
+        let again = || -> Result<PageRead, CoreError> { Ok(moved()?.unwrap_or(PageRead::Held(HeldBy::Index { behind: None }))) };
+        if let Some(held) = moved()? {
+            return Ok(held);
         }
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            let hold = self.page_checked.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(hold) = hold {
+                hold();
+            }
+        }
+        let anchor = |shown: &str| {
+            let (ids, alias) = match super::reads::history_cursor_iid(shown) {
+                Some(iid) => (vec![iid.to_owned()], ""),
+                None => (anchor_iids(shown), shown),
+            };
+            self.index.history_anchor_on_lane(lane, lineage, cut, &ids, alias).map_err(|e| internal("history", &e))
+        };
+        // A named record is read with the `records` beside it.
+        let beside = ask.records.saturating_add(1);
+        // Every index page is asked for at `rev`: one of another revision is refused there.
+        let newest = mixdog_store::sqlite::PageCursor { history_rev: rev, level: 0, before: u64::MAX };
+        let oldest = mixdog_store::sqlite::AfterCursor { history_rev: rev, level: lineage.len().saturating_sub(1), from: 0 };
+        let (read, named) = match &ask.at {
+            PageAt::Newest => (self.read_rows_marked(lane, id, lineage, cut, Some(newest), ask.records, Some(ctl))?, 1),
+            PageAt::Oldest => (self.read_rows_after(lane, id, lineage, cut, Some(oldest), ask.records, ctl)?, 1),
+            PageAt::Before(shown) | PageAt::After(shown) => {
+                let Some(named) = anchor(shown)? else { return Ok(PageRead::Unplaced) };
+                if named.cursor.history_rev != rev {
+                    return again();
+                }
+                let read = if matches!(ask.at, PageAt::Before(_)) {
+                    self.read_rows_marked(lane, id, lineage, cut, Some(named.cursor), beside, Some(ctl))?
+                } else {
+                    let from = mixdog_store::sqlite::AfterCursor { history_rev: rev, level: named.cursor.level, from: named.cursor.before - 1 };
+                    self.read_rows_after(lane, id, lineage, cut, Some(from), beside, ctl)?
+                };
+                (read, named.named)
+            }
+        };
+        let Some((mut records, mut marks, complete)) = read else {
+            return again();
+        };
+        let newest_first = matches!(ask.at, PageAt::Newest | PageAt::Before(_));
+        let (reaches_start, reaches_end) = match ask.at {
+            PageAt::Newest => (complete, true),
+            PageAt::Before(_) => (complete, false),
+            PageAt::Oldest => (true, complete),
+            PageAt::After(_) => (false, complete),
+        };
+        // Records oldest first; their index rows newest first, as the dividers are placed among them.
+        if newest_first {
+            records.reverse();
+        } else {
+            marks.reverse();
+        }
+        // What follows the newest record belongs to the page that shows the row after it.
+        let decor = self.page_decor(lane, lineage, cut, &marks, reaches_start, reaches_end)?;
+        if let Some(held) = moved()? {
+            return Ok(held);
+        }
+        // The index rows are newest first; the records oldest first.
+        let ordinals = marks.iter().rev().map(|row| row.ordinal).collect();
+        Ok(PageRead::Rows(super::seams::PageRows { rev, records, decor, ordinals, reaches_start, reaches_end, named }))
+    }
+
+    fn page_held(&self, by: &super::seams::HeldBy) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        use super::seams::HeldBy;
+        use mixdog_store::log_epoch::shape_past;
+        match by.clone() {
+            HeldBy::Rewrite | HeldBy::Index { behind: None } => Box::pin(std::future::ready(Ok(()))),
+            HeldBy::Writer { logs } => Box::pin(async move {
+                futures::future::join_all(logs.iter().map(|log| shape_past(log, None))).await;
+                Ok(())
+            }),
+            HeldBy::Index { behind: Some(behind) } => {
+                let projector = self.projector.clone();
+                Box::pin(async move {
+                    let moved = async {
+                        let logs: Vec<_> = behind.logs.iter().map(|(log, seen)| Box::pin(shape_past(log, Some(*seen)))).collect();
+                        if logs.is_empty() {
+                            return std::future::pending().await;
+                        }
+                        futures::future::select_all(logs).await;
+                    };
+                    tokio::select! {
+                        answered = projector.settled_past(behind.mark) => answered,
+                        () = moved => Ok(()),
+                    }
+                })
+            }
+        }
+    }
+
+    fn page_ready(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (rewrites, projector, index, session) = (self.rewrites.clone(), self.projector.clone(), self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            rewrites.idle(super::thread_list::FENCE_BOUND).await;
+            projector.taken().await?;
+            // An index read of a session under repair blocks its thread until the repair ends: asked here, it waits as a task.
+            if index.repairs().pending > 0 {
+                index.projected(&session).await.map_err(|e| internal("history", &e))?;
+            }
+            Ok(())
+        })
     }
 
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError> {
@@ -2720,6 +3048,44 @@ impl ThreadStore for StoreThreads {
         self.index.fenced_ops_on_lane(lane, id.as_str()).map_err(|e| internal("fenced-ops", &e))
     }
 
+    fn rewind_targets(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate(id)?;
+        let opened = self.open(lane, id)?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        self.index.rewind_targets_on_lane(lane, &lineage, opened.fold.base_cut, before, limit).map_err(|e| internal("rewind", &e))
+    }
+
+    fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<super::seams::StoredRewind>, CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate(id)?;
+        let opened = self.open(lane, id)?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        let cut = opened.fold.base_cut;
+        let (ids, alias) = match super::reads::history_cursor_iid(shown) {
+            Some(iid) => (vec![iid.to_owned()], ""),
+            None => (anchor_iids(shown), shown),
+        };
+        let Some((rev, target, removed)) = self.index.rewind_target_on_lane(lane, &lineage, cut, &ids, alias).map_err(|e| internal("rewind", &e))? else {
+            return Ok(None);
+        };
+        // The newest row below the target, in its level or a base's.
+        let below = mixdog_store::sqlite::PageCursor { history_rev: rev, level: target.level, before: target.ordinal };
+        let previous = match self.index.history_page_on_lane(lane, &lineage, cut, Some(below), 1) {
+            Ok((page, _)) => page.first().map(|row| self.history_item(lane, id, row)).transpose()?,
+            // The history moved under the read: the target is of a revision that no longer stands.
+            Err(DbError::CursorStale) => return Err(super::actor::history_conflict()),
+            Err(e) => return Err(internal("rewind", &e)),
+        };
+        Ok(Some(super::seams::StoredRewind { rev, target, cut: removed, previous }))
+    }
+
     /// Pages newest first until the row is found: a switch anchors near the history's end.
     fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
@@ -2775,6 +3141,11 @@ impl ThreadStore for StoreThreads {
             let parents = index.archived_agent_parents(&child).await.map_err(|e| internal("archived agent", &e))?;
             Ok(parents.into_iter().map(ThreadId::from).collect())
         })
+    }
+
+    fn rewritten(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, ()> {
+        let (owed, session) = (self.owed.clone(), id.as_str().to_owned());
+        Box::pin(async move { owed.settled(&session).await })
     }
 
     fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
@@ -3082,6 +3453,17 @@ impl SensitiveMarksOf {
             Record::Meta(meta) => {
                 if let Slot::Inline(change) = &mut meta.change {
                     prompt_changed = self.header_redacted(session, &mut change.set);
+                    // A guard whose signature changed inside its object is written as that member (`header_patch`): the
+                    // nested change holds the members where the header holds them.
+                    for key in ["_repeatFailGuard", "_repeatArgShapeFailGuard"] {
+                        if let Some(Value::String(sig)) = change.patch.get_mut(key).and_then(|inner| inner.set.get_mut("sig")) {
+                            let next = self.store.redact_text(session, sig);
+                            if next != *sig {
+                                *sig = next;
+                                prompt_changed = true;
+                            }
+                        }
+                    }
                 }
             }
             Record::Session(start) => {

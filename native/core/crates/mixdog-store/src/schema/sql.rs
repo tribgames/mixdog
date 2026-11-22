@@ -7,13 +7,14 @@ pub const INDEX_DDL: &str = include_str!("sql/index.sql");
 pub const INDEX_APPLICATION_ID: i32 = 0x4D58_4958;
 /// 17: `submissions` and `sessions.listed`. 18: the `blob_refs`, `refs_unknown` and `refs_backfill` tables of the dev
 /// builds are no longer made; an index that still has them ignores them, and one of version 17 is rebuilt from the logs.
-/// 19: `sessions.listed` also holds `modelParameters`, which the agent pool's listing reads; a row of version 18 lacks
-/// it, so an index of that version is rebuilt from the logs.
-/// 19 is the first released version: the next one ships with a delta from it (see `sql/index.sql`).
-pub const INDEX_USER_VERSION: i32 = 19;
+/// 19: `sessions.listed` also holds `modelParameters`, which the agent pool's listing reads; an index of version 18 is
+/// brought to it in place at open (`sqlite.rs` `upgrade_from_18`).
+/// 20: the `history_turn` index, by which a transcript page finds the model messages of one turn; an index of version
+/// 19 gains it in place at open (`upgrade_from_19`), one `CREATE INDEX` over `history`.
+pub const INDEX_USER_VERSION: i32 = 20;
 /// The first released index version: an index of it is brought to [`INDEX_USER_VERSION`] in place at open, never rebuilt
 /// from the logs (on a long-used data directory the rebuild held the first start after an update for minutes).
-pub const FIRST_RELEASED_INDEX_VERSION: i32 = 19;
+pub const FIRST_RELEASED_INDEX_VERSION: i32 = 18;
 
 /// `sessions.id_key`: a session id (`^[A-Za-z0-9_-]+$`, FORMAT.md §1) as bytes whose
 /// order is JavaScript `localeCompare` (ICU root collation) on the id: the primary

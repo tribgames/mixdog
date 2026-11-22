@@ -102,7 +102,19 @@ impl std::fmt::Debug for ClaimProbe {
 /// or the connection gone, or the request dropped): what the call holds back must not overtake its answer. The server releases them right
 /// after it queues the answer; every clone shares them, so they also end when the last clone of the request goes.
 #[derive(Clone, Default)]
-pub struct AfterAnswer(Arc<std::sync::Mutex<Vec<Box<dyn Send>>>>);
+pub struct AfterAnswer(Arc<std::sync::Mutex<Vec<Box<dyn Send>>>>, AnswerQueued);
+
+/// Whether a request's answer, a result or an error, entered its caller's outgoing queue: said by the server alone
+/// ([`AfterAnswer::answered`]), before what the call kept is dropped. A request that ended any other way (its connection
+/// gone before the answer was queued, the request dropped) never says it.
+#[derive(Clone, Default)]
+pub struct AnswerQueued(Arc<std::sync::atomic::AtomicBool>);
+
+impl AnswerQueued {
+    pub fn get(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
 
 impl AfterAnswer {
     /// Keeps `guard` until the answer is queued.
@@ -110,10 +122,22 @@ impl AfterAnswer {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Box::new(guard));
     }
 
-    /// Drops what was kept: the server calls it once the answer is in the outgoing queue.
+    /// Drops what was kept: the request ended. The server calls it when no answer entered the outgoing queue, and
+    /// [`answered`](Self::answered) when one did.
     pub fn release(&self) {
         let kept = std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         drop(kept);
+    }
+
+    /// The answer is in the outgoing queue: said, then what was kept is dropped, so a guard reads it as it goes.
+    pub fn answered(&self) {
+        self.1.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.release();
+    }
+
+    /// What a guard kept here reads at its drop: whether the answer was queued.
+    pub fn queued(&self) -> AnswerQueued {
+        self.1.clone()
     }
 
     /// A token cancelled when what is kept goes (the answer queued, or the last clone of the request gone): what the call starts that

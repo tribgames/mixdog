@@ -227,8 +227,9 @@ async fn a_result_leaves_the_draft_when_its_row_is_on_disk_and_one_whose_write_f
     let drafted = |rig: &Rig| {
         let files = rig.store.draft_files(&handle.id);
         assert_eq!(files.len(), 1, "one run, one draft file: {files:?}");
+        // What the file itself holds, whatever the log holds.
         let mut draft = RunDraft::default();
-        draft.apply_file(&files[0].1, |_| true);
+        draft.apply_file(&files[0].1, |_| false, |_| false);
         draft.results
     };
     let kept = drafted(&rig);
@@ -266,6 +267,101 @@ async fn a_result_leaves_the_draft_when_its_row_is_on_disk_and_one_whose_write_f
         })
         .collect();
     assert_eq!(stored_calls, [json!("c1")], "the first result is the log's, the second never reached it");
+}
+
+/// A draft file that was only appended to (no value was marked, so it was never rewritten whole) still holds a result
+/// whose call's row has landed since: the row's acknowledgement gives the result up in memory and writes nothing. The
+/// schedule: the first call's result is drafted and its row's write fails and is held; a compaction inside the turn takes
+/// that call out of the model context; a second call's result is drafted; the retry lands the first result's row, the
+/// compaction and the second call, and the second result's row then fails its write; the process ends (a deploy ends
+/// it mid-turn). The next open recovers the second result alone: the first is the log's, by its call's row there, though
+/// the model context no longer holds that call.
+#[tokio::test(start_paused = true)]
+async fn a_draft_file_only_appended_to_gives_up_the_result_whose_calls_row_is_in_the_log() {
+    use super::run::Compaction;
+    use super::run::Dropped;
+    use super::turn_draft::RunDraft;
+    let result = |call: &str, content: &str| json!({ "role": "tool", "toolCallId": call, "content": content });
+    let rig = Rig::new();
+    let failing = rig.store.failing.clone();
+    let held = Arc::new(tokio::sync::Notify::new());
+    let (signal, results) = (held.clone(), [result("a", "first"), result("b", "later")]);
+    let expected = results.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (signal, failing, results) = (signal.clone(), failing.clone(), results.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = |iid: &str, role: &str, body: serde_json::Value| ItemCommit {
+                iid: ItemId::from(iid.to_owned()),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            let call = |id: &str| json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": id, "name": "read", "arguments": {} }] });
+            run.port.commit_item(row("call-a", "assistant", call("a"))).await.expect("the first call lands");
+            run.port.draft(json!({ "results": [results[0]], "tools": true })).await.expect("drafted");
+            *failing.lock().unwrap() = Some("EIO: injected".into());
+            run.port.commit_item(row("r-a", "tool", results[0].clone())).await.expect("the failed write is kept in memory");
+            let compaction = Compaction {
+                replacement: vec![(ItemId::from("summary".to_owned()), json!({ "role": "user", "content": "summary" }))],
+                at: 1,
+                dropped_count: 2,
+                dropped: Some(Dropped { message_ids: Vec::new(), call_ids: vec!["a".into()] }),
+            };
+            let compacted = run.port.queue_compacted(compaction).await.expect("queued behind the held row");
+            run.port.commit_item(row("call-b", "assistant", call("b"))).await.expect("kept in memory");
+            run.port.draft(json!({ "results": [results[1]], "tools": true })).await.expect("drafted");
+            // The retry: everything held lands with the next write.
+            *failing.lock().unwrap() = None;
+            run.port.commit_item(row("note", "assistant", json!({ "role": "assistant", "text": "going on" }))).await.expect("the retry lands");
+            let _ = run.port.saved(compacted).await;
+            *failing.lock().unwrap() = Some("EIO: injected".into());
+            run.port.commit_item(row("r-b", "tool", results[1].clone())).await.expect("the failed write is kept in memory");
+            signal.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    // No step is waited for past this: the kill comes at the first moment the later result's row is held.
+    crate::session::testing::awaiting(|| "the later result's row held unsaved".to_owned(), held.notified()).await;
+    let stored_results: Vec<serde_json::Value> = rig
+        .store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Item(item) => match item.body {
+                Slot::Inline(body) => body.get("toolCallId").cloned(),
+                Slot::Blob(_) => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stored_results, [json!("a")], "the retry landed the first result's row and not the later one's");
+    assert!(rig.store.records(&handle.id).iter().any(|(_, record)| matches!(record, Record::Compacted(_))), "the compaction landed");
+    let files = rig.store.draft_files(&handle.id);
+    assert_eq!(files.len(), 1, "one run, one draft file: {files:?}");
+    let mut whole = RunDraft::default();
+    whole.apply_file(&files[0].1, |_| false, |_| false);
+    assert!(files[0].1.iter().all(|body| body.get("reset").is_none()), "the file was only appended to: {files:?}");
+    assert_eq!(whole.results, expected, "and holds both results still");
+
+    // The process ends here.
+    let next = Rig::new();
+    next.set_script(super::tests::echo());
+    for (_, record) in rig.store.records(&handle.id) {
+        next.store.append_record(&handle.id, record);
+    }
+    for (rid, bodies) in files {
+        next.store.drafts.lock().unwrap().insert((handle.id.as_str().to_owned(), rid), bodies);
+    }
+    let restarted = SessionDirectory::new(next.deps());
+    let reopened = restarted.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("reopen");
+    crate::eventually_on!(&[&reopened.cell.stepped], || (reopened.recovered() && !next.runs.crashed_drafts.lock().unwrap().is_empty()).then_some(())).await;
+    assert_eq!(next.runs.crashed_drafts.lock().unwrap()[0].results, [expected[1].clone()], "the later result is recovered, and the first is not");
 }
 
 #[tokio::test(start_paused = true)]
@@ -364,7 +460,7 @@ async fn a_manual_compaction_whose_save_fails_is_refused_and_never_written() {
     };
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
-    let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new() });
+    let header: super::turn_ops::CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new(), patch: Default::default() });
     *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
     let refused = directory.commit_compaction(&handle.id, snapshot, compaction, Some(header)).await;
     assert!(refused.is_err(), "{refused:?}");

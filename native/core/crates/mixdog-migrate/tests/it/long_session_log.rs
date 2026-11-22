@@ -1,5 +1,5 @@
-//! A session log migrates to the session its records describe, and a log that is not the manifest's is refused
-//! before anything of it is published.
+//! A session log migrates to the session its records describe, and a log that is not the one whose size and hash the
+//! migration journaled is refused before anything of it is published.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -125,28 +125,29 @@ fn a_log_changed_while_it_is_read_is_refused_after_the_read() {
 }
 
 #[test]
-fn a_log_that_is_not_the_manifests_publishes_nothing() {
+fn a_log_that_is_not_the_journaled_one_publishes_nothing() {
     let log = full_log();
     let dir = tempfile::tempdir().expect("scratch dir");
     let roots = roots_in(dir.path());
     let path = log_file(&roots);
     std::fs::write(&path, &log).expect("write");
     let changed = log.replacen("q2", "q3", 1);
-    // Planned from the original bytes; replaced by an equally long, valid log before the session is read.
+    // Its size and hash journaled from the original bytes; replaced by an equally long, valid log before the session is read.
     let replaced = Arc::new(AtomicBool::new(false));
+    let journaled = format!("journal:sources:session/{ID}:after");
     let hook: mixdog_migrate::framework::FaultHook = {
         let (path, changed, replaced) = (path.clone(), changed.clone(), replaced.clone());
         Arc::new(move |point| {
-            if point == "journal:plan:after" {
+            if point == journaled {
                 std::fs::write(&path, &changed).expect("replace the log");
                 replaced.store(true, Ordering::SeqCst);
             }
             Ok(())
         })
     };
-    let (_runtime, migrator) = migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook), verified: None });
+    let (_runtime, migrator) = migrator(&roots, MigrateOptions { workers: 1, fault: Some(hook), verified: None, retention: None });
     let Err(Blocked::SourceChanged { path: refused }) = migrator.run() else {
-        panic!("a log that is not the manifest's was migrated");
+        panic!("a log that is not the journaled one was migrated");
     };
     assert!(replaced.load(Ordering::SeqCst));
     assert_eq!(refused, path);

@@ -135,7 +135,9 @@ impl PortObserver {
     /// Node's early notice, `recordToolResult`: the interruption keeps it, and the card completes now in the live turn rows, in
     /// completion order, until the call-order result commits. `generation` is the send its call was issued in, `None` for the
     /// send running.
-    pub(super) fn early_notice(&self, generation: Option<u64>, message: AgentMessage) {
+    /// `kept`: the result is the one to keep for its call until the call's row commits; not that of a run the batch
+    /// runs again (`early_result_superseded`), which settles the card and is never recovered as the call's result.
+    pub(super) fn early_notice(&self, generation: Option<u64>, message: AgentMessage, kept: bool) {
         if let Some(id) = message.tool_call_id() {
             self.settle_task_wait(id, generation);
             self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
@@ -148,7 +150,7 @@ impl PortObserver {
                 let _ = self.out.send(Shown::EarlyResult(early));
             }
         }
-        if !self.cancel.is_cancelled() {
+        if kept && !self.cancel.is_cancelled() {
             {
                 let mut observed = lock(&self.observed);
                 observed.started = true;
@@ -475,7 +477,7 @@ impl RunObserver for PortObserver {
                 self.open_task_waits(&calls);
             }
             RunEvent::ToolResult { call_id, .. } => self.settle_task_wait(&call_id, None),
-            RunEvent::EarlyResult(message) => self.early_notice(None, message),
+            RunEvent::EarlyResult(message) => self.early_notice(None, message, true),
             _ => {}
         }
     }
@@ -485,7 +487,35 @@ impl RunObserver for PortObserver {
     }
 
     fn early_result_of(&self, generation: u64, message: AgentMessage) {
-        self.early_notice(Some(generation), message);
+        self.early_notice(Some(generation), message, true);
+    }
+
+    fn early_result_superseded(&self, generation: u64, message: AgentMessage) {
+        self.early_notice(Some(generation), message, false);
+    }
+
+    /// The draft holds the result of a call's last execution: what an earlier run of `call_id` left there is taken back
+    /// (from the file too, when it reached it), and `result` takes its place.
+    fn early_result_replaced(&self, _generation: u64, call_id: &str, result: Option<AgentMessage>) {
+        if self.cancel.is_cancelled() {
+            return;
+        }
+        {
+            let mut observed = lock(&self.observed);
+            let (held, unwritten) = (observed.results.len(), observed.undrafted_results.len());
+            observed.results.retain(|early| early.tool_call_id() != Some(call_id));
+            observed.undrafted_results.retain(|early| early.get("toolCallId").and_then(Value::as_str) != Some(call_id));
+            // Held and no longer waiting to be written: the file has it.
+            if held != observed.results.len() && unwritten == observed.undrafted_results.len() {
+                observed.undrafted_withdrawn.push(call_id.to_owned());
+            }
+            if let Some(message) = result {
+                observed.started = true;
+                observed.undrafted_results.push(row_of(&message));
+                observed.results.push(message);
+            }
+        }
+        self.sink.draft(true);
     }
 
     fn can_retract(&self) -> bool {

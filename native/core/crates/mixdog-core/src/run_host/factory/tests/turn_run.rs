@@ -324,6 +324,54 @@ async fn a_turn_runs_from_the_factory_through_the_loop_and_a_tool_to_settle() {
     let _ = AtomicI64::new(0);
 }
 
+/// The text a `todo` call carried and the reply after it are one result: the record keeps it as the turn's `lastHandoff`,
+/// which no single row holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_record_keeps_the_turns_whole_result_past_its_todo_calls() {
+    let provider = Arc::new(Scripted {
+        id: ProviderId::from("scripted"),
+        policy: RetryPolicy::codex_default(),
+        keepalive: KeepaliveSchedule::SPEC,
+        codec: MockCodec,
+        script: Mutex::new(VecDeque::from([
+            vec![
+                StreamEvent::TextDelta("Full report.".into()),
+                StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "todo".into(), arguments: json!({ "op": "view" }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ],
+            vec![
+                StreamEvent::TextDelta("Every step is closed.".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ],
+        ])),
+        requests: Mutex::new(Vec::new()),
+        fail_first: std::sync::atomic::AtomicBool::new(false),
+    });
+    let workspace = tempfile::tempdir().unwrap();
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.runs = Arc::new(RunHostFactory::new(
+        mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+        mixdog_tools::web::NativeSearchUsageSinks::new(),
+        Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }),
+    ));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    let started =
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+    assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+    let kept =
+        eventually_on_awaiting(|| "the turn's result on the record".to_owned(), &[handle.stepped()], || handle.header_snapshot().get("lastHandoff").cloned())
+            .await;
+    assert_eq!(kept, json!("Full report.\n\nEvery step is closed."));
+}
+
 /// The show rule end to end, through the run's own sink (`PortSink`) and the actor: from its first request on the disk
 /// takes no write, and still the response's text, its call's card, the tool's start and the tool's result reach the
 /// thread's feed, in the order the loop produced them (Node's `onTextDelta`, `onToolCall`, `onToolPhaseStarted`,

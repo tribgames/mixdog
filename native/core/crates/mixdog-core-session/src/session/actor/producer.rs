@@ -116,7 +116,7 @@ impl SessionActor {
                         figure = run.live_call.text(&text, now);
                     }
                 }
-                let note = Note { method, params };
+                let note = Note { method, params, positioned: None };
                 self.accept_view(Change::Delta { item, text }, vec![note]);
                 if let Some(figure) = figure {
                     self.patch_spinner([("liveCall", figure)]);
@@ -193,7 +193,7 @@ impl SessionActor {
                     drop(ack.send(Ok(())));
                     return;
                 }
-                let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset }) });
+                let record = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset, patch: Default::default() }) });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
             ProducerMsg::Compacted { turn, compaction, header, ack } => {
@@ -279,6 +279,8 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
+                // The reset, the replacement and the count it leaves are one unit, as a compaction's are.
+                self.outbox.begin_unit(false);
                 if !unchanged {
                     self.transcript_rewritten = true;
                     // The provider continuation described the rows that left.
@@ -299,6 +301,7 @@ impl SessionActor {
                     replacement: Slot::Inline(replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect()),
                 });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+                self.outbox.end_unit();
             }
             ProducerMsg::PromptRewound { turn, item, ack } => {
                 if !self.active(&turn) {

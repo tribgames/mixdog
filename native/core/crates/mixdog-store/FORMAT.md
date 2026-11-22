@@ -456,7 +456,7 @@ and fails the read as before) never stops a read of the log:
 | `k`            | Fields (★ = body slot)                                                                                                                                                                                                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `session`      | `v:2, id, log_id, base?{session, log_id, end_ordinal_exclusive}, origin?{migration{manifest_sha256, item_key, source_digest}}, op?, control?:true`, ★`header`                                                             | First frame of `log.000000`. `header` = every header key (the 1.4.5 record minus `messages`). `log_id` = 24 lowercase hex. `control` = the desktop's control session (`thread/start{kind:"control"}`), the session's own kind outside `header` (no header projection carries it); absent otherwise, and never set by a fork or migration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `meta`         | `op?`, ★`change{set, unset[]}`                                                                                                                                                                                            | Header change: remove `unset`, then merge `set`. Title, close/tombstone, generation, worker map, desktop metadata, `deleted`, repair marks, …                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `meta`         | `op?`, ★`change{set, unset[], patch?{key: change}}`                                                                                                                                                                      | Header change: remove `unset`, then merge `set`, then for each key of `patch` apply its change (the same three steps, to any depth) inside the object that key holds; a key holding no object holds `{}` first (`src/header_patch.rs`). A nested change keeps the members' order and adds new members last. Writers state whole values; the log's writer writes a map set over a map as `patch` when that reproduces the value byte for byte in fewer bytes (never for `completionReceipts`, `stoppedWork`, `owedStops`, which other records fold into). `patch` is absent in every change written before it existed, and such a change reads as before. Title, close/tombstone, generation, worker map, desktop metadata, `deleted`, repair marks, …                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `item`         | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, ★`prompt?`, refs[]`, ★`body`                                                                                              | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `prompt` is present exactly when the row counts for prompt history (a 1.4.5 `kind:"user"` transcript row, own room lines included; never notices, tool cards, skill or hook rows) and holds that row's display text (paste/file chips, image lines and feedback rewrites applied); written by the session at commit and by migration, never derived from `body` by the store; a slot sharing `INLINE_MAX` with `body` (§4.2), with no length bound of its own (1.4.5 caps neither prompt history nor display text). `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. A model row's `body.meta.restartRecovery: true` marks a row the core's restart recovery wrote (a call closed as cancelled, the restart line): only that recovery writes it, and reads it only to derive a cut recovery again from the rows before its own. The body is opaque to the store, so no record shape or version changes; the mark is no field of a provider request or of a client's row. |
 | `amend`        | `iid, op?, refs[]`, ★`body`                                                                                                                                                                                               | Replaces the body of row `iid` (redaction, offload pruning, reactions).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `rewind`       | `to_ordinal, reason:"rewind"\|"edit"\|"clear", op?`                                                                                                                                                                       | Supersedes records with ordinal in `[to_ordinal, this)`; `history_rev += 1`. In a fork, `to_ordinal` may lie below `base.end_ordinal_exclusive` (§5.3 lineage cut).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -546,8 +546,12 @@ never compared for identity.
 ### 6.2 State (`src/schema/checkpoint.rs`)
 
 `{log_id, covers_ordinal, history_rev, rows, visible_rows, base?, base_cut?, control?, context?: FramePos,
-runs[{rid, started}], approvals[{aid, rid, requested}], queue[{qid, enqueued, updated?}], header}`
-with `FramePos = {ordinal, file_no, offset}`. `covers_ordinal` is the checkpoint frame's
+runs[{rid, started}], approvals[{aid, rid, requested}], queue[{qid, enqueued, updated?}], header, header_blobs?{key: ref}}`
+with `FramePos = {ordinal, file_no, offset}`. A header value whose encoding is `HEADER_BLOB_MIN` (16 KiB) or more is
+written out of line: `header` holds `null` at the key's place and `header_blobs[key]` is the §4.2 reference of the blob
+holding the value's JSON, so a large value that does not change (a tool catalog) is one blob for every checkpoint and
+every session that holds it. A reader puts each value back at its key before it uses the state. `header_blobs` is absent
+in a checkpoint written before it existed, whose `header` holds every value. `covers_ordinal` is the checkpoint frame's
 own ordinal; the state folds exactly the frames before it. `context` is the newest
 non-superseded `compacted` frame (the model-context start).
 
@@ -693,20 +697,65 @@ writer's own counter misses another connection's commits and counts failed round
 Derived. `SqliteStore::open` (one maintenance-lane job, the only way to open the index)
 rebuilds it from the logs when the file is missing, is not a readable SQLite database, or
 has another `application_id`/`user_version`; such a file is never opened or altered in
-place, and callers never see the rebuild as an error. Version 19 is the first released one:
-a later version ships with a delta that brings a released index to it in place before this
-check, as the core state's `state_v2_delta.sql` does, so that an update of the app does not
-hold its first start for a rebuild. The rebuild:
+place, and callers never see the rebuild as an error. Version 18 is the first released one.
+The rule for index versions: a version step ships with its own in-place step, run before
+this check in one transaction, unless it changes what the logs are projected into, so that
+an update of the app does not hold its first start for a rebuild. An in-place step derives
+what the new version adds from what the index already holds where that is lossless, and
+marks a row it cannot derive dirty, so the start's repair writes it from its log. 18 to 19
+(`sessions.listed` gains `modelParameters`) takes the summary's object; a row whose summary
+holds null or a non-empty object keyed `0..n` (which an absent member, a null or scalar one,
+and an array also give) is repaired. An empty object is taken as written: only an empty array
+also gives it, which no writer of the member makes. The rebuild:
 
-- projects every directory of `sessions/` holding `log.000000`, the logs read forward once
-  on every core at a time and written by one writer in the order of their ids, one session
-  whole before the next, in the writer's bounded transactions, into a staged file beside the index;
-  then removes the old file's `-wal`/`-shm`/`-journal` and publishes the staged file by a
-  durable rename. A crash before the rename leaves a file that fails its open again, so the
-  next open rebuilds again; a stale staged file is swept first.
-- costs one sequential read of every log byte plus the index writes: linear in the data
-  dir, no index-backed bound. The open returns only when the rebuild is done; it reports
-  no progress, and nothing is served from the old file meanwhile.
+- publishes, by a durable rename of a staged file beside the index (the old file's
+  `-wal`/`-shm`/`-journal` removed first), an index that holds no session and owes every
+  directory of `sessions/` holding `log.000000` its rows: a `meta` key `rebuild:<id>` each,
+  valued with when the log was last written, plus `2^52` for a session that may hold a worker
+  row by the index being replaced (its worker and agent-only rows, rows behind their log, and
+  sessions it did not list; every session when that index cannot be read). A crash before the
+  rename leaves a file that fails its open again; a stale staged file is swept first.
+- then returns, and the core serves. The rows are projected behind it by the start's repairs,
+  from the commit of the start's withheld set on, one thread per core, the debt valued highest
+  first. The order is: sessions a reader asked for and the bases they fork from, then the
+  worker candidates and theirs, then the rest. The worker candidates are one set, used for that
+  order and for the readers of worker rows alike: the sessions valued `2^52`, plus every session
+  found dirty or holed at open (whatever a previous process had already projected or created),
+  plus any the index cannot classify. A session held for its sensitive rewrite keeps its place
+  in the set until it is released (it is then queued, never ready in between) or its rewrite
+  fails (it is then failed).
+- writes the rows in transactions the writer takes one at a time: after each it serves the
+  writes queued meanwhile, so a serving write waits behind at most one of them. A transaction
+  holds at most `APPEND_ROWS` rows and `APPEND_BYTES` bytes, counted as the rows are written,
+  a frame's fan-out, the session row and the debt included; sessions share one only while they
+  fit, and a session or a single frame that does not is continued in the next. A session that
+  does not fit one transaction is holed (`hole:<id>`) in the transaction of its first rows, and
+  stays holed through its replay, a refold (its purge in `STEP_ROWS` slices, then the replay)
+  and its fork view. A fork whose base is settled with its rows short of the fork point (a base
+  damaged below it) has no view to compute: it keeps the row its own frames gave it, stays
+  marked for the next start to try again, and is read; the damage is the base's. Its hole and
+  its debt go in the transaction that writes its complete row;
+  waiters are woken and progress published after that commit. A stop or a kill leaves the rest
+  owed: the next start reads debt, holes and dirty rows from disk and continues or refolds from
+  the log. The serving writer keeps its normal durability throughout.
+- answers a read only with rows the store certifies complete for it (`Gate::read_exact`): the
+  read names what it rests on, and its verdict is taken with its read snapshot. A read of named
+  sessions rests on them and the bases they fork from, and on no other session. A read of worker
+  rows (the worker index, agent-only rows, the registry, the pool, a spawn's tag) rests on every
+  worker candidate. A listing, search, count or page, a lookup of the parents or forks of a
+  session, and any decision that rests on a row being absent (what is deleted, what a purge or
+  retention may remove, which pending rows to withdraw) rest on every session. The read waits
+  while a session it rests on is queued, running or held; with none pending it fails with the
+  failure of one that failed (`DbError::Projection`, an index recovery failure, never a missing
+  session, an empty list or a shorter page); otherwise it runs. A failed session is not tried
+  again in the start; its debt stays for the next. A purge removes nothing while a projection
+  is owed (a fork's edge is in only once its first frame is): the start runs the purge its boot
+  deferred once every session is certified (`SqliteStore::purge_once_projected`), deciding each
+  removal on a certified read, or leaves it to the next start when one failed. Progress (the
+  core's `catalogIndex` section: rebuilding, waiting for a rewrite, a failed session and why)
+  is reported apart from this and certifies nothing.
+- costs one sequential read of every log byte plus the index writes: linear in the data dir,
+  no index-backed bound.
 - never fails on a session's own log. A log that cannot be read to its end is a damaged
   session through the one damage state of §3.4 (`sessions.status = 'damaged'`, and
   `sessions.damage` = JSON `{path, error}` plus `file_no, offset, ordinal` when the reader
@@ -719,8 +768,10 @@ hold its first start for a rebuild. The rebuild:
     summarized (1.4.5 leaves the file out of the list and loads it as no session), and
     only its damage is kept.
 
-  Only an index write error fails the rebuild (`DbError::Write`); it never yields a
-  partial index.
+  Only an index write error fails a session's projection (`DbError::Write`). It can leave
+  that session's rows partly written, holed and still owed; it never yields a certified
+  partial answer, since no read that rests on the session runs, and it fails no other
+  session's projection.
 
 | Table                | Rows                                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -942,6 +993,14 @@ Chromium-owned profile files and every unknown file are never enumerated.
 `{format:1, roots{data, home, profile?}, items[], shared[]}`; items sorted by key,
 sources and shared files by `(root, path)` (`data < home < profile`), consumers sorted.
 Source paths are relative to their root, `/`-separated, without `.`/`..`.
+A `session` item has no `sources` in the manifest: its own files (its json, its log, its
+compaction sidecars, its turn checkpoint) are `late_sources[{root, path}]`, named by the
+plan and not read by it. They are hashed when the item is converted and journaled as
+`sources` (§10.5) before anything of it is staged; from then on those are what the item
+is read from, verified against and disposed by, exactly as an item's manifest sources
+are, and a named file that is gone by then blocks the run. The files several sessions
+read stay `shared` in the manifest, hashed once by the plan. (A manifest an earlier
+build planned lists a session's `sources` itself, and they stand.)
 
 ### 10.4 Self-identification of published targets
 
@@ -959,16 +1018,23 @@ Items with the same target file are converted one at a time in key order, each j
 
 ### 10.5 Journal and item states
 
-`plan{manifest_sha256, items}` (ordinal 0) → per item `staged{key, output_sha256,
+`plan{manifest_sha256, items}` (ordinal 0) → per item `sources{key, sources[]}` (an
+item with `late_sources` only, once, while `planned`: no state change), `staged{key, output_sha256,
 replaced_surrogates}` (§10.9),
-`published{key}`, `verified{key, digest?}`, `quarantined{key, code}`, `disposed{key}`;
-`phase{verified_all}` once every item is `verified` or `quarantined`. `output_sha256` of
+`published{key}`, `verified{key, digest?}`, `quarantined{key, code}`,
+`phase{judged, at}` (behind a serving core, once, before any session converts: the
+product's retention has judged the sessions at `at`, whatever the verdicts; no `expired` follows it),
+`expired{key, judged_at}` (a `session` the product's retention deletes at `judged_at`,
+epoch ms: it is not converted, and every later verdict of the same migration is judged
+at the first `judged_at` journaled), `disposed{key}`;
+`phase{verified_all}` once every item is `verified`, `quarantined` or `expired`. `output_sha256` of
 a session = SHA-256 of its staged `log.*` files concatenated in file order.
 
 ```
 planned → staged → published → verified → disposed
 planned → verified                                  (retire)
 planned | staged | published → quarantined → disposed
+planned → expired → disposed                        (session, behind a serving core)
 ```
 
 Every other transition is a journal violation (`ItemState::can_advance`). Preserve items
@@ -984,7 +1050,8 @@ as well; that tool orders keys itself, so the comparison is on parsed values.
 
 `complete.json = {format:1, manifest_sha256, journal_end_ordinal, kinds{data,
 desktopProfile}}`, each a `Counts{verified, quarantined_expected,
-quarantined_unexpected, retired, retained, dangling}`. A data dir with no profile has
+quarantined_unexpected, retired, retained, dangling, expired?}` (`expired`: the sessions
+settled `expired`, written when there are any). A data dir with no profile has
 `desktopProfile` all zero. The runtime checks only this file before `Serving`.
 
 ### 10.8 Quarantine

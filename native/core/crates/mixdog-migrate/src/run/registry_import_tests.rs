@@ -112,7 +112,7 @@ fn prepare(root: &Path, profile: &Value) -> MigrationRoots {
 }
 
 fn migrate(roots: &MigrationRoots) {
-    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault: None, verified: None }).run().unwrap();
+    Migrator::new(roots.clone(), drivers(), MigrateOptions { workers: 1, fault: None, verified: None, retention: None }).run().unwrap();
 }
 
 fn catalog(roots: &MigrationRoots) -> Catalog {

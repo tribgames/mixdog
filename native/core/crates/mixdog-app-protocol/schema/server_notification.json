@@ -639,6 +639,24 @@
       ],
       "type": "object"
     },
+    "FeedPosition": {
+      "description": "A client's last position in a feed.",
+      "properties": {
+        "epoch": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch",
+        "seq"
+      ],
+      "type": "object"
+    },
     "FeedSnapshotParams": {
       "description": "`feed/snapshot`: the read model of a scoped feed (terminal screen text, search result set, login flow state, port list).",
       "properties": {
@@ -3576,6 +3594,13 @@
           "type": "string"
         },
         {
+          "description": "The session index as it is being built (`{building, done, total}`): while `building`, the session list and the search answer from the sessions indexed so far, `done` of `total`.",
+          "enum": [
+            "catalogIndex"
+          ],
+          "type": "string"
+        },
+        {
           "description": "The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no value; each window rereads the review of every session it shows.",
           "enum": [
             "reviewDiff"
@@ -3732,6 +3757,44 @@
       "required": [
         "at",
         "id"
+      ],
+      "type": "object"
+    },
+    "SnapshotWindow": {
+      "description": "The grant a positioned snapshot installs. Its `windowVersion` is at least the snapshot's feed seq and above every version the subscription held before: a subscription's window version never repeats.\n\nIt is the whole truth from the snapshot on, on a first attach, a reconnect and a lag recovery alike: every range id from before is void and every row held under one is dropped, whatever the subscription had asked for. The core keeps no demand across a snapshot; a client that still wants an older range asks again with `thread/window/set` from this `windowVersion`, and until `thread/window/changed` grants it no change in that range reaches it.\n\n`ranges` names `tail` when the snapshot carries stored records, and `added` holds exactly those: the newest stored records, whole, as a page of them reads. With `followTail` and no range, the first record the subscription is sent makes the range `tail`.",
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/definitions/WindowAdded"
+          },
+          "type": "array"
+        },
+        "followTail": {
+          "type": "boolean"
+        },
+        "lineage": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ranges": {
+          "items": {
+            "$ref": "#/definitions/WindowRange"
+          },
+          "type": "array"
+        },
+        "windowVersion": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "followTail",
+        "lineage",
+        "ranges",
+        "windowVersion"
       ],
       "type": "object"
     },
@@ -5233,6 +5296,17 @@
         },
         "thread": {
           "$ref": "#/definitions/ThreadSummary"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SnapshotWindow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "On the snapshot of a positioned subscription: the ranges it holds from this snapshot on. `items` are then the rows no record holds (the running turn's in-progress items and live-only rows), every one of them whatever the window asked for, and the stored records are in `window.added`. A record shown and not yet stored is in neither: it arrives as its unit once it is stored."
         }
       },
       "required": [
@@ -5759,6 +5833,70 @@
       ],
       "type": "object"
     },
+    "ThreadTranscriptChangedParams": {
+      "description": "`thread/transcript/changed`: a transcript event of the positioned projection, in one of two forms.\n\nWithout `change` it is a feed frame with a seq of its own: the place of a frame that tells every other subscription a record's rows, with whatever that frame carries beside the transcript. It never carries a row.\n\nWith `change` it is a stored record's unit, sent to the subscriptions whose grants hold the record and to no other, once the record is stored and whenever it then reads differently. It takes no seq of its own: it stands at `atFeedPosition`, as `thread/window/changed` does.",
+      "properties": {
+        "atFeedPosition": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FeedPosition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present with `change`: the feed position the change stands at."
+        },
+        "change": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TranscriptChange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lineage": {
+          "description": "The lineage the change belongs to; ranges of another one do not hold it.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "roomView": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThreadRoomView"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "As on `item/completed`."
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "lineage",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadValueParams": {
       "properties": {
         "threadId": {
@@ -5769,6 +5907,72 @@
       "required": [
         "threadId",
         "value"
+      ],
+      "type": "object"
+    },
+    "ThreadWindowChangedParams": {
+      "description": "`thread/window/changed`: the ranges a positioned subscription holds from `atFeedPosition` on. It sits in the subscription's lane at that position, as a snapshot does: every frame through it was delivered by the ranges before, every later one by these. Its feed stamp is `atFeedPosition`, which it does not advance.",
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/definitions/WindowAdded"
+          },
+          "type": "array"
+        },
+        "atFeedPosition": {
+          "$ref": "#/definitions/FeedPosition"
+        },
+        "followTail": {
+          "default": false,
+          "type": "boolean"
+        },
+        "lineage": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ranges": {
+          "description": "Every range held now; one held before with the same `id` and not in `added` is unchanged.",
+          "items": {
+            "$ref": "#/definitions/WindowRange"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "description": "The ids of ranges no longer held. Their rows may be dropped now; no row body is sent for them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requestId": {
+          "description": "The `thread/window/set` this answers; absent when the core changed the ranges (a lineage change).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "windowVersion": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added",
+        "atFeedPosition",
+        "lineage",
+        "ranges",
+        "removed",
+        "subscriptionId",
+        "threadId",
+        "windowVersion"
       ],
       "type": "object"
     },
@@ -6168,12 +6372,106 @@
       },
       "type": "object"
     },
+    "TranscriptChange": {
+      "description": "What a positioned transcript change does to the rows a subscription holds. There is no \"replace, or append when missing\": a subscription that does not hold `position` is sent no change at all.",
+      "oneOf": [
+        {
+          "description": "A record new to the followed tail: it joins the range `tail` at its newer end. `after` is the position of the stored record before it (absent: none is known).",
+          "properties": {
+            "after": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "insert"
+              ],
+              "type": "string"
+            },
+            "unit": {
+              "$ref": "#/definitions/TranscriptUnit"
+            }
+          },
+          "required": [
+            "op",
+            "unit"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The occurrence `unit.position`, whole, as it reads now.",
+          "properties": {
+            "op": {
+              "enum": [
+                "replace"
+              ],
+              "type": "string"
+            },
+            "unit": {
+              "$ref": "#/definitions/TranscriptUnit"
+            }
+          },
+          "required": [
+            "op",
+            "unit"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "enum": [
+                "remove"
+              ],
+              "type": "string"
+            },
+            "position": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "position"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TranscriptUnit": {
+      "description": "One stored record's rows in the positioned projection, as a page of the record reads: they travel together, oldest first, with the results of the calls they opened, the archived mark, and the dividers that follow the record on its last row (`meta.ext.dividersAfter`). Wherever a unit is sent (a snapshot, a range, a change) it is this one.",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/ThreadItem"
+          },
+          "type": "array"
+        },
+        "position": {
+          "description": "The occurrence: opaque, of one lineage of this thread, the one position its record has, and a `thread/items/list` cursor in either direction.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "items",
+        "position"
+      ],
+      "type": "object"
+    },
     "Turn": {
       "properties": {
         "completedAt": {
           "format": "int64",
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "endPosition": {
+          "description": "The history position of the turn's newest stored row, as `start_position`.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -6197,6 +6495,13 @@
           },
           "type": [
             "array",
+            "null"
+          ]
+        },
+        "startPosition": {
+          "description": "The history position of the turn's oldest stored row: a `thread/items/list` cursor, read on from it or back from it. Absent when none of the turn's rows is stored.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -6761,6 +7066,87 @@
         "message"
       ],
       "type": "object"
+    },
+    "WindowAdded": {
+      "description": "The contents of a range newly held, or of the part of one newly held.",
+      "properties": {
+        "range": {
+          "description": "The [`WindowRange::id`] the units belong to.",
+          "type": "string"
+        },
+        "units": {
+          "description": "Oldest first, as of `atFeedPosition`.",
+          "items": {
+            "$ref": "#/definitions/TranscriptUnit"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "range",
+        "units"
+      ],
+      "type": "object"
+    },
+    "WindowEdge": {
+      "description": "One end of a granted range.",
+      "oneOf": [
+        {
+          "description": "More rows lie beyond: `position` continues the range, read on from it or back from it.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "continuation"
+              ],
+              "type": "string"
+            },
+            "position": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "position"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The transcript ends here.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "end"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WindowRange": {
+      "description": "A range of the transcript a subscription holds.",
+      "properties": {
+        "id": {
+          "description": "Names the range across window versions for as long as it is held.",
+          "type": "string"
+        },
+        "newer": {
+          "$ref": "#/definitions/WindowEdge"
+        },
+        "older": {
+          "$ref": "#/definitions/WindowEdge"
+        }
+      },
+      "required": [
+        "id",
+        "newer",
+        "older"
+      ],
+      "type": "object"
     }
   },
   "oneOf": [
@@ -7118,6 +7504,44 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadHistoryResetParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A transcript event as a positioned subscription gets it, in place of `item/started` and `item/completed`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/transcript/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadTranscriptChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The ranges a positioned subscription holds, at the feed position it carries.",
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/window/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadWindowChangedParams"
         }
       },
       "required": [
@@ -8479,6 +8903,25 @@
         "method": {
           "enum": [
             "migration/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `catalogIndex`: the session index's build, while a rebuild of it runs behind the serving core.",
+      "properties": {
+        "method": {
+          "enum": [
+            "catalog/index/updated"
           ],
           "type": "string"
         },

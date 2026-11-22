@@ -1026,6 +1026,9 @@ pub struct ExecRuntime {
     reaped: Mutex<HashMap<String, Vec<String>>>,
     /// Whether the expired logs of the spill directory were swept.
     swept: std::sync::atomic::AtomicBool,
+    /// How [`Self::reconcile_lost_jobs`] ended, `None` until it has: `true` when it told every owner of a job an earlier
+    /// runtime left running, and from then on a job whose completion can still be delivered is one this runtime holds.
+    reconciled: tokio::sync::watch::Sender<Option<bool>>,
     /// That sweep while it runs, awaited at shutdown.
     sweep: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
@@ -1652,6 +1655,7 @@ impl ExecRuntime {
             launchers: spill::KeptLaunchers::default(),
             reaped: Mutex::new(HashMap::new()),
             swept: std::sync::atomic::AtomicBool::new(false),
+            reconciled: tokio::sync::watch::Sender::new(None),
             sweep: Mutex::new(None),
             artifacts: Mutex::new(Vec::new()),
             standby: Arc::default(),
@@ -2068,7 +2072,7 @@ impl ExecRuntime {
     /// failed completion. `alive` is whether a process exists.
     pub async fn reconcile_lost_jobs(&self, alive: &(dyn Fn(u32) -> bool + Sync)) {
         let cancel = CancellationToken::new();
-        let records = spill::read_records(self.config.lanes.maintenance, &cancel, &self.config.spill_dir, None).await;
+        let (records, mut whole) = spill::scan_records(self.config.lanes.maintenance, &cancel, &self.config.spill_dir, None).await;
         for (id, record) in records {
             let mut kept = KeptJob { id, record };
             let held = lock(&self.jobs).contains_key(&kept.id);
@@ -2079,7 +2083,7 @@ impl ExecRuntime {
             let end = ExitFacts::failed(Some(OUTCOME_LOST.to_owned()));
             kept.record.extend(end.record(self.now_ms()));
             kept.record.insert("state".into(), "finished".into());
-            spill::write_record(self.config.lanes.durability, &cancel, &self.config.spill_dir, &kept.id, kept.record.clone()).await;
+            whole &= spill::write_record(self.config.lanes.durability, &cancel, &self.config.spill_dir, &kept.id, kept.record.clone()).await;
             if kept.text("ownerSessionId").is_empty() {
                 continue;
             }
@@ -2087,5 +2091,23 @@ impl ExecRuntime {
             let output = job.read_output(ReadOptions { terminal: true, ..ReadOptions::default() });
             job.report_finished(self.config.notifier.as_deref(), JobStatus::Failed.as_str(), job.notification(&output)).await;
         }
+        // A record that could not be read may say a job runs, and one whose end was not written says so still: the next
+        // start tells its owner again, so the owners' receipts of this start are not let go of. That is an I/O failure
+        // (the folder or a record's file not read, a lane that refused the job, the ended record not written); a record cut
+        // short by a kill is read and is no JSON, names no owner any start could tell, and leaves the pass whole.
+        if !whole {
+            tracing::warn!("[shell] the records of the jobs an earlier runtime left were not all read and settled; completion receipts stay");
+        }
+        self.reconciled.send_replace(Some(whole));
+    }
+
+    /// The task ids of `owner`'s jobs whose completion this runtime can still deliver: the jobs it holds. Answered once
+    /// the start's [`Self::reconcile_lost_jobs`] has ended (until then a record an earlier runtime left running is owed
+    /// too); `None` when that pass did not read and settle every such record: this runtime then never lists what it
+    /// holds, for a record it missed is owed by the next start.
+    pub async fn held_by(&self, owner: &ThreadId) -> Option<Vec<String>> {
+        let mut ended = self.reconciled.subscribe();
+        let whole = ended.wait_for(Option::is_some).await.ok().and_then(|whole| *whole)?;
+        whole.then(|| self.list(owner).iter().map(|job| job.id.clone()).collect())
     }
 }

@@ -252,10 +252,12 @@ fn read_cache(dir: &std::path::Path) -> Option<Cache> {
     })
 }
 
-/// Best effort: a cache that cannot be written only costs the next call a fetch.
+/// Best effort: a cache that cannot be written, or is lost with the power, only costs the next call a fetch, so it is
+/// not flushed.
 fn write_cache(lane: &InLane<DurabilityIo>, dir: &std::path::Path, latest: &str, at: i64) {
     let text = json!({ "latestVersion": latest, "lastCheckedAt": at }).to_string();
-    let _ = mixdog_core_base::support::write_atomic(lane, &dir.join(CACHE_FILE), text.as_bytes(), false);
+    let opts = mixdog_statefile::Opts { fsync: false, ..mixdog_statefile::Opts::default() };
+    let _ = mixdog_statefile::write_file(lane, &dir.join(CACHE_FILE), text.as_bytes(), &opts);
 }
 
 #[derive(Clone)]

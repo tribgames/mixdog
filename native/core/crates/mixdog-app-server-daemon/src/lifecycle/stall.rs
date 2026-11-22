@@ -137,6 +137,9 @@ impl Drop for SpanGuard {
 pub struct StallDescription {
     pub work: Arc<dyn Fn() -> WorkCounts + Send + Sync>,
     pub spans: Arc<SlowSpans>,
+    /// The transcript reads running now, each as one line (its thread, what it asked, where it is and what it read so
+    /// far): what a lane's stuck worker is most likely running.
+    pub reads: Arc<dyn Fn() -> Vec<String> + Send + Sync>,
 }
 
 impl StallDescription {
@@ -251,7 +254,14 @@ impl StallReporter {
                 tracing::error!(lane = name, wedged = lane.wedged, threads = lane.threads, "lane workers are stuck past their lease");
             }
             self.core.lane_health(name, lane.wedged);
-            self.write_line(&format!("\"event\":\"{event}\",\"lane\":\"{name}\",\"wedged\":{},\"threads\":{}", lane.wedged, lane.threads));
+            let reads = self.describing.as_ref().map(|description| (description.reads)()).filter(|reads| lane.wedged > 0 && !reads.is_empty());
+            let reads = reads.map(|reads| format!(",\"reads\":{}", serde_json::Value::from(reads)));
+            self.write_line(&format!(
+                "\"event\":\"{event}\",\"lane\":\"{name}\",\"wedged\":{},\"threads\":{}{}",
+                lane.wedged,
+                lane.threads,
+                reads.unwrap_or_default()
+            ));
         }
     }
 
@@ -428,8 +438,11 @@ mod tests {
     fn reporter_with(fx: &super::super::testing::Fixture, work: WorkCounts) -> (StallReporter, PathBuf, Arc<SlowSpans>) {
         let (spans, _) = spans();
         let path = fx.runtime_root.path().join("stall.jsonl");
-        let reporter =
-            StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription { work: Arc::new(move || work), spans: Arc::clone(&spans) });
+        let reporter = StallReporter::new(fx.recorder.clone(), path.clone()).describing(StallDescription {
+            work: Arc::new(move || work),
+            spans: Arc::clone(&spans),
+            reads: Arc::new(Vec::new),
+        });
         (reporter, path, spans)
     }
     #[test]

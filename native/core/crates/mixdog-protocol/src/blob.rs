@@ -114,9 +114,49 @@ impl Serialize for SharedText {
     }
 }
 
+thread_local! {
+    /// The last two texts decoded on this thread, while something still holds them: a tool row states its result up to
+    /// three times (`output`, `run.result`, `run.rawResult`), one after the other in its encoding.
+    static DECODED: std::cell::RefCell<[std::sync::Weak<str>; 2]> = std::cell::RefCell::new([empty_weak(), empty_weak()]);
+}
+
+fn empty_weak() -> std::sync::Weak<str> {
+    std::sync::Arc::downgrade(&std::sync::Arc::<str>::from(""))
+}
+
+impl SharedText {
+    /// A text read from an encoding: the allocation of an equal text decoded just before it on this thread, else its own.
+    pub fn decoded(text: &str) -> Self {
+        DECODED.with(|decoded| {
+            let mut decoded = decoded.borrow_mut();
+            if let Some(held) = decoded.iter().filter_map(std::sync::Weak::upgrade).find(|held| **held == *text) {
+                return Self(held);
+            }
+            let own: std::sync::Arc<str> = text.into();
+            decoded.swap(0, 1);
+            decoded[0] = std::sync::Arc::downgrade(&own);
+            Self(own)
+        })
+    }
+}
+
 impl<'de> Deserialize<'de> for SharedText {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        String::deserialize(deserializer).map(Self::from)
+        struct Text;
+
+        impl serde::de::Visitor<'_> for Text {
+            type Value = SharedText;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<SharedText, E> {
+                Ok(SharedText::decoded(text))
+            }
+        }
+
+        deserializer.deserialize_str(Text)
     }
 }
 

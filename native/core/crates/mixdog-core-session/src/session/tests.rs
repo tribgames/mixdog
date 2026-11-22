@@ -588,7 +588,7 @@ async fn a_header_update_is_computed_where_the_header_has_one_writer() {
                     Box::new(|header| {
                         let mut set = serde_json::Map::new();
                         set.insert("skillCount".into(), json!(header["skillCount"].as_u64().expect("count") + 1));
-                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
                     }),
                 )
                 .await
@@ -606,7 +606,10 @@ async fn a_header_update_is_computed_where_the_header_has_one_writer() {
     // A change that sets and unsets nothing writes nothing.
     let records = rig.store.records(&handle.id).len();
     threads
-        .update_header(&handle.id, Box::new(|_| mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }))
+        .update_header(
+            &handle.id,
+            Box::new(|_| mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() }),
+        )
         .await
         .expect("empty");
     assert_eq!(rig.store.records(&handle.id).len(), records);
@@ -634,7 +637,7 @@ async fn a_panicking_header_update_fails_only_its_caller() {
             Box::new(|_| {
                 let mut set = serde_json::Map::new();
                 set.insert("skillCount".into(), json!(1));
-                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
             }),
         )
         .await
@@ -3572,6 +3575,98 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
 }
 
+/// A fork copies its source's rows, and a copied call keeps the id it entered the source under, which says the count of
+/// that session it entered at (`c~7`: its seventh). The fork's own header need not carry that count (the source's did not
+/// here). The fork counts no lower than its copied calls from the write that gives it the rows, and the compaction that
+/// takes them out of its context counts past them: a call that enters the fork afterwards equals none of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_counts_no_lower_than_the_calls_it_copied_and_its_compaction_counts_past_them() {
+    use mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = |iid: &str, role: &str, body: Value| ItemCommit {
+                iid: ItemId::from(iid.to_owned()),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
+            let call = json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c~7", "name": "read", "arguments": {} }] });
+            run.port.commit_item(row("call", "assistant", call)).await.expect("the call");
+            run.port.commit_item(row("result", "tool", json!({ "role": "tool", "toolCallId": "c~7", "content": "read" }))).await.expect("its result");
+            run.port.commit_item(row("answer", "assistant", json!({ "role": "assistant", "content": "done" }))).await.expect("the answer");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let base = start_thread(&directory).await;
+    turn(&base, "first", "op-1").await;
+    eventually_on!(&[&base.cell.stepped], || settled_idle(&base).then_some(())).await;
+    let count = |handle: &SessionHandle| handle.header_snapshot().get(CALL_EPOCH_KEY).and_then(Value::as_u64);
+    assert_eq!(count(&base), Some(0), "the source was born counting from 0 and never compacted: its header carries no 7 to copy");
+    let reply = base.request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let fork =
+        directory.open_handle(&ThreadId::from(value["thread"]["id"].as_str().expect("fork id")), &CallContext::internal("test")).await.expect("the fork");
+    eventually_on!(&[&fork.cell.stepped], || (count(&fork) == Some(7)).then_some(())).await;
+
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port.compacted(compaction_record("sum", 5, 0)).await.expect("the compaction");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    turn(&fork, "second", "op-2").await;
+    eventually_on!(&[&fork.cell.stepped], || (settled_idle(&fork) && count(&fork) == Some(8)).then_some(())).await;
+}
+
+/// A session this core creates is born with its count, at 0: none of its calls has left its context. A session whose
+/// header has no count was written by an earlier build or a migration, and holding no rows says nothing of the calls it
+/// once made (a 1.4.5 session cleared after its calls migrates so): it starts past them, at 1.
+#[tokio::test(start_paused = true)]
+async fn a_session_is_born_counting_from_zero_and_one_without_a_count_starts_past_the_calls_it_cannot_know() {
+    use mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
+    let seen: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let counting = |seen: Arc<Mutex<Vec<u64>>>| -> Script {
+        Arc::new(move |run| {
+            let seen = seen.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                seen.lock().unwrap().push(run.port.call_epoch());
+                RunOutcome::Completed(Default::default())
+            })
+        })
+    };
+    let rig = Rig::new();
+    rig.set_script(counting(seen.clone()));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert_eq!(handle.header_snapshot().get(CALL_EPOCH_KEY), Some(&json!(0)), "a new session's first record carries its count");
+    turn(&handle, "go", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+
+    // The same session as an earlier build left it once cleared: its session record alone, with no count.
+    let next = Rig::new();
+    next.set_script(counting(seen.clone()));
+    let (_, Record::Session(mut start)) = rig.store.records(&handle.id).remove(0) else { panic!("a session record first") };
+    let Slot::Inline(header) = &mut start.header else { panic!("an inline header") };
+    header.shift_remove(CALL_EPOCH_KEY);
+    next.store.append_record(&handle.id, Record::Session(start));
+    let restarted = SessionDirectory::new(next.deps());
+    let reopened = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("reopen");
+    turn(&reopened, "again", "op-2").await;
+    eventually_on!(&[&reopened.cell.stepped], || settled_idle(&reopened).then_some(())).await;
+    assert_eq!(*seen.lock().unwrap(), [0, 1], "a run of the new session enters calls at 0, one of the session without a count at 1");
+}
+
 /// `thread/delete` with `ifIdle` (`deleteSessionIfIdle`): each refusal in Node's order deletes
 /// nothing; an archived, unfavored, idle and unchanged session is deleted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4813,6 +4908,626 @@ async fn a_reaction_is_stored_on_the_users_message_and_refused_as_node_does() {
     assert!(stored(reopened).await.get("reactions").is_none(), "the last removal drops the key");
     let refused = handle.request(request("thread/reactions/set", json!({ "agentId": "rev", "emoji": "👍" }), "op-x")).await;
     assert!(matches!(refused, Err(CoreError::InvalidParams { .. }) | Err(CoreError::PermissionDenied { .. })), "{refused:?}");
+}
+
+/// A subscription of `id` in the positioned projection, attached as the server attaches a subscribing reply: its
+/// connection, its feed and id, and its snapshot frame.
+async fn positioned_subscriber(
+    directory: &SessionDirectory,
+    id: &mixdog_core_api::ids::ThreadId,
+    connection: u64,
+    name: &'static str,
+) -> (mixdog_core_api::mock::MockConnection, Arc<dyn mixdog_core_api::feed::FeedSource>, mixdog_core_api::ids::SubscriptionId, Value) {
+    let conn = mixdog_core_api::mock::MockConnection::new(mixdog_core_api::ids::ConnectionId(connection), mixdog_core_api::mock::MockLimits::default());
+    positioned_subscriber_on(directory, id, conn, name).await
+}
+
+/// [`positioned_subscriber`] on a connection of the caller's limits.
+async fn positioned_subscriber_on(
+    directory: &SessionDirectory,
+    id: &mixdog_core_api::ids::ThreadId,
+    conn: mixdog_core_api::mock::MockConnection,
+    name: &'static str,
+) -> (mixdog_core_api::mock::MockConnection, Arc<dyn mixdog_core_api::feed::FeedSource>, mixdog_core_api::ids::SubscriptionId, Value) {
+    let params = json!({ "threadId": id, "window": { "lastItems": 32 }, "positionedWindow": true });
+    let handle = directory.open_handle(id, &CallContext::internal("test")).await.expect("open");
+    let Reply::Subscribe(reply) = handle.request(request("thread/resume", params, name)).await.expect("thread/resume") else {
+        panic!("thread/resume subscribes");
+    };
+    let feed = reply.feed.clone();
+    let sub = mixdog_core_api::ids::SubscriptionId::from(name);
+    let attached = mixdog_core_api::feed::subscribe(&feed, sub.clone(), reply.window, reply.resume_from, &conn).expect("attach");
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&conn, bytes::Bytes::from_static(b"{}"), attached.release).expect("release");
+    let first = conn.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("thread/snapshot"))).await;
+    let snapshot = lane_frames(&first).into_iter().find(|frame| frame["method"] == "thread/snapshot").expect("a snapshot");
+    (conn, feed, sub, snapshot)
+}
+
+/// Waits for the thread to be idle with every record stored and more than `before` rows in view: the count of rows. A
+/// positioned snapshot holds a record in a range once it is stored.
+async fn stored_rows(handle: &SessionHandle, before: usize) -> usize {
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(handle) && rows(handle).len() > before).then_some(())).await;
+    rows(handle).len()
+}
+
+/// The frames a mock connection wrote to its lanes, parsed.
+fn lane_frames(frames: &[String]) -> Vec<Value> {
+    frames
+        .iter()
+        .filter(|frame| !frame.starts_with("control:"))
+        .filter_map(|frame| frame.split_once(':'))
+        .map(|(_, frame)| serde_json::from_str(frame).expect("a lane frame is JSON"))
+        .collect()
+}
+
+/// `thread/window/set` asked of `handle` for the subscription `sub` on `conn`: the lane frames drained up to the
+/// `thread/window/changed` that answers `request_id`, and that frame.
+async fn window_set(
+    handle: &SessionHandle,
+    conn: &mixdog_core_api::mock::MockConnection,
+    sub: &str,
+    base: u64,
+    request_id: &'static str,
+    want: Value,
+) -> (Vec<Value>, Value) {
+    let params = json!({ "threadId": handle.id, "subscriptionId": sub, "baseWindowVersion": base, "requestId": request_id, "want": want });
+    let ctx = CallContext::connection(mixdog_core_api::sink::ConnectionSink::id(conn), mixdog_protocol::Origin::Local, CancellationToken::new());
+    let asked = CoreRequest { ctx, ..request("thread/window/set", params, request_id) };
+    handle.request(asked).await.expect("thread/window/set");
+    let answers = |frame: &Value| frame["method"] == "thread/window/changed" && frame["params"]["requestId"] == request_id;
+    let drained = conn.drain_text_until(|frames| lane_frames(frames).iter().any(answers)).await;
+    let frames = lane_frames(&drained);
+    let changed = frames.iter().find(|frame| answers(frame)).cloned().expect("the window change");
+    (frames, changed)
+}
+
+/// The rig's text transcript with each record's rows at their history positions, as the stored records' own transcript
+/// states them: a row with no position is of no record, and no range holds it.
+struct PositionedText;
+
+impl super::seams::Transcript for PositionedText {
+    fn items(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &mixdog_store::schema::record::ItemRecord) -> Vec<super::seams::Shown> {
+        let mut shown = super::testing::TextTranscript.items(lane, record);
+        let rows = shown.iter_mut().filter_map(|shown| match shown {
+            super::seams::Shown::Item(item) => Some(item),
+            super::seams::Shown::Update(_) => None,
+        });
+        // The text transcript shows a body's text alone: the reactions an amend stores ride the row, as the records' own
+        // transcript shows them.
+        let reactions = match &record.body {
+            mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/reactions").cloned(),
+            mixdog_store::schema::blob::Slot::Blob(_) => None,
+        };
+        for (row, item) in rows.enumerate() {
+            super::reads::mark_history_position(item, record.iid.as_str(), row);
+            if let Some(reactions) = &reactions {
+                super::view::meta_mut(item).ext.insert("reactions".into(), reactions.clone());
+            }
+        }
+        shown
+    }
+
+    fn rows(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &mixdog_store::schema::record::ItemRecord) -> Vec<(ThreadItem, usize)> {
+        let rows = self.items(lane, record).into_iter().filter_map(|shown| match shown {
+            super::seams::Shown::Item(item) => Some(item),
+            super::seams::Shown::Update(_) => None,
+        });
+        rows.map(|item| {
+            let bytes = serde_json::to_vec(&item).expect("protocol types serialize").len();
+            (item, bytes)
+        })
+        .collect()
+    }
+
+    fn queued(&self, qid: &str, entry: &Value) -> Value {
+        super::testing::TextTranscript.queued(qid, entry)
+    }
+
+    fn user_message(&self, input: &mixdog_app_protocol::v2::thread::TurnInput, originals_missing: u32) -> Value {
+        super::testing::TextTranscript.user_message(input, originals_missing)
+    }
+
+    fn summary(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header) -> mixdog_protocol::ThreadSummary {
+        super::testing::TextTranscript.summary(id, header)
+    }
+}
+
+/// A directory over the real store whose thread feeds are the core's, which hold positioned grants.
+fn positioned_directory(rig: &Rig, store: Arc<dyn super::ThreadStore>) -> SessionDirectory {
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(PositionedText);
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds::new(&mixdog_app_protocol::limits::Limits::default(), mixdog_rt::testing::tokens().cpu_interactive));
+    SessionDirectory::new(Arc::new(deps))
+}
+
+/// Two subscriptions hold prompt P; A lets it go and B keeps it. A bot's reaction on P (`amend_shown`) is then, on the
+/// wire: no row and no gap for A, one replacement of P where it stands for B. A pages P back and is sent it once,
+/// amended, at its position; an edit after that fence is A's replacement too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reaction_on_a_prompt_one_subscription_released_is_a_replacement_only_where_it_is_held() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("u1".to_owned()),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
+                    prompt: None,
+                })
+                .await
+                .expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = positioned_directory(&rig, store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    const P: &str = "h1:0:u1";
+
+    let (a, _feed_a, _sub_a, snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let holds =
+        |snapshot: &Value| snapshot["params"]["window"]["added"][0]["units"].as_array().is_some_and(|units| units.iter().any(|unit| unit["position"] == P));
+    assert!(holds(&snapshot_a), "A's snapshot holds the prompt: {snapshot_a}");
+    assert!(holds(&snapshot_b), "B's snapshot holds the prompt: {snapshot_b}");
+    let seq = |frame: &Value| frame["feed"]["seq"].as_u64();
+    let first = snapshot_a["params"]["window"]["windowVersion"].as_u64().expect("the snapshot's window version");
+    let snapshot_seq = seq(&snapshot_a).expect("the snapshot's seq");
+
+    // A lets go of everything it holds and stops following the tail: a shrink, with no row bodies.
+    let nothing = json!({ "ranges": [], "followTail": false, "pinned": [] });
+    let (mut to_a, released) = window_set(&handle, &a, "a", first, "release", nothing.clone()).await;
+    assert_eq!(released["params"]["removed"], json!(["tail"]));
+    assert_eq!((released["params"]["added"].clone(), released["params"]["ranges"].clone()), (json!([]), json!([])));
+    assert_eq!(released["params"]["followTail"], false);
+    let released_at = released["params"]["windowVersion"].as_u64().expect("a window version");
+    // A demand made of the ranges it no longer holds is refused.
+    let stale = json!({ "threadId": id, "subscriptionId": "a", "baseWindowVersion": first, "requestId": "stale", "want": nothing });
+    assert!(matches!(handle.request(request("thread/window/set", stale, "stale")).await, Err(CoreError::PreconditionFailed { .. })));
+
+    let react = |emoji: Value| {
+        let params = json!({ "agentId": "rev", "emoji": emoji, "messagesBack": 0 });
+        handle.request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx: CallContext::internal("test") })
+    };
+    react(json!("👍")).await.expect("the reaction is stored");
+
+    let changed = |frames: &[String]| frames.iter().any(|frame| frame.contains("thread/transcript/changed"));
+    // The record's unit is sent to the subscription that holds it once the amend is stored and read.
+    let replaced_in = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["params"]["change"]["op"] == "replace");
+    to_a.extend(lane_frames(&a.drain_text_until(changed).await));
+    let to_b = lane_frames(&b.drain_text_until(replaced_in).await);
+    let replaced: Vec<&Value> = to_b.iter().filter(|frame| frame["params"]["change"]["op"] == "replace").collect();
+    assert_eq!(replaced.len(), 1, "B is sent one replacement: {to_b:?}");
+    assert_eq!(replaced[0]["params"]["change"]["unit"]["position"], P);
+    assert!(replaced[0]["params"]["change"]["unit"].to_string().contains("👍"));
+    // The unit stands at a feed position and takes no seq of its own.
+    assert_eq!(replaced[0]["params"]["atFeedPosition"]["seq"], replaced[0]["feed"]["seq"]);
+
+    // A is told the feed moved, with no row, and nothing that grows what it holds.
+    let same = to_a.iter().find(|frame| frame["method"] == "thread/transcript/changed").expect("A is told the transcript changed");
+    assert!(same["params"].get("change").is_none(), "no row body: {same}");
+    assert!(!to_a.iter().any(|frame| frame["method"] == "item/completed" || frame["params"].get("change").is_some()), "{to_a:?}");
+    // A window change carries the position it stands at and takes no seq of its own.
+    let numbered: Vec<u64> = to_a.iter().filter(|frame| frame["method"] != "thread/window/changed").filter_map(seq).collect();
+    assert_eq!(numbered.first().copied(), Some(snapshot_seq + 1), "nothing is skipped behind the snapshot");
+    assert!(numbered.windows(2).all(|pair| pair[1] == pair[0] + 1), "no gap: {numbered:?}");
+
+    // A pages the prompt back: once, amended, at its position.
+    let around = json!({ "ranges": [{ "at": "around", "position": P, "before": 0, "after": 0 }], "followTail": false, "pinned": [] });
+    let (_, paged) = window_set(&handle, &a, "a", released_at, "page", around).await;
+    let units = paged["params"]["added"][0]["units"].as_array().expect("the range's units");
+    assert_eq!(units.len(), 1, "{paged}");
+    assert_eq!(units[0]["position"], P);
+    assert!(units[0].to_string().contains("👍"));
+    assert_eq!(paged["params"]["ranges"].as_array().map(Vec::len), Some(1));
+    assert_eq!(paged["params"]["added"][0]["range"], paged["params"]["ranges"][0]["id"]);
+
+    // An edit behind that fence is A's replacement, as it is B's.
+    react(Value::Null).await.expect("the reaction is removed");
+    for (name, conn) in [("A", &a), ("B", &b)] {
+        let frames = lane_frames(&conn.drain_text_until(replaced_in).await);
+        let replaced: Vec<&Value> = frames.iter().filter(|frame| frame["params"]["change"]["op"] == "replace").collect();
+        assert_eq!(replaced.len(), 1, "{name} is sent one replacement: {frames:?}");
+        assert_eq!(replaced[0]["params"]["change"]["unit"]["position"], P);
+        assert!(!replaced[0].to_string().contains("👍"), "{name}: the reaction is gone");
+    }
+
+    // A stored page reads the prompt once.
+    let Reply::Value(page) = directory.request(request("thread/items/list", json!({ "threadId": id, "limit": 50 }), "page")).await.expect("a page") else {
+        panic!("a value");
+    };
+    assert_eq!(page["data"].as_array().expect("rows").iter().filter(|row| row.to_string().contains(P)).count(), 1, "{page}");
+}
+
+/// A positioned window is asked for with a `lastItems` window only: with another it is refused, never served as the
+/// feed it did not ask for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_positioned_window_over_a_window_of_no_rows_is_refused() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    for window in [json!({ "lastTurns": 2 }), json!({ "none": true })] {
+        let params = json!({ "threadId": handle.id, "window": window, "positionedWindow": true });
+        let refused = handle.request(request("thread/resume", params, "resume")).await;
+        assert!(matches!(refused, Err(CoreError::InvalidParams { ref path, .. }) if &**path == "positionedWindow"), "{window}");
+    }
+    let plain = json!({ "threadId": handle.id, "window": { "lastTurns": 2 } });
+    assert!(matches!(handle.request(request("thread/resume", plain, "resume")).await, Ok(Reply::Subscribe(_))));
+}
+
+/// A rewind under two positioned subscriptions: each is sent the history reset, then its window in the new lineage (a
+/// followed tail cut through ends where the transcript now ends; a subscription that held nothing holds nothing), and
+/// the next turn's rows reach the one that follows the tail and are progress for the other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_rebases_what_each_positioned_subscription_holds() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    let first_turn = stored_rows(&handle, 0).await;
+    turn(&handle, "two", "op-2").await;
+    stored_rows(&handle, first_turn).await;
+    let id = handle.id.clone();
+
+    let (a, _feed_a, _sub_a, snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let lineage = snapshot_a["params"]["window"]["lineage"].as_u64().expect("the snapshot's lineage");
+    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+
+    let second = handle
+        .cell
+        .view
+        .load_full()
+        .items
+        .iter()
+        .rev()
+        .find(|item| matches!(***item, mixdog_protocol::ThreadItem::UserMessage { .. }))
+        .map(|item| item.id().clone())
+        .expect("the second prompt's row");
+    handle.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-3", "itemId": second }), "op-3")).await.expect("rewind");
+
+    let rebased = |frame: &Value| frame["method"] == "thread/window/changed" && frame["params"].get("requestId").is_none();
+    let mut windows = Vec::new();
+    for conn in [&a, &b] {
+        let frames = lane_frames(&conn.drain_text_until(|frames| lane_frames(frames).iter().any(rebased)).await);
+        let reset = frames.iter().position(|frame| frame["method"] == "thread/historyReset").expect("the history reset");
+        let changed = frames.iter().position(rebased).expect("the rebased window");
+        assert!(reset < changed, "the lineage change is told before the window in it: {frames:?}");
+        assert_eq!(frames[changed]["params"]["lineage"], json!(lineage + 1));
+        assert_eq!(frames[changed]["params"]["added"], json!([]), "a rebase carries no row bodies");
+        windows.push(frames[changed]["params"].clone());
+    }
+    assert_eq!(windows[0]["ranges"].as_array().map(Vec::len), Some(1), "{}", windows[0]);
+    assert_eq!((windows[0]["ranges"][0]["id"].clone(), windows[0]["ranges"][0]["newer"]["kind"].clone()), (json!("tail"), json!("end")));
+    assert_eq!((windows[0]["followTail"].clone(), windows[0]["removed"].clone()), (json!(true), json!([])));
+    assert_eq!((windows[1]["ranges"].clone(), windows[1]["followTail"].clone()), (json!([]), json!(false)));
+
+    // The next turn is of the new lineage: rows for the subscription that follows the tail, progress for the other.
+    turn(&handle, "three", "op-4").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let changed = |frames: &[String]| frames.iter().any(|frame| frame.contains("thread/transcript/changed"));
+    // A stored record reaches the follower of the tail as its unit, once it is read.
+    let inserted = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["params"]["change"]["op"] == "insert");
+    let to_a = lane_frames(&a.drain_text_until(inserted).await);
+    let to_b = lane_frames(&b.drain_text_until(changed).await);
+    let transcript = |frames: &[Value]| frames.iter().filter(|frame| frame["method"] == "thread/transcript/changed").cloned().collect::<Vec<_>>();
+    assert!(transcript(&to_a).iter().any(|frame| frame["params"]["change"]["op"] == "insert" && frame["params"]["lineage"] == json!(lineage + 1)), "{to_a:?}");
+    assert!(transcript(&to_b).iter().all(|frame| frame["params"].get("change").is_none()), "{to_b:?}");
+}
+
+/// A frame queued in a lane before the fence is the old ranges': it keeps its row and is written before the window
+/// change. A subscription detached before its change is installed is refused and changes nothing for the other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_frame_queued_before_the_fence_keeps_its_row_and_a_detached_subscription_is_refused() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from("u1".to_owned()),
+                    role: Some("user".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "user", "content": "hello", "meta": { "transcript": { "at": 1, "messageId": "m1" } } }),
+                    prompt: None,
+                })
+                .await
+                .expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    let (a, feed_a, sub_a, snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, _snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let first = snapshot_a["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    let react = |emoji: Value| {
+        let params = json!({ "agentId": "rev", "emoji": emoji, "messagesBack": 0 });
+        handle.request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx: CallContext::internal("test") })
+    };
+    let nothing = json!({ "ranges": [], "followTail": false, "pinned": [] });
+
+    // The reaction is published while A reads nothing; then A lets go of everything.
+    react(json!("👍")).await.expect("the reaction is stored");
+    let (to_a, _) = window_set(&handle, &a, "a", first, "release", nothing.clone()).await;
+    let replaced = to_a.iter().position(|frame| frame["params"]["change"]["op"] == "replace").expect("the frame queued before the fence keeps its row");
+    let changed = to_a.iter().position(|frame| frame["method"] == "thread/window/changed").expect("the window change");
+    assert!(replaced < changed, "{to_a:?}");
+    assert!(to_a[changed]["params"]["atFeedPosition"]["seq"].as_u64() >= to_a[replaced]["feed"]["seq"].as_u64());
+
+    // A is gone before its next change is installed.
+    feed_a.detach(sub_a);
+    let late =
+        json!({ "threadId": id, "subscriptionId": "a", "baseWindowVersion": to_a[changed]["params"]["windowVersion"], "requestId": "late", "want": nothing });
+    assert!(matches!(handle.request(request("thread/window/set", late, "late")).await, Err(CoreError::InvalidParams { .. })));
+    react(Value::Null).await.expect("the reaction is removed");
+    let seen = |frames: &[String]| lane_frames(frames).iter().filter(|frame| frame["params"]["change"]["op"] == "replace").count() == 2;
+    let to_b = lane_frames(&b.drain_text_until(seen).await);
+    assert_eq!(to_b.iter().filter(|frame| frame["params"]["change"]["op"] == "replace").count(), 2, "B is sent both edits: {to_b:?}");
+}
+
+/// A clear under two positioned subscriptions: every range is retired with no row body, and a subscription that
+/// followed the tail follows on in the new lineage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clear_retires_every_range_a_positioned_subscription_holds() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "one", "op-1").await;
+    stored_rows(&handle, 0).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let lineage = snapshot_a["params"]["window"]["lineage"].as_u64().expect("the snapshot's lineage");
+    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+
+    handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-2" }), "op-2")).await.expect("clear");
+    let rebased = |frame: &Value| frame["method"] == "thread/window/changed" && frame["params"].get("requestId").is_none();
+    let mut windows = Vec::new();
+    for conn in [&a, &b] {
+        let frames = lane_frames(&conn.drain_text_until(|frames| lane_frames(frames).iter().any(rebased)).await);
+        let changed = frames.iter().find(|frame| rebased(frame)).expect("the rebased window");
+        assert_eq!(changed["params"]["lineage"], json!(lineage + 1));
+        assert_eq!((changed["params"]["ranges"].clone(), changed["params"]["added"].clone()), (json!([]), json!([])));
+        windows.push(changed["params"].clone());
+    }
+    assert_eq!((windows[0]["removed"].clone(), windows[0]["followTail"].clone()), (json!(["tail"]), json!(true)));
+    assert_eq!((windows[1]["removed"].clone(), windows[1]["followTail"].clone()), (json!([]), json!(false)));
+}
+
+/// A completion's card is one occurrence from the moment it shows: a positioned subscription is sent it once, as an
+/// insertion of its record, and the row the completion's turn then stores shows nothing beside it, live or reopened.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_completions_card_is_one_occurrence_from_its_showing_to_the_row_its_turn_stores() {
+    use mixdog_tools::exec::TaskNotifier;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = positioned_directory(&rig, store.clone());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, _snapshot) = positioned_subscriber(&directory, &id, 1, "a").await;
+
+    // A completion with a body shows its card, and wakes the turn that takes it in.
+    directory.finished(&id, "shell", "job-7", "completed", "job-7 finished.\n\nall green".into()).await;
+    let answered = |handle: &SessionHandle| rows(handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: job-7"));
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && answered(&handle)).then_some(())).await;
+
+    let cards = |frame: &Value| -> Vec<Value> {
+        let items = frame["params"]["change"]["unit"]["items"].as_array().cloned().unwrap_or_default();
+        items.into_iter().filter(|item| item["type"] == "toolCall").collect()
+    };
+    let frames = lane_frames(&a.drain_text_until(|frames| frames.iter().any(|frame| frame.contains("re: job-7"))).await);
+    let shown: Vec<&Value> = frames.iter().filter(|frame| !cards(frame).is_empty()).collect();
+    assert_eq!(shown.len(), 1, "the card is sent once: {shown:?}");
+    assert_eq!(shown[0]["params"]["change"]["op"], "insert");
+    let card = cards(shown[0])[0]["id"].clone();
+    assert!(!frames.iter().any(|frame| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "toolCall"), "{frames:?}");
+
+    // Reopened, the transcript holds that card and no other row for the completion.
+    let reopened = SessionDirectory::new(rig.deps_on(store));
+    let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let stored: Vec<Value> = restored
+        .cell
+        .view
+        .load_full()
+        .items
+        .iter()
+        .filter(|item| matches!(item.as_ref(), ThreadItem::ToolCall { .. }))
+        .map(|item| json!(item.id().as_str()))
+        .collect();
+    assert_eq!(stored, [card]);
+}
+
+/// A lane that lagged is recovered by the thread's snapshot, and the snapshot's window is all the subscription holds:
+/// the range it had paged in is void, its id and the version it stood at name nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovered_positioned_subscription_holds_the_snapshots_window_and_nothing_older() {
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockLimits;
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let body = json!({ "role": "user", "content": "x".repeat(4096), "meta": { "transcript": { "at": 1, "messageId": "m1" } } });
+            let commit = ItemCommit { iid: ItemId::from("u1".to_owned()), role: Some("user".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(commit).await.expect("commit");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    // Snapshots of at most 64 KiB, on a connection whose event budget holds 96 KiB.
+    let mut deps = rig.deps_parts(store);
+    deps.transcript = Arc::new(PositionedText);
+    let feed_limits = mixdog_core_base::feed::FeedLimits { ring_bytes: 1 << 20, max_snapshot_bytes: 64 << 10 };
+    deps.feeds = Arc::new(super::store::CoreThreadFeeds { limits: feed_limits, cpu: mixdog_rt::testing::tokens().cpu_interactive });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    const P: &str = "h1:0:u1";
+    let limits = MockLimits { queue_bytes: 160 << 10, control_reserve_bytes: 64 << 10, max_snapshot_bytes: 64 << 10, ring_bytes: 1 << 20 };
+    let conn = MockConnection::new(mixdog_core_api::ids::ConnectionId(1), limits);
+    let (a, _feed_a, _sub_a, snapshot) = positioned_subscriber_on(&directory, &id, conn, "a").await;
+    let first = snapshot["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+
+    // A holds the prompt as a range of its own and lets the tail go.
+    let around = json!({ "ranges": [{ "at": "around", "position": P, "before": 0, "after": 0 }], "followTail": false, "pinned": [] });
+    let (_, paged) = window_set(&handle, &a, "a", first, "page", around).await;
+    let old_range = paged["params"]["ranges"][0]["id"].clone();
+    let paged_at = paged["params"]["windowVersion"].as_u64().expect("a window version");
+
+    // Forty edits of that prompt while A reads nothing: more rows than its connection's budget holds.
+    for edit in 0..40 {
+        let emoji = if edit % 2 == 0 { json!("👍") } else { Value::Null };
+        let params = json!({ "agentId": "rev", "emoji": emoji, "messagesBack": 0 });
+        handle.request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx: CallContext::internal("test") }).await.expect("an edit");
+    }
+    let recovered = |frames: &[String]| lane_frames(frames).iter().any(|frame| frame["method"] == "thread/snapshot");
+    let frames = lane_frames(&a.drain_text_until(recovered).await);
+    let again = frames.iter().find(|frame| frame["method"] == "thread/snapshot").expect("the recovery's snapshot");
+    let ids: Vec<&Value> = again["params"]["window"]["ranges"].as_array().expect("ranges").iter().map(|range| &range["id"]).collect();
+    assert_eq!(ids, [&json!("tail")], "the snapshot's window is the whole truth: {again}");
+    let recovered_at = again["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+
+    // The version it stood at and the range it had are void.
+    let set = |base: u64, want: Value, request_id: &'static str| {
+        let params = json!({ "threadId": id, "subscriptionId": "a", "baseWindowVersion": base, "requestId": request_id, "want": want });
+        handle.request(request("thread/window/set", params, request_id))
+    };
+    let nothing = json!({ "ranges": [], "followTail": false, "pinned": [] });
+    assert!(matches!(set(paged_at, nothing, "stale").await, Err(CoreError::PreconditionFailed { .. })));
+    let retain = json!({ "ranges": [{ "at": "retain", "id": old_range }], "followTail": false, "pinned": [] });
+    assert!(matches!(set(recovered_at, retain, "void").await, Err(CoreError::InvalidParams { .. })));
+}
+
+/// A compaction under two positioned subscriptions: the one that holds the record the divider follows is sent that
+/// record again with the divider after it, and the archived rows it holds with their mark; neither is sent the divider
+/// as a row of its own, and the one that holds nothing is sent no row at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compaction_reaches_a_positioned_subscription_through_the_records_it_holds() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    turn(&handle, "first", "op-1").await;
+    stored_rows(&handle, 1).await;
+    let id = handle.id.clone();
+    let (a, _feed_a, _sub_a, _snapshot_a) = positioned_subscriber(&directory, &id, 1, "a").await;
+    let (b, _feed_b, _sub_b, snapshot_b) = positioned_subscriber(&directory, &id, 2, "b").await;
+    let version_b = snapshot_b["params"]["window"]["windowVersion"].as_u64().expect("a window version");
+    window_set(&handle, &b, "b", version_b, "release", json!({ "ranges": [], "followTail": false, "pinned": [] })).await;
+
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+            let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+            run.port.compacted(compaction).await.expect("compacted");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    turn(&handle, "compact", "op-2").await;
+    let archived = |handle: &SessionHandle| {
+        handle.cell.view.load_full().items.first().is_some_and(|item| super::view::meta(item).ext.get("archived") == Some(&json!(true)))
+    };
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && archived(&handle)).then_some(())).await;
+
+    let text = |frame: &Value| frame.to_string();
+    let told = |frames: &[String]| {
+        let frames = lane_frames(frames);
+        frames.iter().any(|frame| text(frame).contains("dividersAfter")) && frames.iter().any(|frame| text(frame).contains("\"archived\":true"))
+    };
+    let to_a = lane_frames(&a.drain_text_until(told).await);
+    let with_divider: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("dividersAfter")).collect();
+    // The record the divider follows is sent as its page reads: again where it was held, or first with the divider on it.
+    assert!(
+        with_divider.iter().all(|frame| frame["params"]["change"]["unit"].to_string().contains("dividersAfter")),
+        "the divider rides its record's unit: {with_divider:?}"
+    );
+    let marked: Vec<&Value> = to_a.iter().filter(|frame| text(frame).contains("\"archived\":true")).collect();
+    assert!(marked.iter().all(|frame| frame["params"]["change"]["op"] == "replace"), "{marked:?}");
+    let own_row = |frame: &Value| frame["method"] == "item/completed" && frame["params"]["item"]["type"] == "contextCompaction";
+    assert!(!to_a.iter().any(own_row), "{to_a:?}");
+
+    // B holds nothing: every transcript event is progress, and the divider is no row of its own there either.
+    let reached = |frames: &[String]| lane_frames(frames).iter().filter(|frame| frame["method"] == "thread/transcript/changed").count() >= 2;
+    let to_b = lane_frames(&b.drain_text_until(reached).await);
+    assert!(to_b.iter().filter(|frame| frame["method"] == "thread/transcript/changed").all(|frame| frame["params"].get("change").is_none()), "{to_b:?}");
+    assert!(!to_b.iter().any(own_row), "{to_b:?}");
+}
+
+/// `thread/rewindTargets/list` and `thread/rewind` read the stored history: a prompt is a target by its position,
+/// and the reply's figures are the lineage's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_rewind_targets_are_the_stored_prompts_newest_first() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let directory = positioned_directory(&rig, store);
+    let handle = start_thread(&directory).await;
+    let mut stored = 0;
+    for (prompt, op) in [("one", "op-1"), ("two", "op-2"), ("three", "op-3")] {
+        turn(&handle, prompt, op).await;
+        stored = stored_rows(&handle, stored).await;
+    }
+    let id = handle.id.clone();
+    let list = |params: Value| async {
+        match handle.request(request("thread/rewindTargets/list", params, "targets")).await.expect("thread/rewindTargets/list") {
+            Reply::Value(listed) => listed,
+            Reply::Subscribe(_) => panic!("a value"),
+        }
+    };
+    let first = list(json!({ "threadId": id, "limit": 2 })).await;
+    let texts = |listed: &Value| {
+        listed["data"].as_array().expect("targets").iter().map(|target| target["text"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>()
+    };
+    assert_eq!(texts(&first), ["three", "two"]);
+    let rest = list(json!({ "threadId": id, "limit": 2, "cursor": first["nextCursor"] })).await;
+    assert_eq!(texts(&rest), ["one"]);
+    assert!(rest.get("nextCursor").is_none());
+
+    // Rewound to the second prompt by its position: it and everything after it go.
+    let target = first["data"][1]["position"].clone();
+    let Reply::Value(rewound) =
+        handle.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-4", "itemId": target }), "op-4")).await.expect("rewind")
+    else {
+        panic!("a value");
+    };
+    assert_eq!(rewound["text"], "two");
+    assert!(rewound["removed"].as_u64().is_some_and(|removed| removed >= 2), "{rewound}");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let after = list(json!({ "threadId": id })).await;
+    assert_eq!(texts(&after), ["one"]);
 }
 
 /// The room log (`agent-room-delivery.mjs` `commit`): a post's rows land in the room session
@@ -6448,4 +7163,32 @@ async fn the_picked_members_of_a_header_are_the_headers_own() {
     assert!(directory.stored_header(&unknown).await.is_none());
     assert!(directory.stored_fields(&unknown, FIELDS).await.is_none());
     assert!(directory.loaded_fields(&unknown, FIELDS).is_none());
+}
+
+/// Two listings that ask for the same members of a stored session while its record is being read make one read of it: the
+/// second awaits the first's, and both are answered what it read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listings_that_read_one_session_at_once_read_its_record_once() {
+    const FIELDS: &[&str] = &["createdAt", "cwd", "noSuchMember"];
+    let rig = Rig::new();
+    let store = super::testing::CallCounted::new(rig.store.clone());
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
+    let thread = start_thread(&directory).await.id.clone();
+    directory.release(&thread).await;
+    assert!(directory.handle(&thread).is_none(), "the thread is stored, not loaded: its header is read from its record");
+    let reads = || store.calls().iter().filter(|call| **call == "read_header_fields").count();
+    let before = reads();
+    let mut held = store.hold("read_header_fields");
+    let first = tokio::spawn({
+        let (directory, thread) = (directory.clone(), thread.clone());
+        async move { directory.listed_fields(&thread, FIELDS).await }
+    });
+    held.entered("read_header_fields").await;
+    let mut second = Box::pin(directory.listed_fields(&thread, FIELDS));
+    assert!(futures::poll!(second.as_mut()).is_pending(), "the second listing was answered while the record was being read");
+    held.release();
+    let (first, second) = (first.await.unwrap(), second.await);
+    assert!(first.as_ref().is_some_and(|header| header.contains_key("createdAt")), "{first:?}");
+    assert_eq!(first, second);
+    assert_eq!(reads() - before, 1, "the record of one session was read once for two listings at once");
 }

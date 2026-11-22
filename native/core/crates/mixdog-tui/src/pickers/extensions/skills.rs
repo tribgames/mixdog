@@ -141,9 +141,7 @@ fn project_skill_items(skills: &[Value]) -> Vec<ExtItem> {
             let shared = shared(skills, skill);
             let (value, label, description) = row_text(skill, shared);
             let mut row = skill.clone();
-            if shared
-                && let Some(fields) = row.as_object_mut()
-            {
+            if shared && let Some(fields) = row.as_object_mut() {
                 fields.insert(SHARED.to_owned(), Value::Bool(true));
             }
             ExtItem::new(&value, &label, &description, Action::View(row))
@@ -234,22 +232,20 @@ impl Extensions {
         // The two halves the model's listing shows: capability, then trigger.
         let parts = [clean_member(skill, "description"), clean_member(skill, "whenToUse")];
         let summary = parts.iter().filter(|part| !part.is_empty()).cloned().collect::<Vec<_>>().join(" \u{2014} ");
-        let mut items = vec![
-            ExtItem::new(
-                "use",
-                "Use skill",
-                if disabled {
-                    "enable this skill first"
-                } else if state(skill) == "hidden" {
-                    "another source's skill of this name is in use"
-                } else if !usable {
-                    unavailable_text(skill)
-                } else {
-                    "write a request with this skill"
-                },
-                if usable { Action::Use } else { Action::Noop },
-            ),
-        ];
+        let mut items = vec![ExtItem::new(
+            "use",
+            "Use skill",
+            if disabled {
+                "enable this skill first"
+            } else if state(skill) == "hidden" {
+                "another source's skill of this name is in use"
+            } else if !usable {
+                unavailable_text(skill)
+            } else {
+                "write a request with this skill"
+            },
+            if usable { Action::Use } else { Action::Noop },
+        )];
         if switchable(skill) {
             items.push(ExtItem::new(
                 if disabled { "enable" } else { "disable" },

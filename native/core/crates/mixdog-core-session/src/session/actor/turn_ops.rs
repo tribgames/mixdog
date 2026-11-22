@@ -212,8 +212,7 @@ impl SessionActor {
         } else {
             "Compact scheduled: runs when the current turn finishes"
         };
-        let item = super::super::transcript::idle_notice_item(&new_id(), text, "info");
-        self.show_live(TurnId::from(""), item, None);
+        self.notice(None, text, "info");
         super::super::turn_ops::compact_scheduled_for_turn_end()
     }
 
@@ -339,8 +338,7 @@ impl SessionActor {
         if let Some(reason) = skipped {
             let text = super::super::live_rows::polish_notice_text(&format!("auto-clear skipped: {reason}"));
             if !text.is_empty() {
-                let item = super::super::transcript::idle_notice_item(&new_id(), &text, "error");
-                self.show_live(TurnId::from(""), item, None);
+                self.notice(None, &text, "error");
             }
         }
         self.scheduled_compaction_ended();
@@ -625,8 +623,7 @@ impl SessionActor {
                 return drop(tx.send(Ok(FireOutcome::Superseded)));
             }
             FireStep::Unreplayable => {
-                let item = super::super::transcript::idle_notice_item(&new_id(), super::super::quota_lane::UNRESUMABLE, "warn");
-                self.show_live(TurnId::from(""), item, None);
+                self.notice(None, super::super::quota_lane::UNRESUMABLE, "warn");
                 self.finish_resume("", "", Some(generation));
                 return drop(tx.send(Ok(FireOutcome::Unreplayable)));
             }
@@ -719,8 +716,7 @@ impl SessionActor {
         let (accepted, answer, release) = match &result {
             Ok(goal) => (goal.as_ref().is_some_and(|goal| mixdog_core_goal::goal::js::string(goal, "status") == "active") && admitted.is_some(), Ok(()), true),
             Err(error) => {
-                let item = super::super::transcript::idle_notice_item(&new_id(), &format!("Goal resume failed: {}", error.message), "warn");
-                self.show_live(TurnId::from(""), item, None);
+                self.notice(None, &format!("Goal resume failed: {}", error.message), "warn");
                 (false, Err(super::super::turn_ops::failure(&error.message)), !error.rollback_failed)
             }
         };
@@ -766,11 +762,8 @@ impl SessionActor {
         if value.is_empty() {
             return Ok(Value::Null);
         }
-        let row_id = new_id();
         let tone = params.level.as_deref().unwrap_or("info");
-        let item = super::super::transcript::idle_notice_item(&row_id, &value, tone);
-        self.show_live(TurnId::from(""), item, None);
-        Ok(json!(row_id))
+        Ok(self.notice(None, &value, tone).map_or(Value::Null, Value::String))
     }
 
     /// `clearSessionChangeHistory` (`integrations.mjs`): refused while the session runs a turn,

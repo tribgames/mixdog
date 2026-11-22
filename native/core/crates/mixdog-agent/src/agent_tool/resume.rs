@@ -155,7 +155,7 @@ impl TagResume {
     /// Errors when only its working directory is gone and the caller named no existing one.
     /// Call inside [`Self::serialized`] for this tag.
     pub async fn resume_tag(&self, tag: &str, session_id: &str, request: ResumeRequest<'_>) -> Result<Option<AgentReply>, String> {
-        let Some(found) = self.registry.resumable_tag_session(tag, session_id, &request.caller.scope).await else {
+        let Some(found) = self.registry.resumable_tag_session(tag, session_id, &request.caller.scope).await? else {
             return Ok(None);
         };
         let Some(session) = found.session else {

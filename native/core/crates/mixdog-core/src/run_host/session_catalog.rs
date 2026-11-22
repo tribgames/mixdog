@@ -403,9 +403,9 @@ impl CatalogView for SessionCatalog {
             let mode = scope_mode(&session, thread_mode(header));
             let text = render_tool_search(&surface, &mut session, &args, &mode, &excluded, &status);
             let _ = told.send(text);
-            let Value::Object(after) = session else { return HeaderChange { set: Map::new(), unset: Vec::new() } };
+            let Value::Object(after) = session else { return HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() } };
             let set = after.into_iter().filter(|(key, value)| header.get(key) != Some(value)).collect();
-            HeaderChange { set, unset: Vec::new() }
+            HeaderChange { set, unset: Vec::new(), patch: Default::default() }
         });
         if let Err(error) = self.updates.update_header(thread, update).await {
             return Some(Err(format!("load_tool could not update the session: {error:?}")));

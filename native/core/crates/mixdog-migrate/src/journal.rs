@@ -27,6 +27,7 @@ use mixdog_store::schema::migration::Manifest;
 use mixdog_store::schema::migration::Phase;
 use mixdog_store::schema::migration::PlanEntry;
 use mixdog_store::schema::migration::QuarantineCode;
+use mixdog_store::schema::migration::SourceFile;
 use mixdog_store::schema::migration::StagedEntry;
 
 use crate::durable;
@@ -38,16 +39,20 @@ use crate::frame;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemProgress {
     pub state: ItemState,
+    /// The source files journaled for an item the manifest lists without them.
+    pub sources: Option<Vec<SourceFile>>,
     pub staged: Option<StagedEntry>,
     /// Set once the item was journaled `verified`.
     pub digest: Option<Option<Digest>>,
     /// Set once the item was journaled `quarantined`.
     pub quarantined: Option<QuarantineCode>,
+    /// Set once the item was journaled `expired`: the time it was judged at, epoch milliseconds.
+    pub expired: Option<u64>,
 }
 
 impl ItemProgress {
     fn planned() -> Self {
-        Self { state: ItemState::Planned, staged: None, digest: None, quarantined: None }
+        Self { state: ItemState::Planned, sources: None, staged: None, digest: None, quarantined: None, expired: None }
     }
 }
 
@@ -57,6 +62,10 @@ pub struct Journal {
     next_ordinal: u64,
     items: BTreeMap<String, ItemProgress>,
     verified_all: bool,
+    /// The time of the first `expired` frame.
+    judged_at: Option<u64>,
+    /// The time of the `judged` phase: the judgement is closed.
+    judged: Option<u64>,
     /// Why an append failed; every later append is refused.
     failed: Option<String>,
 }
@@ -64,20 +73,23 @@ pub struct Journal {
 fn key_of(record: &JournalRecord) -> Option<&str> {
     match record {
         JournalRecord::Plan(_) | JournalRecord::Phase(_) => None,
+        JournalRecord::Sources(e) => Some(e.key.as_str()),
         JournalRecord::Staged(e) => Some(e.key.as_str()),
         JournalRecord::Published(e) | JournalRecord::Disposed(e) => Some(e.key.as_str()),
         JournalRecord::Verified(e) => Some(e.key.as_str()),
         JournalRecord::Quarantined(e) => Some(e.key.as_str()),
+        JournalRecord::Expired(e) => Some(e.key.as_str()),
     }
 }
 
 fn target_state(record: &JournalRecord) -> Option<ItemState> {
     Some(match record {
-        JournalRecord::Plan(_) | JournalRecord::Phase(_) => return None,
+        JournalRecord::Plan(_) | JournalRecord::Phase(_) | JournalRecord::Sources(_) => return None,
         JournalRecord::Staged(_) => ItemState::Staged,
         JournalRecord::Published(_) => ItemState::Published,
         JournalRecord::Verified(_) => ItemState::Verified,
         JournalRecord::Quarantined(_) => ItemState::Quarantined,
+        JournalRecord::Expired(_) => ItemState::Expired,
         JournalRecord::Disposed(_) => ItemState::Disposed,
     })
 }
@@ -118,6 +130,8 @@ impl Journal {
             next_ordinal: 0,
             items: manifest.items.iter().map(|i| (i.key.as_str().to_string(), ItemProgress::planned())).collect(),
             verified_all: false,
+            judged_at: None,
+            judged: None,
             failed: None,
         };
         for committed in &frames {
@@ -158,12 +172,25 @@ impl Journal {
         if let JournalRecord::Phase(phase) = record {
             match phase.phase {
                 Phase::VerifiedAll => {
-                    if let Some((key, _)) = self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined)) {
+                    if let Some((key, _)) =
+                        self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined | ItemState::Expired))
+                    {
                         return Err(Blocked::journal(format!("verified_all before {key}")));
                     }
                     self.verified_all = true;
                 }
+                Phase::Judged => {
+                    let at = phase.at.ok_or_else(|| Blocked::journal("a judged phase without its time"))?;
+                    if self.judged.replace(at).is_some() {
+                        return Err(Blocked::journal("a second judged phase"));
+                    }
+                }
             }
+            return Ok(());
+        }
+        if let JournalRecord::Sources(entry) = record {
+            self.takes_sources(entry.key.as_str())?;
+            self.items.get_mut(entry.key.as_str()).expect("checked").sources = Some(entry.sources.clone());
             return Ok(());
         }
         let (Some(key), Some(to)) = (key_of(record), target_state(record)) else {
@@ -173,12 +200,28 @@ impl Journal {
         if !progress.state.can_advance(to) {
             return Err(Blocked::journal(format!("{key}: {:?} → {to:?} is not a transition", progress.state)));
         }
+        if to == ItemState::Expired && self.judged.is_some() {
+            return Err(Blocked::journal(format!("{key}: expired after the judgement was closed")));
+        }
         progress.state = to;
         match record {
             JournalRecord::Staged(e) => progress.staged = Some(e.clone()),
             JournalRecord::Verified(e) => progress.digest = Some(e.digest.clone()),
             JournalRecord::Quarantined(e) => progress.quarantined = Some(e.code),
+            JournalRecord::Expired(e) => {
+                progress.expired = Some(e.judged_at);
+                self.judged_at.get_or_insert(e.judged_at);
+            }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// An item's sources are journaled once, while nothing of it is staged: everything after reads them.
+    fn takes_sources(&self, key: &str) -> Result<()> {
+        let progress = self.items.get(key).ok_or_else(|| Blocked::journal(format!("journal names unknown item {key}")))?;
+        if progress.state != ItemState::Planned || progress.sources.is_some() {
+            return Err(Blocked::journal(format!("{key}: sources journaled twice or after {:?}", progress.state)));
         }
         Ok(())
     }
@@ -186,14 +229,23 @@ impl Journal {
     /// Validates, writes and syncs one frame, then applies it.
     pub fn append(&mut self, record: JournalRecord) -> Result<()> {
         match (key_of(&record), target_state(&record)) {
+            (Some(key), None) => self.takes_sources(key)?,
             (Some(key), Some(to)) => {
                 let from = self.items.get(key).ok_or_else(|| Blocked::journal(format!("unknown item {key}")))?.state;
                 if !from.can_advance(to) {
                     return Err(Blocked::journal(format!("{key}: {from:?} → {to:?} is not a transition")));
                 }
+                if to == ItemState::Expired && self.judged.is_some() {
+                    return Err(Blocked::journal(format!("{key}: expired after the judgement was closed")));
+                }
+            }
+            _ if matches!(&record, JournalRecord::Phase(phase) if phase.phase == Phase::Judged) => {
+                if self.judged.is_some() {
+                    return Err(Blocked::journal("a second judged phase"));
+                }
             }
             _ => {
-                if let Some((key, _)) = self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined)) {
+                if let Some((key, _)) = self.items.iter().find(|(_, p)| !matches!(p.state, ItemState::Verified | ItemState::Quarantined | ItemState::Expired)) {
                     return Err(Blocked::journal(format!("verified_all before {key}")));
                 }
             }
@@ -224,6 +276,17 @@ impl Journal {
         self.items.get(key)
     }
 
+    /// The time the first session journaled `expired` was judged at: a judgement cut before its `judged` phase is made
+    /// again at it.
+    pub fn judged_at(&self) -> Option<u64> {
+        self.judged_at
+    }
+
+    /// The time of the `judged` phase: the judgement is made, and no session expires after it.
+    pub fn judged(&self) -> Option<u64> {
+        self.judged
+    }
+
     pub fn verified_all(&self) -> bool {
         self.verified_all
     }
@@ -246,6 +309,40 @@ mod tests {
     use mixdog_store::schema::migration::Roots;
 
     use super::*;
+
+    /// An item's sources are journaled once and before it is staged; a reopened journal holds them.
+    #[test]
+    fn sources_are_journaled_once_and_only_while_the_item_is_planned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.000000");
+        let item = |key: &str| crate::plan::item(key, KindGroup::Data, ItemKind::Session, Contract::Convert, Vec::new(), None).unwrap();
+        let manifest = Manifest {
+            format: MANIFEST_FORMAT,
+            roots: Roots { data: String::new(), home: String::new(), profile: None },
+            items: vec![item("session/a"), item("session/b")],
+            shared: Vec::new(),
+        };
+        let plan = PlanEntry { manifest_sha256: Text::try_from("0".repeat(64).as_str()).unwrap(), items: 2 };
+        let mut journal = Journal::create(&path, plan, &manifest).unwrap();
+        let file =
+            SourceFile { root: mixdog_store::schema::migration::Root::Data, path: "sessions/a.json".into(), size: 1, sha256: "1".repeat(64), secret: false };
+        let sources = |key: &str| {
+            JournalRecord::Sources(mixdog_store::schema::migration::SourcesEntry { key: ItemKey::try_from(key).unwrap(), sources: vec![file.clone()] })
+        };
+        journal.append(sources("session/a")).unwrap();
+        assert!(journal.append(sources("session/a")).is_err(), "a second record of the same item");
+        journal
+            .append(JournalRecord::Quarantined(QuarantinedEntry { key: ItemKey::try_from("session/b").unwrap(), code: QuarantineCode::ParseError }))
+            .unwrap();
+        assert!(journal.append(sources("session/b")).is_err(), "a record after the item left `planned`");
+        assert_eq!(journal.next_ordinal(), 3, "a refused record writes no frame");
+        drop(journal);
+
+        let reopened = Journal::open(&path, &manifest).unwrap().unwrap();
+        let a = reopened.progress("session/a").unwrap();
+        assert_eq!((a.state, a.sources.as_deref()), (ItemState::Planned, Some([file.clone()].as_slice())));
+        assert_eq!(reopened.progress("session/b").unwrap().sources, None);
+    }
 
     /// A failed append leaves the file's tail unknown: a later append, from this item's worker or another's, is refused
     /// instead of writing a frame after it, and a reopen replays only the whole frames.

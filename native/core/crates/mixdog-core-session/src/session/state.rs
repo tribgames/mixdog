@@ -88,8 +88,8 @@ pub(crate) enum Change {
     /// The records (by ordinal) whose rows in view a compaction took out of the model context: the rows show `archived`,
     /// as a reopened window shows them (`fold_opened`). Not persisted: a reopen reads it from the index.
     Archived(Vec<u64>),
-    /// A live completion card (not persisted): a new item at the end of the view, or the item
-    /// with its id replaced.
+    /// A card in view as it now reads (a tool card closed by an early result, a completion's card extended): the row
+    /// with its id is replaced where it stands, and nothing when it is gone, never a new row.
     Card(ThreadItem),
     /// The detail of a row in view (a compaction divider's figures, which its pass's event delivers after the record):
     /// nothing when the row is gone, never a new row. Not persisted.
@@ -124,10 +124,7 @@ pub(crate) struct WindowItem {
     /// `None` until the record is acked (projected state only).
     pub ordinal: Option<u64>,
     pub item: Arc<ThreadItem>,
-    /// The record's `prompt` fact: the text a rewind to this row hands back.
-    pub prompt: Option<String>,
-    /// The model-history messages this row stands for, with the model records after it that show no row of their own: what a
-    /// rewind to the row removes from the history (Node's `rewindSessionMessagesTo` `removed`).
+    /// The model-history messages this row stands for, with the model records after it that show no row of their own.
     pub messages: u32,
 }
 
@@ -451,7 +448,7 @@ impl SessionState {
     /// A shown row of no record of its own (a restored compaction divider and its boundaries),
     /// at the end of the window; it lives and goes with `ordinal` (the `compacted` frame's).
     pub fn push_shown(&mut self, ordinal: u64, item: ThreadItem) {
-        self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), prompt: None, messages: 0 });
+        self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), messages: 0 });
         self.trim_window();
     }
 
@@ -503,7 +500,7 @@ impl SessionState {
                 // A live item shown complete (a finished `Reasoning` item) becomes its row.
                 self.live.retain(|live| live.item.id() != item.id());
                 let at = before.as_ref().and_then(|before| self.window.iter().position(|row| row.item.id() == before)).unwrap_or(self.window.len());
-                self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None, messages: 0 });
+                self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), messages: 0 });
                 self.trim_window();
             }
             Change::Settled { item, .. } => {
@@ -519,9 +516,6 @@ impl SessionState {
             Change::Card(card) => {
                 if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == card.id()) {
                     row.item = Arc::new(card.clone());
-                } else {
-                    self.window.push_back(WindowItem { ordinal: None, item: Arc::new(card.clone()), prompt: None, messages: 0 });
-                    self.trim_window();
                 }
             }
         }
@@ -648,6 +642,7 @@ impl SessionState {
         for (key, value) in &change.set {
             header.insert(key.clone(), value.clone());
         }
+        mixdog_store::header_patch::apply_patches(header, &change.patch);
         self.sections.title = title_of(&self.header);
     }
 
@@ -691,9 +686,7 @@ impl SessionState {
                     if !item.visible {
                         continue;
                     }
-                    // The prompt fact belongs to the row's user item, its first.
-                    let prompt = matches!(new, ThreadItem::UserMessage { .. }).then(|| item.prompt_text().map(str::to_owned)).flatten();
-                    let row = WindowItem { ordinal, item: Arc::new(new.clone()), prompt, messages: std::mem::take(&mut messages) };
+                    let row = WindowItem { ordinal, item: Arc::new(new.clone()), messages: std::mem::take(&mut messages) };
                     // A live-only row of the same item (the text settled before a tool call) becomes the record's row,
                     // where it was shown.
                     if let Some(shown) = self.window.iter_mut().find(|shown| shown.ordinal.is_none() && shown.item.id() == new.id()) {
@@ -773,7 +766,7 @@ impl SessionState {
         let Some(last) = self.window.iter().rposition(|row| row.ordinal == anchor) else { return };
         for (at, shown) in shown.iter().enumerate() {
             let Shown::Item(new) = shown else { continue };
-            self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None, messages: 0 });
+            self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), messages: 0 });
         }
         self.trim_window();
     }
@@ -784,7 +777,7 @@ impl SessionState {
         let Display::Items(shown) = display else { return };
         for shown in shown {
             if let Shown::Item(new) = shown {
-                self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None, messages: 0 });
+                self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), messages: 0 });
             }
         }
         self.trim_window();

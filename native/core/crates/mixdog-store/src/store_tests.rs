@@ -1930,15 +1930,22 @@ async fn opening_the_store_removes_what_a_crash_left_before_any_thread_opens() {
     let other = tempfile::tempdir().unwrap();
     copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
     let rebuilt = open_index(other.path()).unwrap();
-    assert_eq!(folders(other.path()), ["k0"], "gone when the open returns");
+    assert_eq!(folders(other.path()), ["k0", "x0"], "gone when the open returns");
+    // A deleted session the rebuild projects behind the open is held as deleted, and purged once the rebuild is done.
+    assert_eq!(rebuilt.deleted("x0").await.unwrap(), Some(true));
+    assert_eq!(rebuilt.purge_once_projected(tokens().maintenance_io, other.path().to_path_buf()).await.unwrap(), ["x0"]);
+    assert_eq!(folders(other.path()), ["k0"]);
     for id in ["d0", "x0", "e0", "t0"] {
         assert_eq!(rebuilt.deleted(id).await.unwrap(), None, "{id}");
     }
     assert!(rebuilt.summary("k0").await.unwrap().is_some());
 
-    // Without a rebuild the index still holds d0's and x0's rows: the open drops them too.
+    // Without a rebuild the index still holds d0's and x0's rows: the open drops d0's with its half-purged folder. Its rows are
+    // owed their repair (this Env's writers leave them dirty), so x0 is purged once that is done, in the same start.
     assert_eq!(env.store.deleted("d0").await.unwrap(), Some(true));
     let reopened = open_index(&env.data).unwrap();
+    assert_eq!(folders(&env.data), ["k0", "x0"], "a deleted session is not purged while projections are owed");
+    assert_eq!(reopened.purge_once_projected(tokens().maintenance_io, env.data.clone()).await.unwrap(), ["x0"]);
     assert_eq!(folders(&env.data), ["k0"]);
     for id in ["d0", "x0"] {
         assert_eq!(reopened.deleted(id).await.unwrap(), None, "{id}");
@@ -2584,11 +2591,67 @@ async fn an_index_without_the_user_name_is_rebuilt_with_it() {
     old.execute_batch("ALTER TABLE sessions DROP COLUMN user_name; PRAGMA user_version = 8;").unwrap();
     drop(old);
     let store = open_index(other.path()).unwrap();
+    // The rows are projected behind the open.
+    store.reconciled().await.unwrap();
     let conn = rusqlite::Connection::open(&db).unwrap();
     let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
     assert_eq!(version, crate::schema::sql::INDEX_USER_VERSION);
     let name: Option<String> = conn.query_row("SELECT user_name FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap();
     assert_eq!(name.as_deref(), Some("Mine"));
+    drop(store);
+}
+
+/// An index of version 18 (its `listed` rows without `modelParameters`) is brought to 19 in place, not rebuilt: the member is
+/// taken from the summary where only an object gives it, and a row whose summary does not tell (an array's, an absent member's)
+/// is repaired from its log; every other table keeps its rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_index_of_version_18_is_brought_to_19_in_place() {
+    let env = Env::new();
+    for (id, parameters) in [("obj", Some(json!({"temperature": 0.2}))), ("empty", Some(json!({}))), ("arr", Some(json!([1, 2]))), ("none", None)] {
+        let w = env.create(id, None).await;
+        env.mark(id).await;
+        let mut batch = vec![user(&format!("{id}u"), "ask"), answer(&format!("{id}a"))];
+        if let Some(parameters) = parameters {
+            batch.push(rec(json!({"k":"meta","change":{"inline":{"set":{"modelParameters": parameters},"unset":[]}}})));
+        }
+        let (w, _) = env.commit(w, batch).await;
+        env.retire(w).await.unwrap();
+    }
+    env.store.close();
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let db = other.path().join(INDEX_FILE);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    for suffix in ["", "-wal"] {
+        let from = PathBuf::from(format!("{}{suffix}", env.data.join(INDEX_FILE).display()));
+        if from.exists() {
+            std::fs::copy(&from, format!("{}{suffix}", db.display())).unwrap();
+        }
+    }
+    let old = rusqlite::Connection::open(&db).unwrap();
+    old.execute_batch("UPDATE sessions SET listed = json_remove(listed, '$.modelParameters'); PRAGMA user_version = 18;").unwrap();
+    let rows_of = |c: &rusqlite::Connection| -> i64 {
+        c.query_row("SELECT (SELECT count(*) FROM history) + (SELECT count(*) FROM message_rows)", [], |r| r.get(0)).unwrap()
+    };
+    let before = rows_of(&old);
+    assert!(before > 0);
+    drop(old);
+
+    let store = open_index(other.path()).unwrap();
+    assert!(!store.rebuilding(), "an index of version 18 is not rebuilt");
+    assert_eq!(store.repairs().owed, 2, "only the rows whose summary does not tell are repaired");
+    store.reconciled().await.unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0)).unwrap(), crate::schema::sql::INDEX_USER_VERSION);
+    assert_eq!(rows_of(&conn), before, "the history and message rows are kept");
+    let listed = |id: &str| -> serde_json::Value {
+        let text: String = conn.query_row("SELECT listed FROM sessions WHERE id = ?1 AND dirty = 0", [id], |r| r.get(0)).unwrap();
+        serde_json::from_str(&text).unwrap()
+    };
+    assert_eq!(listed("obj")["modelParameters"], json!({"temperature": 0.2}), "taken from the summary");
+    assert_eq!(listed("empty")["modelParameters"], json!({}), "taken from the summary");
+    assert_eq!(listed("arr")["modelParameters"], json!([1, 2]), "repaired from the log, as the header holds it");
+    assert!(listed("none").get("modelParameters").is_none(), "repaired from the log: absent stays absent");
     drop(store);
 }
 
@@ -2604,6 +2667,8 @@ async fn the_catalog_row_holds_the_header_members_a_listing_reads() {
     let other = tempfile::tempdir().unwrap();
     copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
     let store = open_index(other.path()).unwrap();
+    // Until its rows are projected behind the open, the session is its record's to answer.
+    store.reconciled().await.unwrap();
     let row = store.listed("s1").await.unwrap().expect("a row level with its log answers").expect("a session with a record");
     let listed: serde_json::Value = serde_json::from_str(&row).unwrap();
     assert_eq!(listed["title"], json!("Mine"));
@@ -2654,12 +2719,26 @@ async fn an_index_of_the_previous_shape_is_rebuilt_from_the_logs() {
     drop(old);
 
     let store = open_index(other.path()).unwrap();
+    // The rows are projected behind the open.
+    store.reconciled().await.unwrap();
     let version: i32 = rusqlite::Connection::open(&db).unwrap().pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
     assert_eq!(version, crate::schema::sql::INDEX_USER_VERSION);
     let rebuilt = dump(&db);
     assert!(rebuilt.iter().any(|(t, rows)| t == "sessions" && rows.len() == 2));
     let want = dump(&fresh);
+    // The rebuild projects the most recent session first, the projection in id order: the rows take other `sid`s, which the
+    // title search index is keyed by. The rows are compared without them.
+    let but_sid = |db: &Path| -> Vec<Vec<rusqlite::types::Value>> {
+        let conn = rusqlite::Connection::open(db).unwrap();
+        let mut stmt = conn.prepare("SELECT * FROM sessions ORDER BY id").unwrap();
+        let width = stmt.column_count();
+        stmt.query_map([], |r| (1..width).map(|i| r.get(i)).collect()).unwrap().collect::<Result<_, _>>().unwrap()
+    };
+    assert_eq!(but_sid(&db), but_sid(&fresh));
     for ((table, got), (_, want)) in rebuilt.iter().zip(&want) {
+        if table == "sessions" || table.starts_with("session_search") {
+            continue;
+        }
         if table == "worker_revision" {
             // The runtime numbers an index it builds afresh, the projection of a migration leaves 0: the generation is what tells a rebuilt index from the one before.
             assert_ne!(got, want, "{table}");
@@ -3018,7 +3097,7 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     drop(reopened);
     let rebuilt = tempfile::tempdir().unwrap();
     copy_tree(&env.dir("s1"), &rebuilt.path().join("sessions").join("s1"));
-    drop(open_index(rebuilt.path()).unwrap());
+    drop(open_built(rebuilt.path()));
     assert_eq!(session_rows(&env.data), session_rows(rebuilt.path()));
 }
 /// A boot reconcile whose index cursor stopped behind the log's newest checkpoint reads the log from the anchor before the
@@ -3144,11 +3223,19 @@ fn checkpoints_of(dir: &Path) -> Vec<u64> {
     }
 }
 
+/// [`open_index`] of `data` once the repairs owed at open ended: an index made anew holds its rows from then on.
+fn open_built(data: &Path) -> SqliteStore {
+    let store = open_index(data).unwrap();
+    let repairs = store.reconciled();
+    std::thread::spawn(move || tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(repairs)).join().unwrap().unwrap();
+    store
+}
+
 /// The `sessions` rows of an index built from nothing but a copy of the log of `id`: what the log alone says.
 fn rebuilt_rows(env: &Env, id: &str) -> Vec<Vec<rusqlite::types::Value>> {
     let rebuilt = tempfile::tempdir().unwrap();
     copy_tree(&env.dir(id), &rebuilt.path().join("sessions").join(id));
-    drop(open_index(rebuilt.path()).unwrap());
+    drop(open_built(rebuilt.path()));
     session_rows(rebuilt.path())
 }
 
@@ -3341,7 +3428,7 @@ fn session_rows_but_sid(data: &Path) -> Vec<Vec<rusqlite::types::Value>> {
 fn rebuilt_rows_of_all(env: &Env) -> Vec<Vec<rusqlite::types::Value>> {
     let rebuilt = tempfile::tempdir().unwrap();
     copy_tree(&env.data.join("sessions"), &rebuilt.path().join("sessions"));
-    drop(open_index(rebuilt.path()).unwrap());
+    drop(open_built(rebuilt.path()));
     session_rows_but_sid(rebuilt.path())
 }
 
@@ -3546,13 +3633,16 @@ async fn a_failed_repair_fails_every_access_to_its_session_and_to_no_other() {
         env.store.close();
         crate::sqlite::reconcile_seam::fail(&env.data);
         let failed = open_index(&env.data).unwrap();
-        let why = "s1: the test seam failed the index write";
+        // An index recovery failure naming the session, never missing data.
+        fn recovery_failed<T>(answer: &Result<T, DbError>) -> bool {
+            matches!(answer, Err(DbError::Recovery { session, reason }) if session == "s1" && reason.contains("the test seam failed the index write"))
+        }
         at("the read");
         let read = failed.history_page(lineage(&[("s1", None)]), None, None, 10).await;
-        assert!(matches!(&read, Err(DbError::Write(w)) if w == why), "{read:?}");
+        assert!(recovery_failed(&read), "{read:?}");
         at("the write");
         let write = failed.mark_dirty("s1", LOG_ID, new_activation()).await;
-        assert!(matches!(&write, Err(DbError::Write(w)) if w == why), "{write:?}");
+        assert!(recovery_failed(&write), "{write:?}");
         let laned = failed.clone();
         at("the lane read");
         let on_lane = tokens()
@@ -3560,22 +3650,26 @@ async fn a_failed_repair_fails_every_access_to_its_session_and_to_no_other() {
             .submit(&CancellationToken::new(), move |lane| laned.history_page_on_lane(lane, &lineage(&[("s1", None)]), None, None, 10).map(drop))
             .expect("lane");
         let on_lane = on_lane.await.expect("job ran");
-        assert!(matches!(&on_lane, Err(DbError::Write(w)) if w == why), "{on_lane:?}");
+        assert!(recovery_failed(&on_lane), "{on_lane:?}");
         at("the listing");
         assert_eq!(failed.listed("s1").await.unwrap(), None, "a session whose repair failed was answered from the rows the crash left");
         at("the listed row by id");
         let row = failed.lead_row("s1").await;
-        assert!(matches!(&row, Err(DbError::Write(w)) if w == why), "{row:?}");
-        at("a lookup that names no session under repair");
-        assert!(failed.archived_agent_parents("child").await.unwrap().is_empty(), "a lookup across the rows was refused for one session's failure");
+        assert!(recovery_failed(&row), "{row:?}");
+        at("a lookup across every session");
+        let parents = failed.archived_agent_parents("child").await;
+        assert!(recovery_failed(&parents), "a lookup across the rows answered absence without the failed session: {parents:?}");
+        let listing = failed.list_sessions(true, None, None).await;
+        assert!(recovery_failed(&listing), "a listing answered short of the failed session: {:?}", listing.map(|rows| rows.len()));
         at("the other session");
         let (rows, _) = failed.history_page(lineage(&[("s2", None)]), None, None, 10).await.unwrap();
         assert_eq!(iids(&rows), ["b", "a"]);
         at("the repairs' outcome");
         let settled = failed.reconciled().await;
-        assert!(matches!(&settled, Err(DbError::Write(w)) if w == why), "{settled:?}");
+        assert!(recovery_failed(&settled), "{settled:?}");
         let report = failed.repairs();
-        assert_eq!((report.owed, report.repaired, report.pending, report.failed), (2, 1, 0, vec![("s1".to_owned(), why.to_owned())]));
+        assert_eq!((report.owed, report.repaired, report.pending, report.failed.len()), (2, 1, 0, 1));
+        assert!(report.failed[0].0 == "s1" && report.failed[0].1.contains("the test seam failed the index write"), "{:?}", report.failed);
     };
     // The whole body under one real-time deadline (a thread's, so it fires on a paused clock too), naming the step reached.
     let (done, waiting) = std::sync::mpsc::channel::<()>();
@@ -3654,19 +3748,39 @@ async fn sessions_not_under_repair_are_served_while_the_repair_of_another_is_hel
     assert_eq!(reopened.listed("s3").await.unwrap(), None, "a session under repair is the record's to answer");
 
     assert!(reopened.is_withheld("s4").await.unwrap());
-    let listing = reopened.list_sessions(true, None, None).await.unwrap();
-    let row = |id: &str| listing.iter().find(|listed| listed.row["id"] == json!(id)).unwrap_or_else(|| panic!("{id} is listed")).row.clone();
-    assert_eq!((row("s2")["title"].clone(), row("s4")["title"].clone()), (json!("t"), json!("")), "the index answered a withheld title");
+    // A listing rests on every session: it waits for the one under repair and the one held for its rewrite, and is never
+    // answered short of them.
+    let before = *waiters.borrow();
+    let listing = tokio::spawn({
+        let reopened = reopened.clone();
+        async move { reopened.list_sessions(true, None, None).await }
+    });
+    mixdog_rt::time::timeout(REPAIR_BOUND, waiters.wait_for(|n| *n > before)).await.expect("the listing waited").unwrap();
+    assert!(!listing.is_finished(), "a listing answered short of a session under repair");
     assert_eq!(reopened.listed("s4").await.unwrap(), None, "a withheld session is the record's to answer, which refuses it");
 
     release.send(()).unwrap();
     assert_eq!(mixdog_rt::time::timeout(REPAIR_BOUND, held).await.expect("the held session answered once released").unwrap(), ["b", "a"]);
-    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.reconciled()).await.expect("the repairs ended").unwrap();
+    mixdog_rt::time::timeout(REPAIR_BOUND, reopened.repairs_idle()).await.expect("the repairs ended");
     let report = reopened.repairs();
     assert_eq!((report.owed, report.repaired, report.pending, report.left, report.failed), (3, 2, 0, vec!["s4".to_owned()], Vec::new()));
-    assert_eq!(reopened.projected("s4").await.unwrap(), Some(cursor), "a repair projected the log of a withheld session");
+    assert!(!listing.is_finished(), "a listing answered short of a session held for its rewrite");
+    {
+        // Read off the file: a read through the store waits for the held session.
+        let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+        let at: (i64, i64, i64) = conn
+            .query_row("SELECT projected_ordinal, projected_file_no, projected_offset FROM sessions WHERE id = 's4'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(at, (cursor.ordinal as i64, i64::from(cursor.file_no), cursor.offset as i64), "a repair projected the log of a withheld session");
+    }
 
     reopened.release_withheld("s4").await.unwrap();
+    let listing = mixdog_rt::time::timeout(REPAIR_BOUND, listing).await.expect("the listing answered once every session was ready").unwrap().unwrap();
+    let mut listed: Vec<String> = listing.iter().filter_map(|listed| listed.row["id"].as_str().map(str::to_owned)).collect();
+    listed.sort();
+    assert_eq!(listed, ["s1", "s2", "s3", "s4"], "the listing holds every session");
     assert_eq!(page_of(&reopened, "s4").await, ["b", "a"], "a released session is repaired first");
     assert!(reopened.repairs().left.is_empty() && !reopened.owed_repairs().await.unwrap().contains(&"s4".to_owned()));
 }
@@ -3889,6 +4003,140 @@ async fn the_store_opens_before_its_repairs_and_an_access_to_a_session_under_rep
     assert_eq!(iids(&laned_rows), ["c", "b", "a"]);
     let events = events.lock().unwrap().clone();
     assert_eq!((events.len(), events[0]), (4, "released"), "{events:?}");
+}
+
+/// The log of `id` with `messages` messages, more than one transaction of a rebuild holds; `rewound`: then a rewind that
+/// takes them all back (one frame whose updates are many rows) and one message after it.
+async fn long_log(env: &Env, id: &str, start: Encoded, messages: usize, rewound: bool) {
+    let mut w = env.create_from(id, start).await;
+    for batch in 0..messages / 100 {
+        w = env.commit(w, (0..100).map(|i| item(&format!("{id}-{batch}-{i}"))).collect()).await.0;
+    }
+    if rewound {
+        w = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":1,"reason":"edit"})), item("after")]).await.0;
+    }
+    drop(w);
+}
+
+/// The `sessions` row of `big` under `data`, without its `sid`.
+fn rows_but_the_written(data: &Path) -> Vec<Vec<rusqlite::types::Value>> {
+    let big = rusqlite::types::Value::Text("big".to_owned());
+    let rows: Vec<_> = session_rows_but_sid(data).into_iter().filter(|row| row.contains(&big)).collect();
+    assert_eq!(rows.len(), 1, "the large session has one row");
+    rows
+}
+
+/// One poll of `write`: its request is in the writer's channel from then on, and it is not answered.
+async fn queued<T: std::fmt::Debug>(write: &mut std::pin::Pin<Box<impl std::future::Future<Output = T>>>) {
+    tokio::select! {
+        biased;
+        answered = write.as_mut() => panic!("the write was answered while the writer was held: {answered:?}"),
+        () = std::future::ready(()) => {}
+    }
+}
+
+/// With the writer stopped inside a transaction of the repair of `big`, a write to the ready `r1` is queued; once the
+/// writer goes on, that write commits before the repair's next transaction. The kinds of the repair's transactions, from
+/// the held one on.
+async fn a_write_overtakes_the_repair(
+    index: &SqliteStore,
+    data: &Path,
+    arrived: std::sync::mpsc::Receiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+) -> Vec<String> {
+    arrived.recv_timeout(REPAIR_BOUND).expect("the writer is inside a transaction of the large session's repair");
+    let held = crate::sqlite::reconcile_seam::commits(data).len();
+    let mut write = Box::pin(index.upsert(head("r1", "task", "Renamed meanwhile"), DirtyMark::Clear));
+    queued(&mut write).await;
+    release.send(()).unwrap();
+    mixdog_rt::time::timeout(REPAIR_BOUND, write).await.expect("the write answered").unwrap();
+    mixdog_rt::time::timeout(REPAIR_BOUND, index.reconciled()).await.expect("the repairs ended").unwrap();
+    let commits = crate::sqlite::reconcile_seam::commits(data);
+    for (kind, session, rows) in &commits {
+        assert!(*rows <= APPEND_ROWS.max(STEP_ROWS), "a transaction ({kind} of {session}) took {rows} rows");
+    }
+    assert_eq!(commits[held].1, "big", "the held transaction is the large session's: {commits:?}");
+    assert_eq!(commits[held + 1].0, "serving", "the queued write did not commit before the repair's next transaction: {:?}", &commits[held..]);
+    assert!(index.summary("r1").await.unwrap().unwrap().contains("Renamed meanwhile"));
+    commits[held..].iter().filter(|(_, session, _)| session == "big").map(|(kind, ..)| (*kind).to_owned()).collect()
+}
+
+/// A rebuild of a session longer than one transaction, the writer stopped inside its first: the write queued meanwhile
+/// commits before the second, every transaction stays within its budget, and the index ends as one built from the logs
+/// with nothing in between. Again with a frame whose updates alone are more than one transaction holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_serving_write_commits_before_the_second_transaction_of_a_rebuild() {
+    for rewound in [false, true] {
+        let env = Env::new();
+        long_log(&env, "big", stamped_session("big"), 1500, rewound).await;
+        let w = env.create_from("r1", stamped_session("r1")).await;
+        drop(env.commit(w, vec![item("a")]).await);
+        env.store.close();
+        let fresh = tempfile::tempdir().unwrap();
+        copy_tree(&env.data.join("sessions"), &fresh.path().join("sessions"));
+        let data = fresh.path().to_path_buf();
+        let (release, arrived) = crate::sqlite::reconcile_seam::hold_slice(&data, "big");
+        let index = open_index(&data).unwrap();
+        let ready = mixdog_rt::time::timeout(REPAIR_BOUND, index.summary("r1")).await.expect("the session asked for is built first").unwrap();
+        assert!(ready.is_some(), "rewound {rewound}");
+        let of_big = a_write_overtakes_the_repair(&index, &data, arrived, release).await;
+        assert!(of_big.iter().filter(|kind| *kind == "part").count() >= 3, "rewound {rewound}: the large session took {of_big:?}");
+        assert_eq!(of_big.last().map(String::as_str), Some("finish"), "rewound {rewound}: {of_big:?}");
+        let page = page_of(&index, "big").await;
+        index.close();
+        let clean = tempfile::tempdir().unwrap();
+        copy_tree(&env.data.join("sessions"), &clean.path().join("sessions"));
+        let built = open_built(clean.path());
+        assert_eq!(page, page_of(&built, "big").await, "rewound {rewound}");
+        built.close();
+        assert_eq!(rows_but_the_written(&data), rows_but_the_written(clean.path()), "rewound {rewound}");
+    }
+}
+
+/// A refold of a holed fork, the writer stopped inside the first slice of its purge: the write queued meanwhile commits
+/// before the next slice, the purge, the replay and the fork's row each go on a transaction at a time, and the index ends
+/// as one built from the logs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_serving_write_commits_between_the_transactions_of_a_refold() {
+    let env = Env::new();
+    let w = env.create_from("base", stamped_session("base")).await;
+    drop(env.commit(w, vec![item("a")]).await);
+    let fork = rec(json!({"k":"session","v":2,"id":"big","log_id":LOG_ID,"header":{"inline":{"title":"t","updatedAt":5}},
+        "base":{"session":"base","log_id":LOG_ID,"end_ordinal_exclusive":2}}));
+    env.store.upsert(CatalogHead { base_session: Some("base".into()), ..head("big", "task", "Title") }, DirtyMark::Set).await.unwrap();
+    long_log(&env, "big", fork, 1500, false).await;
+    let w = env.create_from("r1", stamped_session("r1")).await;
+    drop(env.commit(w, vec![item("a")]).await);
+    env.store.close();
+    {
+        // As a start whose rebuild of the fork's rows was cut off: the fork is holed, and no other session is owed anything.
+        let conn = rusqlite::Connection::open(env.data.join(INDEX_FILE)).unwrap();
+        conn.execute("UPDATE sessions SET dirty = 0", []).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('hole:big', '1')", []).unwrap();
+    }
+    let (release, arrived) = crate::sqlite::reconcile_seam::hold_slice(&env.data, "big");
+    let index = open_index(&env.data).unwrap();
+    assert_eq!(index.owed_repairs().await.unwrap(), ["big"]);
+    // A read of the fork asks for its repair, which starts with the purge of its rows.
+    let read = tokio::spawn({
+        let index = index.clone();
+        async move { page_of(&index, "big").await }
+    });
+    let of_big = a_write_overtakes_the_repair(&index, &env.data, arrived, release).await;
+    assert_eq!(of_big.first().map(String::as_str), Some("purge"), "{of_big:?}");
+    for kind in ["purge", "part"] {
+        assert!(of_big.iter().filter(|of| *of == kind).count() >= 2, "the refold's {kind} went in one transaction: {of_big:?}");
+    }
+    assert_eq!(of_big.last().map(String::as_str), Some("finish"), "{of_big:?}");
+    let page = mixdog_rt::time::timeout(REPAIR_BOUND, read).await.expect("the fork answered once refolded").unwrap();
+    assert!(index.owed_repairs().await.unwrap().is_empty(), "the hole goes with the fork's complete row");
+    index.close();
+    let clean = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &clean.path().join("sessions"));
+    let built = open_built(clean.path());
+    assert_eq!(page, page_of(&built, "big").await);
+    built.close();
+    assert_eq!(rows_but_the_written(&env.data), rows_but_the_written(clean.path()));
 }
 // ---------------------------------------------------------------------------------------
 // Catalog rows against Node's `_sessionSummary` on the migration corpus.
@@ -4272,4 +4520,105 @@ async fn lead_pages_walk_by_activity_then_id_and_name_the_cursor_of_the_last_row
         after = decode_catalog_cursor(Some(&encode_catalog_cursor(&got.rows.last().unwrap().row))).unwrap();
     }
     assert_eq!(pages, [vec!["e", "b"], vec!["c", "d"], vec!["a"]]);
+}
+
+/// A session log a 1.5.0 development build wrote before a header change could be nested and before a checkpoint kept header
+/// values out of line: a build of commit 04b0508714 ran a conversation with tool results and a compaction under a profile
+/// in `C:\mixdog-build\tmp`, and this is its log as that build closed it (groups, and the closing checkpoint).
+const EARLIER_SESSION: &str = "sess_24468_1795314060915_1795314060915_0c98a09bb8f446c28fe31940371d0292";
+
+/// The records of a log's bytes, group markers left out.
+fn records_in(log: &[u8]) -> Vec<crate::schema::record::Record> {
+    use crate::schema::frame::HEADER_LEN;
+    log.split(|byte| *byte == b'\n')
+        .filter(|line| line.len() > HEADER_LEN && line[HEADER_LEN] == b'{')
+        .map(|line| serde_json::from_slice(&line[HEADER_LEN..]).expect("a record"))
+        .collect()
+}
+
+/// The header the records of a log fold to, read from its first frame on.
+fn header_of(records: &[crate::schema::record::Record]) -> crate::schema::record::Header {
+    use crate::schema::blob::Slot;
+    use crate::schema::record::Record;
+    let mut header = crate::schema::record::Header::new();
+    for record in records {
+        match record {
+            Record::Session(session) => match &session.header {
+                Slot::Inline(first) => header = first.clone(),
+                Slot::Blob(_) => panic!("the fixture's header is inline"),
+            },
+            Record::Meta(meta) => match &meta.change {
+                Slot::Inline(change) => crate::header_patch::apply(&mut header, change),
+                Slot::Blob(_) => panic!("the fixture's changes are inline"),
+            },
+            Record::WorkStop(_) => panic!("the fixture holds no Stop"),
+            _ => {}
+        }
+    }
+    header
+}
+
+/// A log and checkpoint an earlier development build wrote open as they are: the checkpoint's state is the header its frames
+/// fold to. This build then appends to it, a nested header change and a checkpoint with its large header values out of
+/// line, without touching a byte already there, and the log opens again to the header the whole value would have given.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_and_checkpoint_an_earlier_build_wrote_open_unchanged_and_take_the_nested_change_and_the_new_checkpoint() {
+    use crate::schema::blob::Slot;
+    use crate::schema::record::Record;
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/dev-1.5.0-04b0508714").join(EARLIER_SESSION).join(log_name(0));
+    let written = std::fs::read(&fixture).expect("the fixture");
+    let env = Env::new();
+    let log = env.dir(EARLIER_SESSION).join(log_name(0));
+    std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+    std::fs::write(&log, &written).unwrap();
+
+    let earlier = records_in(&written);
+    assert!(matches!(earlier.last(), Some(Record::Checkpoint(_))), "it was closed with a checkpoint");
+    assert!(earlier.iter().any(|record| matches!(record, Record::Compacted(_))));
+    let folded = header_of(&earlier);
+    let opened = env.reopen(EARLIER_SESSION).await;
+    assert_eq!(opened.status, LogStatus::Clean);
+    assert_eq!(serde_json::to_string(&opened.fold.header).unwrap(), serde_json::to_string(&folded).unwrap(), "the checkpoint is the fold");
+    assert_eq!(opened.fold.next_ordinal as usize, earlier.len(), "every record of it is folded");
+
+    // One member of a map-valued key changes, as every send's telemetry does.
+    let mut compaction = folded["compaction"].as_object().expect("the compaction telemetry").clone();
+    assert!(serde_json::to_vec(&compaction).unwrap().len() > 1000);
+    compaction.insert("lastCheckedAt".into(), json!(1795310900000i64));
+    let change = rec(json!({ "k": "meta", "change": { "inline": { "set": { "compaction": compaction, "updatedAt": 1795310900000i64 }, "unset": [] } } }));
+    let whole = change.payload.len();
+    let deps = env.deps();
+    let (w, ack) = on_lane(move |l| {
+        let mut w = LogWriter::open(l, opened, deps).unwrap();
+        let ack = w.append_barrier(l, vec![change]).unwrap();
+        let closed = w.close(l).unwrap();
+        (w, (ack, closed))
+    })
+    .await;
+    drop((w, ack));
+    let grown = std::fs::read(&log).unwrap();
+    assert_eq!(grown[..written.len()], written[..], "nothing already written moved");
+    let appended = records_in(&grown[written.len()..]);
+    let [Record::Meta(meta), Record::Checkpoint(checkpoint)] = &appended[..] else { panic!("a header change and the closing checkpoint: {appended:?}") };
+    let Slot::Inline(narrow) = &meta.change else { panic!("inline") };
+    assert_eq!(narrow.set.keys().collect::<Vec<_>>(), ["updatedAt"]);
+    assert_eq!(narrow.patch["compaction"].set, json!({ "lastCheckedAt": 1795310900000i64 }).as_object().unwrap().clone());
+    assert!(serde_json::to_vec(&appended[0]).unwrap().len() * 5 < whole, "the change is written as what changed");
+
+    let Slot::Inline(state) = &checkpoint.state else { panic!("the state is inline once its large values are out of line") };
+    assert!(state.header_blobs.contains_key("deferredToolCatalog") && state.header_blobs.contains_key("tools"), "{:?}", state.header_blobs.keys());
+    assert!(state.header_blobs.keys().all(|key| state.header[key].is_null()), "each keeps its place");
+    assert_eq!(state.header.keys().collect::<Vec<_>>(), header_of(&records_in(&grown)).keys().collect::<Vec<_>>());
+    let Some(Record::Checkpoint(before)) = earlier.last() else { unreachable!() };
+    assert!(serde_json::to_vec(checkpoint).unwrap().len() * 3 < serde_json::to_vec(before).unwrap().len(), "the checkpoint holds what is the session's own");
+
+    let reopened = env.reopen(EARLIER_SESSION).await;
+    assert_eq!(reopened.status, LogStatus::Clean);
+    assert_eq!(
+        serde_json::to_string(&reopened.fold.header).unwrap(),
+        serde_json::to_string(&header_of(&records_in(&grown))).unwrap(),
+        "the header from the new checkpoint is the header the frames fold to"
+    );
+    assert_eq!(reopened.fold.header.get("tools"), folded.get("tools"));
+    assert_eq!(reopened.fold.header.get("compaction").and_then(|c| c.get("lastCheckedAt")), Some(&json!(1795310900000i64)));
 }

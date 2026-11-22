@@ -338,7 +338,7 @@ fn armed_change(header: &Header, session: &Value) -> HeaderChange {
             set.insert(key.to_owned(), value.clone());
         }
     }
-    HeaderChange { set, unset: Vec::new() }
+    HeaderChange { set, unset: Vec::new(), patch: Default::default() }
 }
 
 #[async_trait]
@@ -362,7 +362,7 @@ impl DeferredToolArm for HeaderSkillArm {
             }
             Err(name) => {
                 let _ = told.send(Err(name));
-                HeaderChange { set: Map::new(), unset: Vec::new() }
+                HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() }
             }
         });
         self.updates.update_header(thread, update).await?;

@@ -19,5 +19,5 @@ pub use session::McpOAuth;
 pub use session::OAuthEnv;
 pub use shared::OAuthError;
 pub use store::MemoryStore;
-pub use store::installation_identity;
 pub use store::SecretStore;
+pub use store::installation_identity;

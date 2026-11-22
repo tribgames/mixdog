@@ -103,7 +103,7 @@ fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_
 
 /// What turns `header` into `after`, the messages aside.
 pub(super) fn header_diff(header: &Header, after: &Map<String, Value>) -> HeaderChange {
-    let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
     for (key, value) in after {
         if key != "messages" && header.get(key) != Some(value) {
             change.set.insert(key.clone(), value.clone());
@@ -127,7 +127,7 @@ pub fn route_surface_change(
     hidden_agent: bool,
 ) -> HeaderChange {
     if is_first_route(previous) {
-        return HeaderChange { set: Map::new(), unset: Vec::new() };
+        return HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
     }
     let mut session = Value::Object(header.clone());
     if let Some(prepared) = prepared {

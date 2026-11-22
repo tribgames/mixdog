@@ -56,6 +56,12 @@ use super::SessionLanes;
 use super::ThreadStore;
 use super::Transcript;
 use super::directory::DirInner;
+use super::read_trace::ReadCtl;
+use super::read_trace::ReadTrace;
+use super::read_trace::Stage;
+use super::seams::PageAsk;
+use super::seams::PageAt;
+use super::seams::PageRead;
 use super::seams::check_turn_read_cancel;
 use super::seams::turn_read_cancelled;
 use super::transcript::displayed_id;
@@ -118,10 +124,8 @@ pub(super) async fn history_items(deps: &SessionDeps, id: &ThreadId) -> Result<V
     Ok(history(deps, id).await?.rows.into_iter().map(|(item, _)| item).collect())
 }
 
-/// The stored history: each item with the byte length of its display row, at the history
-/// revision it was read at.
+/// The stored history: each item with the byte length of its display row.
 pub(super) struct History {
-    pub rev: u64,
     pub rows: Vec<(ThreadItem, usize)>,
 }
 
@@ -130,8 +134,8 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
     deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
     // The whole history is its newest rows without a bound, marked as every page of it is.
-    let (rev, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX)).await??;
-    Ok(History { rev, rows: display_rows(deps, records, decor).await? })
+    let (_, records, decor, _) = on_lane_wait(deps.lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX)).await??;
+    Ok(History { rows: display_rows(deps, records, decor).await? })
 }
 
 async fn display_rows(
@@ -147,41 +151,196 @@ async fn display_rows(
     .await
 }
 
-/// The rows from a cursor's row back (`ThreadStore::history_before`): the cursor's record's rows are `rows[from..]`.
-pub(super) struct Before {
+/// The rows of one stored page ([`ThreadStore::history_page`]), oldest first.
+pub(super) struct Window {
     pub rev: u64,
     pub rows: Vec<(ThreadItem, usize)>,
-    pub from: usize,
-    pub complete: bool,
+    /// Each record that shows rows: its ordinal and its rows among `rows`, oldest first. Empty for a store that numbers
+    /// no records.
+    pub units: Vec<(u64, std::ops::Range<usize>)>,
+    /// The rows of the record a cursor named: the last record of a page read back from it, the first of one read on from it.
+    pub named_rows: std::ops::Range<usize>,
+    /// No row is older than `rows`.
+    pub reaches_start: bool,
+    /// No row is newer than `rows`.
+    pub reaches_end: bool,
     pub named: u64,
+    /// The record id of each entry of `units`, in their order.
+    pub iids: Vec<String>,
+    /// The result updates the page's records carry, in their order, each already merged into the row of the page it is
+    /// for; empty for a page read without them ([`page`]).
+    pub updates: Vec<ThreadItem>,
 }
 
-/// [`ThreadStore::history_before`] with its records shown as rows.
-pub(super) async fn history_before(
+/// [`ThreadStore::history_page`] with its records shown as rows; `None` when the store cannot place the page. The wait for
+/// the index and for a rewrite is made here, off the lanes: a job that would have waited gives its worker back and is
+/// asked again. Each job ends once `ctl` is cancelled.
+pub(super) async fn page(
     store: &Arc<dyn ThreadStore>,
     transcript: &Arc<dyn Transcript>,
     lanes: SessionLanes,
     id: &ThreadId,
-    anchor: String,
+    at: PageAt,
     records: usize,
-) -> Result<Option<Before>, CoreError> {
-    let token = CancellationToken::new();
-    store.unheld().await;
-    let (store, thread) = (store.clone(), id.clone());
-    let Some(read) = on_lane_wait(lanes.io, &token, move |lane| store.history_before(lane, &thread, &anchor, records)).await?? else {
-        return Ok(None);
+    ctl: &ReadCtl,
+) -> Result<Option<Window>, CoreError> {
+    page_shown(store, transcript, lanes, id, at, records, false, ctl).await
+}
+
+/// The position of the record `iid`: the one position its occurrence has, whichever of its rows a reader holds.
+pub(super) fn record_position(iid: &str) -> String {
+    format!("{HISTORY_CURSOR_PREFIX}0:{iid}")
+}
+
+/// One stored record as the positioned projection holds it: its rows as a page shows them (the archived mark and the
+/// dividers that follow it among them), with the results of its calls that later records store.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredUnit {
+    pub ordinal: u64,
+    pub unit: mixdog_app_protocol::v2::thread::TranscriptUnit,
+    /// The unit's encoded length.
+    pub bytes: usize,
+}
+
+/// The records of one stored page as units, oldest first.
+pub(super) struct Units {
+    pub rev: u64,
+    pub units: Vec<StoredUnit>,
+    pub reaches_start: bool,
+    pub reaches_end: bool,
+}
+
+/// The records after a page that may hold the results of the calls its rows opened.
+const RESULT_LOOKAHEAD: usize = 64;
+
+/// [`page`] as units: the one producer of what a positioned subscription holds of a stored record, in a snapshot, in a
+/// range it asked for and when the record changes. A call a row of the page opened takes its result from the record
+/// that stores it, in the page or among the [`RESULT_LOOKAHEAD`] records after it.
+pub(super) async fn units(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    at: PageAt,
+    records: usize,
+    ctl: &ReadCtl,
+) -> Result<Option<Units>, CoreError> {
+    let Some(mut read) = page_shown(store, transcript, lanes, id, at, records, true, ctl).await? else { return Ok(None) };
+    let open = |rows: &[(ThreadItem, usize)]| {
+        rows.iter().any(|(item, _)| matches!(item, ThreadItem::ToolCall { run, .. } if run.call_id.is_some() && run.result.is_none()))
     };
-    let transcript = transcript.clone();
-    let shown = on_lane_wait(lanes.cpu, &token, move |lane| {
-        let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
-        let mut from = 0;
-        for (at, record) in read.records.iter().enumerate() {
-            from = rows.len();
-            rows.extend(decorated(transcript.rows(lane, record), read.decor.get(at)));
+    if !read.reaches_end
+        && open(&read.rows)
+        && let Some(last) = read.iids.last()
+    {
+        let after = PageAt::After(record_position(last));
+        // A page of another history revision answers nothing of this one's rows.
+        if let Some(later) = page_shown(store, transcript, lanes, id, after, RESULT_LOOKAHEAD, true, ctl).await?.filter(|later| later.rev == read.rev) {
+            for update in &later.updates {
+                if let Some((row, _)) = read.rows.iter_mut().find(|(row, _)| super::seams::updates(row, update)) {
+                    *row = super::seams::merge_update(row, update);
+                }
+            }
         }
-        Before { rev: read.rev, rows, from, complete: read.complete, named: read.named }
+    }
+    let job = ctl.clone();
+    let sized = on_lane_wait(lanes.cpu, &ctl.cancel, move |_lane| {
+        let mut units = Vec::with_capacity(read.units.len());
+        for ((ordinal, rows), iid) in read.units.iter().zip(&read.iids) {
+            job.check()?;
+            let items: Vec<ThreadItem> = read.rows[rows.clone()].iter().map(|(item, _)| item.clone()).collect();
+            let unit = mixdog_app_protocol::v2::thread::TranscriptUnit { position: record_position(iid), items };
+            let bytes = serde_json::to_vec(&unit).map_or(0, |encoded| encoded.len());
+            units.push(StoredUnit { ordinal: *ordinal, unit, bytes });
+        }
+        Ok::<_, CoreError>(Units { rev: read.rev, units, reaches_start: read.reaches_start, reaches_end: read.reaches_end })
     });
-    Ok(Some(shown.await?))
+    Ok(Some(sized.await??))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn page_shown(
+    store: &Arc<dyn ThreadStore>,
+    transcript: &Arc<dyn Transcript>,
+    lanes: SessionLanes,
+    id: &ThreadId,
+    at: PageAt,
+    records: usize,
+    fold: bool,
+    ctl: &ReadCtl,
+) -> Result<Option<Window>, CoreError> {
+    ctl.trace.fetch(records);
+    // A wait off the lanes ends with the request too.
+    let waited = |wait: futures::future::BoxFuture<'static, Result<(), CoreError>>| async move {
+        tokio::select! {
+            biased;
+            () = ctl.cancel.cancelled() => ctl.check(),
+            waited = wait => waited,
+        }
+    };
+    let read = loop {
+        ctl.trace.enter(Stage::Wait);
+        waited(store.page_ready(id)).await?;
+        ctl.trace.enter(Stage::Queue);
+        let (reading, thread, job, ask) = (store.clone(), id.clone(), ctl.clone(), PageAsk { at: at.clone(), records });
+        let read = on_lane_wait(lanes.io, &ctl.cancel, move |lane| {
+            let _running = job.trace.job();
+            job.trace.enter(Stage::Io);
+            let read = reading.history_page(lane, &thread, &ask, &job);
+            job.trace.enter(Stage::Queue);
+            read
+        })
+        .await??;
+        match read {
+            PageRead::Rows(read) => break read,
+            PageRead::Unplaced => return Ok(None),
+            PageRead::Held(by) => {
+                ctl.trace.held();
+                ctl.trace.enter(Stage::Wait);
+                waited(store.page_held(&by)).await?;
+            }
+        }
+    };
+    let (transcript, job) = (transcript.clone(), ctl.clone());
+    let back = matches!(at, PageAt::Before(_));
+    let named = matches!(at, PageAt::Before(_) | PageAt::After(_));
+    let shown = on_lane_wait(lanes.cpu, &ctl.cancel, move |lane| {
+        let _running = job.trace.job();
+        job.trace.enter(Stage::Cpu);
+        let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
+        let mut units = Vec::new();
+        let mut iids = Vec::new();
+        let mut updates = Vec::new();
+        let mut named_rows = 0..0;
+        let last = read.records.len().saturating_sub(1);
+        for (at, record) in read.records.iter().enumerate() {
+            job.check()?;
+            let from = rows.len();
+            rows.extend(decorated(transcript.rows(lane, record), read.decor.get(at)));
+            if let Some(ordinal) = read.ordinals.get(at).filter(|_| rows.len() > from) {
+                units.push((*ordinal, from..rows.len()));
+                iids.push(record.iid.as_str().to_owned());
+            }
+            if named && at == if back { last } else { 0 } {
+                named_rows = from..rows.len();
+            }
+            if fold {
+                for update in transcript.items(lane, record).into_iter().filter_map(|shown| match shown {
+                    super::seams::Shown::Update(update) => Some(update),
+                    super::seams::Shown::Item(_) => None,
+                }) {
+                    if let Some((row, _)) = rows.iter_mut().find(|(row, _)| super::seams::updates(row, &update)) {
+                        *row = super::seams::merge_update(row, &update);
+                    }
+                    updates.push(update);
+                }
+            }
+        }
+        job.trace.enter(Stage::Queue);
+        let (reaches_start, reaches_end) = (read.reaches_start, read.reaches_end);
+        Ok::<_, CoreError>(Window { rev: read.rev, rows, units, named_rows, reaches_start, reaches_end, named: read.named, iids, updates })
+    });
+    Ok(Some(shown.await??))
 }
 
 /// The `ext` member a row carries the compaction dividers shown after it under: the items of each divider (its row, then
@@ -220,13 +379,13 @@ pub(super) async fn history_tail(
     let token = CancellationToken::new();
     store.unheld().await;
     let (store, thread) = (store.clone(), id.clone());
-    let (rev, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
+    let (_, records, decor, complete) = on_lane_wait(lanes.io, &token, move |lane| store.history_tail_decor(lane, &thread, rows)).await??;
     let transcript = transcript.clone();
     let rows = on_lane_wait(lanes.cpu, &token, move |lane| {
         records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect()
     })
     .await?;
-    Ok((History { rev, rows }, complete))
+    Ok((History { rows }, complete))
 }
 
 /// `thread/items/list`: the page around the cursor's row. The cursor names a row by its id, so a
@@ -243,7 +402,18 @@ pub(super) fn items_window(
     complete: bool,
     p: &ThreadItemsListParams,
 ) -> Result<Option<Reply>, CoreError> {
-    items_window_in(id, rev, rows, complete, false, p)
+    items_window_in(id, rev, rows, Reach { start: complete, end: true, anchored: false }, p)
+}
+
+/// How far the rows a page is decided from reach.
+#[derive(Clone, Copy)]
+struct Reach {
+    /// No row of the history is older than the first.
+    start: bool,
+    /// None is newer than the last.
+    end: bool,
+    /// The cursor's own record is among them (the last when the rows run back from it, the first when they run on).
+    anchored: bool,
 }
 
 /// The validated row limit, byte budget and anchor row id of a `thread/items/list` request.
@@ -267,15 +437,10 @@ fn window_request(p: &ThreadItemsListParams) -> Result<(usize, Option<u64>, Opti
     Ok((limit, budget, anchor))
 }
 
-/// [`items_window`]; with `anchored`,`rows` end with the cursor's row and run back from it, which is all an older page reads.
-fn items_window_in(
-    id: &ThreadId,
-    rev: u64,
-    rows: &[(ThreadItem, usize)],
-    complete: bool,
-    anchored: bool,
-    p: &ThreadItemsListParams,
-) -> Result<Option<Reply>, CoreError> {
+/// [`items_window`] over rows that reach as far as `reach` says: the page, or `None` when it runs to an end of the rows
+/// that is not an end of the history (more rows are needed that way).
+fn items_window_in(id: &ThreadId, rev: u64, rows: &[(ThreadItem, usize)], reach: Reach, p: &ThreadItemsListParams) -> Result<Option<Reply>, CoreError> {
+    let complete = reach.start && reach.end;
     let (limit, budget, anchor) = window_request(p)?;
     let turn: Vec<&(ThreadItem, usize)> = rows
         .iter()
@@ -284,20 +449,20 @@ fn items_window_in(
     let at = match anchor {
         None => None,
         // A legacy cursor can match an older display alias; an exact cursor outside the tail also needs an indexed or full read.
-        Some(_) if !complete && !anchored => return Ok(None),
+        Some(_) if !complete && !reach.anchored => return Ok(None),
         Some(item) => match anchor_position(turn.iter().map(|(row, _)| row), item, exact_cursor(&p.cursor)) {
             Some(at) => Some(at),
             None => return Err(CoreError::CursorInvalidated { thread_id: id.clone(), history_rev: rev }),
         },
     };
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
-    // The oldest page is the one thing the newest rows cannot give.
-    if !complete && anchor.is_none() && !older {
+    // Without a cursor the page starts at an end of the history: the newest page at its newest row, the oldest at its oldest.
+    if anchor.is_none() && !(if older { reach.end } else { reach.start }) {
         return Ok(None);
     }
     let sizes: Vec<usize> = turn.iter().map(|(_, bytes)| *bytes).collect();
     let page = page_of(&sizes, at, older, limit, budget).expect("the anchor is a position of the rows");
-    if !complete && older && page.start == 0 {
+    if if older { !reach.start && page.start == 0 } else { !reach.end && page.end == sizes.len() } {
         return Ok(None);
     }
     let data: Vec<ThreadItem> = turn[page.start..page.end].iter().map(|(item, _)| item.clone()).collect();
@@ -313,21 +478,33 @@ fn items_window_in(
     Ok(Some(Reply::Value(serde_json::to_value(response).expect("protocol types serialize"))))
 }
 
+/// What a `thread/items/list` asked for, for its trace: the page's direction, the form of its cursor and its bounds.
+fn asked(p: &ThreadItemsListParams) -> String {
+    let direction = if matches!(p.sort_direction, Some(SortDirection::Asc)) { "newer" } else { "older" };
+    let cursor = match &p.cursor {
+        None => "none",
+        Some(ItemsCursor::Opaque(value)) if value.starts_with(HISTORY_CURSOR_PREFIX) => "position",
+        Some(ItemsCursor::Opaque(_)) => "id",
+        Some(ItemsCursor::Item { .. }) => "item",
+    };
+    let number = |n: Option<u64>| n.map_or_else(|| "-".to_owned(), |n| n.to_string());
+    format!("direction={direction} cursor={cursor} limit={} budget={} turn={}", number(p.limit.map(u64::from)), number(p.byte_budget), p.turn_id.is_some())
+}
+
 /// Rows read at first for a page; each short read asks for twice as many, so a page deep in the history costs
 /// at most twice the rows before it and a page at the end only these.
 const FIRST_TAIL_ROWS: usize = 128;
 
-/// `thread/items/list` from the newest rows of the history only: `fetch(n)` answers the newest `n` stored rows
-/// (their items, with the history revision, and whether that is all of the history).
+/// `thread/items/list` from the stored rows its page shows: `fetch(at, n)` answers `n` stored records at a place of the
+/// history ([`page`]), or `None` when the store cannot place them.
 ///
-/// A page older than a cursor is read from the cursor's row back (`before(id, n)`: that row and the `n` records older), when
-/// the store places the id; any other cursor reads the whole history.
-pub(super) async fn list_from_tail<F, Fut, B, BFut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F, mut before: B) -> Result<Reply, CoreError>
+/// A page beside a cursor is read from the cursor's record, back for an older page and on for a newer one; the oldest page
+/// from the oldest record; the newest from the newest. Only a cursor the store cannot place, one its rows do not settle,
+/// and a turn's page are decided from the whole history.
+pub(super) async fn list_from_tail<F, Fut>(id: &ThreadId, p: &ThreadItemsListParams, mut fetch: F) -> Result<Reply, CoreError>
 where
-    F: FnMut(usize) -> Fut,
-    Fut: std::future::Future<Output = Result<(u64, Vec<(ThreadItem, usize)>, bool), CoreError>>,
-    B: FnMut(&str, usize) -> BFut,
-    BFut: std::future::Future<Output = Result<Option<Before>, CoreError>>,
+    F: FnMut(PageAt, usize) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Window>, CoreError>>,
 {
     let older = !matches!(p.sort_direction, Some(SortDirection::Asc));
     let anchor = match &p.cursor {
@@ -336,30 +513,47 @@ where
         _ => None,
     };
     let exact = exact_cursor(&p.cursor);
-    // A turn's rows are counted among that turn's only, which the rows around the cursor do not show.
-    if let Some(anchor) = anchor.filter(|_| older && p.turn_id.is_none()) {
-        let mut want = FIRST_TAIL_ROWS;
-        while let Some(b) = before(anchor, want).await? {
-            // The index names candidates; the rows decide. A row older than the cursor's own that shows its id, or none
-            // that does, is a history the index did not describe whole: the whole history answers.
-            let Some(at) = anchor_position(b.rows.iter().map(|(item, _)| item), anchor, exact).filter(|at| *at >= b.from) else {
-                break;
-            };
-            // With several rows the id can name, a row's submission id takes it before another row's item id does.
-            if b.named > 1 && (exact || displayed_id(&b.rows[at].0) != anchor) {
-                break;
+    let place = match (anchor, older) {
+        (Some(anchor), true) => Some(PageAt::Before(anchor.to_owned())),
+        (Some(anchor), false) => Some(PageAt::After(anchor.to_owned())),
+        (None, false) => Some(PageAt::Oldest),
+        (None, true) => None,
+    };
+    // A page bounded by rows alone is read at once with the row that says whether more are left; one a byte budget may
+    // cut short starts small.
+    let first = match window_request(p) {
+        Ok((limit, None, _)) => FIRST_TAIL_ROWS.max(limit.saturating_add(1)),
+        _ => FIRST_TAIL_ROWS,
+    };
+    // A turn's rows are counted among that turn's only, which the rows around a place do not show.
+    if let Some(place) = place.filter(|_| p.turn_id.is_none()) {
+        let mut want = first;
+        while let Some(w) = fetch(place.clone(), want).await? {
+            if let Some(anchor) = anchor {
+                // The index names candidates; the rows decide. A row outside the cursor's own record that shows its id
+                // first, or none that does, is a history the index did not describe whole: the whole history answers.
+                let Some(at) = anchor_position(w.rows.iter().map(|(item, _)| item), anchor, exact).filter(|at| w.named_rows.contains(at)) else {
+                    break;
+                };
+                // With several rows the id can name, a row's submission id takes it before another row's item id does.
+                if w.named > 1 && (exact || displayed_id(&w.rows[at].0) != anchor) {
+                    break;
+                }
             }
-            if let Some(reply) = items_window_in(id, b.rev, &b.rows, b.complete, true, p)? {
+            let reach = Reach { start: w.reaches_start, end: w.reaches_end, anchored: anchor.is_some() };
+            if let Some(reply) = items_window_in(id, w.rev, &w.rows, reach, p)? {
                 return Ok(reply);
             }
             want = want.saturating_mul(2);
         }
     }
     // A cursor's row is otherwise only known from the whole history; the page of the newest rows reads as few as it needs.
-    let mut want = if p.cursor.is_some() { usize::MAX } else { FIRST_TAIL_ROWS };
+    let mut want = if p.cursor.is_some() { usize::MAX } else { first };
     loop {
-        let (rev, rows, complete) = fetch(want).await?;
-        if let Some(reply) = items_window(id, rev, &rows, complete, p)? {
+        let Some(w) = fetch(PageAt::Newest, want).await? else {
+            return Err(CoreError::Internal { incident_id: "session-reads: the store placed no newest rows".into() });
+        };
+        if let Some(reply) = items_window(id, w.rev, &w.rows, w.reaches_start, p)? {
             return Ok(reply);
         }
         want = want.saturating_mul(2);
@@ -661,8 +855,10 @@ pub(super) fn holds_final_turn(rows: &[Value]) -> bool {
 
 /// `sessionFinalAnswer(snapshot, startedAt)` over display rows: the answer of the turn that
 /// ended at or after `started_at`, by id; `None` while it is pending (a busy thread, a newer
-/// prompt, a streaming or blank answer).
-pub(super) fn final_answer(rows: &[Value], busy: bool, started_at: i64) -> Option<Value> {
+/// prompt, a streaming or blank answer). `result` is the newest turn's result as its record
+/// keeps it, which is the answer's text when it has any: a final reply can be only the last part
+/// of it, or the turn can end with none.
+pub(super) fn final_answer(rows: &[Value], busy: bool, started_at: i64, result: Option<&str>) -> Option<Value> {
     if busy {
         return None;
     }
@@ -688,7 +884,13 @@ pub(super) fn final_answer(rows: &[Value], busy: bool, started_at: i64) -> Optio
     if status.as_deref() == Some("done") && final_id.is_none() && done.get("reacted") == Some(&json!(true)) {
         return answer("done", "", true);
     }
-    let final_id = final_id.filter(|_| status.as_deref() == Some("done"))?;
+    if status.as_deref() != Some("done") {
+        return None;
+    }
+    let result = result.filter(|text| !mixdog_js::js_trim(text).is_empty());
+    let Some(final_id) = final_id else {
+        return result.and_then(|text| answer("done", text, false));
+    };
     let answer_at = rows[..done_at].iter().rposition(|row| row.get("id") == Some(final_id) && row.get("kind") == Some(&json!("assistant")))?;
     if rows[answer_at + 1..done_at].iter().any(|row| row.get("kind") == Some(&json!("turndone"))) {
         return None;
@@ -698,7 +900,7 @@ pub(super) fn final_answer(rows: &[Value], busy: bool, started_at: i64) -> Optio
     if reply.get("streaming") == Some(&json!(true)) || mixdog_js::js_trim(text).is_empty() {
         return None;
     }
-    answer("done", text, false)
+    answer("done", result.unwrap_or(text), false)
 }
 
 /// The turns of a history, oldest first, as its items group them: a turn is the items that
@@ -716,6 +918,10 @@ pub(super) fn turns_of(items: &[ThreadItem], active: Option<&str>) -> Vec<Turn> 
             }
         };
         let turn = &mut turns[at];
+        if let Some(position) = history_position(item) {
+            turn.start_position.get_or_insert_with(|| position.to_owned());
+            turn.end_position = Some(position.to_owned());
+        }
         turn.items.get_or_insert_with(Vec::new).push(item.clone());
         fold_turn_end(turn, item, false, false);
     }
@@ -731,6 +937,8 @@ fn turn_shell(id: &TurnId, started_at: Option<i64>, active: Option<&str>) -> Tur
         error: None,
         stop_reason: None,
         termination_reason: None,
+        start_position: None,
+        end_position: None,
         items: None,
     }
 }
@@ -774,6 +982,10 @@ impl TurnMetadata {
         // Walking backwards: every encounter revises the first occurrence, but not the latest end or failure.
         entry.first = self.seen;
         entry.turn.started_at = at;
+        if let Some(position) = history_position(item) {
+            entry.turn.end_position.get_or_insert_with(|| position.to_owned());
+            entry.turn.start_position = Some(position.to_owned());
+        }
         let keep_error = entry.turn.error.is_some();
         entry.ended |= fold_turn_end(&mut entry.turn, item, entry.ended, keep_error);
     }
@@ -889,6 +1101,19 @@ mod tests {
         serde_json::from_value(rows).expect("thread items")
     }
 
+    /// The final answer is the turn's result as its record keeps it: with a final reply that is only its last part, and
+    /// with no final reply at all.
+    #[test]
+    fn the_final_answer_is_the_turns_kept_result() {
+        let done = |final_id: Value| json!({ "kind": "turndone", "id": "e1", "at": 20, "status": "done", "finalAssistantId": final_id });
+        let rows = [json!({ "kind": "assistant", "id": "a1", "text": "Every step is closed." }), done(json!("a1"))];
+        let text = |rows: &[Value], result| final_answer(rows, false, 10, result).map(|answer| answer["text"].clone());
+        assert_eq!(text(&rows, Some("Full report.\n\nEvery step is closed.")), Some(json!("Full report.\n\nEvery step is closed.")));
+        assert_eq!(text(&rows, None), Some(json!("Every step is closed.")));
+        assert_eq!(text(&[done(Value::Null)], Some("Full report.")), Some(json!("Full report.")));
+        assert_eq!(text(&[done(Value::Null)], None), None);
+    }
+
     /// `thread/turns/list`'s grouping (v2 only, `decisions.md` D-reads-2): a turn's status is its
     /// end row's; one with none is in progress while it is the active run, else interrupted.
     #[test]
@@ -926,6 +1151,31 @@ mod tests {
             turn.items = None;
         }
         assert_eq!(serde_json::to_value(scan.finish(Some("t4"))).unwrap(), serde_json::to_value(metadata).unwrap());
+    }
+
+    #[test]
+    fn a_turn_names_the_positions_of_its_oldest_and_newest_stored_rows() {
+        let mut history = items(json!([
+            { "type": "userMessage", "id": "shown", "displayText": "a", "content": [], "countsForPromptHistory": true, "meta": { "turnId": "t1", "at": 10 } },
+            { "type": "userMessage", "id": "shown", "displayText": "b", "content": [], "countsForPromptHistory": false, "meta": { "turnId": "t1", "at": 11 } },
+            { "type": "turnEnd", "id": "e1", "status": "done", "elapsedMs": 5, "meta": { "turnId": "t1", "at": 20 } },
+            { "type": "userMessage", "id": "u2", "displayText": "c", "content": [], "countsForPromptHistory": true, "meta": { "turnId": "t2", "at": 30 } },
+            { "type": "turnEnd", "id": "live", "status": "done", "elapsedMs": 5, "meta": { "turnId": "t2", "at": 40 } },
+        ]));
+        // One record of two rows that show the same id, an end row of its own record, a prompt, and a row no record holds.
+        for (item, (iid, row)) in history.iter_mut().zip([("r1", 0), ("r1", 1), ("r2", 0), ("r3", 0)]) {
+            mark_history_position(item, iid, row);
+        }
+        let turns = turns_of(&history, None);
+        let positions: Vec<(Option<&str>, Option<&str>)> = turns.iter().map(|turn| (turn.start_position.as_deref(), turn.end_position.as_deref())).collect();
+        assert_eq!(positions, [(Some("h1:0:r1"), Some("h1:0:r2")), (Some("h1:0:r3"), Some("h1:0:r3"))]);
+        let mut scan = TurnMetadata::default();
+        for item in history.iter().rev() {
+            scan.push(item);
+        }
+        let scanned = scan.finish(None);
+        let scanned: Vec<(Option<&str>, Option<&str>)> = scanned.iter().map(|turn| (turn.start_position.as_deref(), turn.end_position.as_deref())).collect();
+        assert_eq!(scanned, positions, "the metadata scan, read newest first, names the same rows");
     }
 
     #[test]
@@ -1064,18 +1314,17 @@ impl DirInner {
     async fn read_of(&self, req: &CoreRequest, id: &ThreadId) -> Result<Reply, CoreError> {
         if req.method.as_str() == "thread/items/list" {
             let p: ThreadItemsListParams = params(req, "ThreadItemsListParams")?;
-            let deps = &self.deps;
-            let thread = id;
-            return list_from_tail(
-                id,
-                &p,
-                |rows| async move {
-                    let (History { rev, rows }, complete) = history_tail(&deps.store, &deps.transcript, deps.lanes, thread, rows).await?;
-                    Ok((rev, rows, complete))
-                },
-                |anchor, records| history_before(&deps.store, &deps.transcript, deps.lanes, thread, anchor.to_owned(), records),
-            )
-            .await;
+            let ctl = ReadCtl { cancel: req.ctx.cancel.clone(), trace: ReadTrace::begin("thread/items/list", id.as_str(), asked(&p)) };
+            // Kept until the request ends: the line of a slow read says that moment, and whether an answer was queued by it.
+            req.ctx.after_answer.keep(ctl.trace.answered(req.ctx.after_answer.queued()));
+            let (deps, ctl) = (&self.deps, &ctl);
+            let reply = list_from_tail(id, &p, |at, records| page(&deps.store, &deps.transcript, deps.lanes, id, at, records, ctl)).await?;
+            let rows = match &reply {
+                Reply::Value(page) => page.get("data").and_then(Value::as_array).map_or(0, Vec::len),
+                _ => 0,
+            };
+            ctl.trace.worked(rows);
+            return Ok(reply);
         }
         if req.method.as_str() == "thread/finalAnswer/read" {
             return self.read_final_answer(id, params(req, "ThreadFinalAnswerReadParams")?).await;
@@ -1083,7 +1332,7 @@ impl DirInner {
         if req.method.as_str() == "thread/turns/list" {
             return self.read_turns(id, params(req, "ThreadTurnsListParams")?, &req.ctx.cancel).await;
         }
-        let History { rev: _, rows } = history(&self.deps, id).await?;
+        let History { rows } = history(&self.deps, id).await?;
         let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         match req.method.as_str() {
             "thread/items/read" => items_read(id, &items, params(req, "ThreadItemsReadParams")?),
@@ -1103,10 +1352,17 @@ impl DirInner {
                 history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, 1).await?;
                 return Ok(Reply::Value(Value::Null));
             }
-            let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, want).await?;
+            let (History { rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, id, want).await?;
             let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
             if complete || holds_final_turn(&shown) {
-                return Ok(Reply::Value(final_answer(&shown, self.busy(id), p.started_at).unwrap_or(Value::Null)));
+                // The record's result is the newest ended turn's only when it names that turn.
+                let ended = rows.iter().rev().find_map(|(item, _)| matches!(item, ThreadItem::TurnEnd { .. }).then(|| meta(item).turn_id.clone()).flatten());
+                let kept = self.stored_fields(id, &["lastHandoff", "lastHandoffTurn"]).await.unwrap_or_default();
+                let result = kept
+                    .get("lastHandoff")
+                    .and_then(Value::as_str)
+                    .filter(|_| ended.is_some_and(|turn| kept.get("lastHandoffTurn").and_then(Value::as_str) == Some(turn.as_str())));
+                return Ok(Reply::Value(final_answer(&shown, self.busy(id), p.started_at, result).unwrap_or(Value::Null)));
             }
             want = want.saturating_mul(2);
         }

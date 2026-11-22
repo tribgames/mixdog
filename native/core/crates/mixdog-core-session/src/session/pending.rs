@@ -39,7 +39,7 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
                 SteerMode::TaskNotification,
                 completions::execution(entry),
                 0,
-                meta_of(entry).cloned(),
+                completions::card_meta(meta_of(entry).cloned(), std::slice::from_ref(entry)),
             ));
         } else {
             out.push(input(

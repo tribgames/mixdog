@@ -500,6 +500,11 @@ pub struct Run {
     pub(crate) eager_single: std::collections::HashMap<String, String>,
     /// The ids of the complete calls the stream of the request in flight handed over ([`Run::stream_dispatched`]).
     pub(crate) streamed_ids: std::collections::HashSet<String>,
+    /// Whether a call handed to [`Run::try_eager`] so far in this turn changes files (`is_mutation`) or invalidates a
+    /// reusable read (`invalidates_reuse`), and of each call, by id, whether it came behind such a one
+    /// ([`Run::behind_a_change`]).
+    pub(crate) streamed_changes: (bool, bool),
+    pub(crate) streamed_behind: std::collections::HashMap<String, bool>,
     /// The tail reminder the request in flight carries.
     pub(crate) last_reminder: Option<String>,
     /// Tools the provider rejected the schema of: name → why a call is refused.
@@ -526,6 +531,10 @@ pub struct Run {
     /// the start (`config.options.provider_state`), then each report of a provider.
     pub(crate) provider_state: Option<ProviderState>,
     pub(crate) provider_state_changed: bool,
+    /// How many times calls have left the session's transcript: the ids of the calls that enter it say so
+    /// ([`crate::repair::ToolCallIds::in_session`]). The session's count, the transcript's and the run's own, whichever
+    /// is highest.
+    pub(crate) call_epoch: u64,
 }
 
 /// ``reasoningUsage(usage)``: the generation tokens the provider reported, ``None`` when it reported
@@ -587,7 +596,14 @@ impl Run {
         let provider_state = config.options.provider_state.clone();
         let cache_break_intent = config.cache_break_intent.clone();
         let context = crate::boundary::ContextReading { tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens), stale_after_compact: false };
+        let call_epoch = env.sink.call_epoch().max(crate::repair::ToolCallIds::epoch_in(&messages));
+        // The transcript can say more than the session kept (a rewrite whose save failed before a restart, a copied
+        // conversation): the session counts no lower from here on.
+        if call_epoch > env.sink.call_epoch() {
+            env.sink.calls_left(call_epoch);
+        }
         Self {
+            call_epoch,
             provider_state,
             provider_state_changed: false,
             env,
@@ -646,6 +662,8 @@ impl Run {
             barriers: crate::barriers::Barriers::default(),
             eager_single: std::collections::HashMap::new(),
             streamed_ids: std::collections::HashSet::new(),
+            streamed_changes: (false, false),
+            streamed_behind: std::collections::HashMap::new(),
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
             image_choices_refusal: None,

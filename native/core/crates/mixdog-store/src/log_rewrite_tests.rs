@@ -140,6 +140,58 @@ fn the_rewritten_log_holds_the_marker_reads_whole_and_its_checkpoint_names_the_m
     assert!(!plan_with(tmp.path(), SESSION, &OsIo, &BlobStore::new(tmp.path()), &mut redact, &mut |_| Ok(())).unwrap(), "nothing left to take out");
 }
 
+/// A checkpoint keeps a large header value out of line (`CheckpointState::header_blobs`), its place in the header null.
+/// The rewrite hands the redactor the value, not the null, and the rewritten checkpoint names a blob holding the marker.
+/// Given the null, nothing was found to redact: the checkpoint went on naming the blob with the secret, and the next open
+/// restored the header from it.
+#[test]
+fn a_header_value_a_checkpoint_keeps_out_of_line_is_redacted_and_written_out_of_line_again() {
+    const KEY: &str = "_repeatFailHistory";
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("sessions").join(SESSION);
+    std::fs::create_dir_all(&dir).unwrap();
+    let blobs = BlobStore::new(tmp.path());
+    let mut log = Vec::new();
+    frame(&mut log, 0, json!({"k":"session","v":2,"id":SESSION,"log_id":LOG_ID,"header":{"inline":{"title":"t"}}}));
+    frame(&mut log, 1, item("a", "sign in"));
+    let history = format!("{} {SECRET}", "x".repeat(crate::schema::checkpoint::HEADER_BLOB_MIN));
+    let checkpoint = json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":2,"history_rev":0,"rows":1,
+        "visible_rows":1,"runs":[],"approvals":[],"queue":[],"header":{"title":"t",KEY:history}}}});
+    let encoded = encode_record(serde_json::from_value(checkpoint).expect("record")).expect("encodes");
+    for blob in encoded.blobs() {
+        drop(blobs.put_unlaned(&blob.bytes, |p, b| OsIo.publish(p, b)).unwrap());
+    }
+    framing::encode_into(&mut log, 2, encoded.payload());
+    std::fs::write(dir.join(log_name(0)), log).unwrap();
+    let held = |record: &Record| {
+        let Record::Checkpoint(checkpoint) = record else { panic!("a checkpoint: {record:?}") };
+        let Slot::Inline(state) = &checkpoint.state else { panic!("inline") };
+        assert!(state.header[KEY].is_null(), "the value's place in the header");
+        let blob = state.header_blobs.get(KEY).expect("the value is out of line");
+        blobs.read_unlaned(&blob.descriptor().digest).unwrap()
+    };
+    assert!(holds_secret(&held(&last_record(tmp.path()))), "the log as written keeps the secret in the checkpoint's blob");
+
+    let mut redact = |record: &Record| {
+        let Record::Checkpoint(checkpoint) = record else { return None };
+        let Slot::Inline(state) = &checkpoint.state else { return None };
+        let text = state.header.get(KEY)?.as_str()?;
+        text.contains(SECRET).then(|| {
+            let mut state = state.clone();
+            state.header.insert(KEY.into(), json!(text.replace(SECRET, "[redacted]")));
+            Record::Checkpoint(CheckpointRecord { state: Slot::Inline(state) })
+        })
+    };
+    assert!(plan_with(tmp.path(), SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap(), "the redactor is given the value");
+    settle_with(tmp.path(), SESSION, &OsIo, &blobs, &mut index_step(tmp.path()), &mut |_| Ok(())).unwrap();
+    let value = held(&last_record(tmp.path()));
+    assert!(!holds_secret(&value) && String::from_utf8(value).unwrap().ends_with("[redacted]\""), "the checkpoint names the redacted value");
+    for bytes in files(tmp.path()).unwrap() {
+        assert!(!holds_secret(&bytes));
+    }
+    assert!(!plan_with(tmp.path(), SESSION, &OsIo, &blobs, &mut redact, &mut |_| Ok(())).unwrap(), "nothing left to take out");
+}
+
 const STEPS: [Step; 10] = [
     Step::Intent,
     Step::Build(0),

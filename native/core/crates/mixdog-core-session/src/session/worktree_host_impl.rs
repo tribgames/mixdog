@@ -133,6 +133,20 @@ impl SessionWorkspaceHost {
         self.threads.patch_header(&ThreadId::from(session_id), set, unset).await.map_err(port)
     }
 
+    /// [`Self::save`] of the change that carries out the Project move `pending`: the record's pending move goes in the
+    /// same patch, decided by the session's one writer against the record as it is then. A record that holds another
+    /// request by then keeps it, and the folder is saved alone.
+    async fn save_moved(&self, session_id: &str, pending: Value, set: Map<String, Value>, unset: Vec<String>) -> Result<(), ScmFailure> {
+        use crate::session::thread_settings::PENDING_PROJECT_MOVE;
+        let expect = Map::from_iter([(PENDING_PROJECT_MOVE.to_owned(), pending)]);
+        let mut settled = unset.clone();
+        settled.push(PENDING_PROJECT_MOVE.to_owned());
+        match self.threads.patch_header_if(&ThreadId::from(session_id), expect, set.clone(), settled).await.map_err(port)? {
+            None => Ok(()),
+            Some(_) => self.save(session_id, set, unset).await,
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Option<Value>>> {
         self.marker.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -212,7 +226,7 @@ impl WorkspaceHost for SessionWorkspaceHost {
     }
 
     async fn retarget_worker(&self, worker_id: &str, cwd: &str, moved: Option<Move>) -> Result<Undo, ScmFailure> {
-        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: Value::Null, moved, desktop_session: None };
+        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: Value::Null, moved, desktop_session: None, project_move: None };
         self.apply_to(worker_id, change, false).await
     }
 
@@ -294,7 +308,11 @@ impl SessionWorkspaceHost {
                 }
             }
         }
-        if let Err(error) = self.save(session_id, set, unset).await {
+        let saved = match change.project_move {
+            Some(pending) => self.save_moved(session_id, pending, set, unset).await,
+            None => self.save(session_id, set, unset).await,
+        };
+        if let Err(error) = saved {
             run_undos(undos).await;
             return Err(error);
         }

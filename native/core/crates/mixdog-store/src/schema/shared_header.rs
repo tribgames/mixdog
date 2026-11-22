@@ -119,11 +119,29 @@ fn weighs(value: &Value, left: &mut usize) -> bool {
     *left == 0
 }
 
+/// Whether the two are written as the same bytes. The value's own equality is wider: it takes `0.0` for `-0.0` and an
+/// object for another with its members in a different order, and a header given the other one's allocation would then be
+/// written back (a header read, a checkpoint) as bytes it never held.
+pub(crate) fn same_encoding(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => match (a.is_f64(), b.is_f64()) {
+            (true, true) => a.as_f64().map(f64::to_bits) == b.as_f64().map(f64::to_bits),
+            (false, false) => a == b,
+            _ => false,
+        },
+        (Value::Array(a), Value::Array(b)) => a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_encoding(a, b)),
+        (Value::Object(a), Value::Object(b)) => a.len() == b.len() && a.iter().zip(b).all(|((key_a, a), (key_b, b))| key_a == key_b && same_encoding(a, b)),
+        (Value::Number(_) | Value::Array(_) | Value::Object(_), _) | (_, Value::Number(_) | Value::Array(_) | Value::Object(_)) => false,
+        _ => a == b,
+    }
+}
+
 fn hash_of(value: &Value, state: &mut impl std::hash::Hasher) {
     use std::hash::Hash;
     match value {
         Value::Null => 0u8.hash(state),
         Value::Bool(flag) => (1u8, flag).hash(state),
+        Value::Number(number) if number.is_f64() => (6u8, number.as_f64().map(f64::to_bits)).hash(state),
         Value::Number(number) => (2u8, number).hash(state),
         Value::String(text) => (3u8, text).hash(state),
         Value::Array(items) => {
@@ -152,7 +170,7 @@ fn share(value: Value) -> Arc<Value> {
     let table = guard.get_or_insert_with(|| SharedOnce { held: std::collections::HashMap::new(), sweep_at: 64 });
     let bucket = table.held.entry(hash).or_default();
     bucket.retain(|held| held.strong_count() > 0);
-    if let Some(held) = bucket.iter().filter_map(std::sync::Weak::upgrade).find(|held| **held == value) {
+    if let Some(held) = bucket.iter().filter_map(std::sync::Weak::upgrade).find(|held| same_encoding(held, &value)) {
         return held;
     }
     let value = Arc::new(value);
@@ -369,6 +387,24 @@ mod tests {
         let (changed, again) = (given(), given());
         assert!(Arc::ptr_eq(changed.get_shared("deferredToolCatalog").unwrap(), again.get_shared("deferredToolCatalog").unwrap()));
         assert!(!Arc::ptr_eq(changed.get_shared("deferredToolCatalog").unwrap(), first.get_shared("deferredToolCatalog").unwrap()));
+    }
+
+    /// Two large values that are equal as values and written differently (a negative zero, the members in another order)
+    /// are not one allocation: each header is written back as the bytes it was read from.
+    #[test]
+    fn a_header_given_a_value_written_differently_keeps_its_own_bytes() {
+        let filler = "d".repeat(4096);
+        for (one, other) in [
+            (format!(r#"{{"big":{{"text":"{filler}","offset":0.0}}}}"#), format!(r#"{{"big":{{"text":"{filler}","offset":-0.0}}}}"#)),
+            (format!(r#"{{"big":{{"text":"{filler}","offset":1}}}}"#), format!(r#"{{"big":{{"offset":1,"text":"{filler}"}}}}"#)),
+        ] {
+            let first: SharedHeader = serde_json::from_str(&one).unwrap();
+            let second: SharedHeader = serde_json::from_str(&other).unwrap();
+            let again: SharedHeader = serde_json::from_str(&one).unwrap();
+            assert_eq!(serde_json::to_string(&first).unwrap(), one);
+            assert_eq!(serde_json::to_string(&second).unwrap(), other, "the second header is written as it was read");
+            assert!(Arc::ptr_eq(first.get_shared("big").unwrap(), again.get_shared("big").unwrap()), "the same bytes are still one allocation");
+        }
     }
 
     /// A key written twice in the bytes keeps its first place and its last value, as the map reads it.

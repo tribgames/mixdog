@@ -54,27 +54,34 @@ fn an_id_the_history_already_answered_is_renamed_and_a_fresh_id_is_kept() {
     let (mut reused, mut fresh) = (tc("a"), tc("b"));
     ids.resolve(&mut reused);
     ids.resolve(&mut fresh);
-    assert_eq!((reused.id.as_str(), fresh.id.as_str()), ("a-2", "b"));
+    assert_eq!((reused.id.as_str(), fresh.id.as_str()), ("a~0.2", "b"));
 }
 
 #[test]
 fn two_calls_of_one_batch_sharing_an_id_stay_distinct_with_or_without_history() {
     let mut batch = [tc("a"), tc("a")];
     ToolCallIds::new(&[]).resolve_all(&mut batch);
-    assert_eq!(ids_of(&batch), ["a", "a-2"]);
+    assert_eq!(ids_of(&batch), ["a", "a~0.2"]);
     let mut batch = [tc("a"), tc("a")];
     ToolCallIds::new(&answered(&["a"])).resolve_all(&mut batch);
-    assert_eq!(ids_of(&batch), ["a-2", "a-3"]);
+    assert_eq!(ids_of(&batch), ["a~0.2", "a~0.3"]);
 }
 
+/// A provider names one call of a batch with the very text a rename of the other would be. The two stay two calls in
+/// either order: the provider's text is stored written out (its mark doubled), so the rename of `a` is free to take the
+/// id it would take alone, and each call still reads back as the id its provider gave.
 #[test]
 fn a_renamed_id_never_lands_on_another_call_of_the_batch_in_either_order() {
-    let mut batch = [tc("a-2"), tc("a")];
+    use mixdog_protocol::tool_call_ids::provider_id;
+    let providers = |batch: &[ToolCall]| batch.iter().map(|call| provider_id(&call.id).into_owned()).collect::<Vec<_>>();
+    let mut batch = [tc("a~0.2"), tc("a")];
     ToolCallIds::new(&answered(&["a"])).resolve_all(&mut batch);
-    assert_eq!(ids_of(&batch), ["a-2", "a-3"]);
-    let mut batch = [tc("a"), tc("a-2")];
+    assert_eq!(ids_of(&batch), ["a~~0.2", "a~0.2"]);
+    assert_eq!(providers(&batch), ["a~0.2", "a"]);
+    let mut batch = [tc("a"), tc("a~0.2")];
     ToolCallIds::new(&answered(&["a"])).resolve_all(&mut batch);
-    assert_eq!(ids_of(&batch), ["a-3", "a-2"]);
+    assert_eq!(ids_of(&batch), ["a~0.2", "a~~0.2"]);
+    assert_eq!(providers(&batch), ["a", "a~0.2"]);
 }
 
 #[test]
@@ -85,8 +92,8 @@ fn the_calls_a_stream_finished_and_the_final_batch_get_the_same_ids() {
     ids.resolve(&mut second);
     let mut batch = [tc("a"), tc("a")];
     ids.resolve_all(&mut batch);
-    assert_eq!((first.id.as_str(), second.id.as_str()), ("a-2", "a-3"));
-    assert_eq!(ids_of(&batch), ["a-2", "a-3"], "the batch carries what the stream already handed out");
+    assert_eq!((first.id.as_str(), second.id.as_str()), ("a~0.2", "a~0.3"));
+    assert_eq!(ids_of(&batch), ["a~0.2", "a~0.3"], "the batch carries what the stream already handed out");
 }
 
 #[test]
@@ -109,10 +116,10 @@ async fn a_provider_that_reuses_a_call_id_in_every_turn_still_gets_each_result_b
             "user:go",
             "assistant[echo#c]:",
             "tool#c(Normal):echo:{\"n\":1}",
-            "assistant[echo#c-2]:",
-            "tool#c-2(Normal):echo:{\"n\":2}",
-            "assistant[echo#c-3]:",
-            "tool#c-3(Normal):echo:{\"n\":3}",
+            "assistant[echo#c~0.2]:",
+            "tool#c~0.2(Normal):echo:{\"n\":2}",
+            "assistant[echo#c~0.3]:",
+            "tool#c~0.3(Normal):echo:{\"n\":3}",
         ]
     );
     assert_eq!(output.response.content, "fin");
@@ -390,16 +397,41 @@ async fn an_empty_end_after_only_todo_bookkeeping_delivers_the_kept_answer_as_th
 }
 
 #[tokio::test]
-async fn an_answer_the_reminder_cut_short_is_not_delivered_before_the_next_answer() {
+async fn a_report_followed_only_by_closing_its_todos_is_delivered_with_the_closing_text() {
     let list = List::open(&["First", "Second"]);
     let h = Harness::new(vec![
         turn(vec![text("Status: done. Full report."), done(StopReason::EndTurn)]),
         turn(vec![call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("Status: done. Nothing changed."), done(StopReason::EndTurn)]),
+        turn(vec![text("Every step is closed; the report above is unchanged."), done(StopReason::EndTurn)]),
     ]);
     let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
-    let report = output.response.report_content.as_deref().unwrap_or(&output.response.content);
-    assert_eq!(report.trim(), "Status: done. Nothing changed.");
+    assert_eq!(report_of(&output), "Status: done. Full report.\n\nEvery step is closed; the report above is unchanged.");
+}
+
+#[tokio::test]
+async fn an_answer_another_tool_call_went_past_is_replaced_by_the_next_answer() {
+    let list = List::open(&["First"]);
+    let h = Harness::new(vec![
+        turn(vec![text("Status: done. Full report."), done(StopReason::EndTurn)]),
+        turn(vec![text("Closing up."), call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![call("c2", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("Status: done. Rechecked."), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list), Echo::tool()]).await).await;
+    assert_eq!(report_of(&output), "Status: done. Rechecked.");
+}
+
+#[tokio::test]
+async fn input_after_a_report_and_its_todo_calls_is_answered_without_the_report() {
+    let list = List::open(&["First"]);
+    let h = Harness::new(vec![
+        turn(vec![text("Status: done. Full report."), done(StopReason::EndTurn)]),
+        turn(vec![text("Closing up."), call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("B is fine too."), done(StopReason::EndTurn)]),
+    ]);
+    h.steer.push(DrainStage::PreSend, "Also check B.");
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
+    assert_eq!(report_of(&output), "B is fine too.");
 }
 
 fn report_of(output: &RunOutput) -> &str {
@@ -417,7 +449,7 @@ async fn a_runtime_notice_does_not_displace_the_answer_the_reminder_cut_short() 
 }
 
 #[tokio::test]
-async fn text_from_an_earlier_recovery_attempt_replaces_the_answer_the_reminder_cut_short() {
+async fn text_from_an_earlier_recovery_attempt_follows_the_answer_only_todo_calls_followed() {
     let list = List::open(&["First"]);
     let mut script = vec![
         turn(vec![text("The answer."), done(StopReason::EndTurn)]),
@@ -427,11 +459,11 @@ async fn text_from_an_earlier_recovery_attempt_replaces_the_answer_the_reminder_
     script.extend((0..3).map(|_| cut("")));
     let h = Harness::new(script);
     let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
-    assert_eq!(report_of(&output), format!("Again, the \n\n{EXHAUSTED}"));
+    assert_eq!(report_of(&output), format!("The answer.\n\nAgain, the \n\n{EXHAUSTED}"));
 }
 
 #[tokio::test]
-async fn every_segment_of_an_answer_the_reminder_cut_short_is_left_out() {
+async fn every_segment_of_an_answer_only_todo_calls_followed_is_kept() {
     let list = List::open(&["First"]);
     let h = Harness::new(vec![
         cut("part one "),
@@ -440,7 +472,7 @@ async fn every_segment_of_an_answer_the_reminder_cut_short_is_left_out() {
         turn(vec![text("Final."), done(StopReason::EndTurn)]),
     ]);
     let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
-    assert_eq!(report_of(&output).trim(), "Final.");
+    assert_eq!(report_of(&output), "part one part two\n\nFinal.");
 }
 
 #[tokio::test]

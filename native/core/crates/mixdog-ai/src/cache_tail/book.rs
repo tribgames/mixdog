@@ -13,7 +13,10 @@ use super::evidence::{Evidence, Extent, interpret};
 
 /// The snapshot format; a snapshot of another version is ignored (the history is then judged unproven once). Version 3
 /// (earlier 1.5.0 builds) kept a failed rewrite as a disposition and a compacted base as an unbound flag.
-const VERSION: u64 = 4;
+/// Version 5 holds the receipts as a map (each route's receipts by `block:digest`), so a header change that touches one
+/// receipt is written as that receipt (`mixdog_store::header_patch`); version 4 held them as a list, and is still read.
+const VERSION: u64 = 5;
+const LISTED_RECEIPTS: u64 = 4;
 
 /// A proven tail entry on one route. It is kept exactly as long as the provider's entry it proves can be alive.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -525,20 +528,21 @@ impl Book {
     }
 
     pub fn to_json(&self) -> Value {
+        // Each route's receipts in the order they were proven: a receipt keeps its place while it lives, and a new one is the
+        // last of its route.
+        let mut receipts = serde_json::Map::new();
+        for r in &self.receipts {
+            if let Value::Object(held) = receipts.entry(r.route.0.clone()).or_insert_with(|| Value::Object(serde_json::Map::new())) {
+                held.insert(format!("{}:{}", r.block, hex(&r.digest)), json!({ "ttlMs": r.ttl_ms, "touchedAt": r.touched_at, "extent": r.extent }));
+            }
+        }
         json!({
             "v": VERSION,
             "generation": self.generation,
             "rebuilt": self.rebuilt,
             "sent": self.sent || self.first.is_some(),
             "lastSendAt": self.last_send,
-            "receipts": self.receipts.iter().map(|r| json!({
-                "route": r.route.0,
-                "block": r.block,
-                "digest": hex(&r.digest),
-                "ttlMs": r.ttl_ms,
-                "touchedAt": r.touched_at,
-                "extent": r.extent,
-            })).collect::<Vec<_>>(),
+            "receipts": receipts,
             "disposition": self.disposition.as_ref().map(|d| json!({ "block": d.block, "digest": hex(&d.digest), "resolution": decided_name(d.resolution), "sizing": d.sizing, "retired": d.retired })),
         })
     }
@@ -548,26 +552,34 @@ impl Book {
     /// flight survives. A snapshot of another version is a history this book did not record: `last_send` (the header's
     /// own record of the last send) is then all that is known of it.
     pub fn from_json(value: &Value, now: i64, last_send: Option<i64>) -> Self {
-        if value.get("v").and_then(Value::as_u64) != Some(VERSION) {
+        if !matches!(value.get("v").and_then(Value::as_u64), Some(VERSION | LISTED_RECEIPTS)) {
             return Self::unrecorded(false, last_send);
         }
-        let receipts = value
-            .get("receipts")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|r| {
-                Some(Receipt {
-                    route: TailRoute(r.get("route")?.as_str()?.to_owned()),
-                    block: r.get("block")?.as_u64()? as usize,
-                    digest: unhex(r.get("digest")?.as_str()?)?,
-                    ttl_ms: r.get("ttlMs")?.as_u64()?,
-                    touched_at: r.get("touchedAt")?.as_i64()?,
-                    extent: r.get("extent").and_then(Value::as_u64),
-                })
+        let receipt = |route: &str, block: u64, digest: &str, r: &Value| {
+            Some(Receipt {
+                route: TailRoute(route.to_owned()),
+                block: block as usize,
+                digest: unhex(digest)?,
+                ttl_ms: r.get("ttlMs")?.as_u64()?,
+                touched_at: r.get("touchedAt")?.as_i64()?,
+                extent: r.get("extent").and_then(Value::as_u64),
             })
-            .filter(|r: &Receipt| r.alive(now))
-            .collect();
+        };
+        let receipts: Vec<Receipt> = match value.get("receipts") {
+            Some(Value::Array(listed)) => {
+                listed.iter().filter_map(|r| receipt(r.get("route")?.as_str()?, r.get("block")?.as_u64()?, r.get("digest")?.as_str()?, r)).collect()
+            }
+            Some(Value::Object(routes)) => routes
+                .iter()
+                .flat_map(|(route, held)| held.as_object().into_iter().flatten().map(move |(at, r)| (route, at, r)))
+                .filter_map(|(route, at, r)| {
+                    let (block, digest) = at.split_once(':')?;
+                    receipt(route, block.parse().ok()?, digest, r)
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let receipts = receipts.into_iter().filter(|r| r.alive(now)).collect();
         let disposition = value.get("disposition").and_then(|d| {
             Some(Disposition {
                 block: d.get("block")?.as_u64()? as usize,

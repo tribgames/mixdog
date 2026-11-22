@@ -43,7 +43,16 @@ pub struct CheckpointState {
     pub queue: Vec<QueuedEntry>,
     /// The folded header (every key).
     pub header: Header,
+    /// The header values kept out of line: a key named here holds `null` in `header`, at its place, and its value is the
+    /// JSON this blob holds. A value of [`HEADER_BLOB_MIN`] bytes or more is written this way, so a large value that stays
+    /// the same (a tool catalog) is stored once for every checkpoint and every session that holds it. Absent in a
+    /// checkpoint written before it existed.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub header_blobs: std::collections::BTreeMap<String, super::blob::BodyBlob>,
 }
+
+/// The encoded size from which a checkpoint keeps a header value out of line (`CheckpointState::header_blobs`).
+pub const HEADER_BLOB_MIN: usize = 16 * 1024;
 
 /// Location of one frame: one positioned read returns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

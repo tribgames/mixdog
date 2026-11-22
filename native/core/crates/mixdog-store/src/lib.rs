@@ -14,6 +14,7 @@ pub mod framing;
 #[cfg(test)]
 mod framing_o1;
 pub mod fsio;
+pub mod header_patch;
 pub mod log;
 pub mod log_epoch;
 pub mod log_rewrite;

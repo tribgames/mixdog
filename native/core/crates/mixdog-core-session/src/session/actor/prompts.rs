@@ -173,6 +173,8 @@ impl SessionActor {
             .map(|row| {
                 let mut item = (*row.item).clone();
                 super::super::view::meta_mut(&mut item).ext.insert("archived".into(), Value::Bool(true));
+                // A positioned subscription is sent no row by this: the ranges it holds are read again once the
+                // compaction is stored (`units.rs`), in the actor's window or not.
                 Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: TurnId::from(""), item, room_view: None })
             })
             .collect();

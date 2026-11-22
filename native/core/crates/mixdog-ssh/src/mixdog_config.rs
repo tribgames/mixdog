@@ -195,7 +195,9 @@ impl MixdogSshConfig {
             #[cfg(unix)]
             touch.mode(0o600);
             touch.open(&Unlaned, &known_hosts_file)?;
-            publish_file(&config_file, text.as_bytes())?;
+            if read_state(&config_file)? != text.as_bytes() {
+                publish_file(&config_file, text.as_bytes())?;
+            }
             crate::resolved_config::purge_unselected_target_configs(&folder)
         })
         .await?;

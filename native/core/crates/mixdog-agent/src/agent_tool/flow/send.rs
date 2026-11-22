@@ -190,7 +190,7 @@ impl SendFlowImpl {
     /// `prepareSend`.
     pub async fn prepare_send(&self, args: &Value, scope: &Scope) -> Result<Prepared, String> {
         let scan = wants_session_scan(args);
-        self.registry.refresh_tags_from_sessions(scan, scope).await;
+        self.registry.refresh_tags_from_sessions(scan, scope).await?;
         let target = either(args, "tag", "sessionId");
         if target.is_empty() {
             return Err("agent send: tag or sessionId is required".into());

@@ -90,7 +90,7 @@ impl Publisher {
         });
         let bytes = Bytes::from(serde_json::to_vec(&frame).expect("feed frame"));
         // A seq gap cannot occur under the producer lock.
-        let _ = self.feed.publish(&[FeedFrame { seq, bytes }], Some(self.model.clone()));
+        let _ = self.feed.publish(&[FeedFrame::new(seq, bytes)], Some(self.model.clone()));
     }
 
     /// The last published position.

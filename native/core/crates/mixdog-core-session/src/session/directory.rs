@@ -458,6 +458,10 @@ impl DeleteHold {
         applied
     }
 }
+type ListedKey = (ThreadId, Option<&'static [&'static str]>);
+/// A record read under way, for as long as a caller awaits it.
+type ListedRead = futures::future::WeakShared<futures::future::BoxFuture<'static, Result<Option<Header>, CoreError>>>;
+
 pub(crate) struct DirInner {
     pub(super) deps: Arc<SessionDeps>,
     shards: Box<[Mutex<HashMap<ThreadId, Slot_>>]>,
@@ -467,6 +471,8 @@ pub(crate) struct DirInner {
     opens: std::sync::atomic::AtomicU64,
     /// Handles built, ever: each handle's `loaded_seq`.
     loads: std::sync::atomic::AtomicU64,
+    /// The record reads of listed headers under way ([`Self::read_listed_record`]), by session and members asked for.
+    listed_reads: Mutex<HashMap<ListedKey, ListedRead>>,
     /// Creates in flight (`getSessionCreatePromise()`): the idle probes of the background warm-ups read it.
     creating: std::sync::atomic::AtomicUsize,
     /// Creates begun, ever: an archive preparation that read its tree at one count and finds another at its commit knows a
@@ -876,7 +882,7 @@ impl DirInner {
 
     /// As [`stored_header`](Self::stored_header), but `Err` when the read job never ran. The read waits out a full lane:
     /// a busy lane says nothing about whether the session exists.
-    async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
+    pub(super) async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
@@ -905,11 +911,26 @@ impl DirInner {
     /// [`listed_header`](Self::listed_header) of every session of a listing, in order. The sessions that are not loaded
     /// are read from the index in one read; only one the index cannot answer for has its record read.
     async fn listed_headers(&self, ids: &[ThreadId], fields: Option<&'static [&'static str]>) -> Vec<Option<mixdog_store::schema::record::Header>> {
+        // For a view that shows a session it cannot read as one without a header, and waits for none.
+        self.try_listed_headers(ids, fields, false).await.into_iter().map(|read| read.ok().flatten()).collect()
+    }
+
+    /// [`listed_headers`](Self::listed_headers), each session with its own answer: `Ok(None)` is a session with no
+    /// record (unknown, deleted, still to be converted, kept only to host a worker row), and `Err` a record that could
+    /// not be read, which is no finding about the session. With `await_rewrites`, a session still held for its sensitive
+    /// rewrite is waited for and read once the rewrite ended, as the index waits for a held session: its refusal says
+    /// "not yet", which is no failure of the read. A rewrite that failed is one.
+    async fn try_listed_headers(
+        &self,
+        ids: &[ThreadId],
+        fields: Option<&'static [&'static str]>,
+        await_rewrites: bool,
+    ) -> Vec<Result<Option<mixdog_store::schema::record::Header>, CoreError>> {
         let mut out: Vec<Option<Option<mixdog_store::schema::record::Header>>> =
             ids.iter().map(|id| self.loaded(id).map(|handle| Some(keep_fields(handle.cell.header.load_full().as_ref(), fields)))).collect();
         let stored: Vec<usize> = (0..ids.len()).filter(|&at| out[at].is_none()).collect();
         if stored.is_empty() {
-            return out.into_iter().flatten().collect();
+            return out.into_iter().flatten().map(Ok).collect();
         }
         self.deps.store.unheld().await;
         // The members the catalog row holds are read from it: no log is opened to list a session.
@@ -927,34 +948,72 @@ impl DirInner {
                 // The index did not answer: the records still do.
                 Ok(Err(error)) => tracing::warn!(?error, "the index did not answer a listing; its sessions' records are read"),
                 // No job runs on the lane: a record read would not either.
-                Err(_) => return out.into_iter().map(Option::flatten).collect(),
+                Err(error) => return out.into_iter().map(|answer| answer.ok_or_else(|| error.clone())).collect(),
             }
         }
         // One read at a time: the listing holds one place in the lane's queue however many sessions the index left unanswered.
         let mut listed = Vec::with_capacity(ids.len());
         for (id, answer) in ids.iter().zip(out) {
             listed.push(match answer {
-                Some(answer) => answer,
-                None => self.read_listed_record(id, fields).await,
+                Some(answer) => Ok(answer),
+                None => match self.read_listed_record(id, fields).await {
+                    Err(CoreError::CoreMigrating { kind, .. }) if await_rewrites && &*kind == "sensitiveRewrite" => {
+                        // Once: a session is released or failed for good, so a second refusal is the answer.
+                        self.deps.store.rewritten(id).await;
+                        self.read_listed_record(id, fields).await
+                    }
+                    read => read,
+                },
             });
         }
         listed
     }
 
-    /// The listed header of a stored session from its record.
-    async fn read_listed_record(&self, id: &ThreadId, fields: Option<&'static [&'static str]>) -> Option<mixdog_store::schema::record::Header> {
-        let (store, thread) = (self.deps.store.clone(), id.clone());
-        mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| {
-            if let Some(fields) = fields {
-                return store.read_header_fields(lane, &thread, fields);
+    /// The listed header of a stored session from its record. A record read opens the session's log, which is the whole
+    /// log of a session whose open cannot be bounded: listings that ask for the same members of the same session while
+    /// one read of them is under way (the pool is listed for a request, for its section and for a report at once) await
+    /// that read, and no second job reads the log beside it. `Ok(None)` only for a session the store says has no record
+    /// (`threadNotFound`, or one kept to host a worker row); any other failure of the read is the answer.
+    async fn read_listed_record(
+        &self,
+        id: &ThreadId,
+        fields: Option<&'static [&'static str]>,
+    ) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
+        use futures::FutureExt;
+        let read = {
+            let mut reads = lock(&self.listed_reads);
+            // A read no caller awaits any more is gone: the next caller reads the record as it is then.
+            reads.retain(|_, read| read.upgrade().is_some());
+            match reads.get(&(id.clone(), fields)).and_then(ListedRead::upgrade) {
+                Some(read) => read,
+                None => {
+                    let (store, thread, io) = (self.deps.store.clone(), id.clone(), self.deps.lanes.io);
+                    let read = async move {
+                        let read = mixdog_core_base::support::on_lane_wait(io, &CancellationToken::new(), move |lane| {
+                            if let Some(fields) = fields {
+                                return store.read_header_fields(lane, &thread, fields);
+                            }
+                            let header = store.read_header(lane, &thread)?;
+                            let row_only = header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true);
+                            Ok::<_, CoreError>((!row_only).then(|| keep_fields(&header, fields)))
+                        })
+                        .await;
+                        match read {
+                            Ok(Ok(header)) => Ok(header),
+                            Ok(Err(CoreError::ThreadNotFound { .. })) => Ok(None),
+                            Ok(Err(error)) | Err(error) => Err(error),
+                        }
+                    }
+                    .boxed()
+                    .shared();
+                    if let Some(weak) = read.downgrade() {
+                        reads.insert((id.clone(), fields), weak);
+                    }
+                    read
+                }
             }
-            let header = store.read_header(lane, &thread)?;
-            let row_only = header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true);
-            Ok::<_, CoreError>((!row_only).then(|| keep_fields(&header, fields)))
-        })
-        .await
-        .ok()?
-        .ok()?
+        };
+        read.await
     }
 
     /// `treeChanged` for a delete, in the thread's own admission: a peer is open (or opening),
@@ -1262,6 +1321,7 @@ impl DirInner {
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = self.control_cell(&id, liveness, &state, view, surface.subscribe(), ctl_tx);
+        let inbox = inbox_tx.downgrade();
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
             control,
@@ -1297,6 +1357,7 @@ impl DirInner {
             ActorChannels {
                 ctl_rx,
                 inbox_rx,
+                inbox,
                 prod_tx,
                 prod_rx,
                 dur_tx,
@@ -1435,6 +1496,10 @@ impl DirInner {
         let id = spec.id.unwrap_or_else(|| self.mint_session_id());
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
+        // Every session this core creates is born with its count of the times calls have left its context: the one its
+        // header was copied with (a fork's), else 0. A session without the key is one an earlier build or a migration
+        // wrote, whose earlier calls are not known (`SessionActor::new`).
+        header.entry(mixdog_protocol::tool_call_ids::CALL_EPOCH_KEY).or_insert(json!(0));
         self.register_created(&header, &id);
         // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
         // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
@@ -1964,6 +2029,7 @@ impl SessionDirectory {
             me: me.clone(),
             opens: Default::default(),
             loads: Default::default(),
+            listed_reads: Default::default(),
             creating: Default::default(),
             created: Default::default(),
             created_links: Mutex::default(),
@@ -2309,6 +2375,17 @@ impl SessionDirectory {
         self.inner.listed_headers(ids, Some(fields)).await
     }
 
+    /// [`listed_fields_of`](Self::listed_fields_of) for a listing that must not show a session whose header could not
+    /// be read as one that has none: `Err` with the first such read's failure. A session held for its sensitive rewrite
+    /// is waited for, not failed.
+    pub async fn try_listed_fields_of(
+        &self,
+        ids: &[ThreadId],
+        fields: &'static [&'static str],
+    ) -> Result<Vec<Option<mixdog_store::schema::record::Header>>, CoreError> {
+        self.inner.try_listed_headers(ids, Some(fields), true).await.into_iter().collect()
+    }
+
     /// [`stored_header`](Self::stored_header) for a decision that must tell "no such session"
     /// (`Ok(None)`) from "the read never ran" (`Err`): a session whose record could not be read
     /// is not a deleted one.
@@ -2355,6 +2432,13 @@ impl SessionDirectory {
         let peers = peers.iter().map(|(peer, at)| (ThreadId::from(peer.as_str()), *at)).collect();
         let guard = super::control::DeleteGuard { activity, cancel: cancel.clone(), peers, opens: 0 };
         super::delete::delete_session(&self.inner, id, Some((guard, judged))).await
+    }
+
+    /// The delete of a session of an earlier version that the migration removed without converting it, because retention
+    /// deletes it ([`super::sub_agent_retention::deleted_before_conversion`]); `header` is the record it was judged by. It is
+    /// that retention's own delete from where the stored record is gone ([`super::delete::delete_unconverted`]).
+    pub async fn purge_unconverted(&self, id: &str, header: &mixdog_store::schema::record::Header) {
+        super::delete::delete_unconverted(&self.inner, id, header).await;
     }
 
     /// `markSessionClosed(id, 'idle-sweep')` for a session not open in this process: `true` once

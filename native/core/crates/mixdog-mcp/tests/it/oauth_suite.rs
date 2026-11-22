@@ -27,16 +27,16 @@ use mixdog_mcp::mcp_glue::McpGlue;
 use mixdog_mcp::mcp_glue::McpScopes;
 use mixdog_mcp::mcp_glue::McpSurface;
 use mixdog_mcp::mcp_service::McpRuntime;
-use mixdog_mcp::plugin_admin::GitRunner;
-use mixdog_mcp::plugin_admin::PluginAdmin;
-use mixdog_mcp::scope_runtime::Op;
-use mixdog_mcp::scope_runtime::with_request_scope;
 use mixdog_mcp::oauth::AccountMode;
 use mixdog_mcp::oauth::MemoryStore;
 use mixdog_mcp::oauth::OAuthEnv;
 use mixdog_mcp::oauth::SecretStore;
 use mixdog_mcp::oauth::session::{McpOAuth, account_of};
+use mixdog_mcp::plugin_admin::GitRunner;
+use mixdog_mcp::plugin_admin::PluginAdmin;
 use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::scope_runtime::Op;
+use mixdog_mcp::scope_runtime::with_request_scope;
 use mixdog_mcp::server::ServerState;
 use mixdog_mcp::transport::Authorizer;
 use serde_json::Value;
@@ -1040,7 +1040,8 @@ async fn a_switch_of_a_signed_in_account_waits_for_no_connect() {
         mixdog_rt::time::timeout(std::time::Duration::from_secs(10), pause.received.notified()).await.expect("the account connects again");
         let options = json!({"openBrowser": false, "mode": "switch"});
         let began = with_request_scope(Some("a".to_owned()), runtime.glue.begin_login("work", &options));
-        let began = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), began).await.expect("the switch waits for no connect").expect("the switch begins");
+        let began =
+            mixdog_rt::time::timeout(std::time::Duration::from_secs(5), began).await.expect("the switch waits for no connect").expect("the switch begins");
         assert_eq!(began["state"], "pending", "{began}");
         runtime.glue.cancel_login(began["flowId"].as_str().unwrap()).await.unwrap();
         pause.release.notify_one();
@@ -1086,7 +1087,10 @@ async fn a_call_in_flight_across_a_reconnect_returns_its_result() {
     pause.release.notify_one();
     assert_eq!(in_flight.await.unwrap().unwrap().parts, vec![ToolPart::Text("kept".into())]);
     let mut closed = before.closed();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), closed.wait_for(Option::is_some)).await.expect("the replaced connection ends once its call did").unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), closed.wait_for(Option::is_some))
+        .await
+        .expect("the replaced connection ends once its call did")
+        .unwrap();
     hub.close_all().await;
 }
 

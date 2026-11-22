@@ -304,6 +304,15 @@ fn linked_sessions(item: &ManifestItem, cx: &ItemContext<'_>) -> Result<Vec<Stri
     }
 }
 
+/// Every session a goal, a connector conversation or a worktree names, as those stores stand.
+pub(crate) fn linked_session_ids(cx: &ItemContext<'_>) -> Result<std::collections::BTreeSet<String>> {
+    let mut ids = std::collections::BTreeSet::new();
+    for item in &cx.manifest.items {
+        ids.extend(linked_sessions(item, cx)?);
+    }
+    Ok(ids)
+}
+
 fn goal_session_ids(sources: &[SourceFile]) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for s in sources {

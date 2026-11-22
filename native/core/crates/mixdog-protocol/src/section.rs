@@ -130,6 +130,9 @@ sections! {
     CoreHealth => "coreHealth", "core/health/updated", App, keyed: false;
     /// Migration progress.
     Migration => "migration", "migration/progress", App, keyed: false;
+    /// The session index as it is being built (`{building, done, total}`): while `building`, the session list and the search
+    /// answer from the sessions indexed so far, `done` of `total`.
+    CatalogIndex => "catalogIndex", "catalog/index/updated", App, keyed: false;
     /// The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no
     /// value; each window rereads the review of every session it shows.
     ReviewDiff => "reviewDiff", "review/diff/updated", App, keyed: false;

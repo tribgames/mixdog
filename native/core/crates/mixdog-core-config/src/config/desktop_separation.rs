@@ -100,7 +100,8 @@ fn read_preimage(path: &Path) -> Result<Doc, ConfigError> {
 impl Shared {
     /// `separateDefaults` under the config transaction. The gate, the backup and the update read the file itself, as
     /// Node's read-modify-write does (not the canonical document in memory), so the copy is the pre-image Node saved.
-    fn separate_desktop_on(&self, lane: &InLane<DurabilityIo>, now_ms: i64) -> Result<(bool, Applied), ConfigError> {
+    /// With `stamp`, the boot's notification stamp ([`Config::stamp_notifications`]) goes into the same write.
+    fn separate_desktop_on(&self, lane: &InLane<DurabilityIo>, now_ms: i64, stamp: Option<i64>) -> Result<(bool, Applied), ConfigError> {
         let mut raised = super::lock(&self.writer);
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
         // Node's pass is `updateConfig`: under the file's lock, from what `readAllForRmW` settles on, snapshotted by the guard.
@@ -110,12 +111,19 @@ impl Shared {
             if marked(&record(preimage.get("desktop"))) {
                 return Ok(None);
             }
-            let dir = claim_backup_dir(lane, data_dir, now_ms)?;
-            let opts = mixdog_statefile::Opts::default();
-            let bytes = mixdog_statefile::json_bytes(&Value::Object(preimage.clone()), &opts);
-            mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts).map_err(ConfigError::Publish)?;
+            // An empty pre-image holds no setting to restore: it takes no backup.
+            if !preimage.is_empty() {
+                let dir = claim_backup_dir(lane, data_dir, now_ms)?;
+                let opts = mixdog_statefile::Opts::default();
+                let bytes = mixdog_statefile::json_bytes(&Value::Object(preimage.clone()), &opts);
+                mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts).map_err(ConfigError::Publish)?;
+            }
             // `writeAll`: a save writes the canonical document; a file with nothing in it is born current.
-            let mut next = canonical::canonicalize(separate(&preimage));
+            let mut next = separate(&preimage);
+            if let Some(at) = stamp {
+                super::stamp_notifications_in(&mut next, at);
+            }
+            let mut next = canonical::canonicalize(next);
             if preimage.is_empty() && !next.contains_key(DEFAULTS_VERSION_KEY) {
                 next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
             }
@@ -133,8 +141,14 @@ impl Config {
     /// `DesktopSettingsStore.separateDefaults(dataDir, now)`: run once per file (the marker is the gate); whether it ran.
     /// `now_ms` names the backup folder.
     pub async fn separate_desktop_defaults(&self, now_ms: i64) -> Result<bool, ConfigError> {
+        self.separate_desktop_defaults_stamping(now_ms, None).await
+    }
+
+    /// [`Self::separate_desktop_defaults`] at boot: a pass that writes also carries the notification stamp of `stamp_ms`, so a
+    /// new profile's config is written once, not once per pass.
+    pub async fn separate_desktop_defaults_stamping(&self, now_ms: i64, stamp_ms: Option<i64>) -> Result<bool, ConfigError> {
         let shared = self.shared.clone();
-        let (ran, _) = super::on_lane(self.lanes.write, move |lane| shared.separate_desktop_on(lane, now_ms)).await??;
+        let (ran, _) = super::on_lane(self.lanes.write, move |lane| shared.separate_desktop_on(lane, now_ms, stamp_ms)).await??;
         Ok(ran)
     }
 }

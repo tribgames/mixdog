@@ -46,6 +46,7 @@ use super::delete::is_session_id;
 use super::delete::sidebar_flag;
 use super::thread_state::SessionThreads;
 use super::worktree::SessionWorkspaces;
+use super::worktree::SettledMoves;
 use super::worktree::WorktreeMaintenance;
 use super::worktree::scm_error;
 use super::worktree::worktree_state::is_within;
@@ -67,20 +68,34 @@ const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const MAX_READ_COUNT: i64 = 10_000_000;
 
 const SESSION_UNAVAILABLE: &str = "Session is not available.";
-const PROJECT_MOVE_BUSY: &str = "The session is running a turn; wait for it to finish before moving it to another project.";
-const PROJECT_MOVE_WORKTREE: &str = "The session works in a managed worktree; merge or remove the worktree before moving it to another project.";
 
-/// The desktop host's refusals of a move to another project (`setSessionProject`), in its order:
-/// a turn (or a compaction) running, then a managed worktree.
-pub(crate) fn project_move_refusal(working: bool, worktree: bool) -> Option<&'static str> {
-    if working {
-        Some(PROJECT_MOVE_BUSY)
-    } else if worktree {
-        Some(PROJECT_MOVE_WORKTREE)
-    } else {
-        None
+/// The record's Project move asked for while the session worked, carried out when it settles:
+/// `{ projectPath, requestedAt }`, `projectPath` null for the task workspace.
+pub const PENDING_PROJECT_MOVE: &str = "pendingProjectMove";
+/// The record's pending move that could not be carried out: `{ projectPath, message, at }`, until the next move is asked for.
+pub const PROJECT_MOVE_FAILED: &str = "projectMoveFailed";
+const PROJECT_MOVE_KEYS: [&str; 2] = [PENDING_PROJECT_MOVE, PROJECT_MOVE_FAILED];
+
+/// The published workspace as the thread's state holds it: the Project move is the record's at the moment the workspace is
+/// published, whatever move the publisher read, so a read that started before the record changed never shows a move that
+/// is gone. Outside a git repository the move is an object of its own.
+pub(crate) fn with_project_move(workspace: Option<Value>, header: &Header) -> Option<Value> {
+    let moving: Map<String, Value> = PROJECT_MOVE_KEYS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect();
+    let mut shown = match workspace {
+        Some(Value::Object(shown)) => shown,
+        other if moving.is_empty() => return other,
+        _ => Map::new(),
+    };
+    for key in PROJECT_MOVE_KEYS {
+        shown.shift_remove(key);
     }
+    shown.extend(moving);
+    (!shown.is_empty()).then_some(Value::Object(shown))
 }
+
+#[cfg(test)]
+#[path = "project_move_tests.rs"]
+mod project_move_tests;
 
 /// The registered Projects and the task workspace, as a Project move reads them.
 #[async_trait]
@@ -478,6 +493,7 @@ impl ArchiveStamps {
 pub struct ThreadSettings {
     parts: ThreadSettingsParts,
     threads: SessionThreads,
+    moves: Arc<ProjectMoves>,
 }
 
 fn thread_of(id: Option<ThreadId>) -> Result<ThreadId, CoreError> {
@@ -488,9 +504,47 @@ fn port(error: mixdog_tools::orch::util::PortError) -> CoreError {
     failed(DOMAIN, format!("{error:?}"))
 }
 
+/// What the record keeps of a move that could not be carried out.
+pub(crate) fn failure_text(error: &CoreError) -> String {
+    match error {
+        CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The Project moves of the sessions (`setSessionProject`, `setCwd`). A `setSessionProject` names its Project to the session's
+/// actor, which alone decides what it means for the session, records it ([`PENDING_PROJECT_MOVE`]), begins it once the session
+/// is settled and holds the session until it ended; it carries the move out here ([`SettledMoves`]).
+struct ProjectMoves {
+    me: std::sync::Weak<ProjectMoves>,
+    directory: Arc<SessionDirectory>,
+    workspaces: SessionWorkspaces,
+    projects: Arc<dyn ProjectFolders>,
+    surface: mixdog_core_base::surface::SurfaceGeneration,
+}
+
+impl SettledMoves for ProjectMoves {
+    fn settled_move(&self, thread: &str, pending: Value) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (me, thread) = (self.me.upgrade(), ThreadId::from(thread));
+        Box::pin(async move {
+            let me = me.ok_or_else(|| failed(DOMAIN, SESSION_UNAVAILABLE))?;
+            me.carry(&thread, &pending).await
+        })
+    }
+}
+
 impl ThreadSettings {
     pub fn new(parts: ThreadSettingsParts) -> Self {
-        Self { threads: SessionThreads::new(parts.directory.clone()), parts }
+        let moves = Arc::new_cyclic(|me| ProjectMoves {
+            me: me.clone(),
+            directory: parts.directory.clone(),
+            workspaces: parts.workspaces.clone(),
+            projects: parts.projects.clone(),
+            surface: parts.surface.clone(),
+        });
+        let settled: Arc<dyn SettledMoves> = moves.clone();
+        parts.workspaces.set_settled_moves(Arc::downgrade(&settled));
+        Self { threads: SessionThreads::new(parts.directory.clone()), parts, moves }
     }
 
     fn now(&self) -> i64 {
@@ -559,51 +613,9 @@ impl ThreadSettings {
         Ok(())
     }
 
-    /// `setSessionProject(id, projectPath)`: a registered Project's folder, or '' for the task
-    /// workspace; a session already in that Project stays put.
-    async fn set_project(&self, thread: &ThreadId, project_path: &str, cancel: &CancellationToken) -> Result<(), CoreError> {
-        let projects = &self.parts.projects;
-        let row = match self.parts.directory.session_meta(thread).await? {
-            Some(meta) => meta.row,
-            None => return Err(failed(DOMAIN, SESSION_UNAVAILABLE)),
-        };
-        let target = if mixdog_js::js_trim(project_path).is_empty() {
-            None
-        } else {
-            Some(projects.registered(project_path).await.map_err(|message| failed(DOMAIN, message))?)
-        };
-        let registered = projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
-        let keys: Vec<String> = registered.iter().map(|path| project_identity(Some(path))).collect();
-        let key = session_project_key(
-            &json!({
-                "projectPath": row.pointer("/desktopSession/projectPath"),
-                "cwd": row.get("cwd"),
-                "workspace": row.get("workspace"),
-            }),
-            &keys,
-        );
-        let current = registered.iter().find(|path| project_identity(Some(path)) == key);
-        if project_identity(current.map(String::as_str)) == project_identity(target.as_deref()) {
-            return Ok(());
-        }
-        // `row.leadWorking || live?.busy || live?.commandBusy`: the thread's own turn in flight
-        // (the list row's `working`), a turn running or starting or a compaction running as the
-        // actor steps, or the runtime state a host published as busy.
-        let working = self.parts.directory.handle(thread).is_some_and(|handle| {
-            handle.cell.run.load().is_some()
-                || handle.cell.ui_busy.load(std::sync::atomic::Ordering::SeqCst)
-                || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)
-        }) || self.parts.directory.runtime_facts(thread).is_some_and(|facts| facts.busy || facts.command_busy);
-        let worktree = row.pointer("/workspace/worktreeId").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
-        if let Some(refusal) = project_move_refusal(working, worktree) {
-            return Err(failed(DOMAIN, refusal));
-        }
-        let cwd = match &target {
-            Some(target) => projects.canonical_directory(target).await,
-            None => projects.task_workspace().await,
-        }
-        .map_err(|message| failed(DOMAIN, message))?;
-        self.set_cwd(thread, &cwd, cancel).await.map(drop)
+    /// `setSessionProject(id, projectPath)`.
+    async fn set_project(&self, thread: &ThreadId, project_path: &str) -> Result<(), CoreError> {
+        self.moves.request(thread, project_path).await
     }
 
     /// `setSessionArchived(id, archived)`: the session with its sub-agent sessions, one change of the archive authority
@@ -616,19 +628,65 @@ impl ThreadSettings {
     /// the desktop classification by membership; a Project selected becomes the most recent.
     /// The session's folder afterwards.
     async fn set_cwd(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken) -> Result<Value, CoreError> {
-        self.move_to(thread, path, cancel, false).await
+        self.moves.move_to(thread, path, cancel, false, None).await
     }
 
     /// The Lead's own `session set-project` call: the calling turn
     /// is tolerated, the folder keeps any classification it was picked with (no membership test), and no Project becomes the
     /// most recent (that is the client's `setCwd` action). The session's folder afterwards.
     pub async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, CoreError> {
-        let cwd = self.move_to(thread, path, &CancellationToken::new(), true).await?;
+        let cwd = self.moves.move_to(thread, path, &CancellationToken::new(), true, None).await?;
         Ok(cwd.as_str().map(str::to_owned).unwrap_or_default())
     }
+}
 
-    async fn move_to(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken, own_turn: bool) -> Result<Value, CoreError> {
-        let handle = self.open(thread).await?;
+impl ProjectMoves {
+    /// `setSessionProject(id, projectPath)`: a registered Project's folder, or '' for the task workspace. Only the Project is
+    /// resolved here; it is handed to the session's actor with the registered Projects, and the actor decides in its own
+    /// order what it asks of the session as it is then: nothing where the session already is (a pending move is dropped), a
+    /// move at once for a settled session (the answer is the move's), a pending move for a working one (a later one replaces
+    /// it), carried out when it settles, the turn running keeping its folder. A session in a managed worktree returns to the
+    /// project folder first, the worktree kept.
+    async fn request(&self, thread: &ThreadId, project_path: &str) -> Result<(), CoreError> {
+        let projects = &self.projects;
+        if self.directory.session_meta(thread).await?.is_none() {
+            return Err(failed(DOMAIN, SESSION_UNAVAILABLE));
+        }
+        let target = if mixdog_js::js_trim(project_path).is_empty() {
+            None
+        } else {
+            Some(projects.registered(project_path).await.map_err(|message| failed(DOMAIN, message))?)
+        };
+        let registered = projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
+        let projects = registered.iter().map(|path| project_identity(Some(path))).collect();
+        let handle = self.directory.open_handle(thread, &CallContext::internal("thread-settings")).await?;
+        let (tx, answer) = tokio::sync::oneshot::channel();
+        let asked = super::actor::Inbox::ProjectMove { target, projects, tx };
+        handle.inbox.send(asked).await.map_err(|_| CoreError::ThreadClosing { thread_id: thread.clone() })?;
+        answer.await.map_err(|_| CoreError::ThreadClosing { thread_id: thread.clone() })?.map(drop)
+    }
+
+    /// The pending move `pending` carried out: its Project (a null path: the task workspace) becomes the session's folder,
+    /// out of its managed worktree first, and the write of that folder takes `pending` off the record.
+    async fn carry(&self, thread: &ThreadId, pending: &Value) -> Result<(), CoreError> {
+        let projects = &self.projects;
+        let target = pending.get("projectPath").and_then(Value::as_str);
+        let cwd = match target {
+            Some(target) => match projects.registered(target).await {
+                Ok(registered) => projects.canonical_directory(&registered).await,
+                Err(message) => Err(message),
+            },
+            None => projects.task_workspace().await,
+        }
+        .map_err(|message| failed(DOMAIN, message))?;
+        self.move_to(thread, &cwd, &CancellationToken::new(), false, Some(pending)).await.map(drop)
+    }
+
+    /// `pending`: the recorded move this carries out. A session in a managed worktree returns to the project folder first, as
+    /// the `git` tool's `return` does (the worktree kept), in the same transition as the switch
+    /// ([`SessionWorkspaces::move_to_project`]).
+    async fn move_to(&self, thread: &ThreadId, path: &str, cancel: &CancellationToken, own_turn: bool, pending: Option<&Value>) -> Result<Value, CoreError> {
+        let handle = self.directory.open_handle(thread, &CallContext::internal("thread-settings")).await?;
         let header = handle.cell.header.load_full();
         let raw = mixdog_js::js_trim(path);
         if raw.is_empty() {
@@ -641,7 +699,7 @@ impl ThreadSettings {
         let resolved = mixdog_agent::agent_tool::scope::resolve_path(&base, raw);
         let target = std::path::PathBuf::from(&resolved);
         let stat =
-            on_lane_wait(self.parts.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
+            on_lane_wait(self.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
         match stat {
             Ok(true) => {}
             Ok(false) => return Err(failed(DOMAIN, format!("cwd: not a directory: {resolved}"))),
@@ -654,7 +712,7 @@ impl ThreadSettings {
         let desktop = match header.get("desktopSession") {
             Some(Value::Object(_)) => {
                 let member = own_turn || {
-                    let projects = self.parts.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
+                    let projects = self.projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
                     projects.iter().any(|project| is_within(project, &resolved))
                 };
                 Some(if member {
@@ -665,17 +723,22 @@ impl ThreadSettings {
             }
             _ => None,
         };
-        let switched = self.parts.workspaces.switch_project(thread.as_str(), &resolved, desktop, own_turn, cancel).await;
+        let switched = match pending {
+            Some(pending) => self.workspaces.move_to_project(thread.as_str(), &resolved, desktop, pending.clone(), cancel).await,
+            None => self.workspaces.switch_project(thread.as_str(), &resolved, desktop, own_turn, cancel).await,
+        };
         // The switch ends in invalidating the caches (the context cache and the pre-session
         // tool surface), whether the folder changed or the transition was undone.
-        self.parts.surface.bump();
+        self.surface.bump();
         let cwd = switched.map_err(scm_error)?;
-        if !own_turn && let Err(error) = self.parts.projects.touch_selected(&cwd).await {
+        if !own_turn && let Err(error) = self.projects.touch_selected(&cwd).await {
             tracing::warn!("project recency update failed (non-fatal): {error}");
         }
         Ok(Value::String(cwd))
     }
+}
 
+impl ThreadSettings {
     /// `setEffort(value, { sessionOnly })`: the live route afterwards.
     async fn set_effort(&self, thread: &ThreadId, value: &str, options: Option<&Value>) -> Result<Value, CoreError> {
         let handle = self.open(thread).await?;
@@ -744,7 +807,7 @@ impl DomainService for ThreadSettings {
                         self.set_favorite(&params.thread_id, favorite).await?;
                     }
                     if let Some(project) = &params.project_path {
-                        self.set_project(&params.thread_id, project, &own).await?;
+                        self.set_project(&params.thread_id, project).await?;
                     }
                     Ok(json!({}))
                 };

@@ -15,3 +15,16 @@ pub fn add(session: &str, n: usize) {
 pub fn take(session: &str) -> u64 {
     COUNTS.lock().expect("count lock").get_or_insert_default().remove(session).unwrap_or(0)
 }
+
+static STEPS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+
+/// The index ran `n` more steps of its statements' programs for a read of `session`'s history: every statement the read
+/// ran on its connection, whatever plan each got (`sqlite.rs` `counted`).
+pub fn add_steps(session: &str, n: u64) {
+    *STEPS.lock().expect("count lock").get_or_insert_default().entry(session.to_owned()).or_default() += n;
+}
+
+/// The steps the index ran for the reads of `session`'s history since the last call.
+pub fn take_steps(session: &str) -> u64 {
+    STEPS.lock().expect("count lock").get_or_insert_default().remove(session).unwrap_or(0)
+}

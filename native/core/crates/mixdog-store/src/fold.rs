@@ -239,6 +239,7 @@ impl Fold {
             approvals: self.approvals.clone(),
             queue: self.queue.clone(),
             header: self.header.to_map(),
+            header_blobs: Default::default(),
         }
     }
 
@@ -333,6 +334,7 @@ impl Fold {
                 for (k, v) in change.set {
                     self.header.insert(k, v);
                 }
+                crate::header_patch::apply_patches(&mut self.header, &change.patch);
             }
             Effect::Item { visible, receipt } => {
                 if let Some(qid) = receipt {
@@ -526,7 +528,7 @@ pub(crate) fn fold_salvaging(
     if let Record::Checkpoint(checkpoint) = record
         && !losses.header.is_empty()
     {
-        if let Ok(state) = resolve_slot(&checkpoint.state, resolve)
+        if let Ok(state) = resolve_slot(&checkpoint.state, resolve).and_then(|state| crate::encode::checkpoint_in_line(state, resolve))
             && state.covers_ordinal == at.ordinal
         {
             f.header = state.header.into();

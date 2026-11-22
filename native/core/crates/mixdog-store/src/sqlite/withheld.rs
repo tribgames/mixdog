@@ -108,7 +108,60 @@ pub(crate) fn blank_summary(summary: &str) -> String {
     Value::Object(row).to_string()
 }
 
+/// What became of the sensitive rewrites of this start's withheld sessions, for a caller that waits for one
+/// ([`SqliteStore::rewrite_settled`]): a release is read from the catalog, a failure is kept here.
+#[derive(Default)]
+pub(super) struct Rewrites {
+    failed: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    changed: tokio::sync::Notify,
+    /// How many callers found their session still withheld and waited.
+    waited: std::sync::atomic::AtomicUsize,
+}
+
 impl SqliteStore {
+    /// The withheld sessions that hold a worker row: the index answers their rows without their content (no session id,
+    /// no task, no result), which is no account of the worker. A listing of the workers waits for each
+    /// ([`rewrite_settled`](Self::rewrite_settled)) instead of answering without it.
+    pub async fn withheld_workers(&self) -> Result<Vec<String>, DbError> {
+        self.shared
+            .gate
+            .manifest(|c| {
+                let mut stmt =
+                    c.prepare_cached("SELECT w.id FROM withheld_sessions w JOIN sessions s ON s.id = w.id WHERE s.worker IS NOT NULL ORDER BY w.id")?;
+                Ok(stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .await
+    }
+
+    /// Resolves once `session` no longer waits for its sensitive rewrite: `Ok` when it was released (or never withheld),
+    /// [`DbError::Recovery`] when its rewrite failed in this start, which leaves it withheld until the next. A session
+    /// held is not a session failed: this is the wait.
+    pub async fn rewrite_settled(&self, session: &str) -> Result<(), DbError> {
+        let mut counted = false;
+        loop {
+            let changed = self.shared.rewrites.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let failed = self.shared.rewrites.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(session).cloned();
+            if let Some(reason) = failed {
+                return Err(DbError::Recovery { session: session.to_owned(), reason });
+            }
+            if !self.is_withheld(session).await? {
+                return Ok(());
+            }
+            if !std::mem::replace(&mut counted, true) {
+                self.shared.rewrites.waited.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            changed.await;
+        }
+    }
+
+    /// How many callers of [`rewrite_settled`](Self::rewrite_settled) waited so far.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn rewrite_waits(&self) -> usize {
+        self.shared.rewrites.waited.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Exactly `sessions` owe a sensitive rewrite (the set a start computes; whatever an earlier start withheld goes): the
     /// index answers no content of them until each is released. Resolves once committed.
     ///
@@ -128,27 +181,43 @@ impl SqliteStore {
     /// content. Only once its rows were rebuilt from its rewritten log. A session whose repair was owed at open and left
     /// for its rewrite is repaired first, from the rewritten log.
     pub async fn release_withheld(&self, session: &str) -> Result<(), DbError> {
+        // Held to queued in one step: no read is admitted between. The releaser waits for the outcome of the repair it
+        // queued; one that fails settles the session as failed, and this is its error.
         if self.shared.gate.release(session) {
-            self.shared.gate.recovered(&[session]).await?;
+            self.shared.gate.settled(super::Need::of(&[session])).await?;
         }
-        let session = session.to_owned();
-        self.ask(|ack| super::Command::Release { session, ack }).await
+        let id = session.to_owned();
+        let released = self.ask(|ack| super::Command::Release { session: id, ack }).await;
+        self.shared.rewrites.changed.notify_waiters();
+        released
     }
 
-    /// Whether `session` still owes its sensitive rewrite, read now in the caller's lane job.
+    /// The rewrite `session` was held for failed in this start: its repair settles as failed (with the forks held for
+    /// it), and every access that waited for it is woken with that. It is not tried again before the next start, whose
+    /// open finds what the session is owed. `false` when the session was not held.
+    pub fn fail_withheld(&self, session: &str, reason: &str) -> bool {
+        let why = format!("{session}: its sensitive rewrite failed ({reason})");
+        // Kept for a session that was level with its log too: it owes no repair, and stays withheld all the same.
+        self.shared.rewrites.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(session.to_owned(), why.clone());
+        self.shared.rewrites.changed.notify_waiters();
+        self.shared.gate.fail_held(session, why)
+    }
+
+    /// Whether `session` still owes its sensitive rewrite, read now in the caller's lane job. The withheld set is no
+    /// projection of a log: it is read as it stands.
     pub fn withheld_on_lane<L>(&self, _lane: &InLane<L>, session: &str) -> Result<bool, DbError> {
-        self.shared.gate.with(|c| Ok(is_withheld_in(c, session)?))
+        self.shared.gate.manifest_here(|c| Ok(is_withheld_in(c, session)?))
     }
 
     /// Whether `session` still owes its sensitive rewrite.
     pub async fn is_withheld(&self, session: &str) -> Result<bool, DbError> {
         let session = session.to_owned();
-        self.read(move |c| Ok(is_withheld_in(c, &session)?)).await
+        self.shared.gate.manifest(move |c| Ok(is_withheld_in(c, &session)?)).await
     }
 
     /// Every session still owing its sensitive rewrite.
     pub async fn withheld_sessions(&self) -> Result<Vec<String>, DbError> {
-        self.read(|c| Ok(withheld_in(c)?.into_iter().collect())).await
+        self.shared.gate.manifest(|c| Ok(withheld_in(c)?.into_iter().collect())).await
     }
 }
 

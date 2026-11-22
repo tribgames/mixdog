@@ -180,6 +180,23 @@ impl super::ThreadStore for HeldStore {
     ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         self.store.history_row(lane, id, iid)
     }
+    fn rewind_targets(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError> {
+        self.store.rewind_targets(lane, id, before, limit)
+    }
+    fn rewind_target(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        shown: &str,
+    ) -> Result<Option<crate::session::seams::StoredRewind>, CoreError> {
+        self.store.rewind_target(lane, id, shown)
+    }
     fn compaction_entry(
         &self,
         lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,

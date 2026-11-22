@@ -227,9 +227,23 @@ impl Journal {
 }
 
 enum Target {
-    Worktree { name: Option<String> },
-    Branch { branch: String, create: bool },
-    Remove { force: bool },
+    Worktree {
+        name: Option<String>,
+    },
+    Branch {
+        branch: String,
+        create: bool,
+    },
+    Remove {
+        force: bool,
+    },
+    /// Out of the managed worktree to the project folder, then to the Project folder `cwd`: the pending Project move
+    /// `pending` carried out.
+    Project {
+        cwd: String,
+        desktop_session: Option<JsonValue>,
+        pending: JsonValue,
+    },
 }
 
 #[derive(Default)]
@@ -359,9 +373,13 @@ struct Inner {
     host: Arc<dyn WorkspaceHost>,
     gate: Arc<AdmissionGate>,
     intents: Mutex<HashMap<String, Intent>>,
+    settled_moves: Mutex<Option<std::sync::Weak<dyn SettledMoves>>>,
     /// Test seam at the step boundary just before the worktree is removed.
     #[cfg(any(test, feature = "test-support"))]
     before_remove: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Test seam: the failure the next Project move meets once it left the worktree, before its switch.
+    #[cfg(any(test, feature = "test-support"))]
+    fail_project_switch: Mutex<Option<ScmFailure>>,
 }
 
 /// The session workspaces of this runtime. Build one with [`SessionWorkspaces::new`], share the
@@ -389,8 +407,11 @@ impl SessionWorkspaces {
                 host,
                 gate,
                 intents: Mutex::new(HashMap::new()),
+                settled_moves: Mutex::new(None),
                 #[cfg(any(test, feature = "test-support"))]
                 before_remove: Mutex::new(None),
+                #[cfg(any(test, feature = "test-support"))]
+                fail_project_switch: Mutex::new(None),
             }),
         }
     }
@@ -403,6 +424,24 @@ impl SessionWorkspaces {
     pub async fn admit_turn(&self, session: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<TurnGuard, ScmFailure> {
         self.inner.gate.admit_turn(session, cwd, &*self.inner, cancel).await
     }
+
+    /// The next Project move out of a worktree fails with `failure` once it left the worktree.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fail_next_project_switch(&self, failure: ScmFailure) {
+        *self.inner.fail_project_switch.lock().unwrap() = Some(failure);
+    }
+
+    /// Who carries out the Project moves sessions settle with ([`TurnAdmission::settled_move`]).
+    pub fn set_settled_moves(&self, moves: std::sync::Weak<dyn SettledMoves>) {
+        *self.inner.settled_moves.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(moves);
+    }
+}
+
+/// Who carries out a session's Project move once its actor began it.
+pub trait SettledMoves: Send + Sync {
+    /// The pending Project move `pending` of `thread` (`{ projectPath, requestedAt }`, a null path for the task workspace)
+    /// carried out: the folder's own header write takes that record with it.
+    fn settled_move(&self, thread: &str, pending: JsonValue) -> futures::future::BoxFuture<'static, Result<(), mixdog_core_api::CoreError>>;
 }
 
 /// `admitTurnWorkspace({ signal })` (`turn-prepare.mjs:100`): a turn waits while its session's
@@ -417,6 +456,12 @@ pub trait TurnAdmission: Send + Sync {
     /// without session workspaces has nothing to prepare.
     async fn prepare(&self, _thread: &str, _start: TurnStart, _cancel: &CancellationToken) -> Result<(), ScmFailure> {
         Ok(())
+    }
+
+    /// The pending Project move `pending` the settled session's actor began ([`SettledMoves::settled_move`]), the session held
+    /// until it ends; `None` when this host moves no session.
+    fn settled_move(&self, _thread: &str, _pending: JsonValue) -> Option<futures::future::BoxFuture<'static, Result<(), mixdog_core_api::CoreError>>> {
+        None
     }
 }
 
@@ -452,6 +497,11 @@ impl TurnAdmission for SessionWorkspaces {
     async fn prepare(&self, thread: &str, start: TurnStart, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         self.prepare_turn_workspace(thread, start, cancel).await?;
         Ok(())
+    }
+
+    fn settled_move(&self, thread: &str, pending: JsonValue) -> Option<futures::future::BoxFuture<'static, Result<(), mixdog_core_api::CoreError>>> {
+        let moves = self.inner.settled_moves.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()?.upgrade()?;
+        Some(moves.settled_move(thread, pending))
     }
 }
 

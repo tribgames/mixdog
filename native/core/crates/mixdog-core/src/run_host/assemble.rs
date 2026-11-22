@@ -374,7 +374,7 @@ pub(crate) async fn ensure_codex_wire_id(
                 if !is_uuid_v7(&text(stored, "codexWireSessionId").to_lowercase()) {
                     set.insert("codexWireSessionId".into(), json!(uuid::Uuid::now_v7().to_string()));
                 }
-                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() }
             }),
         )
         .await
@@ -1147,7 +1147,7 @@ async fn pin_wire_route(
     set.insert("wireRoute".into(), pin);
     input
         .port
-        .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
+        .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() })
         .await
         .map_err(|_| refuse("the pinned wire route could not be saved"))?;
     Ok(())
@@ -1325,7 +1325,11 @@ impl RunParts for HostRunParts {
         // drops it.
         if let Some(intent) = header.get("pendingCacheBreakIntent").and_then(Value::as_str) {
             config.cache_break_intent = Some(intent.to_owned());
-            let change = mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["pendingCacheBreakIntent".into()] };
+            let change = mixdog_store::schema::record::HeaderChange {
+                set: serde_json::Map::new(),
+                unset: vec!["pendingCacheBreakIntent".into()],
+                patch: Default::default(),
+            };
             input.port.save_header(change).await.map_err(|_| refuse("the session's pending cache break could not be taken"))?;
         }
 

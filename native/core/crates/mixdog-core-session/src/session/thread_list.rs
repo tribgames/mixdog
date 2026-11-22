@@ -1668,6 +1668,18 @@ mod tests {
         ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
             self.inner.history_row(lane, id, iid)
         }
+        fn rewind_targets(
+            &self,
+            lane: &InLane<InteractiveIo>,
+            id: &ThreadId,
+            before: Option<u64>,
+            limit: usize,
+        ) -> Result<(u64, Vec<mixdog_store::sqlite::rewind::RewindTarget>), CoreError> {
+            self.inner.rewind_targets(lane, id, before, limit)
+        }
+        fn rewind_target(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, shown: &str) -> Result<Option<crate::session::seams::StoredRewind>, CoreError> {
+            self.inner.rewind_target(lane, id, shown)
+        }
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
             self.inner.compaction_entry(lane, id, iid)
         }

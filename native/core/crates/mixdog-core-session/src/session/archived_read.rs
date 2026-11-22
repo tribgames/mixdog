@@ -23,11 +23,12 @@ use super::view::SnapshotParams;
 const ROUTE_KEYS: [&str; 5] = ["provider", "model", "effort", "cwd", "desktopSession"];
 
 impl DirInner {
-    /// The archived view of `child` as Node's reader builds it; `None` when no parent carries one.
+    /// The archived view of `child` as Node's reader builds it; `None` when no parent carries one, which is known only
+    /// once every parent was looked up and each one's header read: a failure of either is the answer instead.
     pub(super) async fn archived_agent_view(&self, child: &ThreadId) -> Result<Option<Value>, CoreError> {
         let mut entries = Vec::new();
         for parent in self.deps.store.archived_agent_parents(child).await? {
-            if let Some(entry) = self.stored_header(&parent).await.and_then(|h| mixdog_store::archived_agent::entry(&h, child.as_str()).cloned()) {
+            if let Some(entry) = self.try_stored_header(&parent).await?.and_then(|h| mixdog_store::archived_agent::entry(&h, child.as_str()).cloned()) {
                 entries.push(entry);
             }
         }
@@ -48,12 +49,17 @@ impl DirInner {
         state.sections.route = Some(ThreadRoute { fast: view["fast"].as_bool(), ..Default::default() });
         let ctx = Ctx { turn: None, message: None, counts_prompt: false, source: None };
         for row in view["items"].as_array().into_iter().flatten().filter_map(Value::as_object) {
-            state.window.push_back(WindowItem { ordinal: None, item: Arc::new(item_of(row.clone(), &ctx)), prompt: None, messages: 0 });
+            state.window.push_back(WindowItem { ordinal: None, item: Arc::new(item_of(row.clone(), &ctx)), messages: 0 });
         }
         let summary = self.deps.transcript.summary(child, &state.header);
         let thread_state = state.thread_state(StorageState::Ok);
-        let params =
-            SnapshotParams { thread: &summary, state: &thread_state, items: state.window.iter().map(|row| row.item.as_ref()).collect(), has_older: false };
+        let params = SnapshotParams {
+            thread: &summary,
+            state: &thread_state,
+            items: state.window.iter().map(|row| row.item.as_ref()).collect(),
+            has_older: false,
+            window: None,
+        };
         Ok(Reply::Value(serde_json::to_value(&params).map_err(|_| CoreError::Internal { incident_id: "archived-agent-read".into() })?))
     }
 }

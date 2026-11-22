@@ -221,7 +221,7 @@ impl Working {
             tier3: view.tier3.map(str::to_owned),
             env: view.env.map(str::to_owned),
             split: view.header.get("bp3EnvSplit") == Some(&Value::Bool(true)),
-            change: HeaderChange { set: Map::new(), unset: Vec::new() },
+            change: HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() },
             injected: false,
         }
     }
@@ -377,7 +377,7 @@ pub fn in_place_reroot_patch(header: &Header, cwd: &str, context: &WorkspaceCont
             change.unset.push(key);
         }
     }
-    let mut undo = HeaderChange { set: Map::new(), unset: Vec::new() };
+    let mut undo = HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
     for key in change.set.keys().chain(change.unset.iter()) {
         match header.get(key) {
             Some(value) => {

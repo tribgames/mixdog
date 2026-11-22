@@ -120,19 +120,20 @@ fn sweep_session(listed: &Listed, record: RecordStamp) -> SweepSession {
 
 impl SqliteStore {
     /// `limit` list rows after `after` (all when `None`), in catalog order; agent-only sessions
-    /// only when `agent_only`.
+    /// only when `agent_only`. A listing of the whole catalog: it waits for every session owed its rows, and one that
+    /// failed fails it, so it is never short of a session not yet projected.
     pub async fn list_sessions(&self, agent_only: bool, after: Option<CatalogCursor>, limit: Option<usize>) -> Result<Vec<Listed>, DbError> {
-        self.read(move |c| list_on(c, agent_only, after.as_ref(), limit)).await
+        self.read(super::Need::All, move |c| list_on(c, agent_only, after.as_ref(), limit)).await
     }
 
     /// Every session the idle sweep visits (agent-only ones too): the one listing, then one
     /// `stat` of each session's newest log file under `sessions` (`<data>/sessions`).
     pub async fn sweep_sessions(&self, sessions: PathBuf) -> Result<Vec<SweepSession>, DbError> {
-        // The sweep removes sessions by what their rows say: none is read while a repair owed at open is pending.
-        self.reconciled().await?;
-        self.shared
+        // The sweep removes sessions by what their rows say: none is read while a session owed its rows is not ready.
+        Ok(self
+            .shared
             .gate
-            .read_in_lane(move |lane, c| {
+            .read_exact_in_lane(super::Need::All, move |lane, c| {
                 Ok(list_on(c, true, None, None)?
                     .iter()
                     .map(|listed| {
@@ -150,6 +151,6 @@ impl SqliteStore {
                     })
                     .collect())
             })
-            .await
+            .await?)
     }
 }

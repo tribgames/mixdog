@@ -50,6 +50,8 @@ struct Store {
     revision: std::sync::atomic::AtomicU64,
     /// An index read fails.
     fail: std::sync::atomic::AtomicBool,
+    /// A read of every worker map fails (a session that could hold one was not projected).
+    fail_maps: std::sync::atomic::AtomicBool,
     /// A release is answered refused and nothing of it is written.
     refuse_releases: std::sync::atomic::AtomicBool,
     /// The sessions this store can tell no identity of.
@@ -79,6 +81,9 @@ impl WorkerStore for Store {
     }
 
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
+        if self.fail_maps.load(Ordering::SeqCst) {
+            return Err("index recovery failed for s-t: its rows were not projected".into());
+        }
         Ok(self.listed())
     }
 
@@ -122,9 +127,9 @@ impl WorkerStore for Store {
         ReleaseDone::settled(ReleaseOutcome::Stored)
     }
 
-    async fn header(&self, session: &str) -> Option<Row> {
+    async fn header(&self, session: &str) -> Result<Option<Row>, String> {
         self.header_reads.fetch_add(1, Ordering::SeqCst);
-        self.headers.lock().unwrap().get(session).cloned()
+        Ok(self.headers.lock().unwrap().get(session).cloned())
     }
 
     async fn is_directory(&self, path: &str) -> bool {
@@ -409,7 +414,7 @@ fn decisions(registry: &AgentRegistry, checks: &[(Row, String)]) -> Vec<bool> {
 async fn a_tombstone_blocks_a_scan_of_its_reaped_session_only() {
     let (rig, checks) = tombstone_rig();
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
     let initial = [true, false, true, false, true, true, false, false, false, true, true, false, false, false];
     assert_eq!(decisions(&registry, &checks), initial);
 
@@ -449,7 +454,7 @@ async fn a_status_recompute_over_an_unchanged_index_visits_no_row_and_no_tombsto
     let registry = rig.registry();
     let scope = lead("lead-a");
     let recompute = || async {
-        registry.refresh_tags_from_sessions(false, &scope).await;
+        registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
         (registry.session_entries(false, &scope), registry.read_worker_rows(&scope).unwrap(), registry.read_all_tag_tombstones())
     };
 
@@ -507,7 +512,7 @@ async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
     released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
     rig.store.write("s-released", Some(released));
     let kept = rig.registry();
-    kept.reload().await;
+    kept.reload().await.unwrap();
     kept.resolve_tombstone_owners();
 
     let ttl = TAG_TOMBSTONE_TTL_MS as i64;
@@ -516,7 +521,7 @@ async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
     for offset in offsets {
         rig.clock.0.store(NOW + offset, Ordering::SeqCst);
         let fresh = rig.registry();
-        fresh.reload().await;
+        fresh.reload().await.unwrap();
         fresh.resolve_tombstone_owners();
         let (have, want) = (index_reads(&kept), index_reads(&fresh));
         assert_eq!(have.0, want.0, "rows at +{offset}");
@@ -546,7 +551,7 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
     released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
     rig.store.write("s-released", Some(released));
     let kept = rig.registry();
-    kept.reload().await;
+    kept.reload().await.unwrap();
     kept.resolve_tombstone_owners();
 
     let ttl = TAG_TOMBSTONE_TTL_MS as i64;
@@ -563,7 +568,7 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
     for now in instants.into_iter().chain(back) {
         rig.clock.0.store(now, Ordering::SeqCst);
         let fresh = rig.registry();
-        fresh.reload().await;
+        fresh.reload().await.unwrap();
         // A read made before the owners of this instant are resolved is kept, and the resolve must invalidate it (`owners` is
         // an input of `tombstones`): each refresh of the kept registry resolves the owners again, as the registry's own does.
         let _ = reads(&kept);
@@ -600,7 +605,7 @@ async fn a_bookkeeping_pass_over_running_rows_reads_no_session_record() {
     let registry = rig.registry();
     let scope = lead("lead-a");
     for _ in 0..3 {
-        registry.refresh_tags_from_sessions(true, &scope).await;
+        registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
         assert_eq!(registry.session_entries(true, &scope).len(), 6);
         assert!(registry.read_worker_rows(&scope).unwrap().len() >= 6);
     }
@@ -766,7 +771,7 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
     };
 
     let first = rig.registry();
-    first.refresh_tags_from_sessions(false, &scope).await;
+    first.refresh_tags_from_sessions(false, &scope).await.unwrap();
     first.bind_tag("rev", &session_facts(&rev), &at(NOW));
     assert!(!row_of(&first).expect("bound").contains_key("released"));
     // `close`: the row goes and the owner's marker is set.
@@ -775,7 +780,7 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
     assert_eq!(rig.store.map("sess_rel_1"), Some(obj(json!({ "releasedAt": at(NOW) }))));
 
     let second = rig.registry();
-    second.refresh_tags_from_sessions(true, &scope).await;
+    second.refresh_tags_from_sessions(true, &scope).await.unwrap();
     // DECIDED DEPARTURE FROM NODE: this is what Node recorded and what a `send` still relies on (a closed agent is
     // revived by its tag). A SPAWN no longer sees it: `ResolveOptions::skip_released` frees the tag for a new session
     // (`a_spawn_resolve_gives_a_closed_session_its_tag_up`).
@@ -808,14 +813,14 @@ async fn a_spawn_resolve_gives_a_closed_session_its_tag_up() {
     rig.store.touch_sessions();
     let scope = lead("lead-rel");
     let registry = rig.registry();
-    registry.refresh_tags_from_sessions(false, &scope).await;
+    registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
     registry.bind_tag("rev", &session_facts(&old), &at(NOW));
     registry.forget_terminal_session(Some("rev"), "sess_rel_1");
     registry.mark_released(&["sess_rel_1".into()]);
 
     let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
     // A send's scan binds the closed agent again (it is revived by its tag).
-    registry.refresh_tags_from_sessions(true, &scope).await;
+    registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
     assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_1".into())), "a send reaches a closed agent");
     // A spawn finds the tag free, however long ago the close was, and the scan does not take it back.
     let spawn = ResolveOptions { scan_sessions: true, skip_released: true, ..ResolveOptions::default() };
@@ -826,7 +831,7 @@ async fn a_spawn_resolve_gives_a_closed_session_its_tag_up() {
     *rig.store.sessions.lock().unwrap() = vec![old.clone(), new.clone()];
     rig.store.touch_sessions();
     registry.bind_tag("rev", &session_facts(&new), &at(NOW));
-    registry.refresh_tags_from_sessions(true, &scope).await;
+    registry.refresh_tags_from_sessions(true, &scope).await.unwrap();
     assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_2".into())));
 }
 
@@ -848,7 +853,7 @@ async fn another_owners_binding_of_the_tag_does_not_hide_a_closed_session() {
     rig.store.touch_sessions();
     let (scope_a, scope_b) = (lead("lead-a"), lead("lead-b"));
     let registry = rig.registry();
-    registry.refresh_tags_from_sessions(false, &scope_a).await;
+    registry.refresh_tags_from_sessions(false, &scope_a).await.unwrap();
     registry.bind_tag("rev", &session_facts(&mine), &at(NOW));
     registry.forget_terminal_session(Some("rev"), "sess_a");
     registry.mark_released(&["sess_a".into()]);
@@ -902,7 +907,7 @@ async fn a_closed_session_yields_its_tag_only_to_the_same_owner_identity() {
         *rig.store.sessions.lock().unwrap() = vec![closed.clone(), open.clone()];
         rig.store.touch_sessions();
         let registry = rig.registry();
-        registry.reload().await;
+        registry.reload().await.unwrap();
         registry.mark_released(&["sess_c".into()]);
         assert_eq!(registry.resolve_tag("rev", &Scope::default(), global), want, "{name}");
     }
@@ -938,7 +943,7 @@ async fn tags_resolve_inside_the_callers_scope_only() {
         rig.live.headers.lock().unwrap().insert(id.into(), header);
     }
     let registry = rig.registry();
-    registry.refresh_tags_from_sessions(true, &lead("lead-a")).await;
+    registry.refresh_tags_from_sessions(true, &lead("lead-a")).await.unwrap();
     let none = ResolveOptions::default();
     assert_eq!(registry.resolve_tag("rev", &lead("lead-a"), none), Ok(Some("sess_a".into())));
     // lead-b's session is not indexed yet: only a scan finds it.
@@ -1003,18 +1008,18 @@ async fn a_close_that_stopped_a_turn_is_still_read_cancelled_by_the_next_process
     let cancelled = (Some(json!("cancelled")), Some(json!("cancelled")));
 
     let first = rig.registry();
-    first.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    first.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
     assert_ne!(state(&first.session_of("s1").expect("the session")), cancelled);
     first.set_cancelled("s1", true);
     assert_eq!(state(&first.session_of("s1").expect("the session")), cancelled);
 
     let next = rig.registry();
-    next.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    next.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
     assert_eq!(state(&next.session_of("s1").expect("the session")), cancelled, "the next process reads the mark off the row");
     crate::session::TurnStarts::turn_started(&next, &mixdog_core_api::ids::ThreadId::from("s1"), &"turn".into());
     assert_ne!(state(&next.session_of("s1").expect("the session")), cancelled, "a turn started on it");
     let after = rig.registry();
-    after.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    after.refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
     assert_ne!(state(&after.session_of("s1").expect("the session")), cancelled, "and the row no longer holds the mark");
 }
 
@@ -1038,7 +1043,7 @@ async fn a_settled_row_ages_into_a_tombstone_and_a_reuse_consumes_it() {
     rig.store.write("sess_old", Some(worker_row("sess_old", "fix", json!({ "createdAt": old, "updatedAt": old, "cwd": "/w" }))));
     let registry = rig.registry();
     let scope = lead("lead-a");
-    registry.refresh_tags_from_sessions(false, &scope).await;
+    registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
     assert_eq!(
         rig.store.map("sess_old"),
         Some(obj(json!({
@@ -1110,7 +1115,7 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
         let rows = agents["workers"].as_array().unwrap().iter().chain(leads["workers"].as_array().unwrap());
         rows.filter(|row| row["sessionId"] == id).cloned().collect::<Vec<Value>>()
     };
-    let before = registry.pool_index().await;
+    let before = registry.pool_index().await.unwrap();
     let kept: Vec<(&str, Vec<Value>)> = ["s-busy", "s-owed"].into_iter().map(|id| (id, row_of(&before, id))).collect();
     for (id, rows) in &kept {
         assert_eq!(rows.len(), 1, "{id} is listed before the delete");
@@ -1126,7 +1131,7 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
     assert!(registry.forget_deleted_session("s-lead").await, "the Lead row goes");
     assert!(!WorkerStore::kept(&*rig.store, "s-lead"), "and is not kept apart from the index");
     for listing in 0..2 {
-        let after = registry.pool_index().await;
+        let after = registry.pool_index().await.unwrap();
         for (id, rows) in &kept {
             assert_eq!(&row_of(&after, id), rows, "listing {listing}: {id} as before the delete");
         }
@@ -1153,7 +1158,7 @@ async fn expired_and_surplus_kept_tombstones_leave_the_kept_table() {
     }
     let kept = || rig.store.kept.lock().unwrap().iter().map(|(id, _)| id.clone()).collect::<HashSet<String>>();
     assert_eq!(kept().len(), max + 2);
-    rig.registry().refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    rig.registry().refresh_tags_from_sessions(false, &lead("lead-a")).await.unwrap();
     let left = kept();
     assert_eq!(left.len(), max, "the table shrank");
     assert!(!left.contains("s-expired") && !left.contains(&format!("s-{}", max + 1)), "the expired one and the oldest beyond the cap left");
@@ -1220,7 +1225,7 @@ impl WorkerStore for Whole {
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
         WorkerStore::agent_sessions(&*self.0).await
     }
-    async fn header(&self, session: &str) -> Option<Row> {
+    async fn header(&self, session: &str) -> Result<Option<Row>, String> {
         WorkerStore::header(&*self.0, session).await
     }
     async fn is_directory(&self, _: &str) -> bool {
@@ -1264,7 +1269,7 @@ async fn a_reload_waiting_behind_a_lost_load_loads_for_itself(cancelled: bool) {
     rig.store.write("s-a", Some(worker_row("s-a", "a", json!({}))));
     rig.store.slow.store(true, Ordering::SeqCst);
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
 
     // A load is under way and one more waits behind it; then a write completes and the caller asks.
     let mut under_way = Box::pin(registry.reload());
@@ -1275,17 +1280,17 @@ async fn a_reload_waiting_behind_a_lost_load_loads_for_itself(cancelled: bool) {
     let mut caller = Box::pin(registry.reload());
     assert!(futures::poll!(caller.as_mut()).is_pending());
 
-    under_way.await;
+    under_way.await.unwrap();
     assert!(registry.lock().map("s-b").is_none(), "the load under way read the store before the write");
     if cancelled {
         assert!(futures::poll!(next.as_mut()).is_pending(), "the next load started");
         drop(next);
     } else {
         rig.store.fail.store(true, Ordering::SeqCst);
-        next.await;
+        assert!(next.await.is_err(), "a load whose read failed answers the failure");
         rig.store.fail.store(false, Ordering::SeqCst);
     }
-    caller.await;
+    caller.await.unwrap();
     assert!(registry.lock().map("s-b").is_some(), "the caller's reload showed the write that completed before it asked");
 }
 
@@ -1630,7 +1635,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
         let future = obj(json!({ "tombstone": tombstone("t1", &at(NOW + 2 * HOUR), json!({})) }));
         rig.store.write("s-future", without_row(&future));
         let mut registry = rig.registry();
-        registry.reload().await;
+        registry.reload().await.unwrap();
         let scopes = [
             lead("lead-a"),
             lead("lead-b"),
@@ -1679,7 +1684,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     }
                     let map = if map.contains_key("sessionId") { Some(map) } else { without_row(&map) };
                     rig.store.write(&id, map);
-                    registry.reload().await;
+                    registry.reload().await.unwrap();
                 }
                 8 => {
                     // A stored session changed (or left the store), then a reload.
@@ -1695,7 +1700,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     }
                     drop(sessions);
                     rig.store.touch_sessions();
-                    registry.reload().await;
+                    registry.reload().await.unwrap();
                 }
                 9 => {
                     // A session loads, unloads, or its live header changes.
@@ -1740,7 +1745,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                 16 => {
                     // The next process restores the index from the store.
                     registry = rig.registry();
-                    registry.reload().await;
+                    registry.reload().await.unwrap();
                 }
                 17 => {
                     // The restart's own settlement and notification stamps go to the store; the registry loads them.
@@ -1748,7 +1753,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     let live = restart::Liveness { probe: &AllAlive, own_pid: PID, running: &running, reap: &Hour, now_ms: registry.now() as i64 };
                     registry.recover_stale_worker_rows(dice.below(2) == 0, &live).await.unwrap();
                     registry.mark_restart_notified(std::slice::from_ref(&id), "stamp").await.unwrap();
-                    registry.reload().await;
+                    registry.reload().await.unwrap();
                 }
                 18 => {
                     // A scanning listing adds the stored sessions it finds, and writes their rows.
@@ -1976,7 +1981,7 @@ impl OwnerQueue {
 
 /// The Lead pool row of `pool_index`'s Lead half, if any.
 async fn lead_row_of(registry: &AgentRegistry, id: &str) -> Option<Value> {
-    let (_, leads) = registry.pool_index().await;
+    let (_, leads) = registry.pool_index().await.unwrap();
     leads["workers"].as_array().unwrap().iter().find(|row| row["sessionId"] == id).cloned()
 }
 
@@ -2031,7 +2036,7 @@ async fn a_leads_turn_writes_its_pool_row_running_then_idle() {
     ] {
         assert_eq!(idle[key], value, "{key}");
     }
-    assert_eq!(rig.registry().pool_index().await.1, registry.pool_index().await.1, "the row is stored: the next process lists it");
+    assert_eq!(rig.registry().pool_index().await.unwrap().1, registry.pool_index().await.unwrap().1, "the row is stored: the next process lists it");
 }
 
 /// A Lead row write tells the pool alone (1.4.5 kept Lead rows in their own index, which no agent status read listened to):
@@ -2075,7 +2080,7 @@ async fn a_settled_lead_row_leaves_at_its_deadline() {
         Some(obj(json!({ "tag": "lead:lead-b", "sessionId": "lead-b", "ownerSessionId": "lead-b", "agent": "lead", "status": "running", "stage": "running", "updatedAt": at(NOW - 2 * HOUR) }))),
     );
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
     registry.turn_started(&ThreadId::from("lead-a"), &"turn".into());
     registry.turn_settled(&ThreadId::from("lead-a"));
     assert_eq!(registry.next_lead_reap_deadline(), NOW as f64 - HOUR as f64, "the crashed row is due an hour after its last update");
@@ -2125,7 +2130,7 @@ async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event(
     let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
     let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
     // The index is loaded (the boot's first read), then the timer starts.
-    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await.unwrap();
     assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
     let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
     // The first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS` after the start (maintenance-pass.mjs:23,129).
@@ -2222,7 +2227,7 @@ async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
     let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
     rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
     let registry = rig.registry();
-    registry.pool_index().await;
+    registry.pool_index().await.unwrap();
     // The delete: the index lists no row of the deleted session any more.
     rig.store.maps.lock().unwrap().clear();
     rig.store.touch_sessions();
@@ -2241,15 +2246,15 @@ async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
     assert_eq!(rig.store.map("s-owed").unwrap()["restartNotified"], json!(at(NOW)), "the stamp is kept with the row");
 
     async fn listed(registry: &AgentRegistry) -> bool {
-        let (agents, _) = registry.pool_index().await;
+        let (agents, _) = registry.pool_index().await.unwrap();
         agents["workers"].as_array().unwrap().iter().any(|row| row["sessionId"] == "s-owed")
     }
     let other = lead("lead-b");
     rig.clock.0.store(NOW + DAY - 1, Ordering::SeqCst);
-    restarted.refresh_tags_from_sessions(false, &other).await;
+    restarted.refresh_tags_from_sessions(false, &other).await.unwrap();
     assert!(listed(&restarted).await, "1 ms before the settled retention ends the row stays");
     rig.clock.0.store(NOW + DAY, Ordering::SeqCst);
-    restarted.refresh_tags_from_sessions(false, &other).await;
+    restarted.refresh_tags_from_sessions(false, &other).await.unwrap();
     assert!(!listed(&restarted).await, "at the retention's end the told row leaves");
     let map = rig.store.map("s-owed").expect("its tombstone stays until its own end");
     assert!(!map.contains_key("sessionId") && map.contains_key("tombstone"), "{map:?}");
@@ -2431,7 +2436,7 @@ async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_de
     // A fresh registry and board represent another core restart. Scanning idle headers
     // must not replace the task outcomes, and stamped notices must not erase status.
     let restarted = rig.registry();
-    restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await;
+    restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await.unwrap();
     let listed = restarted.session_entries(true, &lead("lead-a"));
     assert_eq!(listed.len(), 8);
     assert!(listed.iter().all(|(_, row)| row["status"] == "failed"));
@@ -3100,7 +3105,7 @@ async fn crowd_rig() -> Crowd {
 async fn signal(crowd: &Crowd) -> Vec<Vec<String>> {
     let registry = &crowd.core.registry;
     futures::future::join_all(crowd.scopes.iter().map(|scope| async move {
-        registry.refresh_tags_from_sessions(false, scope).await;
+        registry.refresh_tags_from_sessions(false, scope).await.unwrap();
         registry.status_entries(scope).iter().map(|(tag, _)| tag.clone()).collect::<Vec<_>>()
     }))
     .await
@@ -3197,12 +3202,12 @@ async fn a_worker_row_another_connection_wrote_is_seen_by_the_next_load() {
         put_stored(&core, id, header).await;
     }
     let status = |core: &Core| core.registry.lock().map("sess_other").map(|m| m["status"].clone());
-    core.registry.reload().await;
+    core.registry.reload().await.unwrap();
     assert_eq!(status(&core), Some(json!("running")));
 
     core.index.set_worker_elsewhere("sess_other", Some(&row("failed")));
     let before = rows::work::counts();
-    core.registry.reload().await;
+    core.registry.reload().await.unwrap();
     assert_eq!(status(&core), Some(json!("failed")), "the other connection's commit is loaded");
     assert_eq!(rows::work::counts().maps_compared - before.maps_compared, 1, "the load compared the one row written");
     core.directory.shutdown().await;
@@ -3303,9 +3308,9 @@ async fn a_registry_fed_deltas_holds_what_one_that_loads_the_whole_index_holds()
         // Twice: a load may keep a map the index stopped listing, and that keep is written in turn.
         for _ in 0..2 {
             core.written().await;
-            core.registry.reload().await;
+            core.registry.reload().await.unwrap();
         }
-        whole.reload().await;
+        whole.reload().await.unwrap();
         assert_eq!(held(&core.registry), held(&whole), "what the registries hold, step {step}");
         assert_eq!(index_reads(&core.registry), index_reads(&whole), "what the registries read, step {step}");
     }
@@ -3348,7 +3353,7 @@ async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() 
     );
     let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
     let scope = lead("lead");
-    registry.refresh_tags_from_sessions(false, &scope).await;
+    registry.refresh_tags_from_sessions(false, &scope).await.unwrap();
     // The archive state as the authority resolves it over the headers the close left.
     let archived = |id: &str| {
         let header = threads.headers.lock().unwrap().get(id).and_then(|header| header.get("archivedAt").cloned());
@@ -3486,7 +3491,7 @@ async fn cleanup_world(hold_at: usize) -> (CleanupWorld, tokio::sync::oneshot::R
     assert!(rig.store.on_write.set(Box::new(move |session| signals::StatusSignals::worker_rows(&*signals, session))).is_ok());
     let directory = Arc::new(crate::session::SessionDirectory::new(srig.deps()));
     let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     let threads = Arc::new(HeldStamps::default());
     let (told, arrived) = tokio::sync::oneshot::channel();
     let (go, held) = tokio::sync::oneshot::channel();
@@ -3520,7 +3525,7 @@ impl CleanupWorld {
         let parts = self.parts.clone();
         tokio::spawn(async move {
             let scope = lead("lead");
-            let listed = parts.registry.refresh_topology(scan, &scope).await;
+            let listed = parts.registry.refresh_topology(scan, &scope).await.unwrap();
             mixdog_agent::agent_tool::dispatch::cleanup_idle(parts, &scope, listed, cancel).await
         })
     }
@@ -3854,7 +3859,7 @@ async fn park_world() -> ParkWorld {
     ));
     rig.store.write_row("sess_w1", Some(worker_row("sess_w1", "w1", owned)));
     rig.store.touch_sessions();
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     let threads = Arc::new(SessionThreads::new(directory.clone()));
     let sessions = AgentSessions::new(
         directory.clone(),
@@ -4070,7 +4075,7 @@ async fn the_idle_release_drops_the_row_of_a_deleted_session_and_leaves_a_loaded
     rig.store.write_row("sess_deleted", Some(worker_row("sess_deleted", "d1", owned.clone())));
     rig.store.write_row(loaded.id.as_str(), Some(worker_row(loaded.id.as_str(), "l1", owned)));
     rig.store.touch_sessions();
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     assert_eq!(registry.idle_rows().len(), 2);
     let sessions = Arc::new(AgentSessions::new(
         directory.clone(),
@@ -4139,7 +4144,7 @@ async fn a_settle_identity_is_fixed_once_per_turn_and_a_scan_of_that_turn_does_n
     let row = worker_row("s-a", "a", json!({ "status": "completed", "turnStartedAt": at(NOW - 9_000), "updatedAt": at(NOW - 5_000) }));
     rig.store.write("s-a", Some(row));
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
     let fix = |turns: u64, candidate: Value| SettleFix { session_id: "s-a".into(), turns, candidate };
     let first = json!(at(NOW - 5_000));
     assert_eq!(registry.settle_identities(&[fix(0, first.clone())]), [first.clone()]);
@@ -4177,7 +4182,7 @@ async fn a_worker_recovered_twice_gets_a_later_settle_identity_for_its_second_re
     }
     let rig = Rig::new();
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
     let header = session("s-a", "a", &at(NOW - HOUR), json!({}));
     let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
     let mut identities = Vec::new();
@@ -4186,7 +4191,7 @@ async fn a_worker_recovered_twice_gets_a_later_settle_identity_for_its_second_re
         registry.upsert_session_row(&header, "a", &obj(start));
         TurnStarts::turn_started(&registry, &"s-a".into(), &format!("turn-{turns}").as_str().into());
         assert!(registry.recover_stale_worker_rows(true, &live).await.unwrap());
-        registry.reload().await;
+        registry.reload().await.unwrap();
         let failed = rig.store.map("s-a").expect("the row");
         assert_eq!((failed["status"].clone(), failed["turnStartedAt"].clone(), failed["startedTurns"].clone()), (json!("failed"), Value::Null, json!(turns)));
         let fix = SettleFix { session_id: "s-a".into(), turns, candidate: failed["finishedAt"].clone() };
@@ -4207,7 +4212,7 @@ async fn two_turn_ids_with_equal_start_stamps_are_two_outcomes_with_two_settle_i
     rig.store.sessions.lock().unwrap().push(session("s-a", "a", &at(NOW - HOUR), json!({})));
     rig.store.touch_sessions();
     let registry = rig.registry();
-    registry.reload().await;
+    registry.reload().await.unwrap();
     let running =
         || RowUpdate { status: Some("running".into()), stage: Some("running".into()), turn_started_at: Some(at(NOW - 9_000)), ..RowUpdate::default() };
     let settle = || RowUpdate { status: Some("idle".into()), stage: Some("idle".into()), finished_at: Some(at(NOW - 5_000)), ..RowUpdate::default() };
@@ -4255,7 +4260,7 @@ async fn a_turn_nothing_observes_is_counted_on_its_workers_row_and_settles_under
     let handle = start_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     rig.store.write(&id, Some(worker_row(&id, "a", json!({ "status": "completed", "finishedAt": at(NOW - 5_000), "updatedAt": at(NOW - 5_000) }))));
-    registry.reload().await;
+    registry.reload().await.unwrap();
     let fix = |turns: u64| SettleFix { session_id: id.clone(), turns, candidate: json!(at(NOW - 5_000)) };
     let cleared = registry.settle_identities(&[fix(0)])[0].clone();
     assert_eq!(cleared, json!(at(NOW - 5_000)));
@@ -4320,7 +4325,7 @@ async fn a_release_leaves_the_member_a_turn_started_on_since_its_close() {
     }
     rig.store.touch_sessions();
     let registry = AgentRegistry::new(rig.store.clone(), Arc::new(Started("sess_c")), Arc::new(Hour), rig.clock.clone());
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     let judged: HashMap<_, _> = members.into_iter().map(|(id, _)| (id.to_owned(), registry.turn_mark(id))).collect();
     crate::session::TurnStarts::turn_started(&registry, &"sess_b".into(), &"direct".into());
 
@@ -4432,7 +4437,7 @@ async fn a_descendants_unstored_release_is_recovered_by_the_scope_that_released_
     rig.store.sessions.lock().unwrap().push(session("sess_bare", "bare", &at(NOW - HOUR), below));
     rig.store.touch_sessions();
     let registry = AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), rig.clock.clone());
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     let members = ["sess_root", "sess_kid", "sess_bare"];
     let judged: HashMap<_, _> = members.into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
 
@@ -4476,7 +4481,7 @@ async fn a_member_whose_identity_is_unknown_is_spared_with_nothing_of_it_changed
     }
     rig.store.touch_sessions();
     let registry = AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), rig.clock.clone());
-    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await.unwrap();
     let judged: HashMap<_, _> = ["sess_root", "sess_kid"].into_iter().map(|id| (id.to_owned(), registry.turn_mark(id))).collect();
     let held = |id: &str| {
         let st = registry.lock();
@@ -4524,6 +4529,112 @@ async fn the_stale_rows_a_cleanups_refresh_tombstones_are_announced_with_its_clo
     go.send(()).unwrap();
     cleanup.await.unwrap().unwrap();
     assert_eq!(world.announcements() - announced, 1, "one announcement for the tombstones and the closes");
+}
+
+/// A start that holds the worker rows (its index is rebuilt behind the serving core) lets no reader see a worker before the
+/// restart's settlement of it: the reader waits, and then reads the worker as the settlement left it.
+#[tokio::test]
+async fn held_worker_rows_are_read_only_as_the_restart_settled_them() {
+    struct Dead;
+    impl restart::ProcessProbe for Dead {
+        fn alive(&self, _: u64) -> bool {
+            false
+        }
+    }
+    let rig = Rig::new();
+    let registry = Arc::new(rig.registry());
+    registry.reload().await.unwrap();
+    let header = session("s-a", "a", &at(NOW - HOUR), json!({}));
+    let start = json!({ "status": "running", "turnStartedAt": at(NOW - 9_000), "runtimePid": PID + 1, "ownerSessionId": "lead" });
+    registry.upsert_session_row(&header, "a", &obj(start));
+    registry.hold_worker_rows();
+    let reader = {
+        let registry = registry.clone();
+        tokio::spawn(async move { registry.pending_restart_failures().await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!reader.is_finished(), "a held row is not read before the settlement");
+    let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
+    assert!(registry.recover_held_worker_rows(true, &live).await.unwrap());
+    let pending = reader.await.unwrap().unwrap();
+    assert_eq!(pending.iter().map(|(id, row)| (id.as_str(), row["status"].clone())).collect::<Vec<_>>(), [("s-a", json!("failed"))]);
+}
+
+/// While the worker rows are held (the session of the stored tag `t` is not projected yet), a pool listing, a spawn naming
+/// `t` and a spawn taking the next tag all wait: no tag is named, none is reserved. When the settlement then fails, all three
+/// answer its failure and still take no tag, whether or not the registry had loaded the rows before; when it succeeds, the
+/// pool lists the worker, `t` is refused as taken and the next tag is another.
+async fn spawns_and_the_pool_over_held_worker_rows(fails: bool, warm: bool) {
+    struct Dead;
+    impl restart::ProcessProbe for Dead {
+        fn alive(&self, _: u64) -> bool {
+            false
+        }
+    }
+    let rig = Rig::new();
+    rig.store.write("s-t", Some(worker_row("s-t", "t", json!({}))));
+    rig.store.sessions.lock().unwrap().push(session("s-t", "t", &at(NOW - HOUR), json!({})));
+    rig.store.touch_sessions();
+    let registry = Arc::new(rig.registry());
+    if warm {
+        registry.reload().await.unwrap();
+    }
+    registry.hold_worker_rows();
+    let scope = lead("lead-a");
+    let options = ResolveOptions { scan_sessions: false, exclude_terminal_traces: false, skip_released: true };
+    let named = std::sync::atomic::AtomicUsize::new(0);
+    let next = || {
+        named.fetch_add(1, Ordering::SeqCst);
+        registry.next_tag("worker", &scope)
+    };
+    let mut pool = Box::pin(registry.pool_index());
+    let mut explicit = Box::pin(Registry::claim_tag(&*registry, "t", &scope, options, &next));
+    let mut automatic = Box::pin(Registry::claim_tag(&*registry, "", &scope, options, &next));
+    assert!(futures::poll!(pool.as_mut()).is_pending(), "the pool was listed from held rows");
+    assert!(futures::poll!(explicit.as_mut()).is_pending(), "a spawn naming the tag was admitted over held rows");
+    assert!(futures::poll!(automatic.as_mut()).is_pending(), "a spawn taking the next tag was admitted over held rows");
+    let taken = || (named.load(Ordering::SeqCst), registry.claimed.lock().unwrap().len());
+    assert_eq!(taken(), (0, 0), "a tag was named or reserved while the rows were held");
+
+    rig.store.fail_maps.store(fails, Ordering::SeqCst);
+    let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
+    let settled = registry.recover_held_worker_rows(true, &live).await;
+    // The store reads again afterwards: a failed settlement is not tried again by a reader of this start.
+    rig.store.fail_maps.store(false, Ordering::SeqCst);
+    if fails {
+        let why = settled.expect_err("the settlement fails with the read of the worker maps");
+        assert!(why.contains("index recovery failed"), "{why}");
+        for (what, answer) in
+            [("the pool", pool.await.map(drop)), ("the named spawn", explicit.await.map(drop)), ("the next-tag spawn", automatic.await.map(drop))]
+        {
+            let error = answer.expect_err(what);
+            assert!(error.contains("index recovery failed") && !error.contains("already exists"), "{what}: {error}");
+        }
+        assert_eq!(taken(), (0, 0), "a tag was named or reserved after the settlement failed");
+        return;
+    }
+    settled.unwrap();
+    let (agents, _) = pool.await.unwrap();
+    assert!(agents["workers"].to_string().contains("s-t"), "the pool lists the stored worker: {agents}");
+    let refused = explicit.await.map(|claim| claim.tag.clone()).expect_err("the stored tag is taken");
+    assert!(refused.contains("already exists"), "{refused}");
+    let claim = automatic.await.unwrap();
+    assert_ne!(claim.tag, "t", "the next tag reused the stored worker's");
+}
+
+#[tokio::test]
+async fn a_failed_settlement_fails_the_pool_and_every_spawn_and_takes_no_tag() {
+    spawns_and_the_pool_over_held_worker_rows(true, false).await;
+}
+
+#[tokio::test]
+async fn a_failed_settlement_fails_the_pool_and_every_spawn_over_a_warm_registry_too() {
+    spawns_and_the_pool_over_held_worker_rows(true, true).await;
+}
+
+#[tokio::test]
+async fn a_settled_worker_is_in_the_pool_and_its_tag_is_given_to_no_spawn() {
+    spawns_and_the_pool_over_held_worker_rows(false, false).await;
 }
 
 #[path = "release_receipt_tests.rs"]

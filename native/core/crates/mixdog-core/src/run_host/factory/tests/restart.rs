@@ -226,6 +226,443 @@ async fn a_crash_inside_a_tool_run_leaves_the_prompt_and_no_end_and_the_next_pro
     release.notify_one();
 }
 
+/// Takes the conversation down to a summary once a tool result is in it: the call that result answered leaves the model context.
+#[derive(Default)]
+struct CompactsAfterAResult {
+    done: AtomicBool,
+}
+
+#[async_trait]
+impl Compactor for CompactsAfterAResult {
+    fn estimate_tokens(&self, _: &[AgentMessage]) -> u64 {
+        1_000_000
+    }
+
+    async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
+        request.messages.iter().any(|m| m.role() == Role::Tool) && !self.done.swap(true, Ordering::SeqCst)
+    }
+
+    async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+        let mut messages: Vec<AgentMessage> = request.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
+        messages.push(AgentMessage::user("[summary]"));
+        Ok(CompactOutput {
+            messages,
+            usage: None,
+            input_excludes_cache: false,
+            dropped_count: 0,
+            dropped: None,
+            skipped: false,
+            pipeline_ms: 0.0,
+            summary_ms: None,
+            summary_route: None,
+        })
+    }
+}
+
+/// Answers with the round its call names.
+struct Quick(ToolSpec);
+
+#[async_trait]
+impl Tool for Quick {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("quick-{}", args["round"]))], ..ToolOutput::default() })
+    }
+}
+
+/// A read of a state an `edit` call changes: it answers with its run's number and the state it read. Its first run may
+/// wait to be let go, and its second waits for the first to end when the first is not held.
+struct Peeks {
+    spec: ToolSpec,
+    edited: Arc<AtomicBool>,
+    runs: std::sync::atomic::AtomicUsize,
+    /// `Some`: the first run waits for it.
+    first_held: Option<Arc<tokio::sync::Notify>>,
+    first_ended: tokio::sync::watch::Sender<bool>,
+}
+
+#[async_trait]
+impl Tool for Peeks {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        let run = self.runs.fetch_add(1, Ordering::SeqCst) + 1;
+        match (run, &self.first_held) {
+            (1, Some(held)) => held.notified().await,
+            (1, None) => {}
+            (_, Some(_)) => {}
+            (_, None) => {
+                let _ = self.first_ended.subscribe().wait_for(|ended| *ended).await;
+            }
+        }
+        let read = if self.edited.load(Ordering::SeqCst) { "after" } else { "before" };
+        if run == 1 {
+            self.first_ended.send_replace(true);
+        }
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("peek-{run}-{read}"))], ..ToolOutput::default() })
+    }
+}
+
+/// The change [`Peeks`] reads.
+struct Edits(ToolSpec, Arc<AtomicBool>);
+
+#[async_trait]
+impl Tool for Edits {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        self.1.store(true, Ordering::SeqCst);
+        Ok(ToolOutput { parts: vec![ToolPart::Text("edited".into())], ..ToolOutput::default() })
+    }
+}
+
+fn tool_spec(name: &str, read_only: bool) -> ToolSpec {
+    ToolSpec {
+        name: name.into(),
+        title: None,
+        trigger: None,
+        public: true,
+        aliases: Vec::new(),
+        description: name.into(),
+        input_schema: json!({ "type": "object" }),
+        annotations: if read_only {
+            ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() }
+        } else {
+            ToolAnnotations::default()
+        },
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    }
+}
+
+/// A read streamed behind an edit runs twice: as it streams, and again once the edit is in. The process dies before the
+/// batch's rows are committed (a third call never ends), so the draft is all the next process has of the results. It
+/// recovers the read of the call's last run, made after the edit, whichever way the two runs raced: with the first run
+/// ended and told before the second (`first_run_first`), or held until the second's result was in the draft and ended
+/// only then. The first run's read is recovered in neither.
+async fn a_read_run_again_is_recovered_as_its_last_run(first_run_first: bool) {
+    let spec = tool_spec;
+    let edited = Arc::new(AtomicBool::new(false));
+    let first_held = (!first_run_first).then(|| Arc::new(tokio::sync::Notify::new()));
+    let peeks = Arc::new(Peeks {
+        spec: spec("peek", true),
+        edited: edited.clone(),
+        runs: std::sync::atomic::AtomicUsize::new(0),
+        first_held: first_held.clone(),
+        first_ended: tokio::sync::watch::Sender::new(false),
+    });
+    let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let more: Vec<Arc<dyn Tool>> =
+        vec![Arc::new(Edits(spec("edit", false), edited)), peeks.clone(), Arc::new(Blocker(spec("holder", true), blocked.clone(), release.clone()))];
+    let first = scripted_rounds(vec![vec![tool_call("e1", "edit"), tool_call("r1", "peek"), tool_call("h1", "holder"), tool_use()]]);
+    let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
+    let provider: Arc<dyn ProviderAdapter> = first.clone();
+    let directory = restartable_with(&rig, &provider, workspace.path(), more);
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+    let drafted = || format!("{:?}", rig.store.draft_files(&id));
+    eventually_on_awaiting(|| "the second run's read in the draft".to_owned(), &[handle.stepped()], || drafted().contains("peek-2-after").then_some(())).await;
+    if let Some(held) = &first_held {
+        // The first run ends only now, behind the second's result.
+        held.notify_one();
+        let mut ended = peeks.first_ended.subscribe();
+        tokio::time::timeout(Duration::from_secs(30), ended.wait_for(|ended| *ended)).await.expect("the first run ends within 30 s").expect("the tool lives");
+        // Long enough for a result of it to reach the draft, were one written.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    assert_eq!(peeks.runs.load(Ordering::SeqCst), 2, "the read ran as it streamed and again behind the edit");
+    let stored = |rig: &Rig| format!("{:?}", rig.store.records(&id));
+    assert!(!stored(&rig).contains("peek-"), "no result is a row yet: the draft is all there is of them");
+    let interrupted = |rig: &Rig| {
+        rig.store
+            .records(&id)
+            .iter()
+            .any(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Interrupted)))
+    };
+
+    // The process dies here: the held call never ends.
+    let next: Arc<dyn ProviderAdapter> = scripted_rounds(vec![answer_events("later")]);
+    let resumed = restartable(&rig, &next, workspace.path());
+    let handle = resumed.open_handle(&id, &CallContext::internal("test")).await.expect("the thread reopens from its files");
+    eventually_on_awaiting(|| "the crashed turn's recovery".to_owned(), &[handle.stepped()], || (handle.recovered() && interrupted(&rig)).then_some(())).await;
+    let results: Vec<(String, String)> = rig
+        .store
+        .records(&id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Item(item) => match item.body {
+                Slot::Inline(body) => body.get("toolCallId").and_then(Value::as_str).map(|call| (call.to_owned(), body["content"].to_string())),
+                Slot::Blob(_) => None,
+            },
+            _ => None,
+        })
+        .collect();
+    let read: Vec<&(String, String)> = results.iter().filter(|(call, _)| call == "r1").collect();
+    assert_eq!(read.len(), 1, "the read is answered once: {results:?}");
+    assert!(read[0].1.contains("peek-2-after"), "by its last run, made after the edit: {results:?}");
+    assert!(!results.iter().any(|(_, content)| content.contains("peek-1-")), "the first run's read is recovered for no call: {results:?}");
+    release.notify_one();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_run_again_behind_an_edit_is_recovered_as_its_last_run_when_its_first_run_ended_first() {
+    a_read_run_again_is_recovered_as_its_last_run(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_run_again_behind_an_edit_is_recovered_as_its_last_run_when_its_first_run_ended_last() {
+    a_read_run_again_is_recovered_as_its_last_run(false).await;
+}
+
+/// The session's surface refuses `edit`.
+struct DeniesEdit;
+
+#[async_trait]
+impl mixdog_agent::env::ToolGate for DeniesEdit {
+    async fn check_call(&self, _call_id: &str, _call: &mixdog_agent::env::GateCall) -> mixdog_agent::env::GateDecision {
+        mixdog_agent::env::GateDecision::Allow
+    }
+    fn pre_dispatch_deny(&self, call: &mixdog_agent::env::GateCall) -> Option<String> {
+        (call.name == "edit").then(|| "edit is off on this surface".to_owned())
+    }
+}
+
+/// [`Parts`] whose turns are judged by [`DeniesEdit`].
+struct EditDenied(Parts);
+
+#[async_trait]
+impl RunParts for EditDenied {
+    async fn reconcile_turn(
+        &self,
+        thread: &ThreadId,
+        header: mixdog_store::schema::record::Header,
+        conversation: bool,
+    ) -> Result<mixdog_store::schema::record::Header, TurnError> {
+        self.0.reconcile_turn(thread, header, conversation).await
+    }
+
+    async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+        let mut assembled = self.0.assemble(input).await?;
+        assembled.gate = Box::new(|_| Arc::new(DeniesEdit));
+        Ok(assembled)
+    }
+}
+
+/// A read streamed behind an edit the session's surface refuses is the call's only run: the edit never runs, so the batch
+/// takes the read's result as it is and runs nothing again. A third call never ends and the process dies before the
+/// batch's rows are committed, so the draft is all the next process has: it recovers the read's result, and does not
+/// report a read that completed as cancelled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_behind_an_edit_the_surface_refused_is_recovered_by_its_one_run() {
+    let edited = Arc::new(AtomicBool::new(false));
+    let peeks = Arc::new(Peeks {
+        spec: tool_spec("peek", true),
+        edited: edited.clone(),
+        runs: std::sync::atomic::AtomicUsize::new(0),
+        first_held: None,
+        first_ended: tokio::sync::watch::Sender::new(false),
+    });
+    let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let more: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(Edits(tool_spec("edit", false), edited.clone())),
+        peeks.clone(),
+        Arc::new(Blocker(tool_spec("holder", true), blocked.clone(), release.clone())),
+    ];
+    let first = scripted_rounds(vec![vec![tool_call("e1", "edit"), tool_call("r1", "peek"), tool_call("h1", "holder"), tool_use()]]);
+    let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
+    let provider: Arc<dyn ProviderAdapter> = first.clone();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.runs = Arc::new(RunHostFactory::new(
+        mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+        mixdog_tools::web::NativeSearchUsageSinks::new(),
+        Arc::new(EditDenied(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more, settle: None, effort: None })),
+    ));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+    let drafted = || format!("{:?}", rig.store.draft_files(&id));
+    eventually_on_awaiting(|| "the read's result in the draft".to_owned(), &[handle.stepped()], || drafted().contains("peek-1-before").then_some(())).await;
+    // The batch has decided the read by now (its result is in the draft); long enough for a second run to start, were one due.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(peeks.runs.load(Ordering::SeqCst), 1, "the read ran once: nothing changed what it read");
+    assert!(!edited.load(Ordering::SeqCst), "the refused edit did not run");
+    assert!(!format!("{:?}", rig.store.records(&id)).contains("peek-"), "no result is a row yet: the draft is all there is of them");
+    let interrupted = |rig: &Rig| {
+        rig.store
+            .records(&id)
+            .iter()
+            .any(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Interrupted)))
+    };
+
+    // The process dies here: the held call never ends.
+    let next: Arc<dyn ProviderAdapter> = scripted_rounds(vec![answer_events("later")]);
+    let resumed = restartable(&rig, &next, workspace.path());
+    let handle = resumed.open_handle(&id, &CallContext::internal("test")).await.expect("the thread reopens from its files");
+    eventually_on_awaiting(|| "the crashed turn's recovery".to_owned(), &[handle.stepped()], || (handle.recovered() && interrupted(&rig)).then_some(())).await;
+    let results: Vec<(String, String)> = rig
+        .store
+        .records(&id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Item(item) => match item.body {
+                Slot::Inline(body) => body.get("toolCallId").and_then(Value::as_str).map(|call| (call.to_owned(), body["content"].to_string())),
+                Slot::Blob(_) => None,
+            },
+            _ => None,
+        })
+        .collect();
+    let read: Vec<&(String, String)> = results.iter().filter(|(call, _)| call == "r1").collect();
+    assert_eq!(read.len(), 1, "the read is answered once: {results:?}");
+    assert!(read[0].1.contains("peek-1-before"), "by the result of its one run: {results:?}");
+    release.notify_one();
+}
+
+/// The text of every draft file under `data`.
+fn draft_files(data: &std::path::Path) -> String {
+    let mut text = String::new();
+    let mut dirs = vec![data.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if entry.file_name().to_string_lossy().starts_with("draft-") {
+                text.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+            }
+        }
+    }
+    text
+}
+
+/// A provider that gives every call the same id, over the real store and the run host's own recovery. The first call's
+/// result lands as a row; a compaction inside the turn takes that call out of the model context; the provider names its
+/// next call by the same id, beside a call that never ends, and that call's result settles early, so the draft is the one
+/// place it is; the process dies. The draft file was only appended to: it holds the first result too. The next process
+/// recovers the second result for the second call and nothing for the first: the second call entered the session under
+/// an id of its own, so the first result's row in the log answers the first call alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_result_drafted_for_a_call_whose_provider_repeated_an_id_is_recovered_for_that_call_over_the_real_store() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_core_session::session::StoreThreads;
+    use mixdog_store::sqlite::SqliteStore;
+
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let store: Arc<dyn mixdog_core_session::session::ThreadStore> =
+        Arc::new(StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+
+    let spec = |name: &str| ToolSpec {
+        name: name.into(),
+        title: None,
+        trigger: None,
+        public: true,
+        aliases: Vec::new(),
+        description: name.into(),
+        input_schema: json!({ "type": "object" }),
+        annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    };
+    let (blocked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let tools = || -> Vec<Arc<dyn Tool>> { vec![Arc::new(Blocker(spec("holder"), blocked.clone(), release.clone())), Arc::new(Quick(spec("quick")))] };
+    let call = |id: &str, name: &str, round: u32| {
+        StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: name.into(), arguments: json!({ "round": round }), native_type: None })
+    };
+    let first = scripted_rounds(vec![vec![call("c", "quick", 1), tool_use()], vec![call("h", "holder", 2), call("c", "quick", 2), tool_use()]]);
+    let (rig, workspace) = (Rig::new(), tempfile::tempdir().unwrap());
+    let mut deps = rig.deps_parts(store.clone());
+    deps.runs = Arc::new(RunHostFactory::new(
+        mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+        mixdog_tools::web::NativeSearchUsageSinks::new(),
+        Arc::new(Compacting {
+            inner: Parts { provider: first.clone(), workspace: workspace.path().to_path_buf(), more: tools(), settle: None, effort: None },
+            compactor: Arc::new(CompactsAfterAResult::default()),
+            settings: mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..Default::default() },
+        }),
+    ));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let reply = directory
+        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start"))
+        .await
+        .expect("thread/start");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+    let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+    let handle = directory.handle(&id).expect("loaded");
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+    tokio::time::timeout(Duration::from_secs(30), blocked.notified()).await.expect("the second round's held call started within 30 s");
+    let drafted = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let files = draft_files(data.path());
+            if files.contains("quick-2") {
+                break files;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the second result reached the draft file within 30 s");
+    assert!(drafted.contains("quick-1"), "the file was only appended to and holds the first result still: {drafted}");
+    let second_request = format!("{:?}", lock(&first.requests)[1].messages);
+    assert!(second_request.contains("[summary]") && !second_request.contains("quick-1"), "the first call left the model context: {second_request}");
+
+    // The process dies here: the held call never ends, and the files are what the next process has.
+    let next = scripted_rounds(vec![answer_events("later")]);
+    let mut deps = rig.deps_parts(store);
+    deps.runs = Arc::new(RunHostFactory::new(
+        mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(),
+        mixdog_tools::web::NativeSearchUsageSinks::new(),
+        Arc::new(Parts { provider: next.clone(), workspace: workspace.path().to_path_buf(), more: tools(), settle: None, effort: None }),
+    ));
+    let resumed = SessionDirectory::new(Arc::new(deps));
+    let handle = resumed.open_handle(&id, &CallContext::internal("test")).await.expect("the thread reopens from its files");
+    eventually_on_awaiting(|| "the crashed turn's recovery".to_owned(), &[handle.stepped()], || handle.recovered().then_some(())).await;
+    handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
+    eventually_on_awaiting(
+        || "the resumed turn's end".to_owned(),
+        &[handle.stepped()],
+        || (!lock(&next.requests).is_empty() && !handle.turn_busy()).then_some(()),
+    )
+    .await;
+
+    let sent = lock(&next.requests)[0].messages.clone();
+    let results: Vec<(String, String)> =
+        sent.iter().filter(|m| m.role == Role::Tool).map(|m| (m.tool_call_id.clone().unwrap_or_default(), format!("{:?}", m.content))).collect();
+    let calls: Vec<String> = sent.iter().flat_map(|m| m.tool_calls.iter().map(|call| call.id.clone())).collect();
+    let recovered: Vec<&(String, String)> = results.iter().filter(|(_, content)| content.contains("quick-2")).collect();
+    assert_eq!(recovered.len(), 1, "the drafted result is recovered once: {results:?}");
+    let again = recovered[0].0.as_str();
+    assert_ne!(again, "c", "the second call did not enter under the first call's id: {calls:?}");
+    assert_eq!(mixdog_protocol::tool_call_ids::provider_id(again), "c", "and its provider's id is still read from it");
+    assert!(calls.iter().any(|call| call == again), "the recovered result answers the second call: {calls:?} {results:?}");
+    assert!(!results.iter().any(|(_, content)| content.contains("quick-1")), "the first result is the log's and is not brought back: {results:?}");
+    assert_eq!(results.len(), calls.len(), "every call of the crashed turn is answered once, the held one as interrupted: {calls:?} {results:?}");
+    release.notify_one();
+}
+
 /// The prefix guard is the actor incarnation's: a thread rewound after its guard was kept, then unloaded at its idle deadline,
 /// reopens on no guard, so the next send reaches the provider (it was refused as `Session state changed unexpectedly.` when the
 /// guard outlived the actor and the rewrite's lineage was only the old actor's to name).

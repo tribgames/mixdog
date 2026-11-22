@@ -150,15 +150,15 @@ struct Loaded {
     notices: Vec<String>,
 }
 
-fn load_parent(roots: &MigrationRoots, parent: &str, files: &[SourceFile]) -> Result<Loaded> {
+fn load_parent(roots: &MigrationRoots, parent: &str, files: &[String]) -> Result<Loaded> {
     note_plan_read(parent);
-    let find = |suffix: &str| files.iter().find(|f| f.path == format!("{SESSIONS_DIR}/{parent}{suffix}"));
+    let find = |suffix: &str| files.iter().find(|f| **f == format!("{SESSIONS_DIR}/{parent}{suffix}"));
     let json = match find(JSON_SUFFIX) {
-        Some(f) => Some(durable::read(&roots.resolve(f.root, &f.path)?)?),
+        Some(f) => Some(durable::read(&roots.resolve(Root::Data, f)?)?),
         None => None,
     };
     let log = match find(LOG_SUFFIX) {
-        Some(f) => Some(durable::open_buffered(&roots.resolve(f.root, &f.path)?)?),
+        Some(f) => Some(durable::open_buffered(&roots.resolve(Root::Data, f)?)?),
         None => None,
     };
     let (header, messages) = match source::header_and_messages(parent, json.as_deref(), log, &mut 0) {
@@ -269,11 +269,56 @@ fn add(sink: &mut PlanSink, key: String, kind: ItemKind, contract: Contract, sou
     sink.add_item(plan::item(&key, KindGroup::Data, kind, contract, sources, None)?)
 }
 
+/// The files directly under `sessions/` and `turn-checkpoints/` as the migration takes them, by their paths under `<D>`.
+#[derive(Default)]
+struct Listing {
+    /// Each session's own files (its json, its log, its sidecars, its turn checkpoint), by session id.
+    sessions: BTreeMap<String, Vec<String>>,
+    set_aside: Vec<String>,
+    tmp: Vec<String>,
+    /// Sidecars and turn checkpoints of a session that has no record.
+    orphan_sidecars: Vec<String>,
+    orphan_checkpoints: Vec<String>,
+}
+
+fn listing(roots: &MigrationRoots) -> Result<Listing> {
+    let mut found = Listing::default();
+    let mut sidecars = Vec::new();
+    for (name, is_dir) in durable::list_dir(&roots.data.join(SESSIONS_DIR))? {
+        if is_dir {
+            continue;
+        }
+        let rel = format!("{SESSIONS_DIR}/{name}");
+        match classify(&name) {
+            Entry::Session(id) => found.sessions.entry(id).or_default().push(rel),
+            Entry::Sidecar(id) => sidecars.push((id, rel)),
+            Entry::SetAside => found.set_aside.push(rel),
+            Entry::Tmp => found.tmp.push(rel),
+            Entry::Unknown => {}
+        }
+    }
+    for (id, rel) in sidecars {
+        match found.sessions.get_mut(&id) {
+            Some(files) => files.push(rel),
+            None => found.orphan_sidecars.push(rel),
+        }
+    }
+    for (name, is_dir) in durable::list_dir(&roots.data.join(CHECKPOINT_DIR))? {
+        let (false, Some(id)) = (is_dir, with_id(&name, ".json").or_else(|| with_id(&name, ".jsonl"))) else { continue };
+        let rel = format!("{CHECKPOINT_DIR}/{name}");
+        match found.sessions.get_mut(id) {
+            Some(files) => files.push(rel),
+            None => found.orphan_checkpoints.push(rel),
+        }
+    }
+    Ok(found)
+}
+
 /// Pending spools, worker indexes and release markers; a file naming no session that migrates is retired.
 fn plan_shared_files(
     roots: &MigrationRoots,
     sink: &mut PlanSink,
-    sessions: &BTreeMap<String, Vec<SourceFile>>,
+    sessions: &BTreeMap<String, Vec<String>>,
     reaped: Vec<(String, Vec<String>)>,
     loaded: &std::cell::RefCell<BTreeMap<String, Loaded>>,
 ) -> Result<()> {
@@ -316,9 +361,9 @@ fn plan_shared_files(
                             |id| loaded.borrow().get(id).and_then(|l| l.header.clone()),
                             |id, f| {
                                 note_plan_read(id);
-                                durable::read(&roots.resolve(f.root, &f.path)?)
+                                durable::read(&roots.resolve(data, f)?)
                             },
-                            |_, f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
+                            |_, f| durable::open_buffered(&roots.resolve(data, f)?),
                         )?);
                     }
                     let all = candidates.as_deref().unwrap_or_default();
@@ -343,56 +388,22 @@ mod pending_tests;
 impl ItemDriver for SessionDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let data = Root::Data;
-        let mut sessions: BTreeMap<String, Vec<SourceFile>> = BTreeMap::new();
-        let mut sidecars: Vec<(String, String)> = Vec::new();
-        let listed = durable::list_dir(&roots.data.join(SESSIONS_DIR))?;
-        let checkpoints = durable::list_dir(&roots.data.join(CHECKPOINT_DIR))?;
-        let ahead: Vec<String> = listed
-            .iter()
-            .filter(|(name, is_dir)| !is_dir && classify(name) != Entry::Unknown)
-            .map(|(name, _)| format!("{SESSIONS_DIR}/{name}"))
-            .chain(
-                checkpoints
-                    .iter()
-                    .filter(|(name, is_dir)| !is_dir && with_id(name, ".json").or_else(|| with_id(name, ".jsonl")).is_some())
-                    .map(|(name, _)| format!("{CHECKPOINT_DIR}/{name}")),
-            )
-            .collect();
+        // A session's own files are named here and no more: they are hashed when the session is converted. What is
+        // hashed now is each file that is an item of its own.
+        let Listing { mut sessions, set_aside, tmp, orphan_sidecars, orphan_checkpoints } = listing(roots)?;
+        let own_items = [
+            (set_aside, ItemKind::SetAside, Contract::Retain),
+            (tmp, ItemKind::Retired, Contract::Retire),
+            (orphan_sidecars, ItemKind::Retired, Contract::Retire),
+            (orphan_checkpoints, ItemKind::OrphanCheckpoint, Contract::Retire),
+        ];
+        let ahead: Vec<String> = own_items.iter().flat_map(|(rels, ..)| rels.iter().cloned()).collect();
         sink.hash_ahead(data, &ahead)?;
-        for (name, is_dir) in listed {
-            if is_dir {
-                continue;
-            }
-            let rel = format!("{SESSIONS_DIR}/{name}");
-            match classify(&name) {
-                Entry::Session(id) => sessions.entry(id).or_default().push(sink.source(data, &rel, false)?),
-                Entry::Sidecar(id) => sidecars.push((id, rel)),
-                Entry::SetAside => {
-                    let s = sink.source(data, &rel, false)?;
-                    add(sink, plan::retain_key(data, &rel), ItemKind::SetAside, Contract::Retain, vec![s])?;
-                }
-                Entry::Tmp => {
-                    let s = sink.source(data, &rel, false)?;
-                    add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![s])?;
-                }
-                Entry::Unknown => {}
-            }
-        }
-        for (id, rel) in sidecars {
-            let s = sink.source(data, &rel, false)?;
-            match sessions.get_mut(&id) {
-                Some(sources) => sources.push(s),
-                None => add(sink, plan::retire_key(data, &rel), ItemKind::Retired, Contract::Retire, vec![s])?,
-            }
-        }
-        for (name, is_dir) in checkpoints {
-            let id = with_id(&name, ".json").or_else(|| with_id(&name, ".jsonl"));
-            let (false, Some(id)) = (is_dir, id) else { continue };
-            let rel = format!("{CHECKPOINT_DIR}/{name}");
-            let s = sink.source(data, &rel, false)?;
-            match sessions.get_mut(id) {
-                Some(sources) => sources.push(s),
-                None => add(sink, plan::retire_key(data, &rel), ItemKind::OrphanCheckpoint, Contract::Retire, vec![s])?,
+        for (rels, kind, contract) in own_items {
+            for rel in rels {
+                let key = if contract == Contract::Retain { plan::retain_key(data, &rel) } else { plan::retire_key(data, &rel) };
+                let source = sink.source(data, &rel, false)?;
+                add(sink, key, kind, contract, vec![source])?;
             }
         }
         // A reaped agent child (no session of its own) is read through the parents its links name: each parent
@@ -410,7 +421,7 @@ impl ItemDriver for SessionDriver {
         // or when none of its parents is anywhere (the orphan, dropped below). Each parent is read once, whatever its children.
         // A row naming only parents that are nowhere is dropped without reading anything (the exception below).
         let loaded: std::cell::RefCell<BTreeMap<String, Loaded>> = std::cell::RefCell::new(BTreeMap::new());
-        let reaped_child = |id: &String, sessions: &BTreeMap<String, Vec<SourceFile>>| -> Result<bool> {
+        let reaped_child = |id: &String, sessions: &BTreeMap<String, Vec<String>>| -> Result<bool> {
             if sessions.contains_key(id) {
                 return Ok(false);
             }
@@ -439,13 +450,14 @@ impl ItemDriver for SessionDriver {
         for id in hosts {
             sessions.entry(id).or_default();
         }
-        for (id, sources) in &sessions {
-            sink.add_item(plan::item(
+        for (id, files) in &sessions {
+            sink.add_item(plan::late_item(
                 &format!("session/{id}"),
                 KindGroup::Data,
                 ItemKind::Session,
                 Contract::Convert,
-                sources.clone(),
+                data,
+                files.clone(),
                 Some(Target::Session { id: id.clone() }),
             )?)?;
         }
@@ -519,6 +531,53 @@ impl ItemDriver for SessionDriver {
             all.extend(meta.session_meta(cx, session)?.unwrap_or_default());
         }
         Ok(all)
+    }
+
+    fn retention_facts(&self, cx: &ItemContext<'_>, item: &ManifestItem, fields: &[&str]) -> Result<Option<crate::framework::RetentionFacts>> {
+        if item.kind != ItemKind::Session {
+            return Ok(None);
+        }
+        let id = session_id(item);
+        // With what this read takes of the header itself: the link a worker row would give, the title a desktop title
+        // yields to, and what was read of its output.
+        let fields: Vec<&str> = fields.iter().copied().chain(["parentSessionId", "title", "readState"]).collect();
+        let (mut header, messages) = match source::skim(cx, item, id, &fields) {
+            Ok(read) => read,
+            Err(Fail::Blocked(blocked)) => return Err(blocked),
+            Err(Fail::Quarantine(..)) => return Ok(None),
+        };
+        for meta in &self.metas {
+            if let Some(set) = meta.session_meta(cx, id)?
+                && let Some(set) = without_outranked_title(&header, set)
+            {
+                header.extend(set);
+            }
+        }
+        // The worker row its conversion would install: the product keeps a row that still owes something past a delete.
+        let consumed = cx.shared_for(item.key.as_str());
+        match source::worker_of(cx, id, &header, &consumed) {
+            Ok(Some(worker)) => header.extend(worker),
+            Ok(None) => {}
+            Err(Fail::Blocked(blocked)) => return Err(blocked),
+            Err(Fail::Quarantine(..)) => return Ok(None),
+        }
+        // A child reaped with no session of its own is read through this parent, which alone carries its result.
+        let mut links: [Option<Vec<u8>>; 3] = [None, None, None];
+        for (slot, name) in links.iter_mut().zip(archived::LINK_FILES) {
+            if let Some(file) = consumed.iter().find(|file| file.path == name) {
+                *slot = Some(cx.read_source(file)?);
+            }
+        }
+        let carries = archived::parents(links[0].as_deref(), links[1].as_deref(), links[2].as_deref())
+            .iter()
+            .any(|(child, parents)| parents.iter().any(|parent| parent == id) && !cx.has_item(&format!("session/{child}")));
+        header.insert("messageCount".into(), messages.into());
+        let read_through = header.get("readState").and_then(|state| state.get("messageCount")).and_then(serde_json::Value::as_u64);
+        let pending = item.sources.iter().any(|file| file.path.starts_with(&format!("{CHECKPOINT_DIR}/")) || file.path.ends_with(PENDING_SUFFIX))
+            || consumed.iter().any(|file| file.path == source::LEGACY_SPOOL || file.path.starts_with(&format!("{}/", source::SPOOL_DIR)));
+        let tool_results = cx.roots.data.join("tool-results").join(mixdog_store::offload_sources::safe_segment(id));
+        let bound = pending || carries || read_through.is_some_and(|read| read < messages) || durable::exists(&tool_results)?;
+        Ok(Some(crate::framework::RetentionFacts { header, bound }))
     }
 
     fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, _staged: &StagedEntry) -> Result<()> {

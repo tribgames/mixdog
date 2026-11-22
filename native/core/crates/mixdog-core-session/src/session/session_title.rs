@@ -132,7 +132,7 @@ pub fn fallback_title_change(
     let mut set = Map::new();
     set.insert("title".to_owned(), json!(title));
     set.insert("titleUpdatedAt".to_owned(), json!(now));
-    Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
+    Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() })
 }
 
 /// Why a title could not be made.

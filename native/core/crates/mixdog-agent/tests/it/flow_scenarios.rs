@@ -369,8 +369,9 @@ struct Reg(Arc<Shared>);
 #[async_trait]
 impl Registry for Reg {
     fn resolve_tombstone_owners(&self) {}
-    async fn refresh_tags_from_sessions(&self, _: bool, _: &Scope) {
+    async fn refresh_tags_from_sessions(&self, _: bool, _: &Scope) -> Result<(), String> {
         log(&self.0.log, json!("refresh"));
+        Ok(())
     }
     fn resolve_tag(&self, tag: &str, _: &Scope, options: ResolveOptions) -> Result<Option<String>, String> {
         log(&self.0.log, json!(format!("resolveTag:{tag}:{}", options.scan_sessions)));
@@ -429,8 +430,8 @@ impl Registry for Reg {
     fn last_tag_session(&self, _: &str, _: &Scope) -> Option<TagRecord> {
         None
     }
-    async fn resumable_tag_session(&self, _: &str, _: &str, _: &Scope) -> Option<Resumable> {
-        None
+    async fn resumable_tag_session(&self, _: &str, _: &str, _: &Scope) -> Result<Option<Resumable>, String> {
+        Ok(None)
     }
 }
 

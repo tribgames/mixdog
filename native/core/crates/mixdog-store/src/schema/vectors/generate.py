@@ -167,6 +167,42 @@ RECORDS = [
         },
     ),
     (
+        "meta_patch",
+        {
+            "k": "meta",
+            "change": {
+                "inline": {
+                    "set": {"updatedAt": 1793306570000},
+                    "unset": [],
+                    "patch": {
+                        "cacheTailBook": {
+                            "set": {"lastSendAt": 1793306570000},
+                            "unset": [],
+                            "patch": {
+                                "receipts": {
+                                    "set": {},
+                                    "unset": [],
+                                    "patch": {
+                                        "anthropic|acct": {
+                                            "set": {
+                                                "12:" + hexsum("tail"): {
+                                                    "ttlMs": 3600000,
+                                                    "touchedAt": 1793306570000,
+                                                    "extent": 4096,
+                                                }
+                                            },
+                                            "unset": ["9:" + hexsum("gone")],
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    ),
+    (
         "item_message",
         {
             "k": "item",
@@ -634,6 +670,42 @@ RECORDS = [
         },
     ),
     (
+        "checkpoint_header_blobs",
+        {
+            "k": "checkpoint",
+            "state": {
+                "inline": {
+                    "log_id": LOG_ID,
+                    "covers_ordinal": 12,
+                    "history_rev": 1,
+                    "rows": 8,
+                    "visible_rows": 7,
+                    "runs": [],
+                    "approvals": [],
+                    "queue": [],
+                    "header": {
+                        "id": "sess_daemon_1793306569908_63cc",
+                        "tools": None,
+                        "title": "시험 세션",
+                        "deferredToolCatalog": None,
+                    },
+                    "header_blobs": {
+                        "deferredToolCatalog": {
+                            "digest": digest("catalog"),
+                            "bytes": 219000,
+                            "mediaType": "application/json",
+                        },
+                        "tools": {
+                            "digest": digest("tools"),
+                            "bytes": 30800,
+                            "mediaType": "application/json",
+                        },
+                    },
+                }
+            },
+        },
+    ),
+    (
         "checkpoint_blob",
         {
             "k": "checkpoint",
@@ -849,6 +921,22 @@ MANIFEST = {
 JOURNAL = [
     ("plan", {"k": "plan", "manifest_sha256": hexsum("manifest"), "items": 11}),
     (
+        "sources",
+        {
+            "k": "sources",
+            "key": "session/sess_v145_1",
+            "sources": [
+                {
+                    "root": "data",
+                    "path": "sessions/sess_v145_1.json",
+                    "size": 48211,
+                    "sha256": hexsum("session json"),
+                    "secret": False,
+                }
+            ],
+        },
+    ),
+    (
         "staged",
         {
             "k": "staged",
@@ -871,8 +959,10 @@ JOURNAL = [
             "code": "carried_set_aside",
         },
     ),
+    ("expired", {"k": "expired", "key": "session/sess_v145_2", "judged_at": 1794521836806}),
     ("disposed", {"k": "disposed", "key": "session/sess_v145_1"}),
     ("phase", {"k": "phase", "phase": "verified_all"}),
+    ("phase_judged", {"k": "phase", "phase": "judged", "at": 1794521836806}),
 ]
 
 COUNTS = {

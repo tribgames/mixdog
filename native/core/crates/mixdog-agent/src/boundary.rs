@@ -383,6 +383,7 @@ impl Run {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
                 self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
+                self.calls_leave();
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             if let Some(compactor) = self.env.compactor.clone()
@@ -641,10 +642,24 @@ impl Run {
         }
     }
 
+    /// How many times calls have left the session's transcript, for the round about to be sent.
+    pub(crate) fn call_epoch(&mut self) -> u64 {
+        self.call_epoch = self.call_epoch.max(self.env.sink.call_epoch());
+        self.call_epoch
+    }
+
+    /// Calls are about to leave the transcript (a compaction, a repair that drops a turn): the calls that enter from
+    /// here on are told apart from them by the count, and the session is told it before the rewrite.
+    fn calls_leave(&mut self) {
+        self.call_epoch = self.call_epoch() + 1;
+        self.env.sink.calls_left(self.call_epoch);
+    }
+
     /// Replaces the live transcript and resets everything keyed to the old
     /// transcript shape.
     fn adopt_compacted(&mut self, compacted: Vec<AgentMessage>, rewrite: &Rewrite) {
         self.messages = compacted;
+        self.calls_leave();
         self.env.sink.replace(&self.messages, rewrite);
         // Provider readings and the request in flight described the old shape.
         self.baseline = None;

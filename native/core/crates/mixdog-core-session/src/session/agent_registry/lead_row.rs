@@ -82,7 +82,14 @@ impl AgentRegistry {
                 return true;
             }
         }
-        let header = self.store.header(&id).await;
+        // A header that could not be read is not a session that is not stored: its row is left as it is.
+        let header = match self.store.header(&id).await {
+            Ok(header) => header,
+            Err(error) => {
+                tracing::warn!(thread = %id, "[agent] the Lead row's cwd was not moved: {error}");
+                return true;
+            }
+        };
         let stored = header.as_ref().and_then(|header| header.get("worker")).and_then(Value::as_object).cloned();
         let mut st = self.lock();
         // The header shows what was written: the stored map is the truth again. A session that is

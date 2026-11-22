@@ -54,7 +54,7 @@ fn unset(change: &mut HeaderChange, key: &str) {
 /// the Goal the runtime shows and the session's todo list: the reminder this turn carries and
 /// the header change the read makes (`None` change fields when it touched nothing).
 pub fn snapshot(header: &Header, goal: Option<Goal>, todo: &mixdog_tools::state::todo::TodoList, now: i64) -> (Option<GoalReminder>, HeaderChange) {
-    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() };
     let mut revision = pending_revision(header);
     let mut goal = goal.filter(|goal| goal.get("status").and_then(Value::as_str) != Some("complete"));
     let marked = text(header.get("pendingGoalReminder").and_then(|pending| pending.get("reason")));
@@ -127,7 +127,7 @@ fn finish(header: &Header, mut change: HeaderChange, revision: f64, goal: Option
 /// `markPendingGoalReminder(session, reason)`: one more revision of the pending reminder, which
 /// the next request carries.
 pub fn mark(header: &Header, reason: &str, now: i64) -> HeaderChange {
-    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() };
     let revision = json_number(pending_revision(header).max(count(header.get("goalReminderRevision"))) + 1.0);
     let reason = match js_trim(reason) {
         "" => "compaction",
@@ -164,7 +164,7 @@ pub fn acknowledge(header: &Header, revision: u64, now: i64) -> Option<HeaderCha
     if current == 0.0 || current != revision as f64 {
         return None;
     }
-    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new() };
+    let mut change = HeaderChange { set: serde_json::Map::new(), unset: Vec::new(), patch: Default::default() };
     unset(&mut change, "pendingGoalReminder");
     set(&mut change, "updatedAt", json!(now));
     Some(change)

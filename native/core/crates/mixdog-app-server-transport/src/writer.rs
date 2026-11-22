@@ -739,6 +739,10 @@ impl Lane for WriterLane {
         self.sub.clone()
     }
 
+    fn connection(&self) -> Option<ConnectionId> {
+        Some(self.shared.id)
+    }
+
     /// Takes from the connection's event budget (see [`Shared::take_for`] for what is owed), or
     /// for an ordered lane from the ordered event room.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull> {

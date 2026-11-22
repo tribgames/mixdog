@@ -36,6 +36,179 @@ pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
     Ok(Parsed { value, replaced_surrogates })
 }
 
+/// [`parse_source`] of a session record read for a few header fields: its top-level `messages` array is only counted
+/// (every element becomes `null`), and of the members of the document and of its `header` and `set` objects only
+/// those named in `keep`, and the ones a record is told by, are kept. What is dropped still goes through the parser
+/// calls a [`Value`] of it would (depth limit, numbers, strings), so a text parses here exactly when it parses there.
+pub fn parse_source_narrowed(text: &[u8], keep: &[&str]) -> Result<Parsed, String> {
+    use serde::de::DeserializeSeed as _;
+    let (fixed, replaced_surrogates) = replace_lone_surrogates(text);
+    let mut source = serde_json::Deserializer::from_slice(&fixed);
+    let value = Narrowed { keep, top: true }.deserialize(&mut source).map_err(|e| e.to_string())?;
+    source.end().map_err(|e| e.to_string())?;
+    Ok(Parsed { value, replaced_surrogates })
+}
+
+/// Any JSON value, parsed and dropped.
+struct Skipped;
+
+impl<'de> serde::Deserialize<'de> for Skipped {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Skipped;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("any JSON value")
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_unit<E>(self) -> Result<Skipped, E> {
+                Ok(Skipped)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Skipped, A::Error> {
+                while seq.next_element::<Skipped>()?.is_some() {}
+                Ok(Skipped)
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Skipped, A::Error> {
+                while map.next_entry::<Skipped, Skipped>()?.is_some() {}
+                Ok(Skipped)
+            }
+        }
+        deserializer.deserialize_any(Visit)
+    }
+}
+
+/// A `messages` value: an array as that many `null`s, anything else as `null` (not an array either way).
+struct Counted(Value);
+
+impl<'de> serde::Deserialize<'de> for Counted {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Counted;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("any JSON value")
+            }
+            fn visit_bool<E>(self, _: bool) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_i64<E>(self, _: i64) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_u64<E>(self, _: u64) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_f64<E>(self, _: f64) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_str<E>(self, _: &str) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_unit<E>(self) -> Result<Counted, E> {
+                Ok(Counted(Value::Null))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Counted, A::Error> {
+                let mut count = 0usize;
+                while seq.next_element::<Skipped>()?.is_some() {
+                    count += 1;
+                }
+                Ok(Counted(Value::Array(vec![Value::Null; count])))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Counted, A::Error> {
+                while map.next_entry::<Skipped, Skipped>()?.is_some() {}
+                Ok(Counted(Value::Null))
+            }
+        }
+        deserializer.deserialize_any(Visit)
+    }
+}
+
+/// The members a log record is told by (`t`, its sequence and lengths, the base's identity), beside `messages`,
+/// `header` and `set`.
+const RECORD_MEMBERS: [&str; 11] = ["t", "s", "v", "logId", "id", "prev", "legacy", "len", "at", "del", "unset"];
+
+/// An object narrowed to `keep`: the document itself (`top`: its `messages` counted, its `header` and `set` narrowed
+/// in turn, its record members kept), or a `header` or `set` of it (its `id` kept, and a `messages` member as `null`: a
+/// record is refused by them). Anything that is not an object is `null`.
+#[derive(Clone, Copy)]
+struct Narrowed<'a> {
+    keep: &'a [&'a str],
+    top: bool,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for Narrowed<'_> {
+    type Value = Value;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Narrowed<'_> {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("any JSON value")
+    }
+    fn visit_bool<E>(self, _: bool) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_i64<E>(self, _: i64) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_u64<E>(self, _: u64) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_f64<E>(self, _: f64) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_str<E>(self, _: &str) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_unit<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        while seq.next_element::<Skipped>()?.is_some() {}
+        Ok(Value::Null)
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut object = Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let value = match key.as_str() {
+                "messages" if self.top => map.next_value::<Counted>()?.0,
+                "header" | "set" if self.top => map.next_value_seed(Narrowed { keep: self.keep, top: false })?,
+                name if name == "id" || self.keep.contains(&name) || (self.top && RECORD_MEMBERS.contains(&name)) => map.next_value::<Value>()?,
+                "messages" => {
+                    map.next_value::<Skipped>()?;
+                    Value::Null
+                }
+                _ => {
+                    map.next_value::<Skipped>()?;
+                    continue;
+                }
+            };
+            object.insert(key, value);
+        }
+        Ok(Value::Object(object))
+    }
+}
+
 /// `JSON.parse(readFileSync(path, 'utf8'))` of a config file as Node reads it: a leading BOM skipped, invalid UTF-8 bytes read as U+FFFD,
 /// nesting unbounded, a number past the double range `null` (Infinity, which Node writes back as `null`). A lone surrogate escape
 /// becomes U+FFFD as in [`parse_source`].
@@ -57,6 +230,11 @@ pub fn repeats_a_top_level_key(text: &[u8]) -> bool {
     if !serde_json::from_slice::<Value>(&fixed).is_ok_and(|v| v.is_object()) {
         return false;
     }
+    object_repeats_a_top_level_key(text)
+}
+
+/// [`repeats_a_top_level_key`] of a text the caller has parsed to an object.
+pub fn object_repeats_a_top_level_key(text: &[u8]) -> bool {
     let mut seen = std::collections::HashSet::new();
     let (mut depth, mut i) = (0usize, 0usize);
     while i < text.len() {

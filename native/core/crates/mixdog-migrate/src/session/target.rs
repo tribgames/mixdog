@@ -230,7 +230,11 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                 Record::Session(_) => return Err(format!("frame {}: a misplaced session", frame.ordinal)),
                 _ if file_no == 0 && frame.ordinal == 0 => return Err("log does not open with session".into()),
                 Record::Checkpoint(c) => {
-                    let (state, _) = resolve(cx, c.state)?;
+                    let (mut state, _) = resolve(cx, c.state)?;
+                    for (key, blob) in std::mem::take(&mut state.header_blobs) {
+                        let (value, _) = resolve::<Value>(cx, Slot::Blob(blob))?;
+                        state.header.insert(key, value);
+                    }
                     check_checkpoint(&folded, &log_id, frame.ordinal, &state)?;
                 }
                 _ if first && file_no > 0 => {
@@ -242,6 +246,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         folded.header.shift_remove(k);
                     }
                     folded.header.extend(change.set);
+                    mixdog_store::header_patch::apply_patches(&mut folded.header, &change.patch);
                 }
                 Record::Item(item) => {
                     let row = folded_row(cx, frame.ordinal, item)?;
@@ -281,7 +286,7 @@ pub fn read_sessions(roots: &MigrationRoots, manifest_sha256: &str) -> Result<BT
     let manifest: Manifest = serde_json::from_slice(&manifest).map_err(|e| format!("{MANIFEST_PATH}: {e}"))?;
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
-    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256, fault: None, workers: 1, blobs: &blobs, states: &states };
+    let cx = ItemContext { roots, manifest: &manifest, manifest_sha256, fault: None, workers: 1, blobs: &blobs, states: &states, recorded: None };
     let sessions = roots.data.join("sessions");
     let mut out = BTreeMap::new();
     for (id, is_dir) in durable::list_dir(&sessions).map_err(|e| e.to_string())? {

@@ -12476,6 +12476,13 @@
     },
     "ThreadResumeParams": {
       "properties": {
+        "positionedWindow": {
+          "description": "`true`: the positioned projection. The subscription holds ranges of the transcript, first the newest rows `window` asks for with what the running turn depends on, changed with `thread/window/set`; transcript events reach it as `thread/transcript/changed`. Absent or `false`: the feed as it was.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "resumeFrom": {
           "anyOf": [
             {
@@ -12623,6 +12630,32 @@
       "required": [
         "itemId",
         "opId",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadRewindTargetsListParams": {
+      "description": "`thread/rewindTargets/list`.",
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
         "threadId"
       ],
       "type": "object"
@@ -13062,6 +13095,37 @@
       },
       "required": [
         "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadWindowSetParams": {
+      "description": "`thread/window/set`. A range held and not named in `want` is released. The call returning grants nothing and releases nothing: rows are dropped when `thread/window/changed` says so.",
+      "properties": {
+        "baseWindowVersion": {
+          "description": "The `windowVersion` whose ranges `want` was made from; another version standing refuses the call.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "want": {
+          "$ref": "#/definitions/WindowWant"
+        }
+      },
+      "required": [
+        "baseWindowVersion",
+        "requestId",
+        "subscriptionId",
+        "threadId",
+        "want"
       ],
       "type": "object"
     },
@@ -14581,6 +14645,137 @@
         "windows"
       ],
       "type": "object"
+    },
+    "WindowRangeWant": {
+      "description": "A range the client wants held.",
+      "oneOf": [
+        {
+          "description": "A range it holds, kept as it is.",
+          "properties": {
+            "at": {
+              "enum": [
+                "retain"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`position`'s record and up to `rows` rows older than it.",
+          "properties": {
+            "at": {
+              "enum": [
+                "before"
+              ],
+              "type": "string"
+            },
+            "position": {
+              "type": "string"
+            },
+            "rows": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "at",
+            "position",
+            "rows"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`position`'s record and up to `rows` rows newer than it.",
+          "properties": {
+            "at": {
+              "enum": [
+                "after"
+              ],
+              "type": "string"
+            },
+            "position": {
+              "type": "string"
+            },
+            "rows": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "at",
+            "position",
+            "rows"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`position`'s record with up to `before` rows older and `after` rows newer.",
+          "properties": {
+            "after": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "at": {
+              "enum": [
+                "around"
+              ],
+              "type": "string"
+            },
+            "before": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "position": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "after",
+            "at",
+            "before",
+            "position"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WindowWant": {
+      "description": "What a subscription wants to hold: demand, which the core grants in `thread/window/changed`.",
+      "properties": {
+        "followTail": {
+          "default": false,
+          "description": "Hold the newest rows and every row that arrives.",
+          "type": "boolean"
+        },
+        "pinned": {
+          "default": [],
+          "description": "Occurrences held wherever the ranges are (an open card, a prompt being edited).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ranges": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/WindowRangeWant"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     }
   },
   "description": "Request from a client to the core.",
@@ -15358,6 +15553,52 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadContinueInModelParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The ranges a positioned subscription wants to hold; granted by `thread/window/changed`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/window/set"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadWindowSetParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The prompts a rewind can name, newest first, from the stored history.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/rewindTargets/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadRewindTargetsListParams"
         }
       },
       "required": [

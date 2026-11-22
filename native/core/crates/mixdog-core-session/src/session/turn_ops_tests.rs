@@ -338,6 +338,11 @@ async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
     assert_eq!((shown["item"]["type"].clone(), shown["item"]["kind"].clone()), (json!("statusRow"), json!("notice")));
     let row = shown["item"].to_string();
     assert!(row.contains("\"saved the file\"") && row.contains("\"warn\""), "{row}");
+    // The notice is a record of the thread, which a reopen reads back where it stands.
+    use mixdog_store::schema::record::Form;
+    use mixdog_store::schema::record::Record;
+    let stored = |record: &Record| matches!(record, Record::Item(row) if row.iid.as_str() == id && row.form == Form::Display && row.visible && !row.model);
+    assert!(rig.store.records(&handle.id).iter().any(|(_, record)| stored(record)));
 
     // The tone defaults to `info`; a text that polishes to nothing shows no row.
     let second = call(&handle, "thread/pushNotice", json!({ "text": "plain" }), "n-2").await.expect("pushed");
@@ -1612,7 +1617,7 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     let mut set = serde_json::Map::new();
     set.insert("compaction".into(), json!({ "compactCount": 7, "lastStage": "manual" }));
     set.insert("lastContextTokens".into(), json!(0));
-    let carried = HeaderChange { set, unset: Vec::new() };
+    let carried = HeaderChange { set, unset: Vec::new(), patch: Default::default() };
     // The commit computes the header from the thread's header and the rows appended since the snapshot (none here).
     let header: super::turn_ops::CompactionHeader = Box::new(move |_, appended| {
         assert!(appended.is_empty());
@@ -1662,7 +1667,7 @@ async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_i
     set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
     let header: super::turn_ops::CompactionHeader = Box::new(move |current, _| {
         log.lock().expect("log").push(current.contains_key("providerState"));
-        HeaderChange { set, unset: Vec::new() }
+        HeaderChange { set, unset: Vec::new(), patch: Default::default() }
     });
     let (release, go) = std::sync::mpsc::channel();
     let arrived = Arc::new(tokio::sync::Notify::new());

@@ -804,7 +804,7 @@ pub fn acknowledge_change(header: &Header, revision: i64) -> Option<HeaderChange
     }
     let set = after.iter().filter(|(key, value)| header.get(*key) != Some(*value)).map(|(key, value)| (key.clone(), value.clone())).collect();
     let unset = header.keys().filter(|key| !after.contains_key(*key)).cloned().collect();
-    Some(HeaderChange { set, unset })
+    Some(HeaderChange { set, unset, patch: Default::default() })
 }
 
 /// The user message that carries the turn's reminder block as a suffix, with the meta the reminders leave on the
