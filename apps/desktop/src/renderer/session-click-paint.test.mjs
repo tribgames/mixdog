@@ -11,6 +11,9 @@ async function clickScenario(t, { mobile, warm }) {
   const pane = await installPhonePaneDom(t, { mobile });
   const { flushSync } = await import('react-dom');
   const { useAppSessionOpen } = await import('./app-shell-session-open.ts');
+  // The app shows no transcript before its renderer is loaded
+  // (useTranscriptRendererReadiness).
+  await (await import('./markdown-body-loader.ts')).preloadMarkdownBody();
   const doc = pane.dom.window.document;
   pane.defaultSessionLaneStore.apply(laneSnapshot('a'));
   if (warm) pane.defaultSessionLaneStore.apply(laneSnapshot('b'));

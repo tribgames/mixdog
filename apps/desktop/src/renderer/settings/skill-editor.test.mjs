@@ -29,6 +29,7 @@ test('a packaged skill can disconnect tools and restore declarations without edi
       root.render(
         React.createElement(SkillEditorDialog, {
           skill: {
+            key: 'plugin:office:pptx',
             name: 'pptx',
             description: 'Deck guide',
             toolDependencies: [{ type: 'tool', value: 'media' }],
@@ -49,7 +50,7 @@ test('a packaged skill can disconnect tools and restore declarations without edi
     await act(async () =>
       document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
     );
-    assert.deepEqual(saves.at(-1), { originalName: 'pptx', dependenciesOnly: true, toolDependencies: [] });
+    assert.deepEqual(saves.at(-1), { originalName: 'plugin:office:pptx', dependenciesOnly: true, toolDependencies: [] });
     const restore = [...document.querySelectorAll('button')].find((button) =>
       /Restore declared tools/.test(button.textContent)
     );
@@ -58,7 +59,7 @@ test('a packaged skill can disconnect tools and restore declarations without edi
     await act(async () =>
       document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
     );
-    assert.deepEqual(saves.at(-1), { originalName: 'pptx', dependenciesOnly: true, toolDependencies: null });
+    assert.deepEqual(saves.at(-1), { originalName: 'plugin:office:pptx', dependenciesOnly: true, toolDependencies: null });
   } finally {
     await act(async () => root.unmount());
     host.remove();
