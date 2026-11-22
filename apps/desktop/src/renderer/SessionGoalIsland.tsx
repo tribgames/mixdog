@@ -83,7 +83,7 @@ function GoalRingGlyph({ kind }: { kind: GoalStateKind }) {
   }
 }
 
-function GoalRing({
+export function GoalRing({
   kind,
   progress,
   label,
@@ -144,7 +144,7 @@ const REMAINING_VISIBLE = 5;
 
 /** The runtime names a plan's unnamed phase "Tasks" (todo-list.mjs); that
  *  one is shown in the user's language, a phase the agent named as written. */
-function phaseName(name: unknown): string {
+export function phaseName(name: unknown): string {
   const text = String(name || '');
   return text === 'Tasks' ? t('Tasks') : text;
 }
@@ -188,7 +188,7 @@ function TodoRow({ task }: { task: TodoTask }) {
   );
 }
 
-type TodoItem = { task: TodoTask; phase: number };
+export type TodoItem = { task: TodoTask; phase: number };
 
 /** Rows in plan order; with headings, each phase's first row follows its name. */
 function TodoRows({
@@ -217,9 +217,20 @@ function TodoRows({
   );
 }
 
-function TodoGlyph({ status }: { status: TodoStatus }) {
+export function TodoGlyph({ status }: { status: TodoStatus }) {
   const name = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
+}
+
+/** A plan's steps in plan order, split into what remains and what is done
+ *  (completed or dropped); `headings` when two or more phases hold steps. */
+export function todoTaskGroups(todo: TodoSnapshot): { remaining: TodoItem[]; done: TodoItem[]; headings: boolean } {
+  const tasks: TodoItem[] = todo.phases.flatMap((phase, index) => phase.tasks.map((task) => ({ task, phase: index })));
+  return {
+    remaining: tasks.filter(({ task }) => task.status !== 'completed' && task.status !== 'abandoned'),
+    done: tasks.filter(({ task }) => task.status === 'completed' || task.status === 'abandoned'),
+    headings: todo.phases.filter((phase) => phase.tasks.length > 0).length >= 2,
+  };
 }
 
 /** The step list: remaining rows (the first few, working ones
@@ -229,10 +240,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
   const [showRest, setShowRest] = useState(false);
   const doneListId = useId();
   const restListId = useId();
-  const tasks: TodoItem[] = todo.phases.flatMap((phase, index) => phase.tasks.map((task) => ({ task, phase: index })));
-  const headings = todo.phases.filter((phase) => phase.tasks.length > 0).length >= 2;
-  const remaining = tasks.filter(({ task }) => task.status !== 'completed' && task.status !== 'abandoned');
-  const done = tasks.filter(({ task }) => task.status === 'completed' || task.status === 'abandoned');
+  const { remaining, done, headings } = todoTaskGroups(todo);
   const completedCount = done.filter(({ task }) => task.status === 'completed').length;
   const abandonedCount = done.length - completedCount;
   // The first rows stay; every working row always makes the cut.
@@ -395,16 +403,105 @@ function useDismissOnOutsideInteraction(
   }, [armed, rootRef]);
 }
 
-export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
+/** A session's Goal and step list as the island and the session panel show
+ *  them, and the goal controls (pause, resume, edit, stop, dismiss) both send. */
+export function useSessionGoal(snapshot: Snapshot) {
   const goal = useGoalAfterSubmission(snapshot.goal || null, String(snapshot.sessionId || ''));
   const todo = todoPresent(snapshot.todo) ? (snapshot.todo as TodoSnapshot) : null;
   const active = goal?.status === 'active';
   const clock = useClock(active);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const sessionId = String(snapshot.sessionId || '');
+  const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
+  const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
+  const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
+  const waiting =
+    displayStatus === 'responding' ||
+    (displayStatus === 'active' &&
+      (backgroundWorking || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId and goal id are the reset triggers
+  useEffect(() => {
+    setError('');
+  }, [sessionId, goal?.id]);
+  const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {
+    if (pending || !sessionId || !goal?.id) return false;
+    setPending(true);
+    setError('');
+    try {
+      const result = await window.mixdogDesktop.invokeCapability<{ ok?: boolean }>({
+        sessionId,
+        capability: 'goalControl',
+        args: [{ action, expectedGoalId: goal.id, ...values }],
+      });
+      if (result?.value?.ok !== true) throw new Error(t('Goal could not be updated.'));
+      return true;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      return false;
+    } finally {
+      setPending(false);
+    }
+  };
+  const progress = todoProgress(todo);
+  const kind = goal ? goalStateKind(goal, displayStatus) : todoStateKind(progress);
+  const stateLabel = goal
+    ? goalStateLabel(goal, kind, displayStatus)
+    : t(kind === 'complete' ? 'Complete' : 'In progress');
+  const objective = String(goal?.objective || '');
+  return {
+    goal,
+    todo,
+    sessionId,
+    active,
+    clock,
+    pending,
+    error,
+    control,
+    displayStatus,
+    waiting,
+    progress,
+    kind,
+    stateLabel,
+    objective,
+    title: String(goal?.title || objective || t('Goal')),
+    elapsedLabel: goal ? goalElapsedHoursMinutesLabel(goal, clock) : '',
+    terminal: goal?.status === 'complete' || goal?.status === 'stopped',
+    // A stalled Goal (paused, blocked, usage limited, time budget reached)
+    // waits for the user and clears like a finished one.
+    dismissible: Boolean(goal) && goal?.status !== 'active',
+    // The time budget ran out: Resume first asks for a new limit (the edit dialog).
+    exhausted: Number(goal?.timeLimitMs) > 0 && Number(goal?.remainingMs) === 0,
+    noteTone: kind === 'blocked' ? 'blocked' : kind === 'waiting' ? 'waiting' : undefined,
+  };
+}
+
+export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
+  const {
+    goal,
+    todo,
+    sessionId,
+    active,
+    clock,
+    pending,
+    error,
+    control: sendControl,
+    displayStatus,
+    waiting,
+    progress,
+    kind,
+    stateLabel,
+    objective,
+    title,
+    elapsedLabel,
+    terminal,
+    dismissible,
+    exhausted,
+    noteTone,
+  } = useSessionGoal(snapshot);
   const [open, setOpen] = useComposerIslandTab('goal');
   const [editing, setEditing] = useState<GoalSnapshot | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
   const [objectiveOverflows, setObjectiveOverflows] = useState(false);
   const longTextRef = useRef<HTMLParagraphElement | null>(null);
@@ -415,21 +512,12 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const wasConfirming = useRef(false);
-  const sessionId = String(snapshot.sessionId || '');
-  const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
-  const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
-  const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
-  const waiting =
-    displayStatus === 'responding' ||
-    (displayStatus === 'active' &&
-      (backgroundWorking || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId and goal id are triggers that reset the local UI state, not values read in the effect
   useEffect(() => {
     setOpen(false);
     setEditing(null);
     setConfirmStop(false);
-    setError('');
     setObjectiveExpanded(false);
   }, [sessionId, goal?.id]);
 
@@ -459,48 +547,20 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const surfaceActive = useSurfaceActive();
   useDismissOnOutsideInteraction(rootRef, open && !editing && surfaceActive, () => setOpen(false));
 
-  const elapsedLabel = goal ? goalElapsedHoursMinutesLabel(goal, clock) : '';
+  // A refused control opens the tab, where its reason shows.
   const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {
-    if (pending || !sessionId || !goal?.id) return false;
-    setPending(true);
-    setError('');
-    try {
-      const result = await window.mixdogDesktop.invokeCapability<{ ok?: boolean }>({
-        sessionId,
-        capability: 'goalControl',
-        args: [{ action, expectedGoalId: goal.id, ...values }],
-      });
-      if (result?.value?.ok !== true) throw new Error(t('Goal could not be updated.'));
-      return true;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      setOpen(true);
-      return false;
-    } finally {
-      setPending(false);
-    }
+    const ok = await sendControl(action, values);
+    if (!ok && !pending && sessionId && goal?.id) setOpen(true);
+    return ok;
   };
   if (!goal && !todo) return null;
-  const progress = todoProgress(todo);
   // A Goal without a step list has no count to show; the ring stays empty.
   // A list whose steps were all dropped still shows its 0/0.
   const progressLabel = todo ? `${progress.completed}/${progress.total}` : '';
-  const kind = goal ? goalStateKind(goal, displayStatus) : todoStateKind(progress);
-  const stateLabel = goal
-    ? goalStateLabel(goal, kind, displayStatus)
-    : t(kind === 'complete' ? 'Complete' : 'In progress');
   const segmentTime = goal ? goalSegmentTimeLabel(goal, clock) : '';
-  const objective = String(goal?.objective || '');
-  const title = String(goal?.title || objective || t('Goal'));
   // Without a distinct short title the objective is the title itself.
   const showObjective = Boolean(objective) && Boolean(goal?.title) && title !== objective;
   const budget = goal ? goalBudgetFraction(goal, clock) : null;
-  const terminal = goal?.status === 'complete' || goal?.status === 'stopped';
-  // A stalled Goal (paused, blocked, usage limited, time budget reached)
-  // waits for the user; the segment's × clears it like a finished one.
-  const dismissible = Boolean(goal) && goal?.status !== 'active';
-  const exhausted = Number(goal?.timeLimitMs) > 0 && Number(goal?.remainingMs) === 0;
-  const noteTone = kind === 'blocked' ? 'blocked' : kind === 'waiting' ? 'waiting' : undefined;
   const confirming = confirmStop && !terminal;
   const primary = active ? 'pause' : 'resume';
 

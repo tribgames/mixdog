@@ -93,6 +93,58 @@ async function manageBranch(
   return { notice: '' };
 }
 
+function confirmBranchAction(
+  projectPath: string,
+  branch: string,
+  action: DesktopBranchManagementAction,
+  target: string
+): Promise<boolean> {
+  return confirmAction(actionPrompt(action, branch, target), {
+    danger: action !== 'merge',
+    key: `branch-${action}:${projectPath}:${branch}`,
+  });
+}
+
+const failBranchAction = (error: unknown) => showDesktopToast(worktreeFailureText(worktreeFailure(error)), 'error');
+
+/** A branch row menu's Merge or Remove worktree folder for `branch`, read and
+ *  confirmed as the menu does (a notice or a refusal is a toast; a branch
+ *  with nothing to merge into, or a folder the app does not manage, says so).
+ *  `done` once the action went through, with the branch it merged into. */
+export async function runBranchRowAction(
+  projectPath: string,
+  branch: string,
+  action: Exclude<DesktopBranchManagementAction, 'delete-branch'>
+): Promise<{ done: boolean; target: string }> {
+  try {
+    const state = await invokeWorktree<DesktopBranchActionState>('inspectProjectBranch', [{ projectPath, branch }]);
+    const target = state.target ?? '';
+    if (action === 'remove-worktree' && state.kind !== 'managed') {
+      showDesktopToast(t('Only app-managed worktree folders can be removed.'), 'info');
+      return { done: false, target };
+    }
+    if (action === 'merge' && (!target || target === branch)) return { done: false, target };
+    if (!(await confirmBranchAction(projectPath, branch, action, target))) return { done: false, target };
+    const outcome = await manageBranch(projectPath, branch, action, state);
+    if (outcome?.notice) showDesktopToast(outcome.notice, 'info');
+    return { done: outcome !== null && !outcome.notice, target };
+  } catch (error) {
+    failBranchAction(error);
+    return { done: false, target: '' };
+  }
+}
+
+/** Opens a branch's working folder in the system's file manager (the row menu's Open folder). */
+export async function openBranchFolder(path: string): Promise<void> {
+  try {
+    const api = window.mixdogDesktop;
+    if (!api?.openLocalFileLink) throw new Error(t('Local file links can only be opened in the desktop app.'));
+    await api.openLocalFileLink(path, '.');
+  } catch (error) {
+    failBranchAction(error);
+  }
+}
+
 /** A branch row's shell: the row itself, its "…" trigger, and the same menu on
  *  right-click or a touch long-press (touch screens show no "…"). */
 export function BranchRowActions({
@@ -117,7 +169,7 @@ export function BranchRowActions({
   const setNotice = (text: string) => {
     if (text) showDesktopToast(text, 'info');
   };
-  const fail = (error: unknown) => showDesktopToast(worktreeFailureText(worktreeFailure(error)), 'error');
+  const fail = failBranchAction;
   const show = async (at: { x: number; y: number; flipY: number; alignEnd: boolean }) => {
     if (busy) return;
     setAnchor(at);
@@ -147,11 +199,7 @@ export function BranchRowActions({
   };
   const act = async (action: DesktopBranchManagementAction) => {
     if (!state || busy || locked) return;
-    const confirmed = await confirmAction(actionPrompt(action, branch, state.target ?? ''), {
-      danger: action !== 'merge',
-      key: `branch-${action}:${projectPath}:${branch}`,
-    });
-    if (!confirmed) return;
+    if (!(await confirmBranchAction(projectPath, branch, action, state.target ?? ''))) return;
     setBusy(true);
     setNotice('');
     try {
@@ -173,11 +221,7 @@ export function BranchRowActions({
     if (!state?.path || busy) return;
     setBusy(true);
     try {
-      const api = window.mixdogDesktop;
-      if (!api?.openLocalFileLink) throw new Error(t('Local file links can only be opened in the desktop app.'));
-      await api.openLocalFileLink(state.path, '.');
-    } catch (error) {
-      fail(error);
+      await openBranchFolder(state.path);
     } finally {
       setBusy(false);
     }

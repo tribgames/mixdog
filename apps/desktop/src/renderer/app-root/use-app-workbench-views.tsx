@@ -156,7 +156,9 @@ export interface UseAppWorkbenchViewsOptions {
     leafId: string,
     warm: boolean,
     visible: boolean,
-    heldSnapshot: ReturnType<typeof useSessionLane>
+    heldSnapshot: ReturnType<typeof useSessionLane>,
+    /** False: a conversation drawn in the dock, never in the pane's session panel. */
+    paneOwned: boolean
   ) => React.ReactNode;
   /** Phone drawer close (no-op on wide layouts); left-drawer results close it. */
   closeSidebarForNavigation?: () => void;
@@ -445,7 +447,8 @@ export function useAppWorkbenchViews({
               pane.leafId,
               true,
               active,
-              held
+              held,
+              false
             )
           }
           onOpenAsTab={() => openAgentSessionPanelAsTab?.(hostSessionId)}

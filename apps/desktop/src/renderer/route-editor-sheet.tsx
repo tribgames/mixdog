@@ -121,9 +121,12 @@ export function RouteTrigger({
   ultra,
   blue,
   effortLabel,
+  rowLabel = '',
   onShow,
   onToggle,
 }: {
+  /** The session panel's Model row: the trigger is that row, its name first. */
+  rowLabel?: string;
   triggerRef: RefObject<HTMLButtonElement | null>;
   disabled: boolean;
   tooltip: string;
@@ -145,7 +148,7 @@ export function RouteTrigger({
     <button
       ref={triggerRef}
       type="button"
-      className="model-trigger"
+      className={rowLabel ? 'session-rail-row session-rail-pick' : 'model-trigger'}
       disabled={disabled}
       // The aria-label hides the visible text; with a sign-in label the name
       // must carry it, or two rows of one model sound the same.
@@ -172,6 +175,7 @@ export function RouteTrigger({
       }}
       onPointerCancel={clickGuard.clearPointerActivation}
     >
+      {rowLabel && <span className="session-rail-key">{rowLabel}</span>}
       <span className="route-trigger-copy">
         <ModelRouteLabel
           model={triggerModel}
@@ -183,7 +187,7 @@ export function RouteTrigger({
           effortLabel={effortLabel}
         />
       </span>
-      <ChevronDown size={14} aria-hidden="true" />
+      <ChevronDown size={rowLabel ? 12 : 14} className={rowLabel ? 'session-rail-pk' : undefined} aria-hidden="true" />
     </button>
   );
 }

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, type ReactNode, useEffect, useState } from 'react';
 import { t } from './i18n';
 import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { ErrorNotice } from './ErrorNotice';
@@ -7,6 +7,13 @@ import { useTurnReviewDisclosure } from './use-turn-review-disclosure';
 import { useTurnReviewReads } from './use-turn-review-reads';
 import { useShownTurnReview, useTurnReviewSummaries } from './use-turn-review-summaries';
 import { turnReviewFileItems, turnReviewHead, turnReviewSegment } from './turn-review-parts';
+
+/** The segment's Changes source as another host lays it out (the session
+ *  panel's Changes category): the same files, counts and source. */
+export type TurnReviewSegmentView = Omit<
+  Parameters<typeof turnReviewSegment>[0],
+  'onOpenChanges' | 'onOpenChangeFile' | 'setExpanded'
+>;
 
 export const TurnReviewBar = memo(function TurnReviewBar({
   items,
@@ -18,7 +25,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   variant = 'bar',
   onOpenChanges,
   onOpenChangeFile,
+  renderSegment,
 }: {
+  /** With `segment`: draws the segment's view instead of the island's own. */
+  renderSegment?: (view: TurnReviewSegmentView) => ReactNode;
   items: TranscriptItem[];
   cwd?: string;
   sessionId?: string;
@@ -93,6 +103,20 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // or stale capability read must not permanently disable an otherwise valid
   // checkpoint, but a known ID mismatch is never allowed to hit another turn.
   const canRevertTurn = Boolean(cwd && sessionId && requestedCheckpointId && checkpointMatches);
+  const segmentView = (): TurnReviewSegmentView => ({
+    label: segmentLabel,
+    fileCount: shownSummary.files.size + unlistedCount,
+    files: shownSummary.files,
+    headlineStats,
+    sessionId,
+    historyTurns: reviewState.historyTurns,
+    busy,
+    sourcePicker,
+    emptyText,
+    ready,
+  });
+  // Another host decides on an empty source itself (its picker stays reachable); nothing while unread.
+  if (renderSegment && variant === 'segment') return entryPending || !ready ? null : renderSegment(segmentView());
   if (!reviewVisible) {
     if (entryPending) return <IslandSegmentPending kind="files" holdEntry />;
     // The island's count waits on the session's changes read: until it
@@ -100,21 +124,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     return sessionScoped && !ready ? <IslandSegmentPending kind="files" /> : null;
   }
   if (variant === 'segment' && !expanded) {
-    return turnReviewSegment({
-      label: segmentLabel,
-      fileCount: shownSummary.files.size + unlistedCount,
-      files: shownSummary.files,
-      headlineStats,
-      onOpenChanges,
-      onOpenChangeFile,
-      setExpanded,
-      sessionId,
-      historyTurns: reviewState.historyTurns,
-      busy,
-      sourcePicker,
-      emptyText,
-      ready,
-    });
+    return turnReviewSegment({ ...segmentView(), onOpenChanges, onOpenChangeFile, setExpanded });
   }
   return (
     <section

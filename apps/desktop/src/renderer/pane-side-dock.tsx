@@ -78,6 +78,8 @@ import {
 import { t } from './i18n';
 import { syncTranscriptWidths } from './transcript-list-resize-patch';
 import type { PaneSideDockFile } from './side-file-tabs';
+import { SessionRailColumn } from './SessionRailColumn';
+import { clampSessionRailWidth, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -221,7 +223,49 @@ function resolveDockLayout({
   const diffWidth = pairShowing
     ? Math.round(Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffDesired, avail - baseAsideWidth)))
     : 0;
-  return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth };
+  return { diffDesired, twoDepth, pairShowing, overlay, baseAsideWidth, diffWidth, inlineFloor };
+}
+
+type DockLayoutInput = Omit<Parameters<typeof resolveDockLayout>[0], 'room' | 'cellWidth'>;
+
+/** The dock and the session panel decided together, from the pane cell's
+ *  width: the dock's layout (resolveDockLayout) in the room the panel's
+ *  column leaves it, and where the panel goes (sessionRailFit) given the
+ *  least the dock can be shown at inline. A dock that cannot keep that much
+ *  beside the panel and the conversation keeps the room it has alone, and
+ *  the panel is raised over it instead. Below the chat the dock shares the
+ *  cell's width with the panel's column. Before the first measure the panel
+ *  is a column at its preferred width. */
+export function paneDockRailLayout({
+  cellWidth,
+  bottom,
+  sheetFrame,
+  rail,
+  dock,
+}: {
+  cellWidth: number;
+  bottom: boolean;
+  sheetFrame: number;
+  /** The panel's width preference; null while it is off. */
+  rail: number | null;
+  dock: DockLayoutInput;
+}) {
+  const roomFor = (cell: number) => {
+    if (cell <= 0) return Number.POSITIVE_INFINITY;
+    return bottom ? cell - 2 : cell - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame;
+  };
+  const alone = resolveDockLayout({ ...dock, cellWidth, room: roomFor(cellWidth) });
+  if (rail === null) return { dock: alone, rail: null };
+  if (cellWidth <= 0) return { dock: alone, rail: { mode: 'column' as const, width: clampSessionRailWidth(rail) } };
+  const dockFloor = dock.openNow && !bottom ? alone.inlineFloor : 0;
+  const fit = sessionRailFit({ cellWidth, dockFloor, railPref: rail });
+  if (fit.mode === 'raised') return { dock: alone, rail: { mode: fit.mode, width: fit.width } };
+  const placed = { mode: fit.mode, width: fit.width };
+  if (bottom) {
+    const cell = cellWidth - fit.width - PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
+    return { dock: resolveDockLayout({ ...dock, cellWidth: cell, room: roomFor(cell) }), rail: placed };
+  }
+  return { dock: resolveDockLayout({ ...dock, cellWidth, room: fit.dockRoom }), rail: placed };
 }
 
 /** The desktop header row for the diff and the panel views. */
@@ -393,7 +437,12 @@ type PaneSideDockProps = {
    *  editor, never in the main pane's bottom panel. */
   renderFileProblems?(file: PaneSideDockFile): ReactNode;
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
+  /** The pane's session panel: a column of its own right of the dock, or
+   *  raised over the pane's right edge when the three do not fit. Never on
+   *  the phone. */
+  sessionRail?: { open: boolean; onClose(): void };
 };
+
 
 /** Which child of an open unit is showing; every flag is false while folded. */
 function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
@@ -771,6 +820,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     onCloseDiff,
     onFocusPane,
     openFileTab,
+    sessionRail,
   } = props;
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
   // The body shows in the commit that opens the sheet, with the sheet.
@@ -796,7 +846,9 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   const bodyProps = closing ? { ...props, entry: lastOpenEntry.current } : props;
   const bodyOpen = openNow || closing;
   const bodyShowing = paneDockShowing(bodyProps.entry, bodyOpen);
-  const cellWidth = useDockCellWidth(hostRef, openNow);
+  const railWanted = Boolean(sessionRail?.open) && !mobileSheet;
+  const railPref = useSessionRailWidth();
+  const cellWidth = useDockCellWidth(hostRef, openNow || railWanted);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
   // its overlay grammar, so it always resolves to the right-hand layout.
   const desktopPlacement = useSidePanelPlacement();
@@ -870,36 +922,36 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   });
   if (groups.length === 0) return null;
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
-  // Below the chat the unit owns the cell's whole width (its two borders
-  // aside): no conversation floor to leave beside it, so it never overlays.
-  let room = Number.POSITIVE_INFINITY;
-  if (cellWidth > 0) room = bottom ? cellWidth - 2 : cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame;
-  const {
-    diffDesired,
-    twoDepth,
-    pairShowing,
-    overlay: sideOverlay,
-    baseAsideWidth,
-    diffWidth,
-  } = resolveDockLayout({
+  // Below the chat the unit owns the cell's width (its two borders and the
+  // panel's column aside): no conversation floor to leave beside it, so it
+  // never overlays.
+  const layout = paneDockRailLayout({
     cellWidth,
-    room,
-    openNow,
-    mobileSheet,
-    diffShowing,
-    sessionSurfaceShowing: widthSurfaceShowing,
-    sessionMin: PANE_SIDE_DOCK_MIN_WIDTH,
-    sessionPref: dockPref,
-    panelPref: dockPref,
-    diffPref,
+    bottom,
+    sheetFrame,
+    rail: railWanted ? railPref : null,
+    dock: {
+      openNow,
+      mobileSheet,
+      diffShowing,
+      sessionSurfaceShowing: widthSurfaceShowing,
+      sessionMin: PANE_SIDE_DOCK_MIN_WIDTH,
+      sessionPref: dockPref,
+      panelPref: dockPref,
+      diffPref,
+    },
   });
+  const railMode = layout.rail?.mode ?? null;
+  const railWidth = layout.rail?.width ?? railPref;
+  const { diffDesired, twoDepth, pairShowing, overlay: sideOverlay, baseAsideWidth, diffWidth } = layout.dock;
   const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
-  // Exactly the host's data-open="true", data-overlay≠"true", data-expanded≠"true" below.
-  inlineDock.current = openNow && !overlay && !dockExpanded;
+  // Exactly the host's data-open="true", data-overlay≠"true", data-expanded≠"true" below, or the
+  // session panel's column: either is a sheet of its own beside the conversation.
+  inlineDock.current = (openNow && !overlay && !dockExpanded) || railMode === 'column';
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}`;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railMode}|${railWidth}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,
@@ -934,7 +986,8 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   // The spacer holds the dock's row (below) or column (beside) while expanded.
   const spacerStyle = bottom ? { height: restHeight.current } : { width: restWidth.current };
   return (
-    <PaneDockExpandContext.Provider value={dockExpandValue}>
+    <>
+      <PaneDockExpandContext.Provider value={dockExpandValue}>
       {dockExpanded && expandedRect && <div className="pane-side-dock-spacer" style={spacerStyle} aria-hidden="true" />}
       <div
         className="pane-side-dock"
@@ -986,6 +1039,18 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
             widthResizable: !bottom || pairShowing,
           })}
       </div>
-    </PaneDockExpandContext.Provider>
+      </PaneDockExpandContext.Provider>
+      {/* Outside the dock's expand context: the panel's title row has no expand control. */}
+      {railMode && sessionRail && (
+        <SessionRailColumn
+          leafId={leafId}
+          sessionId={sessionId}
+          mode={railMode}
+          width={railWidth}
+          onClose={sessionRail.onClose}
+          onFocusPane={focused ? undefined : onFocusPane}
+        />
+      )}
+    </>
   );
 }

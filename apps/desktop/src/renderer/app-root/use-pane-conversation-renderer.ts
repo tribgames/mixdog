@@ -52,6 +52,8 @@ export function usePaneConversationRenderer(options: RendererOptions) {
       options.openSessionDiffInSideDock,
       options.openAgentSession,
       options.replaceWithInheritedSession,
+      options.moveSessionToProject,
+      options.addProject,
     ]
   );
 }

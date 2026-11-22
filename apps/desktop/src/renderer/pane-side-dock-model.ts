@@ -53,6 +53,10 @@ export type PaneSideDockEntry = {
 };
 
 export const PANE_SIDE_DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
+/** The panes whose session panel is on (leaf ids), and the panel's one width
+ *  for every pane. */
+export const SESSION_RAIL_KEY = 'mixdog.desktop.session-rail.v1';
+export const SESSION_RAIL_WIDTH_KEY = 'mixdog.desktop.session-rail-width.v1';
 /** One shared width preference for every side-dock surface (panel, browser/
  *  file, terminal): resizing any of them sets the width the next one opens at.
  *  v2 replaces the per-surface v1 keys, which are no longer read except the

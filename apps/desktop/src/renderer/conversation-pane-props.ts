@@ -60,6 +60,11 @@ export type ConversationProps = {
   onOpenSessionDiff?: () => void;
   /** The island's jobs panel opens an agent's session. */
   onOpenAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** The session panel's Project row: the sidebar session menu's move. */
+  onMoveSessionToProject?: (sessionId: string, projectPath: string) => Promise<void>;
+  onAddProject?: (onAdded?: (projectPath: string) => void) => void;
+  /** The pane the conversation is drawn in: its session panel shows this session. */
+  paneLeafId?: string;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
   /** The Goal segment of the composer island. */

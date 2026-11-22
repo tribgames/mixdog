@@ -60,7 +60,7 @@ export function useAppPaneSurfaces(
     startupSettled,
   } = nav;
   const { taskLifecycle, updaterStateReady } = lifecycle;
-  const { openSettings } = commands;
+  const { openSettings, moveSessionToProject } = commands;
   const {
     sessionTitle,
     projectChromeLabel,
@@ -72,7 +72,7 @@ export function useAppPaneSurfaces(
   } = context;
   const { openFileTab, openFileInSideDock, openPreviewToSide, dockPeekAgentSession, fileReveal, latestEditorLocation } =
     tabWorkflow;
-  const { selectWorkbenchSideView } = hubs;
+  const { selectWorkbenchSideView, openProjectAdd } = hubs;
 
   const openSessionDiffInSideDock = useCallback(
     (leafId: string) => selectWorkbenchSideView('session-diff', leafId),
@@ -124,6 +124,8 @@ export function useAppPaneSurfaces(
     // A chat's own sub-agents (the composer's agent list, an approval's
     // "세션 열기") open beside that chat, as Agents-window rows do.
     openAgentSession: dockPeekAgentSession,
+    moveSessionToProject,
+    addProject: openProjectAdd,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({

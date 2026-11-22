@@ -1,4 +1,5 @@
-import { type ComponentProps, type RefObject, useMemo } from 'react';
+import { type ComponentProps, lazy, type RefObject, Suspense, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
 import { useSessionRouteChoices } from './model-controls';
@@ -10,6 +11,11 @@ import { useComposerUserMessages } from './conversation-pane-user-messages';
 import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
+import { sessionRailComposerMode, useSessionRailSlot } from './session-rail-layout';
+import { useSurfaceActive } from './surface-activity';
+
+// The panel's categories load with the first panel shown, as the island's Goal does.
+const SessionRail = lazy(() => import('./SessionRail'));
 
 export type ConversationComposerDockProps = Pick<
   ConversationProps,
@@ -38,6 +44,9 @@ export type ConversationComposerDockProps = Pick<
   | 'onOpenAgentSession'
   | 'onClearToNewTask'
   | 'onInheritSession'
+  | 'onMoveSessionToProject'
+  | 'onAddProject'
+  | 'paneLeafId'
 > & {
   draftMode: boolean;
   draftId: string;
@@ -180,7 +189,73 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
     applySnapshot: actions.composerApplySnapshot,
   });
   const modelAside = contextIndicator;
+  const route = {
+    provider: String(draftModelSelection?.provider || routeSnapshot.provider || ''),
+    model: String(draftModelSelection?.model || routeSnapshot.model || ''),
+    effort: String(draftModelSelection?.effort ?? routeSnapshot.effort ?? ''),
+    fast: draftModelSelection?.fast ?? Boolean(routeSnapshot.fast),
+    fastCapable: Boolean(routeSnapshot.fastCapable),
+    autoEffort: draftModelSelection?.autoEffort ?? routeSnapshot.autoEffort,
+    modelParameters:
+      draftModelSelection?.modelParameters || (routeSnapshot.modelParameters as Record<string, string> | undefined),
+    // A draft's route carries its own model's context (or none): the
+    // snapshot's belongs to whatever model the engine last ran.
+    contextPercent: draftModelSelection
+      ? draftModelSelection.contextPercent
+      : Number(routeSnapshot.contextPercent) || undefined,
+    contextTokens: draftModelSelection ? draftModelSelection.contextTokens : routeContextTokens(routeSnapshot),
+  };
+  const routeSessionId = draftMode ? '' : String(routeSnapshot.sessionId || '');
+  const reviewSessionId = draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '');
+  const pendingInput = !draftMode && submission.steerItems.length > 0;
+  const reviewBusy = Boolean(snapshot.busy || routeSnapshot.commandBusy);
+  // The pane's session panel draws the session the pane shows, from its
+  // on-screen conversation only (sessionRailComposerMode).
+  const railSlot = useSessionRailSlot(props.paneLeafId ?? '');
+  const onScreen = useSurfaceActive();
+  const railMode = sessionRailComposerMode(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
+  const railHost = railMode === 'off' ? null : railSlot.element;
+  const railColumn = railMode === 'column';
   return (
+    <>
+      {railHost &&
+        createPortal(
+          <Suspense fallback={null}>
+            <SessionRail
+              sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
+              reviewSessionId={reviewSessionId}
+              workspace={routeSnapshot.workspace ?? null}
+              projectPath={activeProjectPath}
+              projectLabel={props.activeProjectLabel}
+              routeProject={routeProject}
+              projects={props.projects}
+              agentMode={agentMode}
+              column={railColumn}
+              goalSubmissionId={submission.goalSubmissionId}
+              reviewItems={submission.reviewItems}
+              reviewActive={reviewActive}
+              reviewBusy={reviewBusy}
+              pendingInput={pendingInput}
+              model={{
+                ...route,
+                sessionId: routeSessionId,
+                modelDisabled: transitioning,
+                tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
+                invokeResult: actions.composerInvokeResult,
+                applySnapshot: actions.composerApplySnapshot,
+                onOpenSettings: actions.composerOnOpenSettings,
+                onRoutePreferenceApplied,
+              }}
+              sessionChoices={sessionChoices}
+              onOpenSessionDiff={onOpenSessionDiff}
+              onOpenAgentSession={onOpenAgentSession}
+              onMoveSessionToProject={props.onMoveSessionToProject}
+              onAddProject={props.onAddProject}
+              onOpenCommandSurface={actions.composerOnOpenCommandSurface}
+            />
+          </Suspense>,
+          railHost
+        )}
     <ComposerDock
       sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
       goalIsland={goalIsland}
@@ -192,14 +267,15 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       onOpenSessionDiff={onOpenSessionDiff}
       onOpenAgentSession={onOpenAgentSession}
       workspace={draftMode ? null : (routeSnapshot.workspace ?? null)}
-      pendingInput={!draftMode && submission.steerItems.length > 0}
+      pendingInput={pendingInput}
       showProjectSelector={showProjectSelector && !agentMode}
       agentMode={agentMode}
       reviewItems={submission.reviewItems}
       reviewActive={reviewActive}
-      reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
-      reviewSessionId={draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '')}
+      reviewBusy={reviewBusy}
+      reviewSessionId={reviewSessionId}
       reviewCwd={routeProject}
+      islandHidden={railColumn}
     >
       <Composer
         onOpenFile={props.openFile}
@@ -211,24 +287,11 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         identityScope={draftMode ? `draft:${draftId || 'default'}` : routeScope}
         recoveryScope={props.recoveryScope}
         projectScope={draftMode ? activeProjectPath : routeProject}
-        sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
+        sessionId={routeSessionId}
         hasConversation={props.hasConversation}
         promptHistoryList={routeSnapshot.promptHistoryList}
-        provider={String(draftModelSelection?.provider || routeSnapshot.provider || '')}
-        model={String(draftModelSelection?.model || routeSnapshot.model || '')}
-        effort={String(draftModelSelection?.effort ?? routeSnapshot.effort ?? '')}
-        fast={draftModelSelection?.fast ?? Boolean(routeSnapshot.fast)}
-        fastCapable={Boolean(routeSnapshot.fastCapable)}
-        autoEffort={draftModelSelection?.autoEffort ?? routeSnapshot.autoEffort}
-        modelParameters={
-          draftModelSelection?.modelParameters || (routeSnapshot.modelParameters as Record<string, string> | undefined)
-        }
-        // A draft's route carries its own model's context (or none): the
-        // snapshot's belongs to whatever model the engine last ran.
-        contextPercent={
-          draftModelSelection ? draftModelSelection.contextPercent : Number(routeSnapshot.contextPercent) || undefined
-        }
-        contextTokens={draftModelSelection ? draftModelSelection.contextTokens : routeContextTokens(routeSnapshot)}
+        {...route}
+        bare={railColumn}
         draftMode={draftMode}
         onDraftModelSelection={onDraftModelSelection}
         onRoutePreferenceApplied={onRoutePreferenceApplied}
@@ -265,5 +328,6 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         dropTargetRef={dropTargetRef}
       />
     </ComposerDock>
+    </>
   );
 }

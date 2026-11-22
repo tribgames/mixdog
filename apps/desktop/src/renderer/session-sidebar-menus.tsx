@@ -47,6 +47,54 @@ interface ProjectMenuActions {
 // that returning focus would blur (and commit) the new editor at once.
 const afterMenu = (action: () => void) => () => window.setTimeout(action, 0);
 
+/** "Move to project" (the other projects, and a new one) and "Remove from
+ *  project": the session menu's move, also the session panel's Project row.
+ *  Nothing when there is nowhere to move. */
+export function projectMoveItems({
+  sessionId,
+  groups,
+  currentKey,
+  moveSession,
+  onAddProject,
+}: {
+  sessionId: string;
+  groups: readonly Pick<ProjectSessionGroup, 'key' | 'name' | 'path'>[];
+  /** The project the session is in ('' for none). */
+  currentKey: string;
+  moveSession(sessionId: string, projectPath: string): void;
+  onAddProject?(onAdded?: (projectPath: string) => void): void;
+}): ScmContextMenuItem[] {
+  if (groups.length === 0 && !onAddProject) return [];
+  const destinations: ScmContextMenuItem[] = groups
+    .filter((group) => group.key !== currentKey)
+    .map((group, index) => ({
+      id: `move-to-${group.key}`,
+      label: group.name,
+      icon: <MxIcon name="folder" size={14} />,
+      separatorBefore: index === 0 && Boolean(onAddProject),
+      onSelect: () => moveSession(sessionId, group.path),
+    }));
+  if (onAddProject) {
+    destinations.unshift({
+      id: 'move-to-new-project',
+      label: t('New project…'),
+      icon: <Plus size={14} aria-hidden="true" />,
+      onSelect: () => onAddProject((path) => moveSession(sessionId, path)),
+    });
+  }
+  const items: ScmContextMenuItem[] = [
+    { id: 'move-to-project', label: t('Move to project'), separatorBefore: true, children: destinations },
+  ];
+  if (currentKey) {
+    items.push({
+      id: 'remove-from-project',
+      label: t('Remove from project'),
+      onSelect: () => moveSession(sessionId, ''),
+    });
+  }
+  return items;
+}
+
 export function sessionMenuItems(
   session: DesktopSessionSummary,
   rowKey: string,
@@ -101,38 +149,16 @@ export function sessionMenuItems(
     );
   }
   // Keyboard path of the drag-to-folder move: changes the session's working folder.
-  const currentProjectKey = actions.sessionGroupKeys.get(session.id) ?? '';
-  if (actions.onMoveSessionToProject && !archived && (projectGroups.length > 0 || onAddProject)) {
-    const destinations: ScmContextMenuItem[] = projectGroups
-      .filter((group) => group.key !== currentProjectKey)
-      .map((group, index) => ({
-        id: `move-to-${group.key}`,
-        label: group.name,
-        icon: <MxIcon name="folder" size={14} />,
-        separatorBefore: index === 0 && Boolean(onAddProject),
-        onSelect: () => moveSession(session.id, group.path),
-      }));
-    if (onAddProject) {
-      destinations.unshift({
-        id: 'move-to-new-project',
-        label: t('New project…'),
-        icon: <Plus size={14} aria-hidden="true" />,
-        onSelect: () => onAddProject((path) => moveSession(session.id, path)),
-      });
-    }
-    items.push({
-      id: 'move-to-project',
-      label: t('Move to project'),
-      separatorBefore: true,
-      children: destinations,
-    });
-    if (currentProjectKey) {
-      items.push({
-        id: 'remove-from-project',
-        label: t('Remove from project'),
-        onSelect: () => moveSession(session.id, ''),
-      });
-    }
+  if (actions.onMoveSessionToProject && !archived) {
+    items.push(
+      ...projectMoveItems({
+        sessionId: session.id,
+        groups: projectGroups,
+        currentKey: actions.sessionGroupKeys.get(session.id) ?? '',
+        moveSession,
+        onAddProject,
+      })
+    );
   }
   // Delete never runs from the menu itself: it arms the row's inline
   // cancel/confirm pair, the same confirmation archived rows use (a busy

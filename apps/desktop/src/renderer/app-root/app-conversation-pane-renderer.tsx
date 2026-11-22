@@ -90,6 +90,9 @@ interface PaneConversationRendererOptions {
   /** Opens an agent's session (the composer island's jobs panel rows). */
   openAgentSession: (sessionId: string, title: string, ownerSessionId: string) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
+  /** The sidebar session menu's move to another project (the session panel's Project row). */
+  moveSessionToProject?: (sessionId: string, projectPath: string) => Promise<void>;
+  addProject?: (onAdded?: (projectPath: string) => void) => void;
 }
 
 export function paneSideDockLinkRoutes<T extends object>(rightGroups: readonly unknown[], routes: T): Partial<T> {
@@ -187,7 +190,10 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     visible = true,
     /** The last snapshot of a session that can no longer take input (a
      *  side-panel sub-agent whose session ended): shown read-only. */
-    heldSnapshot: ComponentProps<typeof PaneConversation>['heldSnapshot'] = null
+    heldSnapshot: ComponentProps<typeof PaneConversation>['heldSnapshot'] = null,
+    /** The pane's own conversation (not a sub-agent's in its dock): only it
+     *  may draw into the pane's session panel. */
+    paneOwned = true
   ): React.ReactElement {
     // A warm (retained) surface already shows its own session; a close
     // handoff presents the closed one only in the pane's cold surface.
@@ -286,6 +292,9 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           onOpenSessionDiff: options.openSessionDiffInSideDock ? routes.openSessionDiff : undefined,
           onOpenAgentSession: routes.openAgentSession,
           onInheritSession: options.replaceWithInheritedSession,
+          onMoveSessionToProject: options.moveSessionToProject,
+          onAddProject: options.addProject,
+          paneLeafId: paneOwned ? leafId : undefined,
           ...(heldSnapshot ? { readOnly: true, heldSnapshot } : {}),
         }}
       />

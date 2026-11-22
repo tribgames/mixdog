@@ -1,8 +1,9 @@
-import { Coins, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
+import { CircleDollarSign, Coins, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
+import { usageMoney } from './usage-format';
 
 export interface SessionUsageTotals {
   /** Fresh prompt tokens, over the calls whose prompt was measured. */
@@ -177,6 +178,23 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
 /** Parts by how long they survive a narrowing line: tok/s last. */
 const KEEP_ORDER = ['speed', 'total', 'hit'];
 const DISPLAY_ORDER = ['total', 'speed', 'hit'];
+
+/** The estimated-cost item for an already formatted amount (`$6,216.60`). */
+export function costReadoutItem(cost: string): ReadoutItem {
+  const label = t('Island: {{cost}} est. cost', { cost });
+  return { icon: CircleDollarSign, text: cost, label, word: label };
+}
+
+/** The usage readout's variants with the session's estimated cost after its
+ *  items (the session panel's Usage row); the cost is the first to go. */
+export function usageWithCostVariants(snapshot: Snapshot): ReadoutItem[][] {
+  const cost = Number(asRecord(snapshot.stats)?.costUsd);
+  const parts = {
+    ...usageReadoutParts(sessionUsageTotals(snapshot.stats), liveTokensPerSecond(snapshot.spinner)),
+    cost: Number.isFinite(cost) && cost > 0 ? costReadoutItem(usageMoney(cost)) : null,
+  };
+  return readoutVariants(parts, [...KEEP_ORDER, 'cost'], [...DISPLAY_ORDER, 'cost']);
+}
 
 function pickItems(
   parts: Record<string, ReadoutItem | null>,

@@ -1,4 +1,4 @@
-import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Network, Workflow, X } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown, FoldVertical, GitFork, ListTree, Network, Workflow, X } from 'lucide-react';
 import {
   type ReactNode,
   memo,
@@ -212,11 +212,15 @@ export function ContextUsageIndicator({
   open: controlledOpen,
   onOpenChange,
   onViewDetails,
+  rowLabel = '',
 }: {
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onViewDetails?: () => void;
+  /** The session panel's Context row: the ring with its percentage and
+   *  used / limit after the row's name; the same card opens under it. */
+  rowLabel?: string;
 }) {
   // Click-only like the other composer chips: hovering past the gauge must not
   // surface the compact action.
@@ -239,7 +243,8 @@ export function ContextUsageIndicator({
     card.style.setProperty('--context-card-left', `${left}px`);
   }, [host, popoverOpen]);
   const context = contextMetrics(snapshot);
-  const descriptionId = `context-usage-${String(snapshot.sessionId || 'session')}`;
+  // One id per control: the composer's gauge and the session panel's row can show together.
+  const descriptionId = useId();
   const contextPercent = context?.percent ?? 0;
   let tone = '';
   if (context && contextPercent >= 90) tone = 'danger';
@@ -257,11 +262,26 @@ export function ContextUsageIndicator({
       <button
         type="button"
         {...popover.triggerProps}
+        className={rowLabel ? 'session-rail-row session-rail-pick' : undefined}
         aria-label={context ? t('Context usage') : t('Context unavailable')}
+        aria-haspopup={rowLabel ? 'dialog' : undefined}
         aria-expanded={popoverOpen}
-        aria-describedby={context ? descriptionId : undefined}
+        // The row opens the card as a dialog it controls; the gauge's card describes it.
+        aria-controls={rowLabel && context && popoverOpen ? descriptionId : undefined}
+        aria-describedby={!rowLabel && context ? descriptionId : undefined}
         disabled={!context}
+        onKeyDown={
+          rowLabel
+            ? (event) => {
+                if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !popoverOpen) {
+                  event.preventDefault();
+                  event.currentTarget.click();
+                }
+              }
+            : undefined
+        }
       >
+        {rowLabel && <span className="session-rail-key">{rowLabel}</span>}
         <svg viewBox="0 0 20 20" aria-hidden="true">
           <circle className="context-usage-track" cx="10" cy="10" r="8" />
           <circle
@@ -273,11 +293,23 @@ export function ContextUsageIndicator({
             strokeDasharray={`${context?.percent ?? 0} 100`}
           />
         </svg>
+        {rowLabel && context && (
+          <>
+            <span className="session-rail-context-percent">
+              {context.percent == null ? '—' : `${context.percent}%`}
+            </span>
+            <span className="session-rail-num" title={contextUsageTitle(context)}>
+              {contextUsageText(context)}
+            </span>
+          </>
+        )}
+        {rowLabel && <ChevronDown size={12} className="session-rail-pk" aria-hidden="true" />}
       </button>
       {context && (
         <ContextUsagePopover
           context={context}
           id={descriptionId}
+          dialog={Boolean(rowLabel)}
           cost={cost}
           onViewDetails={
             onViewDetails &&
@@ -296,9 +328,36 @@ export function ContextUsageIndicator({
   );
 }
 
+/** The gauge's ring and percentage alone, in its tone (the session panel's
+ *  Info summary); nothing before the session has a reading. */
+export function ContextUsageSummary({ snapshot }: { snapshot: Snapshot }) {
+  const context = contextMetrics(snapshot);
+  if (!context || context.percent == null) return null;
+  let tone: string | undefined;
+  if (context.percent >= 90) tone = 'danger';
+  else if (context.percent >= 70) tone = 'warning';
+  return (
+    <span className="session-context-indicator session-rail-context-summary" data-active="true" data-tone={tone}>
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <circle className="context-usage-track" cx="10" cy="10" r="8" />
+        <circle
+          className="context-usage-value"
+          cx="10"
+          cy="10"
+          r="8"
+          pathLength="100"
+          strokeDasharray={`${context.percent} 100`}
+        />
+      </svg>
+      <span>{`${context.percent}%`}</span>
+    </span>
+  );
+}
+
 function ContextUsagePopover({
   context,
   id,
+  dialog = false,
   cost,
   onViewDetails,
   actionBusy,
@@ -306,13 +365,20 @@ function ContextUsagePopover({
 }: {
   context: NonNullable<ReturnType<typeof contextMetrics>>;
   id: string;
+  /** Opened from the session panel's row, which announces a dialog. */
+  dialog?: boolean;
   cost: number;
   onViewDetails?: () => void;
   actionBusy: boolean;
   onCompact: () => void;
 }) {
   return (
-    <div className="session-context-popover" id={id} role="tooltip">
+    <div
+      className="session-context-popover"
+      id={id}
+      role={dialog ? 'dialog' : 'tooltip'}
+      aria-label={dialog ? t('Context usage') : undefined}
+    >
       <div className="context-popover-header">
         <span>{t('Context')}</span>
         <b>{context.percent == null ? '—' : `${context.percent}%`}</b>

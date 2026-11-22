@@ -279,3 +279,11 @@ test('a transcript file link opens in the pane side dock, else a main tab previe
     root.unmount();
   });
 });
+
+test("only the pane's own conversation is offered the pane's session panel; one drawn in its dock is not", () => {
+  const { renderer } = setupPaneRenderer();
+  const own = renderer({ kind: 'session', id: 'session-123' }, true, () => {}, 'leaf-1');
+  assert.equal(own.props.conversationProps.paneLeafId, 'leaf-1');
+  const docked = renderer({ kind: 'session', id: 'agent-1' }, false, () => {}, 'leaf-1', false, true, null, false);
+  assert.equal(docked.props.conversationProps.paneLeafId, undefined);
+});
