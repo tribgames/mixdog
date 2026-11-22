@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { RendererLruCache } from './renderer-lru-cache';
 import { registerIdleReclaim } from './idle-reclaim';
@@ -39,8 +40,21 @@ export type TurnChangesReply = {
 };
 /** Where a turn's card sits: the checkpoint, the last turndone that closed it
  *  (a newer one means the runtime may hold a newer change set), and whether
- *  no visible prompt follows it (its turn may still be running). */
-export type TurnChangesRef = { checkpointId: string; boundary: string; trailing: boolean };
+ *  that is the transcript's last turn end with no visible prompt after it
+ *  (only its turn may still be running). */
+export type TurnChangesRef = {
+  checkpointId: string;
+  boundary: string;
+  trailing: boolean;
+  /** A trailing card whose checkpoint an earlier end had closed (a completion wake closes it again): it stood before. */
+  reclosed?: boolean;
+};
+
+/** A card is held back while its turn runs only when it is new with the transcript's last end: one that stood on an
+ *  earlier end of the same checkpoint stays, read again at the newer end. */
+export function turnCardHeld(ref: TurnChangesRef | undefined, turnRunning: boolean | undefined): boolean {
+  return Boolean(ref?.trailing && !ref.reclosed && turnRunning);
+}
 
 const TURN_CHANGES_CAPABILITY = 'getTurnChanges' satisfies DesktopCapability;
 export const REVERT_TURN_CHANGES_CAPABILITY = 'revertTurnChanges' satisfies DesktopCapability;
@@ -106,6 +120,16 @@ function decodeTurnChangesReply(value: unknown): TurnChangesReply | null {
     canReapply: record.canReapply === true,
     ...(typeof record.reason === 'string' && record.reason ? { reason: record.reason } : {}),
   };
+}
+
+/** One turn's changes with their patch text: every file's, or only `file`'s
+ *  (not cached: the pane reads it on open). */
+export function readTurnChangesPatch(sessionId: string, checkpointId: string, file = '') {
+  return invokeTurnChanges(
+    TURN_CHANGES_CAPABILITY,
+    [{ checkpointId, patch: true, ...(file ? { file } : {}) }],
+    sessionId
+  );
 }
 
 export async function invokeTurnChanges(capability: TurnChangesCapability, args: unknown[], sessionId: string) {
@@ -213,9 +237,10 @@ export function prefetchTurnChanges(sessionId: string, checkpointId: string, bou
   readTurnChanges(sessionId, checkpointId, boundary, epoch).catch(() => undefined);
 }
 
-/** Test seam: forget every cached reply and epoch. */
+/** Test seam: forget every cached reply, read in flight and epoch. */
 export function resetTurnChangesCache() {
   replyCache.clear();
+  readsInFlight.clear();
   epochs.clear();
 }
 
@@ -241,9 +266,10 @@ export function useTurnChanges({
     key,
     reply: cachedTurnChanges(sessionId, checkpointId, boundary, epoch),
   }));
-  // The first read answered without a reply to show: a failure, or a turn
-  // the runtime is still recording (its card is new content when it lands).
-  const [unanswered, setUnanswered] = useState(true);
+  // How the reads stand while there is no reply to show: none answered yet,
+  // the runtime is still recording the turn (its card is new content when it
+  // lands), or the read failed.
+  const [waiting, setWaiting] = useState<{ key: string; phase: 'recording' | 'failed'; error: string } | null>(null);
   // A newer boundary or epoch keeps the last settled reply on screen until
   // its refetch answers (the card is keyed per session + checkpoint).
   const reply =
@@ -263,15 +289,15 @@ export function useTurnChanges({
           if (stale) return;
           if (next.status === 'pending') {
             const delay = TURN_CHANGES_PENDING_DELAYS_MS[retry];
-            setUnanswered(false);
+            setWaiting({ key, phase: 'recording', error: '' });
             if (delay !== undefined) timer = setTimeout(() => attempt(retry + 1), delay);
             return;
           }
           setState({ key, reply: next });
         },
-        () => {
+        (reason: unknown) => {
           // A failed read leaves no card; the next boundary or mutation retries.
-          if (!stale) setUnanswered(false);
+          if (!stale) setWaiting({ key, phase: 'failed', error: errorMessageText(reason) });
         }
       );
     };
@@ -294,8 +320,22 @@ export function useTurnChanges({
     replyCache.delete(turnChangesKey(sessionId, checkpointId));
     setReads((value) => value + 1);
   };
-  const unread = enabled && Boolean(sessionId && checkpointId) && reply === null && unanswered;
-  return { reply, unread, adopt, invalidate };
+  // Of the read asked for now, until it answers: a newer boundary, epoch or `invalidate` is read again.
+  const answered = state.key === key && state.reply !== null;
+  const now = waiting?.key === key && !answered ? waiting : null;
+  const unread = enabled && Boolean(sessionId && checkpointId) && reply === null && now === null;
+  return {
+    reply,
+    unread,
+    /** `reply` answers the read asked for now, not an earlier boundary, epoch or `invalidate` kept on screen. */
+    fresh: answered || cachedTurnChanges(sessionId, checkpointId, boundary, epoch) !== null,
+    /** The runtime is still recording this turn: there is no answer yet. */
+    recording: now?.phase === 'recording',
+    /** Why the read asked for now failed ('' when it did not). */
+    error: now?.phase === 'failed' ? now.error : '',
+    adopt,
+    invalidate,
+  };
 }
 
 // ── Presentation helpers ─────────────────────────────────────────────────
@@ -393,6 +433,57 @@ function turnChangeFileExists(file: TurnChangesFile): boolean {
 export function turnChangeOpenPath(file: TurnChangesFile): string | null {
   if (!turnChangeFileExists(file)) return null;
   return file.state === 'reverted' && file.status === 'R' && file.oldPath ? file.oldPath : file.path;
+}
+
+/** What a turn's changes card lists, and so what the diff pane shows for that
+ *  turn: the record's files with old records' counts completed from the
+ *  transcript, less the files its visualize cards showed. */
+export function listedTurnChanges(
+  files: readonly TurnChangesFile[],
+  items: TranscriptItem[] | undefined,
+  visualized: readonly string[] | undefined,
+  root: string
+): readonly TurnChangesFile[] {
+  return unvisualizedChanges(withTranscriptCounts(files, items, root), visualized, root);
+}
+
+/** A turn's recorded changes as its card reads them (transcript-rows.ts): the
+ *  checkpoint (the last kept turndone's, else its prompt's) and the boundary
+ *  of the end its card stands on, the last one that carries the checkpoint.
+ *  `checkpointId` is '' for a turn still running. */
+export type TurnRecord = { checkpointId: string; boundary: string };
+const NO_RECORD: TurnRecord = { checkpointId: '', boundary: '' };
+const turnRecordMaps = new WeakMap<readonly string[], Map<string, TurnRecord>>();
+export function turnRecordOf(
+  items: readonly TranscriptItem[],
+  turnKeys: readonly string[],
+  turnKey: string
+): TurnRecord {
+  let records = turnRecordMaps.get(turnKeys);
+  if (!records) {
+    const checkpoints = new Map<string, string>();
+    const boundaries = new Map<string, string>();
+    const prompts = new Map<string, string>();
+    items.forEach((item, index) => {
+      const key = turnKeys[index] || '';
+      if (item?.kind === 'user') {
+        const id = item.checkpointId ?? item.id;
+        if (!prompts.has(key) && id !== undefined && id !== null && id !== '') prompts.set(key, String(id));
+      } else if (item?.kind === 'turndone' && item.archived !== true) {
+        const checkpointId =
+          typeof item.checkpointId === 'string' && item.checkpointId ? item.checkpointId : prompts.get(key);
+        if (!checkpointId) return;
+        checkpoints.set(key, checkpointId);
+        const id = item.id;
+        boundaries.set(checkpointId, id !== undefined && id !== null ? String(id) : `${checkpointId}:${index}`);
+      }
+    });
+    records = new Map(
+      [...checkpoints].map(([key, checkpointId]) => [key, { checkpointId, boundary: boundaries.get(checkpointId) ?? '' }])
+    );
+    turnRecordMaps.set(turnKeys, records);
+  }
+  return records.get(turnKey) ?? NO_RECORD;
 }
 
 /** Files the runtime could not count (old records) take the counts of the

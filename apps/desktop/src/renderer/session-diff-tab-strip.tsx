@@ -1,8 +1,10 @@
 import { FileDiff, FileText, X } from 'lucide-react';
 import { t } from './i18n';
-import type { SessionDiffRow } from './session-diff-model';
 import { fileBaseName } from './text-format';
 import type { SessionDiffFileTabs } from './use-session-diff-tabs';
+
+/** A file tab of the strip: the file it names, by an id of its own (a diff row is one). */
+export type SessionDiffTab = { id: string; path: string };
 
 /** One tab strip, like the browser's and terminal's: "Changes" (every file)
  *  is always a tab of it, never a header title, and file tabs sit beside it. */
@@ -20,8 +22,9 @@ export function SessionDiffTabStrip({
   /** The file being read for the request that opened the pane ('' = none). */
   pendingPath: string;
   showChanges: boolean;
-  focusRow: SessionDiffRow | null;
-  tabRows: readonly SessionDiffRow[];
+  /** The selected file tab; null: Changes (or the pending file) is selected. */
+  focusRow: SessionDiffTab | null;
+  tabRows: readonly SessionDiffTab[];
   fileTabs?: SessionDiffFileTabs;
   onShowAllFiles(): void;
   onCloseChanges(): void;
@@ -76,13 +79,13 @@ export function SessionDiffTabStrip({
       {tabRows.map((row) => (
         <div
           key={row.id}
-          className={`browser-tab${row === focusRow ? ' is-active' : ''}`}
+          className={`browser-tab${row.id === focusRow?.id ? ' is-active' : ''}`}
           data-session-diff-tab={row.path}
         >
           <button
             type="button"
             role="tab"
-            aria-selected={row === focusRow}
+            aria-selected={row.id === focusRow?.id}
             className="browser-tab-select"
             title={row.path}
             onClick={() => onOpenDiffTab(row.path)}

@@ -11,7 +11,7 @@ import { useConversationPaintHandoff } from './conversation-pane-paint-handoff';
 
 import type { ConversationProps } from './conversation-pane-props';
 import { useConversationTimeline } from './use-conversation-timeline';
-import { useConversationLinkSurfaces } from './use-conversation-link-surfaces';
+import { trailingTurnRuns, useConversationLinkSurfaces } from './use-conversation-link-surfaces';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { useConversationApprovals } from './use-conversation-approvals';
 import { useConversationReleaseHold } from './conversation-release';
@@ -141,12 +141,11 @@ export function Conversation(props: ConversationProps) {
     // Undo/Reapply mutate the session.
     turnChangesSessionId: draftMode || readOnly ? '' : routeSessionId,
     turnChangesBusy: Boolean(snapshot.busy || snapshot.commandBusy),
-    turnChangesRunning: Boolean(snapshot.busy) && pendingItems.length === 0,
-    // With no prompt pending, the last settled item is the running turn's.
-    runningTurnKey:
-      snapshot.busy && pendingItems.length === 0
-        ? runningTurnKeyOf(settledItems, timeline.settledTurnKeys, timeline.settledTurnKeys.at(-1) ?? '')
-        : '',
+    turnChangesRunning: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.pastLastEnd),
+    // With no prompt pending, the last settled item is the running turn's, unless it is the end of the turn before.
+    runningTurnKey: trailingTurnRuns(snapshot.busy, pendingItems.length, timeline.turnPastEnd)
+      ? runningTurnKeyOf(settledItems, timeline.settledTurnKeys, timeline.settledTurnKeys.at(-1) ?? '')
+      : '',
   });
   const island = useConversationIsland({
     approvals,

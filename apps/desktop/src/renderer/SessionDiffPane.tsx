@@ -1,10 +1,7 @@
-import { RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SESSION_DIFF_STYLE_KEY } from './desktop-types';
 import { diffModeActions, useDiffViewState, type DiffViewState } from './diff-header-controls';
-import { DockHeaderRow, type DockAction } from './pane-dock-chrome';
 import { t } from './i18n';
-import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
 import { OpenSelect } from './OpenSelect';
 import {
@@ -14,36 +11,24 @@ import {
   publishPaneSelection,
   resolveSelectedRow,
   useSessionChangePatches,
+  useSessionChangesSource,
   type SessionChangesSource,
 } from './session-changes-store';
-import { gitRowOpenPath } from './session-diff-model';
-import { rowListIndex } from './session-diff-row-index';
+import { SessionDiffFrame, SessionDiffHeader, sessionDiffStatus } from './session-diff-chrome';
+import { closeSessionDiffTurn, useSessionDiffTurnLifetime, useSessionDiffTurnTarget } from './session-diff-focus';
+import { gitRowOpenPath, type SessionDiffRow } from './session-diff-model';
 import { SessionDiffScope } from './session-diff-scope';
 import { SessionDiffStack } from './session-diff-section';
 import { SessionDiffTabStrip } from './session-diff-tab-strip';
-import { useSessionDiffCollapse } from './use-session-diff-collapse';
+import { SessionDiffTurnView } from './SessionDiffTurnView';
+import { fileHeaderToggle, useSessionDiffCollapse } from './use-session-diff-collapse';
 import { useSessionDiffRequests } from './use-session-diff-requests';
 import { useSessionDiffRevert } from './use-session-diff-revert';
 import { useSessionDiffRows } from './use-session-diff-rows';
 import { sessionDiffTabView, useSessionDiffTabs, type SessionDiffFileTabs } from './use-session-diff-tabs';
 import { emptyStateHost } from './empty-state-host';
 
-/** Every state renders inside the same flex-column frame, so an empty, loading
- *  or failed pane centres its message on both axes exactly like the other
- *  dock panes. */
-function SessionDiffFrame({
-  children,
-  onKeyDown,
-}: {
-  children: ReactNode;
-  onKeyDown?(event: KeyboardEvent<HTMLElement>): void;
-}) {
-  return (
-    <section className="session-diff-pane" aria-label={t('Session diff')} onKeyDown={onKeyDown}>
-      {children}
-    </section>
-  );
-}
+const NO_ROWS: readonly SessionDiffRow[] = [];
 
 /** A Git root's Changes source picker (the composer chip follows it too). */
 function SessionChangesSourceSelect({
@@ -72,74 +57,6 @@ function SessionChangesSourceSelect({
   );
 }
 
-function SessionDiffHeader({
-  tabStrip,
-  source,
-  scope,
-  actions,
-  onClose,
-  refreshDisabled,
-  onRefresh,
-}: {
-  tabStrip: ReactNode;
-  source: ReactNode;
-  scope: ReactNode;
-  actions: DockAction[];
-  onClose?(): void;
-  refreshDisabled: boolean;
-  onRefresh(): void;
-}) {
-  return (
-    <>
-      <DockHeaderRow
-        className="session-diff-header"
-        ariaLabel={t('Changes')}
-        onClose={onClose}
-        left={tabStrip}
-        actions={actions}
-      />
-      <div className="browser-pane-toolbar session-diff-toolbar">
-        {source}
-        {scope}
-        <button
-          type="button"
-          className="browser-pane-nav-button session-diff-refresh"
-          aria-label={t('Refresh')}
-          data-tooltip={t('Refresh')}
-          disabled={refreshDisabled}
-          onClick={onRefresh}
-        >
-          <RefreshCw size={15} aria-hidden="true" />
-        </button>
-      </div>
-    </>
-  );
-}
-
-/** A pane without a diff to list shows only its state under the header;
- *  null once there is a diff to list. */
-function sessionDiffStatus(
-  sessionId: string,
-  { loading, ready, unsupported, error }: { loading: boolean; ready: boolean; unsupported: boolean; error: string },
-  onRetry: () => void
-): ReactNode {
-  if (!sessionId)
-    return (
-      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
-        {t('Open a session to view its diff.')}
-      </p>
-    );
-  if (loading && !ready) return <InitialSurface />;
-  if (error) return <ErrorNotice error={error} onRetry={onRetry} />;
-  if (unsupported)
-    return (
-      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
-        {t('Session diff is unavailable.')}
-      </p>
-    );
-  return null;
-}
-
 type SessionDiffPaneProps = {
   sessionId: string;
   active: boolean;
@@ -160,19 +77,60 @@ type SessionDiffPaneProps = {
   paneKey?: string;
 };
 
-export function SessionDiffPane({
+/** The session's changes: its Changes source, or one turn's own changes while
+ *  a turn's target stands (a turn changes card, a tool call's diff link). The
+ *  two views hold separate state; the source's stays as it was behind a turn. */
+export function SessionDiffPane(props: SessionDiffPaneProps) {
+  const { sessionId, active } = props;
+  const ownViewState = useDiffViewState(SESSION_DIFF_STYLE_KEY);
+  const viewState = props.viewState ?? ownViewState;
+  const turn = useSessionDiffTurnTarget(active ? sessionId : '');
+  const source = useSessionChangesSource();
+  useSessionDiffTurnLifetime(sessionId, active);
+  // Picking another source asks for that source: it ends the turn too.
+  const shownSource = useRef(source);
+  useEffect(() => {
+    if (shownSource.current === source) return;
+    shownSource.current = source;
+    closeSessionDiffTurn(sessionId);
+  }, [sessionId, source]);
+  return (
+    <>
+      <SessionDiffSource {...props} viewState={viewState} covered={turn !== null} />
+      {turn && (
+        <SessionDiffTurnView
+          key={turn.checkpointId}
+          target={turn}
+          cwd={props.cwd}
+          fileTabs={props.fileTabs}
+          headerControlsExternal={props.headerControlsExternal}
+          viewState={viewState}
+          onClose={props.onClose}
+          onOpenFile={props.onOpenFile}
+        />
+      )}
+    </>
+  );
+}
+
+function SessionDiffSource({
   sessionId,
   active,
   paneKey,
   fileTabs,
   headerControlsExternal,
   viewState,
+  covered,
   onClose,
   cwd,
   onOpenFile: openPath,
-}: SessionDiffPaneProps) {
-  const ownViewState = useDiffViewState(SESSION_DIFF_STYLE_KEY);
-  const { viewMode, onViewModeChange, splitAvailable } = viewState ?? ownViewState;
+}: SessionDiffPaneProps & {
+  viewState: DiffViewState;
+  /** A turn's view stands in front: this one keeps its tabs, picks and folds, reads nothing and draws nothing. */
+  covered: boolean;
+}) {
+  const { viewMode, onViewModeChange, splitAvailable } = viewState;
+  const reading = active && !covered;
   const {
     turnReviewKey,
     busy,
@@ -190,7 +148,7 @@ export function SessionDiffPane({
     base,
     root,
     untrackedOmitted,
-  } = useSessionDiffRows(sessionId, active, cwd);
+  } = useSessionDiffRows(sessionId, reading, cwd);
   // Git rows are repository-root-relative; the host opens project paths.
   const onOpenFile = useMemo(
     () =>
@@ -237,7 +195,7 @@ export function SessionDiffPane({
   });
   const { canRevertPath, revertFile } = useSessionDiffRevert({
     sessionId,
-    active,
+    active: reading,
     busy,
     reviewKey: turnReviewKey,
     refresh,
@@ -255,6 +213,11 @@ export function SessionDiffPane({
     fileRequest,
     otherSurfaceTabs: tabs.otherSurfaceTabs,
   });
+  // A turn's view opens over the source's list: that is what leaving it shows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per turn view; the tab action is read at that moment
+  useLayoutEffect(() => {
+    if (covered) tabs.showAllFiles();
+  }, [covered]);
   // Git rows list counts only; the files drawn open read their own patch —
   // one over the render limit only once the user asks to see it anyway.
   const selectedRow = resolveSelectedRow(visibleRows, focusRow, selectedPath);
@@ -262,20 +225,18 @@ export function SessionDiffPane({
     cwd,
     sessionId,
     diff,
-    rows: visibleRows,
+    rows: covered ? NO_ROWS : visibleRows,
     selectedId: selectedRow?.id ?? '',
   });
-  // Capped: a header selects its file (unfolded); the selected one folds as usual.
-  const onToggleFile = (id: string) => {
-    if (!capped || id === selectedRow?.id) {
-      toggleCollapsed(id);
-      return;
-    }
-    const row = visibleRows[rowListIndex(visibleRows).byId.get(id) ?? -1];
-    if (!row) return;
-    setSelectedPath(row.path);
-    expandRow(id);
-  };
+  if (covered) return null;
+  const onToggleFile = fileHeaderToggle({
+    capped,
+    rows: visibleRows,
+    selectedRow,
+    toggleCollapsed,
+    expandRow,
+    select: setSelectedPath,
+  });
   const tabStrip = (
     <SessionDiffTabStrip
       pendingPath={pendingPath}

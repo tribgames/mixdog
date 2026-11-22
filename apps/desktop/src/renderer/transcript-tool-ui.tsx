@@ -49,8 +49,8 @@ import { formatElapsed } from './text-format';
 import { toolActivityBackgroundTask } from './transcript-tool-result';
 import { useClock } from './use-clock';
 import { CodeDiff } from './transcript-diff';
-import { TurnChangesContext } from './TurnChangesCard';
-import { requestSessionDiffFile } from './session-diff-focus';
+import { TurnChangesContext, useToolTurn } from './TurnChangesCard';
+import { requestSessionDiffTurn } from './session-diff-focus';
 import { CopyControl } from './transcript-primitives';
 import {
   capPresentation,
@@ -1050,16 +1050,22 @@ function ToolActivityItem({
   }, [item, outcomeUnknown, visualizeTabTitle]);
   // A settled file change opens in place; its path line also opens the side
   // diff pane on that file (with the way back to the list), where a session
-  // has that pane.
+  // has that pane: on that turn's own changes, once the turn has recorded them
+  // (while it runs, the inline diff stands alone).
   const turnChanges = useContext(TurnChangesContext);
+  const { checkpointId, boundary, visualized } = useToolTurn();
   let diffPath = '';
   if (!presentation.pending) {
     diffPath = presentation.diffPatch ? diffTargetPath(presentation.diffPatch) : presentation.diffDigestPath;
   }
   const openDiff =
-    diffPath && turnChanges?.sessionId && turnChanges.onOpenSessionDiff
+    diffPath && checkpointId && turnChanges?.sessionId && turnChanges.onOpenSessionDiff
       ? () => {
-          requestSessionDiffFile(turnChanges.sessionId, diffPath);
+          // The diff names its file under the call's folder, not the record's root.
+          requestSessionDiffTurn(turnChanges.sessionId, { checkpointId, boundary }, diffPath, {
+            cwd: presentation.diffCwd,
+            visualized,
+          });
           turnChanges.onOpenSessionDiff?.();
         }
       : null;

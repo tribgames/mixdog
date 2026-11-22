@@ -13,7 +13,12 @@ import type { DiffViewState } from './diff-header-controls';
 import { DiffStats } from './diff-stats';
 import { t } from './i18n';
 import { FileDiffBody } from './inline-diff';
-import { sessionDiffRowPlainText, sessionDiffRowTooLarge, type SessionDiffRow } from './session-diff-model';
+import {
+  sessionDiffRowOpenPath,
+  sessionDiffRowPlainText,
+  sessionDiffRowTooLarge,
+  type SessionDiffRow,
+} from './session-diff-model';
 import { rowListIndex } from './session-diff-row-index';
 import { SetiFileIcon } from './SetiFileIcon';
 import { type RowExtent, rowWindowLayout, useRowWindow, windowedRows } from './source-control-support';
@@ -27,7 +32,9 @@ function sectionBody(
   mode: DiffViewState['viewMode'],
   collapsed: boolean,
   whole: boolean,
-  onOpenFile: (() => void) | undefined
+  /** The pane opens files; `openFile` is absent when this one is not on disk. */
+  opens: boolean,
+  openFile: (() => void) | undefined
 ) {
   if (collapsed) return null;
   if (row.reason)
@@ -42,15 +49,10 @@ function sectionBody(
         {/* One line: the action reads as an inline link after the note. */}
         <span>
           {t('This file is too large to display here.')}
-          {onOpenFile && (
+          {opens && (
             <>
               {' · '}
-              <button
-                type="button"
-                className="session-diff-open-in-editor"
-                disabled={row.status === 'D'}
-                onClick={onOpenFile}
-              >
+              <button type="button" className="session-diff-open-in-editor" disabled={!openFile} onClick={openFile}>
                 {t('Open in editor')}
               </button>
             </>
@@ -146,8 +148,9 @@ const SessionDiffSection = memo(function SessionDiffSection({
   const onRevert = () => revert(row.path);
   // Outside the project only the name shows; the full path stays in the tooltip.
   const directory = row.outside ? '' : middleTruncatedDirectory(row.path);
-  const deleted = row.status === 'D';
-  const openLabel = deleted ? t('Deleted files cannot be opened') : t('Open file in tab');
+  const openPath = sessionDiffRowOpenPath(row);
+  const openFile = onOpenFile && openPath !== null ? () => onOpenFile(openPath) : undefined;
+  const openLabel = openPath === null ? t('Deleted files cannot be opened') : t('Open file in tab');
   const toggleLabel = collapsed
     ? t('Expand {{label}}', { label: fileBaseName(row.path) })
     : t('Collapse {{label}}', { label: fileBaseName(row.path) });
@@ -189,8 +192,8 @@ const SessionDiffSection = memo(function SessionDiffSection({
                 className="browser-pane-nav-button session-diff-open"
                 aria-label={openLabel}
                 data-tooltip={openLabel}
-                disabled={deleted}
-                onClick={() => onOpenFile(row.path)}
+                disabled={!openFile}
+                onClick={openFile}
               >
                 <ArrowUpRight size={14} aria-hidden="true" />
               </button>
@@ -208,7 +211,7 @@ const SessionDiffSection = memo(function SessionDiffSection({
           </span>
         </header>
       )}
-      {sectionBody(row, mode, collapsed, whole, onOpenFile && (() => onOpenFile(row.path)))}
+      {sectionBody(row, mode, collapsed, whole, Boolean(onOpenFile), openFile)}
     </section>
   );
 });

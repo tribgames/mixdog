@@ -368,6 +368,14 @@ export function commandShowsActivity(snapshot: Snapshot): boolean {
   return Boolean(command) && String(command?.mode || '') !== 'resuming';
 }
 
+/** When the activity `commandShowsActivity` reports began (ms); 0 when it reports none or names no time. */
+export function commandActivityStartedAt(snapshot: Snapshot): number {
+  if (!commandShowsActivity(snapshot)) return 0;
+  const spinner = snapshot.spinner && snapshot.spinner.active !== false ? snapshot.spinner : null;
+  const at = Number((spinner ?? snapshot.commandStatus)?.startedAt);
+  return Number.isFinite(at) && at > 0 ? at : 0;
+}
+
 const LiveActivityIcon = memo(function LiveActivityIcon({ gradientId }: { gradientId: string }) {
   return (
     <span className="live-activity-icon" aria-hidden="true" ref={lockDecorativeLoops}>

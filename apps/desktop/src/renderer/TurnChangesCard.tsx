@@ -16,7 +16,7 @@ import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { showDesktopToast } from './desktop-toasts';
 import { publishReviewInvalidation } from './review-invalidation';
 import { SetiFileIcon } from './SetiFileIcon';
-import { requestSessionDiffFile, requestSessionDiffList } from './session-diff-focus';
+import { requestSessionDiffTurn } from './session-diff-focus';
 import { DiffStats } from './diff-stats';
 import { isAbsolutePath } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
@@ -29,14 +29,15 @@ import {
   turnChangesTitle,
   turnChangesTotals,
   allChangesVisualized,
-  unvisualizedChanges,
+  listedTurnChanges,
+  turnCardHeld,
   useTurnChanges,
-  withTranscriptCounts,
   visibleTurnChangeRows,
   type TurnChangesCapability,
   type TurnChangesFile,
   type TurnChangesRef,
   type TurnChangesReply,
+  type TurnRecord,
 } from './turn-changes-model';
 
 /** What the transcript hands every card: its session, whether that session is
@@ -44,8 +45,9 @@ import {
 export type TurnChangesSurface = {
   sessionId: string;
   busy: boolean;
-  /** The session runs a turn no visible prompt has followed yet: the
-   *  trailing card belongs to it and stays hidden. */
+  /** The turn the transcript's last end closed still runs (the session has
+   *  not been idle since, and nothing is past that end): the trailing card
+   *  is its own and stays hidden. */
   turnRunning: boolean;
   /** Opens the pane's session diff (the composer files segment's route). */
   onOpenSessionDiff?: () => void;
@@ -53,6 +55,20 @@ export type TurnChangesSurface = {
 };
 
 export const TurnChangesContext = createContext<TurnChangesSurface | null>(null);
+
+/** The recorded turn a tool round belongs to: its file links open that turn's
+ *  changes, listed as its card lists them. `checkpointId` is '' while the turn
+ *  runs, or without one. */
+export type ToolTurn = TurnRecord & { visualized?: readonly string[] };
+
+const ToolTurnContext = createContext<ToolTurn>({ checkpointId: '', boundary: '' });
+
+export const useToolTurn = () => useContext(ToolTurnContext);
+
+export function ToolTurnProvider({ checkpointId, boundary, visualized, children }: ToolTurn & { children: ReactNode }) {
+  const turn = useMemo(() => ({ checkpointId, boundary, visualized }), [checkpointId, boundary, visualized]);
+  return <ToolTurnContext.Provider value={turn}>{children}</ToolTurnContext.Provider>;
+}
 
 type ActivateChange = (event: ReactMouseEvent, file: TurnChangesFile | null) => void;
 type MutateChanges = (capability: TurnChangesCapability, file: string | null, success: string) => void;
@@ -371,13 +387,16 @@ function useTurnChangesMutation({
   return { confirmFile, setConfirmFile, mutating, error, setError, mutate };
 }
 
-/** Ctrl/Cmd+click opens the file; a click opens the session diff on it (on
- *  the whole diff for the header), or the file when there is no diff route. */
+/** Ctrl/Cmd+click opens the file; a click opens the diff pane on this turn's
+ *  own changes (on the file, or on every file for the header), or the file
+ *  when there is no diff route. */
 function activateTurnChange(
   event: ReactMouseEvent,
   file: TurnChangesFile | null,
   surface: TurnChangesSurface,
-  root: string
+  record: TurnRecord,
+  root: string,
+  visualized: readonly string[] | undefined
 ) {
   const openFile = (target: TurnChangesFile) => {
     const path = turnChangeOpenPath(target);
@@ -392,8 +411,7 @@ function activateTurnChange(
     if (file) openFile(file);
     return;
   }
-  if (file) requestSessionDiffFile(surface.sessionId, file.path, root);
-  else requestSessionDiffList(surface.sessionId);
+  requestSessionDiffTurn(surface.sessionId, record, file?.path ?? '', { visualized });
   surface.onOpenSessionDiff();
 }
 
@@ -402,6 +420,7 @@ function TurnChangesCardBody({
   checkpointId,
   boundary,
   trailing,
+  reclosed,
   frame,
   visualized,
 }: {
@@ -410,7 +429,7 @@ function TurnChangesCardBody({
   visualized?: readonly string[];
 } & TurnChangesRef) {
   const { sessionId } = surface;
-  const running = trailing && surface.turnRunning;
+  const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
   const { reply, unread, adopt, invalidate } = useTurnChanges({
     sessionId,
     checkpointId,
@@ -422,26 +441,26 @@ function TurnChangesCardBody({
   // edit completes them, as in the session pane and the island.
   const needsCounts = Boolean(reply?.files.some((file) => file.unmeasured));
   const lane = useSessionLane(sessionId, defaultSessionLaneStore, undefined, needsCounts);
-  const files = useMemo(
-    () => withTranscriptCounts(reply?.files ?? [], needsCounts ? lane?.items : undefined, reply?.root ?? ''),
-    [reply, needsCounts, lane]
+  // A file the turn showed as a visualize card stands as that card, not as a
+  // diff; Undo still covers the whole turn from this card (or, when every
+  // file was shown, from the visualize card: TurnChangesUndo).
+  const listed = useMemo(
+    () =>
+      listedTurnChanges(reply?.files ?? [], needsCounts ? lane?.items : undefined, visualized, reply?.root ?? ''),
+    [reply, needsCounts, lane, visualized]
   );
   // Unread, the card's height is unknown: the row marks itself pending like a
   // parsing reply, so the transcript's entry reveal waits for the card instead
   // of painting the row without it (the chat popped as every card landed).
   if (unread) return <span hidden data-transcript-pending />;
   if (running || !reply || reply.status !== 'ready' || reply.files.length === 0) return null;
-  // A file the turn showed as a visualize card stands as that card, not as a
-  // diff; Undo still covers the whole turn from this card (or, when every
-  // file was shown, from the visualize card: TurnChangesUndo).
-  const listed = unvisualizedChanges(files, visualized, reply.root);
   if (listed.length === 0) return null;
 
   const { revision } = reply;
   const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : '';
   const mutate: MutateChanges = (capability, file, success) => mutation.mutate(revision, capability, file, success);
   const activate: ActivateChange = (event, file) => {
-    activateTurnChange(event, file, surface, reply.root);
+    activateTurnChange(event, file, surface, { checkpointId, boundary }, reply.root, visualized);
   };
   const card = (
     <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={listed.length}>
@@ -513,6 +532,7 @@ export const TurnChangesCard = memo(function TurnChangesCard({
       checkpointId={turnChanges.checkpointId}
       boundary={turnChanges.boundary}
       trailing={turnChanges.trailing}
+      reclosed={turnChanges.reclosed}
       frame={frame}
       visualized={visualized}
     />
@@ -524,10 +544,11 @@ function TurnChangesUndoBody({
   checkpointId,
   boundary,
   trailing,
+  reclosed,
   visualized,
 }: { surface: TurnChangesSurface; visualized: readonly string[] } & TurnChangesRef) {
   const { sessionId } = surface;
-  const running = trailing && surface.turnRunning;
+  const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
   const { reply, adopt, invalidate } = useTurnChanges({ sessionId, checkpointId, boundary, enabled: !running });
   const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
   const { error, setError } = mutation;
@@ -568,6 +589,7 @@ export function TurnChangesUndo({
       checkpointId={turnChanges.checkpointId}
       boundary={turnChanges.boundary}
       trailing={turnChanges.trailing}
+      reclosed={turnChanges.reclosed}
       visualized={visualized}
     />
   );

@@ -29,6 +29,8 @@ import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
 import { AskUserRecord, askUserCardKey, splitAskUser, toolCallsOf } from './ask-user-record';
 import { PreviewedTurnChangesCard } from './transcript-visualize-card';
+import { ToolTurnProvider } from './TurnChangesCard';
+import { turnRecordOf } from './turn-changes-model';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
 import { nextComposerSubmissionId } from './composer-draft';
 
@@ -521,18 +523,21 @@ export function transcriptRowNode(
       ? askUserCardKey(settledItems, String(snapshot.toolApproval?.toolCallId ?? ''))
       : undefined;
     const parts = toolActivityParts(row.items, cardKey !== undefined, cardKey);
+    const record = turnRecordOf(settledItems, settledTurnKeys, row.turnKey);
     if (parts.length === 1 && parts[0]?.tools) {
       return quietTools ? null : (
-        <ToolActivityGroup
-          items={row.items}
-          disclosureScope={disclosureScope}
-          turnKey={row.turnKey}
-          running={row.open === true}
-        />
+        <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
+          <ToolActivityGroup
+            items={row.items}
+            disclosureScope={disclosureScope}
+            turnKey={row.turnKey}
+            running={row.open === true}
+          />
+        </ToolTurnProvider>
       );
     }
     return (
-      <>
+      <ToolTurnProvider {...record} visualized={turnCards?.visualized}>
         {parts.map((part, index) => {
           if (part.tools) {
             return quietTools ? null : (
@@ -548,7 +553,7 @@ export function transcriptRowNode(
           if (part.asked) return <AskUserRecord key={String(part.asked.id ?? `asked:${index}`)} item={part.asked} />;
           return <Fragment key={`waiting:${index}`}>{questionCard}</Fragment>;
         })}
-      </>
+      </ToolTurnProvider>
     );
   }
   const completionRow = row.completion ?? (row.item?.kind === 'turndone' ? row.item : undefined);

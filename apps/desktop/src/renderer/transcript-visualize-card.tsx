@@ -58,7 +58,7 @@ import {
   visualizeTurnEndAt,
 } from './visualize-card-model';
 import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard';
-import { type TurnChangesFile, type TurnChangesRef, useTurnChanges } from './turn-changes-model';
+import { type TurnChangesFile, type TurnChangesRef, turnCardHeld, useTurnChanges } from './turn-changes-model';
 import {
   claimTurnPreviewEnd,
   noteTurnPreviewTargets,
@@ -463,7 +463,7 @@ function useTurnPreviews({
   const surface = useContext(TurnChangesContext);
   const changesSession = turnChanges ? (surface?.sessionId ?? '') : '';
   const checkpointId = turnChanges?.checkpointId ?? '';
-  const running = Boolean(turnChanges?.trailing && surface?.turnRunning);
+  const running = turnCardHeld(turnChanges, surface?.turnRunning);
   const { reply } = useTurnChanges({
     sessionId: changesSession,
     checkpointId,

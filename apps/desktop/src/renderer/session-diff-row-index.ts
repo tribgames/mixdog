@@ -6,7 +6,20 @@ const normalizeChangePath = (path: string) =>
     .replace(/^\.\//, '');
 
 /** What the index reads of a listed row. */
-type IndexedRow = { path: string; id?: string; status?: string; additions?: number; deletions?: number };
+type IndexedRow = {
+  path: string;
+  id?: string;
+  status?: string;
+  additions?: number;
+  deletions?: number;
+  unmeasured?: boolean;
+};
+
+/** A file the pane lists folded until it is opened: a deleted file, or one
+ *  with no text difference (its body would be that notice alone). */
+export function foldedByDefault(row: IndexedRow): boolean {
+  return row.status === 'D' || (row.unmeasured !== true && !row.additions && !row.deletions);
+}
 
 /** One list's lookups and totals, built once per list (data change) and
  *  shared by every reader: no pick, reveal, tab, fold or total walks the
@@ -22,8 +35,8 @@ export type RowListIndex = {
   byFoldedWindowsPath: ReadonlyMap<string, number>;
   additions: number;
   deletions: number;
-  /** Rows with status D. */
-  deleted: number;
+  /** Rows folded by default (foldedByDefault). */
+  foldedByDefault: number;
 };
 
 const indexes = new WeakMap<readonly IndexedRow[], RowListIndex>();
@@ -44,7 +57,7 @@ export function rowListIndexBuilder() {
     byFoldedWindowsPath: new Map<string, number>(),
     additions: 0,
     deletions: 0,
-    deleted: 0,
+    foldedByDefault: 0,
   };
   return {
     add(row: IndexedRow, position: number) {
@@ -57,7 +70,7 @@ export function rowListIndexBuilder() {
       if (windowsStyle(request)) first(index.byFoldedWindowsPath, folded, position);
       index.additions += row.additions ?? 0;
       index.deletions += row.deletions ?? 0;
-      if (row.status === 'D') index.deleted += 1;
+      if (foldedByDefault(row)) index.foldedByDefault += 1;
     },
     finish(rows: readonly IndexedRow[]): RowListIndex {
       indexes.set(rows, index);

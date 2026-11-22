@@ -1,6 +1,6 @@
 import { ArrowUpRight, Undo2 } from 'lucide-react';
 import { t } from './i18n';
-import type { SessionDiffRow } from './session-diff-model';
+import { sessionDiffRowOpenPath, type SessionDiffRow } from './session-diff-model';
 import { rowListIndex } from './session-diff-row-index';
 import { DiffStats } from './diff-stats';
 import { changedFilesLabel } from './source-control-support';
@@ -39,8 +39,8 @@ function FocusFileScope({
   onRevert(): void;
 }) {
   const directory = row.outside ? '' : middleTruncatedDirectory(row.path);
-  const deleted = row.status === 'D';
-  const openLabel = deleted ? t('Deleted files cannot be opened') : t('Open file in tab');
+  const openPath = sessionDiffRowOpenPath(row);
+  const openLabel = openPath === null ? t('Deleted files cannot be opened') : t('Open file in tab');
   return (
     <>
       <span className="session-diff-summary session-diff-scope session-diff-file-scope" title={row.path}>
@@ -55,8 +55,8 @@ function FocusFileScope({
           className="browser-pane-nav-button session-diff-open"
           aria-label={openLabel}
           data-tooltip={openLabel}
-          disabled={deleted}
-          onClick={() => onOpenFile(row.path)}
+          disabled={openPath === null}
+          onClick={() => openPath !== null && onOpenFile(openPath)}
         >
           <ArrowUpRight size={15} aria-hidden="true" />
         </button>
