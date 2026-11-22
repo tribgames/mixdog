@@ -1,4 +1,5 @@
 import type React from 'react';
+import { useRootFlag } from '../expanded-surface-flag';
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../../shared/window-layout';
 import { DesktopTitlebar } from '../navigation';
 import { DesktopBootGate } from '../PaneSurfaceGate';
@@ -47,6 +48,8 @@ export function AppShellLayout({
   const { sidebarOpen, applySidebarOpen, mainPanelRef, bottomPanel, openSidebar, openConversationCommandSurface } =
     shellPanels;
   const { workbenchSideLayout, activeSideViews, sidebarDiff, closeSidebarDiff } = sideDocks;
+  const sidebarCollapsed = !(sidebarOpen && workbenchSideLayout.layout.left.length);
+  useRootFlag('data-sidebar-collapsed', sidebarCollapsed);
   const {
     onboardingOpen,
     onboardingReady,
@@ -90,7 +93,7 @@ export function AppShellLayout({
   return (
     <DesktopBootGate restorePending={paneWorkspace.restorePending} ready={desktopBootReady}>
       <div
-        className={`app-shell ${sidebarOpen && workbenchSideLayout.layout.left.length ? '' : 'sidebar-collapsed'}`}
+        className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}
         style={
           {
             '--desktop-workspace-min-width': `${DESKTOP_WORKSPACE_MIN_WIDTH}px`,

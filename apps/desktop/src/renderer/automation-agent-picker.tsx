@@ -9,6 +9,7 @@ import { OPEN_AGENTS_VIEW_EVENT, requestMixyDialog, useMixyStatus } from './mixy
 import { OpenSelect } from './OpenSelect';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { DEFAULT_AGENT_IDS, agentRosterOf } from './workflows-agent-rows';
+import { emptyStateHost } from './empty-state-host';
 import './mixy-first.css';
 
 const AGENT_KEYS = ['agents'] as const;
@@ -186,7 +187,7 @@ export function RoutineSideGroups({
  *  bot-based, so the representative bot comes first. */
 export function RoutineNeedsBot() {
   return (
-    <div className="utility-dock-empty routine-needs-bot mx-empty-state">
+    <div className="utility-dock-empty routine-needs-bot mx-empty-state" ref={emptyStateHost}>
       <p>{t('Create the representative bot first.')}</p>
       <button
         type="button"

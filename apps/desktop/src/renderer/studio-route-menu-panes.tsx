@@ -11,6 +11,7 @@ import {
   type StudioSliderRow,
   studioModelLanes,
 } from './studio-route-menu-model';
+import { emptyStateHost } from './empty-state-host';
 
 /** Safe hover: once a pane is open, only a dwell on another row switches, so
  *  the pointer can travel across intermediate rows into the open flyout. */
@@ -218,7 +219,9 @@ export function StudioModelPane({
           </section>
         ))}
         {visibleLanes.length === 0 && !autoVisible && (
-          <p className="model-empty mx-empty-state">{t('No matching models.')}</p>
+          <p className="model-empty mx-empty-state" ref={emptyStateHost}>
+            {t('No matching models.')}
+          </p>
         )}
       </div>
     </div>

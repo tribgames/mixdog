@@ -482,17 +482,19 @@ interface StreamFadeResult {
   appearance: StreamFadeAppearance;
 }
 
-/** `root`, parsed from the revealed text [base, end) (`end`: by default all
- *  revealed so far), with its still-fading text wrapped. */
+/** `root`, whose offsets count from `base` in the revealed text, showing
+ *  revealed text [from, end) (`from`: by default `base`; `end`: by default
+ *  all revealed so far), with its still-fading text wrapped. */
 export function applyStreamFade(
   root: MarkdownAstRoot,
   base: number,
   timeline: StreamFadeTimeline,
   now: number,
-  end = timeline.revealedLength()
+  end = timeline.revealedLength(),
+  from = base
 ): StreamFadeResult {
-  const appearance = timeline.appearing(base, end, now);
-  if (!timeline.fadesBetween(base, end, appearance)) return { root, tags: [], until: 0, appearance };
+  const appearance = timeline.appearing(from, end, now);
+  if (!timeline.fadesBetween(from, end, appearance)) return { root, tags: [], until: 0, appearance };
   // Each node's offset in the revealed text, and where a text node's
   // characters sit.
   const offsets = new Map<FadeNode, number>();
@@ -511,7 +513,7 @@ export function applyStreamFade(
     for (const child of node.children ?? []) at = place(child, at);
     return at;
   };
-  place(root as FadeNode, base);
+  place(root as FadeNode, from);
   const tags: string[] = [];
   let until = 0;
   const shown = (start: StreamFadeStart): StreamFadeStart => {

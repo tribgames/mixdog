@@ -8,6 +8,7 @@ import type {
   ProjectRecoveryResponse,
   ProjectRecoverySummary,
 } from '../shared/project-recovery';
+import { emptyStateHost } from './empty-state-host';
 
 // The owning surface supplies localized labels and its normal confirmation
 // dialog. This component does not grant access, parse error messages, or write
@@ -152,12 +153,20 @@ export function ProjectRecoveryPanel({
         </button>
       </header>
       {pending && (
-        <p className={records.length ? undefined : 'mx-empty-state'} role="status">
+        <p
+          className={records.length ? undefined : 'mx-empty-state'}
+          ref={records.length ? undefined : emptyStateHost}
+          role="status"
+        >
           {labels.busy}
         </p>
       )}
       {failed && <p role="alert">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
-      {!pending && !failed && !records.length && <p className="mx-empty-state">{labels.empty}</p>}
+      {!pending && !failed && !records.length && (
+        <p className="mx-empty-state" ref={emptyStateHost}>
+          {labels.empty}
+        </p>
+      )}
       <ul>
         {records.map((record) => (
           <li key={record.id}>

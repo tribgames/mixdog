@@ -121,6 +121,33 @@ function measureKatexTextGlyphs() {
   };
 }
 
+// A table states its width, so its style needs no :has() over its rows
+// (22-markdown.css): one of those, matching any cell, made every node a
+// stream inserts a :has() trigger.
+function markTableColumns() {
+  const visit = (node: SyntaxNode) => {
+    if (node.type === 'element' && node.tagName === 'table') {
+      let columns = 0;
+      const rows = (parent: SyntaxNode) => {
+        for (const child of parent.children ?? []) {
+          if (child.type !== 'element') continue;
+          if (child.tagName === 'tr') {
+            const cells = (child.children ?? []).filter((cell) => cell.type === 'element').length;
+            columns = Math.max(columns, cells);
+          } else rows(child);
+        }
+      };
+      rows(node);
+      const properties = (node.properties ?? {}) as Record<string, unknown>;
+      if (columns >= 6) properties.dataWide = true;
+      if (columns < 4) properties.dataNarrow = true;
+      node.properties = properties;
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  return visit;
+}
+
 function normalizedProperties(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const properties = { ...(value as Record<string, unknown>) };
@@ -179,6 +206,7 @@ const markdownProcessor = unified()
   // simply stay unhighlighted, matching the previous plain rendering.
   .use(rehypeHighlight)
   .use(trimTrailingCodeNewline)
+  .use(markTableColumns)
   .use(linkifyLocalPaths);
 // Freezing runs the attachers (rehype-highlight registers its grammars) at load instead of in
 // the first parse's commit: ~44 ms of a resumed phone task at 4x CPU.

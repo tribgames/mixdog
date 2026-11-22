@@ -28,6 +28,7 @@ import {
 import type { Row, SortKey, StatsRequest, StatsView } from './usage-stats-model';
 import { UsagePeriodControls, usagePeriodOptions } from './UsagePeriodControls';
 import { UsageTrend } from './UsageTrend';
+import { emptyStateHost } from './empty-state-host';
 
 export { resolveUsageTrendGrouping } from './usage-stats-model';
 
@@ -486,7 +487,9 @@ export function UsageStatsBody({
             <tbody>
               <tr>
                 <td className="usage-empty" colSpan={10}>
-                  <div className="mx-empty-state">{t('No usage recorded yet.')}</div>
+                  <div className="mx-empty-state" ref={emptyStateHost}>
+                    {t('No usage recorded yet.')}
+                  </div>
                 </td>
               </tr>
             </tbody>

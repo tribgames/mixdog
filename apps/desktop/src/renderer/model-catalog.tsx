@@ -22,6 +22,7 @@ import {
   providerDisplayRank,
 } from './provider-display';
 import type { RecordValue } from './desktop-types';
+import { emptyStateHost } from './empty-state-host';
 
 const RECENT_MODELS_KEY = 'mixdog.desktop-recent-models';
 const RECENT_MODELS_LIMIT = 7;
@@ -557,7 +558,7 @@ export function ModelCatalog({
                 </p>
               )}
               {renderedKeys.length === 0 && (
-                <p className="model-empty mx-empty-state">
+                <p className="model-empty mx-empty-state" ref={emptyStateHost}>
                   {emptyCatalogText(catalogRefreshing || !catalogLoaded, Boolean(normalizedQuery))}
                 </p>
               )}

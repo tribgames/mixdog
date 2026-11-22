@@ -58,6 +58,7 @@ import {
 } from './sidebar-reference-cache';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { CompactSwitch } from './settings/capability-controls';
+import { emptyStateHost } from './empty-state-host';
 
 type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProjects' | 'getTaskWorkspace'>>;
 
@@ -750,7 +751,7 @@ export function SchedulesPane({
           </RoutineSideGroups>
         )}
         {!loading && !refreshError && !noBot && visible.length === 0 && (
-          <div className="utility-dock-empty mx-empty-state">
+          <div className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
             <p>{t('No schedules.')}</p>
           </div>
         )}

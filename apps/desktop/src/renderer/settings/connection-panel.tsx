@@ -40,6 +40,7 @@ import { SshCleanupDialog, SshHostSettingsDialog } from './ssh-host-dialogs';
 import { openSshHost, useSshHosts } from './ssh-hosts';
 import { ReopenServerWindowsToggle } from './reopen-server-windows-toggle';
 import { errorMessage } from '../editor-pane-session-errors';
+import { emptyStateHost } from '../empty-state-host';
 
 const CONNECTION_STALL_MS = 10_000;
 const RELAY_CONNECTING_MESSAGE =
@@ -263,7 +264,11 @@ function ConnectedDevicesGroup({
           </button>
         )}
       </div>
-      {clients.length === 0 && <p className="conn-empty mx-empty-state">{t('No connected devices.')}</p>}
+      {clients.length === 0 && (
+        <p className="conn-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No connected devices.')}
+        </p>
+      )}
       {clients.length > 0 && (
         <div className="conn-list">
           {clients.map((client) => {

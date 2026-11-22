@@ -1,3 +1,4 @@
+import { emptyStateHost } from './empty-state-host';
 import { useState, type ReactNode } from 'react';
 import { BROWSER_PERMISSION_MAX_SITES } from '../shared/browser-permission-policy';
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame } from '../shared/contract';
@@ -217,7 +218,7 @@ function DeviceChooser({
           ))}
         </fieldset>
       ) : (
-        <p className="browser-device-empty mx-empty-state">
+        <p className="browser-device-empty mx-empty-state" ref={emptyStateHost}>
           {t('No devices to connect. Connect a device to this PC and it appears here.')}
         </p>
       )}

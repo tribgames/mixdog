@@ -11,6 +11,7 @@ import {
 import { watchTouchZoom } from './touch-zoom';
 import { framePointInWindow } from './visualize-zoom';
 import { dispatchZoomAt } from './zoom-target';
+import { emptyStateHost } from './empty-state-host';
 
 type InlineState = { status: 'loading' } | { status: 'ready'; doc: string } | { status: 'error'; error: string };
 
@@ -48,8 +49,18 @@ export function InlinePaneContent({
       alive = false;
     };
   }, [kind, source]);
-  if (!content) return <div className="visualize-empty mx-empty-state">{t('Nothing to show.')}</div>;
-  if (state.status === 'loading') return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
+  if (!content)
+    return (
+      <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Nothing to show.')}
+      </div>
+    );
+  if (state.status === 'loading')
+    return (
+      <div className="visualize-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Loading…')}
+      </div>
+    );
   if (state.status === 'error') {
     return (
       <div className="visualize-inline-error" role="alert">

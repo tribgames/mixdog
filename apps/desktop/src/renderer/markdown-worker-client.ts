@@ -110,6 +110,9 @@ export function syncMarkdownParser(): ((text: string) => MarkdownAstRoot) | null
  *  while 8192 take ~10 ms (p95 15-20 ms), already most of a 16.7 ms frame. */
 export const SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS = 4096;
 
+/** A main-thread parse slower than this hands longer text back to the worker. */
+export const SYNC_MARKDOWN_PARSE_BUDGET_MS = 8;
+
 const SETTLED_PARSE_FRAME_UTF16_UNITS = SYNC_MARKDOWN_PARSE_MAX_UTF16_UNITS;
 let settledParseSpent = 0;
 let settledParseResetQueued = false;

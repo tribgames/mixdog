@@ -6,6 +6,7 @@ import type { DesktopGitLogEntry } from '../shared/contract';
 import { t } from './i18n';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import { emptySummary, RowSpacer, unknownAuthor, type ScmRowWindow } from './source-control-support';
+import { emptyStateHost } from './empty-state-host';
 
 export type MenuPoint = { x: number; y: number };
 
@@ -127,8 +128,16 @@ export function HistoryList({
         <HistoryRow key={entry.hash} entry={entry} {...rowProps(entry, rowWindow.start + windowIndex)} />
       ))}
       <RowSpacer edge="trailing" height={rowWindow.trailing} />
-      {loading && <p className="utility-dock-empty mx-empty-state">{t('Loading history…')}</p>}
-      {!loading && total === 0 && <p className="utility-dock-empty mx-empty-state">{t('No commits found.')}</p>}
+      {loading && (
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+          {t('Loading history…')}
+        </p>
+      )}
+      {!loading && total === 0 && (
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No commits found.')}
+        </p>
+      )}
     </div>
   );
 }

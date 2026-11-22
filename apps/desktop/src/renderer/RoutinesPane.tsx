@@ -17,6 +17,7 @@ import { webhookSourceLabel } from './WebhooksView';
 import { RoutineItem, type RowControls, relativeTime } from './routine-list-item';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
+import { emptyStateHost } from './empty-state-host';
 import './settings/settings.css';
 import './routines.css';
 
@@ -158,7 +159,9 @@ export function RoutinesPane({
       {loading ? (
         <InitialSurface />
       ) : !schedules.length && !webhooks.length ? (
-        <p className="utility-dock-empty mx-empty-state">{t('No routines.')}</p>
+        <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+          {t('No routines.')}
+        </p>
       ) : (
         <>
           {schedules.length > 0 && (

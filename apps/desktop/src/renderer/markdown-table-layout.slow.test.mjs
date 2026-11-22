@@ -35,7 +35,7 @@ test('a many-column markdown table fits a narrow pane without scrolling sideways
     await page.setViewport({ width, height: 800 });
     await page.setContent(`<!doctype html><html><body>
       <main class="workspace" style="width:${width}px"><section class="conversation"><div class="message-body markdown">
-        <div class="markdown-table-frame"><div class="markdown-table" tabindex="0"><table>
+        <div class="markdown-table-frame"><div class="markdown-table" tabindex="0"><table data-wide>
           <thead>${row('th', 'Heading')}</thead><tbody>${row('td', 'value')}${row('td', 'https://example.com/a/very/long/token')}</tbody>
         </table></div></div>
       </div></section></main></body></html>`);

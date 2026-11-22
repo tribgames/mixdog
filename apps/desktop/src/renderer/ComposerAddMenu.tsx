@@ -12,6 +12,7 @@ import { cachedSkillCatalog, refreshSkillCatalog } from './composer-skill-mentio
 import { wrappedNavigationIndex } from './list-navigation';
 import { UserPlus } from 'lucide-react';
 import { RoomMemberFace, type RoomMemberLabel } from './agent-room-parts';
+import { emptyStateHost } from './empty-state-host';
 import './desktop/composer-add-menu.css';
 
 // Roving focus over the enabled menu items, wrapping at both ends.
@@ -229,11 +230,15 @@ function renderComposerAddMenuPanel({
             </button>
             <div className="composer-add-heading">{t('Skills')}</div>
             {loading && (
-              <p className="mx-empty-state" role="status">
+              <p className="mx-empty-state" ref={emptyStateHost} role="status">
                 {t('Loading skills…')}
               </p>
             )}
-            {!loading && !skills.length && !error && <p className="mx-empty-state">{t('No enabled skills.')}</p>}
+            {!loading && !skills.length && !error && (
+              <p className="mx-empty-state" ref={emptyStateHost}>
+                {t('No enabled skills.')}
+              </p>
+            )}
             {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
             {/* biome-ignore lint/a11y/useSemanticElements: the divider element must stay a div to keep DOM and styling */}
             <div className="composer-add-divider" role="separator" />

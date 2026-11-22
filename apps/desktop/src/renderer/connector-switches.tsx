@@ -18,6 +18,7 @@ import { t } from './i18n';
 import { createKeyedReadCache } from './keyed-read-cache';
 import { subscribeSetupChanges } from './setup-change-refresh';
 import { CompactSwitch } from './settings/capability-controls';
+import { emptyStateHost } from './empty-state-host';
 
 export type ConnectorSwitchApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
 export interface ConnectorSwitch {
@@ -155,7 +156,7 @@ export function ConnectorSwitchList({
     <div className="connector-switches" data-connector-switches={kind}>
       {error && <ErrorNotice error={error} />}
       {rows?.length === 0 && (
-        <p className="connector-switches-empty mx-empty-state">
+        <p className="connector-switches-empty mx-empty-state" ref={emptyStateHost}>
           <span>{t('No connectors connected.')}</span>
           <button type="button" className="connector-switches-link" onClick={openConnectorsTab}>
             {t('Connect connectors')}

@@ -1,3 +1,4 @@
+import { emptyStateHost } from './empty-state-host';
 import { Star } from 'lucide-react';
 import type React from 'react';
 import { createPortal } from 'react-dom';
@@ -757,7 +758,7 @@ export function AgentActivityPane({
         </Suspense>
       )}
       {allHidden && (
-        <p className="utility-dock-empty agent-activity-empty mx-empty-state">
+        <p className="utility-dock-empty agent-activity-empty mx-empty-state" ref={emptyStateHost}>
           <span>{t('All groups are hidden')}</span>
         </p>
       )}
@@ -796,7 +797,7 @@ export function AgentActivityPane({
           contacts present, no work shows nothing at all; the centred empty
           state is only for a pane with neither. */}
               {visibleGroups.length === 0 && contacts.length === 0 && !mixyFirst.empty && (
-                <p className="utility-dock-empty agent-activity-empty mx-empty-state">
+                <p className="utility-dock-empty agent-activity-empty mx-empty-state" ref={emptyStateHost}>
                   <span>{t('No bots.')}</span>
                 </p>
               )}

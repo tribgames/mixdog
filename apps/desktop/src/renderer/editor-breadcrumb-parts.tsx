@@ -7,6 +7,7 @@ import type { EditorOutlineItem } from './editor-language-store';
 import type { BreadcrumbFileItem, BreadcrumbPickerState } from './editor-pane-model';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
+import { emptyStateHost } from './empty-state-host';
 
 export function BreadcrumbTrail({
   segments,
@@ -132,15 +133,25 @@ export function BreadcrumbPicker({
       )}
       <div className="editor-breadcrumb-picker-tree" role="tree">
         {picker.kind === 'files' && picker.loading && (
-          <p className="mx-empty-state">
+          <p className="mx-empty-state" ref={emptyStateHost}>
             <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
           </p>
         )}
-        {picker.kind === 'files' && !picker.loading && picker.error && <p className="mx-empty-state">{picker.error}</p>}
-        {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
-          <p className="mx-empty-state">{t('No files found.')}</p>
+        {picker.kind === 'files' && !picker.loading && picker.error && (
+          <p className="mx-empty-state" ref={emptyStateHost}>
+            {picker.error}
+          </p>
         )}
-        {picker.kind === 'symbols' && !picker.rows.length && <p className="mx-empty-state">{t('No symbols found.')}</p>}
+        {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
+          <p className="mx-empty-state" ref={emptyStateHost}>
+            {t('No files found.')}
+          </p>
+        )}
+        {picker.kind === 'symbols' && !picker.rows.length && (
+          <p className="mx-empty-state" ref={emptyStateHost}>
+            {t('No symbols found.')}
+          </p>
+        )}
         {picker.rows.map((item, index) => {
           const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
           const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;

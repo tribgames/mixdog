@@ -227,6 +227,34 @@ test('a rail page with nothing in it centres its empty state in the page', async
   }
 });
 
+// Each streamed chunk of a reply restyled every block of it: the empty state's
+// sibling rule made every element a :has() anchor over its children.
+test('text added to the last block of a long reply restyles that block, not its siblings', async (t) => {
+  const blocks = Array.from({ length: 300 }, (_, i) => `<p>Paragraph ${i} with <strong>bold</strong> words.</p>`).join(
+    ''
+  );
+  const page = await openPage(t, '', `<div class="markdown">${blocks}</div>`);
+  await page.evaluate(() => document.body.offsetHeight);
+  await page.tracing.start({ categories: ['devtools.timeline'] });
+  await page.evaluate(async () => {
+    const last = document.querySelector('.markdown > p:last-child');
+    for (let i = 0; i < 5; i += 1) {
+      const span = document.createElement('span');
+      span.textContent = ` chunk ${i}`;
+      last.append(span);
+      getComputedStyle(span).color;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  });
+  const { traceEvents } = JSON.parse(new TextDecoder().decode(await page.tracing.stop()));
+  const recalcs = traceEvents.filter((event) => event.name === 'UpdateLayoutTree');
+  assert.ok(recalcs.length >= 5, `a style recalc per chunk was traced (${recalcs.length})`);
+  for (const event of recalcs)
+    assert.equal(typeof event.args?.elementCount, 'number', 'each recalc counts its elements');
+  const restyled = recalcs.reduce((sum, event) => sum + event.args.elementCount, 0);
+  assert.ok(restyled < 300, `five chunks restyled ${restyled} elements of a 300-block reply`);
+});
+
 // A loading line under a stacked spinner sat about 12px below the middle.
 test('a loading state keeps its spinner beside the line, the line on the centre', async (t) => {
   const page = await openPage(

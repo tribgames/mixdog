@@ -40,11 +40,24 @@ function RunInTerminal({ code }: { code: string }) {
 }
 
 /** Tables wrap inside the transcript column and never scroll sideways. */
-function MarkdownTable({ children, 'data-md-unit': unit }: { children?: ReactNode; 'data-md-unit'?: string }) {
+function MarkdownTable({
+  children,
+  'data-md-unit': unit,
+  'data-wide': wide,
+  'data-narrow': narrow,
+}: {
+  children?: ReactNode;
+  'data-md-unit'?: string;
+  /** Six or more columns / under four (markdown-ast markTableColumns). */
+  'data-wide'?: boolean;
+  'data-narrow'?: boolean;
+}) {
   return (
     <div className="markdown-table-frame" data-md-unit={unit}>
       <div className="markdown-table">
-        <table>{children}</table>
+        <table data-wide={wide ? '' : undefined} data-narrow={narrow ? '' : undefined}>
+          {children}
+        </table>
       </div>
     </div>
   );

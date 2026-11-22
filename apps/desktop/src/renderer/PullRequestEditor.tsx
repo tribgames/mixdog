@@ -21,6 +21,7 @@ import {
   relativeAge,
 } from './pull-requests-model';
 import type { PullRequestDetailTab, PullRequestViewMode } from './pull-requests-model';
+import { emptyStateHost } from './empty-state-host';
 
 export function PullRequestEditor({
   projectPath,
@@ -205,7 +206,7 @@ export function PullRequestEditor({
       <div className="workspace-pr-editor-scroll">
         {detailError && <ErrorNotice error={detailError} onRetry={() => reload()} />}
         {!detail && !detailError && (
-          <p className="utility-dock-empty mx-empty-state">
+          <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
             <ProgressSpinner size={14} aria-hidden="true" /> {t('Loading pull request…')}
           </p>
         )}

@@ -20,6 +20,7 @@ import { displayProjectTitle } from './project-folder-label';
 import { projectEditorDialogModule } from './first-screen-deferred';
 import { useDeferredModule } from './deferred-module';
 import { useDeferredOpen } from './use-deferred-open';
+import { emptyStateHost } from './empty-state-host';
 
 export interface ProjectListSectionProps {
   active?: boolean;
@@ -171,7 +172,7 @@ export function ProjectListSection({
       )}
       <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
       {(projectsReady || projects.length > 0) && visible.length === 0 && (
-        <div className="utility-dock-empty mx-empty-state">
+        <div className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
           <p>{t('No projects.')}</p>
         </div>
       )}

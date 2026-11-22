@@ -4,7 +4,7 @@
    pane's own classes. */
 
 /* The ⋯ menu is portalled to <body>: lift it over this overlay. */
-html:has(.remote-screen-overlay) {
+html[data-remote-screen] {
   --mx-menu-z-index: 400;
 }
 

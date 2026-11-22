@@ -9,6 +9,7 @@ import { revealFileFromWindow } from './server-transfers';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { explorerAbsolutePath } from './explorer-tree-model';
 import { copyTextToClipboard } from './text-format';
+import { emptyStateHost } from './empty-state-host';
 
 export default function EditorSideMarkdownPreview({
   projectPath,
@@ -132,7 +133,7 @@ export default function EditorSideMarkdownPreview({
         <div className="editor-md-layout">
           <div className="editor-md-surface" ref={surfaceRef}>
             {error ? (
-              <div className="editor-pane-notice mx-empty-state" role="alert">
+              <div className="editor-pane-notice mx-empty-state" ref={emptyStateHost} role="alert">
                 {error}
               </div>
             ) : (

@@ -19,6 +19,7 @@ import { SidebarPanelHeaderSlot, toggleHeading } from './session-sidebar-section
 import { SessionRowStatusIcon } from './session-status-mark';
 import type { StudioApi } from './studio-support';
 import { errorMessage } from './editor-pane-session-errors';
+import { emptyStateHost } from './empty-state-host';
 
 /** The count at a row's end, or the running spinner while a run in it is in flight. */
 function RowEnd({ count, working, name }: { count: number; working: boolean; name: string }) {
@@ -241,7 +242,7 @@ export function StudioPanel({
             )}
             {shownBoards.map(boardRow)}
             {loaded && !creating && shownBoards.length === 0 && (
-              <p className="sidebar-section-empty studio-board-empty mx-empty-state">
+              <p className="sidebar-section-empty studio-board-empty mx-empty-state" ref={emptyStateHost}>
                 {needle ? t('No results') : t('No boards yet.')}
               </p>
             )}

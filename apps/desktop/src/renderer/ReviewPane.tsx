@@ -16,6 +16,7 @@ import { DownloadSessionContext, startProjectFileDownload } from './project-file
 import { copyTextToClipboard } from './text-format';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { describeSourceControlError, SourceControlErrorNotice } from './SourceControlErrorNotice';
+import { emptyStateHost } from './empty-state-host';
 
 interface GitPanelStatus {
   repository: boolean;
@@ -122,7 +123,9 @@ type DiffState = string | null | { error: string };
 function ReviewNotice({ children }: { children: ReactNode }) {
   return (
     <div className="review-pane">
-      <p className="review-empty mx-empty-state">{children}</p>
+      <p className="review-empty mx-empty-state" ref={emptyStateHost}>
+        {children}
+      </p>
     </div>
   );
 }
@@ -174,13 +177,25 @@ function ReviewFileSection({
       </div>
     );
   } else if (patch === undefined || patch === null) {
-    fileBody = <p className="review-empty mx-empty-state">{t('Loading diff…')}</p>;
+    fileBody = (
+      <p className="review-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Loading diff…')}
+      </p>
+    );
   } else if (typeof patch === 'object') {
-    fileBody = <p className="review-empty mx-empty-state">{patch.error}</p>;
+    fileBody = (
+      <p className="review-empty mx-empty-state" ref={emptyStateHost}>
+        {patch.error}
+      </p>
+    );
   } else if (patch) {
     fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
   } else {
-    fileBody = <p className="review-empty mx-empty-state">{t('No textual diff for this file.')}</p>;
+    fileBody = (
+      <p className="review-empty mx-empty-state" ref={emptyStateHost}>
+        {t('No textual diff for this file.')}
+      </p>
+    );
   }
   return (
     <section className="review-file" data-open={open || undefined}>
@@ -542,7 +557,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       {actionError && <SourceControlErrorNotice error={actionError} className="review-git-error" />}
       <div className="review-scroll">
         {changed.length === 0 && (
-          <div className="review-empty-state mx-empty-state">
+          <div className="review-empty-state mx-empty-state" ref={emptyStateHost}>
             <p className="review-empty">
               {base === 'HEAD' ? t('Working tree clean.') : t('No changes vs {{base}}.', { base })}
             </p>

@@ -1,4 +1,5 @@
 import { isPendingLocalPathMention } from './markdown-plugins';
+import { markdownWorkCounts } from './markdown-work-counts';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
 import { healStreamingMarkdownTail as healMarkdownTail } from '../shared/core-src/ui/streaming-markdown-heal.mjs';
 
@@ -8,71 +9,58 @@ export function healStreamingMarkdownTail(text: string): string {
 
 interface StreamingMarkdownCache {
   stableText: string;
-  stableChunks: string[];
-  stableChunkKeys: string[];
+  /** Counts resets (frozenGeneration). */
+  generation: number;
   sourceText: string;
   scanOffset: number;
   fenceMarker: string;
   fenceLength: number;
-  boundaries: number[];
-  scannedCharacters: number;
+  /** A fence is open and the blocks before it are frozen. */
+  fenceFrozen: boolean;
+}
+
+/** A block of a live reply that completed: it never changes again. */
+export interface FrozenMarkdownChunk {
+  text: string;
+  /** Where it starts in the reply. */
+  start: number;
 }
 
 interface StreamingMarkdownParts {
-  stableChunks: readonly string[];
-  stableChunkKeys: readonly string[];
+  /** The blocks this text completed, in order, since the previous call. */
+  added: readonly FrozenMarkdownChunk[];
+  /** Changes when the text stopped continuing what was frozen: every block
+   *  frozen before is gone. */
+  generation: number;
   unstableText: string;
-  unstableKey: string;
+  /** Where the open block starts in the reply. */
+  unstableStart: number;
   parseUnstable: boolean;
 }
 
 export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 64 * 1024;
 const STREAM_APPEND_PROBE_CHARS = 128;
-const nonPlainTextMarkdownSyntax = /[\\`*_[\]<>|&$]/;
-const gfmAutolink = /\b(?:https?:\/\/|www\.)/i;
-const gfmStrikethrough = /~~/;
-const blockMarkdownSyntax = /(^|\n)\s{0,3}(?:#{1,6}\s|>\s?|[-+]\s|\d+[.)]\s|---+\s*$)/;
-
 export function createStreamingMarkdownCache(): StreamingMarkdownCache {
   return {
     stableText: '',
-    stableChunks: [],
-    stableChunkKeys: [],
+    generation: 0,
     sourceText: '',
     scanOffset: 0,
     fenceMarker: '',
     fenceLength: 0,
-    boundaries: [],
-    scannedCharacters: 0,
+    fenceFrozen: false,
   };
 }
 
 function resetCache(cache: StreamingMarkdownCache): void {
-  Object.assign(cache, createStreamingMarkdownCache());
+  Object.assign(cache, createStreamingMarkdownCache(), { generation: cache.generation + 1 });
 }
 
 function rewindTail(cache: StreamingMarkdownCache): void {
   cache.scanOffset = cache.stableText.length;
   cache.fenceMarker = '';
   cache.fenceLength = 0;
-  cache.boundaries = [];
-}
-
-function markdownChunkKey(offset: number): string {
-  return `chunk-${Math.max(0, Math.round(offset))}`;
-}
-
-/** One literal line needs no GFM parser. */
-export function isPlainTextMarkdown(text: string): boolean {
-  const value = String(text ?? '');
-  return (
-    Boolean(value) &&
-    !value.includes('\n') &&
-    !nonPlainTextMarkdownSyntax.test(value) &&
-    !gfmAutolink.test(value) &&
-    !gfmStrikethrough.test(value) &&
-    !blockMarkdownSyntax.test(value)
-  );
+  cache.fenceFrozen = false;
 }
 
 // Engine streaming tails are append-only in normal operation. Bounded probes
@@ -87,17 +75,17 @@ function continuesStreamingText(previous: string, next: string): boolean {
   return next.slice(tailStart, previous.length) === previous.slice(tailStart);
 }
 
-// Incrementally track fence state and complete-line scan cost. Open fences use
-// this cheap path so a multi-thousand-line code stream is never reparsed from
-// byte zero on every renderer frame.
+// Incrementally track fence state. An open fence's block starts are found once,
+// so a multi-thousand-line code stream is never rescanned on every renderer
+// frame.
 function scanStreamingMarkdownLines(text: string, cache: StreamingMarkdownCache): void {
   let lineStart = cache.scanOffset;
   while (lineStart < text.length) {
     const newline = text.indexOf('\n', lineStart);
     if (newline < 0) break;
     const rawLine = text.slice(lineStart, newline).replace(/\r$/, '');
-    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(rawLine);
-    if (fence) {
+    const fence = /^\s{0,3}(`{3,}|~{3,}|\${2,})(.*)$/.exec(rawLine);
+    if (fence && !(fence[1][0] === '$' && !cache.fenceMarker && fence[2].includes('$'))) {
       const marker = fence[1][0];
       if (!cache.fenceMarker) {
         cache.fenceMarker = marker;
@@ -105,12 +93,9 @@ function scanStreamingMarkdownLines(text: string, cache: StreamingMarkdownCache)
       } else if (marker === cache.fenceMarker && fence[1].length >= cache.fenceLength && !fence[2].trim()) {
         cache.fenceMarker = '';
         cache.fenceLength = 0;
+        cache.fenceFrozen = false;
       }
-    } else if (!cache.fenceMarker && !rawLine.trim()) {
-      cache.boundaries.push(newline + 1);
-      if (cache.boundaries.length > 2) cache.boundaries.shift();
     }
-    cache.scannedCharacters += newline + 1 - lineStart;
     lineStart = newline + 1;
   }
   cache.scanOffset = lineStart;
@@ -121,20 +106,17 @@ function scanStreamingMarkdownLines(text: string, cache: StreamingMarkdownCache)
 function stableMarkdownBoundaries(text: string, cache: StreamingMarkdownCache): number[] {
   scanStreamingMarkdownLines(text, cache);
   const base = cache.stableText.length;
-  if (cache.fenceMarker) {
-    let beforeFence: number | undefined;
-    for (let index = cache.boundaries.length - 1; index >= 0; index -= 1) {
-      const position = cache.boundaries[index];
-      if (position > base) {
-        beforeFence = position;
-        break;
-      }
-    }
-    return beforeFence === undefined ? [] : [beforeFence];
-  }
-  return markdownBlockStarts(text.slice(base))
-    .slice(1)
-    .map((offset) => base + offset);
+  const starts = () =>
+    markdownBlockStarts(text.slice(base))
+      .slice(1)
+      .map((offset) => base + offset);
+  if (!cache.fenceMarker) return starts();
+  // Until it closes, what follows the fence's opening line is its own: the
+  // blocks before it (a list item it sits in included) are found once, and
+  // later text inside the fence adds none.
+  if (cache.fenceFrozen) return [];
+  cache.fenceFrozen = true;
+  return starts();
 }
 
 /* Top-level block starts matching remark-parse (micromark)
@@ -169,7 +151,9 @@ interface ScanBlock {
 const CODE_INDENT = 4;
 const reAtxHeading = /#{1,6}(?:[ \t]+|$)/y;
 const reCodeFence = /`{3,}(?!.*`)|~{3,}/y;
-const reClosingCodeFence = /(?:`{3,}|~{3,})(?=[ \t]*$)/y;
+// remark-math's display math opens and closes like a fence.
+const reMathFence = /\${2,}(?!.*\$)/y;
+const reClosingCodeFence = /(?:`{3,}|~{3,}|\${2,})(?=[ \t]*$)/y;
 const reSetextUnderline = /(?:=+|-+)[ \t]*$/y;
 const reThematicBreak = /(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/y;
 const reOrderedMarker = /(\d{1,9})([.)])/y;
@@ -665,7 +649,12 @@ class MarkdownBlockScanner {
         this.offset = line.length;
         return 2;
       }
-      const fence = c === '`' || c === '~' ? matchAt(reCodeFence, line, start) : null;
+      const fence =
+        c === '`' || c === '~'
+          ? matchAt(reCodeFence, line, start)
+          : c === '$'
+            ? matchAt(reMathFence, line, start)
+            : null;
       if (fence) {
         this.closeUnmatchedBlocks();
         const code = this.addChild('code', start);
@@ -821,46 +810,36 @@ export function markdownBlockStarts(text: string): number[] {
   return new MarkdownBlockScanner().scan(String(text ?? ''));
 }
 
-function freezeStableChunks(value: string, cache: StreamingMarkdownCache): void {
+function freezeStableChunks(value: string, cache: StreamingMarkdownCache): FrozenMarkdownChunk[] {
+  const added: FrozenMarkdownChunk[] = [];
   for (const boundary of stableMarkdownBoundaries(value, cache)) {
+    markdownWorkCounts.splitterBoundaries += 1;
     if (boundary <= cache.stableText.length || boundary > value.length) continue;
-    const chunk = value.slice(cache.stableText.length, boundary);
+    const start = cache.stableText.length;
+    const chunk = value.slice(start, boundary);
     if (!chunk) continue;
-    const chunkKey = markdownChunkKey(cache.stableText.length);
     cache.stableText += chunk;
-    cache.stableChunks = [...cache.stableChunks, chunk];
-    cache.stableChunkKeys = [...cache.stableChunkKeys, chunkKey];
+    added.push({ text: chunk, start });
   }
-  cache.boundaries = cache.boundaries.filter((position) => position > cache.stableText.length);
+  return added;
 }
 
-function projectCache(value: string, cache: StreamingMarkdownCache): StreamingMarkdownParts {
+/** The live reply `text` against what `cache` froze of it before: the blocks
+ *  it completed, and its open block. */
+export function resolveStreamingMarkdownChunks(text: string, cache: StreamingMarkdownCache): StreamingMarkdownParts {
+  const value = String(text ?? '');
+  if (!continuesStreamingText(cache.sourceText, value)) {
+    if (cache.stableText && value.startsWith(cache.stableText)) rewindTail(cache);
+    else resetCache(cache);
+  }
+  const added = freezeStableChunks(value, cache);
   cache.sourceText = value;
   const unstableText = value.slice(cache.stableText.length);
   return {
-    stableChunks: cache.stableChunks,
-    stableChunkKeys: cache.stableChunkKeys,
+    added,
+    generation: cache.generation,
     unstableText,
-    unstableKey: markdownChunkKey(cache.stableText.length),
+    unstableStart: cache.stableText.length,
     parseUnstable: unstableText.length <= MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS,
   };
-}
-
-export function resolveStreamingMarkdownChunks(
-  text: string,
-  streaming: boolean,
-  cache: StreamingMarkdownCache
-): StreamingMarkdownParts {
-  const value = String(text ?? '');
-  const keepsFrozen = () => Boolean(cache.stableText) && value.startsWith(cache.stableText);
-  if (!continuesStreamingText(cache.sourceText, value)) {
-    if (keepsFrozen()) rewindTail(cache);
-    else resetCache(cache);
-  }
-  if (!streaming) {
-    if (!keepsFrozen()) resetCache(cache);
-    return { ...projectCache(value, cache), parseUnstable: true };
-  }
-  freezeStableChunks(value, cache);
-  return projectCache(value, cache);
 }

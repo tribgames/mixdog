@@ -21,6 +21,7 @@ import {
   type StatsView,
 } from './usage-stats-model';
 import { UsagePeriodControls, usagePeriodOptions } from './UsagePeriodControls';
+import { emptyStateHost } from './empty-state-host';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 50;
@@ -337,7 +338,9 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
             {!loading && !requests.length && (
               <tr>
                 <td className="usage-empty" colSpan={COLUMNS.length}>
-                  <div className="mx-empty-state">{t('No requests recorded in this period.')}</div>
+                  <div className="mx-empty-state" ref={emptyStateHost}>
+                    {t('No requests recorded in this period.')}
+                  </div>
                 </td>
               </tr>
             )}

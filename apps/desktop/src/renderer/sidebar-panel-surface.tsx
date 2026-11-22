@@ -1,5 +1,6 @@
 import { Component, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { t } from './i18n';
+import { emptyStateHost } from './empty-state-host';
 
 /**
  * Shared lifecycle helpers for the rail destinations hosted in the session
@@ -68,7 +69,7 @@ export class SidebarPanelBoundary extends Component<
         aria-hidden={active ? undefined : true}
       >
         <div className="schedules-page">
-          <div className="schedules-empty mx-empty-state" role="status">
+          <div className="schedules-empty mx-empty-state" ref={emptyStateHost} role="status">
             <p>{t('{{label}} could not be loaded.', { label: t(label) })}</p>
             <button type="button" className="sidebar-panel-retry" onClick={this.retry}>
               {t('Retry')}

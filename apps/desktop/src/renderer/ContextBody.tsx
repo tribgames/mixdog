@@ -7,6 +7,7 @@ import { statsCount, statsMoney, statsNumber, statsPercent, statsSpeed, statsTok
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
+import { emptyStateHost } from './empty-state-host';
 
 type Row = Record<string, unknown>;
 
@@ -212,7 +213,7 @@ export function ContextBody({
     breakdown = (
       <section className="context-mix" aria-labelledby="context-mix-title">
         <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
-        <p className="settings-loading mx-empty-state" role="status">
+        <p className="settings-loading mx-empty-state" ref={emptyStateHost} role="status">
           {t('Loading…')}
         </p>
       </section>

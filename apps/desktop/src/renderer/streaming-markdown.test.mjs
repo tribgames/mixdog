@@ -1,130 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import remarkMath from 'remark-math';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 
 import {
   createStreamingMarkdownCache,
   markdownBlockStarts,
-  MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS,
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 
-const parser = unified().use(remarkParse);
+const chunksOf = (parts) => parts.added.map((block) => block.text);
+
+// The renderer's block structure: display math is a block (markdown-ast).
+const parser = unified().use(remarkParse).use(remarkMath);
 
 function remarkBlockStarts(text) {
   return parser
     .parse(text)
     .children.map((child) => Number(child.position?.start.offset))
     .filter((offset) => Number.isFinite(offset) && offset >= 0);
-}
-
-// The splitter as it was before the line scanner: identical except that the
-// non-fence boundaries came from a remark parse of the tail.
-function createParseSplitter() {
-  const fresh = () => ({
-    stableText: '',
-    stableChunks: [],
-    stableChunkKeys: [],
-    sourceText: '',
-    scanOffset: 0,
-    fenceMarker: '',
-    fenceLength: 0,
-    boundaries: [],
-  });
-  const cache = fresh();
-  const key = (offset) => `chunk-${Math.max(0, Math.round(offset))}`;
-  const continues = (previous, next) => {
-    if (!previous || previous === next) return true;
-    if (next.length < previous.length) return false;
-    const headLength = Math.min(128, previous.length);
-    if (next.slice(0, headLength) !== previous.slice(0, headLength)) return false;
-    const tailStart = Math.max(headLength, previous.length - 128);
-    return next.slice(tailStart, previous.length) === previous.slice(tailStart);
-  };
-  const scan = (text) => {
-    let lineStart = cache.scanOffset;
-    while (lineStart < text.length) {
-      const newline = text.indexOf('\n', lineStart);
-      if (newline < 0) break;
-      const rawLine = text.slice(lineStart, newline).replace(/\r$/, '');
-      const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(rawLine);
-      if (fence) {
-        const marker = fence[1][0];
-        if (!cache.fenceMarker) {
-          cache.fenceMarker = marker;
-          cache.fenceLength = fence[1].length;
-        } else if (marker === cache.fenceMarker && fence[1].length >= cache.fenceLength && !fence[2].trim()) {
-          cache.fenceMarker = '';
-          cache.fenceLength = 0;
-        }
-      } else if (!cache.fenceMarker && !rawLine.trim()) {
-        cache.boundaries.push(newline + 1);
-        if (cache.boundaries.length > 2) cache.boundaries.shift();
-      }
-      lineStart = newline + 1;
-    }
-    cache.scanOffset = lineStart;
-  };
-  const boundaries = (text) => {
-    scan(text);
-    const base = cache.stableText.length;
-    if (cache.fenceMarker) {
-      const beforeFence = [...cache.boundaries].reverse().find((position) => position > base);
-      return beforeFence === undefined ? [] : [beforeFence];
-    }
-    return remarkBlockStarts(text.slice(base))
-      .slice(1)
-      .map((offset) => base + offset);
-  };
-  return (value, streaming) => {
-    if (!continues(cache.sourceText, value)) Object.assign(cache, fresh());
-    if (!streaming) {
-      if (cache.stableText && value.startsWith(cache.stableText)) {
-        cache.sourceText = value;
-        return {
-          stableChunks: cache.stableChunks,
-          stableChunkKeys: cache.stableChunkKeys,
-          unstableText: value.slice(cache.stableText.length),
-          unstableKey: key(cache.stableText.length),
-          parseUnstable: true,
-        };
-      }
-      Object.assign(cache, fresh());
-      cache.sourceText = value;
-      return { stableChunks: [], stableChunkKeys: [], unstableText: value, unstableKey: key(0), parseUnstable: true };
-    }
-    for (const boundary of boundaries(value)) {
-      if (boundary <= cache.stableText.length || boundary > value.length) continue;
-      const chunk = value.slice(cache.stableText.length, boundary);
-      if (!chunk) continue;
-      const chunkKey = key(cache.stableText.length);
-      cache.stableText += chunk;
-      cache.stableChunks = [...cache.stableChunks, chunk];
-      cache.stableChunkKeys = [...cache.stableChunkKeys, chunkKey];
-    }
-    cache.boundaries = cache.boundaries.filter((position) => position > cache.stableText.length);
-    cache.sourceText = value;
-    const unstableText = value.slice(cache.stableText.length);
-    return {
-      stableChunks: cache.stableChunks,
-      stableChunkKeys: cache.stableChunkKeys,
-      unstableText,
-      unstableKey: key(cache.stableText.length),
-      parseUnstable: unstableText.length <= MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS,
-    };
-  };
-}
-
-function snapshot(parts) {
-  return {
-    stableChunks: [...parts.stableChunks],
-    stableChunkKeys: [...parts.stableChunkKeys],
-    unstableText: parts.unstableText,
-    unstableKey: parts.unstableKey,
-    parseUnstable: parts.parseUnstable,
-  };
 }
 
 const REPRESENTATIVE = {
@@ -215,6 +111,24 @@ const REPRESENTATIVE = {
     'next',
     '',
     'plain',
+  ].join('\n'),
+  'fence in a list item': [
+    '1. Install:',
+    '',
+    '   ```bash',
+    '   npm i',
+    '',
+    '   npm run build',
+    '   ```',
+    '',
+    '2. Next step',
+    '',
+    '> quoted:',
+    '>',
+    '> ```',
+    '> code',
+    '> ```',
+    'After.',
   ].join('\n'),
   'unfinished fence': [
     'Here is the script:',
@@ -344,56 +258,26 @@ test('block starts match remark-parse on generated markdown', () => {
   }
 });
 
-test('streamed chunks, keys and live tail match the parse-based splitter', () => {
-  for (const [name, text] of Object.entries(REPRESENTATIVE)) {
-    for (const step of [1, 3, 7, 16]) {
-      const cache = createStreamingMarkdownCache();
-      const previous = createParseSplitter();
-      for (let end = step; ; end = Math.min(text.length, end + step)) {
-        const prefix = text.slice(0, end);
-        assert.deepEqual(
-          snapshot(resolveStreamingMarkdownChunks(prefix, true, cache)),
-          snapshot(previous(prefix, true)),
-          `${name} step ${step} @${end}`
-        );
-        if (end === text.length) break;
-      }
-      assert.deepEqual(
-        snapshot(resolveStreamingMarkdownChunks(text, false, cache)),
-        snapshot(previous(text, false)),
-        `${name} step ${step} settled`
-      );
-    }
-  }
-});
-
 test('a rewritten live tail keeps the frozen blocks it still starts with', () => {
   const cache = createStreamingMarkdownCache();
-  const before = resolveStreamingMarkdownChunks('# Plan\n\nFirst paragraph.\n\nA tail that keeps growing', true, cache);
-  assert.deepEqual(before.stableChunks, ['# Plan\n\n', 'First paragraph.\n\n']);
-  const rewritten = resolveStreamingMarkdownChunks(
-    '# Plan\n\nFirst paragraph.\n\nA tail\n\n```js\nrun();',
-    true,
-    cache
-  );
-  assert.deepEqual(rewritten.stableChunks, ['# Plan\n\n', 'First paragraph.\n\n', 'A tail\n\n']);
-  assert.deepEqual(rewritten.stableChunkKeys.slice(0, 2), before.stableChunkKeys);
+  const before = resolveStreamingMarkdownChunks('# Plan\n\nFirst paragraph.\n\nA tail that keeps growing', cache);
+  assert.deepEqual(chunksOf(before), ['# Plan\n\n', 'First paragraph.\n\n']);
+  const rewritten = resolveStreamingMarkdownChunks('# Plan\n\nFirst paragraph.\n\nA tail\n\n```js\nrun();', cache);
+  assert.deepEqual(chunksOf(rewritten), ['A tail\n\n']);
+  assert.equal(rewritten.added[0].start, '# Plan\n\nFirst paragraph.\n\n'.length);
+  assert.equal(rewritten.generation, before.generation, 'the frozen blocks stand');
   assert.equal(rewritten.unstableText, '```js\nrun();');
-  const replaced = resolveStreamingMarkdownChunks('Another reply', true, cache);
-  assert.deepEqual(replaced.stableChunks, []);
+  const replaced = resolveStreamingMarkdownChunks('Another reply', cache);
+  assert.notEqual(replaced.generation, before.generation, 'none of them stands');
+  assert.deepEqual(chunksOf(replaced), []);
   assert.equal(replaced.unstableText, 'Another reply');
 });
 
 test('the live tail freezes every completed top-level block', () => {
   const cache = createStreamingMarkdownCache();
   const text = '# Plan\n\n- one\n- two\n\n```js\nrun();\n```\n\n| a |\n|---|\n\nTail';
-  const parts = resolveStreamingMarkdownChunks(text, true, cache);
-  assert.deepEqual(parts.stableChunks, [
-    '# Plan\n\n',
-    '- one\n- two\n\n',
-    '```js\nrun();\n```\n\n',
-    '| a |\n|---|\n\n',
-  ]);
+  const parts = resolveStreamingMarkdownChunks(text, cache);
+  assert.deepEqual(chunksOf(parts), ['# Plan\n\n', '- one\n- two\n\n', '```js\nrun();\n```\n\n', '| a |\n|---|\n\n']);
   assert.equal(parts.unstableText, 'Tail');
   assert.equal(parts.parseUnstable, true);
 });

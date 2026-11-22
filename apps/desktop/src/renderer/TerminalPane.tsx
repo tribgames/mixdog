@@ -44,6 +44,7 @@ import {
   sendSizeOwnerHeartbeat,
   sendSizeOwnerRelease,
 } from './terminal-size-owner';
+import { emptyStateHost } from './empty-state-host';
 
 /** Quiet period before a layout change re-fits and resizes the PTY. */
 const FIT_DEBOUNCE_MS = 50;
@@ -858,6 +859,7 @@ export default function TerminalPane({
       {serverLink?.terminalsAvailable === false ? (
         <div
           className="terminal-connection-note mx-empty-state mx-empty-state-cover"
+          ref={emptyStateHost}
           data-kind="unavailable"
           role="note"
         >

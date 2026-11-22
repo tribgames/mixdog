@@ -1,5 +1,6 @@
 import { ChevronRight, Monitor } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useRootFlag } from './expanded-surface-flag';
 
 import type { RemoteScreenDisplaySummary } from '../shared/remote-webrtc';
 import { ErrorNotice } from './ErrorNotice';
@@ -94,6 +95,7 @@ function RemoteScreenOverlay() {
   const [listing, setListing] = useState(0);
   const style = useVisibleViewportStyle();
   useMobileBack(true, closeRemoteScreen);
+  useRootFlag('data-remote-screen', true);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `listing` re-lists the displays (a removed display, a retry).
   useEffect(() => {

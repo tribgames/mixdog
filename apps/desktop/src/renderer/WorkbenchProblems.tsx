@@ -4,6 +4,7 @@ import { ChevronRight, CircleX, FileText, Filter, Info, Lightbulb, TriangleAlert
 import { getEditorLanguageSnapshot, subscribeEditorLanguageStore, type EditorProblem } from './editor-language-store';
 import { t } from './i18n';
 import { RowOverflowMenu } from './RowOverflowMenu';
+import { emptyStateHost } from './empty-state-host';
 
 export interface ProblemsPanelFilter {
   query: string;
@@ -261,10 +262,15 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
     else if (event.key === 'Enter') openProblem(problem);
   };
 
-  if (!projectPath) return <p className="utility-dock-empty mx-empty-state">{t('Open a project to view problems.')}</p>;
+  if (!projectPath)
+    return (
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
+        {t('Open a project to view problems.')}
+      </p>
+    );
   if (!rows.length) {
     return (
-      <p className="utility-dock-empty mx-empty-state">
+      <p className="utility-dock-empty mx-empty-state" ref={emptyStateHost}>
         {filter.query || filter.activeFileOnly
           ? t('No problems match the current filters.')
           : t('No problems detected.')}

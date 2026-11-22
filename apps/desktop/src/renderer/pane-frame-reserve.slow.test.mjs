@@ -215,6 +215,7 @@ async function layout(page, html, { theme = 'dark', folded = false } = {}) {
       )) {
         node.remove();
       }
+      document.documentElement.removeAttribute('data-surface-expanded');
       document.getElementById('root').innerHTML = `
         <div class="app-shell${foldedOn ? ' sidebar-collapsed' : ''}">
           <main class="main-panel" style="position:absolute;left:${panel.left}px;top:${panel.top}px;width:${panel.width}px;height:${panel.height}px">${markup}</main>
@@ -473,6 +474,8 @@ test('inline → expanded → inline keeps the column, with the spacer and with 
                 node.dataset.expanded = 'true';
                 node.style.cssText = `position:fixed;left:${panel.left}px;top:${panel.top}px;width:${panel.width}px;height:${panel.height}px`;
                 document.body.append(node);
+                // As the surfaces do (expanded-surface-flag).
+                document.documentElement.setAttribute('data-surface-expanded', '');
               },
               surface,
               PANEL
@@ -491,6 +494,7 @@ test('inline → expanded → inline keeps the column, with the spacer and with 
           if (surface) {
             await page.evaluate(() => {
               for (const node of document.querySelectorAll('body > [class$="-surface-container"]')) node.remove();
+              document.documentElement.removeAttribute('data-surface-expanded');
             });
           }
           await setDock(page, id, { open: true, placement });

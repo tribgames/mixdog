@@ -13,6 +13,7 @@ import { acquireTitleBarDim } from '../titlebar-dim';
 
 import type { SettingsConfirmation } from './capability-data';
 import { openModal } from './dialog-modality';
+import { emptyStateHost } from '../empty-state-host';
 
 export function Group({
   title,
@@ -507,5 +508,9 @@ export function Empty({ text }: { text: string }) {
 }
 
 export function ListEmpty({ text }: { text: string }) {
-  return <p className="settings-empty settings-empty-list mx-empty-state">{text}</p>;
+  return (
+    <p className="settings-empty settings-empty-list mx-empty-state" ref={emptyStateHost}>
+      {text}
+    </p>
+  );
 }

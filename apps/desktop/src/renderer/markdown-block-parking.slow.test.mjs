@@ -233,9 +233,22 @@ function replyAssets() {
         contents: `
           import { createElement, useLayoutEffect, useRef, useState } from 'react';
           import { createRoot } from 'react-dom/client';
-          import MarkdownAstBody from './MarkdownAstBody';
+          import { MarkdownDocumentView } from './MarkdownDocumentView';
+          import { markdownPagesOf } from './markdown-document';
           import { createBlockParking, MarkdownBlockParkingContext } from './markdown-block-parking';
           const Copy = () => null;
+          // Each body's children are units b<body>:<child>; a body without a
+          // tree is one whose parse is still to land. While the reply grows its
+          // last body and the unit before it are held.
+          function unitsOf(bodies, growing) {
+            const units = bodies.flatMap((root, body) => root
+              ? root.children.map((node, child) => ({ key: 'b' + body + ':' + child, node, base: 0, from: 0, end: 0, held: false }))
+              : [{ key: 'b' + body + ':wait', node: null, base: 0, from: 0, end: 0, held: false, text: '', pending: true }]);
+            if (!growing) return units;
+            const last = 'b' + (bodies.length - 1) + ':';
+            const first = units.findIndex((unit) => unit.key.startsWith(last));
+            return units.map((unit, index) => (index >= first - 1 ? { ...unit, held: true } : unit));
+          }
           function Reply({ bodies, parks, growing }) {
             const ref = useRef(null);
             const [parking] = useState(createBlockParking);
@@ -243,10 +256,7 @@ function replyAssets() {
             if (parks) window.replyParking = parking;
             return createElement(MarkdownBlockParkingContext.Provider, { value: parks ? parking : null },
               createElement('div', { ref, className: growing ? 'markdown streaming' : 'markdown' },
-                // A body without a tree is one whose parse is still to land.
-                bodies.map((root, index) => root
-                  ? createElement(MarkdownAstBody, { key: index, root, copyControl: Copy })
-                  : createElement('span', { key: index, hidden: true }))));
+                createElement(MarkdownDocumentView, { root: markdownPagesOf(unitsOf(bodies, growing)), fadeTimeline: null, copyControl: Copy })));
           }
           const replies = new Map();
           // The reply in pane \`id\`, as these bodies; \`growing\`: still arriving.
@@ -615,12 +625,12 @@ test('nothing is kept for the code of a body that left its reply', async (t) => 
     window.show(2)`);
   const top = (await page.evaluate('window.codeOf("whole")')).lines[0];
   await page.evaluate(`window.scrollBoth(${top + 500 - 100})`);
-  // The code is the first of its body: its place, and its parked stretches.
+  // The code is the first of its block: its place, and its parked stretches.
   const code = await page.evaluate(`(() => {
     const code = document.querySelector('#parked .markdown-code code:has([data-line])');
     const unit = code.closest('[data-md-unit]').getAttribute('data-md-unit');
     return {
-      place: unit.slice(0, unit.lastIndexOf(':')) + '/0',
+      place: unit + '/0',
       parked: [...code.children].map((node) => node.getAttribute('data-md-parked')).filter(Boolean),
     };
   })()`);

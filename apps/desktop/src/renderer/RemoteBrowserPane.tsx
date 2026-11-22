@@ -61,6 +61,7 @@ import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import type { BrowserPaneProps } from './BrowserPane.lazy';
+import { emptyStateHost } from './empty-state-host';
 
 type TouchDot = { x: number; y: number; size?: number; key: number };
 
@@ -955,7 +956,7 @@ function RemoteBrowserContent({
         }}
       />
       {(covered || (!imageUrl && !showsVideo)) && (
-        <div className="browser-remote-empty mx-empty-state mx-empty-state-cover">
+        <div className="browser-remote-empty mx-empty-state mx-empty-state-cover" ref={emptyStateHost}>
           {failure ? (
             <ErrorNotice error={failure} title={t('Could not connect to browser screen')} role="status" />
           ) : (

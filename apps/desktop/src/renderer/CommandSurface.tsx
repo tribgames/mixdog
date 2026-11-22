@@ -1,3 +1,4 @@
+import { emptyStateHost } from './empty-state-host';
 import { useEffect, useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
@@ -195,7 +196,7 @@ export function CommandSurface({
                 </p>
                 {surface === 'stats' && error && <ErrorNotice error={error} className="stats-error" />}
                 {!showStatsErrorOnly && showLoadingPlaceholder && (
-                  <p className="settings-loading mx-empty-state" role="status">
+                  <p className="settings-loading mx-empty-state" ref={emptyStateHost} role="status">
                     {t('Loading…')}
                   </p>
                 )}

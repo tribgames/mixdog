@@ -726,14 +726,14 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   .markdown td {
     padding: 6px;
   }
-  .markdown table:has(tr > :nth-child(6)) :is(th, td) {
+  .markdown table[data-wide] tr :is(th, td) {
     padding: 6px 3px;
   }
 }
 /* Up to three columns have the room at any width: their text keeps the
    12px inset of the code block and the cards around the table. */
 @container (max-width: 639px) {
-  .markdown table:not(:has(tr > :nth-child(4))) :is(th, td) {
+  .markdown table[data-narrow] tr :is(th, td) {
     padding-inline: 12px;
   }
 }
@@ -745,7 +745,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
 /* A word-wide floor times many columns outgrows a narrow pane (12 columns of
    8-letter words are ~800px at 375px), so a table of six or more columns goes
    back to cutting anywhere: it must fit the pane before its words stay whole. */
-.markdown table:has(tr > :nth-child(6)) :is(th, td) {
+.markdown table[data-wide] tr :is(th, td) {
   overflow-wrap: anywhere;
 }
 .markdown th {
