@@ -19,35 +19,48 @@
   justify-items: center;
   width: 100%;
 }
-/* One 44px slot on the rail's cell pitch. The mark and its meter are one
-   unit, centred in the cell as the Settings gear is in its own: the ink spans
-   10-28px and the capsule 32-34px, so the unit has the same air above it as
-   under it. */
+/* One 44px slot on the rail's cell pitch. The mark, its meter and the figure
+   are one readout, centred in the cell as the Settings gear is in its own:
+   the ink spans 6-23px, the capsule 25-27px and the figure's digits 31-38px. */
 .rail-usage-pin-brand {
   position: relative;
   display: block;
   width: 100%;
   height: 44px;
 }
-/* A 25px box inks about 18px: with the capsule under it the unit weighs what
-   the 22px Settings gear does. Odd, like the 17px capsule: an even box in the
-   47px rail stands on a half pixel and is painted half a pixel to the right
-   of the capsule under it. */
+/* A 23px box inks about 17px, the capsule's width. Odd, like the 17px
+   capsule: an even box in the 47px rail stands on a half pixel and is painted
+   half a pixel to the right of the capsule under it. */
 .rail-usage-pin-mark {
   position: absolute;
-  top: 7px;
-  left: calc(50% - 12.5px);
-  width: 25px;
-  height: 25px;
+  top: 3px;
+  left: calc(50% - 11.5px);
+  width: 23px;
+  height: 23px;
 }
 /* 17px wide so the capsules start on a whole pixel of the 47px rail. */
 .rail-usage-pin-meter {
   position: absolute;
-  top: 31px;
+  top: 24px;
   left: calc(50% - 8.5px);
   width: 17px;
   height: 5px;
   overflow: visible;
+}
+/* The figure the meter stands for, in the rail's own ink: a gauge readout,
+   regular weight, never heavier than the mark above it. */
+.rail-usage-pin-figure {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  width: 100%;
+  color: inherit;
+  font-size: 9px;
+  font-weight: var(--mx-weight-regular);
+  line-height: 10px;
+  letter-spacing: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 /* The capsule is the gauge's own ink, faint: an empty one still reads as a
    meter at zero. Not --mx-meter-track, which the light rail band swallows. */
@@ -83,15 +96,15 @@
   position: absolute;
   inset: 0;
   display: block;
-  width: 25px;
-  height: 25px;
+  width: 23px;
+  height: 23px;
 }
 /* The sparkle/star marks carry far less ink than the knot/letterforms —
    one step up keeps their optical size on the same line. */
 .rail-usage-pin-mark > svg:is([data-provider-icon="synthetic"], [data-provider-icon="google"]) {
   inset: -2px;
-  width: 29px;
-  height: 29px;
+  width: 27px;
+  height: 27px;
 }
 /* Expanded accounts: the account index sits on the mark's bottom-right
    corner, clear of the bar, bright for the account in use, muted for the
