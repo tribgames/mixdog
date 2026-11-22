@@ -247,10 +247,10 @@ impl Read for Opened {
                 if !self.pollable {
                     continue;
                 }
-            } else if let Some(cancel) = &self.cancel {
-                if cancel.fired()? {
-                    return Err(cancelled());
-                }
+            } else if let Some(cancel) = &self.cancel
+                && cancel.fired()?
+            {
+                return Err(cancelled());
             }
             match self.file.read(buf) {
                 Ok(0) => {

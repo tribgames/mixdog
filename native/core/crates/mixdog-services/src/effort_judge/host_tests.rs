@@ -196,18 +196,20 @@ async fn a_host_ends_with_its_daemon_killed_hard_while_the_host_is_loading() {
     let mut said = [0u8; 16];
     assert!(host.read(&mut said).await.unwrap() > 0, "the host says its pid");
     daemon.kill().await.expect("the daemon is killed hard");
-    // The pid line may arrive in pieces: what is left of it is read out, and the stream must then end.
-    let ended = mixdog_rt::time::timeout(HANG, async {
-        loop {
-            match host.read(&mut said).await {
-                Ok(n) if n > 0 => continue,
-                other => break other,
-            }
-        }
-    })
-    .await
-    .expect("the host is gone within the deadline after its daemon was killed");
+    let ended = mixdog_rt::time::timeout(HANG, stream_end(&mut host)).await.expect("the host is gone within the deadline after its daemon was killed");
     assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
+}
+
+/// The pid line may arrive in pieces: what is left of it is read out, then what ends the stream.
+async fn stream_end(host: &mut tokio::net::TcpStream) -> std::io::Result<usize> {
+    use tokio::io::AsyncReadExt;
+    let mut rest = [0u8; 16];
+    loop {
+        match host.read(&mut rest).await {
+            Ok(n) if n > 0 => continue,
+            other => return other,
+        }
+    }
 }
 
 /// A host that never becomes ready is killed when its start runs out on the judge's clock, the turn
@@ -238,7 +240,7 @@ async fn a_host_that_never_becomes_ready_is_killed_at_its_limit_and_the_next_jud
 
     let verdict = mixdog_rt::time::timeout(HANG, first).await.expect("the waiting turn is answered when the host is killed").unwrap();
     assert!(matches!(verdict, TurnVerdict::Skipped(_)), "{verdict:?}");
-    let ended = mixdog_rt::time::timeout(HANG, stalled.read(&mut said)).await.expect("the stalled host was killed");
+    let ended = mixdog_rt::time::timeout(HANG, stream_end(&mut stalled)).await.expect("the stalled host was killed");
     assert!(matches!(ended, Ok(0) | Err(_)), "{ended:?}");
     drop(mixdog_rt::time::timeout(HANG, judge.hold_turn()).await.expect("the turn gate was released"));
 
