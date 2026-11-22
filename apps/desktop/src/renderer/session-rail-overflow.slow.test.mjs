@@ -13,12 +13,13 @@ const HARNESS = `
   import { createRoot } from 'react-dom/client';
   import { islandAgentRows } from './agent-activity-model';
   import { useSessionGoal } from './SessionGoalIsland';
-  import { InfoSection } from './session-rail-info';
+  import { ContextSection, InfoSection } from './session-rail-info';
   import { GoalSection, TodoSection } from './session-rail-goal';
   import { AgentsSection, ShellsSection } from './session-rail-jobs';
   import { WorktreesSection } from './session-rail-worktrees';
   import { ChangesSection } from './session-rail-changes';
   import { useSessionRailFolds } from './session-rail-folds';
+  import { installScrollbarMetrics } from './scrollbar-metrics';
   import './session-rail.css';
 
   const SESSION = 'busy-session';
@@ -55,7 +56,10 @@ const HARNESS = `
     busy: true,
     contextPercent: 87,
     contextTokens: 200000,
-    stats: { inputTokens: 123456789, outputTokens: 98765432, cacheReadTokens: 876543210, costUsd: 12345.67 },
+    stats: {
+      inputTokens: 123456789, outputTokens: 98765432, cacheReadTokens: 876543210, costUsd: 12345.67,
+      currentContextTokens: 174000, currentContextSource: 'last_api_request',
+    },
     goal: {
       id: 'goal-1', status: 'blocked', title: long('Find the relay memory leak'),
       objective: long('Reproduce the leak under a long relay connection, then bisect') + ' ' + long('and fix'),
@@ -104,29 +108,49 @@ const HARNESS = `
     const fold = () => ({ open: true, onToggle: noop });
     return <aside className="session-rail" data-mode="column" style={{ width: 400, height: 3000 }}>
       <div className="session-rail-body">
-        <InfoSection {...fold()} snapshot={snapshot} sessionId={SESSION} workspace={workspace}
-          projectPath={PROJECT} projectLabel={long('Project label')} projects={[]} locked={false} agentMode={false}
-          answersModelPickerRequests={false} model={model}
-          sessionChoices={[choice('workflow', 'Workflow', long('Workflow value')), choice('mode', 'Delegation', long('Delegation value'))]}
-          onFlash={noop} onOpenCommandSurface={noop} />
-        <GoalSection model={goal} {...fold()} />
-        <TodoSection model={goal} folds={folds} {...fold()} />
-        <AgentsSection {...fold()} sessionId={SESSION} agents={islandAgentRows(pool, SESSION)} shellKeys={null} />
-        <ShellsSection {...fold()} sessionId={SESSION} shells={shells} shellKeys={null} />
-        <WorktreesSection {...fold()} sessionId={SESSION} workspace={workspace} projectPath={PROJECT} locked={false}
-          refreshKey="" onFlash={noop} />
-        <ChangesSection {...fold()} view={view} cwd={PROJECT} onOpenChanges={noop} onOpenChangeFile={noop} />
+        <div className="session-rail-content">
+          <InfoSection {...fold()} snapshot={snapshot} sessionId={SESSION} workspace={workspace}
+            projectPath={PROJECT} projectLabel={long('Project label')} projects={[]} locked={false} agentMode={false}
+            answersModelPickerRequests={false} model={model}
+            sessionChoices={[choice('workflow', 'Workflow', long('Workflow value')), choice('mode', 'Delegation', long('Delegation value'))]}
+            onFlash={noop} onOpenCommandSurface={noop} />
+          <ContextSection {...fold()} snapshot={snapshot} onViewDetails={noop} />
+          <GoalSection model={goal} {...fold()} />
+          <TodoSection model={goal} folds={folds} {...fold()} />
+          <AgentsSection {...fold()} sessionId={SESSION} agents={islandAgentRows(pool, SESSION)} poolRows={pool}
+            busy shellKeys={null} />
+          <ShellsSection {...fold()} sessionId={SESSION} shells={shells} shellKeys={null} />
+          <WorktreesSection {...fold()} sessionId={SESSION} workspace={workspace} projectPath={PROJECT} locked={false}
+            refreshKey="" onFlash={noop} />
+          <ChangesSection {...fold()} view={view} onOpenChanges={noop} onOpenChangeFile={noop} />
+        </div>
       </div>
     </aside>;
   }
-  window.mountFixture = () => createRoot(document.getElementById('root')).render(<Rail />);
+  window.mountFixture = () => {
+    // The app measures the scrollbar's reserve at start; the lists pay their inset with it.
+    installScrollbarMetrics();
+    createRoot(document.getElementById('root')).render(<Rail />);
+  };
 
-  // Every row and head: nothing past its own box, and the panel never scrolls sideways.
+  // Every row, head and foot: nothing past its own box, and neither the panel
+  // nor a list inside a sheet scrolls sideways.
   window.overflows = () => {
     const out = [];
-    const body = document.querySelector('.session-rail-body');
-    if (body.scrollWidth > body.clientWidth) out.push('panel scrolls sideways: ' + body.scrollWidth);
-    const rows = document.querySelectorAll('.session-rail-row, .session-rail-hd, .session-rail-goal-line');
+    for (const scroller of document.querySelectorAll('.session-rail-body, .session-rail-bd')) {
+      if (scroller.scrollWidth > scroller.clientWidth) {
+        const category = scroller.closest('.session-rail-sec')?.dataset.category ?? 'panel';
+        const edge = scroller.getBoundingClientRect().left + scroller.clientLeft + scroller.clientWidth;
+        const past = [...scroller.querySelectorAll('*')].filter((node) => node.getBoundingClientRect().right > edge + 0.5);
+        const widest = past.map((node) => node.className?.baseVal ?? node.className).slice(0, 3).join(' | ');
+        out.push('scrolls sideways: ' + category + ' ' + scroller.scrollWidth + ' in ' + scroller.clientWidth + ': ' + widest);
+      }
+    }
+    const rows = document.querySelectorAll(
+      '.session-rail-row, .session-rail-hd, .session-rail-ft, .session-rail-goal-line, .session-rail .composer-island-row'
+    );
+    // A head is 42px, a foot 38px over its 8px of padding, an island row two lines.
+    const tallest = (row) => (row.matches('.session-rail-hd, .session-rail-ft') ? 47 : row.matches('.composer-island-row') ? 60 : 37);
     for (const row of rows) {
       const box = row.getBoundingClientRect();
       if (row.scrollWidth > row.clientWidth + 1) out.push('scrolls: ' + row.className + ' ' + row.textContent.slice(0, 40));
@@ -143,7 +167,7 @@ const HARNESS = `
           out.push('above or below its row: ' + (child.className?.baseVal ?? child.className) + ' in ' + row.textContent.slice(0, 40));
         }
       }
-      if (box.height > 37) out.push('taller than a row: ' + box.height + ' ' + row.textContent.slice(0, 40));
+      if (box.height > tallest(row)) out.push('taller than a row: ' + box.height + ' ' + row.textContent.slice(0, 40));
     }
     return { count: rows.length, out };
   };
@@ -213,7 +237,7 @@ test('the panel at 400px with a busy session: nothing overflows its row', async 
   const categories = await page.evaluate(() =>
     [...document.querySelectorAll('.session-rail-sec')].map((section) => section.dataset.category)
   );
-  assert.deepEqual(categories, ['info', 'goal', 'todo', 'agents', 'shells', 'worktrees', 'changes']);
+  assert.deepEqual(categories, ['info', 'context', 'goal', 'todo', 'agents', 'shells', 'worktrees', 'changes']);
   assert.ok(count > 30, `rows measured: ${count}`);
   assert.equal(out.length, 0, out.join('\n'));
 });

@@ -238,13 +238,15 @@ export function TodoSection({
   // The done group starts folded, every other one open.
   const groupOpen = (group: TodoGroup) => folds.groupOpen(group.key, group.key !== 'done');
   const setAll = (value: boolean) => folds.setGroups(Object.fromEntries(groups.map((group) => [group.key, value])));
+  const current = groups.flatMap((group) => group.items).find(({ task }) => task.status === 'in_progress');
   return (
     <RailSection
       category="todo"
       title={t('To-do')}
+      count={`${progress.completed}/${progress.total}`}
       open={open}
       onToggle={onToggle}
-      summary={<span>{`${progress.completed}/${progress.total}`}</span>}
+      summary={current ? <span className="session-rail-cut">{String(current.task.content || '')}</span> : undefined}
       menu={[
         { id: 'unfold', label: t('Expand all'), disabled: groups.every(groupOpen), onSelect: () => setAll(true) },
         {
@@ -266,12 +268,12 @@ export function TodoSection({
               onClick={() => folds.setGroups({ [group.key]: !shown })}
             >
               <span>{group.name}</span>
+              <span>{group.items.length}</span>
               {shown ? (
                 <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
               ) : (
                 <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
               )}
-              <span>{group.items.length}</span>
             </button>
             {shown &&
               group.items.map(({ task }, index) => {

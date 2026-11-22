@@ -32,7 +32,7 @@ export function useIslandGitStatus(cwd: string): DesktopGitStatus | null {
   return cwd ? status : null;
 }
 
-const GIT_ROWS: { action: IslandGitAction; label: () => string; icon: typeof GitPullRequest }[] = [
+export const GIT_ROWS: { action: IslandGitAction; label: () => string; icon: typeof GitPullRequest }[] = [
   { action: 'pr', label: () => t('Create PR'), icon: GitPullRequest },
   { action: 'commit-push', label: () => t('Commit · push'), icon: ArrowUp },
   { action: 'commit', label: () => t('Commit'), icon: GitCommitHorizontal },

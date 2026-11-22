@@ -1,5 +1,6 @@
 // The session panel's body: the session's state and actions as categories,
-// drawn into the pane's panel (SessionRailColumn) from the conversation.
+// each a sheet of its own in the order the user arranged, drawn into the
+// pane's panel (SessionRailColumn) from the conversation.
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { ComposerIslandFlash } from './ComposerIsland';
@@ -9,10 +10,10 @@ import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './notifications';
 import type { RouteSessionChoice } from './route-editor-panes';
 import { SessionGoalHost } from './session-goal-submission';
-import { ChangesSection } from './session-rail-changes';
+import { ChangesSection, GitSection } from './session-rail-changes';
 import { useFoldedModelPickerRequest, useSessionRailFolds } from './session-rail-folds';
 import { GoalSection, TodoSection } from './session-rail-goal';
-import { InfoSection, type RailModelProps } from './session-rail-info';
+import { ContextSection, InfoSection, type RailModelProps } from './session-rail-info';
 import { AgentsSection, ShellsSection } from './session-rail-jobs';
 import { markSessionRailPress } from './session-rail-layout';
 import { WorktreesSection } from './session-rail-worktrees';
@@ -74,8 +75,9 @@ function SessionRailCategories(props: SessionRailProps) {
     open: folds.isOpen(category),
     onToggle: () => folds.toggle(category),
   });
-  // A group room shows no model (each member runs its own), here as under the composer.
-  const answersModelPicker = props.column && props.reviewActive && !roomIdOfSession(reviewSessionId || sessionId);
+  // A group room shows no model and no context (each member runs its own), here as under the composer.
+  const room = Boolean(roomIdOfSession(reviewSessionId || sessionId));
+  const answersModelPicker = props.column && props.reviewActive && !room;
   useFoldedModelPickerRequest(answersModelPicker, folds.isOpen('info'), () => folds.toggle('info'));
   return (
     <>
@@ -98,12 +100,21 @@ function SessionRailCategories(props: SessionRailProps) {
         onAddProject={props.onAddProject}
         onOpenCommandSurface={props.onOpenCommandSurface}
       />
+      {!room && (
+        <ContextSection
+          {...fold('context')}
+          snapshot={snapshot}
+          onViewDetails={() => props.onOpenCommandSurface('context')}
+        />
+      )}
       <GoalSection model={goal} {...fold('goal')} />
       <TodoSection model={goal} folds={folds} {...fold('todo')} />
       <AgentsSection
         {...fold('agents')}
         sessionId={sessionId}
         agents={jobs.agentRows}
+        poolRows={jobs.poolRows}
+        busy={Boolean(snapshot.busy)}
         shellKeys={jobs.shellKeys}
         onOpenSession={props.onOpenAgentSession}
       />
@@ -133,13 +144,13 @@ function SessionRailCategories(props: SessionRailProps) {
             <ChangesSection
               {...fold('changes')}
               view={view}
-              cwd={gitCwd}
               onOpenChanges={openChanges}
               onOpenChangeFile={openChangeFile}
             />
           )}
         />
       )}
+      {!agentMode && <GitSection {...fold('git')} sessionId={reviewSessionId} cwd={gitCwd} />}
     </>
   );
 }

@@ -157,7 +157,7 @@ function jobsTabMark(kind: JobKind, agents: IslandAgentRow[], runningShells: num
   return <StateMark working={runningShells > 0} />;
 }
 
-function ShellJobItem({
+export function ShellJobItem({
   row,
   clock,
   stop,
@@ -227,7 +227,7 @@ function AgentsStateCounts({ agents }: { agents: IslandAgentRow[] }) {
 const widestClocks = () => [formatWorkElapsed(3_599_000), formatWorkElapsed(35_999_000)];
 
 /** Everything an agent row's state column can read (agentElapsedText). */
-function agentStateLabels(): string[] {
+export function agentStateLabels(): string[] {
   return [
     ...widestClocks(),
     t('Queued'),
@@ -241,7 +241,7 @@ function agentStateLabels(): string[] {
 }
 
 /** Everything a shell row's state column can read (ShellJobContent). */
-function shellStateLabels(): string[] {
+export function shellStateLabels(): string[] {
   return [...widestClocks(), t('Island: Exited'), t('Island: Stopped'), t('Failed'), t('Termination unconfirmed')];
 }
 
@@ -253,7 +253,7 @@ const SUMMARY_UNKNOWN = '-';
 const SUMMARY_KEEP_ORDER = ['total', 'cost', 'hit'];
 const SUMMARY_DISPLAY_ORDER = ['total', 'hit', 'cost'];
 
-function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
+export function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
   const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
   const splitKnown = totalTokens !== null && leadTokens !== null && agentTokens !== null;
   const split = `(${t('Lead {{lead}} · Agents {{agents}}', {
@@ -407,8 +407,9 @@ function ShellsPanel({
             <TidyButton
               className="composer-island-button"
               kind="close-all"
-              label={t('Island: Close all')}
-              description={t('Island: Close all')}
+              label={t('Clean up')}
+              description={t('Clear ended shells')}
+              named
               onClick={() => onDismissAll(finished)}
             />
           ) : undefined
@@ -563,6 +564,28 @@ function useSettledTurns(busy: boolean): number {
     wasBusy.current = busy;
   }, [busy]);
   return settled;
+}
+
+/** The agents list's usage (its footer line and each row's total), read while
+ *  the list is shown: the island's panel and the session panel's category. */
+export function useAgentsUsage({
+  sessionId,
+  agentRows,
+  poolRows,
+  busy,
+  open,
+}: {
+  sessionId: string;
+  agentRows: readonly IslandAgentRow[];
+  poolRows: Parameters<typeof islandUsageCue>[0];
+  busy: boolean;
+  open: boolean;
+}): IslandUsageSummary {
+  const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
+  const settledTurns = useSettledTurns(busy);
+  const usageCue = islandUsageCue(poolRows, sessionId, settledTurns);
+  const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, open, usageCue);
+  return useMemo(() => islandUsageSummary(sessionUsage, agentSessionIds), [sessionUsage, agentSessionIds]);
 }
 
 function AgentsSegment({
@@ -776,14 +799,13 @@ export const ComposerIsland = memo(function ComposerIsland({
   const locked = workBusy || shellCount > 0 || agentRows.some((row) => !row.finished);
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
   const toggle = (tab: 'agents' | 'shells') => setExpanded(expanded === tab ? '' : tab);
-  const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
-  const settledTurns = useSettledTurns(Boolean(snapshot.busy));
-  const usageCue = islandUsageCue(poolRows, sessionId, settledTurns);
-  const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageCue);
-  const usageSummary = useMemo(
-    () => islandUsageSummary(sessionUsage, agentSessionIds),
-    [sessionUsage, agentSessionIds]
-  );
+  const usageSummary = useAgentsUsage({
+    sessionId,
+    agentRows,
+    poolRows,
+    busy: Boolean(snapshot.busy),
+    open: expanded === 'agents',
+  });
   const islandRef = useRef<HTMLDivElement | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const slotRef = useRef<HTMLDivElement | null>(null);
