@@ -46,12 +46,15 @@ export function AgentRowElapsed({
   state,
   agent,
   clock,
+  format,
 }: {
   state: DesktopAgentActivityState;
   agent: DesktopAgentPoolRow;
   clock?: number;
+  /** How a working row's time reads; default the words ("1m 1s"). */
+  format?: (elapsed: number) => string;
 }): React.ReactElement {
-  const elapsed = agentElapsedText(state, agent, useRowClock(state, clock));
+  const elapsed = agentElapsedText(state, agent, useRowClock(state, clock), format);
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on <time> gives the elapsed duration an explicit accessible name
     <time

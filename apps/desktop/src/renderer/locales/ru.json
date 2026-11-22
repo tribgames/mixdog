@@ -6699,5 +6699,6 @@
   "Automatic": "Автоматически",
   "Island": "Остров",
   "Session info: Hidden": "Не показывать",
-  "This turn's changes are still being recorded.": "Изменения за ход ещё записываются."
+  "This turn's changes are still being recorded.": "Изменения за ход ещё записываются.",
+  "Waiting for its turn": "Ждёт своей очереди"
 }

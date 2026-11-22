@@ -241,9 +241,10 @@ test('the Project row reads a pending move and a failed one from the workspace s
   assert.deepEqual(sessionProjectMove({ projectMoveFailed: { projectPath: 'x', message: ' ' } }).failed, null);
 });
 
-async function mount(t, element, host = {}) {
+async function mount(t, element, host = {}, prepare) {
   const { document, root } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'Node', 'Event', 'CustomEvent', 'MutationObserver'] });
   window.mixdogDesktop = { invokeCapability: async () => ({ value: null }), ...host };
+  prepare?.(window);
   window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!globalThis.getComputedStyle) {
     globalThis.getComputedStyle = window.getComputedStyle.bind(window);
@@ -313,11 +314,18 @@ test("each foot's Clean up is enabled only with something to clear", async (t) =
   const finished = { ...agent('b', 'completed'), settledAt: Date.now() - 1_000 };
   await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
   assert.equal(tidy().getAttribute('aria-disabled'), null);
-  // A fold for each role, its agents under it by their tags; the head counts them by state.
+  // A fold for each role, its agents under it by their tags; the counts by state on a line under the head.
   const section = document.querySelector('[data-category="agents"]');
   const folds = () => [...section.querySelectorAll('[data-group]')];
   const names = (fold) => [...fold.querySelectorAll('.agent-pool-name')].map((name) => name.textContent);
-  assert.equal(section.querySelector('.session-rail-sm').textContent, 'Running 1 · Finished 1');
+  assert.equal(section.querySelector('.session-rail-sm').textContent, '', 'the head holds the total alone');
+  assert.deepEqual(
+    [...section.querySelector('.session-rail-meta').children].map((part) => [part.textContent, part.querySelector('b').textContent]),
+    [
+      ['Running 1', '1'],
+      ['Finished 1', '1'],
+    ]
+  );
   // The fold reads as the card's own head does: the name, the chevron, then the count.
   const foldParts = (fold) =>
     [...fold.querySelector('[data-fold]').children].map((part) =>
@@ -331,12 +339,209 @@ test("each foot's Clean up is enabled only with something to clear", async (t) =
     ['Agents', 'chevron', '2']
   );
   const workers = folds()[0];
-  assert.deepEqual(names(workers), ['a', 'b'], 'the role is said once, by the fold');
-  assert.equal(section.querySelector('.session-rail-ft .composer-island-summary'), null, 'no usage line in the panel');
+  assert.deepEqual(names(workers), ['a'], 'the role is said once, by the fold; the finished one is folded away');
+  assert.equal(section.querySelector('.session-rail-ft .composer-usage-readout'), null, 'no usage line in the card');
   await act(async () => workers.querySelector('[data-fold]').click());
   await act(async () => root.render(agents([agent('a', 'running', 'streaming'), finished])));
   assert.deepEqual(names(folds()[0]), [], 'folded: the role keeps its count alone');
   assert.deepEqual(foldParts(folds()[0]), ['Worker', 'chevron', '2']);
+});
+
+test('the Agents card: a group per role and model, working rows with their step, finished ones on one folded line', async (t) => {
+  const { AgentsSection } = await import('./session-rail-jobs.tsx');
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
+  // The window's interval timers, run by hand.
+  const intervals = [];
+  const now = Date.now();
+  const opened = [];
+  const fold = {};
+  // The pool's shapes: a working row carries the route of its live request, a settled one its configuration.
+  const live = (model) => ({ provider: 'anthropic', model, effort: 'medium', fast: false, routeObserved: true });
+  const route = (model) => ({ provider: 'anthropic', model, effort: 'medium', fast: null, autoEffort: null });
+  const pool = [
+    { ...agent('fold-rules', 'running', 'streaming'), ...live('claude-opus'), turnStartedAt: now - 712_000, todo: { completed: 2, total: 8, current: 'Rewrite the fold rules' } },
+    { ...agent('no-step', 'running', 'streaming'), ...live('claude-opus'), turnStartedAt: now - 4_565_000, todo: { completed: 0, total: 5 } },
+    { ...agent('worker1', 'running', 'streaming'), ...live('claude-opus'), turnStartedAt: now - 74_000 },
+    { ...agent('tasks', 'running', 'streaming'), ...live('claude-opus'), turnStartedAt: now - 30_000, awaitingTask: 'wait' },
+    { ...agent('unconfirmed', 'cancel-unconfirmed'), ...live('claude-opus'), turnStartedAt: now - 30_000 },
+    { ...agent('lost', 'running', 'unknown'), ...live('claude-opus'), turnStartedAt: now - 30_000 },
+    { ...agent('queued', 'running', 'resource_wait'), ...route('claude-opus') },
+    { ...agent('audit', 'completed'), ...route('claude-opus'), turnStartedAt: now - 1_000_000, settledAt: now - 287_000 },
+    { ...agent('other-model', 'completed'), ...route('claude-fable'), turnStartedAt: now - 60_000, settledAt: now - 1_000 },
+    // Settled: the pool has cleared its turn's start; its launch was long before.
+    { ...agent('settled', 'completed'), ...route('claude-fable'), startedAt: now - 9_000_000, turnStartedAt: null, settledAt: now - 1_000 },
+    { ...agent('review', 'completed'), agent: 'reviewer', ...route('claude-opus'), settledAt: now - 1_000 },
+  ];
+  const element = () =>
+    React.createElement(AgentsSection, {
+      sessionId: LEAD,
+      agents: islandAgentRows(pool, LEAD),
+      poolRows: pool,
+      busy: false,
+      shellKeys: null,
+      open: true,
+      onToggle() {},
+      folds: { groupOpen: (key, byDefault) => fold[key] ?? byDefault, setGroups: (next) => Object.assign(fold, next) },
+      onOpenSession: (sessionId) => opened.push(sessionId),
+    });
+  const { document, root } = await mount(t, element(), {}, (window) => {
+    window.setInterval = (run) => intervals.push(run);
+    window.clearInterval = () => {};
+  });
+  const groups = () => [...document.querySelectorAll('[data-category="agents"] [data-group]')];
+  // One group per heading: a working and a settled worker on one model and effort are one group; another model is
+  // another group. Each is named by its role, then its model.
+  assert.equal(groups().length, 3);
+  const [opus, fable, reviewer] = groups();
+  const heads = groups().map((group) => group.querySelector('.session-rail-gn'));
+  assert.deepEqual(heads.map((head) => head.firstChild.textContent), ['Worker', 'Worker', 'Reviewer']);
+  assert.ok(heads.every((head) => head.querySelector('.agent-route-summary')), 'the model as the row shows it');
+  assert.notEqual(heads[0].textContent, heads[1].textContent);
+  assert.deepEqual(groups().map((group) => group.querySelector('[data-fold] .session-rail-ct').textContent), ['8', '2', '1']);
+  // An agent of unknown outcome is listed and in the head's total, but in none of the counts by state.
+  assert.deepEqual(
+    [...document.querySelector('.session-rail-meta').children].map((part) => part.textContent),
+    ['Running 5', 'Waiting 1', 'Finished 4']
+  );
+  assert.equal(document.querySelector('[data-category="agents"] .session-rail-tg .session-rail-ct').textContent, '11');
+
+  // Working rows: the name with the step progress beside it, over the step in hand or the state.
+  const rows = [...opus.querySelectorAll('.session-rail-agent')];
+  const read = (row) => ({
+    name: row.querySelector('.session-rail-agent-named > .agent-pool-name').textContent,
+    step: row.querySelector('.session-rail-agent-named > .agent-todo-mark')?.textContent ?? null,
+    line: row.querySelector('.session-rail-agent-line').textContent,
+    time: row.querySelector('.agent-activity-elapsed').textContent,
+  });
+  const read0 = rows.map(read);
+  assert.deepEqual(
+    read0.map(({ name, step, line }) => ({ name, step, line })),
+    [
+      { name: 'fold-rules', step: '2/8', line: 'Rewrite the fold rules' },
+      { name: 'no-step', step: '0/5', line: 'Running' },
+      { name: 'worker1', step: null, line: 'Running' },
+      { name: 'tasks', step: null, line: 'Waiting for tasks' },
+      { name: 'unconfirmed', step: null, line: 'Cancel unconfirmed' },
+      { name: 'lost', step: null, line: 'Unknown' },
+      { name: 'queued', step: null, line: 'Waiting for its turn' },
+    ]
+  );
+  // The compact clock: m:ss, and h:mm:ss past the hour.
+  assert.deepEqual(read0.slice(0, 3).map(({ time }) => time), ['11:52', '1:16:05', '1:14']);
+  assert.equal(read0[5].time, 'Unknown');
+  assert.equal(read0[6].time, 'Queued');
+  // A row is described by what it shows: its step progress (with the step in hand), its second line, its figure.
+  const description = (row) =>
+    row
+      .getAttribute('aria-describedby')
+      .split(' ')
+      .map((id) => {
+        const part = document.getElementById(id);
+        return part.getAttribute('aria-label') ?? part.textContent;
+      });
+  assert.deepEqual(description(rows[0]), ['To-do 2 of 8 done: Rewrite the fold rules', read0[0].time]);
+  assert.deepEqual(description(rows[1]), ['To-do 0 of 5 done', 'Running', read0[1].time]);
+  assert.deepEqual(description(rows[2]), ['Running', read0[2].time]);
+
+  // A second's tick repaints the clocks alone: the groups and their model lines are not worked out again.
+  const storage = Object.getPrototypeOf(window.localStorage);
+  const getItem = storage.getItem;
+  let catalogReads = 0;
+  storage.getItem = function (key) {
+    if (String(key).includes('model-catalog')) catalogReads += 1;
+    return getItem.call(this, key);
+  };
+  t.after(() => {
+    storage.getItem = getItem;
+  });
+  await act(async () => {
+    t.mock.timers.tick(1_000);
+    for (const run of intervals) run();
+  });
+  assert.equal(read(rows[2]).time, '1:15', 'the clock ticked');
+  storage.getItem = getItem;
+  assert.equal(catalogReads, 0);
+
+  // Finished ones: one line "Finished N", closed beside working rows, open in a group of four or fewer with none at work.
+  const finishedFold = (group) => group.querySelector('.session-rail-agent-fold');
+  assert.equal(finishedFold(opus).textContent, 'Finished 1');
+  assert.equal(finishedFold(opus).getAttribute('aria-expanded'), 'false');
+  assert.equal(opus.querySelector('.session-rail-agent-past'), null);
+  assert.equal(finishedFold(fable).getAttribute('aria-expanded'), 'true');
+  const [past, settled] = fable.querySelectorAll('.session-rail-agent-past');
+  assert.equal(past.querySelector('.agent-pool-name').textContent, 'other-model');
+  assert.equal(past.querySelector('.session-rail-agent-figures').lastChild.textContent, '0:59');
+  assert.ok(past.querySelector('.session-rail-agent-figures .sr-only').textContent.trim(), 'its end state is read out');
+  // A duration only when it is the turn's own: never counted from the agent's launch.
+  assert.equal(settled.querySelector('.agent-pool-name').textContent, 'settled');
+  const settledFigures = settled.querySelector('.session-rail-agent-figures');
+  assert.equal(settledFigures.textContent, settledFigures.querySelector('.sr-only').textContent);
+  await act(async () => finishedFold(opus).click());
+  await act(async () => root.render(element()));
+  assert.equal(finishedFold(groups()[0]).getAttribute('aria-expanded'), 'true');
+  assert.equal(groups()[0].querySelector('.session-rail-agent-past .session-rail-agent-figures').lastChild.textContent, '11:53');
+
+  // One tree per group: working rows and the fold at its first level, the finished rows under the fold.
+  const tree = groups()[0].querySelector('[role="tree"]');
+  assert.deepEqual(
+    [...tree.querySelectorAll('[role="treeitem"]')].map((item) => [item.getAttribute('aria-level'), item.getAttribute('aria-posinset'), item.getAttribute('aria-setsize')]),
+    [
+      ...Array.from({ length: 8 }, (_, index) => ['1', String(index + 1), '8']),
+      ['2', '1', '1'],
+    ]
+  );
+  // Either row opens its agent's session.
+  await act(async () => groups()[0].querySelector('.session-rail-agent').click());
+  await act(async () => groups()[0].querySelector('.session-rail-agent-past').click());
+  assert.deepEqual(opened, ['fold-rules', 'audit']);
+  assert.equal(reviewer.querySelector('.session-rail-agent-past .agent-pool-name').textContent, 'review');
+});
+
+test('a lone agent the pool lost contact with is listed as Unknown and counted in no state', async (t) => {
+  const { AgentsSection } = await import('./session-rail-jobs.tsx');
+  const pool = [{ ...agent('lost', 'running', 'unknown'), turnStartedAt: Date.now() - 30_000 }];
+  const { document } = await mount(
+    t,
+    React.createElement(AgentsSection, {
+      sessionId: LEAD,
+      agents: islandAgentRows(pool, LEAD),
+      poolRows: pool,
+      busy: false,
+      shellKeys: null,
+      open: true,
+      onToggle() {},
+      folds: { groupOpen: (_key, byDefault) => byDefault, setGroups() {} },
+    })
+  );
+  assert.equal(document.querySelector('.session-rail-meta').textContent, '');
+  assert.equal(document.querySelector('.session-rail-tg .session-rail-ct').textContent, '1');
+  assert.equal(document.querySelector('.session-rail-agent .session-rail-agent-line').textContent, 'Unknown');
+});
+
+test('a catalog that arrives after the card is drawn reaches its group headings', async (t) => {
+  const { AgentsSection } = await import('./session-rail-jobs.tsx');
+  const { writeCachedModelCatalog } = await import('./model-catalog-cache.ts');
+  const { publishAutoEffort } = await import('./auto-effort-store.ts');
+  publishAutoEffort({ autoEffort: { installed: true, enabled: true } });
+  t.after(() => publishAutoEffort({ autoEffort: { installed: true, enabled: false } }));
+  const pool = [{ ...agent('audit', 'completed'), provider: 'anthropic', model: 'claude-opus', effort: 'medium', fast: null, autoEffort: null }];
+  const { document } = await mount(
+    t,
+    React.createElement(AgentsSection, {
+      sessionId: LEAD,
+      agents: islandAgentRows(pool, LEAD),
+      poolRows: pool,
+      busy: false,
+      shellKeys: null,
+      open: true,
+      onToggle() {},
+      folds: { groupOpen: (_key, byDefault) => byDefault, setGroups() {} },
+    })
+  );
+  const heading = () => document.querySelector('.session-rail-gn .agent-route-summary').textContent;
+  assert.doesNotMatch(heading(), /Auto/, 'the catalog does not know the model yet');
+  await act(async () => writeCachedModelCatalog([{ provider: 'anthropic', model: 'claude-opus', autoEffortCapable: true }]));
+  assert.match(heading(), /Auto/, 'the agents did not change; the catalog did');
 });
 
 test("the Worktrees foot's Clean up follows the cleanup preview", async (t) => {
