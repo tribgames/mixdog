@@ -430,6 +430,28 @@ test('a newer end of the same checkpoint is another record: its list and its pat
   assert.equal(view.document.querySelectorAll('.session-diff-section .inline-diff').length, 2);
 });
 
+test('a file a newer end may list is not called unrecorded while that end’s list is still being read', async (t) => {
+  const NEW = 'src/new.ts';
+  let gate = null;
+  let listed = [turnFile(PLAN)];
+  const view = await mountTurnPane(t, {
+    answer: (reply, _count, options) => {
+      const now = { ...reply, files: listed, patch: listed.map((file) => turnPatchFor(file.path)).join('') };
+      return !options.patch && gate ? gate.promise.then(() => now) : now;
+    },
+  });
+  await view.open('');
+  // A wake closed the checkpoint again and changed another file; its diff link is pressed while the list is read.
+  listed = [turnFile(PLAN), turnFile(NEW)];
+  gate = Promise.withResolvers();
+  await act(async () => requestSessionDiffTurn('turn-pane', { checkpointId: 'cp', boundary: 'done-2' }, NEW));
+  await view.settle();
+  assert.equal(view.q('.utility-dock-empty'), null, 'not said to be unrecorded yet');
+  await act(async () => gate.resolve());
+  await view.settle();
+  assert.deepEqual(view.paths(), [NEW]);
+});
+
 test('a session at a root folder is a known folder: a tool call’s path is taken under it', async (t) => {
   const view = await mountTurnPane(t, { files: [turnFile('/etc/hosts')], props: { cwd: '/' } });
   await view.open('etc/hosts', { cwd: '' });

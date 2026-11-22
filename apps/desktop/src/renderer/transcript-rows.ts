@@ -280,8 +280,8 @@ interface SettledTranscriptProjection {
    *  live band was. */
   endsWithFoldedCompletion: boolean;
   /** The turn the settled items leave open: their last item's, unless they close with a turn's end ('' then, and for
-   *  no item). It is not always `currentTurnKey`: a prompt that places no row (a hidden wake kickoff) opens a turn
-   *  after the last row's turn has ended. */
+   *  no item); an end still waiting for the reply it names leaves its turn open. It is not always `currentTurnKey`: a
+   *  prompt that places no row (a hidden wake kickoff) opens a turn after the last row's turn has ended. */
   openTurnKey: string;
   hasSettledItem(id: unknown): boolean;
   /** Whether a settled message row carries `key`. */
@@ -506,6 +506,8 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       else if (item?.kind === 'turndone' && completionTone(item) === 'complete') {
         next = { ...next, dones: [...next.dones, index] };
       }
+      // A reply that arrives after its turn's end may be the one the end waited for (`awaitsReply`), shown or not.
+      if (item?.kind === 'assistant' && next.dones.length > 0) reaches(next.first);
       if (next !== facts) {
         if (!turnsBefore.has(turnKey)) turnsBefore.set(turnKey, facts);
         turns.set(index, turnKey, next);
@@ -650,8 +652,9 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
         ...(reclosed ? { reclosed } : {}),
       };
     };
-    /** A successful end that names its reply (`finalAssistantId`) is that reply's footer and nothing else: while the
-     *  reply is not among the items (still arriving, or above the rows held) it draws no row of its own. */
+    /** A successful end that names its reply (`finalAssistantId`) is that reply's footer and nothing else. While the
+     *  reply is not among the items (still arriving, or above the rows held) the end is not shown: it draws no row,
+     *  closes no earlier reply of its turn, and leaves the turn open for the rows still arriving. */
     const awaitsReply = (item: TranscriptItem | undefined, turnKey: string): boolean =>
       item?.kind === 'turndone' &&
       !failed(turnKey) &&
@@ -662,9 +665,11 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const closing = (index: number, turnKey: string) => {
       const facts = failed(turnKey) ? undefined : turns.get(turnKey);
       if (!facts || facts.lastAssistant !== index || facts.dones.length === 0) return null;
+      const completion = items[facts.dones.at(-1) as number];
+      if (awaitsReply(completion, turnKey)) return null;
       let card: TurnChangesRef | undefined;
       for (let at = facts.dones.length - 1; at >= 0 && !card; at -= 1) card = cardAt(facts.dones[at] as number);
-      return { completion: items[facts.dones.at(-1) as number], card };
+      return { completion, card };
     };
     let pendingToolActivity: PendingToolActivityItem[] = [];
     // Live-only rows met inside a group: a reload has none to end it, so they follow it.
@@ -760,13 +765,15 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     let ownIds: Set<unknown> | null = null;
     let ownKeys: Set<string> | null = null;
     const last = closingEnd(items);
+    // An end still waiting for the reply it names leaves its turn open.
+    const closed = last >= 0 && !awaitsReply(items[last], keyAt(last));
     const output: SettledTranscriptProjection = {
       rows,
       currentTurnKey: builder.currentTurnKey,
       previousRowWasUser: builder.previousRowWasUser,
       itemCount: items.length,
-      endsWithFoldedCompletion: last >= 0 && folded(items[last], keyAt(last)),
-      openTurnKey: last < 0 && items.length > 0 ? keyAt(items.length - 1) : '',
+      endsWithFoldedCompletion: closed && folded(items[last], keyAt(last)),
+      openTurnKey: !closed && items.length > 0 ? keyAt(items.length - 1) : '',
       // The projector's own sets answer for its newest projection; an older one still read answers from its own rows.
       hasSettledItem(id) {
         if (id === undefined || id === null) return false;

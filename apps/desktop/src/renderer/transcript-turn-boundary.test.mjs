@@ -112,6 +112,8 @@ async function mountPane(t) {
       transcriptRows.map((row, index) => h('div', { key: row.key }, renderTranscriptRow(row, index, transcriptRows)))
     );
   }
+  view.root = root;
+  view.Pane = Pane;
   view.render = async (props) => {
     await act(async () => root.render(h(Pane, props)));
     await settle();
@@ -237,11 +239,49 @@ test('a wake that closes the same checkpoint again keeps the card standing throu
   const settled = [prompt, reply, done, wakeReply];
   await view.render({ items: settled, busy: true, activityAt: 9_000 });
   assert.equal(view.cards(), 1);
-  // The wake's end names the same checkpoint and the session still reports it busy: the card moves to that end, shown.
-  await view.render({ items: [...settled, wakeDone], busy: true, activityAt: 9_000 });
-  assert.equal(view.cards(), 1, 'never hidden between the two ends');
+  // The wake's end names the same checkpoint and the session still reports it busy: the card moves to that end, shown
+  // from the reply held of the earlier end while the newer one is read.
+  await act(async () => view.root.render(h(view.Pane, { items: [...settled, wakeDone], busy: true, activityAt: 9_000 })));
+  assert.equal(view.cards(), 1, 'never hidden between the two ends, nor while it is read again');
+  await settle();
+  assert.equal(view.cards(), 1);
+  assert.equal(view.reads, 2, 'the newer end is read');
   await view.render({ items: [...settled, wakeDone], busy: false });
   assert.equal(view.cards(), 1);
+});
+
+test('an end that names a reply still arriving closes no earlier reply of its turn', async (t) => {
+  const view = await mountPane(t);
+  const first = { kind: 'assistant', id: 'first', text: 'I will check.', at: 1_500 };
+  const tool = { kind: 'tool', id: 'tool', name: 'read', args: { file_path: 'a.ts' }, result: 'ok', completedAt: 2_000 };
+  const arriving = { ...reply, streaming: true };
+  await view.render({ items: [prompt, first, tool], busy: true, liveItem: arriving, activityAt: 1_000 });
+  const footers = () => view.rows.filter((row) => row.completion).map((row) => row.item.id);
+  assert.deepEqual(footers(), []);
+  // The end names the final reply, which has not settled: the first reply does not take its footer.
+  await view.render({ items: [prompt, first, tool, done], busy: true, liveItem: arriving, activityAt: 1_000 });
+  assert.deepEqual(footers(), [], 'no footer above the tool');
+  assert.equal(view.rows.at(-1)._tag, 'Thinking');
+  await view.render({ items: [prompt, first, tool, done, reply], busy: false });
+  assert.deepEqual(footers(), ['reply']);
+});
+
+test('a hidden wake keeps its gap when its end is written before its reply settles', async (t) => {
+  const view = await mountPane(t);
+  view.sealed = true;
+  await view.render({ items: [prompt, reply, done], busy: false });
+  const finishedTurn = view.rows.find((row) => row._tag === 'AssistantPart').turnKey;
+  const kickoff = { kind: 'user', id: 'wake-kickoff', text: 'A task finished.', hidden: true, at: 9_000 };
+  const wakeReply = { kind: 'assistant', id: 'wake-reply', text: 'The worker is done.', at: 9_100 };
+  const arriving = { ...wakeReply, streaming: true };
+  const wakeDone = { ...done, id: 'wake-done', checkpointId: 'cp-wake', finalAssistantId: 'wake-reply', at: 9_500 };
+  const base = [prompt, reply, done, kickoff];
+  await view.render({ items: base, busy: true, liveItem: arriving, activityAt: 9_000 });
+  const before = view.tags();
+  assertFinishedTurnStands(view, finishedTurn, 'the wake reply arriving');
+  await view.render({ items: [...base, wakeDone], busy: true, liveItem: arriving, activityAt: 9_000 });
+  assert.deepEqual(view.tags(), before, 'the end changes no row while its reply still arrives');
+  assertFinishedTurnStands(view, finishedTurn, 'the wake’s end written first');
 });
 
 test('an end that names a reply still arriving draws no row of its own', async (t) => {
