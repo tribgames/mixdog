@@ -783,13 +783,16 @@ fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
 
 /// Every journal transition and publication step of every kind: a kill before or after
 /// it, then a resume, ends in the tree an uninterrupted run leaves (journal excluded).
-#[test]
-fn every_crash_point_resumes_to_the_same_tree() {
+/// The points are spread over `CRASH_PARTS` tests (point `n` in part `n % CRASH_PARTS`), so
+/// each test runs a fixed share of the matrix: two runs, and a crash and resume per point of its
+/// share, one after the other.
+fn every_crash_point_resumes_to_the_same_tree(part: usize) {
     // The trees compared are read back from the running OS; a flush to the device changes none of them.
     mixdog_store::fsio::elide_syncs();
+    let dir = tempfile::tempdir().unwrap();
+    // The manifest names the dir a run was in: every run of the part is in `base`.
+    let base = dir.path().join("run");
     // One uninterrupted run names every fault point, in the order a run meets them.
-    let base = crash_base(0);
-    let _ = std::fs::remove_dir_all(&base);
     let roots = fixture(&base);
     let met = Arc::new(Mutex::new(Vec::<String>::new()));
     let record = met.clone();
@@ -801,40 +804,76 @@ fn every_crash_point_resumes_to_the_same_tree() {
     std::fs::remove_dir_all(&base).unwrap();
     let points = met.lock().unwrap().clone();
     assert!(points.len() > 40, "{} fault points", points.len());
+    assert!(points.len() >= CRASH_PARTS, "{} fault points for {CRASH_PARTS} parts", points.len());
     // The connector transition is cut between each of its file publications.
     let connector = format!("publish:{}:", crate::connectors::ITEM);
     let publications = points.iter().filter(|p| p.starts_with(&connector)).count();
     assert!(publications >= 5, "{publications} connector publication points");
 
-    std::thread::scope(|scope| {
-        for worker in 0..CRASH_WORKERS {
-            let points = &points;
-            scope.spawn(move || resume_after_each_crash(points, worker));
-        }
-    });
+    resume_after_each_crash(&base, &points, part);
 }
 
-/// Data dirs the fault points are split over. A crash and its resume share nothing with another
-/// point's, and a run is bound by its journal and publication syncs, not by the processor, so
-/// the points of different dirs overlap their waits.
-const CRASH_WORKERS: usize = 8;
+const CRASH_PARTS: usize = 12;
 
-fn crash_base(worker: usize) -> PathBuf {
-    std::env::temp_dir().join(format!("mig-same-{}-{worker}", std::process::id()))
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_0() {
+    every_crash_point_resumes_to_the_same_tree(0);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_1() {
+    every_crash_point_resumes_to_the_same_tree(1);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_2() {
+    every_crash_point_resumes_to_the_same_tree(2);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_3() {
+    every_crash_point_resumes_to_the_same_tree(3);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_4() {
+    every_crash_point_resumes_to_the_same_tree(4);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_5() {
+    every_crash_point_resumes_to_the_same_tree(5);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_6() {
+    every_crash_point_resumes_to_the_same_tree(6);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_7() {
+    every_crash_point_resumes_to_the_same_tree(7);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_8() {
+    every_crash_point_resumes_to_the_same_tree(8);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_9() {
+    every_crash_point_resumes_to_the_same_tree(9);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_10() {
+    every_crash_point_resumes_to_the_same_tree(10);
+}
+#[test]
+fn every_crash_point_resumes_to_the_same_tree_part_11() {
+    every_crash_point_resumes_to_the_same_tree(11);
 }
 
-/// Kills the migration at `points[worker]`, `points[worker + CRASH_WORKERS]`, ... in a dir of its
-/// own, resumes it and compares the tree with that dir's uninterrupted run (the manifest names
-/// the dir's roots, so the tree differs from dir to dir).
-fn resume_after_each_crash(points: &[String], worker: usize) {
-    let base = crash_base(worker);
-    let _ = std::fs::remove_dir_all(&base);
-    let roots = fixture(&base);
+/// Kills the migration at `points[part]`, `points[part + CRASH_PARTS]`, ... in `base`, resumes it
+/// and compares the tree with an uninterrupted run's in the same dir (the manifest names the dir's
+/// roots, so the tree differs from dir to dir).
+fn resume_after_each_crash(base: &Path, points: &[String], part: usize) {
+    let roots = fixture(base);
     migrator(&roots, None).run().unwrap();
     let want = tree_digest(&roots);
-    std::fs::remove_dir_all(&base).unwrap();
-    for (stop_at, expected) in points.iter().enumerate().skip(worker).step_by(CRASH_WORKERS) {
-        let roots = fixture(&base);
+    std::fs::remove_dir_all(base).unwrap();
+    for (stop_at, expected) in points.iter().enumerate().skip(part).step_by(CRASH_PARTS) {
+        let roots = fixture(base);
         let calls = Arc::new(AtomicUsize::new(0));
         let hook_calls = calls.clone();
         let result = migrator(
@@ -856,7 +895,7 @@ fn resume_after_each_crash(points: &[String], worker: usize) {
         let got = tree_digest(&roots);
         let diff: Vec<_> = want.keys().chain(got.keys()).filter(|k| want.get(*k) != got.get(*k)).collect();
         assert!(diff.is_empty(), "after a crash at {point}: {diff:?}");
-        std::fs::remove_dir_all(&base).unwrap();
+        std::fs::remove_dir_all(base).unwrap();
     }
 }
 

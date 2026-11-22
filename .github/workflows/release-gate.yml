@@ -2743,7 +2743,7 @@ jobs:
           key: ${{ steps.deps.outputs.cache-primary-key }}
 
   # What only a built mixdogd and the process-tree helper can show, from scripts/rust-core: the daemon boots
-  # in the shipped profile (boot-smoke's 5000 ms budget is for the build users run) and answers a first call,
+  # in the shipped profile (the build users run; its boot times are printed, not judged) and answers a first call,
   # a stop past its deadline ends the core it started, and the Node client's replays against the real core.
   # The helper starts every cargo and mixdogd child of these scripts and ends its whole tree, whatever
   # exits first; it has a Windows implementation of its own (a job object), tested on Windows.
