@@ -237,7 +237,10 @@ test('release-gate.yml: the workspace build cache is restored on Linux outside t
   assert.match(steps[checked].run, /--restored "\$RESTORED"/);
   assert.equal(steps[deps].with['lookup-only'], "${{ steps.ws-check.outputs.warm == 'true' }}");
   assert.equal(steps[dated].if, "runner.os == 'Linux'");
-  assert.match(steps[saved].if, /steps\.ws-seal\.outputs\.save == 'true'/);
+  // written only by a build that started without an entry, never by a pull request
+  for (const step of [steps[sealed], steps[saved]])
+    assert.match(step.if, /^runner\.os == 'Linux' && github\.event_name != 'pull_request' && steps\.ws-check\.outputs\.warm != 'true'/);
+  assert.match(steps[saved].if, /steps\.ws-seal\.outputs\.save == 'true'$/);
 });
 
 test('release-gate.yml: the desktop replays and fast shards build no Rust and depend on no producer', () => {

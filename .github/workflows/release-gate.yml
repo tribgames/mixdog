@@ -1916,8 +1916,9 @@ jobs:
   # wrapper, the build environment and the dependency files; the newest entry of that prefix is restored. Freshness inside it is
   # cargo's, on modification times the script derives from content (a file or directory keeps the time recorded with it only
   # while its content is the recorded one; anything else is newer than every restored file). A miss, an eviction or an entry
-  # that fails its own file list leaves the dependency cache's build, as without it. Every Linux run but a pull request's saves
-  # its entry; the full gate (every release) builds without restoring one.
+  # that fails its own file list leaves the dependency cache's build, as without it. The full gate (every release, every night)
+  # builds without restoring one and writes the entry the next runs start from; another run writes one only when it started
+  # without one, and a pull request never.
   #
   # One build job per system, and test jobs per system that need only that build: the legs of a system start when its own
   # archive is uploaded, not when the slowest system's is (run 44943772315: Linux's archive was ready at 19.5 minutes,
@@ -2059,13 +2060,16 @@ jobs:
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
-      # Before the dependency entry below prunes the folder. A build that changed a tracked file saves nothing.
+      # Before the dependency entry below prunes the folder. Only a build that started without an entry writes one (the full gate,
+      # which never restores one, every night; a key with no entry; an entry that failed its check): an entry is 2.8 GB of the
+      # repository's 10 GB, and each one written evicts the least recently used entries. A build that changed a tracked file
+      # saves nothing.
       - name: List the files of the workspace build (Linux)
         id: ws-seal
-        if: runner.os == 'Linux' && github.event_name != 'pull_request'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-check.outputs.warm != 'true'
         run: node scripts/ci/core-target-cache.mjs seal --root . --paths native/core/target ~/.cargo/registry ~/.cargo/git
       - name: Save the workspace build (Linux)
-        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-seal.outputs.save == 'true'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request' && steps.ws-check.outputs.warm != 'true' && steps.ws-seal.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

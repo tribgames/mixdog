@@ -347,9 +347,11 @@ consumes it (the test runs the selection over a table of paths).
   the workspace-hack's build script, rerun on every checkout, would rebuild the 73 crates that depend on it). An entry that
   lacks a file of its own list or has one at another size, a miss and an eviction remove the folders and the build starts
   from the dependency cache as before; a build that changed a tracked file, a pull request and a save that fails write no
-  entry. The full gate, and with it every release, restores none. Every other Linux run writes one (one archive per save,
-  keyed by the run); GitHub evicts the least recently used entries past the repository's 10 GB, and an older entry of this
-  cache is not read again once a newer one exists. The
+  entry. The full gate, and with it every release, restores none; it writes the entry (2.8 GB compressed, one archive per
+  save, keyed by the run) that the next runs start from, and another run writes one only when it started without one (a key
+  with no entry, after a dependency or toolchain change, or an entry that failed its check). The repository is at GitHub's
+  10 GB already, so each entry written evicts the least recently used entries, first the previous entry of this cache, which
+  no run reads once a newer one exists, and the per-commit stores of older commits. The
   doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg
   `linux/core-doctests/1of1`, beside the build on its dependency cache. The development `mixdogd`, the release `mixdogd` of
   `core-real` and the relay of `relay-rust` are kept in a store (`actions/cache`) keyed by their inputs (`core-select.mjs`
