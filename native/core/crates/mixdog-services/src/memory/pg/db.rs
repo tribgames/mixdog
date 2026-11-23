@@ -21,6 +21,9 @@ const LOCK_CLASS: i32 = 0x6d69_6478;
 const LOCK_CREATE_DB: i32 = 1;
 const LOCK_SCHEMA_BOOTSTRAP: i32 = 2;
 const POOL_SIZE: usize = 5;
+/// A pooled connection not checked out for this long is closed, and its backend process with it; the next use opens one. Two ticks
+/// of the cycle scheduler (60 s), whose query on every tick keeps the one connection a running core uses.
+pub(crate) const POOL_IDLE: Duration = Duration::from_secs(120);
 
 /// Every wait on the memory database is bounded by one budget (hang audit F14).
 struct PgBudget {
@@ -154,6 +157,9 @@ fn build_pool(config: Config, size: usize, scope: &Scope) -> Result<Pool> {
     let manager = Manager::from_connect(config, OwnedConnect { transport: scope.transport() }, ManagerConfig { recycling_method: RecyclingMethod::Fast });
     Pool::builder(manager)
         .max_size(size)
+        // The connection used last serves the next query: a query that repeats keeps one connection in use and leaves the others to idle out,
+        // where taking them in turn kept every one of them recent.
+        .queue_mode(deadpool_postgres::QueueMode::Lifo)
         .runtime(Runtime::Tokio1)
         .wait_timeout(Some(BUDGET.pool_wait))
         .create_timeout(Some(BUDGET.connect))
@@ -449,6 +455,24 @@ impl Db {
     /// concurrent first-boot processes never race `CREATE TABLE`.
     pub async fn bootstrap_schema(&self, ddl: &str) -> Result<()> {
         with_cluster_lock(&self.pool().await?, LOCK_SCHEMA_BOOTSTRAP, async |_| self.batch(ddl).await).await
+    }
+
+    /// Closes the pooled connections of an open handle last checked out longer than `idle` ago: each ends its backend process, and a later
+    /// use opens a connection again. A connection checked out is not touched. How many it closed.
+    pub(crate) fn close_idle(&self, idle: Duration) -> usize {
+        match &self.pool {
+            PoolSource::Open(pool) => pool.retain(|_, metrics| metrics.last_used() < idle).removed.len(),
+            PoolSource::Deferred(..) => 0,
+        }
+    }
+
+    /// The connections an open handle's pool holds, checked out or not.
+    #[cfg(test)]
+    pub(crate) fn open_connections(&self) -> usize {
+        match &self.pool {
+            PoolSource::Open(pool) => pool.status().size,
+            PoolSource::Deferred(..) => 0,
+        }
     }
 
     /// Closes an open handle's pool; a deferred handle has none of its own (its opener's owner closes the pool it hands over).

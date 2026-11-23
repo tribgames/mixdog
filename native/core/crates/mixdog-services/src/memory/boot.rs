@@ -32,7 +32,7 @@ use crate::memory::ingest::{SessionIngest, system_now};
 use crate::memory::lifecycle::{Owned, Scope};
 pub use crate::memory::pg::cluster::StopDispatch;
 use crate::memory::pg::cluster::{DEFAULT_PORT, PgCluster, PgRuntime, Start, StopRecord};
-use crate::memory::pg::db::{Db, Schema};
+use crate::memory::pg::db::{Db, POOL_IDLE, Schema};
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
 use crate::memory::reindex::Reindex;
@@ -866,6 +866,21 @@ impl MemoryStack {
         let refresh = self.memory.clone();
         let _refreshing = self.scope.spawn("services.memory.snapshot-boot", async move {
             refresh.refresh_snapshot("boot-migration").await;
+        });
+        // The pools keep no connection nobody used for `POOL_IDLE`: the start's queries opened every one of them, and an idle core needs none.
+        let (me, stop) = (self.me.clone(), self.cancel.clone());
+        let _idle = self.scope.spawn("services.memory.pg-idle", async move {
+            loop {
+                tokio::select! {
+                    () = stop.cancelled() => return,
+                    () = mixdog_rt::time::sleep(POOL_IDLE / 4) => {}
+                }
+                let Some(stack) = me.upgrade() else { return };
+                if let Some(opened) = stack.opened.get() {
+                    opened.memory_db.close_idle(POOL_IDLE);
+                    opened.search_db.close_idle(POOL_IDLE);
+                }
+            }
         });
         self.start_trace().await;
         self.transcripts.load_transcript_offsets().await;

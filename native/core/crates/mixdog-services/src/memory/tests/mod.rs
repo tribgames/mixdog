@@ -13,6 +13,7 @@ pub mod fakes;
 mod ingest_rows;
 mod jobs;
 mod lifecycle;
+mod pool_idle;
 mod recall_cancel;
 mod recall_scopes;
 mod reindex;
