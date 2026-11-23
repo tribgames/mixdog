@@ -84,6 +84,7 @@ pub use usage_metrics::iteration_metrics;
 pub use usage_metrics::ContextSize;
 pub use usage_metrics::context_size;
 pub use usage_metrics::counts_a_turn;
+pub use usage_metrics::first_hop;
 pub use usage_metrics::measured_context_tokens;
 pub use usage_metrics::terminal_usage;
 pub use usage_metrics::uncached_input_tokens;
@@ -424,6 +425,10 @@ fn provider_pressure_tokens(usage: &Value, input_excludes_cache: bool) -> f64 {
         if occupancy.is_finite() && occupancy > 0.0 {
             return round(occupancy);
         }
+    }
+    // Neither a prompt nor an occupancy: the reply alone is the size of nothing, and no baseline is taken.
+    if !prompt_known {
+        return 0.0;
     }
     round(prompt + output).max(0.0)
 }

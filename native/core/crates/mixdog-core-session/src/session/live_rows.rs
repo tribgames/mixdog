@@ -321,14 +321,10 @@ fn first_hop_context(usage: &Usage, delta_prompt: u64) -> (Usage, u64) {
         context.cache_read_tokens = 0;
         return (context, mixdog_agent::compact::pressure::measured_context_tokens(usage).unwrap_or(0));
     }
-    if let Some(raw) = usage.raw.as_ref() {
-        let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let initial = count("initialPromptTokenCount");
-        if initial > 0 && initial < usage.input_tokens {
-            context.input_tokens = initial;
-            context_prompt = initial;
-            context.cache_read_tokens = count("initialCachedContentTokenCount").min(initial);
-        }
+    if let Some((initial, cached)) = mixdog_agent::compact::pressure::first_hop(usage) {
+        context.input_tokens = initial;
+        context_prompt = initial;
+        context.cache_read_tokens = cached;
     }
     (context, context_prompt)
 }

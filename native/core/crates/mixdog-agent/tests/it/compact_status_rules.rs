@@ -488,6 +488,49 @@ fn a_turns_summed_usage_never_anchors_the_pressure_baseline_or_the_meter() {
     // A run cut before its turn ended reports nothing: the reading of the batch before it stands.
     let cut = call(&first, &Usage::default(), 2);
     assert_eq!(cut["contextPressureBaselineTokens"], json!(8_000));
+
+    // A batch with no prompt count and no checkpoint is the size of nothing: its reply alone anchors no baseline.
+    let unmeasured = Usage { raw: Some(json!({ "input_tokens_known": false, "cache_tokens_known": false, "context_tokens": null, "completion_tokens": 134 })), ..batch(0) };
+    assert_eq!(call(&base, &unmeasured, 1).get("contextPressureBaselineTokens"), None);
+    assert_eq!(settle(&base, &unmeasured, &unmeasured).get("contextPressureBaselineTokens"), None);
+}
+
+/// A call of several hops bills the sum of its hops. The run's own reading of it and the session's baseline take the
+/// same size, the first hop's prompt (with the reply, for the baseline), as the session's context fields state it.
+#[test]
+fn a_multi_hop_call_reads_the_same_in_the_run_as_in_the_session() {
+    books!(meter, signer);
+    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &NoVars };
+    let hops = Usage {
+        input_tokens: 1_000,
+        cache_read_tokens: 900,
+        output_tokens: 50,
+        raw: Some(json!({ "promptTokenCount": 1_000, "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
+        ..Usage::default()
+    };
+    let (first_hop, cached) = mixdog_agent::compact::pressure::first_hop(&hops).expect("several hops");
+    assert_eq!((first_hop, cached), (300, 300));
+
+    // The session's side: the delta as the run host records it, its context fields the first hop's.
+    let base = header(json!({ "id": "s1", "provider": "gemini", "contextWindow": 200_000 }));
+    let mut live = delta(hops.input_tokens, hops.cache_read_tokens, 0, hops.output_tokens, 1);
+    live["source"] = json!("provider_send");
+    live["deltaPrompt"] = json!(1_000);
+    live["contextInputTokens"] = json!(first_hop);
+    live["contextPromptTokens"] = json!(first_hop);
+    live["contextCachedReadTokens"] = json!(cached);
+    live["contextOutputTokens"] = json!(hops.output_tokens);
+    let evidence = with_prompt_cache_evidence(&base, &live, &hops);
+    let session = applied(&base, usage_change(&base, &evidence, &[], &[], Some(&books), false, 100.0, 200.0));
+    assert_eq!(session["contextPressureBaselineTokens"], json!(350));
+    assert_eq!(session["lastContextTokens"], json!(300));
+
+    // The run's side, from the same record.
+    let mut reading = ContextReading::default();
+    reading.measure(&hops, false);
+    assert_eq!(reading.tokens.map(|tokens| json!(tokens)), Some(session["lastContextTokens"].clone()));
+    assert_eq!(mixdog_agent::compact::pressure::context_size(&hops, false), mixdog_agent::compact::pressure::ContextSize::Prompt(300));
+    assert_eq!(json!(first_hop + hops.output_tokens), session["contextPressureBaselineTokens"], "the run's baseline is the first hop's prompt and the reply");
 }
 
 #[test]

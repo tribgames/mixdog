@@ -338,6 +338,17 @@ pub fn counts_a_turn(usage: &mixdog_core_api::domain::provider::Usage) -> bool {
     usage.raw.as_ref().is_some_and(|raw| raw["input_tokens_scope"] == Value::String("turn".into()))
 }
 
+/// The first request of a record that sums several hops of one call (`Usage.raw.initialPromptTokenCount`, below the
+/// record's input): `(its prompt, what of it was read from the cache)`. The hops after it re-send that prompt with
+/// what the call's own tools added, so the sum is the size of no prompt and the first hop's is the context the call
+/// was sent with. `None` for a record of one request.
+pub fn first_hop(usage: &mixdog_core_api::domain::provider::Usage) -> Option<(u64, u64)> {
+    let raw = usage.raw.as_ref()?;
+    let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let initial = count("initialPromptTokenCount");
+    (initial > 0 && initial < usage.input_tokens).then(|| (initial, count("initialCachedContentTokenCount").min(initial)))
+}
+
 /// What a usage record says of the size of the context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContextSize {
@@ -350,12 +361,16 @@ pub enum ContextSize {
 
 /// The one reading of a usage record as a size of the context. Every reader that wants a prompt's size or the
 /// context's occupancy takes it from here; a record of a whole turn ([`counts_a_turn`]) is never a prompt, whatever it
-/// counts, and reads as the measured occupancy or as nothing. `input_excludes_cache`: the provider's input leaves its
-/// cache reads and writes out.
+/// counts, and reads as the measured occupancy or as nothing; a record that sums the hops of one call reads as its
+/// first hop's prompt ([`first_hop`]). `input_excludes_cache`: the provider's input leaves its cache reads and writes
+/// out.
 pub fn context_size(usage: &mixdog_core_api::domain::provider::Usage, input_excludes_cache: bool) -> ContextSize {
     let occupancy = || measured_context_tokens(usage).filter(|tokens| *tokens > 0).map_or(ContextSize::Unknown, ContextSize::Occupancy);
     if counts_a_turn(usage) {
         return occupancy();
+    }
+    if let Some((prompt, cached)) = first_hop(usage) {
+        return ContextSize::Prompt(if input_excludes_cache { prompt + cached + usage.cache_write_tokens } else { prompt });
     }
     match crate::boundary::prompt_tokens(usage, input_excludes_cache) {
         0 => occupancy(),

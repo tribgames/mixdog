@@ -684,6 +684,32 @@ mod tests {
         assert!(decoder.terminal_seen());
     }
 
+    /// The context size a batch reports is the run's latest checkpoint size: a batch that received no checkpoint of
+    /// its own reports the one an earlier batch was given, and a run that has had none reports none.
+    #[test]
+    fn a_batch_without_a_checkpoint_reports_the_runs_latest_size() {
+        let size_of = |events: &[StreamEvent]| {
+            let usage = events.iter().find_map(|e| if let StreamEvent::Usage(usage) = e { Some(usage.clone()) } else { None }).expect("usage");
+            usage.raw.expect("raw")["context_tokens"].clone()
+        };
+        let checkpoint = frame_of(|m| {
+            let mut details = crate::providers::connect::pb::Writer::new();
+            details.varint(1, 8_000);
+            let mut state = crate::providers::connect::pb::Writer::new();
+            state.message(5, details);
+            m.message(3, state);
+        });
+        let mut decoder = lookup_decoder();
+        let before = decoder.feed(&[listing(1), mcp_call(1, "a")].concat()).expect("decodes");
+        assert_eq!(size_of(&before), Value::Null, "no checkpoint yet");
+        decoder.resume();
+        let first = decoder.feed(&[checkpoint, listing(1), mcp_call(2, "b")].concat()).expect("decodes");
+        assert_eq!(size_of(&first), json!(8_000));
+        decoder.resume();
+        let second = decoder.feed(&[listing(1), mcp_call(3, "c")].concat()).expect("decodes");
+        assert_eq!(size_of(&second), json!(8_000), "the size of the step before, not none");
+    }
+
     /// An exec sent again is the exec it was, whether a call was recorded for it or this side answered it (a tool that
     /// does not exist): the step's count is not reached by it.
     #[test]
@@ -1459,6 +1485,8 @@ impl CursorDecoder {
         } else if let Some(kv) = message.kv {
             self.kv(kv)?;
         } else if let Some(checkpoint) = message.checkpoint {
+            // The run's latest size: a batch that receives no checkpoint of its own reports the one before it, a step
+            // old, so a turn that has shown a size never shows none.
             self.context_tokens = checkpoint_used_tokens(&checkpoint).or(self.context_tokens);
         } else if let Some(exec) = message.exec {
             self.exec(exec);

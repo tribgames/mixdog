@@ -310,12 +310,24 @@ mod tests {
         };
         let unmeasured = Usage { raw: raw(serde_json::json!({ "input_tokens_scope": "turn", "context_tokens": null })), ..ended.clone() };
         let one_prompt = Usage { input_tokens: 700, output_tokens: 30, ..Usage::default() };
+        // A call of several hops bills their sum; the context it was sent with is the first hop's prompt.
+        let hops = Usage {
+            input_tokens: 1_000,
+            cache_read_tokens: 900,
+            output_tokens: 50,
+            raw: raw(serde_json::json!({ "initialPromptTokenCount": 300, "initialCachedContentTokenCount": 400 })),
+            ..Usage::default()
+        };
+        assert_eq!(Baseline::of(&hops, false, 0).map(|baseline| baseline.tokens), Some(350), "the first hop's prompt and the reply");
+        let one_hop = Usage { raw: raw(serde_json::json!({ "initialPromptTokenCount": 1_000 })), ..hops.clone() };
+        assert_eq!(Baseline::of(&one_hop, false, 0).map(|baseline| baseline.tokens), Some(1_050), "a call of one hop is its own prompt");
         // `(the record, the in-run reading, the pressure the baseline gives a transcript nothing was appended to)`
         for (usage, reading, pressure) in [
             (&batch, Some(8_000), Some(8_000)),
             (&ended, Some(9_000), Some(9_000)),
             (&unmeasured, None, None),
             (&one_prompt, Some(700), Some(700)),
+            (&hops, Some(300), Some(300)),
             (&Usage::default(), None, None),
         ] {
             let mut context = ContextReading { tokens: Some(1), stale_after_compact: false };
