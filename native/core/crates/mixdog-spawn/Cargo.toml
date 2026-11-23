@@ -81,3 +81,8 @@ windows-sys = { version = "0.60", features = [
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# A standalone build needs the same mixdog-js patches as the core workspace and native/mixdog-spawn.
+[patch.crates-io]
+icu_collator = { path = "../../vendor/icu_collator" }
+regress = { path = "../../vendor/regress" }

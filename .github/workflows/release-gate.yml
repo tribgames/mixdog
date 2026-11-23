@@ -1490,7 +1490,10 @@ jobs:
             ~/.cargo/git
             native/mixdog-spawn/target
           # The whole key is the dependency fingerprint: an entry built for another lockfile is not a fallback.
-          key: spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/core/Cargo.lock') }}
+          key: spawn-core-test-cargo-${{ matrix.runner }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/Cargo.toml', 'native/core/Cargo.lock', 'native/core/crates/mixdog-spawn/Cargo.lock', 'native/core/crates/mixdog-spawn/Cargo.toml') }}
+      - name: Check the core wrapper with its standalone lockfile
+        shell: bash
+        run: cargo check --locked --manifest-path native/core/crates/mixdog-spawn/Cargo.toml --features core --target-dir native/mixdog-spawn/target
       - uses: ./.github/actions/install-nextest
       - name: Test the process manager with the core's features
         shell: bash
