@@ -19,7 +19,7 @@ import { t } from './i18n';
 import { composerSubmitErrorText } from './composer-submit-error';
 import { requestOpenModelPicker } from './model-picker-event';
 import { recognisedAgentRoomSlash, recognisedSlashSpan } from './slash-commands';
-import { registerImagePreview } from './transcript-metrics';
+import { registerSentImages } from './transcript-metrics';
 import { MAX_SUBMIT_TEXT_LENGTH, type ComposerAttachment } from './composer-support';
 import {
   consumeVisualizeFeedback,
@@ -392,14 +392,14 @@ export function useComposerSubmission({
         const priorRetry = submissionRetryRef.current;
         const submissionId = priorRetry?.key === retryKey ? priorRetry.id : nextComposerSubmissionId();
         // Keyed by this submission, unique across chats: attachment ids restart at 1.
-        for (const attachment of imageAttachments) {
-          registerImagePreview(
-            submissionId,
-            attachment.id,
-            base64Bytes(attachment.data),
-            attachmentDataUrl(attachment)
-          );
-        }
+        registerSentImages(
+          submissionId,
+          imageAttachments.map((attachment) => ({
+            id: attachment.id,
+            bytes: base64Bytes(attachment.data),
+            dataUrl: attachmentDataUrl(attachment),
+          }))
+        );
         retainComposerSubmissionRecovery({
           id: submissionId,
           scope: recoveryScope,
