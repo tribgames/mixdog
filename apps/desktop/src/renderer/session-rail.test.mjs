@@ -19,6 +19,7 @@ import {
 import { sessionProjectMove } from './session-project-move.ts';
 import { islandAgentRows } from './agent-activity-model.ts';
 import { requestOpenModelPicker, OPEN_MODEL_PICKER_EVENT } from './model-picker-event.ts';
+import { t } from './i18n.ts';
 
 const FRAME = PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
 
@@ -495,6 +496,52 @@ test('the Agents card: a group per role and model, working rows with their step,
   await act(async () => groups()[0].querySelector('.session-rail-agent-past').click());
   assert.deepEqual(opened, ['fold-rules', 'audit']);
   assert.equal(reviewer.querySelector('.session-rail-agent-past .agent-pool-name').textContent, 'review');
+});
+
+test("a finished agent's ledger total that is a lower bound is marked, its tooltip saying so", async (context) => {
+  const { AgentsSection } = await import('./session-rail-jobs.tsx');
+  const usage = (tokens, unmeasured) => ({
+    turns: 2,
+    input: tokens,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    tokens,
+    unmeasuredTurns: unmeasured,
+    costUsd: 0,
+    costKnownTurns: 2,
+    costUnpricedTurns: 0,
+  });
+  const answer = { ...usage(1_000, 0), agents: usage(1_700, 1), sessions: { floored: usage(1_500, 1), exact: usage(200, 0) } };
+  const pool = [
+    { ...agent('floored', 'completed'), settledAt: Date.now() - 1_000 },
+    { ...agent('exact', 'completed'), settledAt: Date.now() - 1_000 },
+  ];
+  const element = React.createElement(AgentsSection, {
+    sessionId: LEAD,
+    agents: islandAgentRows(pool, LEAD),
+    poolRows: pool,
+    busy: false,
+    shellKeys: null,
+    open: true,
+    onToggle() {},
+    folds: fixedFolds(),
+  });
+  const { document } = await mount(context, element, {
+    invokeCapability: async (request) => ({ value: request.capability === 'getSessionUsage' ? answer : null }),
+  });
+  await act(async () => {});
+  const figures = (name) =>
+    [...document.querySelectorAll('.session-rail-agent-past')]
+      .find((row) => row.querySelector('.agent-pool-name').textContent === name)
+      .querySelector('.session-rail-agent-figures');
+  assert.equal(figures('floored').lastChild.textContent, '≥ 1.5k');
+  assert.equal(
+    figures('floored').getAttribute('title'),
+    t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.')
+  );
+  assert.equal(figures('exact').lastChild.textContent, '200');
+  assert.equal(figures('exact').getAttribute('title'), null);
 });
 
 test('a lone agent the pool lost contact with is listed as Unknown and counted in no state', async (t) => {

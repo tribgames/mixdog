@@ -30,6 +30,8 @@ export interface DesktopActivityState extends Readonly<Record<string, unknown>> 
   mode?: string;
   verb?: string;
   startedAt?: number;
+  /** The core accepted a stop of the running turn; set until the turn's end takes the activity away. */
+  stopping?: boolean;
 }
 
 export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>> {
@@ -97,12 +99,13 @@ export interface DesktopSessionContentMatch {
 }
 
 /** Where the reader of a positioned transcript is, as the window the core holds follows it (protocol-client `TranscriptMove`):
- *  on the live tail, reading the rows `first`..`last` (the ids of the first and last transcript items in its view), or
- *  opening the transcript at a record. */
+ *  on the live tail, reading the rows `first`..`last` (the ids of the first and last transcript items in its view; `end`:
+ *  the view follows the end), or opening the transcript at a record. `reader`: the pane that moves; the window is one
+ *  for every pane of the session, and one pane's move keeps the stretch another stands in. */
 export type DesktopTranscriptMove =
-  | { readonly kind: 'follow' }
-  | { readonly kind: 'read'; readonly first: string; readonly last: string }
-  | { readonly kind: 'at'; readonly position: string };
+  | { readonly kind: 'follow'; readonly reader?: string }
+  | { readonly kind: 'read'; readonly first: string; readonly last: string; readonly end?: boolean; readonly reader?: string }
+  | { readonly kind: 'at'; readonly position: string; readonly reader?: string };
 
 /** A prompt the session can be rewound to (`thread/rewindTargets/list`): `position` is what the rewind names. */
 export interface DesktopRewindTarget {
@@ -660,6 +663,52 @@ export interface DesktopAbortOptions {
    *  its busy projection reaches the pane. */
   submissionId?: string;
 }
+
+/** "Send now" on a queued message (the core's `turn/takeover`): one command per press. */
+export interface DesktopTurnTakeover {
+  /** The press's own id, the same on every send of it: a repeat is answered the first one's receipt. */
+  opId: string;
+  /** The turn the user saw running; any other turn is left alone. */
+  turnId: string;
+  /** The queued message: its queue id, or the submission it answers. */
+  queuedId: string;
+}
+
+/** Why the core refused a takeover (`TakeoverRefusal`). */
+export type DesktopTurnTakeoverRefusal =
+  | 'noRunningTurn'
+  | 'turnNotTakeable'
+  | 'stopClaimed'
+  | 'takenOver'
+  | 'tooLate'
+  | 'turnMismatch'
+  | 'messageUndeliverable';
+
+/** The core's receipt of a takeover (`TurnTakeoverResponse`): what became of the message. Accepted, it is the next
+ *  turn's input (`successor`). Refused, nothing was changed: it is still queued as it was (`queued`), or it is no longer
+ *  queued (`consumed`: a turn took it, or it was removed or handed back). How the ended turn reads comes from its end
+ *  row, never from here. */
+export type DesktopTurnTakeoverReceipt =
+  | {
+      kind: 'accepted';
+      turnId: string;
+      queuedId: string;
+      /** The submission the message answers, which the row of the turn it starts carries. */
+      submissionId?: string;
+      /** The named turn was asked to stop for the message; false: it was already at its end and was left to finish. */
+      interruptRequested: boolean;
+      message: 'successor';
+      /** The pasted images and texts of the taken-over turn's prompt, which is not handed back. */
+      discardPastedImages?: unknown;
+      discardPastedTexts?: unknown;
+    }
+  | {
+      kind: 'refused';
+      turnId: string;
+      queuedId: string;
+      reason: DesktopTurnTakeoverRefusal;
+      message: 'queued' | 'consumed';
+    };
 
 export interface DesktopNewTaskDraft {
   projectPath?: string;

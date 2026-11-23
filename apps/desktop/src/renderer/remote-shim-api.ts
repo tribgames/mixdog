@@ -445,6 +445,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       );
     },
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
+    takeOverTurn: (sessionId, takeover) => call('takeOverTurn', [sessionId, takeover]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
     // Settings › Notifications: the PC keeps every device's preferences; this

@@ -246,6 +246,7 @@ export function AgentsSection({
           row,
           name: nameInRole(row, group.role),
           tokens: usage.agentRowTokens.get(row.node.sessionId),
+          tokensFloor: usage.agentRowFloors.has(row.node.sessionId),
           ownerSessionId: sessionId,
           onOpenSession,
         });

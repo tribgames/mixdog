@@ -1,4 +1,4 @@
-import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from 'react';
+import { type MutableRefObject, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { handoffLinesAt, roomPassIsQuiet, routineReplyIsQuiet, taskReportHidden } from './agent-chat-place';
 import { coreScrollState, measureTranscriptRow, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { type TranscriptRowSurface, transcriptRowHeightStore } from './transcript-row-estimates';
@@ -85,6 +85,19 @@ export function useTranscriptRowEstimates({
     },
     [rowsRef, viewport, surfaceRef]
   );
+  // The sizes kept are those of the rows the list holds: once they outnumber the rows (the window let rows go), a row
+  // that left takes its estimate, its variant and its measured size with it. It is measured again if it is read again.
+  useLayoutEffect(() => {
+    const rows = rowsRef.current;
+    const sizes = virtualizerRefForEstimates.current?.itemSizeCache as Map<unknown, number> | undefined;
+    const kept = [heldEstimates.current, heldVariants.current, fallbackEstimates.current, sizes];
+    if (!kept.some((held) => held !== undefined && held.size > rows.length)) return;
+    const keys = new Set<unknown>(rows.map((row) => row.key));
+    for (const held of kept) {
+      if (!held) continue;
+      for (const key of [...held.keys()]) if (!keys.has(key)) held.delete(key);
+    }
+  });
   const relearnFrame = useRef(0);
   // Marked on the viewport while a relearn waits for its frame: the entry
   // reveal (use-transcript-reveal.ts) never takes a revisit as final then.

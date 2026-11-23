@@ -393,6 +393,63 @@ test('rows re-sent archived after a compaction stay above the divider, out of th
   );
 });
 
+test('a positioned transcript draws a turn whole above a compaction that followed it, and no end inside a turn still arriving', async () => {
+  const { sessionReducer, desktopSessionState } = await import(
+    '../../../../packages/protocol-client/src/session-state.ts'
+  );
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const pos = (id) => `h1:0:${id}`;
+  const ext = (id, more = {}) => ({ historyPosition: pos(id), ...more });
+  const user = (id) => ({ type: 'userMessage', id, content: [{ type: 'text', text: id }], meta: { at: 1_000, ext: ext(id) } });
+  const call = (id) => ({ type: 'toolCall', id, name: 'read', input: { path: 'a.rs' }, run: { callId: id, result: 'ok' }, meta: { status: 'completed', ext: ext(id) } });
+  const reply = (id, more = {}) => ({ type: 'agentMessage', id, text: id, meta: { at: 2_000, ext: ext(id, more) } });
+  const divider = { type: 'contextCompaction', id: 'divider:k1', meta: { at: 9_000, label: 'Conversation compacted' } };
+  // A turn's end is told with its terminal record, as that record's unit: none is shown for a turn still arriving.
+  const storedEnd = (of, more = {}) => ({ type: 'turnEnd', id: `${of}:2`, status: 'done', elapsedMs: 1_000, finalAssistantId: of, meta: { at: 2_000, ext: ext(of, { attemptId: `att-${of}`, ...more }) } });
+  const unit = (...items) => ({ position: pos(items[0].id), items });
+  const fold = (units) =>
+    sessionReducer.initial({
+      thread: { id: SESSION },
+      state: {},
+      items: [],
+      hasOlder: false,
+      window: { windowVersion: 1, lineage: 1, ranges: [{ id: 'tail', older: { kind: 'end' }, newer: { kind: 'end' } }], added: [{ range: 'tail', units }], followTail: true },
+    });
+  const at = (s, method, params) => sessionReducer.apply(s, { method, params: { threadId: SESSION, ...params } });
+  const changed = (s, change) => at(s, 'thread/transcript/changed', { lineage: 1, change });
+  const drawn = (s) => {
+    const items = desktopSessionState(s, []).items;
+    return projectSettledTranscriptRows({ sessionKey: SESSION, items, turnKeys: transcriptTurnKeys(items), failedTurns: new Set() }).rows.map((row) =>
+      row._tag === 'ToolActivity'
+        ? 'tools'
+        : row._tag === 'TurnGap'
+          ? 'gap'
+          : `${row.item.kind}:${row.item.id}${row.completion ? ` closed by ${row.completion.id} at ${row.completion.at}` : ''}`
+    );
+  };
+
+  // Between turns: the turn closes, then a compaction reads its reply's record again with the divider on it.
+  let s = fold([unit(user('u1')), unit(reply('r1'), storedEnd('r1'))]);
+  s = changed(s, { op: 'replace', unit: unit(reply('r1', { archived: true }), storedEnd('r1', { archived: true, dividersAfter: [divider] })) });
+  s = changed(s, { op: 'insert', after: pos('r1'), unit: unit(user('u2')) });
+  assert.deepEqual(drawn(s), [
+    'user:u1',
+    'assistant:r1 closed by r1:2 at 2000',
+    'gap',
+    'statusdone:divider:k1',
+    'gap',
+    'user:u2',
+  ]);
+
+  // In a turn: the turn closes while the records stored after a compaction are still being read.
+  s = fold([unit(user('u3')), unit(call('c1'))]);
+  s = changed(s, { op: 'insert', after: pos('c1'), unit: unit({ ...call('c2'), meta: { status: 'completed', ext: ext('c2', { dividersAfter: [divider] }) } }) });
+  assert.deepEqual(drawn(s), ['user:u3', 'tools', 'statusdone:divider:k1'], 'no end before its reply');
+  s = changed(s, { op: 'insert', after: pos('c2'), unit: unit(reply('r3'), storedEnd('r3')) });
+  assert.deepEqual(drawn(s), ['user:u3', 'tools', 'statusdone:divider:k1', 'assistant:r3 closed by r3:2 at 2000']);
+});
+
 for (const [name, frame] of [
   ['its pending twin', (project) => project([...archived, divider, prompt], { pendingItems: [pendingTwin] })],
   ['a repeated copy of the item', (project) => project([...archived, divider, prompt, { ...prompt }])],

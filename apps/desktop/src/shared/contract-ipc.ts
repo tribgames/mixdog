@@ -112,6 +112,7 @@ export const DESKTOP_IPC = {
   submitNewTask: 'mixdog:submit-new-task',
   submitToSession: 'mixdog:submit-to-session',
   abortSession: 'mixdog:abort-session',
+  takeOverTurn: 'mixdog:take-over-turn',
   resolveToolApprovalForSession: 'mixdog:resolve-tool-approval-for-session',
   getNotificationPreferences: 'mixdog:get-notification-preferences',
   setNotificationPreferences: 'mixdog:set-notification-preferences',

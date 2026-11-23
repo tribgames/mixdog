@@ -222,6 +222,10 @@ export interface VisualizeTabView {
   /** The agent's annotation marks on the displayed panes (main draws them in
    *  the desktop window; a paired device draws them from here). */
   annotations?: VisualizeAnnotation[];
+  /** The running turn's own tab, shown at the user's request as it was when
+   *  asked: the turn is still writing it, and what acts on its content
+   *  (a version, a restore, an export) waits for the turn's end. */
+  turnWork?: true;
 }
 
 /** Most entries a session's "All visuals" list keeps; older ones fall out. */
@@ -258,8 +262,9 @@ export interface VisualizeSessionState {
   sessionId: string;
   tabs: VisualizeTabView[];
   active: string | null;
-  /** A paired phone's snapshot read only: whether the session's agent turn is held now and since when (ms), as the producer last said
-   *  it. Absent from the live host and from older cores, whose snapshot says nothing of holds. */
+  /** A snapshot read only: an agent turn of the session runs and its work is kept back since `heldSince` (ms), as the producer last
+   *  said it; the state is what the session shows meanwhile (see `DesktopVisualizeEvent.held`). Absent from older cores, whose
+   *  snapshot says nothing of holds. */
   held?: boolean;
   heldSince?: number;
   /** The host's turn-end record of opens with nothing left to show; absent
@@ -312,13 +317,15 @@ export interface DesktopVisualizeEvent {
    *  never activates a tab or reveals the panel; an inactive tab gets an
    *  "updated" mark until it is viewed. Only `reveal` brings anything up. */
   updated?: string;
-  /** Sent while the session's agent turn runs: `state` is what the turn has
-   *  made so far. The panel keeps showing what it showed (nothing opens,
-   *  activates or reloads), and `updated` still marks its tab. The turn's
-   *  end sends the final state as an ordinary event. */
+  /** Sent while an agent turn of the session runs: the host keeps what that
+   *  turn opens and changes, and `state` is what the session shows meanwhile,
+   *  the result of the last turn that ended (so of the turn before, when it
+   *  ends while the next already runs: then with `reveal`). `updated` still
+   *  marks its tab. The last running turn's end sends the final state as an
+   *  ordinary event. */
   held?: boolean;
-  /** With `held`: when the turn started (ms). Chat cards of opens made since
-   *  then wait for the turn's end. */
+  /** With `held`: when the oldest turn not shown yet started (ms). Chat cards
+   *  of opens made since then wait for that turn's end. */
   heldSince?: number;
   openUrl?: string;
   /** With `openUrl`: names this request, so the browser tab the pane creates
@@ -426,10 +433,12 @@ export interface VisualizeHostTab {
   thumbnailVersion?: number;
   /** Selectors and labels only (path-free). */
   annotations?: VisualizeAnnotation[];
+  /** See `VisualizeTabView.turnWork`. */
+  turnWork?: true;
 }
 
 export interface VisualizeHostState {
-  /** A paired phone's snapshot read: the session's turn is held now, since (ms). Never on the live host's own states. */
+  /** A snapshot read: a turn of the session runs, its work kept back since (ms); see `VisualizeSessionState.held`. */
   held?: boolean;
   heldSince?: number;
   sessionId: string;
@@ -553,6 +562,7 @@ function remoteVisualizeTab(tab: VisualizeHostState['tabs'][number]): VisualizeS
     ...(thumbnail ? { thumbnail } : {}),
     ...(thumbnail && Number.isInteger(tab.thumbnailVersion) ? { thumbnailVersion: tab.thumbnailVersion } : {}),
     ...(annotations.length ? { annotations } : {}),
+    ...(tab.turnWork === true ? { turnWork: true as const } : {}),
   };
 }
 

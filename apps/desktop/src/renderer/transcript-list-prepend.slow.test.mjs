@@ -641,12 +641,16 @@ test('a page landing under a wheel ramp far from the top is held as a row offset
   }
 });
 
-for (const [where, readerTop] of [
-  ['at the very top', 0],
-  ['below the top but within four viewports', 2 * VIEWPORT],
+// A frame of the page runs its animation-frame callbacks and then delivers its observers' sizes; a size can also be
+// delivered before the frame that lands the hold (a layout forced earlier). Both orders are run.
+for (const [where, readerTop, sizesFirst] of [
+  ['at the very top', 0, true],
+  ['below the top but within four viewports', 2 * VIEWPORT, true],
+  ['at the very top, its sizes arriving after the landing frame', 0, false],
+  ['below the top but within four viewports, its sizes arriving after each frame', 2 * VIEWPORT, false],
 ]) {
-  test(`a page landing under a wheel ramp ${where} writes no scrollTop and settles once`, async () => {
-    const sessionKey = `touch-landing-near-top-${readerTop}`;
+  test(`a page landing under a wheel ramp ${where} writes no scrollTop in its commit and lands once`, async () => {
+    const sessionKey = `touch-landing-near-top-${readerTop}-${sizesFirst}`;
     const items = turnItems(20);
     const heights = new Map();
     const project = await pageProjector(sessionKey, items, heights);
@@ -666,6 +670,9 @@ for (const [where, readerTop] of [
       const before = mount.firstVisible(survivors);
       assert.ok(before, 'a surviving row is in view');
       const native = mount.viewport.scrollTop;
+      // The hold is landed from an animation frame (transcript-list-touch-deviation.ts): the frames run when the
+      // case runs them, so what is asserted between two of them does not depend on how long the commit took.
+      const frame = mount.holdFrames();
       touching = true;
       const writesBefore = mount.writes();
       await mount.render(paged);
@@ -675,14 +682,34 @@ for (const [where, readerTop] of [
       const held = mount.firstVisible(new Set([before.key]));
       assert.equal(held?.key, before.key);
       assert.ok(Math.abs(held.offset - before.offset) <= 1, `held ${held.offset} vs ${before.offset}`);
-      // Late sizes of the landed rows keep being held while the scroll lasts.
-      await mount.measure();
-      assert.equal(mount.writes(), writesBefore, 'still no scrollTop write mid-scroll');
-      // Scrolling stops: one settle correction, no row offset left behind.
+      if (sizesFirst) {
+        // Late sizes of the landed rows keep being held within the frame.
+        await mount.measure();
+        assert.equal(mount.writes(), writesBefore, 'still no scrollTop write before the next frame');
+        await frame();
+      } else {
+        await frame();
+        await mount.measure();
+      }
+      if (native === 0) {
+        // A wheel resting at native 0 has no scroll left for a write to cancel, and no scroll event to come: the
+        // hold lands in its next frame, so the history above can be reached while the wheel keeps turning.
+        assert.equal(mount.writes(), writesBefore + 1, 'the hold lands in the next frame, as one write');
+        assert.equal(mount.deviation(), 0);
+      } else {
+        assert.equal(mount.writes(), writesBefore, 'a ramp still moving keeps the hold across frames');
+        assert.ok(mount.deviation() > 0);
+      }
+      // Scrolling stops: the hold is landed once in all, no row offset left behind.
       touching = false;
-      await mount.settle();
+      for (let pass = 0; pass < 6; pass += 1) {
+        await act(async () => mount.viewport.dispatchEvent(new (mount.viewport.ownerDocument.defaultView.Event)('scroll')));
+        if (sizesFirst) await mount.measure();
+        await frame();
+        if (!sizesFirst) await mount.measure();
+      }
       assert.equal(mount.deviation(), 0, 'no row offset outlives the scroll');
-      assert.equal(mount.writes(), writesBefore + 1, 'the settle lands as exactly one write');
+      assert.equal(mount.writes(), writesBefore + 1, 'the hold lands as exactly one write in all');
       const landed = mount.firstVisible(new Set([before.key]));
       assert.equal(landed?.key, before.key);
       assert.ok(Math.abs(landed.offset - before.offset) <= 1, `landed ${landed.offset} vs ${before.offset}`);

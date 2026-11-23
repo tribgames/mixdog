@@ -155,6 +155,43 @@ test('a live card the Stop ended carries the cancelled marker; one that failed d
   assert.deepEqual([failed?.result, failed?.text, failed?.isError], ['1 Failed', '1 Failed', true]);
 });
 
+test('a stored call with no result that ended with its turn is marked stopped; one with a result, or live, is not', () => {
+  const call = (status: string, run: Obj, output?: string): Obj => ({
+    type: 'toolCall',
+    id: 'a',
+    name: 'read',
+    input: { path: 'x' },
+    ...(output === undefined ? {} : { output }),
+    run: { callId: 'c1', ...run },
+    meta: { status, at: 1000 },
+  });
+  const unanswered = rowOf(call('interrupted', {}));
+  assert.deepEqual([unanswered?.stopped, unanswered?.isError, unanswered?.completedCount], [true, false, 1]);
+  assert.equal(rowOf(call('completed', { result: '' }))?.stopped, undefined);
+  assert.equal(rowOf(call('interrupted', { result: 'Error: aborted' }))?.stopped, undefined);
+  assert.equal(rowOf(call('interrupted', { live: true, isError: true }, 'Error: aborted'))?.stopped, undefined);
+});
+
+test('an aggregate card keeps a stopped member: the card and that member say stopped, the others do not', () => {
+  const call = (id: string, status: string, run: Obj): Obj => ({
+    type: 'toolCall',
+    id,
+    name: 'read',
+    input: { path: id },
+    run: { callId: `c-${id}`, ...run },
+    meta: { status, at: 1000 },
+  });
+  const [card, ...rest] = project([call('a', 'completed', { result: 'one' }), call('b', 'interrupted', {})]);
+  assert.deepEqual([card?.name, rest.length, card?.stopped], ['__aggregate__', 0, true]);
+  const members = card?.toolMembers as Obj[];
+  assert.deepEqual(
+    members.map((member) => member.stopped),
+    [undefined, true]
+  );
+  const [answered] = project([call('a', 'completed', { result: 'one' }), call('b', 'completed', { result: 'two' })]);
+  assert.equal(answered?.stopped, undefined);
+});
+
 test("a turn end is the turndone row, with the live end's counters from ext and the typed message id on prompt, reply and end", () => {
   const rows = project([
     { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'go' }], meta: { at: 1, messageId: 'msg_u' } },

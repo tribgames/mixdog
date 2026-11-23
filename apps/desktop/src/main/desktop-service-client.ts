@@ -1,5 +1,7 @@
 import type {
   DesktopAbortOptions,
+  DesktopTurnTakeover,
+  DesktopTurnTakeoverReceipt,
   DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
@@ -357,6 +359,10 @@ export class DesktopServiceClient implements DesktopService {
   }
   abortSession(sessionId: string, options: DesktopAbortOptions = {}): Promise<unknown> {
     return this.invoke('abortSession', [sessionId, options]);
+  }
+  takeOverTurn(sessionId: string, takeover: DesktopTurnTakeover): Promise<DesktopTurnTakeoverReceipt> {
+    // One request: the connection itself sends a lost reply's request again under the press's `opId`.
+    return this.invoke<DesktopTurnTakeoverReceipt>('takeOverTurn', [sessionId, takeover]);
   }
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
     return this.options.capabilityLane.resolveToolApproval(

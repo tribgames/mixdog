@@ -1,5 +1,5 @@
 import type React from 'react';
-import { memo, useLayoutEffect, useRef } from 'react';
+import { memo, useContext, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useScreenSessions, useVisibleSessions } from './use-visible-sessions';
 import { DESKTOP_PET_SESSION_ID, DesktopPetPublisher, useDesktopPetSessionIds } from './desktop-pet-publisher';
@@ -7,6 +7,8 @@ import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { DownloadSessionContext } from './project-file-download';
 import { PaneKeyContext } from './pane-key-context';
+import { type PanePresentation, PanePresentationContext } from './pane-presentation';
+import { keepReaderPlaces } from './transcript-list-reader-place';
 import { SurfaceActiveContext } from './surface-activity';
 import { ConversationReleaseContext } from './conversation-release';
 import { registerComposerPresenter } from './composer-text-inbox';
@@ -68,6 +70,16 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
 }
 
 const RETAINED_CONVERSATIONS = 2;
+
+/** After a conversation in its pane's presentation: when nothing in the conversation answers for when it can be shown
+ *  (`usePanePresentation`), it is shown as it is, in the commit that mounts it. */
+function UnansweredPresentation(): null {
+  const presentation = useContext(PanePresentationContext);
+  useLayoutEffect(() => {
+    if (presentation.preparing && !presentation.heard) presentation.ready();
+  }, [presentation]);
+  return null;
+}
 
 const RetainedConversation = memo(
   function RetainedConversation({ children }: { retained: boolean; children: React.ReactNode }) {
@@ -174,7 +186,7 @@ function useComposerPresenter(
 ) {
   const presentComposer = useRef<() => void>(() => {});
   presentComposer.current = () => {
-    const candidates = conversationLeaves.filter((entry) => !entry.retained && !entry.handoff);
+    const candidates = conversationLeaves.filter((entry) => !entry.retained && !entry.handoff && !entry.outgoing);
     const target =
       candidates.find((entry) => entry.leaf.id === focusedLeafId) ??
       candidates.find((entry) => !entry.parked) ??
@@ -258,10 +270,61 @@ export function PaneWorkspace({
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   const singlePaneMode = useSinglePaneMode(workspace.layout);
   const petSessionIds = useDesktopPetSessionIds();
+  const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
+  // The phone keeps one conversation per pane and its own entry; the desktop hands over between conversations.
+  const { conversationLeaves, releaseGateFor, presentOwner, keepOwner } = usePaneConversationOwners(
+    workspace,
+    paneSurfaceHandoffs,
+    RETAINED_CONVERSATIONS,
+    !mobileSurface
+  );
+  // Every conversation kept mounted keeps its session followed: the one shown, the one a pane is switching to, and the
+  // RETAINED_CONVERSATIONS shown before them. Their windows and row sizes stay current, so a return to one is presented
+  // in the frame of the switch; a session kept by none is let go by the core and read again around its reader's place.
+  const keptSessionIds = mobileSurface
+    ? []
+    : conversationLeaves.flatMap((entry) => (entry.active.kind === 'session' ? [entry.active.id] : []));
   const visibleSessionIds = mobileSurface
     ? [...new Set([...paneSessionIds, ...dockSessionIds])]
-    : [...new Set([...paneSessionIds, ...dockSessionIds, ...petSessionIds])];
+    : [...new Set([...paneSessionIds, ...keptSessionIds, ...dockSessionIds, ...petSessionIds])];
   useVisibleSessions(visibleSessionIds);
+  // A reader's place lives as long as its pane holds a tab of the session.
+  const paneTabs = workspace.restorePending
+    ? null
+    : new Map(
+        workspace.leaves.map((leaf) => [
+          leaf.id,
+          new Set(leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : []))),
+        ])
+      );
+  const paneTabsKey = paneTabs ? [...paneTabs].map(([leaf, ids]) => `${leaf}\0${[...ids].join('\0')}`).join('\x01') : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: paneTabsKey is the content signature of paneTabs
+  useLayoutEffect(() => {
+    if (paneTabs) keepReaderPlaces(paneTabs);
+  }, [paneTabsKey]);
+  const presentations = useRef(new Map<string, PanePresentation>());
+  const presentationFor = (owner: string, preparing: boolean, visit: number): PanePresentation => {
+    const held = presentations.current.get(owner);
+    if (held && held.preparing === preparing && held.visit === visit) return held;
+    const next = { preparing, visit, ready: () => presentOwner(owner), keep: () => keepOwner(owner) };
+    presentations.current.set(owner, next);
+    return next;
+  };
+  // The hosts' presentation states land with the commit that decides them, so a handover is one frame's change: the
+  // conversation switched to is laid out unseen until then, and the one still shown takes no input.
+  useLayoutEffect(() => {
+    const owners = new Set<string>();
+    for (const entry of conversationLeaves) {
+      owners.add(entry.owner);
+      const host = document
+        .getElementById(paneConversationSlotId(entry.leaf.id))
+        ?.querySelector<HTMLElement>(`:scope > .persistent-pane-surface[data-owner="${entry.owner}"]`);
+      if (!host) continue;
+      host.toggleAttribute('data-preparing', entry.preparing === true);
+      host.inert = entry.retained || entry.outgoing === true;
+    }
+    for (const owner of [...presentations.current.keys()]) if (!owners.has(owner)) presentations.current.delete(owner);
+  });
   // On screen: every pane of a split, only the focused one of a carousel.
   useScreenSessions(paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, singlePaneMode));
   usePaneSelectionFence();
@@ -281,16 +344,12 @@ export function PaneWorkspace({
   }
   const { focusedLeafId } = workspace;
   const multi = workspace.leaves.length > 1;
-  const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
-  const { conversationLeaves, releaseGateFor } = usePaneConversationOwners(
-    workspace,
-    paneSurfaceHandoffs,
-    RETAINED_CONVERSATIONS
-  );
   useComposerPresenter(conversationLeaves, focusedLeafId, workspace, onFocusSelection);
   let conversationPortals: React.ReactNode[] = [];
   if (renderConversation) {
-    conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked, retained, warm, owner }) => {
+    conversationPortals = conversationLeaves.map((entry) => {
+      const { leaf, active, handoff, parked, retained, warm, owner } = entry;
+      const shown = !handoff && !parked && !retained && !entry.outgoing;
       const focused = leaf.id === focusedLeafId;
       const focusPane = (): void => {
         workspace.focusLeaf(leaf.id);
@@ -310,18 +369,16 @@ export function PaneWorkspace({
               so every owner below releases what it holds the moment it hides. */}
           <SurfaceActiveContext.Provider value={!parked && !retained}>
             <ConversationReleaseContext.Provider value={releaseGateFor(owner)}>
-              <RetainedConversation retained={retained}>
-                <PaneKeyContext.Provider value={leaf.id}>
-                  {renderConversation(
-                    active,
-                    focused && !handoff && !parked && !retained,
-                    focusPane,
-                    leaf.id,
-                    warm,
-                    !parked && !retained
-                  )}
-                </PaneKeyContext.Provider>
-              </RetainedConversation>
+              <PanePresentationContext.Provider
+                value={presentationFor(owner, entry.preparing === true, entry.visit ?? 0)}
+              >
+                <RetainedConversation retained={retained}>
+                  <PaneKeyContext.Provider value={leaf.id}>
+                    {renderConversation(active, focused && shown, focusPane, leaf.id, warm, !parked && !retained)}
+                  </PaneKeyContext.Provider>
+                </RetainedConversation>
+                <UnansweredPresentation />
+              </PanePresentationContext.Provider>
             </ConversationReleaseContext.Provider>
           </SurfaceActiveContext.Provider>
         </PersistentPanePortal>
@@ -341,7 +398,7 @@ export function PaneWorkspace({
     );
   }
   const conversationEntryByLeaf = new Map(
-    conversationLeaves.filter((entry) => !entry.retained).map((entry) => [entry.leaf.id, entry])
+    conversationLeaves.filter((entry) => !entry.retained && !entry.outgoing).map((entry) => [entry.leaf.id, entry])
   );
   const conversationSlot = (leafId: string, parked: boolean) => (
     <div

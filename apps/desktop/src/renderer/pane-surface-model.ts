@@ -28,6 +28,12 @@ export type ConversationSurface = {
   warm: boolean;
   /** Stable Conversation owner key (the portal's React key). */
   owner: string;
+  /** Laid out behind the conversation its pane still shows, until it says it can be shown (pane-presentation.ts). */
+  preparing?: boolean;
+  /** The conversation its pane still shows while the one it switched to prepares: painted, not interactive. */
+  outgoing?: boolean;
+  /** Counts the times this owner was put up to be presented. */
+  visit?: number;
 };
 
 export type PaneSurfaceSnapshot = {
@@ -214,13 +220,34 @@ function collectConversationLeaves(
 function assignConversationOwners(
   conversationLeaves: ConversationSurface[],
   previousOwners: readonly ConversationOwner[],
-  nextOwnerKey: () => string
+  nextOwnerKey: () => string,
+  /** The pane's previous owner may show the selection that took its place; absent: any may (no handoff between
+   *  conversations: the owner switches sessions itself). */
+  inherits?: (owner: string) => boolean
 ): void {
   const usedOwnerKeys = new Set<string>();
-  for (const entry of conversationLeaves) {
-    const movedOwner = previousOwners.find(
-      (owner) => owner.selectionKey === entry.selectionKey && !usedOwnerKeys.has(owner.key)
+  // The owner that showed the selection in the same pane first: two panes on one session each keep their own (its
+  // scroll offset and its reader's place are that pane's). Then one that moved with its tab from another pane.
+  const sameOwner = (entry: ConversationSurface, samePane: boolean) =>
+    previousOwners.find(
+      (owner) =>
+        owner.selectionKey === entry.selectionKey &&
+        !usedOwnerKeys.has(owner.key) &&
+        (!samePane || owner.leafId === entry.leaf.id)
     );
+  const claims = new Map<ConversationSurface, ConversationOwner>();
+  for (const samePane of [true, false]) {
+    for (const entry of conversationLeaves) {
+      if (claims.has(entry)) continue;
+      const owner = sameOwner(entry, samePane);
+      if (!owner) continue;
+      claims.set(entry, owner);
+      usedOwnerKeys.add(owner.key);
+    }
+  }
+  usedOwnerKeys.clear();
+  for (const entry of conversationLeaves) {
+    const movedOwner = claims.get(entry);
     if (!movedOwner) continue;
     entry.owner = movedOwner.key;
     // An owner that has painted this selection while retained stays warm
@@ -230,7 +257,10 @@ function assignConversationOwners(
   }
   for (const entry of conversationLeaves) {
     if (entry.owner) continue;
-    const paneOwner = previousOwners.find((owner) => owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key));
+    const paneOwner = previousOwners.find(
+      (owner) =>
+        owner.leafId === entry.leaf.id && !usedOwnerKeys.has(owner.key) && (inherits?.(owner.key) ?? true)
+    );
     entry.owner = paneOwner?.key ?? nextOwnerKey();
     usedOwnerKeys.add(entry.owner);
   }
@@ -249,8 +279,18 @@ function assignConversationOwners(
 export function usePaneConversationOwners(
   workspace: Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'restorePending'>,
   paneSurfaceHandoffs: { current: Map<string, PaneSurfaceSnapshot> },
-  retainLimit = 0
+  retainLimit = 0,
+  /** A pane keeps showing the conversation it showed until the one it switches to can be shown: every session has an
+   *  owner of its own, and the pane hands over between two of them (pane-presentation.ts). */
+  handsOver = false
 ) {
+  /** The owner each pane presents, and the surface it was presented as. */
+  const presented = useRef(new Map<string, { owner: string; surface: ConversationSurface }>());
+  const visits = useRef(new Map<string, number>());
+  const preparingOwners = useRef(new Set<string>());
+  /** Owners whose draft sent its first prompt: the session that makes is theirs. */
+  const keptOwners = useRef(new Set<string>());
+  const shownLeaves = useRef<ConversationSurface[]>([]);
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
   const recentSelections = useRef<RecentSelection[]>([]);
@@ -309,8 +349,45 @@ export function usePaneConversationOwners(
   assignConversationOwners(
     conversationLeaves,
     conversationOwners.current,
-    () => `pane-conversation-owner-${++conversationOwnerSequence.current}`
+    () => `pane-conversation-owner-${++conversationOwnerSequence.current}`,
+    handsOver ? (owner) => keptOwners.current.has(owner) : undefined
   );
+  const preparingNow = new Set<string>();
+  const leafIds = new Set(workspace.leaves.map((leaf) => leaf.id));
+  for (const leafId of [...presented.current.keys()]) if (!leafIds.has(leafId)) presented.current.delete(leafId);
+  for (const entry of conversationLeaves.filter((candidate) => !candidate.retained && !candidate.handoff)) {
+    const shown = presented.current.get(entry.leaf.id);
+    const mounted = shown !== undefined && conversationOwners.current.some((owner) => owner.key === shown.owner);
+    // A parked conversation is behind another surface: there is nothing to hand over on screen.
+    if (!handsOver || !shown || !mounted || shown.owner === entry.owner || entry.parked) {
+      presented.current.set(entry.leaf.id, { owner: entry.owner, surface: entry });
+      continue;
+    }
+    entry.preparing = true;
+    preparingNow.add(entry.owner);
+    if (!preparingOwners.current.has(entry.owner)) {
+      visits.current.set(entry.owner, (visits.current.get(entry.owner) ?? 0) + 1);
+    }
+    const outgoing = conversationLeaves.find((candidate) => candidate.owner === shown.owner);
+    if (outgoing) {
+      outgoing.retained = false;
+      outgoing.outgoing = true;
+    } else {
+      // No longer a tab of its pane: it stays only until the pane hands over.
+      conversationLeaves.push({
+        ...shown.surface,
+        owner: shown.owner,
+        handoff: false,
+        parked: false,
+        retained: false,
+        preparing: false,
+        outgoing: true,
+      });
+    }
+  }
+  preparingOwners.current = preparingNow;
+  for (const entry of conversationLeaves) entry.visit = visits.current.get(entry.owner) ?? 0;
+  shownLeaves.current = conversationLeaves;
   conversationOwners.current = conversationLeaves.map((entry) => ({
     key: entry.owner,
     leafId: entry.leaf.id,
@@ -328,5 +405,15 @@ export function usePaneConversationOwners(
     stop();
     releaseGates.current.delete(owner);
   }
-  return { conversationLeaves, releaseGateFor };
+  for (const owner of [...visits.current.keys()]) if (!ownerKeys.has(owner)) visits.current.delete(owner);
+  for (const owner of [...keptOwners.current]) if (!ownerKeys.has(owner)) keptOwners.current.delete(owner);
+  /** The conversation under `owner` can be shown: its pane presents it. */
+  const presentOwner = (owner: string): void => {
+    const entry = shownLeaves.current.find((candidate) => candidate.owner === owner && candidate.preparing);
+    if (!entry) return;
+    presented.current.set(entry.leaf.id, { owner, surface: entry });
+    setReleases((count) => count + 1);
+  };
+  const keepOwner = (owner: string): void => void keptOwners.current.add(owner);
+  return { conversationLeaves, releaseGateFor, presentOwner, keepOwner };
 }

@@ -40,6 +40,7 @@ import {
   DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
   type DesktopAbortOptions,
+  type DesktopTurnTakeover,
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
   type DesktopCapabilityRequest,
@@ -376,6 +377,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'kickoff',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
+const TURN_TAKEOVER_KEYS = new Set(['opId', 'turnId', 'queuedId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'orchestrationMode', 'worktree']);
 const MODEL_SELECTION_KEYS = new Set([
   'provider',
@@ -423,7 +425,6 @@ const TOGGLEABLE_BUILTIN_TOOLS = new Set([
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
 export const CAPABILITY_ARITY = {
-  prioritizeQueued: [1, 1],
   restoreQueued: [0, 2],
   rewindToItem: [1, 1],
   retryFailedTurn: [2, 2],
@@ -1235,6 +1236,18 @@ export function requiredAbortOptions(value: unknown): DesktopAbortOptions {
     requiredString(input.submissionId, 'abort submission id', 1_024);
   }
   return value as DesktopAbortOptions;
+}
+
+export function requiredTurnTakeover(value: unknown): DesktopTurnTakeover {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('turn takeover is invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  requireAllowedKeys(input, TURN_TAKEOVER_KEYS, 'turn takeover');
+  requiredString(input.opId, 'turn takeover op id', 1_024);
+  requiredString(input.turnId, 'turn takeover turn id', 1_024);
+  requiredString(input.queuedId, 'turn takeover queued id', 1_024);
+  return value as DesktopTurnTakeover;
 }
 
 export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {

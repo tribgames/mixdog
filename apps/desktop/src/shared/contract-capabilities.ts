@@ -5,7 +5,6 @@ import { DESKTOP_WORKTREE_CAPABILITIES, DESKTOP_WORKTREE_READ_CAPABILITIES } fro
 import { DESKTOP_NETWORK_PROXY_CAPABILITIES, DESKTOP_NETWORK_PROXY_READ_CAPABILITIES } from './contract-network-proxy';
 
 export const DESKTOP_CAPABILITIES = [
-  'prioritizeQueued',
   'restoreQueued',
   'rewindToItem',
   'retryFailedTurn',

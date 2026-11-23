@@ -921,32 +921,39 @@ test('the agents summary shows the session totals with the Lead split out, cache
   assert.deepEqual(rowTokens, { 'run-a': '300k', 'ask-c': '0', 'done-b': '200k' });
 });
 
-test('an unpriced turn drops only the cost from the agents summary', async (t) => {
+test('an unpriced turn makes only the cost a floor in the agents summary', async (t) => {
   const { summary } = await usagePanel(t, {
     ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
     agents: ledgerUsage(300, { unpriced: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
-  // Unpriced stays "-" (never a $0.00); the exact figures are still shown.
-  assert.deepEqual(summaryParts(summary), usageSummary('1.3k', '1k', '300', '38.5%', '-'));
+  // The priced turns' cost, marked as the lower bound it is; the exact figures stay plain.
+  assert.deepEqual(summaryParts(summary), usageSummary('1.3k', '1k', '300', '38.5%', '≥ $1.00'));
 });
 
 // Every figure the footer cannot show reads "-" (the Lead and Agents split
 // included), so the three items exist from the first render.
 const unknownSummary = () => usageSummary('-', '-', '-', '-', '-');
 
-test('an unmeasured agent turn drops every combined figure; an unmeasured or missing row drops its own', async (t) => {
+test('an unmeasured agent turn marks the combined figures and its row as floors; a missing row has none', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, {
     ...ledgerUsage(1_000, { costUsd: 1 }),
     agents: ledgerUsage(200, { unmeasured: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
-  // The agents' share is unknown: no total, cache rate or cost: the footer
-  // keeps its line empty (so the rows never move when figures arrive); the
-  // header counts stay.
-  assert.deepEqual(summaryParts(summary), unknownSummary());
+  // What the ledger measured stays on the line, marked as the lower bound it is; the header counts stay.
+  // The hit rate is the measured calls' own: plain, its tooltip says so.
+  assert.deepEqual(summaryParts(summary), usageSummary('≥ 1.2k', '1k', '≥ 200', '0.0%', '≥ $1.00'));
+  const note = translate(
+    'Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.'
+  );
+  const hitNote = translate('The rate covers only the calls whose usage was reported.');
+  assert.deepEqual(
+    [...summary.children].map((part) => part.title.split('\n').at(-1)),
+    [note, hitNote, note]
+  );
   assert.deepEqual(meta, usagePanelMeta());
-  assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
+  assert.deepEqual(rowTokens, { 'run-a': '≥ 100', 'ask-c': null, 'done-b': '100' });
 });
 
 test('without a usage read the footer holds "-" placeholders and the header counts remain', async (t) => {
@@ -983,8 +990,11 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
       },
     };
   };
-  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
-  await publishPool([poolAgent('run-a', { sessionId: 's-a' })]);
+  // A Lead no earlier test read: the island paints a session's last answer at once, so a session it has answered
+  // before is never pending on screen.
+  const lead = 'pending-usage-session';
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ sessionId: lead }))));
+  await publishPool([poolAgent('run-a', { sessionId: 's-a', ownerSessionId: lead })]);
   await act(async () => {
     document.querySelector('.composer-island-seg-agents').click();
     await read;
@@ -1082,12 +1092,12 @@ test('an open agents panel reads when the ledger records a response for the Lead
   await publish({ busy: true, streamingTail: { id: 't1', kind: 'assistant', text: 'hello' } });
   await act(async () => t.mock.timers.tick(60_000));
   assert.equal(reads.length, 3, 'nothing else reads');
-  // A response with no usage moves no running total; the ledger now says unknown.
+  // A response with no usage moves no running total; the ledger's figure is now a floor.
   ledger.unmeasured = 1;
   await commit();
   assert.equal(reads.length, 4);
   await answer();
-  assert.equal(rowTokens()['run-a'], null, 'the number gives way to unknown');
+  assert.equal(rowTokens()['run-a'], '≥ 250k', 'the number is marked a floor');
 
   // The Lead's turn settling takes one reading.
   await publish({ busy: false });
@@ -1097,7 +1107,7 @@ test('an open agents panel reads when the ledger records a response for the Lead
   await answer();
 });
 
-test('the usage summary model sums exact sessions only', async () => {
+test('the usage summary model sums the sessions and marks floors', async () => {
   const { islandUsageSummary, islandUsageSessionIds } = await import('./island-session-usage.ts');
   assert.deepEqual(islandUsageSessionIds(['a', 'bad id', 'a', 'b:c', 'd']), ['a', 'd']);
   const lead = ledgerUsage(100, { cacheRead: 50, costUsd: 0.1 });
@@ -1117,12 +1127,13 @@ test('the usage summary model sums exact sessions only', async () => {
   assert.equal(islandUsageSummary({ ...lead, agents: { ...ledgerUsage(0), turns: 0 } }, []).totalTokens, 100);
   // Without an agents total nothing is combined.
   assert.equal(islandUsageSummary(lead, []).totalTokens, null);
-  // An unmeasured Lead keeps the agents' exact share, nothing combined.
+  // An unmeasured Lead turn makes the Lead's and the combined figures floors; a cost of nothing measured is none.
   const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), agents: ledgerUsage(50) }, []);
   assert.deepEqual(
     [noLead.totalTokens, noLead.leadTokens, noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd],
-    [null, null, 50, null, null]
+    [150, 100, 50, 0, null]
   );
+  assert.deepEqual([noLead.leadFloor, noLead.agentsFloor], [true, false]);
   // A session with no turns at all has no cost to show.
   const idle = { ...ledgerUsage(0), turns: 0, costKnownTurns: 0 };
   assert.equal(islandUsageSummary({ ...idle, agents: idle }, []).costUsd, null);

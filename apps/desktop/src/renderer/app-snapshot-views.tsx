@@ -28,6 +28,7 @@ import { todoPresent } from './session-goal-presentation';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { focusedDraftModelSelection } from './use-focused-draft-route';
 import { createSurfaceHoldSignal, PaneSurfaceCover } from './PaneSurfaceGate';
+import { usePanePresentation } from './pane-presentation';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
 import { requestSessionRead } from './session-read-request';
@@ -94,6 +95,9 @@ type DraftConversationProps = Omit<
 > & {
   transcriptPending?: boolean;
 };
+
+const subscribeLaneLiveness = (listener: () => void): (() => void) =>
+  defaultSessionLaneStore.subscribeApprovals(listener);
 
 type PaneLaneProps = {
   sessionId: string;
@@ -219,7 +223,14 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden && !heldSnapshot
   );
-  const lane = heldSnapshot ?? liveLane;
+  const presentation = usePanePresentation();
+  const live = useSyncExternalStore(
+    subscribeLaneLiveness,
+    () => sessionId !== '' && defaultSessionLaneStore.liveSessionIds().has(sessionId)
+  );
+  // A conversation prepared behind the one its pane still shows is presented over the session's current state only: a
+  // lane kept from before the session was let go is what it showed then, and is not shown as now.
+  const lane = heldSnapshot ?? (presentation.preparing && !live ? null : liveLane);
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
     hasLane: lane !== null && lane.transcriptPreview !== true,
@@ -237,7 +248,10 @@ export const PaneConversation = memo(function PaneConversation({
   const draftSubmit = props.submit;
   const submit = useCallback<typeof draftSubmit>(
     async (content, options) => {
-      if (!sessionId) draftSubmittedRef.current = true;
+      if (!sessionId) {
+        draftSubmittedRef.current = true;
+        presentation.keep();
+      }
       try {
         return await draftSubmit(content, options);
       } catch (error) {
@@ -245,7 +259,7 @@ export const PaneConversation = memo(function PaneConversation({
         throw error;
       }
     },
-    [draftSubmit, sessionId]
+    [draftSubmit, presentation, sessionId]
   );
   const draftPromotion = conversationDraftPromotion(draftSubmittedRef.current, originSessionRef.current, sessionId);
   const coverBasis = conversationCoverBasis(coverIdRef.current, sessionId, draftPromotion);
@@ -310,11 +324,22 @@ export const PaneConversation = memo(function PaneConversation({
     const frame = window.requestAnimationFrame(() => setHeldPaintId(incomingPaintId));
     return () => window.cancelAnimationFrame(frame);
   }, [contentReady, heldPaintId, incomingPaintId, paintGate.adoptNow]);
+  // Entered per visit: each time the pane puts the conversation up, its rows are revealed anew.
   const [enteredSessions, setEnteredSessions] = useState<ReadonlySet<string>>(() => new Set());
-  const onEntryRevealed = useCallback((sessionKey: string) => {
-    setEnteredSessions((current) => (current.has(sessionKey) ? current : new Set(current).add(sessionKey)));
-  }, []);
-  const entryPending = !hidden && Boolean(sessionId) && !promotingFromDraft && !enteredSessions.has(sessionId);
+  const { visit } = presentation;
+  const onEntryRevealed = useCallback(
+    (sessionKey: string) => {
+      const entry = `${sessionKey}\n${visit}`;
+      // Within one visit a session shown before stays entered: a conversation that changes session in place is not
+      // covered again.
+      setEnteredSessions((current) =>
+        current.has(entry) ? current : new Set([...current].filter((kept) => kept.endsWith(`\n${visit}`))).add(entry)
+      );
+    },
+    [visit]
+  );
+  const entryPending =
+    !hidden && Boolean(sessionId) && !promotingFromDraft && !enteredSessions.has(`${sessionId}\n${visit}`);
   // The timeline records an entry only after populated rows were revealed. A
   // loaded lane with no rows has none to reveal, so it is entered as it lands.
   const laneEmpty = !hidden && Boolean(sessionId) && !markdownPending && conversationLaneIsEmpty(lane);
@@ -374,7 +399,18 @@ export const PaneConversation = memo(function PaneConversation({
     (row: TranscriptAssistantRowProps) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />,
     [sessionId, hidden]
   );
-  const unavailable = readUnavailable && !hidden;
+  // A lane the core ended is known gone as it ends: the pane says so without waiting out a read of it.
+  const ended = useSyncExternalStore(
+    subscribeLaneLiveness,
+    () => sessionId !== '' && defaultSessionLaneStore.sessionEnded(sessionId)
+  );
+  const unavailable = (readUnavailable || ended) && !hidden;
+  // What the pane hands over to: a draft, a session whose rows are revealed where its reader is (or that has none),
+  // or the notice that it cannot be read.
+  const presentable = !sessionId || unavailable || (surfaceReady && lane !== null && showingIncoming);
+  useLayoutEffect(() => {
+    if (presentation.preparing && presentable) presentation.ready();
+  }, [presentable, presentation]);
   return (
     <>
       <Conversation

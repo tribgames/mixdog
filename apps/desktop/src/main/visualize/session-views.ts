@@ -10,7 +10,7 @@ import type {
 } from '../../shared/visualize';
 import type { VisualizeServiceContext } from './context';
 import { type HistoryEntry, historyId, historyItems, rememberHistory } from './history';
-import { noteReveal } from './turn-hold';
+import { joinShown, noteReveal, publishShown, type TurnHold } from './turn-hold';
 import {
   paneKindOf,
   remoteLabelOf,
@@ -184,32 +184,50 @@ export function createSessionViews(
 
 export type SessionViews = ReturnType<typeof createSessionViews>;
 
-/** The hold a publish of this session carries right now, as the producer knows it (turn-hold.ts): `held` and since when. A snapshot
- *  carries the same on each session, so a consumer that reads it knows what the live events would have told it. */
-export function publishedHold(
-  ctx: Pick<VisualizeServiceContext, 'holds'>,
-  sessionId: string
-): { held: true; heldSince: number } | Record<string, never> {
-  const hold = ctx.holds.get(sessionId);
-  return hold && hold.bypass === 0 ? { held: true, heldSince: hold.since } : {};
+/** Every session as a consumer that reads it now gets it (a window that loads, the remote mirror on a claim): what an event
+ *  would carry, so a read and the live events agree. A session whose turn's work is kept back reads as what it shows
+ *  (turn-hold.ts `shown`), marked `held` and since when; the read tells its consumer of the hold. */
+export function readStates<T extends VisualizeSessionState | VisualizeHostState>(
+  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions'>,
+  shown: (hold: TurnHold) => T,
+  live: (sessionId: string) => T
+): T[] {
+  return [...ctx.sessions.keys()].flatMap((sessionId) => {
+    const held = ctx.holds.get(sessionId);
+    // A held session is always read as held, also while it shows nothing yet (its first turn with tabs): its reader
+    // must know to keep that turn's cards back.
+    if (held) {
+      held.dirty = true;
+      return [{ ...shown(held), held: true, heldSince: held.shown.since }];
+    }
+    const state = live(sessionId);
+    return state.tabs.length > 0 || state.history?.length ? [state] : [];
+  });
 }
 
 /** `publish` of the service: a picture of an older revision is stopped first
  *  (every revision change is published, so it stops mid-capture instead of
  *  running to its end), then the desktop window and the remote mirror get
- *  the session's state. */
-export function createPublish(ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'thumbnails' | 'holds'>) {
-  return (sessionId: string, revealTab?: string, updatedTab?: string, callId?: string): void => {
+ *  the session's state. While a turn's work is kept back that is the state
+ *  the session shows (turn-hold.ts `shown`), marked `held`; the turn's own
+ *  state stays here until its end. */
+export function createPublish(
+  ctx: Pick<VisualizeServiceContext, 'deps' | 'views' | 'sessions' | 'thumbnails' | 'holds'>
+) {
+  return (sessionId: string, revealTab?: string, updatedTab?: string, callId?: string, join?: boolean): void => {
     ctx.thumbnails.cancelStale(sessionId);
     const hold = ctx.holds.get(sessionId);
-    if (hold && hold.bypass === 0) {
+    if (hold && join && revealTab) {
+      joinShown(ctx, hold, sessionId, revealTab);
+      publishShown(ctx.deps, hold, sessionId, { reveal: true, tab: revealTab });
+      return;
+    }
+    if (hold) {
       if (revealTab) noteReveal(hold, revealTab, callId);
       hold.dirty = true;
+      // A turn's end publishes once, when it is applied.
       if (hold.flushing) return;
-      const updated = updatedTab ? { updated: updatedTab } : {};
-      const held = { held: true, heldSince: hold.since };
-      ctx.deps.publish({ sessionId, state: ctx.views.stateOf(sessionId), ...held, ...updated });
-      ctx.deps.publishHost?.({ sessionId, state: ctx.views.hostStateOf(sessionId), ...held, ...updated });
+      publishShown(ctx.deps, hold, sessionId, updatedTab ? { updated: updatedTab } : {});
       return;
     }
     let reveal: { reveal: true; tab: string } | { updated: string } | Record<string, never> = {};

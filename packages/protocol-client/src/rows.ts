@@ -461,6 +461,8 @@ function toolRow(
   if (live) liveRows.add(row);
   if (stopped) stoppedRows.add(row);
   if (!finished) return row;
+  // A stored call no record answers ended with its turn (`interrupted`, no output): stopped, not a call that ran to its end.
+  if (!live && m.status === 'interrupted' && output === undefined) row.stopped = true;
   const result = output ?? '';
   row.result = result;
   // `attachRestoredToolResult` -> `assignUiDiffFromMessage`: the result message's diff is the card's.
@@ -544,15 +546,40 @@ const mergeLines = new WeakMap<readonly Obj[], { line: MergeLine; version: numbe
  *  number sets only how rarely that happens, at eight bytes a step. */
 const MERGE_LINE_STEPS = 256;
 
+/** Test seam: the rows a merge read, counted while a counter is set. */
+let mergeCount: { merged: number; copied: number } | null = null;
+export function countMergedRows(counter: { merged: number; copied: number } | null): void {
+  mergeCount = counter;
+}
+
 /** `mergeToolRows(rows)`, continued from `held`, the merge of a list that holds the same rows before index `from`: the rows
- *  `held` made before the last mark at or before `from` are taken over as they are, and only the rest is merged. */
-export function mergeToolRowsFrom(held: readonly Obj[] | undefined, rows: readonly Obj[], from: number): Obj[] {
+ *  `held` made before the last mark at or before `from` are taken over as they are, and only the rest is merged.
+ *  `same`: from index `until` to its end, `rows` holds the rows the list `held` was merged from held `moved` places
+ *  earlier. The merge then stops at the first mark of `held` inside that stretch (no run, held row or unsealed card
+ *  reaches across a mark), and what `held` made after it is taken over as it is: the rows merged are the ones that
+ *  changed and those up to the marks around them. */
+export function mergeToolRowsFrom(
+  held: readonly Obj[] | undefined,
+  rows: readonly Obj[],
+  from: number,
+  same?: { readonly until: number; readonly moved: number }
+): Obj[] {
   const marks = held && mergeMarks.get(held);
   let at = marks ? marks.length : 0;
   while (at > 0 && marks![at - 2]! > from) at -= 2;
   if (!held || !marks || at === 0) return mergeToolRows(rows);
   const kept = marks[at - 1]!;
-  const steps = mergeToolRowsSteps(rows, { rows: held.slice(0, kept), marks: marks.slice(0, at), from: marks[at - 2]! });
+  // The first mark of `held` whose own row lies in the stretch shared with it.
+  let stop = -1;
+  if (same) {
+    for (let next = at; next < marks.length; next += 2) {
+      if (marks[next]! - 1 < same.until - same.moved) continue;
+      if (marks[next]! + same.moved <= rows.length) stop = next;
+      break;
+    }
+  }
+  const end = stop < 0 ? rows.length : marks[stop]! + same!.moved;
+  const steps = mergeToolRowsSteps(rows, { rows: held.slice(0, kept), marks: marks.slice(0, at), from: marks[at - 2]!, end });
   let merged: Obj[];
   for (;;) {
     const r = steps.next();
@@ -561,6 +588,19 @@ export function mergeToolRowsFrom(held: readonly Obj[] | undefined, rows: readon
       break;
     }
   }
+  if (stop >= 0) {
+    const made = mergeMarks.get(merged)!;
+    // The merge ended on the mark the shared stretch has there: what follows is what `held` made after it.
+    if (made.at(-2) === end && made.at(-1) === merged.length) {
+      const resume = marks[stop + 1]!;
+      const grew = merged.length - resume;
+      for (let next = stop + 2; next < marks.length; next += 2) made.push(marks[next]! + same!.moved, marks[next + 1]! + grew);
+      for (let index = resume; index < held.length; index += 1) merged.push(held[index]!);
+    } else {
+      return mergeToolRowsFrom(held, rows, from);
+    }
+  }
+  if (mergeCount) mergeCount.copied += merged.length;
   // Two lists merged on from the same one are two lines: only the first goes on with `held`'s.
   const before = mergeLines.get(held);
   const line = before && before.version === before.line.latest ? before.line : { kept: [], first: 1, latest: 0 };
@@ -593,7 +633,7 @@ export function rowsHeldFrom(rows: readonly unknown[], held: readonly unknown[])
 
 export function* mergeToolRowsSteps(
   rows: readonly Obj[],
-  resume?: { rows: Obj[]; marks: number[]; from: number }
+  resume?: { rows: Obj[]; marks: number[]; from: number; end?: number }
 ): Generator<void, Obj[], void> {
   const merged: Obj[] = resume?.rows ?? [];
   const marks: number[] = resume?.marks ?? [];
@@ -631,7 +671,9 @@ export function* mergeToolRowsSteps(
   // `finalizeToolCards`, turn-tool-cards.mjs:291, which a Stop runs too). Until then it shows the active header form, finished or not.
   const liveCards: { at: number; stopped: boolean }[] = [];
   let seen = 0;
-  for (let index = resume?.from ?? 0; index < rows.length; index += 1) {
+  const end = resume?.end ?? rows.length;
+  if (mergeCount) mergeCount.merged += end - (resume?.from ?? 0);
+  for (let index = resume?.from ?? 0; index < end; index += 1) {
     const item = rows[index]!;
     if (++seen % ROWS_PER_STEP === 0) yield;
     if (item.kind === 'tool' && isTranscriptHiddenToolRow(item)) continue;
@@ -766,12 +808,13 @@ function* aggregateRowSteps(
   }
   const loadingTargets = yield* node.aggregateLoadingTargetsSteps(calls);
   const first = members[0]!.item;
-  // Ownership belongs to the individual call, not to an aggregate that can contain different owners.
+  // Ownership belongs to the individual call, not to an aggregate that can contain different owners; so does how it ended.
   function* restoreMemberMetadata(toolMembers: Obj[]): Generator<void, Obj[], void> {
     for (const [i, member] of toolMembers.entries()) {
       if (i % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
       const meta = members[i]?.item.toolMeta;
       if (meta !== undefined) member.toolMeta = meta;
+      if (members[i]?.item.stopped === true) member.stopped = true;
     }
     return toolMembers;
   }
@@ -832,6 +875,8 @@ function* aggregateRowSteps(
     doneCategories: doneCategories as unknown as Json,
     completedCount: calls.length,
     ...(outcomePatch as Obj),
+    // A member that ended with its turn, not answered, is the card's outcome too: it did not run to its end.
+    ...(members.some((member) => member.item.stopped === true) ? { stopped: true } : {}),
     rawResult: rawResult || null,
     ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,

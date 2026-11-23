@@ -2,6 +2,8 @@ import { ArrowLeftRight, FoldVertical, GitFork, ListTree, Network, Workflow, X }
 import {
   type ReactNode,
   memo,
+  useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -27,7 +29,14 @@ import { goalHasBackgroundWork } from './session-goal-presentation';
 import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
-import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
+import {
+  BandDividerContext,
+  completionTone,
+  formatTokenCount,
+  isTakenOverTurnEnd,
+  TextShimmer,
+} from './transcript-primitives';
+import { defaultSessionLaneStore } from './session-lane-store';
 import { localizedTurnFailureReason } from './transcript-failure-text';
 import { activityVerb, thinkingEffortLabel } from './activity-verbs';
 import { QuietCue, useLaneSpinnerQuiet } from './quiet-cue';
@@ -557,6 +566,22 @@ function liveActivityMeta({
   return { line, quietParts };
 }
 
+/** Whether the core reports the session's running turn as stopping (`spinner.stopping`), read from its lane as the
+ *  quiet state is (quiet-cue.tsx): every window and the phone show the stop, not the pressing one alone. `fallback`
+ *  covers a band without a lane. */
+function useLaneSpinnerStopping(sessionId: string, fallback: boolean): boolean {
+  const subscribe = useCallback(
+    (listener: () => void) => (sessionId ? defaultSessionLaneStore.subscribe(sessionId, listener) : () => {}),
+    [sessionId]
+  );
+  return useSyncExternalStore(subscribe, () => {
+    const lane = sessionId ? defaultSessionLaneStore.get(sessionId) : null;
+    if (!lane) return fallback;
+    const spinner = asRecord(lane.spinner);
+    return spinner?.active !== false && spinner?.stopping === true;
+  });
+}
+
 export function LiveActivity({
   snapshot,
   optimisticStartedAt = 0,
@@ -591,6 +616,14 @@ export function LiveActivity({
   if (activity) phase = String(activity.mode || (snapshot.thinking ? 'thinking' : 'responding'));
   else if (snapshot.thinking) phase = 'thinking';
   const { shown: shownPhase, nowMs } = usePacedPhase(phase);
+  // A compaction is over once its divider stands above the band: the one that stood there when the phase began is
+  // an earlier compaction's.
+  const dividerAbove = useContext(BandDividerContext);
+  const compactingUnder = useRef<string | null>(null);
+  if (phase !== 'compacting') compactingUnder.current = null;
+  else if (compactingUnder.current === null) compactingUnder.current = dividerAbove;
+  const compacted = phase === 'compacting' ? dividerAbove !== compactingUnder.current : dividerAbove !== '';
+  const stopping = useLaneSpinnerStopping(liveSessionId, spinner?.stopping === true);
   // Keep the first timestamp for a turn so thinking/tool/response transitions
   // do not restart the phrase rotation.
   const anchorRef = useRef(0);
@@ -615,7 +648,10 @@ export function LiveActivity({
   let fallbackMode = 'responding';
   if (snapshot.thinking) fallbackMode = 'thinking';
   else if (optimisticActivity || !activity) fallbackMode = 'requesting';
-  const mode = shownPhase || String(activity?.mode || fallbackMode);
+  let mode = shownPhase || String(activity?.mode || fallbackMode);
+  // The divider says it from here on: the band shows the phase that follows, without the painted one's dwell.
+  if (mode === 'compacting' && compacted) mode = phase && phase !== 'compacting' ? phase : fallbackMode;
+  if (stopping) mode = 'stopping';
   if (mode === 'resuming') {
     anchorRef.current = 0;
     return null;
@@ -898,10 +934,12 @@ function completedLabel(item: TranscriptItem, label: string): string {
   if (item.kind !== 'turndone') return translateStatusLabel(label) || label || t('Complete');
   const elapsed = formatElapsed(item.elapsedMs);
   const elapsedMs = Math.max(0, Number(item.elapsedMs || 0));
-  if (Number(item.toolCount || 0) > 0) {
+  // A turn a message took over did not complete its work: its end names only how long it ran.
+  const takenOver = isTakenOverTurnEnd(item);
+  if (!takenOver && Number(item.toolCount || 0) > 0) {
     return elapsed ? t('Work complete in {{elapsed}}', { elapsed }) : t('Work complete');
   }
-  if (elapsedMs > 0 && elapsedMs < 10_000) return t('Response complete');
+  if (!takenOver && elapsedMs > 0 && elapsedMs < 10_000) return t('Response complete');
   const doneVerb = String(item.verb || item.label || 'Thought').trim() || 'Thought';
   return elapsed ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed }) : t(doneVerb);
 }

@@ -7,6 +7,7 @@ import {
   type RefObject,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,8 @@ import { requestSessionDiffTurn } from './session-diff-focus';
 import { DiffStats } from './diff-stats';
 import { isAbsolutePath } from './session-diff-model';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
+import { MarkdownProjectContext } from './MarkdownLink';
+import type { TranscriptRowModel } from './transcript-rows';
 import {
   invokeTurnChanges,
   REAPPLY_TURN_CHANGES_CAPABILITY,
@@ -30,6 +33,7 @@ import {
   turnChangesTotals,
   allChangesVisualized,
   listedTurnChanges,
+  recordedTurnChanges,
   turnCardHeld,
   useTurnChanges,
   visibleTurnChangeRows,
@@ -56,6 +60,14 @@ export type TurnChangesSurface = {
 
 export const TurnChangesContext = createContext<TurnChangesSurface | null>(null);
 
+/** The cards (by checkpoint) of one session view whose read gave another height than the row was presented with,
+ *  while the row was in view: the row keeps what it shows, also when it is mounted again, until it is out of view.
+ *  The set is the view's own, and goes with it. */
+export const TurnCardsWithheldContext = createContext<Set<string> | null>(null);
+
+/** The rows of the transcript a card stands in: what its turn's own records say it changed (`recordedTurnChanges`). */
+export const TurnRowsContext = createContext<(() => readonly TranscriptRowModel[]) | null>(null);
+
 /** The recorded turn a tool round belongs to: its file links open that turn's
  *  changes, listed as its card lists them. `checkpointId` is '' while the turn
  *  runs, or without one. */
@@ -70,6 +82,8 @@ export function ToolTurnProvider({ checkpointId, boundary, visualized, children 
   return <ToolTurnContext.Provider value={turn}>{children}</ToolTurnContext.Provider>;
 }
 
+type TranscriptItems = Parameters<typeof listedTurnChanges>[1];
+const NO_FILES: readonly TurnChangesFile[] = [];
 type ActivateChange = (event: ReactMouseEvent, file: TurnChangesFile | null) => void;
 type MutateChanges = (capability: TurnChangesCapability, file: string | null, success: string) => void;
 
@@ -152,12 +166,15 @@ function FileActionControl({
   file,
   confirming,
   blockedReason,
+  pressable,
   setConfirmFile,
   onMutate,
 }: {
   file: TurnChangesFile;
   confirming: boolean;
   blockedReason: string;
+  /** The card takes a press on a blocked control (it updates the card): the control still sends it. */
+  pressable: boolean;
   setConfirmFile(path: string): void;
   onMutate: MutateChanges;
 }) {
@@ -211,7 +228,8 @@ function FileActionControl({
       className={action.reapply ? 'turn-review-revert turn-changes-reapply' : 'turn-review-revert'}
       aria-label={action.trigger}
       data-tooltip={fileBlocked || action.tooltip}
-      disabled={disabled}
+      disabled={disabled && !pressable}
+      aria-disabled={disabled && pressable ? true : undefined}
       onClick={() => setConfirmFile(file.path)}
     >
       {action.reapply ? <Redo2 size={12} /> : <Undo2 size={12} />}
@@ -246,14 +264,22 @@ function TurnActionButton({
   canReapply,
   reason,
   blockedReason,
+  pressable = false,
   onMutate,
-}: Pick<TurnChangesReply, 'canUndo' | 'canReapply' | 'reason'> & { blockedReason: string; onMutate: MutateChanges }) {
+}: Pick<TurnChangesReply, 'canUndo' | 'canReapply' | 'reason'> & {
+  blockedReason: string;
+  /** The card takes a press on a blocked control (it updates the card): the control still sends it. */
+  pressable?: boolean;
+  onMutate: MutateChanges;
+}) {
   const action = turnActionOf({ canUndo, canReapply, reason });
+  const blocked = Boolean(blockedReason) || !action.enabled;
   return (
     <button
       type="button"
       className="turn-changes-action"
-      disabled={Boolean(blockedReason) || !action.enabled}
+      disabled={blocked && !pressable}
+      aria-disabled={blocked && pressable ? true : undefined}
       data-tooltip={blockedReason || action.tooltip}
       aria-label={action.label}
       onClick={() => onMutate(action.capability, null, action.success)}
@@ -430,13 +456,125 @@ function TurnChangesCardBody({
 } & TurnChangesRef) {
   const { sessionId } = surface;
   const running = turnCardHeld({ checkpointId, boundary, trailing, reclosed }, surface.turnRunning);
-  const { reply, unread, adopt, invalidate } = useTurnChanges({
+  const {
+    reply: read,
+    error,
+    stalled,
+    adopt,
+    invalidate,
+  } = useTurnChanges({
     sessionId,
     checkpointId,
     boundary,
     enabled: !running,
   });
-  const mutation = useTurnChangesMutation({ sessionId, checkpointId, busy: surface.busy, adopt, invalidate });
+  // No view waits for the core's read, and what a read brings later displaces nothing the reader is looking at.
+  // Until the read answers, the card is the one the turn's own rows describe (the files its edit and write calls
+  // name), drawn in the row's first frame. The read's card is laid out in its place and measured before it is
+  // painted: as tall as what the row showed, it stays. Of another height (more or fewer files, a wrapped line, a card
+  // where none was drawn, none where one was), it stays too unless rows in view would move for it; then the row goes
+  // back to what it showed, in that same frame, until the row is out of view, the list follows the end with nothing
+  // in view below the row (where a growing last row keeps the view on the end), or the reader presses the card.
+  const rowsOf = useContext(TurnRowsContext);
+  const project = useContext(MarkdownProjectContext) || '';
+  const withheld = useContext(TurnCardsWithheldContext);
+  const records = useRef<TurnChangesReply | null | undefined>(undefined);
+  if (records.current === undefined && !running && rowsOf && (read === null || withheld?.has(checkpointId))) {
+    records.current = recordedTurnChanges(rowsOf(), checkpointId, project);
+  }
+  const recorded = records.current ?? null;
+  /** The read the row shows; null while it shows the records' card (or none). */
+  const [given, setGiven] = useState<TurnChangesReply | null>(() => (withheld?.has(checkpointId) ? null : read));
+  /** The read kept back from the row. */
+  const [held, setHeld] = useState<TurnChangesReply | null>(() => (withheld?.has(checkpointId) ? read : null));
+  const listedOf = (from: TurnChangesReply | null, counts?: TranscriptItems): readonly TurnChangesFile[] =>
+    from && from.status === 'ready' ? listedTurnChanges(from.files, counts, visualized, from.root) : NO_FILES;
+  /** A read neither shown nor kept back: this render lays it out to be measured. */
+  const trying = read !== null && read !== given && read !== held;
+  const superseded = read !== null && read === held;
+  const acted = useRef(false);
+  const seat = useRef<HTMLElement | null>(null);
+  const shownHeight = useRef<number | null>(null);
+  const take = (next: TurnChangesReply): void => {
+    acted.current = false;
+    withheld?.delete(checkpointId);
+    setHeld(null);
+    setGiven(next);
+  };
+  /** Whether a change of this card's height would move rows the reader is looking at. `left`: the row was left
+   *  with its read kept back, so a pane coming back shows it as it was. */
+  const displaces = (left: boolean): boolean => {
+    const row = seat.current?.closest<HTMLElement>('.transcript-virtual-row');
+    const view = row?.closest<HTMLElement>('.transcript');
+    if (!row || !view || acted.current) return false;
+    if (!left && row.closest('[data-transcript-entering]')) return false;
+    const box = row.getBoundingClientRect();
+    const port = view.getBoundingClientRect();
+    // A row with no box (its pane is not rendered) says nothing of where it is.
+    if (box.height <= 0 || port.height <= 0) return true;
+    if (box.bottom <= port.top || box.top >= port.bottom) return false;
+    if (view.dataset.following !== 'true') return true;
+    // Rows are placed by their offsets, not by their order in the document.
+    return [...(row.parentElement?.children ?? [])].some((other) => {
+      const next = other.getBoundingClientRect();
+      return other !== row && next.height > 0 && next.top >= box.bottom - 1 && next.top < port.bottom;
+    });
+  };
+  const seatHeight = (): number => seat.current?.getBoundingClientRect().height ?? 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: every commit: the height shown is the one last laid out
+  useLayoutEffect(() => {
+    if (running) return;
+    const height = seatHeight();
+    if (!trying) {
+      shownHeight.current = height;
+      return;
+    }
+    if (shownHeight.current === null || height === shownHeight.current || !displaces(false)) {
+      shownHeight.current = height;
+      take(read);
+    } else {
+      withheld?.add(checkpointId);
+      setHeld(read);
+    }
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: displaces and take read the row as it stands
+  useLayoutEffect(() => {
+    if (!superseded) return undefined;
+    const row = seat.current?.closest('.transcript-virtual-row');
+    const give = (): void => take(read);
+    if (!row || typeof IntersectionObserver === 'undefined' || !displaces(true)) {
+      give();
+      return undefined;
+    }
+    withheld?.add(checkpointId);
+    const leftView = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => !entry.isIntersecting && entry.boundingClientRect.height > 0)) give();
+    });
+    leftView.observe(row);
+    // The list comes to follow the end.
+    const follows = new MutationObserver(() => {
+      if (!displaces(true)) give();
+    });
+    const view = row.closest('.transcript');
+    if (view) follows.observe(view, { attributes: true, attributeFilter: ['data-following'] });
+    return () => {
+      leftView.disconnect();
+      follows.disconnect();
+    };
+  }, [superseded, read, withheld, checkpointId]);
+  const reply = trying ? read : (given ?? recorded);
+  const fromRecords = !trying && given === null && recorded !== null;
+  const mutation = useTurnChangesMutation({
+    sessionId,
+    checkpointId,
+    busy: surface.busy,
+    adopt: (next) => {
+      // The reader acted on the card: its answer is the card's, whatever its height.
+      acted.current = true;
+      adopt(next);
+    },
+    invalidate,
+  });
   // Old records kept no counts for an outside-root file: the transcript's own
   // edit completes them, as in the session pane and the island.
   const needsCounts = Boolean(reply?.files.some((file) => file.unmeasured));
@@ -444,26 +582,58 @@ function TurnChangesCardBody({
   // A file the turn showed as a visualize card stands as that card, not as a
   // diff; Undo still covers the whole turn from this card (or, when every
   // file was shown, from the visualize card: TurnChangesUndo).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: listedOf reads visualized, which is listed
   const listed = useMemo(
-    () =>
-      listedTurnChanges(reply?.files ?? [], needsCounts ? lane?.items : undefined, visualized, reply?.root ?? ''),
+    () => listedOf(reply, needsCounts ? lane?.items : undefined),
     [reply, needsCounts, lane, visualized]
   );
-  // Unread, the card's height is unknown: the row marks itself pending like a
-  // parsing reply, so the transcript's entry reveal waits for the card instead
-  // of painting the row without it (the chat popped as every card landed).
-  if (unread) return <span hidden data-transcript-pending />;
-  if (running || !reply || reply.status !== 'ready' || reply.files.length === 0) return null;
-  if (listed.length === 0) return null;
+  if (running) return null;
+  // No card shown, and one that may come: the row is found from here.
+  if (!reply || listed.length === 0) return superseded || trying ? <span hidden ref={seat} /> : null;
 
   const { revision } = reply;
-  const blockedReason = surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : '';
+  const unread = fromRecords && Boolean(error || stalled);
+  /** The card waits on the reader: a press on it updates it. */
+  const waits = superseded || unread;
+  // Why the card's actions wait, said as it is.
+  const waitingReason = superseded
+    ? t('This card is being updated with the turn\u2019s recorded changes. Click it to update it now.')
+    : !fromRecords
+      ? ''
+      : error
+        ? t('Reading this turn\u2019s changes failed ({{error}}). Click the card to read them again.', { error })
+        : stalled
+          ? t('This turn\u2019s changes are still being recorded. Click the card to read them again.')
+          : t('Reading this turn\u2019s changes');
+  const blockedReason =
+    surface.busy || mutation.mutating ? t('Unavailable while the session is busy') : waitingReason;
   const mutate: MutateChanges = (capability, file, success) => mutation.mutate(revision, capability, file, success);
   const activate: ActivateChange = (event, file) => {
     activateTurnChange(event, file, surface, { checkpointId, boundary }, reply.root, visualized);
   };
+  /** A press on a card that waits. One the read has superseded takes the read's card, and the press does nothing
+   *  else: it never acts on what the old card listed. One whose read failed or stalled asks again; a press on a
+   *  control that waits for the read does only that. */
+  const press = (event: ReactMouseEvent): void => {
+    const blocked = (event.target as Element).closest?.('[aria-disabled="true"]');
+    if (superseded || blocked) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (superseded) take(read);
+    else invalidate();
+  };
   const card = (
-    <section className="turn-changes-card" aria-label={t('Turn changes')} data-file-count={listed.length}>
+    <section
+      ref={seat}
+      className="turn-changes-card"
+      aria-label={t('Turn changes')}
+      data-file-count={listed.length}
+      data-source={fromRecords ? 'records' : undefined}
+      data-read={superseded ? 'updating' : unread ? (error ? 'failed' : 'stalled') : undefined}
+      title={waits ? waitingReason : undefined}
+      onClickCapture={waits ? press : undefined}
+    >
       <div className="turn-changes-head">
         <TurnChangesSummary files={listed} activate={activate} />
         <span className="turn-changes-trail">
@@ -472,6 +642,7 @@ function TurnChangesCardBody({
             canReapply={reply.canReapply}
             reason={reply.reason}
             blockedReason={blockedReason}
+            pressable={waits}
             onMutate={mutate}
           />
           <button
@@ -500,6 +671,7 @@ function TurnChangesCardBody({
                 file={file}
                 confirming={mutation.confirmFile === file.path}
                 blockedReason={blockedReason}
+                pressable={waits}
                 setConfirmFile={mutation.setConfirmFile}
                 onMutate={mutate}
               />

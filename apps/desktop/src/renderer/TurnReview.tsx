@@ -118,10 +118,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // Another host decides on an empty source itself (its picker stays reachable); nothing while unread.
   if (renderSegment && variant === 'segment') return entryPending || !ready ? null : renderSegment(segmentView());
   if (!reviewVisible) {
-    if (entryPending) return <IslandSegmentPending kind="files" holdEntry />;
-    // The island's count waits on the session's changes read: until it
-    // answers the segment keeps its room without holding the entry reveal.
-    return sessionScoped && !ready ? <IslandSegmentPending kind="files" /> : null;
+    // The island's count waits on a read of the core (the entry's first, or the session's changes): until it
+    // answers the segment keeps its room. No view waits for it: a read can stay unanswered.
+    return entryPending || (sessionScoped && !ready) ? <IslandSegmentPending kind="files" /> : null;
   }
   if (variant === 'segment' && !expanded) {
     return turnReviewSegment({ ...segmentView(), onOpenChanges, onOpenChangeFile, setExpanded });

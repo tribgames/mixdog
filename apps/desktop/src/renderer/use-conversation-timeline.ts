@@ -11,7 +11,15 @@ import type { ConversationViewport } from './use-conversation-viewport';
 import { useTranscriptHistoryFill } from './use-transcript-history';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
 import { useTranscriptReveal } from './use-transcript-reveal';
-import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
+import { usePaneKey } from './pane-key-context';
+import { usePanePresentation } from './pane-presentation';
+import {
+  pendingReaderPlace,
+  readerPlace,
+  readerRows,
+  rowOfPlace,
+  useReaderPlaceVersion,
+} from './transcript-list-reader-place';
 
 const firstItemId = (row: TranscriptRowModel | undefined): string | undefined => {
   const item = row?._tag === 'ToolActivity' ? row.items[0] : row && 'item' in row ? row.item : undefined;
@@ -22,21 +30,16 @@ const lastItemId = (row: TranscriptRowModel | undefined): string | undefined => 
   return item?.id === undefined || item.id === null ? undefined : String(item.id);
 };
 
-/** The ids of the first and last transcript items in the reader's view: the rows the list shows there (overscan
- *  excluded), from the first row downward and the last row upward to one that shows an item. */
+/** The ids of the first and last transcript items in the reader's view: the rows the viewport crosses where it is
+ *  scrolled to now (the list's own sizes say which; the rows it draws follow a frame later), from the first row downward
+ *  and the last row upward to one that shows an item. */
 function readerItems(root: HTMLElement, rows: readonly TranscriptRowModel[]): { first: string; last: string } | null {
-  let from = Number.POSITIVE_INFINITY;
-  let to = -1;
-  for (const node of root.querySelectorAll<HTMLElement>('.transcript-virtual-row:not([data-offscreen])')) {
-    const index = Number(node.dataset.index);
-    if (index < from) from = index;
-    if (index > to) to = index;
-  }
-  if (to < 0) return null;
+  const view = readerRows(root);
+  if (!view) return null;
   let first: string | undefined;
-  for (let index = from; index < rows.length && first === undefined; index += 1) first = firstItemId(rows[index]);
+  for (let index = view.from; index < rows.length && first === undefined; index += 1) first = firstItemId(rows[index]);
   let last: string | undefined;
-  for (let index = to; index >= 0 && last === undefined; index -= 1) last = lastItemId(rows[index]);
+  for (let index = view.to; index >= 0 && last === undefined; index -= 1) last = lastItemId(rows[index]);
   return first !== undefined && last !== undefined ? { first, last } : null;
 }
 
@@ -89,7 +92,7 @@ export function useConversationTimeline({
   const identity = source.transcriptIdentity.current;
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
-  const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
+  const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow, pause: releaseFollow } = follow;
   const { settledTurnKeys, transcriptRows, turnPastEnd, pastLastEnd } = useTranscriptRows({
     identity,
     sessionKey,
@@ -107,10 +110,30 @@ export function useConversationTimeline({
     optimisticActivityStartedAt,
     room,
   });
-  const populated = showTimeline && !listHeld && transcriptRows.length > 0;
+  // A reader handed a place off the end (a return, a record opened from outside) is shown no list until the rows
+  // hold that place's record: the list mounts once, over the rows its reader is put on. A list already mounted stays.
+  const pane = usePaneKey();
+  const presentation = usePanePresentation();
+  useReaderPlaceVersion();
+  const opening = draftMode ? null : pendingReaderPlace(pane, sessionKey);
+  const placedRows = !opening || rowOfPlace(transcriptRows, opening) >= 0;
+  // A place whose record the history no longer holds is let go (use-transcript-history.ts): its reader is at the end.
+  const wasOpening = useRef(false);
+  useLayoutEffect(() => {
+    const voided = wasOpening.current && !opening && readerPlace(pane, sessionKey) === null;
+    wasOpening.current = opening !== null;
+    if (voided) armFollow();
+  });
+  const listMounted = useRef('');
+  if (!showTimeline) listMounted.current = '';
+  else if (placedRows) listMounted.current = identity;
+  const transcriptListShown = showTimeline && !listHeld && listMounted.current === identity;
+  const populated = transcriptListShown && transcriptRows.length > 0;
   const phone = useMobileRemoteSurface();
+  const readerPlaced = useCallback(() => pendingReaderPlace(pane, sessionKey) === null, [pane, sessionKey]);
   const transcriptRevealed = useTranscriptReveal({
     identity,
+    visit: presentation.visit,
     enabled: populated,
     draft: draftMode || sessionKey === 'new-task',
     viewport,
@@ -118,8 +141,8 @@ export function useConversationTimeline({
     scope: conversation,
     hasScrollGesture,
     eager: phone,
-    retainedGeometry: readTranscriptVirtualSnapshot(sessionKey)?.measurements,
     pinned: following,
+    placed: readerPlaced,
   });
   // A disabled reveal reads as revealed; only populated rows count as an entry.
   useLayoutEffect(() => {
@@ -134,6 +157,8 @@ export function useConversationTimeline({
   const rowsRef = useRef(transcriptRows);
   rowsRef.current = transcriptRows;
   const readerAt = source.transcriptReaderAt;
+  /** Tells the window where the reader is: the rows under the viewport as it stands when this is called, which is where a
+   *  scroll arrived when its event is heard. */
   const reportReader = useCallback(() => {
     const root = viewport.current;
     const at = root ? readerItems(root, rowsRef.current) : null;
@@ -163,6 +188,8 @@ export function useConversationTimeline({
   }, [jumpToLatest, sessionKey]);
   const shouldAnchorTranscriptBottom = useConversationFollowEffects({
     armFollow,
+    releaseFollow,
+    entryReader: () => !draftMode && pendingReaderPlace(pane, sessionKey) !== null,
     following,
     scrollToEndRef,
     settledItems,
@@ -183,6 +210,8 @@ export function useConversationTimeline({
     pastLastEnd,
     transcriptRows,
     transcriptRevealed,
+    /** The list is mounted: its rows hold the place its reader is put at. */
+    transcriptListShown,
     jumpToLatest,
     shouldAnchorTranscriptBottom,
     /** A positioned transcript: tells the window where the reader is; null for a window paged by scroll offsets. */

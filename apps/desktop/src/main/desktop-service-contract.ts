@@ -1,5 +1,7 @@
 import type {
   DesktopAbortOptions,
+  DesktopTurnTakeover,
+  DesktopTurnTakeoverReceipt,
   DesktopAgentMemoryEntry,
   DesktopAgentPoolRow,
   DesktopSessionContentMatch,
@@ -147,6 +149,7 @@ export interface DesktopService {
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   submitToSession(sessionId: string, prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abortSession(sessionId: string, options?: DesktopAbortOptions): unknown;
+  takeOverTurn(sessionId: string, takeover: DesktopTurnTakeover): Promise<DesktopTurnTakeoverReceipt>;
   resolveToolApprovalForSession(
     sessionId: string,
     id: string,
@@ -226,6 +229,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'inheritSession',
   'submitToSession',
   'abortSession',
+  'takeOverTurn',
   'resolveToolApprovalForSession',
   'listProviderModels',
   'setModelRoute',

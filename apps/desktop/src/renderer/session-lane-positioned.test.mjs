@@ -52,3 +52,36 @@ test('the tail read anew shows only the rows it holds; the rows released above i
   publish();
   assert.deepEqual(ids(), ['r5', 'r6', 'r7']);
 });
+
+test('the window of a session followed again replaces the rows the lane showed: none is kept above it', () => {
+  const sessionId = 's';
+  const store = createSessionLaneStore({ decorator: createTranscriptSnapshotDecorator({ register: false }) });
+  const snapshot = (ids, version = 1) =>
+    sessionReducer.initial({
+      thread: { id: sessionId },
+      state: {},
+      items: [],
+      hasOlder: true,
+      window: {
+        windowVersion: version,
+        lineage: 0,
+        ranges: [{ id: 'tail', older: cont(ids[0]), newer: { kind: 'end' } }],
+        added: [tail(ids)],
+        followTail: true,
+      },
+    });
+  const publish = (fold) => store.apply({ sessionId, frameSource: 'live', snapshot: desktopSessionState(fold, []) });
+  const ids = () => store.get(sessionId).items.map((item) => String(item.id));
+  const release = store.subscribe(sessionId, () => {});
+  store.setShownSessionIds([sessionId]);
+  publish(snapshot(['r1', 'r2', 'r3', 'r4', 'r5', 'r6']));
+  const shown = store.get(sessionId).items;
+  // The session leaves the screen and its thread is let go; shown again, the thread is followed from the default tail.
+  store.setShownSessionIds([]);
+  store.setShownSessionIds([sessionId]);
+  publish(snapshot(['r5', 'r6', 'r7']));
+  assert.deepEqual(ids(), ['r5', 'r6', 'r7'], 'the lane holds what the window states, and no row of the one before');
+  assert.equal(store.get(sessionId).items[0], shown[4], 'a row both hold is the object the pane has');
+  release();
+  store.clear();
+});

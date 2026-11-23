@@ -678,6 +678,8 @@ test("a connection with a core endpoint routes its client's capabilities through
       return { servers: [] };
     },
     snapshot: () => ({ status: 'ready', entries: [] }),
+    // As a connection whose client is not open answers (connection.ts: null while none is open).
+    client: () => null,
     onEvent: () => () => {},
     onStoreChange: () => () => {},
     onReplaced: () => () => {},
@@ -715,10 +717,6 @@ test("a connection with a core endpoint routes its client's capabilities through
 
 test('the queue, review and model actions send the exact op and params of desktop-gaps-1', () => {
   const at = (capability, args, session = 's1') => routeCapability(capability, args, session);
-  assert.deepEqual(at('prioritizeQueued', ['q1']), {
-    method: 'turn/steer',
-    params: { threadId: 's1', queuedId: 'q1' },
-  });
   assert.deepEqual(at('restoreQueued', ['typed', 'q1']), {
     method: 'thread/queue/delete',
     params: { threadId: 's1', queuedId: 'q1', currentText: 'typed', restore: true },
@@ -966,27 +964,6 @@ test('a call naming a session the core does not have is refused with the lane te
   });
 });
 
-test('prioritizeQueued reports a count of one for a promoted entry and zero for a missing entry or slash command', async () => {
-  for (const [id, accepted, expected] of [
-    ['queued', true, { count: 1, ids: ['queued'], priority: 'now' }],
-    ['missing', false, { count: 0, ids: [], priority: 'now' }],
-    ['slash-command', false, { count: 0, ids: [], priority: 'now' }],
-  ]) {
-    const { lane } = recordingLane(async () => {
-      if (accepted) return { accepted: true, queuedId: id };
-      throw wireRefusal('queuedEntryNotFound', { threadId: 't1', queuedId: id });
-    });
-    const { value } = await lane.invoke('prioritizeQueued', [id], 't1');
-    assert.deepEqual(value, expected, id);
-  }
-  const other = new Error('core busy');
-  await assert.rejects(
-    recordingLane(async () => {
-      throw other;
-    }).lane.invoke('prioritizeQueued', ['q1'], 't1'),
-    other
-  );
-});
 test('getQuotaAutoResume finds its own config subtree and is on unless it is explicitly false', async () => {
   for (const [stored, enabled] of [
     [false, false],

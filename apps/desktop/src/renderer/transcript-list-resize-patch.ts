@@ -5,13 +5,13 @@ import type { createTranscriptEndPin } from './transcript-end-pin';
 import { createHeldRowShrinks, type HeldRowShrinks } from './transcript-list-held-shrinks';
 import {
   captureReadingAnchor,
-  READING_ANCHOR_HOLD_MS,
   rememberRowHeight,
   coreScrollState,
   shouldDeferTranscriptScrollAdjustment,
   type TranscriptVirtualizer,
   viewportSize,
 } from './transcript-list-geometry';
+import { holdsReaderTop } from './transcript-list-reader-place';
 import type { useReadingAnchor } from './transcript-list-reading-anchor';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
@@ -34,6 +34,15 @@ export function registerTranscriptWidthSync(sync: () => void): () => void {
   return () => {
     transcriptWidthSyncs.delete(sync);
   };
+}
+
+/** Runs `sync` whenever the box of `viewport` is laid out at another size (the sync itself passes over a size whose
+ *  width it already holds); returns the end of the watch. */
+export function observeTranscriptWidth(viewport: Element | null, sync: () => void): () => void {
+  if (!viewport || typeof ResizeObserver !== 'function') return () => {};
+  const observer = new ResizeObserver(sync);
+  observer.observe(viewport);
+  return () => observer.disconnect();
 }
 
 /** The width-change re-measure of one list: every mounted row is read in one
@@ -109,8 +118,7 @@ export function createTranscriptWidthSync({
       return;
     }
     if (!anchor) return;
-    const now = performance.now();
-    anchorHold.current = { ...anchor, until: now + READING_ANCHOR_HOLD_MS, start: null, landedAt: now };
+    anchorHold.current = { ...anchor, start: null };
     restoreReadingAnchor(true);
   };
 }
@@ -188,16 +196,22 @@ function useWidthSyncRegistration({
     restoreReadingAnchor: (landing) => latest.current.restoreReadingAnchor(landing),
   });
   const surfaceActive = useSurfaceActive();
+  // The viewport's element is set after the commit that mounts the list ran its effects: the render after it sees it.
+  const element = viewport.current;
   useLayoutEffect(() => {
     if (!surfaceActive) return undefined;
     const sync = () => widthSync.current?.();
     const unregister = registerTranscriptWidthSync(sync);
     window.addEventListener('resize', sync);
+    // Whatever changes the list's width (the sidebar, a split's divider, a panel beside it) is seen on the viewport's
+    // own box, in the frame that lays it out: every width change goes through the one pass.
+    const unobserve = observeTranscriptWidth(element, sync);
     return () => {
       unregister();
+      unobserve();
       window.removeEventListener('resize', sync);
     };
-  }, [surfaceActive]);
+  }, [surfaceActive, element]);
   const shownBefore = useRef(surfaceActive);
   useLayoutEffect(() => {
     const returning = surfaceActive && !shownBefore.current;
@@ -240,6 +254,7 @@ function createScrollAdjustmentRule({
       return false;
     }
     const top = visibleTop(instance);
+    if (instance.options.anchorTo !== 'end' && holdsReaderTop(instance, item, top)) return false;
     if (item.end <= top) return true;
     return item.start < top && !instance.itemSizeCache.has(item.key);
   };

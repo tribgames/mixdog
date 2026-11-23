@@ -2,14 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { ENTRY_CHROME_MAX_MS, ENTRY_REVEAL_MAX_MS, useTranscriptReveal } from './use-transcript-reveal';
+import { useTranscriptReveal } from './use-transcript-reveal';
 
-function mount(t, { eager = false, scrollHeight = 100 } = {}) {
+// Longer than any wait the reveal once gave up after: no elapsed time presents a view.
+const LONG_MS = 60_000;
+
+/** `contentHeight` 124: the one row's box (100) is the extent the list gives it (the content less its 24px end
+ *  spacer); 100: the list holds another size for it than layout reads back. */
+function mount(t, { eager = false, scrollHeight = 100, contentHeight = 100, pinned = false } = {}) {
   let now = 0;
   let frameId = 0;
   const frames = new Map();
   const { root, document } = installTestDom(t, {
-    html: '<!doctype html><div id="root"></div><section id="scope"><span hidden data-entry-pending></span><div id="viewport"><div id="content" style="height:100px"><div class="transcript-virtual-row" data-index="0" data-timeline-key="r0" style="top:0px"></div></div></div></section>',
+    html: `<!doctype html><div id="root"></div><section id="scope"><span hidden data-entry-pending></span><div id="viewport"><div id="content" style="height:${contentHeight}px"><div class="transcript-virtual-row" data-index="0" data-timeline-key="r0" style="top:0px"></div></div></div></section>`,
     rootId: 'root',
     globals: {
       requestAnimationFrame(callback) {
@@ -30,20 +35,21 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
     clientHeight: { value: 100 },
     scrollHeight: { get: () => scrollHeight },
   });
-  // What layout reads back for the visible row, against what the timeline
-  // remembered it at (size 100 at offset 0).
+  // What layout reads back for the visible row.
   const row = document.querySelector('[data-index="0"]');
   let rowHeight = 100;
   row.getBoundingClientRect = () => ({ height: rowHeight, top: 0, bottom: rowHeight, width: 600 });
   const hasScrollGesture = () => false;
   let revealed = false;
   let identity = 'entry';
-  let retainedGeometry = [{ key: 'r0', start: 0, size: 100 }];
-  let pinned = false;
+  let visit = 0;
+  let placed = true;
   function Harness() {
     revealed = useTranscriptReveal({
       identity,
+      visit,
       pinned,
+      placed: () => placed,
       enabled: true,
       draft: false,
       viewport,
@@ -51,7 +57,6 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
       scope,
       hasScrollGesture,
       eager,
-      retainedGeometry,
     });
     return null;
   }
@@ -79,25 +84,27 @@ function mount(t, { eager = false, scrollHeight = 100 } = {}) {
       identity = next;
       act(() => root.render(React.createElement(Harness)));
     },
+    /** The pane puts the same timeline up again. */
+    again: () => {
+      visit += 1;
+      act(() => root.render(React.createElement(Harness)));
+    },
     scrollOffEnd: () => {
       scrollHeight = 300;
     },
-    dropGeometry: () => {
-      retainedGeometry = undefined;
+    scrollToEnd: () => {
+      scrollHeight = 100;
     },
     // Whatever changed while away reaches the revisit as a row that reads back
-    // differently from what was remembered, or one that was never remembered.
+    // at another size than the list holds for it.
     rowReadsHeight: (height) => {
       rowHeight = height;
     },
-    rowMovedTo: (top) => {
-      row.style.top = `${top}px`;
-    },
-    rowForgotten: () => {
-      retainedGeometry = [{ key: 'other-row', start: 0, size: 100 }];
-    },
     pin: (next) => {
       pinned = next;
+    },
+    place: (next) => {
+      placed = next;
     },
   };
 }
@@ -155,8 +162,8 @@ test('a visit whose committed geometry is already final reveals in its first fra
   assert.equal(entry.revealed(), true, 'no blank frame is painted before the restored rows');
 });
 
-test('a revisit with retained geometry reveals in the commit, before any frame callback', async (t) => {
-  const entry = mount(t);
+test('a revisit whose rows in view hold the boxes the list gave them reveals in the commit, before any frame callback', async (t) => {
+  const entry = mount(t, { contentHeight: 124 });
   const time = revealEntryThenOther(entry);
   entry.visit('entry');
   assert.equal(entry.revealed(), false, 'never painted before its microtasks ran');
@@ -165,7 +172,19 @@ test('a revisit with retained geometry reveals in the commit, before any frame c
   assert.ok(time > 0);
 });
 
-// The remembered geometry is only valid for what it was measured under:
+test('the same timeline put up again by its pane is a visit of its own, revealed in its commit when its rows hold their boxes', async (t) => {
+  const entry = mount(t, { contentHeight: 124 });
+  entry.ready();
+  entry.tick(16);
+  entry.tick(32);
+  assert.equal(entry.revealed(), true);
+  entry.again();
+  assert.equal(entry.revealed(), false, 'an earlier reveal is not this visit\'s');
+  await act(async () => {});
+  assert.equal(entry.revealed(), true);
+});
+
+// The sizes the list holds are only valid for what they were measured under:
 // anything else settles through the stable-sample path like an entry.
 for (const [name, change] of [
   [
@@ -173,23 +192,21 @@ for (const [name, change] of [
     (entry) => entry.rowReadsHeight(140),
   ],
   ['a visible row that reads back shorter by one pixel', (entry) => entry.rowReadsHeight(99)],
-  ['a visible row at another offset (rows above changed)', (entry) => entry.rowMovedTo(8)],
-  ['a visible row that was never remembered (rows appended)', (entry) => entry.rowForgotten()],
 ]) {
   test(`a revisit with ${name} is not revealed in the commit and settles on stable samples`, async (t) => {
-    const entry = mount(t);
+    const entry = mount(t, { contentHeight: 124 });
     const time = revealEntryThenOther(entry);
     change(entry);
     entry.visit('entry');
     await act(async () => {});
-    assert.equal(entry.revealed(), false, 'the remembered geometry may be wrong for the current inputs');
+    assert.equal(entry.revealed(), false, 'the sizes held may be wrong for the current inputs');
     entry.tick(time);
     assert.equal(entry.revealed(), true, "the commit and its next frame agree: today's settling path");
   });
 }
 
-test('a pinned revisit whose end has not landed is not revealed in the commit', async (t) => {
-  const entry = mount(t);
+test('a revisit that follows its end is not revealed before its end pin has landed', async (t) => {
+  const entry = mount(t, { contentHeight: 124 });
   entry.pin(true);
   const time = revealEntryThenOther(entry);
   entry.scrollOffEnd();
@@ -197,6 +214,25 @@ test('a pinned revisit whose end has not landed is not revealed in the commit', 
   await act(async () => {});
   assert.equal(entry.revealed(), false, 'the end pin has not placed the tail');
   entry.tick(time);
+  entry.tick(time + 16);
+  assert.equal(entry.revealed(), false, 'rows that arrived while away are still above the end');
+  entry.scrollToEnd();
+  entry.tick(time + 32);
+  entry.tick(time + 48);
+  assert.equal(entry.revealed(), true, 'revealed once the end is reached and holds for a frame');
+});
+
+test('a visit handed a place off the end is not revealed before its reader is on its row', async (t) => {
+  const entry = mount(t, { contentHeight: 124 });
+  const time = revealEntryThenOther(entry);
+  entry.place(false);
+  entry.visit('entry');
+  await act(async () => {});
+  entry.tick(time);
+  entry.tick(time + 16);
+  assert.equal(entry.revealed(), false, 'the rows of the place have not been put under the reader');
+  entry.place(true);
+  entry.tick(time + 32);
   assert.equal(entry.revealed(), true);
 });
 
@@ -211,11 +247,11 @@ test('a revisit with a relearn of unmeasured estimates pending is not revealed i
   assert.equal(entry.revealed(), true);
 });
 
-test('a first visit is not revealed in the commit', async (t) => {
+test('a first visit whose rows are still at estimated sizes is not revealed in the commit', async (t) => {
   const entry = mount(t);
   entry.ready();
   await act(async () => {});
-  assert.equal(entry.revealed(), false, 'a first visit still needs its stable samples');
+  assert.equal(entry.revealed(), false, 'it needs its stable samples');
 });
 
 test('a dock still easing to its height holds the entry reveal', async (t) => {
@@ -251,25 +287,15 @@ test('entry waits past one second for dock chrome, then reveals only after stabl
   assert.equal(entry.revealed(), true, 'live updates never cover an entered conversation again');
 });
 
-test('a dock that never answers cannot hold the laid-out transcript past the chrome bound', (t) => {
+test('dock chrome still undecided holds the entry however long it takes, and its answer presents it', (t) => {
   const entry = mount(t);
   entry.tick(16);
-  entry.tick(ENTRY_CHROME_MAX_MS - 16);
-  assert.equal(entry.revealed(), false, 'chrome is still waited on inside the bound');
-  entry.tick(ENTRY_CHROME_MAX_MS);
-  assert.equal(entry.revealed(), false, 'the bound frame needs one stable sample');
-  entry.tick(ENTRY_CHROME_MAX_MS + 16);
-  assert.equal(entry.revealed(), true, 'rows are laid out; the review bar may appear late');
-  assert.ok(document.querySelector('[data-entry-pending]'), 'chrome never resolved');
-});
-
-test('the chrome bound counts total wait, not time since the last pending frame', (t) => {
-  const entry = mount(t);
-  for (let time = 16; time < ENTRY_CHROME_MAX_MS; time += 250) entry.tick(time);
-  assert.equal(entry.revealed(), false);
-  entry.tick(ENTRY_CHROME_MAX_MS);
-  entry.tick(ENTRY_CHROME_MAX_MS + 16);
-  assert.equal(entry.revealed(), true);
+  for (let time = 250; time <= LONG_MS; time += 5_000) entry.tick(time);
+  assert.equal(entry.revealed(), false, 'no clock presents a view its chrome would still move');
+  entry.ready();
+  entry.tick(LONG_MS + 16);
+  entry.tick(LONG_MS + 32);
+  assert.equal(entry.revealed(), true, 'presented once the chrome has answered and a frame agrees');
 });
 
 test('a phone entry reveals its rows in the commit, without waiting on dock chrome or a stable frame', async (t) => {
@@ -293,7 +319,7 @@ test('a phone entry still holds a row whose Markdown body has not rendered', asy
   assert.equal(entry.revealed(), true, 'revealed in the first frame its rows hold content');
 });
 
-test('row settling still has a bounded wait after dock readiness', (t) => {
+test('a row whose body is pending holds the entry however long it takes; a streaming reply never does', (t) => {
   const entry = mount(t);
   entry.tick(3_000);
   entry.ready();
@@ -301,21 +327,41 @@ test('row settling still has a bounded wait after dock readiness', (t) => {
   suspended.setAttribute('data-transcript-pending', '');
   document.getElementById('content').append(suspended);
   entry.tick(3_016);
-  assert.equal(entry.revealed(), false);
-  entry.tick(3_000 + ENTRY_REVEAL_MAX_MS - 16);
-  assert.equal(entry.revealed(), false);
-  entry.tick(3_000 + ENTRY_REVEAL_MAX_MS);
+  entry.tick(3_000 + LONG_MS);
+  assert.equal(entry.revealed(), false, 'the row would take its size under the reader after the view was shown');
+  // The same marker in a reply that streams is parsed for as long as it streams: nothing to wait for.
+  const row = document.createElement('div');
+  row.className = 'transcript-virtual-row';
+  row.innerHTML = '<article class="message streaming"></article>';
+  row.append(suspended);
+  document.getElementById('content').append(row);
+  entry.tick(3_016 + LONG_MS);
+  entry.tick(3_032 + LONG_MS);
   assert.equal(entry.revealed(), true);
 });
 
-test('a cold entry resting off its end still waits out the settle bound', (t) => {
-  const entry = mount(t, { scrollHeight: 300 });
+test('a cold entry that follows its end and rests off it is presented only once its end is reached, however long that takes', (t) => {
+  const entry = mount(t, { scrollHeight: 300, pinned: true });
   entry.ready();
   entry.tick(16);
   entry.tick(32);
-  entry.tick(ENTRY_REVEAL_MAX_MS - 16);
-  assert.equal(entry.revealed(), false, 'the end anchor may still be landing');
-  entry.tick(ENTRY_REVEAL_MAX_MS);
+  entry.tick(LONG_MS);
+  entry.tick(3 * LONG_MS);
+  assert.equal(entry.revealed(), false, 'no clock presents a view whose reader is not where the visit puts it');
+  entry.scrollToEnd();
+  entry.tick(3 * LONG_MS + 16);
+  assert.equal(entry.revealed(), true, 'the end is reached');
+});
+
+test('a visit handed a place is not presented before its reader is on its row, however long that takes', (t) => {
+  const entry = mount(t);
+  entry.place(false);
+  entry.ready();
+  entry.tick(16);
+  entry.tick(3 * LONG_MS);
+  assert.equal(entry.revealed(), false);
+  entry.place(true);
+  entry.tick(3 * LONG_MS + 16);
   assert.equal(entry.revealed(), true);
 });
 
@@ -332,10 +378,9 @@ test('a warm revisit reveals in its first frame, off its end and with dock segme
   assert.ok(document.querySelector('[data-entry-pending]'), 'the segment is still undecided');
 });
 
-// User: 대화창 들어가면 덜컥 한 줄 정도 내려앉는다. The island slot held the
-// outgoing pill's height for a chat whose segments were still reading; the
-// revisit painted above that room and its tail dropped when the room closed.
-test('a warm revisit waits on an island slot still holding a reserved height', async (t) => {
+// A slot that keeps its session's remembered room while segments read is waiting for the core: the read may never
+// be answered, so no view waits for it. The room stays as it is until the segments have read.
+test('a revisit does not wait on an island slot that keeps a reserved height for segments still reading', async (t) => {
   const entry = mount(t);
   const time = revealEntryThenOther(entry);
   const slot = document.createElement('div');
@@ -346,30 +391,8 @@ test('a warm revisit waits on an island slot still holding a reserved height', a
   await Promise.resolve();
   entry.tick(time);
   entry.tick(time + 16);
-  assert.equal(entry.revealed(), false, 'the reserved room may still close under the tail');
-  slot.removeAttribute('data-reserved');
-  entry.tick(time + 32);
-  entry.tick(time + 48);
-  assert.equal(entry.revealed(), true);
-});
-
-test('a revisit whose remembered geometry was evicted enters cold', async (t) => {
-  const entry = mount(t);
-  const time = revealEntryThenOther(entry);
-  entry.dropGeometry();
-  entry.scrollOffEnd();
-  entry.pending();
-  entry.visit('entry');
-  await Promise.resolve();
-  entry.tick(time);
-  entry.tick(time + 16);
-  assert.equal(entry.revealed(), false, 'undecided chrome holds a timeline remounting from estimates');
-  for (const marker of document.querySelectorAll('[data-entry-pending]')) marker.remove();
-  entry.tick(time + 32);
-  entry.tick(time + 48);
-  assert.equal(entry.revealed(), false, 'off its end it waits for the end anchor, like an entry');
-  entry.tick(time + 48 + ENTRY_REVEAL_MAX_MS);
-  assert.equal(entry.revealed(), true);
+  assert.equal(entry.revealed(), true, 'presented above the reserved room');
+  assert.ok(slot.hasAttribute('data-reserved'));
 });
 
 test('a warm revisit still waits on a visible row body and a moving dock, never on offscreen rows', async (t) => {

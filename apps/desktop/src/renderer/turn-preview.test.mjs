@@ -487,6 +487,35 @@ test('a live turn end opens its confident previews once, the first created shown
   assert.equal(view.commands.length, 2, 'nor does a remount');
 });
 
+test('a live turn end opens its previews once the host shows that turn, also while the next turn is held', async (t) => {
+  // The turn's last tool round ran at 10 (mountTurn); the host holds its work since 5.
+  const held = (heldSince) =>
+    applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [], active: null }, held: true, heldSince });
+  held(5);
+  const view = await mountTurn(t, {
+    files: TURN_FILES,
+    replyText: '[p](reports/q3-sales.pdf)',
+    trailing: true,
+    running: true,
+  });
+  noteTurnRunning('s1', 'turn:1');
+  await view.render(false);
+  await settle();
+  assert.ok(view.q('.transcript-visualize-turn'), 'its card is drawn at its end');
+  assert.deepEqual(view.commands, [], 'the host has not applied this turn’s end yet');
+  // The end is applied while the next turn already runs: the hold moves on to that turn's start.
+  await act(async () => held(500));
+  await settle();
+  assert.deepEqual(
+    view.commands.map((command) => command.targets[0]),
+    [`${ROOT}/reports/q3-sales.pdf`],
+    'its previews open now, not at the next turn’s end'
+  );
+  await act(async () => applyVisualizeEvent({ sessionId: 's1', state: { sessionId: 's1', tabs: [], active: null } }));
+  await settle();
+  assert.equal(view.commands.length, 1, 'the next turn’s end opens nothing again');
+});
+
 test("a sub-agent's preview-only turn opens its previews in the conversation it works for", async (t) => {
   const pool = [{ sessionId: 'sub-1', parentSessionId: 'lead', ownerSessionId: 'lead', tag: 'worker' }];
   const view = await mountTurn(t, {

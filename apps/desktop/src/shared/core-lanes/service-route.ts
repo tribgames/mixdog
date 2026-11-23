@@ -150,6 +150,15 @@ const SINGLE: Readonly<Record<string, Single>> = {
       given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }),
       'interrupt'
     ),
+  // "Send now": one request. The core decides it against the turn that runs and the queue as they are then, and answers a
+  // receipt (`TurnTakeoverResponse`). `opId` is the caller's, the same for every send of one press.
+  takeOverTurn: ([threadId, takeover]) =>
+    one('turn/takeover', {
+      threadId,
+      opId: takeover?.opId,
+      turnId: takeover?.turnId,
+      queuedId: takeover?.queuedId,
+    }),
   listProviderModels: ([options]) =>
     one(
       'model/list',

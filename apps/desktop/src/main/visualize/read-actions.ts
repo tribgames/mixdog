@@ -350,8 +350,18 @@ export function createReadActions(ctx: ReadContext) {
     act: (request: Extract<VisualizeRequest, { action: 'act' }>) => actTab(ctx, request),
 
     /** The source text of displayed pane `index`: inline content as given, an
-     *  HTML file as read now (a kept version from its snapshot), capped. */
+     *  HTML file as read now (a kept version from its snapshot), capped.
+     *  During a turn it is of the tab as the session shows it, never of what
+     *  the running turn has made of the tab since. */
     async paneText(sessionId: string, tabId: string, index: number): Promise<VisualizePaneText> {
+      const shown = ctx.holds.get(sessionId)?.shown.host.tabs.find((candidate) => candidate.id === tabId);
+      if (shown) {
+        const pane = shown.panes[index];
+        if (!pane) throw new Error(`tab ${shown.id} has no pane ${index}`);
+        if (pane.inline) return { text: pane.inline.source, truncated: false };
+        if (pane.kind !== 'html') throw new Error('only HTML pages and inline content have a source view');
+        return readPaneSource({ path: pane.path, root: pane.root ?? shown.cwd, target: pane.target });
+      }
       const tab = ctx.tabs.findTab(sessionId, tabId);
       const pane = displayedPanes(tab)[index];
       if (!pane || tab.url) throw new Error(`tab ${tab.id} has no pane ${index}`);

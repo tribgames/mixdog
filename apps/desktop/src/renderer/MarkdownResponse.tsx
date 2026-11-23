@@ -5,6 +5,7 @@ import { createBlockParking, MarkdownBlockParkingContext } from './markdown-bloc
 import { finishDocument, LiveMarkdownDocument, type MarkdownPage } from './markdown-document';
 import type { StreamFadeTimeline } from './markdown-stream-fade';
 import {
+  isFailedMarkdownParse,
   parseSettledMarkdownAstNow,
   parseStreamingMarkdownAst,
   preloadSyncMarkdownParser,
@@ -72,6 +73,8 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   const state = reply.current;
   let pages: MarkdownPage | null = null;
   let awaitingWhole = false;
+  // The parse of `text` that ended without a tree to keep (it failed on the worker and on the page): shown as it is.
+  const ended = useRef<{ text: string; root: MarkdownAstRoot } | null>(null);
   if (streaming) {
     state.finished = null;
     state.live ??= new LiveMarkdownDocument(landed);
@@ -79,7 +82,7 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   } else if (state.finished && state.text === text) {
     pages = state.finished;
   } else {
-    const root = wholeParse(text, Boolean(state.live));
+    const root = wholeParse(text, Boolean(state.live)) ?? (ended.current?.text === text ? ended.current.root : null);
     if (root) {
       // Built from what shows, so what the parse keeps keeps its elements;
       // then nothing of the live reply is kept.
@@ -100,12 +103,12 @@ export const MarkdownResponse = memo(function MarkdownResponse({
   useEffect(() => {
     if (!awaitingWhole) return;
     let current = true;
-    void parseStreamingMarkdownAst(text).then(
-      () => {
-        if (current) landed();
-      },
-      () => undefined
-    );
+    // Every parse ends, settled or failed: either way the reply stops waiting and shows what the parse gave.
+    void parseStreamingMarkdownAst(text).then((root) => {
+      if (!current) return;
+      if (isFailedMarkdownParse(root)) ended.current = { text, root };
+      landed();
+    });
     return () => {
       current = false;
     };

@@ -9,6 +9,7 @@ import { transcriptRowVariant } from './transcript-list-estimates';
 import { useSessionAttentionIndex } from './session-attention-index';
 import { useSurfaceActive } from './surface-activity';
 import { useMarkdownPrefetch } from './transcript-list-markdown-prefetch';
+import { useReaderPlace } from './transcript-list-reader-place';
 import { useReadingAnchor } from './transcript-list-reading-anchor';
 import { useVirtualizerResizePatch } from './transcript-list-resize-patch';
 import { useMountedRowMeasurement } from './transcript-list-row-measure';
@@ -18,6 +19,7 @@ import { useSelectionPin } from './transcript-list-selection-pin';
 import { createTranscriptRowNodes, paintsNothing, type TranscriptRowNodes } from './transcript-list-row-nodes';
 import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
+import { BandDividerContext, isCompactionDivider } from './transcript-primitives';
 import type { TranscriptRowSurface } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
@@ -52,8 +54,6 @@ type TranscriptListProps = {
   onSelectionAutoScroll(delta: number): void;
   /** Who paints the rows: an agent chat's rows learn their heights apart. */
   surface?: TranscriptRowSurface;
-  /** Set to a function that scrolls the first row `match` accepts to the middle of the viewport; false when no row does. */
-  revealRef?: MutableRefObject<((match: (row: TranscriptRowModel) => boolean) => boolean) | null>;
 };
 
 /** The virtualized transcript timeline; one instance per session (the caller keys it). */
@@ -72,7 +72,6 @@ export function TranscriptList({
   touchHoldsCorrections = noTouchScroll,
   onSelectionAutoScroll,
   surface = 'coding',
-  revealRef,
 }: TranscriptListProps) {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
@@ -173,6 +172,17 @@ export function TranscriptList({
       indexForPendingKey,
       deviation,
     });
+  useReaderPlace({
+    sessionKey,
+    viewport,
+    rowsRef,
+    virtualizerRef,
+    scrollInset,
+    deviation,
+    anchorHold,
+    restoreReadingAnchor,
+    flushDeferredResizes,
+  });
   useMountedRowMeasurement({
     rows,
     spacer,
@@ -209,14 +219,6 @@ export function TranscriptList({
     restoreReadingAnchor,
   });
   const { measureRow, bindSpacer } = useTranscriptRowRegistration({ spacer, content, virtualizerRef });
-  if (revealRef)
-    revealRef.current = (match) => {
-      const index = rowsRef.current.findIndex(match);
-      const instance = virtualizerRef.current;
-      if (index < 0 || !instance) return false;
-      instance.scrollToIndex(index, { align: 'center' });
-      return true;
-    };
 
   useTranscriptScrollGeometry({ viewport, spacer, virtualizerRef, domTop, scrollInset, contentHeight, deviation });
   useRememberVirtualMeasurements({ sessionKey, viewport, virtualizerRef, flushDeferredResizes, settleHeldShrinks });
@@ -297,14 +299,25 @@ function rowSteps(
   const leadsBand = (tag: TranscriptRowModel['_tag'] | undefined) => tag === 'AssistantPart' || tag === 'ToolActivity';
   const part = (tag: TranscriptRowModel['_tag'] | undefined) =>
     tag === 'AssistantPart' || tag === 'ToolActivity' || tag === 'Error';
-  const bandLead = row._tag === 'Thinking' && leadsBand(previous);
+  // A turn's end standing on its own (no reply to close) or the error that ended it takes the band's place: it has the
+  // band's height wherever the band stood (data-band-seat) and leads in as the band did, so the band going for it moves
+  // nothing.
+  const endsTurn = (row._tag === 'AssistantPart' && row.item.kind === 'turndone') || row._tag === 'Error';
+  // A compaction's divider takes the band's place the same way, whether the band then goes on under it or not.
+  const divides = row._tag === 'AssistantPart' && isCompactionDivider(row.item);
+  const seated = endsTurn || divides;
+  const bandLead = (row._tag === 'Thinking' || seated) && leadsBand(previous);
+  const dividerAbove =
+    row._tag === 'Thinking' && before?._tag === 'AssistantPart' && isCompactionDivider(before.item)
+      ? String(before.item.id ?? before.key)
+      : '';
   const stepBefore = !bandLead && row._tag !== 'TurnGap' && part(previous);
   const turnEnd = !blank && !part(row._tag) && (!next || next._tag === 'TurnGap');
   // A turn's changed-files card closes its stack: a row after it in the same
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
   const afterChanges =
     stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
-  return { blank, bandLead, stepBefore, turnEnd, afterChanges };
+  return { blank, bandSeat: seated && !blank, bandLead, stepBefore, turnEnd, afterChanges, dividerAbove };
 }
 
 function renderVirtualRow(
@@ -319,7 +332,13 @@ function renderVirtualRow(
   const row = rows[virtualRow.index];
   if (!row) return null;
   const node = rowNodes.nodeAt(virtualRow.index);
-  const { blank, bandLead, stepBefore, turnEnd, afterChanges } = rowSteps(row, virtualRow.index, rows, node, rowNodes);
+  const { blank, bandSeat, bandLead, stepBefore, turnEnd, afterChanges, dividerAbove } = rowSteps(
+    row,
+    virtualRow.index,
+    rows,
+    node,
+    rowNodes
+  );
   // What the row paints from other rows (hand-off lines, a hidden report),
   // from the same rows as its node: its measurements are recorded under it
   // (transcript-list-estimates.ts).
@@ -340,13 +359,18 @@ function renderVirtualRow(
         data-index={virtualRow.index}
         data-tag={row._tag}
         data-turn-end={turnEnd ? 'true' : undefined}
+        data-band-seat={bandSeat ? 'true' : undefined}
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}
         data-after-changes={afterChanges ? 'true' : undefined}
         data-blank={blank ? 'true' : undefined}
         data-variant={variant || undefined}
       >
-        {node}
+        {row._tag === 'Thinking' ? (
+          <BandDividerContext.Provider value={dividerAbove}>{node}</BandDividerContext.Provider>
+        ) : (
+          node
+        )}
       </div>
     </div>
   );

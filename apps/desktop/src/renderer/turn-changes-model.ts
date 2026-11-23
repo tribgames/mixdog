@@ -6,6 +6,8 @@ import { registerIdleReclaim } from './idle-reclaim';
 import type { DesktopCapability } from '../shared/contract-capabilities';
 import type { TranscriptItem } from './desktop-types';
 import { summarizeSessionTranscriptReview } from './turn-review-model';
+import type { TranscriptRowModel } from './transcript-rows';
+import { flattenedToolActivityItems } from './transcript-tool-core';
 
 /** Per-turn changed files: the runtime's `getTurnChanges` /
  *  `revertTurnChanges` / `reapplyTurnChanges` reply (one shape for all three). */
@@ -274,7 +276,13 @@ export function useTurnChanges({
   // How the reads stand while there is no reply to show: none answered yet,
   // the runtime is still recording the turn (its card is new content when it
   // lands), or the read failed.
-  const [waiting, setWaiting] = useState<{ key: string; phase: 'recording' | 'failed'; error: string } | null>(null);
+  const [waiting, setWaiting] = useState<{
+    key: string;
+    phase: 'recording' | 'failed';
+    error: string;
+    /** The last re-ask was answered "still recording": no other is scheduled. */
+    last?: boolean;
+  } | null>(null);
   // A newer boundary or epoch keeps the last settled reply on screen until
   // its refetch answers (the card is keyed per session + checkpoint).
   const reply =
@@ -294,7 +302,7 @@ export function useTurnChanges({
           if (stale) return;
           if (next.status === 'pending') {
             const delay = TURN_CHANGES_PENDING_DELAYS_MS[retry];
-            setWaiting({ key, phase: 'recording', error: '' });
+            setWaiting({ key, phase: 'recording', error: '', last: delay === undefined });
             if (delay !== undefined) timer = setTimeout(() => attempt(retry + 1), delay);
             return;
           }
@@ -336,6 +344,8 @@ export function useTurnChanges({
     fresh: answered || cachedTurnChanges(sessionId, checkpointId, boundary, epoch) !== null,
     /** The runtime is still recording this turn: there is no answer yet. */
     recording: now?.phase === 'recording',
+    /** Still recording at the last re-ask: nothing asks again until `invalidate` or a newer end. */
+    stalled: now?.phase === 'recording' && now.last === true,
     /** Why the read asked for now failed ('' when it did not). */
     error: now?.phase === 'failed' ? now.error : '',
     adopt,
@@ -450,6 +460,60 @@ export function listedTurnChanges(
   root: string
 ): readonly TurnChangesFile[] {
   return unvisualizedChanges(withTranscriptCounts(files, items, root), visualized, root);
+}
+
+/** A tool row as the forms the transcript's diff reader reads (turn-review-model.ts), newest first: the row itself (a
+ *  call, or a card of several whose patches it carries), and, of a card of several, each `write` call in it: a
+ *  write publishes no patch, so the card does not carry what it wrote. */
+function editsOf(item: TranscriptItem): TranscriptItem[] {
+  if (item.aggregate !== true) return [item];
+  const writes = flattenedToolActivityItems([item]).filter((member) => String(member.name || '').toLowerCase() === 'write');
+  return [...writes.reverse(), item];
+}
+
+/** What a turn's own rows say it changed: the files its edit and write calls name, with the lines their diffs count,
+ *  as a reply the card can draw before the core's read answers. The turn is the rows of the card's own turn up to the
+ *  row the card stands on; rows of it the transcript does not hold are not read.
+ *  Null when they name no file. The read then says what only the core knows: files changed by other means (a shell
+ *  command), the counts of a file the calls did not diff, and what can be undone. */
+export function recordedTurnChanges(
+  rows: readonly TranscriptRowModel[],
+  checkpointId: string,
+  root: string
+): TurnChangesReply | null {
+  const names = (row: TranscriptRowModel | undefined): string | undefined =>
+    row && (row._tag === 'AssistantPart' || row._tag === 'Error') ? row.turnChanges?.checkpointId : undefined;
+  let end = rows.length - 1;
+  while (end >= 0 && names(rows[end]) !== checkpointId) end -= 1;
+  if (end < 0) return null;
+  // The card's own turn: the rows before it that the transcript gives its turn's key, whatever its checkpoint is
+  // named after (its prompt, or the end's own id).
+  const { turnKey } = rows[end]!;
+  const items: TranscriptItem[] = [];
+  for (let at = end; at >= 0 && rows[at]!.turnKey === turnKey; at -= 1) {
+    const row = rows[at]!;
+    if (at < end && names(row) !== undefined) break;
+    if (row._tag === 'ToolActivity') for (let k = row.items.length - 1; k >= 0; k -= 1) items.push(...editsOf(row.items[k]!));
+  }
+  if (items.length === 0) return null;
+  items.reverse();
+  const files: TurnChangesFile[] = [];
+  for (const [name, entry] of summarizeSessionTranscriptReview(items, root).files) {
+    const path = normalizeChangePath(name);
+    if (!path) continue;
+    const status = String(entry.status || 'M').toUpperCase();
+    files.push({
+      path,
+      status: (FILE_STATUSES.has(status) ? status : 'M') as TurnChangesFile['status'],
+      additions: entry.additions,
+      deletions: entry.deletions,
+      ...(entry.binary ? { binary: true } : {}),
+      state: 'applied',
+      revertable: false,
+    });
+  }
+  if (files.length === 0) return null;
+  return { status: 'ready', checkpointId, revision: 0, root, files, canUndo: false, canReapply: false };
 }
 
 /** A turn's recorded changes as its card reads them (transcript-rows.ts): the

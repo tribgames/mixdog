@@ -20,6 +20,8 @@ const [
   { renumberRestoredAttachments, restoreAttachmentsFromRecord },
   { useConversationPendingPrompts },
   { useTranscriptRows },
+  { useConversationSteering },
+  { noteCarried },
 ] = await Promise.all([
   import('./conversation-prompt-items.ts'),
   import('./transcript-rows.ts'),
@@ -32,6 +34,8 @@ const [
   import('./composer-attachment-restore.ts'),
   import('./use-conversation-pending-prompts.ts'),
   import('./use-conversation-rows.ts'),
+  import('./use-conversation-steering.ts'),
+  import('./list-carry.ts'),
 ]);
 
 function mount(t) {
@@ -492,7 +496,7 @@ function renderStatus(root, item, actions) {
   return act(async () =>
     root.render(
       actions
-        ? React.createElement(SteerContext.Provider, { value: { actions, draft: { current: null } } }, status)
+        ? React.createElement(SteerContext.Provider, { value: { actions, draft: { current: null }, canSendNow: true } }, status)
         : status
     )
   );
@@ -513,7 +517,7 @@ function mountSteerStatus(t, { coarse = false } = {}) {
       { className: 'message user' },
       React.createElement(
         SteerContext.Provider,
-        { value: { actions, draft: { current: null } } },
+        { value: { actions, draft: { current: null }, canSendNow: true } },
         React.createElement(SteerStatus, { item })
       )
     );
@@ -542,10 +546,10 @@ test('✕ on a coarse pointer is always shown beside Send now as a 44px target',
   assert.equal(window.getComputedStyle(cancel()).height, '44px');
   assert.equal(window.getComputedStyle(line.querySelector('.message-steer-action')).minHeight, '44px');
   assert.equal(cancel().parentElement.nextElementSibling.textContent, 'Send now');
-  // The 44px targets take no extra room: the row occupies 4px gap + a 24px line.
+  // The 44px targets take no extra room: the row occupies the 24px a pointer's line does (the prompt's bottom room).
   const lineStyle = window.getComputedStyle(line);
   assert.equal(lineStyle.marginTop, '-6px');
-  assert.equal(lineStyle.marginBottom, '-10px');
+  assert.equal(lineStyle.marginBottom, '-14px');
   assert.equal(window.getComputedStyle(cancel()).justifyItems, 'end', 'the ✕ sits next to Send now');
 });
 
@@ -589,7 +593,7 @@ test('the steer line keeps one box through every state: waiting, held, failed, s
         root.render(
           React.createElement(
             SteerContext.Provider,
-            { value: { actions, draft: { current: null } } },
+            { value: { actions, draft: { current: null }, canSendNow: true } },
             React.createElement('article', { className: 'message user' }, React.createElement(SteerStatus, { item }))
           )
         )
@@ -679,16 +683,23 @@ test('a failed bubble reads "Not sent · Send again"; a held slash command reads
 });
 
 /** The pane's steering actions over a stubbed host. */
-async function mountSteer(t, { steerItems, busy = true, answer = null, capability, submit = async () => true }) {
+async function mountSteer(
+  t,
+  { steerItems, turnId = 'turn-a', answer = null, capability, takeover = acceptedTakeover, submit = async () => true }
+) {
   const { root } = mount(t);
   const calls = [];
+  const view = { steer: null, taken: [], restored: [], values: [], takeovers: [], submits: [] };
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
       calls.push([request.capability, ...request.args]);
       return { value: capability(request.capability, request.args) };
     },
+    takeOverTurn: async (sessionId, sent) => {
+      view.takeovers.push([sessionId, sent]);
+      return takeover(sessionId, sent);
+    },
   };
-  const view = { steer: null, taken: [], restored: [], values: [], aborts: [], submits: [] };
   const draft = {
     scope: () => 's1',
     recoveryScope: () => 'rec:s1',
@@ -701,11 +712,10 @@ async function mountSteer(t, { steerItems, busy = true, answer = null, capabilit
   function Harness() {
     view.steer = useSteerActions({
       steerItems,
-      busy,
+      turnId,
       sessionId: 's1',
       invokeResult: (action) => Promise.resolve().then(action),
       applySnapshot() {},
-      abort: async (options) => view.aborts.push(options),
       submit: async (content, options) => {
         view.submits.push([content, options]);
         return submit(content, options);
@@ -734,17 +744,254 @@ const queuedItem = (id, extra = {}) => ({
   ...extra,
 });
 
-test('Send now delivers immediately through the steer-now action: prioritize, then stop the running turn', async (t) => {
-  const { view, calls, flush } = await mountSteer(t, {
-    steerItems: [queuedItem('q1')],
-    capability: (name) => (name === 'prioritizeQueued' ? { count: 1, ids: ['q1'], priority: 'now' } : null),
-  });
+/** The core's receipt of a takeover it accepted (`TurnTakeoverResponse`). */
+const acceptedTakeover = (_sessionId, sent) => ({
+  kind: 'accepted',
+  turnId: sent.turnId,
+  queuedId: sent.queuedId,
+  submissionId: sent.queuedId,
+  interruptRequested: true,
+  message: 'successor',
+});
+const refusedTakeover = (reason, message) => (_sessionId, sent) => ({
+  kind: 'refused',
+  turnId: sent.turnId,
+  queuedId: sent.queuedId,
+  reason,
+  message,
+});
+
+test('Send now is one command: the takeover of the turn the user saw, naming the message, under the press’s own id', async (t) => {
+  const { view, calls, flush } = await mountSteer(t, { steerItems: [queuedItem('q1')], capability: () => null });
   await act(async () => view.steer.context.actions.sendNow('q1'));
   await flush();
-  assert.deepEqual(calls, [['prioritizeQueued', 'q1']]);
-  assert.deepEqual(view.aborts, [{ restorePrompt: false }], 'the turn stops and reads it next');
+  assert.deepEqual(calls, [], 'no steer and no stop beside it');
+  assert.equal(view.takeovers.length, 1);
+  const [sessionId, sent] = view.takeovers[0];
+  assert.equal(sessionId, 's1');
+  assert.deepEqual({ ...sent, opId: '' }, { opId: '', turnId: 'turn-a', queuedId: 'q1' });
+  // The core's op gate takes a lowercase UUIDv7 and nothing else (mixdog-core-base ops/uuid7.rs `op_time_ms`).
+  assert.match(
+    sent.opId,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    'the press has an id of its own, one the core accepts as an operation’s'
+  );
   assert.deepEqual(view.taken, ['q1']);
   assert.equal(view.steer.visibleSteerItems[0].steer, 'sending', 'the bubble stays; its actions give way');
+});
+
+test('Send now is offered only while a turn runs for the message to take over', async (t) => {
+  const { root, document } = mount(t);
+  const item = { kind: 'user', id: 'q1', text: 'x', steer: 'pending' };
+  const pressed = [];
+  const actions = { sendNow: (id) => pressed.push(id), cancel() {}, retry() {} };
+  const show = (canSendNow) =>
+    act(async () =>
+      root.render(
+        React.createElement(
+          SteerContext.Provider,
+          { value: { actions, draft: { current: null }, canSendNow } },
+          React.createElement(SteerStatus, { item })
+        )
+      )
+    );
+  const button = () => document.querySelector('.message-steer-action');
+  await show(false);
+  assert.equal(button().disabled, true, 'no turn runs: a press could send nothing');
+  await show(true);
+  assert.equal(button().disabled, false);
+  await act(async () => button().click());
+  assert.deepEqual(pressed, ['q1']);
+});
+
+test('the steering context says Send now can be sent only while the session names a running turn', async (t) => {
+  const running = await mountSteer(t, { steerItems: [queuedItem('q1')], capability: () => null });
+  assert.equal(running.view.steer.context.canSendNow, true);
+});
+
+test('Send now with no turn running sends nothing: the queue starts the message as it stands', async (t) => {
+  const { view, calls, flush } = await mountSteer(t, {
+    steerItems: [queuedItem('q1')],
+    turnId: '',
+    capability: () => null,
+  });
+  assert.equal(view.steer.context.canSendNow, false, 'the action is not offered');
+  await act(async () => view.steer.context.actions.sendNow('q1'));
+  await flush();
+  assert.deepEqual(view.takeovers, []);
+  assert.deepEqual(calls, []);
+  assert.equal(view.steer.visibleSteerItems[0].steer, 'pending');
+});
+
+/** The pane's steering as the conversation wires it (Conversation.tsx): the queue the core publishes and the session's
+ *  rows give the messages shown; `host` answers the capabilities. */
+function mountShownSteer(t, { host = () => null, takeover = acceptedTakeover, answer = null }) {
+  const { root } = mount(t);
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => ({ value: await host(request.capability, request.args) }),
+    takeOverTurn: async (sessionId, sent) => takeover(sessionId, sent),
+  };
+  const view = { steer: null };
+  function Harness({ sessionId, queued, items }) {
+    const { steerItems } = useConversationSteering(NO_PROMPTS, items, queued);
+    view.steer = useSteerActions({
+      steerItems,
+      turnId: 'turn-a',
+      sessionId,
+      // The pane's invocation handler announces a failure and answers nothing (conversation-support.tsx).
+      invokeResult: (action) => Promise.resolve().then(action).catch(() => undefined),
+      applySnapshot() {},
+      submit: async () => true,
+      answerQuestion: { current: answer },
+      onTaken() {},
+    });
+    return null;
+  }
+  return {
+    view,
+    /** `queued`: the core's queue entries, in the order it will deliver them. */
+    show: (queued, items = NO_ROWS, sessionId = 's1') =>
+      act(async () => root.render(React.createElement(Harness, { sessionId, queued, items }))),
+    flush: () => act(async () => new Promise((resolve) => setImmediate(resolve))),
+    shown: () => view.steer.visibleSteerItems.map((item) => `${item.id}:${item.steer}`),
+  };
+}
+const NO_PROMPTS = [];
+const NO_ROWS = [];
+/** A queue entry as the core publishes it (protocol-client `queueOf`). */
+const queueEntry = (id, priority = 'next') => ({ id, text: `message ${id}`, displayText: `message ${id}`, mode: 'prompt', priority });
+/** The session's rows as the live store hands them on: each list noted as carried from the one before
+ *  (session-lane-store.ts), so what is derived from them is the same object, grown in place. */
+function carriedRows(prior, ...added) {
+  const next = [...prior, ...added];
+  noteCarried(next, prior, prior.length);
+  return next;
+}
+
+test('a message sent now gives way to its own row in a list carried on from the one before, and leaves no working row', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, {});
+  const rows = carriedRows([], { kind: 'user', id: 'u1', text: 'first' });
+  await show([queueEntry('b')], rows);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['b:sending']);
+  // The turn took it from the queue; then its row lands in the rows carried on.
+  const taken = carriedRows(rows, { kind: 'turndone', id: 'end', status: 'cancelled', cause: 'message' });
+  await show([], taken);
+  await show([], carriedRows(taken, { kind: 'user', id: 'b', text: 'message b' }));
+  assert.deepEqual(shown(), [], 'its row stands for it: no bubble is drawn under it');
+});
+
+test('a message sent now stands first from the press, in the order the core delivers the queue', async (t) => {
+  let respond;
+  const { view, show, flush, shown } = mountShownSteer(t, {
+    takeover: () => new Promise((resolve) => (respond = resolve)),
+  });
+  await show([queueEntry('a'), queueEntry('b'), queueEntry('c')]);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['b:sending', 'a:pending', 'c:pending'], 'first from the press');
+  // The core moves the entry to the front of the queue it publishes, and answers.
+  await show([queueEntry('b', 'now'), queueEntry('a'), queueEntry('c')]);
+  assert.deepEqual(shown(), ['b:sending', 'a:pending', 'c:pending'], 'nothing moves when the core says so');
+  await act(async () => respond(acceptedTakeover('s1', { turnId: 'turn-a', queuedId: 'b' })));
+  await flush();
+  assert.deepEqual(shown(), ['b:sending', 'a:pending', 'c:pending']);
+  await show([queueEntry('a'), queueEntry('c')], carriedRows([], { kind: 'user', id: 'b', text: 'message b' }));
+  assert.deepEqual(shown(), ['a:pending', 'c:pending'], 'its row lands above the rest, which stand as they stood');
+});
+
+test('a message the core published as sent now reads as sent in a pane that never pressed it', async (t) => {
+  const { show, shown } = mountShownSteer(t, {});
+  await show([queueEntry('b', 'now'), queueEntry('a')]);
+  assert.deepEqual(shown(), ['b:sending', 'a:pending']);
+});
+
+test('a message sent now is still sent after a switch to another session and back', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, {});
+  await show([queueEntry('b')]);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['b:sending']);
+  await show([queueEntry('x')], NO_ROWS, 's2');
+  assert.deepEqual(shown(), ['x:pending'], 'the other session shows its own queue');
+  // Back before the core's queue with the entry marked has reached this pane.
+  await show([queueEntry('b')], NO_ROWS, 's1');
+  assert.deepEqual(shown(), ['b:sending'], 'the press belongs to its session');
+});
+
+test('a message sent now that the queue drops with no row of its own leaves nothing behind', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, {});
+  await show([queueEntry('b')]);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  await show([]);
+  assert.deepEqual(shown(), [], 'no bubble stands as sent for a message the core holds nowhere');
+});
+
+test('a takeover the core refuses with the message still queued leaves it waiting where the core has it', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, { takeover: refusedTakeover('stopClaimed', 'queued') });
+  await show([queueEntry('a'), queueEntry('b')]);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['a:pending', 'b:pending'], 'nothing lost, nothing moved');
+});
+
+test('a takeover the core refuses with the message already delivered leaves no bubble: its row stands for it', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, { takeover: refusedTakeover('tooLate', 'consumed') });
+  const rows = carriedRows([], { kind: 'user', id: 'u1', text: 'first' });
+  // The queue this pane holds still lists the message the core already delivered.
+  await show([queueEntry('a'), queueEntry('b')], rows);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['a:pending']);
+  await show([queueEntry('a')], carriedRows(rows, { kind: 'user', id: 'b', text: 'message b', steered: true }));
+  assert.deepEqual(shown(), ['a:pending']);
+});
+
+test('a takeover that fails to reach the core leaves the message as the core has it', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, {
+    takeover: async () => {
+      throw new Error('offline');
+    },
+  });
+  await show([queueEntry('a'), queueEntry('b')]);
+  await act(async () => view.steer.context.actions.sendNow('b'));
+  await flush();
+  assert.deepEqual(shown(), ['a:pending', 'b:pending']);
+});
+
+test('a message sent now that answered a waiting question leaves with the queue entry and never comes back', async (t) => {
+  let answered;
+  const { view, show, flush, shown } = mountShownSteer(t, {
+    host: () => ({ count: 1, ids: ['q1'], text: 'message q1' }),
+    answer: () => new Promise((resolve) => (answered = resolve)),
+  });
+  await show([queueEntry('q1')]);
+  await act(async () => view.steer.context.actions.sendNow('q1'));
+  await flush();
+  assert.deepEqual(shown(), ['q1:sending'], 'sent, while the core still lists it');
+  // The core handed the entry back; the answer is given.
+  await show([]);
+  assert.deepEqual(shown(), []);
+  await act(async () => answered(true));
+  await flush();
+  assert.deepEqual(shown(), []);
+  await show([], carriedRows([], { kind: 'tool', id: 'ask1', name: 'ask_user', result: 'User replied in chat' }));
+  assert.deepEqual(shown(), [], 'no row of its own is coming, and nothing is left sending');
+});
+
+test('a message sent now that answered a question still listed in the queue stays gone when the queue drops it', async (t) => {
+  const { view, show, flush, shown } = mountShownSteer(t, {
+    host: () => ({ count: 1, ids: ['q1'], text: 'message q1' }),
+    answer: async () => true,
+  });
+  await show([queueEntry('q1')]);
+  await act(async () => view.steer.context.actions.sendNow('q1'));
+  await flush();
+  assert.deepEqual(shown(), [], 'gone after the answer');
+  await show([]);
+  assert.deepEqual(shown(), [], 'and not back after the dequeue');
 });
 
 test('Send now while a question waits answers it instead of interrupting the turn', async (t) => {
@@ -761,7 +1008,7 @@ test('Send now while a question waits answers it instead of interrupting the tur
   await flush();
   assert.deepEqual(calls, [['restoreQueued', '', 'q1']]);
   assert.deepEqual(answers, ['message q1']);
-  assert.deepEqual(view.aborts, []);
+  assert.deepEqual(view.takeovers, [], 'an answer is no takeover');
   assert.deepEqual(view.steer.visibleSteerItems, []);
 });
 
@@ -836,11 +1083,10 @@ test('a cancel or failed retry that completes after a session switch restores in
   function Harness({ sessionId, steerItems }) {
     view.steer = useSteerActions({
       steerItems,
-      busy: true,
+      turnId: 'turn-a',
       sessionId,
       invokeResult: (action) => Promise.resolve().then(action),
       applySnapshot() {},
-      abort: async () => {},
       submit: () =>
         new Promise((resolve) => {
           releaseSubmit = resolve;

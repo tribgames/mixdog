@@ -26,7 +26,7 @@ import {
   type VisualizeTarget,
 } from './targets';
 import { checkTabOffscreen } from './read-actions';
-import { heldTurn, offscreen } from './turn-hold';
+import { heldTurn, joinShown, offscreen, publishShown, selectShown, shownAs, shownOfKey } from './turn-hold';
 import { shownVersionOf } from './version-thumbnails';
 
 type OpenRequest = Extract<VisualizeRequest, { action: 'open' }>;
@@ -34,6 +34,7 @@ type OpenRequest = Extract<VisualizeRequest, { action: 'open' }>;
 type OpenContext = Pick<
   VisualizeServiceContext,
   | 'deps'
+  | 'sessions'
   | 'sessionOf'
   | 'sessionCwds'
   | 'nextLoadStamp'
@@ -49,6 +50,34 @@ type OpenContext = Pick<
   | 'holds'
   | 'panelSize'
 >;
+
+/** The user's own open, during a turn, of a file (or inline content, `key`) that needs no open, and must not be one:
+ *  the session shows it as a picture from before the running turn's change (turn-hold.ts `shownAs`), which is brought
+ *  up; or only the running turn has a tab of it, which is shown as it is now, marked as the turn's, and not touched
+ *  (so the turn's end shows what the turn made of it). False when the open is to run. */
+function viewsWithoutOpening(
+  ctx: Pick<OpenContext, 'deps' | 'holds' | 'sessions' | 'views'>,
+  sessionId: string,
+  key: string
+): boolean {
+  const hold = ctx.holds.get(sessionId);
+  if (!hold) return false;
+  const shown = shownOfKey(hold, key);
+  if (shown && shownAs(ctx, hold, sessionId, shown) === 'live') return false;
+  const own = ctx.sessions
+    .get(sessionId)
+    ?.tabs.find((candidate) => candidate.key === key && !candidate.url && !candidate.verify);
+  // A picture from before the turn's change stays that picture; the turn's own tab is seen as it is now, each time
+  // it is asked for (and as it last was once the turn has closed it).
+  const picture = shown !== undefined && !hold.shown.turn.has(shown);
+  const tab = picture ? shown : (own?.id ?? shown);
+  if (!tab) return false;
+  if (!picture && own) joinShown(ctx, hold, sessionId, own.id, true);
+  else selectShown(hold, tab);
+  hold.picked = tab;
+  publishShown(ctx.deps, hold, sessionId, { reveal: true, tab });
+  return true;
+}
 
 /** A reopened tab goes to the end of the session's tabs, like a fresh open. */
 function moveToEnd(tabs: TabState[], tab: TabState): void {
@@ -107,6 +136,7 @@ async function finishOpen(
   tab: TabState,
   open: {
     held: boolean;
+    user: boolean;
     versionError: Error | null;
     what: string;
     live: string;
@@ -120,7 +150,7 @@ async function finishOpen(
   const verify = request.verify === true;
   if (!held && !verify) ctx.sessionOf(sessionId).active = tab.id;
   if (!verify) ctx.views.rememberTab(sessionId, tab, true);
-  ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
+  ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId, open.user);
   // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
   let placed: string;
   if (verify) placed = verifyPlacement(ctx, sessionId, tab, open.what);
@@ -274,6 +304,7 @@ async function openInline(
   ctx: Pick<
     OpenContext,
     | 'deps'
+    | 'sessions'
     | 'sessionOf'
     | 'sessionCwds'
     | 'panes'
@@ -288,14 +319,16 @@ async function openInline(
     | 'panelSize'
   >,
   request: OpenRequest,
-  content: VisualizeInlineContent
+  content: VisualizeInlineContent,
+  user: boolean
 ): Promise<VisualizeResult> {
   const { sessionOf } = ctx;
   const { sessionId, cwd } = request;
-  const held = heldTurn(ctx, sessionId) !== null;
+  const held = !user && heldTurn(ctx, sessionId) !== null;
   const verify = request.verify === true;
   const state = sessionOf(sessionId);
   const key = inlineKey(content);
+  if (user && viewsWithoutOpening(ctx, sessionId, key)) return { text: '' };
   const pane = await ctx.panes.inlinePaneFor(content);
   let tab = state.tabs.find((candidate) => candidate.key === key);
   if (tab) {
@@ -329,6 +362,7 @@ async function openInline(
   const target = tab;
   return finishOpen(ctx, request, target, {
     held,
+    user,
     versionError,
     what: `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`,
     live: 'live content',
@@ -386,9 +420,11 @@ async function openUrl(
 export function createOpenActions(ctx: OpenContext) {
   const { deps, sessionOf, sessionCwds } = ctx;
 
-  async function open(request: OpenRequest): Promise<VisualizeResult> {
+  /** `user`: the user's own open (a chat card, a turn's previews), never a running turn's work: it shows at once,
+   *  and during a turn joins what the session shows. */
+  async function open(request: OpenRequest, user = false): Promise<VisualizeResult> {
     if (!deps.windowAvailable()) throw new Error('the Mixdog desktop window is not open');
-    if (request.content) return openInline(ctx, request, request.content);
+    if (request.content) return openInline(ctx, request, request.content, user);
     const { sessionId, cwd } = request;
     const stamp = ctx.nextLoadStamp();
     const targets = await Promise.all(request.targets.map((target) => resolveVisualizeTarget(cwd, target)));
@@ -405,6 +441,7 @@ export function createOpenActions(ctx: OpenContext) {
     }
     const files = targets as FileTarget[];
     const key = files.map((target) => target.path).join('\0');
+    if (user && viewsWithoutOpening(ctx, sessionId, key)) return { text: '' };
     const panes = await ctx.panes.preparePanes(files);
     const state = sessionOf(sessionId);
     let tab = state.tabs.find((candidate) => candidate.key === key);
@@ -444,10 +481,11 @@ export function createOpenActions(ctx: OpenContext) {
     await ctx.tabVersions.recordVersion(sessionId, tab);
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-    const held = heldTurn(ctx, sessionId) !== null;
+    const held = !user && heldTurn(ctx, sessionId) !== null;
     const target = tab;
     return finishOpen(ctx, request, target, {
       held,
+      user,
       versionError,
       what: describeFiles(cwd, files),
       live: 'live files',
@@ -479,7 +517,8 @@ export function createOpenActions(ctx: OpenContext) {
           cwd,
           action: 'open',
           input: { ...(content ? { content } : { targets }), ...(label ? { label } : {}) },
-        }) as OpenRequest
+        }) as OpenRequest,
+        true
       );
     },
   };

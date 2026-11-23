@@ -1,5 +1,6 @@
 import {
   desktopSessionState,
+  keepTranscriptWindow,
   moveTranscriptWindow,
   sessionReducer,
   type ProtocolClient,
@@ -160,6 +161,17 @@ export function createSessionLane({
       publish(change.feedId);
   });
 
+  // What a followed thread's window owes with no reader moving (a hole in its tail, a tail past its bound, a window the
+  // core let go) is asked for as the thread changes, shown in a pane or not.
+  const offGap = protocol.onStoreChange((change) => {
+    const threadId = change.type === 'thread' ? change.threadId : undefined;
+    const client = threadId ? held() : null;
+    if (client && threadId) void keepTranscriptWindow(client, threadId);
+  });
+  // The readers this lane spoke for, by thread. The client is this window's own (a window that closes or reloads takes
+  // its client, and so every reader of it, with it); a lane disposed while its client lives on withdraws them itself.
+  const spokenFor = new Map<string, Set<string>>();
+
   /** The fold the snapshot of the page `resume` asks for brings (a fold of another `origin` than `before`: the fold follows
    *  the reply; client.ts `fold`), or undefined when the core answered with a replay, which brings none. An event folded
    *  meanwhile is not that page. Rejects when the thread is lost first. */
@@ -243,6 +255,14 @@ export function createSessionLane({
       if (!fold) {
         // Not followed: one read, published as the replay it is. Following it is `setVisibleSessions`' decision.
         const snapshot = await readOnce(client, sessionId, lastItems);
+        // The thread was followed while the read was out: the window its subscription holds (the reader's, which may
+        // lie far from these newest rows) answers the read, never the read's own rows over it.
+        if (client.store.thread(sessionId)) {
+          // While its attach still owes the transcript, the frame that attach publishes is the answer.
+          if (readTraceId) publisher.expectRead(sessionId, readTraceId);
+          publish(sessionId);
+          return true;
+        }
         emit({ sessionId, snapshot, frameSource: 'replay', ...(readTraceId ? { readTraceId } : {}) });
         return true;
       }
@@ -278,7 +298,11 @@ export function createSessionLane({
     },
     async moveTranscriptWindow(sessionId, move) {
       const client = held();
-      return client ? moveTranscriptWindow(client, sessionId, move) : false;
+      if (!client) return false;
+      const reader = move.reader ?? '';
+      if (move.kind === 'follow') spokenFor.get(sessionId)?.delete(reader);
+      else spokenFor.set(sessionId, (spokenFor.get(sessionId) ?? new Set()).add(reader));
+      return moveTranscriptWindow(client, sessionId, move);
     },
     async listRewindTargets(sessionId, options) {
       const page = (await call('thread/rewindTargets/list', {
@@ -298,6 +322,12 @@ export function createSessionLane({
       offReplaced();
       offReady();
       offRestored();
+      offGap();
+      const client = held();
+      if (client)
+        for (const [threadId, readers] of spokenFor)
+          for (const reader of readers) void moveTranscriptWindow(client, threadId, { kind: 'follow', reader });
+      spokenFor.clear();
       shownLive.clear();
       owed.clear();
       publisher.dispose();

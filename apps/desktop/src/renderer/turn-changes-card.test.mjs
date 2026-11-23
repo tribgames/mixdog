@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { TurnChangesCard, TurnChangesContext, TurnChangesUndo } from './TurnChangesCard.tsx';
-import { allChangesVisualized, resetTurnChangesCache, unvisualizedChanges } from './turn-changes-model.ts';
+import { TurnChangesCard, TurnChangesContext, TurnChangesUndo, TurnRowsContext } from './TurnChangesCard.tsx';
+import {
+  allChangesVisualized,
+  recordedTurnChanges,
+  resetTurnChangesCache,
+  unvisualizedChanges,
+} from './turn-changes-model.ts';
 import { useSessionDiffTurnTarget } from './session-diff-focus.ts';
 import { _runIdleReclaimForTest } from './idle-reclaim.ts';
 
@@ -30,8 +35,11 @@ const ready = (files, extra = {}) => ({
   ...extra,
 });
 
-/** Mounts one card. `reply(request)` answers every capability call. */
-async function mountCard(t, { reply, surface = {}, turnChanges = {}, framed = false, visualized, undo = false }) {
+/** Mounts one card. `reply(request)` answers every capability call. `settled: false` leaves the clock to the case. */
+async function mountCard(
+  t,
+  { reply, surface = {}, turnChanges = {}, framed = false, visualized, undo = false, rows, settled = true }
+) {
   resetTurnChangesCache();
   const { dom, document, root } = installTestDom(t, {
     expose: ['HTMLElement', 'Node', 'Event', 'MouseEvent', 'CustomEvent'],
@@ -69,6 +77,9 @@ async function mountCard(t, { reply, surface = {}, turnChanges = {}, framed = fa
     act(async () => {
       root.render(
         h(
+          TurnRowsContext.Provider,
+          { value: rows ? () => rows : null },
+          h(
           TurnChangesContext.Provider,
           { value: nextValue },
           undo
@@ -81,11 +92,12 @@ async function mountCard(t, { reply, surface = {}, turnChanges = {}, framed = fa
                 })
               : h(TurnChangesCard, { turnChanges: nextRef, visualized }),
           h(RequestProbe)
+          )
         )
       );
     });
   await render();
-  await settle();
+  if (settled) await settle();
   const q = (selector) => document.querySelector(selector);
   const qa = (selector) => [...document.querySelectorAll(selector)];
   const click = (node, init = {}) =>
@@ -135,15 +147,15 @@ test('agent mode: the same card, seated by its frame only when it shows', async 
   });
 });
 
-// Entering a bot chat painted every bubble without its card, then each card
-// landed when its read answered and the chat jumped. Until the first read
-// answers the row is pending (the transcript's entry reveal waits for it).
-test('an unread card marks its row pending until the first read answers', async (t) => {
+// A card's files are known only from the core's read, which no view waits for: an unread card marks nothing pending.
+// The reply is taken where it moves no row in view (a pane not presented yet, the last end, a row out of view), which
+// a list with no layout always is.
+test('an unread card holds no view: it marks nothing pending, and takes its reply when it lands', async (t) => {
   const pending = '[data-transcript-pending]';
-  await t.test('a read in flight: pending, then the card in its place', async (t) => {
+  await t.test('a read in flight: nothing pending, then the card in its place', async (t) => {
     let answer;
     const view = await mountCard(t, { reply: () => new Promise((resolve) => (answer = resolve)) });
-    assert.ok(view.q(pending), 'pending while the read is in flight');
+    assert.equal(view.q(pending), null, 'a read of the core holds no reveal');
     assert.equal(view.q('.turn-changes-card'), null);
     await act(async () => answer(ready([file('mixdog-community-state.json', { additions: 1, deletions: 1 })])));
     await settle();
@@ -741,4 +753,162 @@ test('a tool round’s turn record is the one its card reads: the checkpoint and
     { checkpointId: '', boundary: '' },
     'still running: no latest turn is inferred'
   );
+});
+
+/** A turn's rows as the transcript lists them: its prompt, the calls that wrote `paths`, and the reply its card stands on. */
+const turnRows = (paths, checkpointId = 'cp') => [
+  { _tag: 'UserMessage', key: 'u', turnKey: 't', item: { kind: 'user', id: checkpointId, text: 'do it' }, attachedUser: false },
+  ...paths.map((path, at) => ({
+    _tag: 'ToolActivity',
+    key: `w${at}`,
+    turnKey: 't',
+    items: [{ kind: 'tool', id: `w${at}`, name: 'write', args: { path, content: 'one\ntwo\nthree\n' }, result: 'ok', count: 1, completedCount: 1 }],
+  })),
+  { _tag: 'AssistantPart', key: 'r', turnKey: 't', item: { kind: 'assistant', id: 'r', text: 'done' }, turnChanges: { checkpointId, boundary: 'done-1', trailing: false } },
+];
+
+test("a turn's own records name the files it changed: the write calls of its own turn, up to the row its card stands on", () => {
+  const before = [
+    { _tag: 'ToolActivity', key: 'old', turnKey: 't0', items: [{ kind: 'tool', id: 'old', name: 'write', args: { path: 'other.ts', content: 'x' }, result: 'ok' }] },
+    { _tag: 'AssistantPart', key: 'r0', turnKey: 't0', item: { kind: 'assistant', id: 'r0', text: 'earlier' }, turnChanges: { checkpointId: 'cp0', boundary: 'done-0', trailing: false } },
+  ];
+  const recorded = recordedTurnChanges([...before, ...turnRows([`${ROOT}/src/a.ts`, 'b.ts'])], 'cp', ROOT);
+  assert.deepEqual(
+    recorded.files.map((entry) => [entry.path, entry.additions, entry.revertable]),
+    [
+      ['src/a.ts', 3, false],
+      ['b.ts', 3, false],
+    ]
+  );
+  assert.equal(recorded.canUndo, false, 'what can be undone is the core’s to say');
+  // A turn whose end names a checkpoint of its own, after a turn that ended without a kept end row (no card row
+  // between them): only its own turn's edits are its card's.
+  const earlier = [
+    { _tag: 'UserMessage', key: 'u0', turnKey: 't0', item: { kind: 'user', id: 'p0', text: 'before' }, attachedUser: false },
+    { _tag: 'ToolActivity', key: 'w-old', turnKey: 't0', items: [{ kind: 'tool', id: 'w-old', name: 'write', args: { path: 'earlier.ts', content: 'x' }, result: 'ok' }] },
+    { _tag: 'AssistantPart', key: 'r0', turnKey: 't0', item: { kind: 'assistant', id: 'r0', text: 'stopped' } },
+  ];
+  assert.deepEqual(
+    recordedTurnChanges([...earlier, ...turnRows(['mine.ts'], 'end-checkpoint')], 'end-checkpoint', ROOT).files.map((entry) => entry.path),
+    ['mine.ts']
+  );
+  // Consecutive write calls show as one card of several: each call in it is read.
+  const several = turnRows([]);
+  several.splice(1, 0, {
+    _tag: 'ToolActivity',
+    key: 'ws',
+    turnKey: 't',
+    items: [
+      {
+        kind: 'tool',
+        id: 'agg',
+        name: '__aggregate__',
+        aggregate: true,
+        count: 3,
+        completedCount: 3,
+        categories: { 'Write|Writing|Wrote|file|files': { count: 3 } },
+        toolMembers: [
+          { id: 'w1', name: 'write', args: { path: 'one.ts', content: 'a\nb\n' }, result: 'ok' },
+          { id: 'w2', name: 'write', args: { path: 'two.ts', content: 'a\n' }, result: 'ok' },
+          { id: 'w3', name: 'write', args: { path: 'bad.ts', content: 'a\n' }, result: 'denied', isError: true },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(
+    recordedTurnChanges(several, 'cp', ROOT).files.map((entry) => [entry.path, entry.additions]),
+    [
+      ['one.ts', 2],
+      ['two.ts', 1],
+    ],
+    'the calls of a card of several, less the one that failed'
+  );
+  assert.equal(recordedTurnChanges(turnRows([]), 'cp', ROOT), null, 'a turn that wrote nothing has no card');
+  assert.equal(recordedTurnChanges(turnRows(['a.ts']), 'another', ROOT), null);
+});
+
+test('a card is drawn from its turn’s records before the read answers, and the read fills that card', async (t) => {
+  let answer;
+  const view = await mountCard(t, {
+    rows: turnRows(['a.ts', 'src/b.ts']),
+    reply: () => new Promise((resolve) => (answer = resolve)),
+  });
+  const card = view.q('.turn-changes-card');
+  assert.ok(card, 'in the commit that mounts its row, with the read still out');
+  assert.equal(card.dataset.source, 'records');
+  assert.equal(view.q('[data-transcript-pending]'), null, 'no view waits for the read');
+  assert.equal(view.qa('.turn-changes-file').length, 2);
+  assert.equal(view.q('.turn-changes-action').disabled, true, 'nothing is undone before the core has read the turn');
+  // The read names the same files: the same card, with what only the core knows.
+  await act(async () => answer(ready([file('a.ts'), file('src/b.ts')])));
+  await settle();
+  assert.equal(view.q('.turn-changes-card'), card, 'the card stays the element it was');
+  assert.equal(card.dataset.source, undefined);
+  assert.equal(view.qa('.turn-changes-file').length, 2);
+  assert.equal(view.q('.turn-changes-action').disabled, false);
+});
+
+test('the read names another set of files than the records did: the card changes then', async (t) => {
+  await t.test('a file changed by other means joins the card', async (t) => {
+    let answer;
+    const view = await mountCard(t, { rows: turnRows(['a.ts']), reply: () => new Promise((resolve) => (answer = resolve)) });
+    assert.equal(view.qa('.turn-changes-file').length, 1);
+    await act(async () => answer(ready([file('a.ts'), file('build/out.js')])));
+    await settle();
+    assert.equal(view.qa('.turn-changes-file').length, 2);
+  });
+  await t.test('a turn whose record lists nothing loses its card', async (t) => {
+    let answer;
+    const view = await mountCard(t, { rows: turnRows(['a.ts']), reply: () => new Promise((resolve) => (answer = resolve)) });
+    assert.ok(view.q('.turn-changes-card'));
+    await act(async () => answer(ready([])));
+    await settle();
+    assert.equal(view.q('.turn-changes-card'), null);
+  });
+  await t.test('a read that fails leaves the card the records drew, saying so, and a click asks again', async (t) => {
+    let fail = true;
+    const view = await mountCard(t, {
+      rows: turnRows(['a.ts']),
+      reply: () => (fail ? new Error('offline') : ready([file('a.ts')])),
+    });
+    const card = view.q('.turn-changes-card');
+    assert.equal(card?.dataset.source, 'records');
+    assert.equal(card.dataset.read, 'failed');
+    assert.match(card.title, /failed \(offline\)\. Click the card to read them again/);
+    assert.match(view.q('.turn-changes-action').dataset.tooltip, /failed \(offline\)/);
+    const asked = view.calls.length;
+    fail = false;
+    await view.click(view.q('.turn-changes-summary'));
+    await settle();
+    assert.equal(view.calls.length, asked + 1, 'the read is asked again');
+    assert.equal(view.q('.turn-changes-card').dataset.source, undefined);
+    assert.equal(view.q('.turn-changes-action').disabled, false);
+  });
+  await t.test('a turn the core still records after its last re-ask says so', async (t) => {
+    // The whole backoff runs on the case's clock.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const view = await mountCard(t, {
+      rows: turnRows(['a.ts']),
+      reply: () => ({ ...ready([]), status: 'pending' }),
+      settled: false,
+    });
+    const turn = () => act(async () => new Promise((resolve) => setImmediate(resolve)));
+    await turn();
+    assert.equal(view.calls.length, 1);
+    assert.equal(view.q('.turn-changes-card').dataset.read, undefined, 'a re-ask is set: not stalled yet');
+    for (const [delay, asked] of [400, 800, 1600, 3200, 6400, 12800].map((ms, n) => [ms, n + 2])) {
+      await act(async () => t.mock.timers.tick(delay - 1));
+      await turn();
+      assert.equal(view.calls.length, asked - 1, `not asked before ${delay} ms`);
+      await act(async () => t.mock.timers.tick(1));
+      await turn();
+      assert.equal(view.calls.length, asked);
+    }
+    await act(async () => t.mock.timers.tick(60_000));
+    await turn();
+    assert.equal(view.calls.length, 7, 'asked once and again six times, then no more');
+    const card = view.q('.turn-changes-card');
+    assert.equal(card?.dataset.read, 'stalled');
+    assert.match(card.title, /still being recorded\. Click the card to read them again/);
+  });
 });

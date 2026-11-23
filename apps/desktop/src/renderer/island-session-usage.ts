@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopAgentPoolRow } from '../shared/contract';
 import { record } from './record-utils';
+import { usageFloor } from './usage-stats-model';
 
 /** Same bound the desktop main process enforces on the request. */
 const MAX_AGENT_SESSION_IDS = 64;
@@ -13,27 +14,37 @@ interface MeasuredUsage {
   cacheRead: number;
   costUsd: number;
   unpricedTurns: number;
+  /** A call reported no usage: every figure counts only the calls that did. */
+  floor: boolean;
 }
 
 export interface IslandUsageSummary {
-  /** Lead + agents; null unless both parts are exact. */
+  /** Lead + agents; null before both parts are answered or when nothing was measured. */
   totalTokens: number | null;
   leadTokens: number | null;
-  /** Every agent session the Lead ran, together; null unless exact. */
+  /** Every agent session the Lead ran, together. */
   agentTokens: number | null;
   /** Share of prompt tokens read from cache over the same sessions as the total. */
   cacheHitRate: number | null;
-  /** Estimated value over the same sessions; null when any turn is unpriced. */
+  /** Estimated value over the same sessions' priced turns; null when none is priced. */
   costUsd: number | null;
-  /** Each agent session's own total, keyed by session id, where exact. */
+  /** `costUsd` leaves out a turn without a known price or without measured usage. */
+  costFloor: boolean;
+  /** The Lead's figures are a floor (`leadTokens`). */
+  leadFloor: boolean;
+  /** The agents' figures are a floor (`agentTokens`); either part makes the combined figures one. */
+  agentsFloor: boolean;
+  /** Each agent session's own total, keyed by session id. */
   agentRowTokens: ReadonlyMap<string, number>;
+  /** The agent sessions whose total is a floor. */
+  agentRowFloors: ReadonlySet<string>;
 }
 
 function count(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-/** One getSessionUsage snapshot whose every turn was measured, or null. */
+/** One getSessionUsage snapshot, or null without its counts. */
 function measuredUsage(value: unknown): MeasuredUsage | null {
   const usage = record(value);
   const turns = count(usage.turns);
@@ -41,10 +52,7 @@ function measuredUsage(value: unknown): MeasuredUsage | null {
   const input = count(usage.input);
   const cacheRead = count(usage.cacheRead);
   const cacheWrite = count(usage.cacheWrite);
-  const unmeasured = count(usage.unmeasuredTurns);
   if (turns === null || tokens === null || input === null || cacheRead === null || cacheWrite === null) return null;
-  // A turn without a usage measurement makes every token figure a floor.
-  if (unmeasured !== 0) return null;
   return {
     turns,
     tokens,
@@ -53,7 +61,13 @@ function measuredUsage(value: unknown): MeasuredUsage | null {
     costUsd: count(usage.costUsd) ?? 0,
     // Unknown pricing coverage counts as unpriced.
     unpricedTurns: count(usage.costUnpricedTurns) ?? turns,
+    floor: usageFloor(usage),
   };
+}
+
+/** A floor of zero measured nothing: it is no figure. */
+function figure(value: number, floor: boolean): number | null {
+  return floor && value === 0 ? null : value;
 }
 
 /** Each session's last answer, so reopening the panel paints its figures at
@@ -82,21 +96,33 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
   const agents = value ? measuredUsage(result.agents) : null;
   const sessions = record(result.sessions);
   const agentRowTokens = new Map<string, number>();
+  const agentRowFloors = new Set<string>();
   for (const id of agentSessionIds) {
     const usage = Object.hasOwn(sessions, id) ? measuredUsage(sessions[id]) : null;
-    if (usage) agentRowTokens.set(id, usage.tokens);
+    const tokens = usage && figure(usage.tokens, usage.floor);
+    if (usage === null || tokens === null) continue;
+    agentRowTokens.set(id, tokens);
+    if (usage.floor) agentRowFloors.add(id);
   }
   const all = lead && agents ? [lead, agents] : null;
-  const sum = (field: keyof MeasuredUsage) => (all ?? []).reduce((total, usage) => total + usage[field], 0);
+  const sum = (field: 'tokens' | 'prompt' | 'cacheRead' | 'costUsd' | 'turns' | 'unpricedTurns') =>
+    (all ?? []).reduce((total, usage) => total + usage[field], 0);
+  const floor = Boolean(lead?.floor || agents?.floor);
   const prompt = sum('prompt');
   const turns = sum('turns');
+  const unpriced = sum('unpricedTurns');
+  const costFloor = floor || unpriced > 0;
   return {
-    totalTokens: all ? sum('tokens') : null,
-    leadTokens: lead?.tokens ?? null,
-    agentTokens: agents?.tokens ?? null,
+    totalTokens: all ? figure(sum('tokens'), floor) : null,
+    leadTokens: lead ? figure(lead.tokens, lead.floor) : null,
+    agentTokens: agents ? figure(agents.tokens, agents.floor) : null,
     cacheHitRate: all && prompt > 0 ? sum('cacheRead') / prompt : null,
-    costUsd: all && turns > 0 && sum('unpricedTurns') === 0 ? sum('costUsd') : null,
+    costUsd: all && unpriced < turns ? figure(sum('costUsd'), costFloor) : null,
+    costFloor,
+    leadFloor: Boolean(lead?.floor),
+    agentsFloor: Boolean(agents?.floor),
     agentRowTokens,
+    agentRowFloors,
   };
 }
 

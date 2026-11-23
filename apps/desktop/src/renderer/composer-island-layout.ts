@@ -378,9 +378,6 @@ export function useIslandGlide(
  *  content returning within it (one segment handing over to the next) moves
  *  nothing. */
 export const ISLAND_COLLAPSE_GRACE_MS = 500;
-/** How long a mount reserving its session's remembered height waits for the
- *  first segment before it takes the ordinary collapse. */
-const ISLAND_RESERVE_HOLD_MS = 2_000;
 /** What the island carries; the stylesheet's empty-island rule tests the same. */
 const ISLAND_CONTENT =
   '.composer-island-seg, .session-goal-island, .composer-island-approval, .composer-island-flash, .composer-island-quota, .turn-review-bar';
@@ -613,10 +610,9 @@ export function useIslandSlotPresence(
         ? heldHeightRef.current
         : (rememberedSlotHeight(sessionIdRef.current) ?? carriedHeightRef.current);
     let reserving = false;
-    // A reserved height is only a guess at the island's resting height, so
-    // while it stands the slot is unsettled dock chrome: it holds the
-    // transcript's reveal (use-transcript-reveal). Revealed above it, the
-    // end-pinned rows dropped by the slot's height when it closed.
+    // A reserved height is the island's resting height when the session was last shown: the room the transcript is
+    // presented above while the segments read. Segments that read as before leave it as it is; an island that
+    // reads empty closes it, and the end-pinned rows drop by its height.
     const reserve = (value: boolean) => {
       reserving = value;
       slot.toggleAttribute('data-reserved', value);
@@ -717,6 +713,9 @@ export function useIslandSlotPresence(
       const state = slot.getAttribute('data-presence');
       if (state !== 'open' && !(state === 'grace' && !grace)) return;
       presence('grace');
+      // A slot that keeps its session's remembered room for segments still reading keeps it until they have read:
+      // no elapsed time closes it under the rows it holds up.
+      if (reserving) return;
       grace = window.setTimeout(
         () => {
           grace = 0;
@@ -725,9 +724,10 @@ export function useIslandSlotPresence(
           rememberSlotHeight(sessionIdRef.current, 0);
           collapse(!reducedMotion.matches);
         },
-        reserving ? ISLAND_RESERVE_HOLD_MS : ISLAND_COLLAPSE_GRACE_MS
+        ISLAND_COLLAPSE_GRACE_MS
       );
     };
+    // Ended or cancelled (the slot left the rendered tree mid-motion): either way no motion runs.
     const onTransitionEnd = (event: TransitionEvent) => {
       if (event.target === slot && event.propertyName === SLOT_HEIGHT) endMotion();
     };
@@ -746,6 +746,7 @@ export function useIslandSlotPresence(
     mutation.observe(island, { subtree: true, childList: true, characterData: true, attributes: true });
     const stopObserving = observeIslandSizes(slot, island, pane, sync);
     slot.addEventListener('transitionend', onTransitionEnd);
+    slot.addEventListener('transitioncancel', onTransitionEnd);
     reducedMotion.addEventListener('change', onMotionPreference);
     return () => {
       window.cancelAnimationFrame(frame);
@@ -753,6 +754,7 @@ export function useIslandSlotPresence(
       mutation.disconnect();
       stopObserving();
       slot.removeEventListener('transitionend', onTransitionEnd);
+      slot.removeEventListener('transitioncancel', onTransitionEnd);
       reducedMotion.removeEventListener('change', onMotionPreference);
     };
   }, [slotRef, islandRef, heldHeightRef, sessionIdRef, carriedHeightRef]);

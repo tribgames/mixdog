@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { DockHeaderRow } from './pane-dock-chrome.tsx';
-import { visualizeVersionActions } from './VisualizePanelExtras.tsx';
+import { visualizeTurnWorkAction, visualizeVersionActions } from './VisualizePanelExtras.tsx';
 const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
 const versions = [
@@ -14,7 +14,7 @@ const versions = [
 ];
 const baseTab = { id: 't1', label: 'a.html', revision: 0, panes: [{ target: 'a.html', version: undefined }], versions };
 
-async function mount(tab, { confirm = () => true, setNotice = () => {} } = {}) {
+async function mount(tab, { confirm = () => true, setNotice = () => {}, answer = () => ({}) } = {}) {
   const { restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',
     expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'window'],
@@ -24,7 +24,7 @@ async function mount(tab, { confirm = () => true, setNotice = () => {} } = {}) {
   window.mixdogDesktop = {
     visualizeCommand: async (command) => {
       sent.push(command);
-      return {};
+      return answer(command);
     },
   };
   const action = visualizeVersionActions('s1', tab, setNotice);
@@ -72,6 +72,52 @@ test('the menu lists versions newest first, with Compare and no Restore while li
     );
   } finally {
     await close(m);
+  }
+});
+
+test('a version step, Back to current and Compare the host refuses each show its reason as the panel’s notice', async () => {
+  const notices = [];
+  const refusal = 'The running turn has changed or closed tab t1; the panel shows it as it was before. Try again when the turn ends.';
+  const m = await mount(
+    { ...baseTab, version: 2, panes: [{ target: 'a.html', version: 2 }] },
+    {
+      setNotice: (notice) => notices.push(notice),
+      answer: () => {
+        throw new Error(`Error invoking remote method 'visualize-command': Error: ${refusal}`);
+      },
+    }
+  );
+  try {
+    for (const label of ['v1', 'Back to current version', 'Compare']) {
+      await act(async () => button().click());
+      const control = items().find((item) => item.textContent.startsWith(label));
+      await act(async () => control.click());
+      assert.equal(m.sent.at(-1).action, 'version', label);
+      assert.deepEqual(notices.at(-1), { error: true, text: refusal }, label);
+    }
+    assert.equal(notices.length, 3, 'one notice per refused control');
+  } finally {
+    await close(m);
+  }
+});
+
+test('a tab of the running turn the user asked to see carries a mark in the panel’s header; any other tab none', async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'window'],
+  });
+  const root = createRoot(document.getElementById('root'));
+  try {
+    const notices = [];
+    assert.equal(visualizeTurnWorkAction(baseTab, () => {}), null);
+    const action = visualizeTurnWorkAction({ ...baseTab, turnWork: true }, (notice) => notices.push(notice));
+    await act(async () => root.render(React.createElement(DockHeaderRow, { left: 'x', actions: [action] })));
+    const mark = document.querySelector('button[aria-label="In progress"]');
+    assert.equal(mark?.dataset.attention, 'true');
+    await act(async () => mark.click());
+    assert.deepEqual(notices, [{ error: false, text: 'In progress' }]);
+  } finally {
+    await close({ root, restore });
   }
 });
 

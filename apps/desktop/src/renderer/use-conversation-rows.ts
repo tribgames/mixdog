@@ -6,10 +6,35 @@ import { carriedLast, keptFrom, noteCarried, sharedPrefix } from './list-carry';
 import { transcriptTurnKeys, turnKeysTakenOver } from './renderer-logic.mjs';
 import {
   appendLiveTranscriptRows,
+  closesReply,
   closingEnd,
   createSettledProjector,
   type TranscriptRowModel,
 } from './transcript-rows';
+
+const NO_PLACES: readonly number[] = [];
+
+const attemptOf = (item: TranscriptItem | null | undefined): string =>
+  typeof item?.attemptId === 'string' ? item.attemptId : '';
+
+/** Where, in `items`, the ends are that their own turn passed: the core names a turn's attempt on its end and on every
+ *  row of the turn (`attemptId`), so an end followed by a row of the same attempt (settled, or the reply arriving) did
+ *  not end the turn. Read back to the last prompt: the turns before it are over. Ascending. */
+function passedEnds(items: readonly TranscriptItem[], liveItem: TranscriptItem | null): readonly number[] {
+  let places: number[] | null = null;
+  let after: Set<string> | null = null;
+  const live = attemptOf(liveItem);
+  if (live) after = new Set([live]);
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item?.kind === 'user' && !item.steered) break;
+    const attempt = attemptOf(item);
+    if (!attempt) continue;
+    if (item?.kind !== 'turndone') (after ??= new Set()).add(attempt);
+    else if (closesReply(item) && after?.has(attempt)) (places ??= []).unshift(index);
+  }
+  return places ?? NO_PLACES;
+}
 
 export function useStreamingTail(streamingTail: TranscriptItem | null | undefined, settledItems: TranscriptItem[]) {
   const streamingTailId = streamingTail?.id;
@@ -120,12 +145,24 @@ export function useTranscriptRows({
   // before the reply it names has settled. Until that reply is among the items (while it can still arrive) the end is
   // not shown at all: every row stands as it did before the end was written, and the end lands with its reply.
   const arriving = Boolean(busy || commandBusy || liveItem);
+  // An end its own turn passed (`passedEnds`) is not shown: the turn runs, so its rows stand under the turn keys they have
+  // without it (an end renames its turn, and closes it for the rows after).
+  const liveAttempt = attemptOf(liveItem);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: of the reply arriving, only the attempt it names is read.
+  const shown = useMemo(() => {
+    const passed = passedEnds(settledRowItems, liveItem);
+    if (passed.length === 0) return { items: settledRowItems, turnKeys: settledTurnKeys };
+    const left = new Set(passed);
+    const items = settledRowItems.filter((_, index) => !left.has(index));
+    return { items, turnKeys: transcriptTurnKeys(items) as string[] };
+  }, [settledRowItems, settledTurnKeys, liveAttempt]);
   const projectedItems = useMemo(() => {
-    let end = settledRowItems.length;
-    if (room) while (end > 0 && isRoomTypingItem(settledRowItems[end - 1])) end -= 1;
-    if (arriving && endAwaitsReply(settledRowItems, end)) end -= 1;
-    return end === settledRowItems.length ? settledRowItems : settledRowItems.slice(0, end);
-  }, [room, settledRowItems, arriving]);
+    let end = shown.items.length;
+    if (room) while (end > 0 && isRoomTypingItem(shown.items[end - 1])) end -= 1;
+    if (arriving && endAwaitsReply(shown.items, end)) end -= 1;
+    return end === shown.items.length ? shown.items : shown.items.slice(0, end);
+  }, [room, shown, arriving]);
+  const projectedTurnKeys = shown.turnKeys;
   // The pane's rows are carried on from the ones it made before: a frame's items are read from the first that changed.
   const projector = useRef<ReturnType<typeof createSettledProjector> | null>(null);
   projector.current ??= createSettledProjector();
@@ -136,10 +173,10 @@ export function useTranscriptRows({
       settled.project({
         sessionKey: identity,
         items: projectedItems,
-        turnKeys: settledTurnKeys,
+        turnKeys: projectedTurnKeys,
         failedTurns,
       }),
-    [failedTurns, identity, sessionKey, projectedItems, settledTurnKeys, settled]
+    [failedTurns, identity, sessionKey, projectedItems, projectedTurnKeys, settled]
   );
   // The settled rows close with a turn's end (`turndone`: finished, failed or stopped; `closingEnd`) and no prompt waits
   // after it. A status line a running turn leaves (`statusdone`: a compaction checked or skipped) ends none.
@@ -175,8 +212,23 @@ export function useTranscriptRows({
   // A finished turn's footer stands where its band was, also while its own activity is still reported.
   const turnSettled =
     end !== null && settledProjection.endsWithFoldedCompletion && (!commandActivityVisible || activityOfEndedTurn);
+  // A reply arriving says work goes on while the session runs, or while the end written for it names it and it has not
+  // landed. Left behind by a turn that was stopped, with the session idle, it says nothing.
+  const namingEnd = end ?? shown.items[projectedItems.length];
+  const replyArriving =
+    Boolean(liveItem) &&
+    (Boolean(busy || commandBusy) ||
+      (namingEnd?.kind === 'turndone' &&
+        namingEnd.finalAssistantId != null &&
+        String(namingEnd.finalAssistantId) === String(liveItem?.id)));
   const thinking = Boolean(
-    (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
+    (busy && !turnSettled) ||
+      (commandBusy && commandActivityVisible) ||
+      replyArriving ||
+      optimisticActivityStartedAt ||
+      // A message sent now, while the core lists it in the queue: the turn it opens is on its way, between the end of
+      // the one it stopped and its own start.
+      steerItems?.some((item) => item.steer === 'sending')
   );
   const opening = thinking && turnPastEnd;
   const shownRows = useRef<readonly TranscriptRowModel[] | undefined>(undefined);

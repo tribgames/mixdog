@@ -3,7 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { islandUsageCue, MIN_READ_GAP_MS, useIslandSessionUsage } from './island-session-usage.ts';
+import { islandUsageCue, islandUsageSummary, MIN_READ_GAP_MS, useIslandSessionUsage } from './island-session-usage.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -168,4 +168,175 @@ test("the cue is the token of the Lead's group that the pool rows carry, plus se
   // A pool from a host that carries no token never moves it.
   assert.equal(islandUsageCue([row(LEAD, LEAD)], LEAD, 0), '0|');
   assert.equal(islandUsageCue(null, LEAD, 0), '0|');
+});
+
+/** A getSessionUsage snapshot in the ledger's terms. */
+const ledger = ({ turns = 2, tokens, input = tokens, output = 0, cacheRead = 0, cacheWrite = 0, costUsd = 0, unpriced = 0, unmeasured = 0 }) => ({
+  turns,
+  input,
+  output,
+  cacheRead,
+  cacheWrite,
+  tokens,
+  unmeasuredTurns: unmeasured,
+  costUsd,
+  costKnownTurns: turns - unpriced,
+  costUnpricedTurns: unpriced,
+});
+
+const figures = (summary) => ({
+  total: summary.totalTokens,
+  lead: summary.leadTokens,
+  agents: summary.agentTokens,
+  hit: summary.cacheHitRate,
+  cost: summary.costUsd,
+  costFloor: summary.costFloor,
+  leadFloor: summary.leadFloor,
+  agentsFloor: summary.agentsFloor,
+});
+
+test('a turn that made no model call leaves every figure exact', () => {
+  // The ledger keeps no usage for a send that reached no model: the turn after it is the only one counted.
+  const summary = islandUsageSummary(
+    {
+      ...ledger({ turns: 1, tokens: 1_000, input: 200, cacheRead: 800, costUsd: 0.5 }),
+      agents: ledger({ turns: 0, tokens: 0, input: 0 }),
+    },
+    []
+  );
+  assert.deepEqual(figures(summary), {
+    total: 1_000,
+    lead: 1_000,
+    agents: 0,
+    hit: 0.8,
+    cost: 0.5,
+    costFloor: false,
+    leadFloor: false,
+    agentsFloor: false,
+  });
+});
+
+test("a call whose usage was never reported keeps the ledger's figures as a floor", () => {
+  const measured = { ...ledger({ tokens: 1_000, input: 500, cacheRead: 500, costUsd: 1 }) };
+  const missing = islandUsageSummary(
+    { ...ledger({ turns: 3, tokens: 1_000, input: 500, cacheRead: 500, unmeasured: 1, unpriced: 1 }), agents: measured },
+    []
+  );
+  // The cost of the priced turns is a floor as well.
+  assert.deepEqual(figures(missing), {
+    total: 2_000,
+    lead: 1_000,
+    agents: 1_000,
+    hit: 0.5,
+    cost: 1,
+    costFloor: true,
+    leadFloor: true,
+    agentsFloor: false,
+  });
+  // A priced floor shows its cost.
+  const priced = islandUsageSummary(
+    { ...ledger({ turns: 3, tokens: 1_000, input: 500, cacheRead: 500, costUsd: 2, unmeasured: 1 }), agents: measured },
+    []
+  );
+  assert.equal(priced.costUsd, 3);
+  // A part that measured nothing has no figure of its own; the total is the other part's, as a floor.
+  const nothing = islandUsageSummary(
+    { ...ledger({ turns: 1, tokens: 0, unmeasured: 1, unpriced: 1 }), agents: measured },
+    []
+  );
+  assert.deepEqual(
+    [nothing.totalTokens, nothing.leadTokens, nothing.agentTokens, nothing.leadFloor],
+    [1_000, null, 1_000, true]
+  );
+  const none = islandUsageSummary(
+    { ...ledger({ turns: 1, tokens: 0, unmeasured: 1 }), agents: ledger({ turns: 1, tokens: 0, unmeasured: 1 }) },
+    []
+  );
+  assert.deepEqual([none.totalTokens, none.cacheHitRate, none.costUsd], [null, null, null]);
+});
+
+test('a turn without a known price makes the cost a floor; nothing priced is no cost', () => {
+  const exact = ledger({ tokens: 1_000, costUsd: 1 });
+  const unpriced = islandUsageSummary({ ...exact, agents: ledger({ tokens: 500, costUsd: 0.5, unpriced: 1 }) }, []);
+  assert.deepEqual(figures(unpriced), {
+    total: 1_500,
+    lead: 1_000,
+    agents: 500,
+    hit: 0,
+    cost: 1.5,
+    costFloor: true,
+    leadFloor: false,
+    agentsFloor: false,
+  });
+  const nothingPriced = islandUsageSummary(
+    { ...ledger({ tokens: 1_000, unpriced: 2 }), agents: ledger({ tokens: 500, unpriced: 2 }) },
+    []
+  );
+  assert.deepEqual([nothingPriced.totalTokens, nothingPriced.costUsd], [1_500, null]);
+});
+
+test("an agents aggregate that is a floor still gives the footer every figure it has", () => {
+  // The shape of a Lead whose agents made 68 Cursor calls, which report no input or cache usage.
+  const lead = ledger({
+    turns: 17_228,
+    tokens: 4_694_424_182,
+    input: 138_338_284,
+    output: 17_652_610,
+    cacheRead: 4_480_459_593,
+    cacheWrite: 57_973_695,
+    costUsd: 3_648.2,
+  });
+  const agents = ledger({
+    turns: 121_873,
+    tokens: 21_569_478_387,
+    input: 606_384_370,
+    output: 101_325_598,
+    cacheRead: 20_357_163_804,
+    cacheWrite: 504_604_615,
+    costUsd: 9_931.15,
+    unmeasured: 68,
+    unpriced: 68,
+  });
+  const summary = islandUsageSummary(
+    {
+      ...lead,
+      agents,
+      sessions: {
+        cursor: ledger({ turns: 16, tokens: 8_010, input: 0, output: 8_010, unmeasured: 16, unpriced: 16 }),
+        quiet: ledger({ turns: 1, tokens: 0, input: 0, unmeasured: 1, unpriced: 1 }),
+        exact: ledger({ tokens: 300 }),
+      },
+    },
+    ['cursor', 'quiet', 'exact']
+  );
+  const prompt = 138_338_284 + 4_480_459_593 + 57_973_695 + 606_384_370 + 20_357_163_804 + 504_604_615;
+  assert.deepEqual(figures(summary), {
+    total: 4_694_424_182 + 21_569_478_387,
+    lead: 4_694_424_182,
+    agents: 21_569_478_387,
+    hit: (4_480_459_593 + 20_357_163_804) / prompt,
+    cost: 3_648.2 + 9_931.15,
+    costFloor: true,
+    leadFloor: false,
+    agentsFloor: true,
+  });
+  assert.deepEqual([...summary.agentRowTokens], [['cursor', 8_010], ['exact', 300]]);
+  assert.deepEqual([...summary.agentRowFloors], ['cursor']);
+});
+
+test('before the first answer every figure is unknown', () => {
+  const summary = islandUsageSummary(null, ['a']);
+  assert.deepEqual(figures(summary), {
+    total: null,
+    lead: null,
+    agents: null,
+    hit: null,
+    cost: null,
+    costFloor: false,
+    leadFloor: false,
+    agentsFloor: false,
+  });
+  assert.equal(summary.agentRowTokens.size, 0);
+  // An answer without the agents' part combines nothing.
+  assert.equal(islandUsageSummary(ledger({ tokens: 100 }), []).totalTokens, null);
 });

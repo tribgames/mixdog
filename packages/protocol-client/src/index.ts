@@ -12,6 +12,7 @@ export {
 } from './session-state.ts';
 export type { DesktopSessionState, SessionFold } from './session-state.ts';
 export {
+  keepTranscriptWindow,
   moveTranscriptWindow,
   windowWant,
   WINDOW_PAGE_ROWS,

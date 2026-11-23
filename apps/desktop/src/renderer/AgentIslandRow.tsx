@@ -7,6 +7,7 @@ import { AgentProviderMark, AgentRouteSummary } from './agent-row-parts';
 import { AgentTodoMark } from './AgentTodoMark';
 import { formatCompactTokens } from './composer-usage-readout';
 import { t } from './i18n';
+import { floorFigure, floorNote } from './usage-stats-model';
 
 /** One agent in the composer island's panel: the Agents window's row with the
  *  step mark after the model (the panel has no room for a column of its own)
@@ -16,6 +17,7 @@ export function AgentIslandRow({
   state,
   clock,
   tokens,
+  tokensFloor,
   posInSet,
   setSize,
   ownerSessionId,
@@ -27,6 +29,8 @@ export function AgentIslandRow({
   clock: number;
   /** The row's ledger total; undefined while the ledger has no figure for it. */
   tokens: number | undefined;
+  /** `tokens` counts only the calls whose usage was reported. */
+  tokensFloor: boolean;
   posInSet: number;
   setSize: number;
   ownerSessionId: string;
@@ -59,15 +63,20 @@ export function AgentIslandRow({
         <span className="agent-activity-status" id={statusId}>
           <AgentRowElapsed state={state} agent={agent} clock={clock} />
         </span>
-        {tokens !== undefined && (
-          <span
-            className="composer-island-agent-tokens"
-            title={t('Total {{tokens}} tokens', { tokens: formatCompactTokens(tokens) })}
-          >
-            {formatCompactTokens(tokens)}
-          </span>
-        )}
+        <AgentRowTokens tokens={tokens} floor={tokensFloor} />
       </span>
     </AgentRowFrame>
+  );
+}
+
+/** An agent row's ledger total, marked when it is a floor; nothing while the ledger has no figure for it. */
+export function AgentRowTokens({ tokens, floor }: { tokens: number | undefined; floor: boolean }) {
+  if (tokens === undefined) return null;
+  const text = floorFigure(formatCompactTokens(tokens), floor);
+  const label = t('Total {{tokens}} tokens', { tokens: text });
+  return (
+    <span className="composer-island-agent-tokens" title={floor ? `${label}\n${floorNote()}` : label}>
+      {text}
+    </span>
   );
 }

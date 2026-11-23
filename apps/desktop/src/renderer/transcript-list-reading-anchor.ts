@@ -3,11 +3,8 @@ import {
   captureReadingAnchor,
   coreScrollState,
   logicalScrollOffset,
-  READING_ANCHOR_HOLD_MAX_MS,
-  READING_ANCHOR_HOLD_MS,
   type ReadingAnchor,
   type TranscriptVirtualizer,
-  viewportSize,
 } from './transcript-list-geometry';
 import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import type { TranscriptRowModel } from './transcript-rows';
@@ -86,12 +83,16 @@ export function useReadingAnchor({
   );
   const laidOutRows = useRef(rows);
   const pendingAnchor = useRef<{ base: readonly TranscriptRowModel[]; anchor: ReadingAnchor | null } | null>(null);
-  const anchorHold = useRef<(ReadingAnchor & { until: number; start: number | null; landedAt: number }) | null>(null);
+  // The list's one anchor from a landing on: it stands while the reader is where the landing put it. A view moved
+  // since (by the reader, or by a jump) is not the anchor's, and the hold ends there; no time ends it.
+  const anchorHold = useRef<(ReadingAnchor & { start: number | null }) | null>(null);
   const anchorRestoreQueued = useRef(false);
   const readingAnchorHeld = useCallback(() => {
     const hold = anchorHold.current;
     if (!hold) return false;
-    if (performance.now() > hold.until || virtualizerRef.current.options.anchorTo === 'end') {
+    const instance = virtualizerRef.current;
+    const moved = hold.start !== null && Math.abs(hold.start - hold.offset - logicalScrollOffset(instance)) >= 1;
+    if (moved || instance.options.anchorTo === 'end') {
       anchorHold.current = null;
       return false;
     }
@@ -114,11 +115,10 @@ export function useReadingAnchor({
       const reading = logicalScrollOffset(instance);
       let target = reading;
       if (landing || hold.start === null) target = start - hold.offset;
-      else if (Math.abs(start - hold.start) >= 0.5) {
-        target = reading + (start - hold.start);
-        hold.until = Math.min(hold.landedAt + READING_ANCHOR_HOLD_MAX_MS, performance.now() + READING_ANCHOR_HOLD_MS);
-      }
+      else if (Math.abs(start - hold.start) >= 0.5) target = reading + (start - hold.start);
       hold.start = start;
+      // Where the anchor sits in the view the list writes: what the hold is checked against from here on.
+      hold.offset = start - target;
       if (
         Math.abs(target - reading) < 0.5 &&
         (!landing || (domTop.current !== null && Math.abs(domTop.current - target) < 0.5))
@@ -132,12 +132,6 @@ export function useReadingAnchor({
     [flushDeferredResizes, indexForPendingKey, readingAnchorHeld, writeReadingOffset, virtualizerRef, domTop]
   );
   noteScrollOffset.current = (top: number) => {
-    const hold = anchorHold.current;
-    if (hold && hold.start !== null && domTop.current !== null && Math.abs(top - domTop.current) >= 1) {
-      const offset = hold.start - top;
-      const height = viewportSize(virtualizerRef.current);
-      if (offset < -height || offset > 2 * height) anchorHold.current = null;
-    }
     domTop.current = top;
   };
   const queueAnchorRestore = useCallback(() => {

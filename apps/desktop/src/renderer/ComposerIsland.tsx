@@ -49,10 +49,11 @@ import {
   FittedReadout,
   formatCompactTokens,
   formatHitPercent,
+  type ReadoutItem,
   readoutVariants,
   tokensReadoutItem,
 } from './composer-usage-readout';
-import { statsCount } from './usage-stats-model';
+import { floorFigure, floorNote, hitRateNote, statsCount } from './usage-stats-model';
 import { useWholeRowList } from './whole-row-list';
 import { usageMoney } from './usage-format';
 import { ShellJobContent, ShellRowButton, useShellStops } from './shell-job-controls';
@@ -254,17 +255,30 @@ const SUMMARY_KEEP_ORDER = ['total', 'cost', 'hit'];
 const SUMMARY_DISPLAY_ORDER = ['total', 'hit', 'cost'];
 
 export function AgentsSummary({ usage }: { usage: IslandUsageSummary }) {
-  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd } = usage;
-  const splitKnown = totalTokens !== null && leadTokens !== null && agentTokens !== null;
+  const { totalTokens, leadTokens, agentTokens, cacheHitRate, costUsd, costFloor, leadFloor, agentsFloor } = usage;
+  const floor = leadFloor || agentsFloor;
+  const shown = (value: number | null, format: (value: number) => string, isFloor: boolean) =>
+    value === null ? SUMMARY_UNKNOWN : floorFigure(format(value), isFloor);
   const split = `(${t('Lead {{lead}} · Agents {{agents}}', {
-    lead: splitKnown ? formatCompactTokens(leadTokens) : SUMMARY_UNKNOWN,
-    agents: splitKnown ? formatCompactTokens(agentTokens) : SUMMARY_UNKNOWN,
+    lead: totalTokens === null ? SUMMARY_UNKNOWN : shown(leadTokens, formatCompactTokens, leadFloor),
+    agents: totalTokens === null ? SUMMARY_UNKNOWN : shown(agentTokens, formatCompactTokens, agentsFloor),
   })})`;
-  const total = tokensReadoutItem(totalTokens === null ? SUMMARY_UNKNOWN : formatCompactTokens(totalTokens));
+  const total = tokensReadoutItem(shown(totalTokens, formatCompactTokens, floor));
+  const noted = (item: ReadoutItem, note: string | null): ReadoutItem =>
+    note ? { ...item, label: `${item.label}\n${note}` } : item;
   const parts = {
-    total: { ...total, label: `${total.label} ${split}`, word: `${total.word} ${split}` },
-    hit: cacheHitReadoutItem(cacheHitRate === null ? SUMMARY_UNKNOWN : formatHitPercent(cacheHitRate)),
-    cost: costReadoutItem(costUsd === null ? SUMMARY_UNKNOWN : usageMoney(costUsd)),
+    total: noted(
+      { ...total, label: `${total.label} ${split}`, word: `${total.word} ${split}` },
+      floor && totalTokens !== null ? floorNote() : null
+    ),
+    hit: noted(
+      cacheHitReadoutItem(shown(cacheHitRate, formatHitPercent, false)),
+      floor && cacheHitRate !== null ? hitRateNote() : null
+    ),
+    cost: noted(
+      costReadoutItem(shown(costUsd, usageMoney, costFloor)),
+      costFloor && costUsd !== null ? floorNote() : null
+    ),
   };
   const [detailed, ...icons] = readoutVariants(parts, SUMMARY_KEEP_ORDER, SUMMARY_DISPLAY_ORDER);
   // The composer's own wording (`11.6B tokens · Cache hit 92.0% · $6,216.60`) for a footer too narrow for the split.
@@ -326,6 +340,7 @@ function AgentsPanel({
               state={state}
               clock={clock}
               tokens={usage.agentRowTokens.get(node.sessionId)}
+              tokensFloor={usage.agentRowFloors.has(node.sessionId)}
               posInSet={index + 1}
               setSize={agents.length}
               ownerSessionId={sessionId}

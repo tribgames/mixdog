@@ -93,7 +93,7 @@ export type ConversationProps = {
   transcriptPending?: boolean;
   /** This session's entry settled: populated rows laid out and every
    *  entry-pending chrome (the review bar's first read) either decided or
-   *  timed out (ENTRY_CHROME_MAX_MS); late chrome may still land after. */
+   *  answered. */
   onEntryRevealed?: (sessionKey: string) => void;
   /** The transcript is hidden awaiting its reveal. The pane keeps its loading
    *  cover up for as long as this holds. */

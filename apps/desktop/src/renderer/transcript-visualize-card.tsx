@@ -518,8 +518,10 @@ function useTurnPreviews({
   useEffect(() => {
     if (trailingEnd) claimTurnPreviewEnd(changesSession, endTurnKey, checkpointId);
   }, [trailingEnd, changesSession, endTurnKey, checkpointId]);
-  // The opens are due once this end's own record has answered, not the one kept of an earlier end while it is read.
-  const settled = fresh && Boolean(reply) && !running && heldSince === null;
+  // The opens are due once this end's own record has answered, not the one kept of an earlier end while it is read,
+  // and once the host shows this turn's result: no turn is held, or only turns that started after this one ended.
+  const shown = heldSince === null || (at > 0 && at < heldSince);
+  const settled = fresh && Boolean(reply) && !running && shown;
   useEffect(() => {
     if (!settled || !turnPreviewOpenPending(changesSession, checkpointId)) return;
     takeTurnPreviewOpen(changesSession, checkpointId);

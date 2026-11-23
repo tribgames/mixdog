@@ -97,11 +97,10 @@ export function Conversation(props: ConversationProps) {
   const answerQuestionRef = useRef<((reply: string) => Promise<unknown>) | null>(null);
   const steer = useSteerActions({
     steerItems: submission.steerItems,
-    busy: Boolean(snapshot.busy),
+    turnId: typeof snapshot.turnId === 'string' ? snapshot.turnId : '',
     sessionId: draftMode ? '' : routeSessionId,
     invokeResult: actions.composerInvokeResult,
     applySnapshot: actions.composerApplySnapshot,
-    abort: actions.composerAbort,
     submit: actions.composerSubmit,
     answerQuestion: answerQuestionRef,
     onTaken: actions.composerQueuedRestored,

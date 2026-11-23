@@ -47,8 +47,10 @@ export interface VisualizeServiceContext {
    *  `revealTab`: an agent open or a content update of that tab, which the
    *  renderer brings up by the panel's open policy (visualize-store).
    *  `updatedTab`: a file-change reload of that tab, updated in place (no
-   *  reveal, no activation; the renderer marks it when it is not the active one). */
-  publish(sessionId: string, revealTab?: string, updatedTab?: string, callId?: string): void;
+   *  reveal, no activation; the renderer marks it when it is not the active one).
+   *  `join`: `revealTab` is the user's own open; during a turn it joins what the
+   *  session shows, and the turn's work stays kept back. */
+  publish(sessionId: string, revealTab?: string, updatedTab?: string, callId?: string, join?: boolean): void;
   views: SessionViews;
   thumbnails: Thumbnails;
   problems: ProblemTracker;

@@ -21,7 +21,6 @@ import {
   restoreVisualizeVersion,
   revealVisualizeTab,
   resyncVisualizeStates,
-  showVisualizeVersion,
   suppressVisualizeReveal,
   toggleVisualizeCompare,
   visualizeVersionPosition,
@@ -428,7 +427,7 @@ test('the version stepper walks kept versions; the newest is live', () => {
   try {
     toggleVisualizeCompare('s1', { id: 'v1', versions, version: null, panes: [] });
     toggleVisualizeCompare('s1', { id: 'v1', versions, version: 3, compare: true, panes: [] });
-    showVisualizeVersion('s1', 'v1', null);
+    void requestVisualizeVersion('s1', 'v1', null);
     void restoreVisualizeVersion('s1', 'v1', 3);
     void restoreVisualizeVersion('s1', 'v1', 3, ['site/style.css']);
     assert.deepEqual(sent, [
@@ -618,7 +617,7 @@ test('export acts on the live pane while comparing, else the first; list times a
   assert.ok(otherDay.length > sameDay.length && otherDay.endsWith(sameDay), `${otherDay} vs ${sameDay}`);
 });
 
-test('a held (mid-turn) push leaves the panel as it is; the turn end shows it', () => {
+test('a held (mid-turn) push carries what the session shows and leaves the panel as it is; the turn end shows the turn’s work', () => {
   const reveals = [];
   const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
   try {
@@ -629,7 +628,8 @@ test('a held (mid-turn) push leaves the panel as it is; the turn end shows it', 
     const opened = { id: 'v2', label: 'b.html', revision: 0, panes: [] };
     const held = { sessionId: 'turn', tabs: [edited, opened], active: 'v1' };
 
-    applyVisualizeEvent({ sessionId: 'turn', state: held, held: true, heldSince: 500, updated: 'v1' });
+    // The host keeps the turn's work: its event marks the changed tab and carries the state from before the turn.
+    applyVisualizeEvent({ sessionId: 'turn', state: shown, held: true, heldSince: 500, updated: 'v1' });
     assert.equal(visualizeStateFor('turn'), before, 'the panel keeps its state: nothing reloads');
     assert.equal(visualizeHeldSince('turn'), 500, 'cards of opens since the turn started wait');
     assert.deepEqual(reveals, [], 'nothing opens mid-turn');
@@ -661,16 +661,54 @@ test('a held (mid-turn) push leaves the panel as it is; the turn end shows it', 
   }
 });
 
-test('a snapshot read is authoritative about holds: held stays held with its state withheld, a release it shows is released', () => {
+test('the end of a turn whose successor already runs shows that turn’s result and keeps the session held', () => {
+  const reveals = [];
+  const stop = onVisualizeRevealRequested((sessionId) => reveals.push(sessionId));
+  try {
+    const opened = { id: 'v2', label: 'b.html', revision: 0, panes: [] };
+    const first = { sessionId: 'chain', tabs: [tab], active: 'v1' };
+    const shows = () => [
+      visualizeHeldSince('chain'),
+      visualizeStateFor('chain').active,
+      visualizeStateFor('chain').tabs.map((entry) => `${entry.id}@${entry.revision}`),
+    ];
+    applyVisualizeEvent({ sessionId: 'chain', state: first });
+    applyVisualizeEvent({ sessionId: 'chain', state: first, held: true, heldSince: 100 });
+    // The first turn opened v2 and ends while the second already runs.
+    const second = { sessionId: 'chain', tabs: [tab, opened], active: 'v2' };
+    applyVisualizeEvent({ sessionId: 'chain', state: second, held: true, heldSince: 200, reveal: true, tab: 'v2' });
+    assert.deepEqual(shows(), [200, 'v2', ['v1@0', 'v2@0']], 'its tab shows, cards since the second turn’s start wait');
+    assert.deepEqual(reveals, ['chain']);
+    // The second turn only changed v1 and ends while a third runs: nothing is revealed, the change shows.
+    const third = { sessionId: 'chain', tabs: [{ ...tab, revision: 1 }, opened], active: 'v2' };
+    applyVisualizeEvent({ sessionId: 'chain', state: third, held: true, heldSince: 300 });
+    assert.deepEqual(shows(), [300, 'v2', ['v1@1', 'v2@0']]);
+    assert.deepEqual(reveals, ['chain']);
+    applyVisualizeEvent({ sessionId: 'chain', state: third });
+    assert.deepEqual(shows(), [null, 'v2', ['v1@1', 'v2@0']], 'the last turn’s end lifts the hold');
+  } finally {
+    stop();
+  }
+});
+
+test('a snapshot read is authoritative about holds: a held session shows the state it carries, a release it shows is released', () => {
   const shown = { sessionId: 'away', tabs: [tab], active: 'v1' };
   applyVisualizeEvent({ sessionId: 'away', state: shown });
   const middle = { ...shown, tabs: [tab, { id: 'v2', label: 'b.html', revision: 0, panes: [] }] };
-  applyVisualizeEvent({ sessionId: 'away', state: middle, held: true, heldSince: 70 });
+  applyVisualizeEvent({ sessionId: 'away', state: shown, held: true, heldSince: 70 });
   const before = visualizeStateFor('away');
   // A re-read during the ongoing turn (a wake, a resync hint, a recovered part sequence): still held, nothing shown of the turn.
-  resyncVisualizeStates([{ ...middle, held: true, heldSince: 70 }]);
+  resyncVisualizeStates([{ ...shown, held: true, heldSince: 70 }]);
   assert.equal(visualizeHeldSince('away'), 70, 'the turn is still held');
-  assert.equal(visualizeStateFor('away'), before, 'its intermediate state is withheld as a held event withholds it');
+  assert.equal(visualizeStateFor('away'), before, 'what the session shows is unchanged');
+  // That turn's end was missed while away and the next one already runs: the read carries its result, still held.
+  resyncVisualizeStates([{ ...middle, held: true, heldSince: 90 }]);
+  assert.equal(visualizeHeldSince('away'), 90);
+  assert.deepEqual(
+    visualizeStateFor('away').tabs.map((entry) => entry.id),
+    ['v1', 'v2'],
+    'the result of the last ended turn shows'
+  );
   // The release was missed while away: the core's current state is not held.
   resyncVisualizeStates([{ ...middle, active: 'v2' }]);
   assert.equal(visualizeHeldSince('away'), null, 'a state that does not say held is not held');
@@ -680,18 +718,19 @@ test('a snapshot read is authoritative about holds: held stays held with its sta
   );
 });
 
-test('the initial read applies holds as a re-read does: a held turn is withheld, and a snapshot that introduces a hold notifies', () => {
+test('the initial read applies holds as a re-read does: a held session shows the state it carries, and a snapshot that introduces a hold notifies', () => {
   const shown = { sessionId: 'boot', tabs: [tab], active: 'v1' };
   const seen = [];
   const unsubscribe = subscribe(() => seen.push(visualizeHeldSince('boot')));
-  // The first read of a window that loads during a held turn: nothing of the turn is displayed.
+  // The first read of a window that loads during a held turn: the result of the last turn that ended, held.
   hydrateVisualizeStates([{ ...shown, held: true, heldSince: 9 }]);
   assert.equal(visualizeHeldSince('boot'), 9);
-  assert.equal(visualizeStateFor('boot').tabs.length, 0, 'the intermediate state is not displayed');
+  assert.equal(visualizeStateFor('boot').tabs.length, 1, 'what the session shows is displayed');
   assert.deepEqual(seen, [9], 'subscribers were told of the hold');
-  // A re-read that still says held keeps it and displays nothing; one that says released shows the state.
+  // A re-read that still says held keeps it; one that says released releases it.
   resyncVisualizeStates([{ ...shown, held: true, heldSince: 9 }]);
-  assert.equal(visualizeStateFor('boot').tabs.length, 0);
+  assert.equal(visualizeHeldSince('boot'), 9);
+  assert.equal(visualizeStateFor('boot').tabs.length, 1);
   resyncVisualizeStates([shown]);
   unsubscribe();
   assert.equal(visualizeHeldSince('boot'), null);
@@ -1085,9 +1124,8 @@ test("a version the host cannot show is the caller's to report", () =>
     async ({ sent }) => {
       await assert.rejects(requestVisualizeVersion('vr', 'v1', 3), /no version 3/);
       assert.deepEqual(sent.at(-1), { sessionId: 'vr', tabId: 'v1', action: 'version', version: 3 });
-      // The stepper's fire-and-forget form stays quiet.
-      showVisualizeVersion('vr', 'v1', 3);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // So is a Compare it refuses (the panel's notice shows both).
+      await assert.rejects(toggleVisualizeCompare('vr', { id: 'v1', versions: [], version: 3, panes: [] }), /no version 3/);
     },
     async (request) => {
       if (request.action === 'version') throw new Error('tab v1 has no version 3');

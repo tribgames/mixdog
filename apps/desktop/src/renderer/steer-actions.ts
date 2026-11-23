@@ -2,7 +2,7 @@
 // "Send again". The pane owns them (they address the session it paints); the
 // composer only lends its editor, for a message taken back.
 import { createContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { DesktopAbortOptions, DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
+import type { DesktopPromptContent, DesktopSubmitOptions, DesktopTurnTakeoverReceipt } from '../shared/contract';
 import type { ComposerProps } from './Composer';
 import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
 import { composerSubmitErrorText } from './composer-submit-error';
@@ -14,9 +14,10 @@ import {
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
-import { wasPrioritized } from './prioritized-answer';
+import { asRecord } from './text-format';
 import { queuedPlainAnswer, steerQueuedAsAnswer } from './question-card-logic';
 import { useComposerCapability } from './use-composer-capability';
+import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 
 /** The composer's side of a message taken back from the transcript. */
 export type ComposerDraftHandoff = {
@@ -34,7 +35,7 @@ export type ComposerDraftHandoff = {
 };
 
 export type SteerActions = {
-  /** Delivers the message now: the turn stops at once and reads it. */
+  /** Delivers the message now: the running turn ends taken over by it, and it starts the next one. */
   sendNow(id: string): void;
   /** Takes the message back; its text returns to an empty editor. */
   cancel(id: string): void;
@@ -42,7 +43,12 @@ export type SteerActions = {
   retry(id: string): void;
 };
 
-export type SteerContextValue = { actions: SteerActions; draft: { current: ComposerDraftHandoff | null } };
+export type SteerContextValue = {
+  actions: SteerActions;
+  draft: { current: ComposerDraftHandoff | null };
+  /** A turn runs that a message can take over: "Send now" has something to send. */
+  canSendNow: boolean;
+};
 
 /** Provided by a pane that can act on its session (never a read-only view). */
 export const SteerContext = createContext<SteerContextValue | null>(null);
@@ -89,6 +95,10 @@ function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSub
 
 let parkedSequence = 0;
 
+/** The id of one press of "Send now", an operation id as the core takes them (a UUIDv7): every send of that press
+ *  carries it. */
+const newOperationId = (): string => uuidv7(Date.now());
+
 function restoreDraft(
   draft: { current: ComposerDraftHandoff | null },
   origin: DraftOrigin,
@@ -119,45 +129,59 @@ function restoreDraft(
   rejectComposerSubmissionRecovery(id);
 }
 
-function useSteerVisibility(steerItems: PendingPromptItem[]) {
+/** A press of "Send now", by the session it was made in and the message. */
+const pressOf = (sessionId: string, id: string) => `${sessionId}\0${id}`;
+
+/** What the pane shows of the queue: what the core publishes, in the order it will deliver it. A message sent now is
+ *  the core's to account for: it is shown while the core lists it in the queue, first and as sent once the core says so
+ *  (`priority: 'now'`), and its row stands for it once that lands. The pane adds only what it knows ahead of the core's
+ *  next queue: a press of "Send now" (the entry reads as sent, first, as the core will publish it) and a message taken
+ *  back or given as an answer (`hidden`). Both end with the queue entry they are about. */
+function useSteerVisibility(steerItems: PendingPromptItem[], sessionId: string) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(NO_IDS);
-  const [sending, setSending] = useState<ReadonlySet<string>>(NO_IDS);
+  const [pressed, setPressed] = useState<ReadonlySet<string>>(NO_IDS);
   useEffect(() => {
     const live = new Set(steerItems.map((item) => String(item.id)));
-    const prune = (current: ReadonlySet<string>) => {
-      const next = [...current].filter((id) => live.has(id));
+    const prune = (keep: (key: string) => boolean) => (current: ReadonlySet<string>) => {
+      const next = [...current].filter(keep);
       return next.length === current.size ? current : new Set(next);
     };
-    setHidden(prune);
-    setSending(prune);
-  }, [steerItems]);
+    setHidden(prune((id) => live.has(id)));
+    // A press belongs to its session: another session's queue says nothing about it.
+    const own = pressOf(sessionId, '');
+    setPressed(prune((key) => !key.startsWith(own) || live.has(key.slice(own.length))));
+  }, [steerItems, sessionId]);
   const visibleSteerItems = useMemo(() => {
-    if (!hidden.size && !sending.size) return steerItems;
-    const items = steerItems
-      .filter((item) => !hidden.has(String(item.id)))
-      .map((item) => (sending.has(String(item.id)) ? { ...item, steer: 'sending' as const } : item));
+    const sentNow = (item: PendingPromptItem) =>
+      pressed.has(pressOf(sessionId, String(item.id))) ||
+      (item.steer === 'pending' && asRecord(item.queueEntry)?.priority === 'now');
+    const sent = steerItems.filter(sentNow);
+    if (!hidden.size && !sent.length) return steerItems;
+    const items = [
+      ...sent.map((item) => ({ ...item, steer: 'sending' as const })),
+      ...steerItems.filter((item) => !sentNow(item)),
+    ].filter((item) => !hidden.has(String(item.id)));
     return items.length ? items : NO_ITEMS;
-  }, [hidden, sending, steerItems]);
-  return { visibleSteerItems, setHidden, setSending };
+  }, [hidden, pressed, steerItems, sessionId]);
+  return { visibleSteerItems, setHidden, setPressed };
 }
 
 export function useSteerActions({
   steerItems,
-  busy,
+  turnId,
   sessionId,
   invokeResult,
   applySnapshot,
-  abort,
   submit,
   answerQuestion,
   onTaken,
 }: {
   steerItems: PendingPromptItem[];
-  busy: boolean;
+  /** The turn the session runs, as the core names it; '' while none runs. */
+  turnId: string;
   sessionId: string;
   invokeResult: ComposerProps['invokeResult'];
   applySnapshot: ComposerProps['applySnapshot'];
-  abort: (options?: DesktopAbortOptions) => Promise<unknown>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
   /** Set while a question waits: plain text answers it instead. */
   answerQuestion: { current: ((reply: string) => Promise<unknown>) | null | undefined };
@@ -165,9 +189,9 @@ export function useSteerActions({
   onTaken: (ids: string[]) => void;
 }) {
   const { invokeCapability } = useComposerCapability({ invokeResult, applySnapshot, sessionId });
-  const { visibleSteerItems, setHidden, setSending } = useSteerVisibility(steerItems);
-  const latest = useRef({ steerItems, busy, sessionId, invokeCapability, abort, submit, onTaken });
-  latest.current = { steerItems, busy, sessionId, invokeCapability, abort, submit, onTaken };
+  const { visibleSteerItems, setHidden, setPressed } = useSteerVisibility(steerItems, sessionId);
+  const latest = useRef({ steerItems, turnId, sessionId, invokeCapability, invokeResult, submit, onTaken });
+  latest.current = { steerItems, turnId, sessionId, invokeCapability, invokeResult, submit, onTaken };
   const draft = useRef<ComposerDraftHandoff | null>(null);
   const inFlight = useRef(false);
   const actions = useMemo<SteerActions>(() => {
@@ -189,41 +213,56 @@ export function useSteerActions({
     const sendNow = async (id: string) => {
       const item = find(id);
       if (item?.steer !== 'pending' || item.steerLocal) return;
-      const { invokeCapability: invoke, abort: stopTurn, onTaken: taken } = latest.current;
+      // What the user saw when they pressed: the session, and the turn it ran.
+      const { invokeCapability: invoke, invokeResult: run, onTaken: taken, sessionId: pressedIn, turnId: seen } =
+        latest.current;
       const origin = originScope();
-      markId(setSending, id, true);
+      const press = pressOf(pressedIn, id);
       const answer = answerQuestion.current;
-      // A question waits: a plain follow-up answers it rather than
-      // interrupting the turn, which would close the question unanswered.
-      if (answer && queuedPlainAnswer(item.queueEntry) !== null) {
-        let restored: RecordValue | undefined;
-        const result = await steerQueuedAsAnswer(async () => {
-          restored = await invoke<RecordValue>('restoreQueued', ['', id]);
-          return restored && Number(restored.count) > 0 ? String(restored.text || '') : undefined;
-        }, answer);
-        if (!result.text) {
-          markId(setSending, id, false);
+      const answers = Boolean(answer) && queuedPlainAnswer(item.queueEntry) !== null;
+      // No turn runs to take over (the action is not offered then): the message is the queue's to start as it stands.
+      if (!answers && !seen) return;
+      markId(setPressed, press, true);
+      let receipt: DesktopTurnTakeoverReceipt | undefined;
+      try {
+        // A question waits: a plain follow-up answers it rather than
+        // interrupting the turn, which would close the question unanswered.
+        if (answer && answers) {
+          let restored: RecordValue | undefined;
+          const result = await steerQueuedAsAnswer(async () => {
+            restored = await invoke<RecordValue>('restoreQueued', ['', id]);
+            return restored && Number(restored.count) > 0 ? String(restored.text || '') : undefined;
+          }, answer);
+          if (!result.text) return;
+          // The core handed the message back and it became the answer (or returns to the editor): it leaves here, ahead
+          // of the queue the core publishes without it.
+          markId(setHidden, id, true);
+          taken(takenIds(restored, id));
+          if (!result.answered) {
+            restoreDraft(
+              draft,
+              origin,
+              { text: result.text },
+              { notice: 'The answer was not sent. Your message is back in the editor.' }
+            );
+          }
           return;
         }
-        markId(setHidden, id, true);
-        taken(takenIds(restored, id));
-        if (!result.answered) {
-          restoreDraft(
-            draft,
-            origin,
-            { text: result.text },
-            { notice: 'The answer was not sent. Your message is back in the editor.' }
-          );
-        }
-        return;
+        // One command for the press: the core decides it against the turn that runs and the queue as they are then.
+        receipt = await run(() =>
+          window.mixdogDesktop.takeOverTurn(pressedIn, { opId: newOperationId(), turnId: seen, queuedId: id })
+        );
+      } finally {
+        // Only a message the core accepted reads as sent, until the queue the core publishes says so itself or drops it.
+        if (receipt?.kind !== 'accepted') markId(setPressed, press, false);
       }
-      const value = await invoke<RecordValue>('prioritizeQueued', [id]);
-      if (!wasPrioritized(value)) {
-        markId(setSending, id, false);
-        return;
-      }
-      taken(takenIds(value, id));
-      if (latest.current.busy) await stopTurn({ restorePrompt: false });
+      // Refused and still queued: nothing was changed, and it waits as it did.
+      if (!receipt || receipt.message === 'queued') return;
+      // The next turn's input, or already delivered: the row the core writes stands for it, under the submission it
+      // answers. Delivered, no bubble is left for it while the queue this pane holds still lists it.
+      if (receipt.message === 'consumed') markId(setHidden, id, true);
+      const submission = receipt.kind === 'accepted' ? receipt.submissionId : undefined;
+      taken(submission && submission !== id ? [id, submission] : [id]);
     };
     const cancel = async (id: string) => {
       const item = find(id);
@@ -272,7 +311,8 @@ export function useSteerActions({
       cancel: (id) => exclusive(() => cancel(id)),
       retry: (id) => exclusive(() => retry(id)),
     };
-  }, [answerQuestion, setHidden, setSending]);
-  const context = useMemo<SteerContextValue>(() => ({ actions, draft }), [actions]);
+  }, [answerQuestion, setHidden, setPressed]);
+  const canSendNow = Boolean(turnId);
+  const context = useMemo<SteerContextValue>(() => ({ actions, draft, canSendNow }), [actions, canSendNow]);
   return { visibleSteerItems, context };
 }

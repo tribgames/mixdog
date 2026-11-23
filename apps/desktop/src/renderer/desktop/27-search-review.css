@@ -1478,7 +1478,8 @@ div.diff-tailwindcss-wrapper .diff-line {
   outline: 2px solid var(--mx-focus);
   outline-offset: 1px;
 }
-.turn-changes-action:disabled {
+.turn-changes-action:disabled,
+.turn-changes-action[aria-disabled='true'] {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
@@ -1568,7 +1569,8 @@ div.diff-tailwindcss-wrapper .diff-line {
 .turn-changes-file-actions .turn-review-revert:focus-visible {
   opacity: 1;
 }
-.turn-changes-file-actions .turn-review-revert:disabled {
+.turn-changes-file-actions .turn-review-revert:disabled,
+.turn-changes-file-actions .turn-review-revert[aria-disabled='true'] {
   opacity: 0.25;
 }
 .turn-changes-more {

@@ -334,10 +334,35 @@ function drain<V>(m: Map<unknown, V>): V[] {
   return all;
 }
 
+/** The page's own macrotask queue: a message port's task runs in the next loop turn in a hidden page too, where a timer
+ *  waits a second or more and what the core sends meanwhile would be held unfolded. */
+let turnPort: { post(callback: () => void): void } | undefined;
+function pageMacrotask(callback: () => void): void {
+  if (!turnPort) {
+    const waiting: Array<() => void> = [];
+    // The DOM's and Node's ports share these members; the types in scope name only one of the two.
+    const channel = new MessageChannel() as unknown as {
+      port1: { onmessage: (() => void) | null; unref?: () => void };
+      port2: { postMessage(value: unknown): void };
+    };
+    channel.port1.onmessage = () => waiting.shift()?.();
+    // Under Node (no setImmediate only when a test removes it) an open port would hold the process.
+    channel.port1.unref?.();
+    turnPort = {
+      post(next) {
+        waiting.push(next);
+        channel.port2.postMessage(0);
+      },
+    };
+  }
+  turnPort.post(callback);
+}
+
 function nextMacrotask(callback: () => void): void {
   // Read at call time: the renderer's program has no Node globals, and a page has no setImmediate.
   const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
   if (typeof immediate === 'function') immediate(callback);
+  else if (typeof MessageChannel === 'function') pageMacrotask(callback);
   else setTimeout(callback, 0);
 }
 

@@ -23,6 +23,7 @@ const MODES = [
   'task-wait',
   'model-thinking',
   'reconnecting',
+  'stopping',
 ];
 const RUNTIME_VERBS = [
   '',
@@ -54,11 +55,19 @@ test('every localized spinner key exists in all 11 locales', () => {
     'Model thinking',
     'model thinking',
     'Thinking (spinner)',
+    'Stopping…',
   ];
   for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
     if (language === 'en') continue;
     const entries = catalog(language);
     for (const key of keys) assert.ok(String(entries[key] || '').trim(), `${language}/${key}`);
+  }
+});
+
+test('a stopping turn names the stop, whatever the turn was doing', async () => {
+  await switchLanguage('en');
+  for (const now of [0, 31_000, 400_000]) {
+    assert.equal(activityVerb({ mode: 'stopping', runtimeVerb: 'Working', anchor: 1_000, now: 1_000 + now }), 'Stopping…');
   }
 });
 

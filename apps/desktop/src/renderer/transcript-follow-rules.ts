@@ -286,13 +286,32 @@ const PRESS_INTERACTIVE =
   'a[href],button,summary,label,input,select,textarea,iframe,video,audio,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="switch"],[role="radio"]';
 const KEEPS_FOLLOW = '[data-transcript-keeps-follow]';
 
-/** Does a press, or an Enter/Space, on this target let go of follow? Activating
- *  an interactive control (an expander, a link, a button) is about to change
- *  the content under the reader; prose, code text and chrome are not. */
+/** Is this target an interactive control (an expander, a link, a button)? Activating one is about to change the
+ *  content under the reader, so a press or an Enter/Space on it lets go of follow; so does one on a row's content
+ *  (`rowContentOf`). Chrome does not. */
 export function activationReleasesFollow(root: Element, target: EventTarget | null): boolean {
   if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return false;
   const control = target.closest(PRESS_INTERACTIVE);
   return control !== null && control !== root && root.contains(control);
+}
+
+const ROW_CONTENT = '.transcript-virtual-row-content';
+
+/** The row whose content this target lies in (its text, a code block, a table), or null: the scroller's own padding and
+ *  scrollbar, chrome, and what is marked to keep follow are not a row's content. A press there begins a selection: the
+ *  text under the pointer must not scroll away. */
+function rowContentOf(root: Element, target: EventTarget | null): Element | null {
+  if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return null;
+  const content = target.closest(ROW_CONTENT);
+  return content !== null && root.contains(content) ? content : null;
+}
+
+/** Is this a primary press of a mouse or pen on a row's content? A finger's press is the start of a scroll. */
+export function pressIsOnRowContent(
+  root: Element,
+  event: { target: EventTarget | null; button?: number; pointerType?: string }
+): boolean {
+  return (event.button ?? 0) === 0 && event.pointerType !== 'touch' && rowContentOf(root, event.target) !== null;
 }
 
 /** Is this target an editable field? Enter and Space there are typing. */
