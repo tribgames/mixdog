@@ -472,18 +472,16 @@ impl McpHub {
             })
             .collect();
         for (server, dead) in started {
-            let mut scheduled = server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner());
-            if scheduled.as_ref().is_some_and(|done| !done.is_cancelled()) {
-                continue;
-            }
-            let done = CancellationToken::new();
-            *scheduled = Some(done.clone());
-            drop(scheduled);
-            let complete = done.drop_guard();
+            let Some(start) = server.schedule_start() else { continue };
+            let complete = start.clone().drop_guard();
             mixdog_rt::spawn("mcp.hub.connect", TaskClass::Work, async move {
                 let _complete = complete;
                 // A dead shared connection takes the shared reconnect, which connects it once whichever scopes asked.
-                let connected = if dead { server.reconnect_after(None).await } else { server.connect().await.map_err(|error| error.to_string()) };
+                let connected = if dead {
+                    server.reconnect_after_answering(None, Some(start)).await
+                } else {
+                    server.connect_answering(Some(start), None).await.map_err(|error| error.to_string())
+                };
                 // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
                 match connected {
                     Err(error) => crate::config::mcp_log(&format!("[mcp-client] Failed to connect \"{}\": {error}", server.name())),
@@ -506,7 +504,7 @@ impl McpHub {
         servers
             .iter()
             .flat_map(|server| std::iter::once(server.clone()).chain(server.account_servers()))
-            .filter_map(|server| server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|done| !done.is_cancelled()).cloned())
+            .filter_map(|server| server.scheduled_start().filter(|done| !done.is_cancelled()))
             .collect()
     }
 

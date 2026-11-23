@@ -868,7 +868,7 @@ impl McpGlue {
     async fn account_connect_settled(&self, catalog: &Catalog, name: &str) {
         let Some(target) = account_target(&catalog.servers, name) else { return };
         let Some(server) = self.live_server(&target.server_name).and_then(|connector| connector.account_server(name)) else { return };
-        let scheduled = lock(&server.scheduled_start).clone();
+        let scheduled = server.scheduled_start();
         let Some(ended) = scheduled else { return };
         // Signalled by the wait itself, when it is first polled: an arm that did not await it signals nothing.
         let settled = async {

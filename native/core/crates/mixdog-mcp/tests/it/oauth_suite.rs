@@ -37,6 +37,7 @@ use mixdog_mcp::plugin_admin::PluginAdmin;
 use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::scope_runtime::Op;
 use mixdog_mcp::scope_runtime::with_request_scope;
+use mixdog_mcp::server::ConnectStep;
 use mixdog_mcp::server::ServerState;
 use mixdog_mcp::transport::Authorizer;
 use serde_json::Value;
@@ -980,6 +981,130 @@ async fn a_cancelled_sign_in_does_not_wait_for_the_accounts_server() {
     let ended = mixdog_rt::time::timeout(five, begun).await.expect("the cancelled sign-in answers at once").unwrap();
     ended.expect_err("a cancelled sign-in started no authorization");
     pause.release.notify_one();
+    runtime.glue.hub().close_all().await;
+}
+
+/// The account's connect published its refusal and has not returned, as when its thread is preempted there. The start
+/// it answered ended with the refusal, and the attempt can no longer be joined: a connect asked for now begins one of
+/// its own (it publishes `Starting` while the answered one still holds the connect gate) and asks the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_asked_for_once_the_last_one_answered_asks_the_server_again() {
+    let _seams = crate::oauth_seams().await;
+    let runtime = Runtime::new(two_accounts).await;
+    let linear = work_signed_in(&runtime, two_accounts).await;
+    let home = linear.account_server("home").unwrap();
+    let hold = home.hold_connect(ConnectStep::AfterOutcome);
+    let retry = runtime.glue.scope_runtime().run("a", Op::Only("linear".to_owned(), true));
+    let checked = async {
+        hold.reached.notified().await;
+        assert!(matches!(*home.state(), ServerState::Failed { .. }), "{}", home.state().describe());
+        let answered = home.scheduled_start().expect("the retry is a scheduled start");
+        assert!(answered.is_cancelled(), "the start ended with the refusal it answered");
+        let dials = runtime.shared.lock().unwrap().dials;
+        let mut states = home.subscribe();
+        let again = home.connect();
+        tokio::pin!(again);
+        tokio::select! {
+            biased;
+            joined = &mut again => panic!("the connect joined the attempt that had answered: {joined:?}"),
+            began = states.wait_for(|s| matches!(**s, ServerState::Starting)) => drop(began.unwrap()),
+        }
+        hold.release();
+        again.await.expect_err("the account is not signed in");
+        assert!(runtime.shared.lock().unwrap().dials > dials, "the account's server was asked again");
+    };
+    tokio::join!(retry, checked);
+    runtime.glue.hub().close_all().await;
+}
+
+/// Held inside the step that ends the account's connect, between its statements: the start it answers has not ended
+/// while the state is not its outcome, so a waiter on the start reads the outcome.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_ends_only_with_its_outcome_published() {
+    let _seams = crate::oauth_seams().await;
+    let runtime = Runtime::new(two_accounts).await;
+    let linear = work_signed_in(&runtime, two_accounts).await;
+    let home = linear.account_server("home").unwrap();
+    let hold = home.hold_connect(ConnectStep::InOutcome);
+    let retry = runtime.glue.scope_runtime().run("a", Op::Only("linear".to_owned(), true));
+    let checked = async {
+        hold.reached.notified().await;
+        let start = home.scheduled_start().expect("the retry is a scheduled start");
+        let state = home.state();
+        assert!(!start.is_cancelled() || !matches!(*state, ServerState::Starting), "the start ended before its outcome was published");
+        hold.release();
+        start.cancelled().await;
+        assert!(matches!(*home.state(), ServerState::Failed { .. }), "the waiter reads the outcome: {}", home.state().describe());
+    };
+    tokio::join!(retry, checked);
+    runtime.glue.hub().close_all().await;
+}
+
+/// A sign-in is stored just before the account's connect publishes it ready, so that connection is of the earlier
+/// sign-in and the connect connects again: the start it answers is one start until that last connect. While the
+/// replacement is being asked the start has not ended and no ready connection of the earlier sign-in is published.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_replaced_by_a_new_sign_in_is_one_start_until_its_last_connect() {
+    let _seams = crate::oauth_seams().await;
+    let runtime = Runtime::new(one_account).await;
+    let linear = work_signed_in(&runtime, one_account).await;
+    let work = linear.account_server("work").unwrap();
+    runtime.shared.lock().unwrap().down = true;
+    work.reconnect().await.unwrap_err();
+    runtime.shared.lock().unwrap().down = false;
+
+    let hold = work.hold_connect(ConnectStep::BeforeOutcome);
+    let retry = runtime.glue.scope_runtime().run("a", Op::Only("linear".to_owned(), true));
+    let checked = async {
+        hold.reached.notified().await;
+        let start = work.scheduled_start().expect("the retry is a scheduled start");
+        let oauth = runtime.glue.hub().oauth_in("a", "work").unwrap();
+        // A switch authorizes again (a connect of a signed-in account is answered by its stored tokens) and stores
+        // another grant: another sign-in.
+        let session = oauth.login_flow("work", AccountMode::Switch).start().await.unwrap();
+        authorize(session.as_ref(), &runtime.shared, runtime.port).await;
+        let pause = Arc::new(RefreshPause::default());
+        runtime.shared.lock().unwrap().held_request = Some(Arc::clone(&pause));
+        hold.release();
+        pause.received.notified().await;
+        assert!(!start.is_cancelled(), "the start waits for the connect that replaces the one it opened");
+        assert!(!matches!(*work.state(), ServerState::Ready(_)), "no ready connection of the earlier sign-in: {}", work.state().describe());
+        pause.release.notify_one();
+        start.cancelled().await;
+        assert!(matches!(*work.state(), ServerState::Ready(_)), "{}", work.state().describe());
+    };
+    tokio::join!(retry, checked);
+    runtime.glue.hub().close_all().await;
+}
+
+/// The hub scheduled a start for the account's failure, and a direct reconnect connected the account before that start
+/// looked at the attempt: the ready connection answers the start, which ends there and leaves it the server's open
+/// connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_for_a_failure_a_later_connect_answered_keeps_that_connection() {
+    let _seams = crate::oauth_seams().await;
+    let runtime = Runtime::new(one_account).await;
+    let linear = work_signed_in(&runtime, one_account).await;
+    let work = linear.account_server("work").unwrap();
+    runtime.shared.lock().unwrap().down = true;
+    work.reconnect().await.unwrap_err();
+    runtime.shared.lock().unwrap().down = false;
+
+    let hold = work.hold_connect(ConnectStep::BeforeClaim);
+    let retry = runtime.glue.scope_runtime().run("a", Op::Only("linear".to_owned(), true));
+    let checked = async {
+        hold.reached.notified().await;
+        let start = work.scheduled_start().expect("the retry is a scheduled start");
+        work.reconnect().await.expect("the direct reconnect connects");
+        let ServerState::Ready(connected) = &*work.state() else { panic!("{}", work.state().describe()) };
+        let connected = Arc::clone(&connected.client);
+        hold.release();
+        start.cancelled().await;
+        let ServerState::Ready(now) = &*work.state() else { panic!("{}", work.state().describe()) };
+        assert!(Arc::ptr_eq(&now.client, &connected), "the start replaced the connection that answered it");
+        assert!(!connected.is_closed());
+    };
+    tokio::join!(retry, checked);
     runtime.glue.hub().close_all().await;
 }
 
