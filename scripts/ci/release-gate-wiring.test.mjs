@@ -245,7 +245,7 @@ test('release-gate.yml: the nightly full gate on main is the one writer of the w
   assert.deepEqual(saves.map(([name]) => name), [writer]);
   const job = gate.jobs[writer];
   // no push, pull request, manual run, other ref or gate call (inputs.ref is set for every call, a scheduled caller's too)
-  assert.equal(job.if, "github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == ''");
+  assert.equal(job.if, "(github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == '') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-cache')");
   assert.deepEqual(needsOf(job), ['changes']);
   for (const [name, other] of Object.entries(gate.jobs)) assert.ok(!needsOf(other).includes(writer), `${name} waits for the cache's save`);
   // the build of the nightly's core-build: the same key, dependency cache, dating and archive command, from no entry
@@ -258,7 +258,7 @@ test('release-gate.yml: the nightly full gate on main is the one writer of the w
   const [, save] = saves[0];
   assert.equal(save.with.key, build.find((step) => step.id === 'ws').with.key);
   assert.equal(save.with.path, build.find((step) => step.id === 'ws').with.path);
-  assert.equal(save.if, "github.ref == 'refs/heads/main' && steps.ws-seal.outputs.save == 'true'");
+  assert.equal(save.if, "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci/build-cache') && steps.ws-seal.outputs.save == 'true'");
   assert.ok(steps.indexOf(save) > steps.findIndex((step) => step.id === 'ws-seal'));
 });
 

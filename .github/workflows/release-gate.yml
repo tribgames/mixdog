@@ -2118,7 +2118,7 @@ jobs:
   workspace-cache-linux:
     name: workspace-cache (linux)
     needs: changes
-    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == ''
+    if: (github.event_name == 'schedule' && github.ref == 'refs/heads/main' && inputs.ref == '') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/build-cache')
     timeout-minutes: 90
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -2155,7 +2155,7 @@ jobs:
         id: ws-seal
         run: node scripts/ci/core-target-cache.mjs seal --root . --paths native/core/target ~/.cargo/registry ~/.cargo/git
       - name: Save the workspace build
-        if: github.ref == 'refs/heads/main' && steps.ws-seal.outputs.save == 'true'
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci/build-cache') && steps.ws-seal.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
