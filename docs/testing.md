@@ -354,7 +354,8 @@ consumes it (the test runs the selection over a table of paths).
   `complete` does not need it and `core-base.mjs` does not read it, so its failure costs the next day's builds their head
   start and nothing else. A push, a pull request, a manual run on any ref and a gate call write none; a push whose key has no
   entry (a dependency, toolchain or runner-image change) builds cold, as without this cache, until the next night. The job's
-  summary gives the lowest free disk during its build and save. The
+  summary gives the lowest free disk during its build and save (run 45099074939: an entry of 2.8 GB compressed, 13 GB on
+  disk; 71 GB of the runner's 146 GB free at the lowest). The
   doctests (`cargo test --doc` of `mixdog-core-api` and `mixdog-image-egress`, `run-doctest.mjs`) are `core-doctests`, leg
   `linux/core-doctests/1of1`, beside the build on its dependency cache. The development `mixdogd`, the release `mixdogd` of
   `core-real` and the relay of `relay-rust` are kept in a store (`actions/cache`) keyed by their inputs (`core-select.mjs`
