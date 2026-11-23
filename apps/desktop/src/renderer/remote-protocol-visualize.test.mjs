@@ -115,6 +115,20 @@ test('the state is read from the core and shaped path-free, with inline sources 
   assert.deepEqual(requests[0], ['visualize/command', { action: 'state', input: {} }]);
 });
 
+test("the mark of the running turn's own tab reaches the phone's page, by the initial read and by a change; an unmarked tab carries none", async () => {
+  const { host, fanned, notify } = rig({ state: [hostState({ turnWork: true })] });
+  const read = await adapter.calls.visualizeState([{}], host);
+  assert.equal(read[0].tabs[0].turnWork, true);
+  const stop = adapter.install(host);
+  notify({ sessionId: 's1', held: true, heldSince: 5, state: hostState({ turnWork: true }) });
+  assert.equal(fanned.at(-1).state.tabs[0].turnWork, true);
+  assert.equal(fanned.at(-1).held, true);
+  notify({ sessionId: 's1', state: hostState() });
+  assert.equal(fanned.length, 2);
+  assert.equal('turnWork' in fanned.at(-1).state.tabs[0], false);
+  stop();
+});
+
 test("pane reads and commands are the core's visualize/command with the fields it checks", async () => {
   const { host, requests } = rig({ network: null, thumbnail: { thumbnail: 'data:image/png;base64,AAAA' } });
   const c = adapter.calls;

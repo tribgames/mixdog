@@ -75,10 +75,6 @@ export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     method: 'route/set',
     params: defined({ agentId, route }, threadId),
   }),
-  prioritizeQueued: ([selectedId], { threadId }) => ({
-    method: 'turn/steer',
-    params: defined({ queuedId: selectedId }, threadId),
-  }),
   restoreQueued: ([currentText, selectedId], { threadId }) => ({
     method: 'thread/queue/delete',
     params: defined({ queuedId: selectedId, currentText, restore: true }, threadId),
@@ -134,7 +130,6 @@ export const DESKTOP_OVERRIDE_THREAD_SOURCE: Readonly<Record<string, string>> = 
   getBotOrder: 'session',
   setBotOrder: 'session',
   setAgentRoute: 'session',
-  prioritizeQueued: 'session',
   restoreQueued: 'session',
   getSessionReviewDiff: 'session',
   getSessionReviewFilePatch: 'session',
@@ -345,18 +340,6 @@ const callCapability = async (
       if (hasRpcReason(error, 'itemNotFound', 'preconditionFailed')) return null;
       throw error;
     });
-  }
-  // `prioritizeQueued` answers an entry that is not queued with a count of none; the core refuses it
-  // as `queuedEntryNotFound`, which would leave the entry marked sending in the renderer; a queued one is promoted and answers a count
-  // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not the capability's reply).
-  if (capability === 'prioritizeQueued') {
-    return request(method, params).then(
-      () => ({ count: 1, ids: [args[0]], priority: 'now' }),
-      (error: unknown) => {
-        if (hasRpcReason(error, 'queuedEntryNotFound')) return { count: 0, ids: [], priority: 'now' };
-        throw error;
-      }
-    );
   }
   // A rename whose op was sent and whose outcome the reconciliation could not learn (the connection cut after sending and
   // `op/status` failing, or the op record gone): the user is told, as Node told them when its scheduler did not answer,

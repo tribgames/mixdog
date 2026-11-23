@@ -1026,6 +1026,78 @@ test('a wheel releases follow only as a vertical upward notch, over a nested scr
   }
 });
 
+test("a mouse press on a row's content lets go of the tail, as a press on a control does; a finger's press and one on chrome do not", async () => {
+  const harness = await tailHarness('press-row-content');
+  const { state, viewport } = harness;
+  try {
+    const content = document.createElement('div');
+    content.className = 'transcript-virtual-row-content';
+    const prose = document.createElement('p');
+    content.appendChild(prose);
+    const kept = document.createElement('span');
+    kept.setAttribute('data-transcript-keeps-follow', '');
+    content.appendChild(kept);
+    const chrome = document.createElement('div');
+    viewport.append(content, chrome);
+    await harness.pointerDown(chrome);
+    await harness.pointerDown(kept);
+    await harness.pointerDown(prose, { pointerType: 'touch' });
+    await harness.pointerDown(prose, { button: 2 });
+    assert.equal(state.hook.followingRef.current, true, 'none of these begins a selection in a row');
+    await harness.pointerDown(prose, { pointerType: 'mouse' });
+    assert.equal(state.hook.followingRef.current, false, 'the text being selected is not scrolled away');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a thumb dragged to the end and back up in one press holds corrections through the re-arm, until the press ends', async () => {
+  const harness = await tailHarness('thumb-drag-rearm');
+  const { state, viewport } = harness;
+  try {
+    await harness.pointerDown(viewport, { pointerType: 'mouse' });
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'held while the thumb is');
+    // The thumb reaches the end: following re-arms under the press.
+    await harness.act(async () => state.hook.arm());
+    state.now += 5_000;
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'the press is still down: no offset is written under the thumb');
+    // Dragged back up in the same press.
+    await harness.scroll(1700);
+    assert.equal(state.hook.holdsScrollCorrections(), true);
+    await harness.act(async () => window.dispatchEvent(new window.Event('pointerup')));
+    state.now += 1_100;
+    assert.equal(state.hook.holdsScrollCorrections(), false, 'the hold ends with its press');
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test('a scroll key and a pressed scrollbar hold corrections off the native offset until their scrolls go quiet', async () => {
+  const harness = await tailHarness('native-gesture-hold');
+  const { state, row, viewport } = harness;
+  try {
+    assert.equal(state.hook.holdsScrollCorrections(), false);
+    harness.key({ key: 'PageUp', target: row });
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'the key owns the scroll it causes');
+    state.now += 100;
+    await harness.scroll(1700);
+    state.now += 100;
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'its scrolls extend the hold');
+    state.now += 1_100;
+    assert.equal(state.hook.holdsScrollCorrections(), false, 'quiet ends it');
+    // The scrollbar: the scroller itself is pressed, and held however long the thumb rests.
+    await harness.pointerDown(viewport, { pointerType: 'mouse' });
+    state.now += 5_000;
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'held while the thumb is');
+    await harness.act(async () => state.hook.handlePointerUp());
+    assert.equal(state.hook.holdsScrollCorrections(), true, 'and through the scroll it leaves');
+    state.now += 1_100;
+    assert.equal(state.hook.holdsScrollCorrections(), false);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test('an up key opens a window: the scroll it causes leaves, a key that scrolls nothing does not', async () => {
   const harness = await tailHarness('key-window');
   const { state, row, viewport } = harness;

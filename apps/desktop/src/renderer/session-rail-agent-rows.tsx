@@ -8,9 +8,11 @@ import { AgentRowElapsed, AgentRowFrame } from './agent-activity-groups';
 import type { IslandAgentRow } from './agent-activity-model';
 import { agentStateWord } from './agent-row-meta';
 import { AgentProviderMark } from './agent-row-parts';
+import { AgentRowTokens } from './AgentIslandRow';
 import { AgentTodoMark } from './AgentTodoMark';
 import { formatCompactTokens } from './composer-usage-readout';
 import { t } from './i18n';
+import { floorFigure, floorNote } from './usage-stats-model';
 import { formatGoalDuration } from './session-goal-presentation';
 import { timeMs } from './transcript-primitives';
 import { useClock } from './use-clock';
@@ -21,6 +23,8 @@ type RailAgentRowProps = {
   name: string;
   /** The row's ledger total; undefined while the ledger has no figure for it. */
   tokens: number | undefined;
+  /** `tokens` counts only the calls whose usage was reported. */
+  tokensFloor: boolean;
   posInSet: number;
   setSize: number;
   ownerSessionId: string;
@@ -47,7 +51,16 @@ function RailAgentElapsed({ state, agent }: { state: DesktopAgentActivityState; 
   return <AgentRowElapsed state={state} agent={agent} clock={clock} format={formatGoalDuration} />;
 }
 
-export function RailAgentRow({ row, name, tokens, posInSet, setSize, ownerSessionId, onOpenSession }: RailAgentRowProps) {
+export function RailAgentRow({
+  row,
+  name,
+  tokens,
+  tokensFloor,
+  posInSet,
+  setSize,
+  ownerSessionId,
+  onOpenSession,
+}: RailAgentRowProps) {
   const { agent } = row.node;
   const id = useId();
   const current = String(agent.todo?.current || '').trim();
@@ -74,14 +87,7 @@ export function RailAgentRow({ row, name, tokens, posInSet, setSize, ownerSessio
       <span className="session-rail-agent-line" id={`${id}-line`}>
         {line}
       </span>
-      {tokens !== undefined && (
-        <span
-          className="composer-island-agent-tokens"
-          title={t('Total {{tokens}} tokens', { tokens: formatCompactTokens(tokens) })}
-        >
-          {formatCompactTokens(tokens)}
-        </span>
-      )}
+      <AgentRowTokens tokens={tokens} floor={tokensFloor} />
     </AgentRowFrame>
   );
 }
@@ -93,6 +99,7 @@ export function RailFinishedAgent({
   row,
   name,
   tokens,
+  tokensFloor,
   depth,
   posInSet,
   setSize,
@@ -102,7 +109,10 @@ export function RailFinishedAgent({
   const { agent } = row.node;
   const statusId = useId();
   const worked = workedMs(agent);
-  const figures = [worked ? formatGoalDuration(worked) : '', tokens !== undefined ? formatCompactTokens(tokens) : '']
+  const figures = [
+    worked ? formatGoalDuration(worked) : '',
+    tokens !== undefined ? floorFigure(formatCompactTokens(tokens), tokensFloor) : '',
+  ]
     .filter(Boolean)
     .join(' · ');
   return (
@@ -119,7 +129,11 @@ export function RailFinishedAgent({
     >
       <AgentProviderMark agent={agent} />
       <span className="agent-pool-name">{name}</span>
-      <span className="session-rail-agent-figures" id={statusId}>
+      <span
+        className="session-rail-agent-figures"
+        id={statusId}
+        title={tokens !== undefined && tokensFloor ? floorNote() : undefined}
+      >
         <span className="sr-only">{`${agentStateWord(row.state)} `}</span>
         {figures}
       </span>

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { mock } from 'node:test';
@@ -241,6 +241,97 @@ test('a turn starting while the previous turn flushes keeps its own span; versio
     const mid = (turn) => Math.floor((turn.since + turn.end) / 2);
     assert.equal(versionProducedAt(tab.versions, mid(a)), 2);
     assert.equal(versionProducedAt(tab.versions, mid(b)), 3);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a picture that arrives after the next turn started shows when it arrives; the turn’s own work takes none', async () => {
+  let arrive;
+  const asked = [];
+  const t = setup({
+    thumbnail: (_sessionId, tab) =>
+      new Promise((resolve) => {
+        asked.push(tab.id);
+        arrive = () => resolve(png('LATE'));
+      }),
+  });
+  try {
+    // A tab shown before the turn; its picture is still being taken when the next turn starts.
+    await t.run('open', { targets: ['site/a.html'] });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(asked, ['v1']);
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { targets: ['site/b.html'] });
+    assert.deepEqual(asked, ['v1'], 'no picture of the running turn’s tab');
+    t.events.length = 0;
+    t.hostEvents.length = 0;
+    arrive();
+    await t.service.settled();
+    for (const published of [t.events, t.hostEvents]) {
+      assert.deepEqual(
+        published.map((event) => [event.held, event.state.tabs.map((tab) => [tab.id, tab.thumbnail])]),
+        [[true, [['v1', dataUrl('LATE')]]]],
+        'the picture joins what the session shows, which stays held'
+      );
+    }
+    for (const snapshot of [t.service.snapshot(), t.service.hostSnapshot()]) {
+      assert.deepEqual(
+        snapshot[0].tabs.map((tab) => [tab.id, tab.thumbnail]),
+        [['v1', dataUrl('LATE')]]
+      );
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('a version, a network switch and a restore during a turn change their own tab in what the session shows, and nothing of the turn shows', async () => {
+  const t = setup();
+  try {
+    const page = join(t.cwd, 'site', 'a.html');
+    await t.run('open', { targets: ['site/a.html'] });
+    writeFileSync(page, '<h1>two</h1>');
+    await t.run('open', { targets: ['site/a.html'] });
+    await t.run('open', { targets: ['site/b.html'] });
+    await t.service.settled();
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { content: { kind: 'svg', source: '<svg/>', title: 'Flow' } });
+
+    const cases = [
+      [{ action: 'version', version: 1 }, (tab) => tab.version === 1 && tab.panes[0].version === 1],
+      [{ action: 'version', version: null }, (tab) => tab.version === null && tab.panes[0].version === undefined],
+      [{ action: 'network', allow: false }, (tab) => tab.networkAllowed === undefined],
+      [{ action: 'restore', version: 1 }, (tab) => tab.versions.length === 3 && tab.version === null],
+    ];
+    for (const [command, applied] of cases) {
+      const name = JSON.stringify(command);
+      t.events.length = 0;
+      t.hostEvents.length = 0;
+      await t.service.command({ sessionId: SESSION, tabId: 'v1', ...command });
+      for (const published of [t.events, t.hostEvents]) {
+        assert.ok(published.length > 0, name);
+        assert.ok(
+          published.every((event) => event.held === true && !event.reveal),
+          `${name}: the hold is never lifted`
+        );
+        assert.ok(
+          published.every((event) => event.state.tabs.map((tab) => tab.id).join() === 'v1,v2'),
+          `${name}: the turn's own tab v3 is never shown`
+        );
+      }
+      for (const state of [t.events.at(-1).state, t.service.snapshot()[0], remoteVisualizeState(t.service.hostSnapshot()[0])]) {
+        assert.ok(applied(state.tabs[0]), `${name}: the tab shows the command's result at once`);
+        assert.equal(state.active, 'v2', name);
+      }
+    }
+    assert.equal(readFileSync(page, 'utf8'), '<h1>one</h1>', 'the restore wrote the kept version back');
+
+    await t.service.setTurnActive(SESSION, false);
+    assert.deepEqual(
+      t.shownTabs().map((tab) => tab.id),
+      ['v1', 'v2', 'v3']
+    );
   } finally {
     t.cleanup();
   }

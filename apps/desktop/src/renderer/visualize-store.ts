@@ -21,12 +21,12 @@ type RevealListener = (sessionId: string) => void;
 
 const EMPTY: VisualizeSessionState = Object.freeze({ sessionId: '', tabs: [], active: null });
 
+/** What each session shows. While an agent turn runs that is the result of
+ *  the last turn that ended: main keeps the running turn's work until its end. */
 let states = new Map<string, VisualizeSessionState>();
-/** What a running agent turn has made so far, per session (`held` events):
- *  the panel keeps drawing `states`; chat cards read this. The turn's end
- *  (an ordinary event) or the user asking to see a tab replaces it. */
-let heldStates = new Map<string, VisualizeSessionState>();
-/** When each held session's turn started (ms), as main reported it. */
+/** The sessions with a turn whose work main keeps back (`held` events and
+ *  snapshots), each with when the oldest turn not shown yet started (ms; 0
+ *  when the host did not say). */
 const heldSince = new Map<string, number>();
 const listeners = new Set<Listener>();
 const revealListeners = new Set<RevealListener>();
@@ -102,7 +102,6 @@ export function resetVisualizePanelMemory(): void {
   userOpens.clear();
   previewOpens.clear();
   updatedTabs = new Map();
-  heldStates = new Map();
   heldSince.clear();
 }
 
@@ -216,17 +215,6 @@ function markUpdatedTab(
     setUpdated(sessionId, updated, shown.active !== updated);
 }
 
-function applyHeldEvent(sessionId: string, event: DesktopVisualizeEvent, state: VisualizeSessionState): void {
-  // A new turn: a tab the user picked before it no longer holds the panel
-  // against what this turn opens.
-  if (!heldStates.has(sessionId)) userPicks.delete(sessionId);
-  heldStates = new Map(heldStates);
-  heldStates.set(sessionId, state);
-  if (Number.isFinite(event.heldSince)) heldSince.set(sessionId, Number(event.heldSince));
-  emit();
-  markUpdatedTab(sessionId, states.get(sessionId), event.updated);
-}
-
 /** Apply one main-process event (exported for tests). */
 export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
   // A zoom gesture from inside a pane frame names no session.
@@ -248,21 +236,21 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
     });
   }
   const state = event.state ? { ...event.state, sessionId } : undefined;
-  if (event.held) {
-    if (state) applyHeldEvent(sessionId, event, state);
-    return;
-  }
-  const released = Boolean(state && heldStates.has(sessionId));
-  if (released) {
-    // The turn ended. Its end is announced after the final state is applied
-    // (below), so no reader sees the end of the hold with the state from
-    // before the turn.
-    heldStates = new Map(heldStates);
-    heldStates.delete(sessionId);
-    heldSince.delete(sessionId);
-    // The turn's own opens show now, over a pick made before or during it.
-    userPicks.delete(sessionId);
-  }
+  if (event.held && !state) return;
+  // `state` is what the session shows, held or not. A change of the hold is
+  // announced after that state is applied (below), so no reader sees a turn's
+  // end with the state from before it.
+  const before = heldSince.get(sessionId);
+  const held = Boolean(state && event.held);
+  const released = Boolean(state && !event.held && before !== undefined);
+  const since = Number.isFinite(event.heldSince) ? Number(event.heldSince) : (before ?? 0);
+  if (held) heldSince.set(sessionId, since);
+  if (released) heldSince.delete(sessionId);
+  // A tab the user picked holds the panel no longer than the turn it was
+  // picked before or during: not against what a new turn opens, and not
+  // against a turn's own opens at its end (also the end of a turn whose
+  // successor already runs: the hold moves on to that one's start).
+  if (released || (held && since !== before)) userPicks.delete(sessionId);
   // An agent open or a content update carries `reveal` (and, from current
   // hosts, the tab it was for): the open policy decides what shows.
   if (event.reveal) showUpdatedTab(sessionId, event.tab || state?.active || '', state);
@@ -273,7 +261,7 @@ export function applyVisualizeEvent(event: DesktopVisualizeEvent): void {
     setState(shown);
     markUpdatedTab(sessionId, shown, event.updated);
   }
-  if (released) emit();
+  if (released || held) emit();
 }
 
 /** Whether an open or update of `tabId` brings the panel up on it (the open
@@ -449,36 +437,26 @@ function rememberedOpen(state: VisualizeSessionState): boolean {
 }
 
 /** What the holds say, to tell whether a snapshot changed them. */
-const holdKey = (): string =>
-  JSON.stringify([...heldStates.keys()].sort().map((id) => [id, heldSince.get(id) ?? null]));
+const holdKey = (): string => JSON.stringify([...heldSince].sort(([a], [b]) => (a < b ? -1 : 1)));
 
+/** A snapshot as an event tells it: each session's state is what it shows,
+ *  and `held` says a turn's work is kept back since `heldSince`. */
 function takeSnapshot(
   snapshot: readonly VisualizeSessionState[] | null | undefined,
   replace: boolean
-): { shown: VisualizeSessionState[]; heldIds: Set<string>; holdsChanged: boolean } {
+): { shown: VisualizeSessionState[]; holdsChanged: boolean } {
   const before = holdKey();
-  if (replace) {
-    heldStates = new Map();
-    heldSince.clear();
-  }
+  if (replace) heldSince.clear();
   const shown: VisualizeSessionState[] = [];
-  const heldIds = new Set<string>();
   for (const raw of snapshot ?? []) {
     if (!raw?.sessionId) continue;
     const { held, heldSince: since, ...state } = raw;
-    if (held === true && (state.tabs.length || state.history?.length)) {
-      heldIds.add(state.sessionId);
-      heldStates = new Map(heldStates);
-      heldStates.set(state.sessionId, state);
-      if (Number.isFinite(since)) heldSince.set(state.sessionId, Number(since));
-      else heldSince.delete(state.sessionId);
-      continue;
-    }
-    if (!replace && heldStates.delete(state.sessionId)) heldStates = new Map(heldStates);
-    heldSince.delete(state.sessionId);
+    // Also of a session that shows nothing yet: its running turn's cards wait all the same.
+    if (held === true) heldSince.set(state.sessionId, Number.isFinite(since) ? Number(since) : 0);
+    else heldSince.delete(state.sessionId);
     shown.push(state);
   }
-  return { shown, heldIds, holdsChanged: holdKey() !== before };
+  return { shown, holdsChanged: holdKey() !== before };
 }
 
 export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
@@ -499,14 +477,10 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
 }
 
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
-  // A complete replacement, holds included (takeSnapshot). A held session keeps what the panel shows, as a held event leaves it.
+  // A complete replacement, holds included (takeSnapshot).
   const before = states;
-  const { shown, heldIds, holdsChanged } = takeSnapshot(snapshot, true);
+  const { shown, holdsChanged } = takeSnapshot(snapshot, true);
   const next = new Map<string, VisualizeSessionState>();
-  for (const id of heldIds) {
-    const was = states.get(id);
-    if (was) next.set(id, was);
-  }
   for (const state of shown) {
     if (state.tabs.length || state.history?.length)
       next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
@@ -577,10 +551,10 @@ export function useVisualizeState(sessionId: string): VisualizeSessionState {
   );
 }
 
-/** While a running agent turn holds the session's visualize state back: when
- *  that turn started (ms); else null. */
+/** While main keeps a running agent turn's work back: when the oldest turn
+ *  not shown yet started (ms); else null. */
 export function visualizeHeldSince(sessionId: string): number | null {
-  return heldStates.has(sessionId) ? (heldSince.get(sessionId) ?? 0) : null;
+  return heldSince.get(sessionId) ?? null;
 }
 
 /** Chat cards of the running turn's opens wait for its end (see
@@ -691,15 +665,6 @@ export function activateVisualizeTab(sessionId: string, tabId: string): void {
  *  user-closed rule, selects the tab and reveals the session's panel. */
 export function revealVisualizeTab(sessionId: string, tabId: string): void {
   allowVisualizeReveal(sessionId);
-  // A tab a running turn made: the user asked to see it now, so the panel
-  // takes what the turn has made so far.
-  const held = heldStates.get(sessionId);
-  if (held) {
-    heldStates = new Map(heldStates);
-    heldStates.delete(sessionId);
-    heldSince.delete(sessionId);
-    setState(held);
-  }
   activateVisualizeTab(sessionId, tabId);
   requestReveal(sessionId);
 }
@@ -897,7 +862,8 @@ export function visualizeVersionStep(
 }
 
 /** Show kept version `version` (null = back to live), beside live when
- *  `compare`; rejects when the host cannot (an evicted version). */
+ *  `compare`; rejects when the host cannot (an evicted version, a tab the
+ *  running turn has changed or closed). */
 export async function requestVisualizeVersion(
   sessionId: string,
   tabId: string,
@@ -913,12 +879,6 @@ export async function requestVisualizeVersion(
   });
 }
 
-/** `requestVisualizeVersion` from a control that shows the outcome itself
- *  (the version stepper: the tab state it gets back). */
-export function showVisualizeVersion(sessionId: string, tabId: string, version: number | null, compare = false): void {
-  void requestVisualizeVersion(sessionId, tabId, version, compare).catch(() => {});
-}
-
 /** The card picture kept of the tab's version `version` (taken when its turn
  *  ended); undefined when it has none or the host cannot say. */
 export async function readVisualizeVersionThumbnail(
@@ -930,14 +890,12 @@ export async function readVisualizeVersionThumbnail(
   return visualizeThumbnail(result?.thumbnail) || undefined;
 }
 
-/** Toggle Compare: on from live compares the previous version with live. */
-export function toggleVisualizeCompare(sessionId: string, tab: VisualizeTabState): void {
-  if (tab.compare) {
-    showVisualizeVersion(sessionId, tab.id, tab.version ?? null);
-    return;
-  }
+/** Toggle Compare: on from live compares the previous version with live.
+ *  Rejects as `requestVisualizeVersion` does. */
+export function toggleVisualizeCompare(sessionId: string, tab: VisualizeTabState): Promise<void> {
+  if (tab.compare) return requestVisualizeVersion(sessionId, tab.id, tab.version ?? null);
   const version = tab.version ?? visualizeVersionStep(tab, -1);
-  if (typeof version === 'number') showVisualizeVersion(sessionId, tab.id, version, true);
+  return typeof version === 'number' ? requestVisualizeVersion(sessionId, tab.id, version, true) : Promise.resolve();
 }
 
 /** An inline pane (displayed index `pane`) finished rendering; `error` is why

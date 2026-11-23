@@ -173,6 +173,8 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     submitToSession: (sessionId, prompt, options = {}) =>
       reissuedOnceIfNotApplied(() => svc('submitToSession', [trimmed(sessionId), prompt, options])),
     abortSession: (sessionId, options = {}) => svc('abortSession', [trimmed(sessionId), options]),
+    // One request: the connection itself sends a lost reply's request again under the press's `opId`.
+    takeOverTurn: (sessionId, takeover) => svc('takeOverTurn', [trimmed(sessionId), takeover]),
     inheritSession: async (sourceSessionId, selection, options) =>
       withDirectErrors(
         (await session.chat()).inheritSession(trimmed(sourceSessionId), selection ?? null, {

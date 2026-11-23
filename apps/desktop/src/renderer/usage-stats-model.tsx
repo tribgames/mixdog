@@ -27,6 +27,28 @@ export function statsTokens(value: unknown, incomplete = false): string {
   return usageCompact(value) || '—';
 }
 
+/** A usage answer whose figures count only the calls that reported usage: a call reported none, or the
+ *  answer does not say (unknown measurement coverage counts as unmeasured). */
+export function usageFloor(row: Row): boolean {
+  const unmeasured = usageNumber(row.unmeasuredTurns);
+  return (unmeasured === null || unmeasured < 0 ? statsNumber(row.turns) : unmeasured) > 0;
+}
+
+/** A known figure that counts only the requests whose usage was reported, marked as the lower bound it is. */
+export function floorFigure(text: string, floor: boolean): string {
+  return floor ? `≥ ${text}` : text;
+}
+
+/** The tooltip of a figure `floorFigure` marked. */
+export function floorNote(): string {
+  return t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.');
+}
+
+/** The tooltip of a cache hit rate while part of the usage is unmeasured. */
+export function hitRateNote(): string {
+  return t('The rate covers only the calls whose usage was reported.');
+}
+
 export function statsCount(value: unknown): string {
   const count = usageNumber(value);
   return count === null ? '—' : count.toLocaleString(uiFormatLocale());

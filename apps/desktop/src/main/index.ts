@@ -1156,7 +1156,18 @@ localProtocol.onEvent((event) => {
   const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
   if (method !== 'thread/deleted') return;
   const threadId = (params as { threadId?: unknown } | undefined)?.threadId;
-  if (typeof threadId === 'string' && threadId) browserHost?.releaseSession(threadId);
+  if (typeof threadId !== 'string' || !threadId) return;
+  browserHost?.releaseSession(threadId);
+  // No row edge follows a deleted session: a turn of it that visualize still holds ends here.
+  void visualize.setTurnActive(threadId, false);
+});
+// Visualize holds the panel for each Lead turn: a row's own edge says when a turn starts and ends (the roster below
+// coalesces turns that follow one another).
+localProtocol.onEvent((event) => {
+  if (event.type !== 'notification') return;
+  const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+  if (method !== 'thread/started' && method !== 'thread/summary/updated') return;
+  void visualize.observeTurnEdge((params as { thread?: { id?: unknown; leadWorking?: unknown } } | undefined)?.thread ?? {});
 });
 // The core owns a takeover card as a server request: it starts the takeover here, and its resolution - an answer, or the
 // card's own 15-minute expiry - ends it and the page it handed over.

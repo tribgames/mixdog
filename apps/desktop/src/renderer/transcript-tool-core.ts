@@ -180,10 +180,12 @@ const COMMAND_TOOLS = /^(?:shell|bash|bash_session|shell_command|job_wait)$/;
 /** A call's outcome. A stop is its own outcome, never a failure: a call whose
  *  result says "cancelled" was stopped unless the word is a cancel action's
  *  own answer or the status of a job it only reports (`cancelledCallWasStopped`).
+ *  A stored call with no result at all ended with its turn (`stopped`).
  *  A call that neither ran to its end nor was stopped failed: its error flag,
  *  a failing exit, a hook's denial. */
 export function toolCallOutcome(item: TranscriptItem): ToolCallOutcome {
   if (!toolItemDone(item)) return { state: 'running', tone: 'neutral' };
+  if (item.stopped) return { state: 'stopped', tone: 'warning' };
   const basics = toolOutputBasics(item);
   const errored = Boolean(item.isError) || Number(item.errorCount || 0) > 0;
   const text = String(item.result ?? item.rawResult ?? '');

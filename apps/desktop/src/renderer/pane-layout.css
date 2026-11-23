@@ -1671,6 +1671,12 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   content-visibility: hidden;
   pointer-events: none;
 }
+/* The conversation a pane is switching to is laid out at its real size, with its rows mounted and its reader placed,
+   behind the one the pane still shows; the pane hands over in the commit it can be shown (pane-presentation.ts). */
+.pane-conversation-slot > .conversation-persistent-surface[data-preparing] {
+  opacity: 0;
+  pointer-events: none;
+}
 .pane-conversation-slot > .conversation-persistent-surface > .workspace {
   width: 100%;
   height: 100%;

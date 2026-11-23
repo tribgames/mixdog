@@ -67,8 +67,6 @@ export function viewportSize(instance: TranscriptVirtualizer): number {
 
 /** How long landed rows may keep re-measuring above a held reading anchor:
  *  from the landing, extended by each late size, never past the maximum. */
-export const READING_ANCHOR_HOLD_MS = 2_000;
-export const READING_ANCHOR_HOLD_MAX_MS = 6_000;
 
 /** A row the reader is looking at and its offset from the viewport's top. */
 export type ReadingAnchor = { key: unknown; offset: number; index: number };

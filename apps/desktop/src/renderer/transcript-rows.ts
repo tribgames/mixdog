@@ -1,7 +1,7 @@
 import type { TranscriptItem } from './desktop-types';
 import { CarriedFacts, keptFrom, noteCarried } from './list-carry';
 import type { TurnChangesRef } from './turn-changes-model';
-import { completionTone } from './transcript-primitives';
+import { completionTone, isTakenOverTurnEnd } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
 import { streamingTextPaints } from './use-transcript-text-reveal';
 import { isLiveOnlyTranscriptRow } from '../../../../packages/protocol-client/src/rows.ts';
@@ -323,6 +323,12 @@ function pushFailureRow(
   builder.previousRowWasUser = false;
 }
 
+/** A turn end that folds into the reply it closes: a finished one. A turn a message took over did not close its reply; its
+ *  end stands where the working band stood, after whatever the turn showed last. */
+export function closesReply(item: TranscriptItem): boolean {
+  return completionTone(item) === 'complete' && !isTakenOverTurnEnd(item);
+}
+
 /** A cancelled prompt's status text reads as a cancelled completion row. */
 function pushCancelledPromptRow(
   builder: TranscriptRowBuilder,
@@ -503,7 +509,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
       const facts = turns.get(turnKey);
       let next: TurnFacts = facts ?? { first: index, lastAssistant: undefined, dones: NO_DONES };
       if (item?.kind === 'assistant' && isVisibleTranscriptItem(item)) next = { ...next, lastAssistant: index };
-      else if (item?.kind === 'turndone' && completionTone(item) === 'complete') {
+      else if (item?.kind === 'turndone' && closesReply(item)) {
         next = { ...next, dones: [...next.dones, index] };
       }
       if (next !== facts) {
@@ -630,7 +636,7 @@ export function createSettledProjector(): { project(input: SettledTranscriptInpu
     const folded = (item: TranscriptItem | undefined, turnKey: string): boolean =>
       item?.kind === 'turndone' &&
       !failed(turnKey) &&
-      completionTone(item) === 'complete' &&
+      closesReply(item) &&
       turns.get(turnKey)?.lastAssistant !== undefined;
     const cardAt = (index: number): TurnChangesRef | undefined => {
       const checkpointId = endCheckpoints.get(index);
@@ -845,7 +851,13 @@ export function appendLiveTranscriptRows({
     );
   });
   if (thinking) {
-    pushThinkingRow(builder, sessionKey, steerItems.length ? builder.currentTurnKey : activeTurnKey, prior?.at(-1));
+    pushThinkingRow(
+      builder,
+      sessionKey,
+      steerItems.length ? builder.currentTurnKey : activeTurnKey,
+      prior?.at(-1),
+      steerItems.length && opening ? builder.currentTurnKey : runTurnKey(builder.rows, activeTurnKey)
+    );
   }
   const opened = turnRunning ? openTailToolActivity(builder.rows) : -1;
   settledUnder.set(builder.rows, { rows: settled.rows, opened });
@@ -887,15 +899,34 @@ function pushLiveAssistantRow(
   builder.previousRowWasUser = false;
 }
 
+/** The turn the run began under: a message it took mid-run opens a turn of its own, the run goes on under the first. */
+function runTurnKey(rows: readonly TranscriptRowModel[], turnKey: string): string {
+  let key = turnKey;
+  for (let index = rows.length - 1; index > 0; index -= 1) {
+    const row = rows[index];
+    if (row.turnKey !== key || row._tag !== 'UserMessage') continue;
+    if (!row.item.steered) break;
+    const before = rows.findLast((other, at) => at < index && other.turnKey !== key);
+    if (!before) break;
+    key = before.turnKey;
+  }
+  return key;
+}
+
 /** `held`: the row that ended the list made before. */
 function pushThinkingRow(
   builder: TranscriptRowBuilder,
   sessionKey: string,
   turnKey: string,
-  held?: TranscriptRowModel
+  held?: TranscriptRowModel,
+  /** The running turn the band stands for: its identity while messages queue under it and leave. */
+  keyTurn = turnKey
 ): void {
   beginBuilderTurn(builder, sessionKey, turnKey);
-  const key = thinkingRowKey(sessionKey, turnKey);
+  // A band that stood in the list before is the same row for as long as one is shown: the turn it stands for is renamed
+  // by its end, and passes to the turn that follows with no pause.
+  const stands = held?._tag === 'Thinking' && held.key.startsWith(`${sessionKey}:thinking:`);
+  const key = stands ? held.key : thinkingRowKey(sessionKey, keyTurn);
   builder.rows.push(
     held?._tag === 'Thinking' && held.key === key && held.turnKey === turnKey
       ? held

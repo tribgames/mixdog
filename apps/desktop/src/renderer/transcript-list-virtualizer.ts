@@ -16,9 +16,37 @@ import type { TouchScrollDeviation } from './transcript-list-touch-deviation';
 import type { TranscriptRowSurface } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
-import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_VIRTUAL_OVERSCAN } from './transcript-virtual-cache';
+import {
+  TRANSCRIPT_BOTTOM_SPACER,
+  TRANSCRIPT_MIN_ROW_PX,
+  TRANSCRIPT_VIRTUAL_OVERSCAN,
+} from './transcript-virtual-cache';
 
 type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivElement>;
+
+/** The rows mounted past the ones in view: on each side, those whose boxes lie within one viewport height of the view,
+ *  so a page of scrolling lands on rows that are mounted whatever their heights (ten short rows are less than a page;
+ *  ten long ones are several). Rows that take no room need no margin and would extend it without end: a side holds at
+ *  most the rows that fit a viewport at the shortest row the list paints (TRANSCRIPT_MIN_ROW_PX). null before the
+ *  viewport is measured: the list then mounts a count of rows (TRANSCRIPT_VIRTUAL_OVERSCAN). */
+export function transcriptMountMargin(
+  measurements: readonly Pick<VirtualItem, 'start' | 'end'>[],
+  range: { startIndex: number; endIndex: number; count: number },
+  viewportHeight: number
+): { from: number; to: number } | null {
+  const first = measurements[range.startIndex];
+  const last = measurements[range.endIndex];
+  if (viewportHeight <= 0 || !first || !last) return null;
+  const most = Math.ceil(viewportHeight / TRANSCRIPT_MIN_ROW_PX);
+  const end = Math.min(range.count, measurements.length) - 1;
+  let from = range.startIndex;
+  while (from > 0 && range.startIndex - from < most && (measurements[from]?.start ?? 0) > first.start - viewportHeight) {
+    from -= 1;
+  }
+  let to = range.endIndex;
+  while (to < end && to - range.endIndex < most && (measurements[to]?.end ?? 0) < last.end + viewportHeight) to += 1;
+  return { from, to };
+}
 
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
@@ -101,7 +129,13 @@ export function useTranscriptVirtualizer({
     measureElement: measureRowSize,
     overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
     rangeExtractor: (range) => {
-      const indexes = defaultRangeExtractor({ ...range, overscan: TRANSCRIPT_VIRTUAL_OVERSCAN });
+      const instance = virtualizerRefForEstimates.current;
+      const margin = instance
+        ? transcriptMountMargin(instance.measurementsCache, range, instance.scrollRect?.height ?? 0)
+        : null;
+      const indexes = margin
+        ? Array.from({ length: margin.to - margin.from + 1 }, (_, offset) => margin.from + offset)
+        : defaultRangeExtractor({ ...range, overscan: TRANSCRIPT_VIRTUAL_OVERSCAN });
       return [
         ...new Set([...resizePinned.current, ...selectionPinnedIndexes(), ...indexes, ...activeIndexesRef.current]),
       ]

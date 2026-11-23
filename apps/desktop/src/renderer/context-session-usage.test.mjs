@@ -17,6 +17,7 @@ const sessionUsage = {
   costKnownTurns: 42,
   costUnpricedTurns: 0,
   cacheHitRate: 0.89,
+  unmeasuredTurns: 0,
 };
 
 const footer = (props) => {
@@ -25,6 +26,12 @@ const footer = (props) => {
   );
   return new JSDOM(html).window.document.querySelector('.context-session-usage');
 };
+
+const figureCells = (node) =>
+  [...node.querySelectorAll(':scope > span:not(.context-session-usage-end)')].map((span) => [
+    span.querySelector('strong').textContent,
+    span.getAttribute('title'),
+  ]);
 
 test('the context dialog closes on the session spend, in the statistics terms', () => {
   const node = footer({
@@ -46,6 +53,44 @@ test('the context dialog closes on the session spend, in the statistics terms', 
   const end = node.querySelector('.context-session-usage-end').textContent;
   assert.ok(end.includes(t('Turns')) && end.includes('42'));
   assert.ok(end.includes(t('Compactions')) && end.includes('2'));
+});
+
+test('a session with a call that reported no usage shows the measured figures as floors', () => {
+  const node = footer({ sessionUsage: { ...sessionUsage, unmeasuredTurns: 3, costUnpricedTurns: 3, cacheHitRate: null } });
+  const note = t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.');
+  // The hit rate is the measured calls' own rate: plain, with a tooltip saying so.
+  assert.deepEqual(figureCells(node), [
+    [`≥ ${statsMoney(sessionUsage)}`, note],
+    [statsPercent(3_420_000 / (182_000 + 3_420_000 + 241_000)), t('The rate covers only the calls whose usage was reported.')],
+    [`≥ ${statsTokens(182_000)}`, note],
+    [`≥ ${statsTokens(58_300)}`, note],
+    [`≥ ${statsTokens(3_420_000)}`, note],
+    [`≥ ${statsTokens(241_000)}`, note],
+  ]);
+});
+
+test('a turn without a known price marks the cost alone as a floor; nothing priced is no cost', () => {
+  const note = t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.');
+  const [cost, hit, input] = figureCells(footer({ sessionUsage: { ...sessionUsage, costUnpricedTurns: 3 } }));
+  assert.deepEqual(cost, [`≥ ${statsMoney(sessionUsage)}`, note]);
+  assert.deepEqual(hit, [statsPercent(0.89), null]);
+  assert.deepEqual(input, [statsTokens(182_000), null]);
+  const [none] = figureCells(footer({ sessionUsage: { ...sessionUsage, costUsd: 0, costUnpricedTurns: 42 } }));
+  assert.deepEqual(none, ['—', null]);
+});
+
+test('a lower bound of zero tokens is no figure; an answer that does not say what it measured is a lower bound', () => {
+  const note = t('Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.');
+  const cells = figureCells(footer({ sessionUsage: { ...sessionUsage, cacheRead: 0, cacheWrite: 0, unmeasuredTurns: 2 } }));
+  assert.deepEqual(cells.slice(2), [
+    [`≥ ${statsTokens(182_000)}`, note],
+    [`≥ ${statsTokens(58_300)}`, note],
+    ['—', null],
+    ['—', null],
+  ]);
+  const { unmeasuredTurns: _, ...unsaid } = sessionUsage;
+  const [, , input] = figureCells(footer({ sessionUsage: unsaid }));
+  assert.deepEqual(input, [`≥ ${statsTokens(182_000)}`, note]);
 });
 
 test('a timed session also reports its output speed', () => {

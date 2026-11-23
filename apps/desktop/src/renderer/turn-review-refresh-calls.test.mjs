@@ -5,6 +5,8 @@ import { TurnReviewBar } from './TurnReview';
 import { installReviewDom } from './turn-review-test-support.mjs';
 import { _runIdleReclaimForTest } from './idle-reclaim';
 
+let pendingSegment = () => false;
+
 function mount(t, sessionId = 'sess-review-calls') {
   const pending = [];
   const requests = [];
@@ -50,6 +52,7 @@ function mount(t, sessionId = 'sess-review-calls') {
     );
   const bar = () => dom.window.document.querySelector('.turn-review-bar');
   const entryPending = () => Boolean(dom.window.document.querySelector('[data-entry-pending]'));
+  pendingSegment = () => Boolean(dom.window.document.querySelector('[data-island-pending]'));
   return { dom, render, answer, push, bar, entryPending, pending, requests };
 }
 
@@ -109,7 +112,8 @@ test('entering an idle session shows no estimated bar before its first read answ
   const { render, answer, bar, entryPending, requests } = mount(t, 'sess-review-entry-empty');
   await render([prompt, edit('outside-worktree')], false);
   assert.equal(bar(), null, 'the transcript estimate is not painted on entry');
-  assert.ok(entryPending(), 'the entry marks itself undecided for the reveal gate');
+  assert.equal(entryPending(), false, 'no view waits for the read');
+  assert.ok(pendingSegment(), 'the segment keeps its room while it reads');
   assert.equal(requests.length, 1);
   assert.equal(requests[0].args[0].refresh, false, 'the held snapshot is asked first');
   await answer();
@@ -151,9 +155,11 @@ test("switching sessions in a pane never queues the entry read behind the previo
   assert.equal(requests.length, 2, 'the incoming entry read is sent at once');
   assert.equal(requests[1].sessionId, 'sess-switch-to');
   assert.equal(requests[1].args[0].refresh, false);
-  assert.ok(entryPending());
+  const undecided = () => Boolean(dom.window.document.querySelector('[data-island-pending]'));
+  assert.equal(entryPending(), false, 'no view waits for the read');
+  assert.ok(undecided());
   await reply(1);
-  assert.equal(entryPending(), false, 'the entry settles without waiting for the outgoing read');
+  assert.equal(undecided(), false, 'the segment decides without waiting for the outgoing read');
   assert.equal(requests.length, 3, "the incoming session's fresh read follows its entry read");
   assert.equal(requests[2].sessionId, 'sess-switch-to');
   await reply(0);
@@ -344,7 +350,8 @@ test('a slow first read never releases an estimated bar before its empty authori
   await render([prompt, { ...edit('slow'), uiDiff: patch }], false);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 650)));
   assert.equal(bar(), null, 'a slow read must not paint the transcript estimate');
-  assert.ok(entryPending(), 'the conversation, not a shorter review timer, owns the reveal deadline');
+  assert.equal(entryPending(), false, 'no view waits for the read, however slow');
+  assert.ok(pendingSegment(), 'and no timer decides the segment');
   await answer();
   assert.equal(bar(), null, 'the authoritative empty answer leaves the dock unchanged');
   assert.equal(entryPending(), false);
@@ -381,10 +388,10 @@ test('blurring a first foreground read never reveals a temporary transcript esti
   const items = [prompt, { ...edit('blur'), uiDiff: patch }];
   await render(items, false, true);
   assert.equal(bar(), null);
-  assert.equal(entryPending(), true);
+  assert.equal(pendingSegment(), true);
   await render(items, false, false);
   assert.equal(bar(), null, 'blur cannot turn an undecided entry into a visible estimate');
-  assert.equal(entryPending(), true);
+  assert.equal(pendingSegment(), true);
   await answer();
   await answer();
   assert.equal(pending.length, 0);

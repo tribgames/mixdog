@@ -341,6 +341,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
 .transcript-virtual-row-content[data-tag="UserMessage"] {
   padding-bottom: 24px;
 }
+/* A message sent while a turn runs draws its 24px line (.message-steer) in that room: its row is the height of the
+   prompt it becomes, so the line going when a turn takes the message moves nothing. */
+.transcript-virtual-row-content[data-tag="UserMessage"]:has(.message-steer) {
+  padding-bottom: 0;
+}
 /* A reply part, tool card or error never pads its own bottom: the row after
    it takes the 8px step (data-step-before), so appending that row leaves the
    rows above it the size they were measured at. */
@@ -361,9 +366,17 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell
 /* The live band under a reply part or tool card is the 40px status slot (see
    .response-footer:has(.turn-status)): the row above it takes no step, the
    band leads in 16px over its 24px row. Under a prompt it keeps the prompt's
-   own 24px breathing room instead. */
-.transcript-virtual-row-content[data-tag="Thinking"][data-band-lead="true"] {
+   own 24px breathing room instead. A turn end or error that takes the band's place leads in the same 16px. */
+.transcript-virtual-row-content[data-band-lead="true"] {
   padding-top: 16px;
+}
+/* A compaction's divider stands in the band's seat (data-band-seat): the band's own 24px row with nothing of its own
+   around it, so the band's compacting state ending for it moves nothing. */
+.transcript-virtual-row-content[data-band-seat="true"] .compaction-divider {
+  min-height: 24px;
+  padding-block: 0;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
 }
 /* A row that renders nothing (an agent chat's tool round or unfinished reply,
    TranscriptList.tsx) takes no room: the row below steps from the row above. */
@@ -781,11 +794,11 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   padding-right: 2px;
 }
 /* The 44px tap row reads as a 24px line 4px under the bubble: the extra
-   height hangs off negative margins instead of pushing the bubble and the
-   next row apart. */
+   height hangs off negative margins, so it takes the same 24px as the line
+   on a pointer (4px + 20px) and the row is the prompt's height. */
 .message.user .message-steer[data-touch] {
   height: 44px;
-  margin: -6px 0 -10px;
+  margin: -6px 0 -14px;
 }
 .message-steer-action:hover:not(:disabled),
 .message-steer-action:focus-visible,

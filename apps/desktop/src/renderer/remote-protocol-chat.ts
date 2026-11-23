@@ -1,5 +1,7 @@
 import type {
   DesktopAbortOptions,
+  DesktopTurnTakeover,
+  DesktopTurnTakeoverReceipt,
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
   DesktopModelCatalogOptions,
@@ -338,6 +340,9 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
         ...(typeof restore.restoreId === 'string' ? { restoreId: restore.restoreId } : {}),
       };
     },
+    // One request: the connection itself sends a lost reply's request again under the press's `opId`.
+    takeOverTurn: (sessionId: string, takeover: DesktopTurnTakeover): Promise<DesktopTurnTakeoverReceipt> =>
+      service('takeOverTurn', [sessionId, takeover]) as Promise<DesktopTurnTakeoverReceipt>,
     resolveToolApprovalForSession: async (
       sessionId: string,
       id: string,
@@ -692,6 +697,7 @@ const CHAT_CALLS = [
   'stopShellJob',
   'submitNewTask',
   'submitToSession',
+  'takeOverTurn',
   'viewerDevice',
   'setFast',
 ] as const satisfies ReadonlyArray<keyof ChatApi>;

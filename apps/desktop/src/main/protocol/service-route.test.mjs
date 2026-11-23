@@ -260,6 +260,11 @@ const CASES = [
     ['t1', { restorePrompt: true, submissionId: 'sub1', device: 'x' }],
     [['turn/interrupt', { threadId: 't1', restorePrompt: true, submissionId: 'sub1' }]],
   ],
+  [
+    'takeOverTurn',
+    ['t1', { opId: 'press-1', turnId: 'turn-1', queuedId: 'sub2' }],
+    [['turn/takeover', { threadId: 't1', opId: 'press-1', turnId: 'turn-1', queuedId: 'sub2' }]],
+  ],
   ['listProviderModels', [{ force: true, quick: false }], [['model/list', { force: true, quick: false }]]],
   [
     'searchProjectFiles',

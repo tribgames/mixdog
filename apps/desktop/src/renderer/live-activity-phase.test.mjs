@@ -7,6 +7,7 @@ const { restore } = installTestDom(null);
 after(restore);
 const { createRoot } = await import('react-dom/client');
 const { ENTERED_ACTIVITY_TURN_LIMIT, LiveActivity } = await import('./transcript-status.tsx');
+const { BandDividerContext } = await import('./transcript-primitives.tsx');
 
 // Fake setTimeout and Date so the phase pacing is driven by ticks, not real sleeps.
 const sleep = async (ms) => mock.timers.tick(ms);
@@ -98,6 +99,55 @@ test('with no phase published, the last painted phase holds while the turn works
   const fresh = mount(t);
   await fresh.render({ snapshot: { commandStatus: { active: true, mode: 'resuming', startedAt: Date.now() } } });
   assert.equal(fresh.host.querySelector('.live-activity'), null, 'a resume with nothing painted paints nothing');
+});
+
+test('a stop the core accepted paints stopping at once and through later phases, and goes with the flag', async (t) => {
+  fakeClock(t);
+  const { host, render } = mount(t);
+  const band = () => host.querySelector('.live-activity');
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  await render({ snapshot: spinner({ mode: 'tool-use', stopping: true }) });
+  assert.equal(band()?.getAttribute('data-mode'), 'stopping', 'no wait for the phase pacing');
+  assert.match(band()?.textContent ?? '', /Stopping…/);
+  // The tool that ignores the abort goes on reporting phases.
+  await render({ snapshot: spinner({ mode: 'requesting', stopping: true }) });
+  await act(async () => sleep(900));
+  assert.equal(band()?.getAttribute('data-mode'), 'stopping');
+  await render({ snapshot: spinner({ mode: 'requesting' }) });
+  assert.equal(band()?.getAttribute('data-mode'), 'requesting', 'nothing of the stop is left once the core withdraws it');
+  assert.doesNotMatch(band()?.textContent ?? '', /Stopping/);
+});
+
+test('the compacting state ends in the render its divider stands above the band', async (t) => {
+  fakeClock(t);
+  const { host, root } = mount(t);
+  const render = (divider, props) =>
+    act(async () =>
+      root.render(
+        React.createElement(BandDividerContext.Provider, { value: divider }, React.createElement(LiveActivity, props))
+      )
+    );
+  const band = () => host.querySelector('.live-activity');
+  // An earlier compaction's divider above the band says nothing about this one.
+  await render('divider:k0', { snapshot: spinner({ mode: 'compacting' }) });
+  assert.match(band()?.textContent ?? '', /Compacting conversation/);
+  // The divider lands before the runtime reports the next phase.
+  await render('divider:k1', { snapshot: spinner({ mode: 'compacting' }) });
+  assert.doesNotMatch(band()?.textContent ?? '', /Compacting conversation/);
+  assert.notEqual(band()?.getAttribute('data-mode'), 'compacting');
+  await render('divider:k1', { snapshot: spinner({ mode: 'requesting' }) });
+  assert.equal(band()?.getAttribute('data-mode'), 'requesting');
+  // The next phase and the divider in one render: the painted phase does not dwell.
+  const other = mount(t);
+  const renderOther = (divider, props) =>
+    act(async () =>
+      other.root.render(
+        React.createElement(BandDividerContext.Provider, { value: divider }, React.createElement(LiveActivity, props))
+      )
+    );
+  await renderOther('', { snapshot: spinner({ mode: 'compacting' }) });
+  await renderOther('divider:k1', { snapshot: spinner({ mode: 'tool-use' }) });
+  assert.equal(other.host.querySelector('.live-activity')?.getAttribute('data-mode'), 'tool-use');
 });
 
 test('the entrance plays once per turn, not again when the band remounts', async (t) => {

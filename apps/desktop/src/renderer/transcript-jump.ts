@@ -1,16 +1,13 @@
-// Opening a session at a record of its history (a search hit): the window the core holds is moved there, and the pane
-// scrolls to the record's row once it is shown.
-import { type MutableRefObject, useEffect, useSyncExternalStore } from 'react';
-import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
-import type { TranscriptRowModel } from './transcript-rows';
-
-/** How long a jump waits for its session's transcript and row before it is dropped. */
-const JUMP_WAIT_MS = 15_000;
+// Opening a session at a record of its history (a search hit): the pane that shows the session takes the record as its
+// reader's place (transcript-list-reader-place.ts), which is how a reader comes back to any place: the rows around
+// the record are read if they are not held, and the reader is put on its row before the pane presents it.
+import { useLayoutEffect, useSyncExternalStore } from 'react';
+import { usePaneKey } from './pane-key-context';
+import { useSurfaceActive } from './surface-activity';
+import { openReaderPlace } from './transcript-list-reader-place';
 
 interface Jump {
   readonly position: string;
-  readonly at: number;
-  asked: boolean;
 }
 
 const jumps = new Map<string, Jump>();
@@ -19,16 +16,14 @@ const changed = (): void => {
   for (const listener of [...listeners]) listener();
 };
 
-/** The session's pane opens at `position` (the next pane of the session to show rows takes it). */
+/** The session's pane opens at `position` (the next pane of the session to show rows takes it). A jump belongs to the
+ *  navigation that made it, which shows the session in a pane right after: it ends when that pane takes it, when a
+ *  later jump takes its place, or when a pane goes on to show another session instead (the reader navigated on, and
+ *  a later visit of the session is not that jump's). No time ends it. */
 export function requestTranscriptJump(sessionId: string, position: string): void {
   if (!sessionId || !position) return;
-  jumps.set(sessionId, { position, at: Date.now(), asked: false });
-  changed();
-}
-
-function endJump(sessionId: string, jump: Jump): void {
-  if (jumps.get(sessionId) !== jump) return;
-  jumps.delete(sessionId);
+  jumps.clear();
+  jumps.set(sessionId, { position });
   changed();
 }
 
@@ -37,55 +32,28 @@ const subscribe = (listener: () => void): (() => void) => {
   return () => void listeners.delete(listener);
 };
 
-/** Whether `row` shows the record at `position`. */
-export function rowShowsPosition(row: TranscriptRowModel, position: string): boolean {
-  const items = 'items' in row ? row.items : 'item' in row && row.item ? [row.item] : [];
-  return items.some((item) => historyPositionOf(item) === position || historyPositionOf(item, 'after') === position);
-}
-
-/** A pane's part in a jump of its session: it asks for the window at the jump's record, leaves the live tail, and scrolls the
- *  record's row into view (`reveal`) once its rows show it. */
-export function useTranscriptJump({
-  sessionId,
-  rows,
-  leaveTail,
-  reveal,
-}: {
-  sessionId: string;
-  rows: readonly TranscriptRowModel[];
-  leaveTail: () => void;
-  reveal: MutableRefObject<((match: (row: TranscriptRowModel) => boolean) => boolean) | null>;
-}): void {
+/** A pane's part in a jump of its session: the one on screen takes the jump's record as its reader's place and leaves
+ *  the live tail, in the commit it learns of the jump, so no frame of the session's end is presented first. */
+export function useTranscriptJump({ sessionId, leaveTail }: { sessionId: string; leaveTail: () => void }): void {
+  const pane = usePaneKey();
+  const active = useSurfaceActive();
   const jump = useSyncExternalStore(subscribe, () => (sessionId ? jumps.get(sessionId) : undefined));
-  useEffect(() => {
-    if (!jump) return undefined;
-    if (Date.now() - jump.at > JUMP_WAIT_MS) {
-      endJump(sessionId, jump);
-      return undefined;
+  // This pane has come to show the session: a jump still waiting for another one is of a navigation that is over.
+  useLayoutEffect(() => {
+    if (!active || !sessionId) return;
+    let ended = false;
+    for (const waiting of [...jumps.keys()]) {
+      if (waiting === sessionId) continue;
+      jumps.delete(waiting);
+      ended = true;
     }
-    const match = (row: TranscriptRowModel) => rowShowsPosition(row, jump.position);
-    if (rows.some(match)) {
-      leaveTail();
-      if (reveal.current?.(match)) endJump(sessionId, jump);
-      return undefined;
-    }
-    if (!jump.asked) {
-      const move = window.mixdogDesktop?.moveTranscriptWindow;
-      if (!move) {
-        endJump(sessionId, jump);
-        return undefined;
-      }
-      jump.asked = true;
-      leaveTail();
-      void Promise.resolve(move(sessionId, { kind: 'at', position: jump.position })).then(
-        (served) => {
-          // Not served: the session's window is not held yet (its snapshot is on its way); asked again with the rows.
-          if (!served) jump.asked = false;
-        },
-        () => endJump(sessionId, jump)
-      );
-    }
-    const timer = window.setTimeout(() => endJump(sessionId, jump), JUMP_WAIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [jump, rows, sessionId, leaveTail, reveal]);
+    if (ended) changed();
+  }, [active, sessionId]);
+  useLayoutEffect(() => {
+    if (!jump || !active || !pane) return;
+    jumps.delete(sessionId);
+    changed();
+    leaveTail();
+    openReaderPlace(pane, sessionId, { position: jump.position, top: 'center' });
+  }, [active, jump, leaveTail, pane, sessionId]);
 }

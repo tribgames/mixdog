@@ -47,6 +47,7 @@ export class UnclaimedNodeMethodError extends Error {
 /** Calls that must reach a running turn now: they do not wait for the first sync. */
 const UNGATED_CALLS = new Set([
   'abortSession',
+  'takeOverTurn',
   'resolveToolApprovalForSession',
   'answerApprovalNotification',
   'provideSecretInput',

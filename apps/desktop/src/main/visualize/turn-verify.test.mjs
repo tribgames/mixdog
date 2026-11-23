@@ -100,8 +100,8 @@ for (const [kind, end] of Object.entries(endings)) {
         assert.equal(result.tabs, undefined, 'no tab line for a chat card either');
         assert.match(result.text, /\(tab v\d\); the user is not shown it, it closes when the turn ends\./);
       }
-      assert.deepEqual(t.tabIds(), ['v1'], 'a client is only given the deliverable');
-      assert.ok(t.alive('v2') && t.alive('v3'));
+      assert.deepEqual(t.tabIds(), [], 'a client is given nothing of the turn while it runs');
+      assert.ok(t.alive('v1') && t.alive('v2') && t.alive('v3'));
       assert.equal(t.reveals().length, 0);
       assert.ok(t.events.every((event) => event.held === true));
 
@@ -129,6 +129,10 @@ test('a failing turn-end step still closes the verify tabs', async () => {
     holds,
     sessions,
     publish: () => {},
+    views: {
+      stateOf: (sessionId) => ({ sessionId, tabs: [], active: null }),
+      hostStateOf: (sessionId) => ({ sessionId, tabs: [], active: null }),
+    },
     tabs: { closeVerify: (sessionId) => closed.push(sessionId) },
     reloads: { reload: async () => {} },
     thumbnails: {
@@ -166,40 +170,7 @@ test('a turn with only verify opens reveals nothing at its end', async () => {
   }
 });
 
-test('a verify tab opened while the turn end is still flushing is closed with it', async () => {
-  let release;
-  let started;
-  const taking = new Promise((resolve) => {
-    started = resolve;
-  });
-  const t = setup({
-    thumbnailOffscreen: () =>
-      new Promise((resolve) => {
-        started();
-        release = () => resolve(null);
-      }),
-  });
-  try {
-    await t.service.setTurnActive(SESSION, true);
-    await t.run('open', { targets: ['site/b.html'] });
-    const ending = t.service.setTurnActive(SESSION, false);
-    await taking;
-    // Another turn starts, opens a tab only to check its work, and ends,
-    // all while the first turn's end is still taking its pictures.
-    await t.service.setTurnActive(SESSION, true);
-    await t.run('open', { targets: ['site/a.html'], verify: true });
-    assert.ok(t.alive('v2'));
-    await t.service.setTurnActive(SESSION, false);
-    release();
-    await ending;
-    assert.ok(!t.alive('v2'), 'no hold is left to close it later');
-    assert.deepEqual(t.tabIds(), ['v1']);
-  } finally {
-    t.cleanup();
-  }
-});
-
-test('a verify tab of a still-running successor turn survives the earlier flush, then closes at its own end', async () => {
+test('a verify open asked for while the earlier turn end is applied is the running turn’s: it opens after that end and closes at its own', async () => {
   let release;
   let started;
   let first = true;
@@ -223,11 +194,14 @@ test('a verify tab of a still-running successor turn survives the earlier flush,
     await t.run('open', { targets: ['site/a.html'], verify: true });
     const ending = t.service.setTurnActive(SESSION, false);
     await taking;
-    // The next turn starts during that flush and keeps running.
+    // The next turn starts during that flush and keeps running; what it asks for waits for that end.
     await t.service.setTurnActive(SESSION, true);
-    await t.run('open', { content: { kind: 'svg', source: '<svg/>', title: 'Flow' }, verify: true });
+    const opening = t.run('open', { content: { kind: 'svg', source: '<svg/>', title: 'Flow' }, verify: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(!t.alive('v3'), 'not opened into the ending turn');
     release();
     await ending;
+    await opening;
     assert.ok(!t.alive('v2'), 'the first turn’s own check tab is closed');
     assert.ok(t.alive('v3'), 'the running turn can still check its tab');
     assert.match((await t.run('capture', { tab: 'v3', output: 'shot.png' })).text, /drawn off screen/);

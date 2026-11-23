@@ -1,11 +1,16 @@
 import { type MutableRefObject, useCallback, useLayoutEffect, useRef } from 'react';
-import { READING_ANCHOR_HOLD_MS, rememberRowHeight, type TranscriptVirtualizer } from './transcript-list-geometry';
+import { rememberRowHeight, type TranscriptVirtualizer } from './transcript-list-geometry';
 import type { useReadingAnchor } from './transcript-list-reading-anchor';
 import type { TranscriptRowModel } from './transcript-rows';
 
 type ReadingAnchorState = ReturnType<typeof useReadingAnchor>;
 
 type PendingResizes = MutableRefObject<Map<unknown, { index: number; size: number }>>;
+
+/** The row elements read once since they mounted. A size the list holds for a row from an earlier mount (a session
+ *  shown before, a row scrolled away and back) is what the row measured then: a row that mounts is read in its own
+ *  commit all the same, so it is never drawn for a frame at a size it no longer has. */
+const readRows = new WeakSet<HTMLElement>();
 
 function mountedRowsToMeasure(
   root: HTMLElement,
@@ -14,14 +19,17 @@ function mountedRowsToMeasure(
   handoff: ReadonlySet<string>,
   landing: boolean
 ) {
-  return [...root.children].filter(
-    (row): row is HTMLElement =>
-      row instanceof HTMLElement &&
-      row.dataset.timelineKey !== undefined &&
-      (landing ||
-        handoff.has(row.dataset.timelineKey) ||
-        (!instance.itemSizeCache.has(row.dataset.timelineKey) && !pendingResizes.current.has(row.dataset.timelineKey)))
-  );
+  return [...root.children].filter((row): row is HTMLElement => {
+    if (!(row instanceof HTMLElement) || row.dataset.timelineKey === undefined) return false;
+    const mounted = !readRows.has(row);
+    readRows.add(row);
+    return (
+      landing ||
+      mounted ||
+      handoff.has(row.dataset.timelineKey) ||
+      (!instance.itemSizeCache.has(row.dataset.timelineKey) && !pendingResizes.current.has(row.dataset.timelineKey))
+    );
+  });
 }
 
 /** Reads every row's box before any held height is written (a write between
@@ -75,7 +83,7 @@ function noteBandHandoffs(
 
 /** Rows are measured in their own commits, before paint. A landing re-reads
  *  every mounted row (and applies directly: its anchor restore owns the
- *  offset); any other commit reads only the rows without a size yet, through
+ *  offset); any other commit reads the rows that mounted in it and those without a size yet, through
  *  the list's own resize path so the end pin, deferral, and anchor rules
  *  still apply. */
 export function useMountedRowMeasurement({
@@ -127,8 +135,7 @@ export function useMountedRowMeasurement({
     const pending = pendingAnchor.current;
     pendingAnchor.current = null;
     if (!pending?.anchor || virtualizerRef.current.options.anchorTo === 'end') return;
-    const landedAt = performance.now();
-    anchorHold.current = { ...pending.anchor, until: landedAt + READING_ANCHOR_HOLD_MS, start: null, landedAt };
+    anchorHold.current = { ...pending.anchor, start: null };
     if (indexForPendingKey(pending.anchor.key, pending.anchor.index) !== pending.anchor.index) {
       landingMeasure.current = true;
       window.requestAnimationFrame(() => {

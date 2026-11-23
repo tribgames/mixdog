@@ -1,6 +1,24 @@
-import { useCallback, useEffect, useReducer, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useSyncExternalStore, type RefObject } from 'react';
+import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 import type { DesktopTranscriptMove } from '../shared/contract-session';
+import type { TranscriptItem } from './desktop-types';
+import { usePaneKey } from './pane-key-context';
+import { transcriptTurnKeys } from './renderer-logic.mjs';
+import { useSurfaceActive } from './surface-activity';
+import { createSettledProjector } from './transcript-rows';
+import { prefetchTurnChanges, type TurnChangesRef } from './turn-changes-model';
+import { defaultSessionLaneStore } from './session-lane-store';
 import { noteHistoryPageRequest } from './tool-output-prefetch';
+import { parseStreamingMarkdownAst, readCachedStreamingMarkdownAst } from './markdown-worker-client';
+import {
+  pendingReaderPlace,
+  readerPlace,
+  rowOfPlace,
+  type ReaderPlace,
+  useReaderPlaceVersion,
+  voidReaderPlace,
+} from './transcript-list-reader-place';
+import { TRANSCRIPT_MIN_ROW_PX } from './transcript-virtual-cache';
 import {
   nextTranscriptHistoryLimit,
   nextTranscriptTailLimit,
@@ -202,30 +220,192 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
 
 /** What a positioned state says of its window (protocol-client `desktopSessionState`). */
 export interface PositionedFacts<T> {
-  /** The stretch the reader is shown apart from the tail (`transcriptViewItems`), or null on the tail. */
-  viewItems: readonly T[] | null;
-  /** It continues toward older rows (`transcriptHistoryBefore`), toward newer ones (`transcriptHistoryAfter`). */
-  viewOlder: boolean;
-  viewNewer: boolean;
+  /** The stretches held apart from the tail (`transcriptViews`), the one asked for last being last: each pane is shown
+   *  the one its reader is in. `older`, `newer`: it continues that way. */
+  views: readonly PositionedStretch<T>[];
   /** `transcriptWindowVersion`: the window changed. */
   version: number;
 }
+
+export interface PositionedStretch<T> {
+  items: readonly T[];
+  older: boolean;
+  newer: boolean;
+}
+
+/** The stretches of a state, the same list for the same state's: a pane that reads them keeps its memo. */
+const stretchesOf = new WeakMap<object, readonly PositionedStretch<unknown>[]>();
+function stretches<T>(state: Record<string, unknown>): readonly PositionedStretch<T>[] {
+  const listed = state.transcriptViews;
+  // A state that lists none (a preview kept of a hidden session, an older host) states the one stretch it has.
+  const source = Array.isArray(listed) ? listed : state.transcriptViewItems;
+  if (!Array.isArray(source)) return NO_STRETCHES;
+  const known = stretchesOf.get(source);
+  if (known) return known as readonly PositionedStretch<T>[];
+  const made: PositionedStretch<T>[] = Array.isArray(listed)
+    ? (listed as { items: T[]; before?: boolean; after?: boolean }[]).map((view) => ({
+        items: view.items,
+        older: view.before === true,
+        newer: view.after === true,
+      }))
+    : [
+        {
+          items: source as T[],
+          older: state.transcriptHistoryBefore === true,
+          newer: state.transcriptHistoryAfter === true,
+        },
+      ];
+  stretchesOf.set(source, made);
+  return made;
+}
+const NO_STRETCHES: readonly never[] = [];
 
 /** The facts of a positioned state, or undefined for a state of another window. */
 export function positionedFactsOf<T>(state: Record<string, unknown>): PositionedFacts<T> | undefined {
   if (state.transcriptPositioned !== true) return undefined;
   return {
-    viewItems: Array.isArray(state.transcriptViewItems) ? (state.transcriptViewItems as T[]) : null,
-    viewOlder: state.transcriptHistoryBefore === true,
-    viewNewer: state.transcriptHistoryAfter === true,
+    views: stretches<T>(state),
     version: typeof state.transcriptWindowVersion === 'number' ? state.transcriptWindowVersion : 0,
   };
 }
 
-/** A positioned transcript's rows and paging: the core holds the followed tail and the rows around the reader. The pane
- *  says where the reader is (`readerAt`: the first and last items in its view) on every scroll and whenever the window
- *  shown changes (`revision`); the window asks for the page that view is near and lets go of the rows far from it
- *  (`moveTranscriptWindow`), and the rows arrive as the session's state. One move is out at a time. */
+/** The stored records each list of items shows, read once per list. */
+const shownPositions = new WeakMap<object, Set<string>>();
+function shows(items: readonly unknown[] | null, position: string): boolean {
+  if (!items || items.length === 0) return false;
+  let positions = shownPositions.get(items);
+  if (!positions) {
+    positions = new Set();
+    for (const item of items) {
+      const before = historyPositionOf(item);
+      const after = historyPositionOf(item, 'after');
+      if (before !== undefined) positions.add(before);
+      if (after !== undefined) positions.add(after);
+    }
+    shownPositions.set(items, positions);
+  }
+  return positions.has(position);
+}
+
+const positionIn = (items: readonly unknown[], position: string): number =>
+  items.findIndex((item) => historyPositionOf(item) === position || historyPositionOf(item, 'after') === position);
+
+/** The texts of the settled replies among the items a view opened at `place` mounts: from the place's item as far as a
+ *  viewport reaches at the shortest row the list paints, on both sides (the list mounts a viewport past the view, and a
+ *  place may stand anywhere in it). */
+function repliesAround(items: readonly unknown[], place: ReaderPlace): string[] {
+  let at = positionIn(items, place.position);
+  if (at < 0 && place.next !== undefined) at = positionIn(items, place.next);
+  if (at < 0) return [];
+  const reach = Math.ceil((typeof window === 'undefined' ? 0 : window.innerHeight) / TRANSCRIPT_MIN_ROW_PX);
+  const texts: string[] = [];
+  for (let index = Math.max(0, at - reach); index < items.length && index <= at + reach; index += 1) {
+    const item = items[index] as { kind?: unknown; streaming?: unknown; text?: unknown } | null;
+    if (item?.kind !== 'assistant' || item.streaming) continue;
+    const text = String(item.text || '');
+    if (text) texts.push(text);
+  }
+  return texts;
+}
+
+/** Whether the replies around `place` in `items` are parsed, so that the list that mounts them shows each at its own
+ *  size in its first frame (MarkdownResponse.tsx parses a reply read from history within a frame's allowance, and the
+ *  rest when the worker answers). The parses are asked for here, and the caller is rendered again as they end. With
+ *  no `items` to open (null) or no place, there is nothing to wait for. */
+function usePlaceBodies(sessionId: string, items: readonly unknown[] | null, place: ReaderPlace | null): boolean {
+  const [, landed] = useReducer((count: number) => count + 1, 0);
+  // The texts whose parse ended, for the place they were asked for: one too long to be kept parsed is not asked twice.
+  const ended = useRef<{ sessionId: string; position: string; texts: Set<string> }>({
+    sessionId,
+    position: '',
+    texts: new Set(),
+  });
+  const position = place?.position ?? '';
+  if (ended.current.sessionId !== sessionId || ended.current.position !== position) {
+    ended.current = { sessionId, position, texts: new Set() };
+  }
+  const waiting =
+    items && place
+      ? repliesAround(items, place).filter(
+          (text) => !ended.current.texts.has(text) && readCachedStreamingMarkdownAst(text) === null
+        )
+      : NO_TEXTS;
+  const asked = useRef(new Set<string>());
+  const signature = waiting.join('\u0000');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the signature is the content of `waiting`
+  useEffect(() => {
+    const record = ended.current;
+    for (const text of waiting) {
+      if (asked.current.has(text)) continue;
+      asked.current.add(text);
+      const end = (): void => {
+        asked.current.delete(text);
+        record.texts.add(text);
+        landed();
+      };
+      void parseStreamingMarkdownAst(text).then(end, end);
+    }
+  }, [signature]);
+  return waiting.length === 0;
+}
+
+const NO_TEXTS: readonly string[] = [];
+
+/** The changed-files cards of the rows around `place` in `items`, as the list will draw them
+ *  (transcript-rows.ts places a turn's card on the row that ends it). */
+function cardsAround(
+  project: ReturnType<typeof createSettledProjector>['project'],
+  sessionId: string,
+  items: readonly unknown[],
+  place: ReaderPlace
+): TurnChangesRef[] {
+  const settled = items as readonly TranscriptItem[];
+  const { rows } = project({
+    sessionKey: sessionId,
+    items: settled,
+    turnKeys: transcriptTurnKeys(settled) as string[],
+    failedTurns: NO_TURNS,
+  });
+  const at = rowOfPlace(rows, place);
+  if (at < 0) return [];
+  const reach = Math.ceil((typeof window === 'undefined' ? 0 : window.innerHeight) / TRANSCRIPT_MIN_ROW_PX);
+  const cards: TurnChangesRef[] = [];
+  for (let index = Math.max(0, at - reach); index < rows.length && index <= at + reach; index += 1) {
+    const row = rows[index];
+    if ((row?._tag === 'AssistantPart' || row?._tag === 'Error') && row.turnChanges) cards.push(row.turnChanges);
+  }
+  return cards;
+}
+const NO_TURNS: ReadonlySet<string> = new Set();
+
+/** The changed-files cards of the rows around `place` in `items` are asked for as the rows arrive, so that a row
+ *  mounts with the reply held where the core has answered by then (TurnChangesCard.tsx starts from it). Nothing waits
+ *  for the answers: a read of the core may never end. */
+function usePlaceCards(sessionId: string, items: readonly unknown[] | null, place: ReaderPlace | null): void {
+  const projector = useRef<ReturnType<typeof createSettledProjector> | null>(null);
+  projector.current ??= createSettledProjector();
+  const position = place?.position ?? '';
+  const asked = useRef<{ items: readonly unknown[] | null; position: string }>({ items: null, position: '' });
+  useEffect(() => {
+    if (!items || !place || (asked.current.items === items && asked.current.position === position)) return;
+    asked.current = { items, position };
+    for (const card of cardsAround(projector.current!.project, sessionId, items, place))
+      prefetchTurnChanges(sessionId, card.checkpointId, card.boundary);
+  });
+}
+
+const subscribeLive = (listener: () => void): (() => void) => defaultSessionLaneStore.subscribeApprovals(listener);
+
+/** A positioned transcript's rows and paging: the core holds the followed tail and one stretch apart from it, for
+ *  every pane of the session. Which of them a pane shows is the pane's own: the one that holds the record its reader
+ *  is on (transcript-list-reader-place.ts), or the tail's for a reader who follows the end. A state that holds neither
+ *  is not this pane's view: the pane keeps the rows it shows and asks for the window around its reader's record (`at`),
+ *  once when it has no rows to show (a return to a session whose window was let go, a record opened from outside) and
+ *  otherwise when its reader next moves. A record the history no longer holds leaves the reader at the end.
+ *
+ *  The pane says where the reader is (`readerAt`: the first and last items in its view) on every scroll and whenever
+ *  the window shown changes (`revision`); the window asks for the page that view is near and lets go of the rows far
+ *  from it (`moveTranscriptWindow`), and the rows arrive as the session's state. */
 function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   sessionId: string,
   liveItems: readonly T[],
@@ -233,47 +413,123 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
   following: boolean,
   facts: PositionedFacts<T> | undefined
 ) {
-  // One move is out at a time; the latest asked meanwhile goes out when it returns.
-  const moving = useRef(false);
-  const waiting = useRef<DesktopTranscriptMove | null>(null);
+  const pane = usePaneKey();
+  useReaderPlaceVersion();
+  const live = useSyncExternalStore(
+    subscribeLive,
+    () => sessionId !== '' && defaultSessionLaneStore.liveSessionIds().has(sessionId)
+  );
+  // A move belongs to the session it was asked for (the pane outlives the sessions it shows), and each goes out as
+  // it is asked: the window knows where this reader is now, also while an earlier move of it is out. The window
+  // takes one at a time, the latest asked replacing the one waiting, but for a record to open (`at`: always read).
   const move = useCallback(
-    (to: DesktopTranscriptMove) => {
+    (asked: DesktopTranscriptMove, done?: (served: boolean) => void) => {
       const ask = window.mixdogDesktop?.moveTranscriptWindow;
       if (!sessionId || !ask) return;
-      if (moving.current) {
-        waiting.current = to;
-        return;
-      }
-      const send = (next: DesktopTranscriptMove): void => {
-        moving.current = true;
-        const release = next.kind === 'follow' ? () => undefined : noteHistoryPageRequest();
-        void Promise.resolve()
-          .then(() => ask(sessionId, next))
-          .catch(() => false)
-          .finally(() => {
-            release();
-            const queued = waiting.current;
-            waiting.current = null;
-            if (queued) send(queued);
-            else moving.current = false;
-          });
-      };
-      send(to);
+      // The window is one for every pane of the session: each move says whose it is.
+      const to = { ...asked, reader: pane };
+      const release = to.kind === 'follow' ? () => undefined : noteHistoryPageRequest();
+      void Promise.resolve()
+        .then(() => ask(sessionId, to))
+        .catch(() => false)
+        .then((served) => {
+          release();
+          done?.(served === true);
+        });
     },
-    [sessionId]
+    [pane, sessionId]
   );
-  const viewItems = facts?.viewItems ?? null;
-  const historyActive = viewItems !== null;
-  // A reader back on the tail lets go of the stretch opened apart from it. The tail itself is kept as it grows: following
-  // asks for nothing while the tail's run is what is held.
-  const loose = following && historyActive;
+  // The pane reads the session's window while it shows the session: closed, hidden or showing another, it withdraws,
+  // and the window lets go of what only this pane held (protocol-client `moveTranscriptWindow`: a `follow` is a
+  // reader that stands nowhere apart). Back on the session, it opens its place again like any return.
+  const active = useSurfaceActive();
+  useEffect(() => {
+    if (!active || !sessionId) return undefined;
+    return () => move({ kind: 'follow' });
+  }, [active, move, sessionId]);
+  const views = facts?.views ?? (NO_STRETCHES as readonly PositionedStretch<T>[]);
+  const opening = sessionId ? pendingReaderPlace(pane, sessionId) : null;
+  const reader = following && !opening ? null : (opening ?? (sessionId ? readerPlace(pane, sessionId) : null));
+  // The rows this pane showed last: what it keeps when the state holds no stretch of its reader's.
+  const shown = useRef<{ sessionId: string; items: readonly T[] | null }>({ sessionId, items: null });
+  if (shown.current.sessionId !== sessionId) shown.current = { sessionId, items: null };
+  let items: readonly T[];
+  // The stretch that holds the reader's record, or the record under it when that one is gone from the history.
+  const holds = (stretch: readonly T[] | null): boolean =>
+    reader !== null &&
+    (shows(stretch, reader.position) || (reader.next !== undefined && shows(stretch, reader.next)));
+  // Of the stretches apart, the one asked for last is looked at first.
+  const apart = (has: (stretch: readonly T[]) => boolean): readonly T[] | undefined => {
+    for (let at = views.length - 1; at >= 0; at -= 1) if (has(views[at]!.items)) return views[at]!.items;
+    return undefined;
+  };
+  const on = (stretch: readonly T[]): boolean => reader !== null && shows(stretch, reader.position);
+  let held: readonly T[] | null = null;
+  if (!reader) held = liveItems;
+  else held = apart(on) ?? (on(liveItems) ? liveItems : (apart(holds) ?? (holds(liveItems) ? liveItems : null)));
+  const detached = held === null;
+  // Rows the pane is to open at are shown once the replies its view will mount are parsed: mounted before, a reply is
+  // laid out at the size the list holds for it and takes its own a frame later, under the reader.
+  const arriving = held !== null && held !== shown.current.items ? held : null;
+  const parsed = usePlaceBodies(sessionId, arriving, opening);
+  usePlaceCards(sessionId, arriving, opening);
+  const bodies = parsed;
+  if (held === null || !bodies) items = shown.current.items ?? (EMPTY_ITEMS as readonly T[]);
+  else items = held;
+  if (held !== null && bodies) shown.current.items = items;
+  const inView = views.find((view) => view.items === items);
+  // A reader back on the tail lets go of the stretch it read apart from it; the window keeps the ones other panes
+  // stand in (protocol-client `windowWant`). The tail itself is kept as it grows: following asks for nothing while
+  // the tail's run is what is held.
+  const loose = following && !opening && views.length > 0;
   useEffect(() => {
     if (loose) move({ kind: 'follow' });
   }, [loose, move, facts?.version]);
-  const readerAt = useCallback((first: string, last: string) => move({ kind: 'read', first, last }), [move]);
+  // The window around a record the pane is to open at and has no rows of.
+  const wanted = opening && detached && live && facts ? opening.position : '';
+  const version = facts?.version;
+  const asked = useRef({ sessionId, version });
+  asked.current = { sessionId, version };
+  // The one read around the record, as it was answered: the window it was asked of. Every answer ends the wait for the
+  // record. Served, its rows are in the window the session's next state shows; a state of another window that still
+  // shows none of them, or a refusal over the window asked, says the history does not hold the record here, and the
+  // reader is at the end. An answer for a session no longer followed (let go, lost) ends nothing: the pane asks again
+  // when it is followed again, and until then shows what any session not followed shows.
+  const answered = useRef<{ sessionId: string; position: string; version: number | undefined } | null>(null);
+  useEffect(() => {
+    if (!wanted) {
+      answered.current = null;
+      return;
+    }
+    const before = answered.current;
+    if (before && before.sessionId === sessionId && before.position === wanted) {
+      if (before.version !== version && pendingReaderPlace(pane, sessionId)?.position === wanted)
+        voidReaderPlace(pane, sessionId);
+      return;
+    }
+    move({ kind: 'at', position: wanted }, (served) => {
+      const now = asked.current;
+      if (now.sessionId !== sessionId || !defaultSessionLaneStore.liveSessionIds().has(sessionId)) return;
+      if (pendingReaderPlace(pane, sessionId)?.position !== wanted) return;
+      if (!served && now.version === version) voidReaderPlace(pane, sessionId);
+      else answered.current = { sessionId, position: wanted, version };
+    });
+  }, [move, pane, sessionId, version, wanted]);
+  const lost = detached && !opening ? (reader?.position ?? '') : '';
+  const placing = opening !== null;
+  const readerAt = useCallback(
+    (first: string, last: string) => {
+      // A pane still to be put at its place is not where its reader is: it tells nothing.
+      if (placing) return;
+      // A reader who moves over rows the window let go has it read around the record the reader is on.
+      if (lost) move({ kind: 'at', position: lost });
+      else move({ kind: 'read', first, last, ...(following ? { end: true } : {}) });
+    },
+    [following, lost, move, placing]
+  );
   const resetToLive = useCallback(() => move({ kind: 'follow' }), [move]);
-  const items = viewItems ?? liveItems;
-  const hasOlder = historyActive ? facts?.viewOlder === true : liveHasOlder;
+  const historyActive = items !== liveItems;
+  const hasOlder = inView ? inView.older : historyActive ? false : liveHasOlder;
   return {
     items,
     hasOlder,
@@ -285,6 +541,8 @@ function usePositionedTranscriptWindow<T extends { readonly id?: unknown }>(
     resetToLive,
   };
 }
+
+const EMPTY_ITEMS: readonly never[] = [];
 
 const noRequest = (): void => undefined;
 

@@ -3,7 +3,19 @@ import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
 import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
-import { statsCount, statsMoney, statsNumber, statsPercent, statsSpeed, statsTokens } from './usage-stats-model';
+import {
+  floorFigure,
+  floorNote,
+  hitRateNote,
+  statsCount,
+  statsMoney,
+  statsNumber,
+  statsPercent,
+  statsSpeed,
+  statsTokens,
+  unpricedTurns,
+  usageFloor,
+} from './usage-stats-model';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
@@ -70,22 +82,32 @@ export function ContextReading({ status, snapshot }: { status: unknown; snapshot
 function SessionUsageFooter({ usage, compactions }: { usage: unknown; compactions: number }) {
   const totals = record(usage);
   if (!(statsNumber(totals.turns) > 0)) return null;
-  const figures: [string, string][] = [
-    [t('Est. value'), statsMoney(totals)],
-    [t('Cache hit rate'), statsPercent(totals.cacheHitRate)],
-    [t('Input'), statsTokens(totals.input)],
-    [t('Output'), statsTokens(totals.output)],
-    [t('Cache read'), statsTokens(totals.cacheRead)],
-    [t('Cache write'), statsTokens(totals.cacheWrite)],
+  const floor = usageFloor(totals);
+  const prompt = statsNumber(totals.input) + statsNumber(totals.cacheRead) + statsNumber(totals.cacheWrite);
+  // The ledger leaves the rate out once any call went unmeasured; it is still the measured calls' rate.
+  const hitRate = totals.cacheHitRate ?? (floor && prompt > 0 ? statsNumber(totals.cacheRead) / prompt : null);
+  const marked = (label: string, value: string, isFloor = floor): [string, string, string | undefined] =>
+    isFloor && value !== '—' ? [label, floorFigure(value, true), floorNote()] : [label, value, undefined];
+  const hit = statsPercent(hitRate);
+  const costFloor = floor || unpricedTurns(totals) > 0;
+  // A floor of nothing is no figure, as for the tokens.
+  const cost = costFloor && !(statsNumber(totals.costUsd) > 0) ? '—' : statsMoney(totals);
+  const figures: [string, string, string | undefined][] = [
+    marked(t('Est. value'), cost, costFloor),
+    [t('Cache hit rate'), hit, floor && hit !== '—' ? hitRateNote() : undefined],
+    marked(t('Input'), statsTokens(totals.input, floor)),
+    marked(t('Output'), statsTokens(totals.output, floor)),
+    marked(t('Cache read'), statsTokens(totals.cacheRead, floor)),
+    marked(t('Cache write'), statsTokens(totals.cacheWrite, floor)),
   ];
   // Only once a timed request produced output: an unknown speed is no figure.
   if (totals.outputTokensPerSecond != null)
-    figures.push([t('Speed'), `${statsSpeed(totals.outputTokensPerSecond)} tok/s`]);
+    figures.push([t('Speed'), `${statsSpeed(totals.outputTokensPerSecond)} tok/s`, undefined]);
   return (
     // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the footer keeps its tag; the label names the session usage summary
     <footer className="context-session-usage" aria-label={t('Session usage')}>
-      {figures.map(([label, value]) => (
-        <span key={label}>
+      {figures.map(([label, value, note]) => (
+        <span key={label} title={note}>
           {label} <strong>{value}</strong>
         </span>
       ))}

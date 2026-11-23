@@ -36,6 +36,8 @@ export function SteerStatus({ item }: { item: TranscriptItem }) {
   const actions = steer?.actions;
   // Not in the session queue yet: there is nothing to send or take back.
   const unpublished = item.steerLocal === true && item.steer !== 'failed';
+  // No turn runs for the message to take over: it starts as the queue has it.
+  const unsendable = unpublished || steer?.canSendNow !== true;
   let lead: ReactNode = null;
   if (item.steer === 'held') lead = <span className="message-steer-note">{t('Runs after this task')}</span>;
   else if (item.steer === 'failed') {
@@ -54,7 +56,7 @@ export function SteerStatus({ item }: { item: TranscriptItem }) {
     );
   } else if (actions) {
     lead = (
-      <button type="button" className="message-steer-action" disabled={unpublished} onClick={() => actions.sendNow(id)}>
+      <button type="button" className="message-steer-action" disabled={unsendable} onClick={() => actions.sendNow(id)}>
         {t('Send now')}
       </button>
     );

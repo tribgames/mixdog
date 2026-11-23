@@ -144,6 +144,7 @@ const CONVERSATION_FIELDS = [
   'transcriptPositioned',
   'transcriptWindowVersion',
   'transcriptViewItems',
+  'transcriptViews',
   'transcriptHistoryBefore',
   'transcriptHistoryAfter',
   'transcriptPreview',

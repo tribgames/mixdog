@@ -1588,6 +1588,8 @@ html[data-mixdog-mobile-tabs] .message .response-footer,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-status),
 html[data-mixdog-mobile-tabs] .response-footer-trailing:has(.turn-status),
 html[data-mixdog-mobile-tabs] .live-activity-slot[data-busy="true"],
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-band-seat="true"] .turn-status,
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-band-seat="true"] .compaction-divider,
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);
 }

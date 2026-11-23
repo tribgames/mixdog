@@ -4,30 +4,59 @@ import { transcriptThreadInset } from './transcript-list-geometry';
 import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_RELEARN_ATTRIBUTE } from './transcript-virtual-cache';
 import { transcriptScrollPosition } from './use-transcript-follow';
 
-/** A row's remembered size and offset (a virtual item of the snapshot). */
-type RetainedRow = { readonly key: unknown; readonly start: number; readonly size: number };
-
-// Bound row/font settling once the dock has answered or its wait has expired.
-export const ENTRY_REVEAL_MAX_MS = 2_000;
-// Total wait for entry-pending chrome (the review bar's first read, a lazy
-// dock fallback); past it the reveal proceeds and the chrome may land late.
-export const ENTRY_CHROME_MAX_MS = 1_500;
-const DOCK_MOTION = '.composer-island-slot[data-motion], .composer-island-slot[data-reserved]';
-// Undecided dock chrome too, on an entry whose island height is not known yet.
-const ENTRY_CHROME_PENDING = `[data-entry-pending], ${DOCK_MOTION}`;
+// The island slot easing its height: a transition, which ends by itself. A slot that keeps room for a segment still
+// reading (`data-reserved`) is not waited for: the read is the core's to answer, and may never be.
+const DOCK_MOTION = '.composer-island-slot[data-motion]';
 const ROW_PENDING = '[data-transcript-pending]';
-// Revealed timelines one pane remembers, matching the geometry cache
-// (transcript-virtual-cache) a warm revisit depends on.
-const REVEALED_HISTORY_LIMIT = 16;
+const ROW = '.transcript-virtual-row';
+// A reply still streaming: its box and what it parses change for as long as it streams, and are never waited for.
+const STREAMING = '.message.streaming';
+
+/** Whether dock chrome under `scope` is still to settle: a module loading (`entry`), or the island slot easing its
+ *  height. A slot marked as moving whose height transition is not running (it started none: a slot not rendered, a
+ *  height that does not change) has no end to come and is not waited for; where the engine cannot say, the mark is
+ *  taken as it is. */
+function chromeUnsettled(scope: Element | null | undefined, entry: boolean): boolean {
+  if (!scope) return false;
+  if (entry && scope.querySelector('[data-entry-pending]')) return true;
+  for (const slot of scope.querySelectorAll<HTMLElement>(DOCK_MOTION)) {
+    // An engine that runs transitions knows them (CSSTransition); a document with none cannot say.
+    const engine = slot.ownerDocument.defaultView as (Window & { CSSTransition?: unknown }) | null;
+    if (typeof slot.getAnimations !== 'function' || typeof engine?.CSSTransition !== 'function') return true;
+    const moving = slot
+      .getAnimations()
+      .some((animation) => (animation as CSSTransition).transitionProperty === '--island-slot-height');
+    if (moving) return true;
+  }
+  return false;
+}
+
+/** Whether a row under `root` that is not streaming still holds a pending body or card. */
+function settlingPending(root: Element): boolean {
+  for (const marker of root.querySelectorAll(ROW_PENDING)) {
+    if (!marker.closest(ROW)?.querySelector(STREAMING)) return true;
+  }
+  return false;
+}
+
+const readerPlaced = () => true;
 
 /**
  * Data readiness is not layout readiness: a virtual range can still contain
- * estimates or a suspended Markdown body. Reveal each visit once its visible
- * rows and end offset agree across samples (the commit, then each frame),
- * without adding a scroll writer.
+ * estimates or a suspended Markdown body. Each visit (the timeline put up to
+ * be presented: a first entry, or a return to a list kept mounted) is
+ * revealed once its reader is where the visit puts it and the rows in view
+ * hold their final boxes: in the visit's own commit when they read back at
+ * exactly the extents the list gave them, else in the first frame they
+ * agree across two samples. What is waited for is work that ends by itself
+ * inside the renderer, from data it holds: a body parsed (or failed, which
+ * shows its text), a module loaded, a motion ended, the fonts. A view never
+ * waits for a read of the core, and no elapsed time presents one. No scroll
+ * is written here.
  */
 export function useTranscriptReveal({
   identity,
+  visit = 0,
   enabled,
   draft,
   viewport,
@@ -35,16 +64,16 @@ export function useTranscriptReveal({
   scope,
   hasScrollGesture,
   eager = false,
-  retainedGeometry,
   pinned = false,
+  placed = readerPlaced,
 }: {
   identity: string;
-  /** The timeline's virtual snapshot at departure. A warm revisit reveals in
-   *  its commit only when its visible rows read back at exactly these sizes
-   *  and offsets; without it the revisit enters cold. */
-  retainedGeometry?: readonly RetainedRow[];
+  /** Counts the times the timeline was put up to be presented: each is revealed anew. */
+  visit?: number;
   /** The timeline follows its end: its end pin must have landed. */
   pinned?: boolean;
+  /** A timeline off its end: its reader is on the row the visit puts it on. */
+  placed?: () => boolean;
   enabled: boolean;
   draft: boolean;
   /** The phone: reveal as soon as a visible row holds its real content (no
@@ -57,45 +86,46 @@ export function useTranscriptReveal({
   scope?: RefObject<HTMLElement | null>;
   hasScrollGesture(): boolean;
 }): boolean {
-  const [revealedIdentity, setRevealedIdentity] = useState(draft ? identity : '');
-  const [visitIdentity, setVisitIdentity] = useState(identity);
-  if (visitIdentity !== identity) {
-    setVisitIdentity(identity);
-    setRevealedIdentity('');
+  const visitKey = `${identity}\n${visit}`;
+  const [revealedVisit, setRevealedVisit] = useState(draft ? visitKey : '');
+  const [currentVisit, setCurrentVisit] = useState(visitKey);
+  if (currentVisit !== visitKey) {
+    setCurrentVisit(visitKey);
+    setRevealedVisit('');
   }
-  const [revealedBefore] = useState(() => new Set<string>());
-  // Read at the commit's microtask: whether the end pin must already hold.
+  // The timelines this hook revealed: a later visit of one is a return to rows that held their boxes.
+  const [revealedTimelines] = useState(() => new Set<string>());
+  // Read at the commit's microtask and at each sample: where the reader must be.
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
   useLayoutEffect(() => {
-    if (revealedIdentity === identity) return undefined;
+    if (revealedVisit === visitKey) return undefined;
     if (draft) {
-      setRevealedIdentity(identity);
+      setRevealedVisit(visitKey);
       return undefined;
     }
     if (!enabled) return undefined;
-    const retained = retainedGeometry;
-    const warm = Boolean(retained?.length) && revealedBefore.has(identity);
+    const warm = revealedTimelines.has(identity);
     // A revisit's undecided segments paint into the room the island reserves
     // for them; holding the rows for their reads replayed the pane's cover.
-    const chrome = warm ? DOCK_MOTION : ENTRY_CHROME_PENDING;
+    const chromePendingNow = (): boolean => chromeUnsettled(scope?.current, !warm);
     let frame = 0;
     let cancelled = false;
     let previous = '';
-    let started = performance.now();
-    const chromeStarted = started;
-    let chromeGaveUp = false;
     const reveal = () => {
-      revealedBefore.delete(identity);
-      revealedBefore.add(identity);
-      for (const oldest of revealedBefore) {
-        if (revealedBefore.size <= REVEALED_HISTORY_LIMIT) break;
-        revealedBefore.delete(oldest);
-      }
+      revealedTimelines.add(identity);
       // Committed before this frame paints: a scheduled update landed after
       // it, so every visit painted at least one more blank (hidden) frame.
-      flushSync(() => setRevealedIdentity(identity));
+      flushSync(() => setRevealedVisit(visitKey));
     };
+    /** The reader is where the visit puts it: on the end (by the list's own extent, or by the document's while the
+     *  list still holds the viewport height it first observed), or on its row. */
+    const readerSet = (root: HTMLDivElement, position: { top: number; maxScrollTop: number }) =>
+      pinnedRef.current
+        ? position.maxScrollTop - position.top <= 1 || root.scrollHeight - root.clientHeight - root.scrollTop <= 1
+        : placedRef.current();
     const measure = (root: HTMLDivElement, space: HTMLDivElement) => {
       const position = transcriptScrollPosition(root);
       // Row offsets are spacer-relative; the scroll offset includes the
@@ -106,7 +136,9 @@ export function useTranscriptReveal({
       const bottom = top + position.viewportHeight;
       const total = Number.parseFloat(space.style.height) || 0;
       const rows = space.querySelectorAll<HTMLElement>('.transcript-virtual-row');
-      const signature: number[] = [position.viewportHeight, position.maxScrollTop, total];
+      // The boxes that settle: the rows in view that are not streaming. A streaming reply, and with it the list's
+      // extent, changes for as long as it streams.
+      const signature: number[] = [position.viewportHeight];
       let visible = 0;
       let visiblePending = false;
       const visibleRows: HTMLElement[] = [];
@@ -119,12 +151,13 @@ export function useTranscriptReveal({
         visible++;
         visibleRows.push(row);
         closedEnds.push(next ? end : end - TRANSCRIPT_BOTTOM_SPACER);
+        if (row.querySelector(STREAMING)) return;
         if (warm && !visiblePending) visiblePending = Boolean(row.querySelector(ROW_PENDING));
         signature.push(Number(row.dataset.index), start, end);
       });
       // An entry waits on every mounted row. A revisit's offscreen rows hold
       // their remembered boxes, so only a row on screen can still paint empty.
-      const rowsPending = warm ? visiblePending : Boolean(space.querySelector(ROW_PENDING));
+      const rowsPending = warm ? visiblePending : settlingPending(space);
       return {
         position,
         visible,
@@ -139,26 +172,16 @@ export function useTranscriptReveal({
       const space = content.current;
       if (!root || !space) return;
       const { position, visible, rowsPending, current } = measure(root, space);
-      const top = position.top;
-      const chromeMarked = Boolean(scope?.current?.querySelector(chrome));
-      const chromeExpired = performance.now() - chromeStarted >= ENTRY_CHROME_MAX_MS;
-      const chromePending = chromeMarked && !chromeExpired;
-      // Giving up on chrome starts the row-settle bound from here.
-      if (chromeMarked && chromeExpired && !chromeGaveUp) {
-        chromeGaveUp = true;
-        started = performance.now();
-      }
+      const chromePending = chromePendingNow();
       const pending = rowsPending || chromePending || document.fonts?.status === 'loading';
-      const atEnd = position.maxScrollTop - top <= 1;
       const readerOwnsPosition = hasScrollGesture();
-      const placed = warm || atEnd || readerOwnsPosition;
-      const settled = visible > 0 && !pending && placed && current === previous;
+      const set = readerSet(root, position) || readerOwnsPosition;
+      const settled = visible > 0 && !pending && set && current === previous;
       if (eager && eagerReady(space, visible)) {
         reveal();
         return;
       }
-      if (chromePending) started = performance.now();
-      if (!chromePending && (settled || readerOwnsPosition || performance.now() - started >= ENTRY_REVEAL_MAX_MS)) {
+      if (!chromePending && (settled || readerOwnsPosition)) {
         reveal();
         return;
       }
@@ -176,29 +199,14 @@ export function useTranscriptReveal({
         reveal();
         return;
       }
-      const pending = rowsPending || scope?.current?.querySelector(chrome) || document.fonts?.status === 'loading';
+      const pending = rowsPending || chromePendingNow() || document.fonts?.status === 'loading';
       if (
-        !warm &&
         !pending &&
         visible > 0 &&
-        position.maxScrollTop - position.top <= 1 &&
+        readerSet(root, position) &&
         isExact(root, visibleRows, closedEnds) &&
         !hasScrollGesture()
       ) {
-        cancelled = true;
-        cancelAnimationFrame(frame);
-        reveal();
-        return;
-      }
-      const unchanged =
-        warm &&
-        !pending &&
-        visible > 0 &&
-        !root.hasAttribute(TRANSCRIPT_RELEARN_ATTRIBUTE) &&
-        !hasScrollGesture() &&
-        (!pinnedRef.current || position.maxScrollTop - position.top <= 1) &&
-        matchesRetained(visibleRows, retained);
-      if (unchanged) {
         cancelled = true;
         cancelAnimationFrame(frame);
         reveal();
@@ -218,29 +226,13 @@ export function useTranscriptReveal({
     enabled,
     hasScrollGesture,
     identity,
-    retainedGeometry,
-    revealedBefore,
-    revealedIdentity,
+    revealedTimelines,
+    revealedVisit,
     scope,
     viewport,
+    visitKey,
   ]);
-  return draft || !enabled || revealedIdentity === identity;
-}
-
-/** Every given row, read back from layout, is exactly what was remembered for
- *  its key: the rounded border-box height the virtualizer stores for a
- *  measured row, and the offset it positions the row at. No tolerance. */
-function matchesRetained(rows: readonly HTMLElement[], retained: readonly RetainedRow[] | undefined): boolean {
-  const byKey = new Map<string, RetainedRow>();
-  for (const row of retained ?? []) byKey.set(String(row.key), row);
-  return rows.every((row) => {
-    const kept = byKey.get(row.dataset.timelineKey ?? '');
-    return (
-      kept !== undefined &&
-      kept.size === Math.round(row.getBoundingClientRect().height) &&
-      kept.start === (Number.parseFloat(row.style.top) || 0)
-    );
-  });
+  return draft || !enabled || revealedVisit === visitKey;
 }
 
 /** Every given visible row, read back from layout, is exactly the extent the
@@ -258,5 +250,5 @@ function isExact(root: HTMLElement, rows: readonly HTMLElement[], ends: readonly
 /** An eager reveal needs real rows only: a visible row and no suspended
  *  Markdown body, which would paint an empty row that grows a frame later. */
 function eagerReady(space: HTMLDivElement, visible: number): boolean {
-  return visible > 0 && !space.querySelector(ROW_PENDING);
+  return visible > 0 && !settlingPending(space);
 }

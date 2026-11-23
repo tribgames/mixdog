@@ -8,7 +8,7 @@ import { connect } from '../src/client.ts';
 import { MockNetwork } from '../src/mock.ts';
 import { desktopSessionState, sessionReducer, sessionStateOf } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
-import { moveTranscriptWindow, windowWant, WINDOW_VIEW_MAX_ROWS } from '../src/transcript-window.ts';
+import { moveTranscriptWindow, windowWant, WINDOW_TAIL_MAX_ROWS } from '../src/transcript-window.ts';
 
 type O = Record<string, any>;
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
@@ -61,16 +61,9 @@ test('a stored record joins the followed tail and takes the place of the rows sh
   s = at(s, 'item/agentMessage/delta', { itemId: 'r3', delta: 'stream' });
   // The record's own `item/completed` reaches a positioned subscription as a change with no row.
   s = at(s, 'thread/transcript/changed', { lineage: 1 });
-  s = at(s, 'turn/completed', { turnId: 'x' });
-  // The reply stays shown, settled, until its record arrives.
-  assert.deepEqual(
-    s.items.map((row) => [row.id, row.text]),
-    [
-      ['r1', 'r1'],
-      ['r2', 'r2'],
-      ['r3', 'stream'],
-    ]
-  );
+  // The reply stays shown as it streamed until its record arrives: the turn's last output is told before its end.
+  assert.deepEqual(ids(s.items), ['r1', 'r2']);
+  assert.equal(state(s).streamingPartial?.text ?? state(s).streamingTail?.text, 'stream');
   const frames = s.frames ?? 0;
   s = at(s, 'thread/transcript/changed', {
     lineage: 1,
@@ -86,6 +79,11 @@ test('a stored record joins the followed tail and takes the place of the rows sh
     ]
   );
   assert.equal(s.frames, frames + 1, 'a unit is a publication of its own');
+  assert.equal(s.live, null, 'the record takes the place of the reply streamed');
+  // The turn's end, told after its last output, leaves no row of the client's making.
+  s = at(s, 'turn/completed', { turnId: 'x' });
+  assert.deepEqual(ids(s.items), ['r1', 'r2', 'r3']);
+  assert.deepEqual(s.loose ?? [], []);
   // Another lineage's change, and a replace of a record not held, change nothing.
   assert.equal(at(s, 'thread/transcript/changed', { lineage: 2, change: { op: 'replace', unit: unit(reply('r3', 'x')) } }), s);
   assert.equal(at(s, 'thread/transcript/changed', { lineage: 1, change: { op: 'replace', unit: unit(reply('r9')) } }), s);
@@ -145,11 +143,28 @@ test('a rewind cuts what follows its boundary and a clear leaves nothing', () =>
   assert.equal(s.held!.units.size, 0);
 });
 
-test('following keeps the tail and the pages joined to it however far they grew, and asks for nothing', () => {
-  // A tail followed through a long turn: far more rows than the reader's bound for pages read elsewhere.
-  const grownIds = Array.from({ length: WINDOW_VIEW_MAX_ROWS + 300 }, (_, i) => `g${String(i).padStart(4, '0')}`);
+test('a followed tail past its bound is read anew: alone for a reader at the end, with the rows around a reader off it', () => {
+  const ids = (count: number) => Array.from({ length: count }, (_, i) => `g${String(i).padStart(4, '0')}`);
+  const long = snapshot(ids(WINDOW_TAIL_MAX_ROWS + 300));
+  const anew = { ranges: [], followTail: true, pinned: [] };
+  assert.deepEqual(windowWant(long.held!, { kind: 'follow' }), anew, 'no tail range is retained: the core reads the newest records');
+  assert.deepEqual(windowWant(long.held!, { kind: 'read', first: 'g2300', last: 'g2347', end: true }), anew);
+  // A reader in the tail's stretch off its end keeps the rows in view and a page on each side.
+  assert.deepEqual(windowWant(long.held!, { kind: 'read', first: 'g1000', last: 'g1010' }), {
+    ranges: [{ at: 'around', position: pos('g1000'), before: 96, after: 11 + 96 }],
+    followTail: true,
+    pinned: [],
+  });
+  // A record opened elsewhere brings the tail anew beside it.
+  assert.deepEqual(windowWant(long.held!, { kind: 'at', position: pos('a3') })?.ranges, [
+    { at: 'around', position: pos('a3'), before: 96, after: 96 },
+  ]);
+});
+
+test('following keeps a tail within its bound and the pages joined to it, and asks for nothing', () => {
+  const grownIds = Array.from({ length: WINDOW_TAIL_MAX_ROWS - 100 }, (_, i) => `g${String(i).padStart(4, '0')}`);
   let s = snapshot(grownIds);
-  assert.equal(windowWant(s.held!, { kind: 'follow' }), null, 'a grown tail is not read anew');
+  assert.equal(windowWant(s.held!, { kind: 'follow' }), null, 'a tail within its bound is not read anew');
   // A page read above it is one stretch with it: sending a prompt from there (a follow) lets none of it go.
   s = at(s, 'thread/window/changed', {
     windowVersion: 11,
@@ -361,24 +376,4 @@ test('a held record sent again with a compaction divider shows the divider after
     },
   } as unknown as Json);
   assert.deepEqual(ids(again.items), ['r1', 'r2', 'divider:c1']);
-});
-
-test('a row no record ever holds stays where it arrived, before the records stored after it', () => {
-  const shown = (id: string, type = 'userMessage') =>
-    ({ item: { type, id, ...(type === 'userMessage' ? { content: [{ type: 'text', text: id }] } : { text: id }), meta: {} } });
-  const stored = (after: string, id: string) => ({
-    lineage: 1,
-    change: { op: 'insert', after: pos(after), unit: unit(user(id)) },
-  });
-  let s = snapshot(['r1', 'r2']);
-  // A prompt is shown, its turn is stopped (a row of no record), and only then is the prompt's record stored.
-  s = at(s, 'item/completed', shown('u3'));
-  s = at(s, 'item/completed', shown('stopped', 'agentMessage'));
-  s = at(s, 'thread/transcript/changed', stored('r2', 'u3'));
-  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped']);
-  // The next prompt and its record come after the stop.
-  s = at(s, 'item/completed', shown('u4'));
-  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped', 'u4']);
-  s = at(s, 'thread/transcript/changed', stored('u3', 'u4'));
-  assert.deepEqual(ids(s.items), ['r1', 'r2', 'u3', 'stopped', 'u4']);
 });

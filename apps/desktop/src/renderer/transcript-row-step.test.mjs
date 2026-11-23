@@ -164,6 +164,32 @@ test('a user row followed only by rows that paint nothing ends its turn', async 
   });
 });
 
+test('a compaction divider takes the working band’s seat, under a prompt and under the turn’s output', async () => {
+  await withList(async ({ render, marks }) => {
+    const divider = {
+      _tag: 'AssistantPart',
+      key: 's:divider',
+      turnKey: 't',
+      item: { kind: 'statusdone', id: 'divider:k1', status: 'compacted', label: 'Conversation compacted' },
+    };
+    await render([user, reply, tools, thinking]);
+    const band = marks(3);
+    assert.equal(band, 'bandLead turnEnd');
+    // The turn's last act: the divider alone where the band stood.
+    await render([user, reply, tools, divider]);
+    assert.equal(marks(3), 'bandLead bandSeat');
+    // Mid-turn: the band goes on under it.
+    await render([user, reply, tools, divider, thinking]);
+    assert.equal(marks(3), 'bandLead bandSeat');
+    assert.equal(marks(4), band, 'the band leads in under the divider as it did under the tools');
+    // Before the turn's first output.
+    await render([user, thinking]);
+    assert.equal(marks(1), 'turnEnd');
+    await render([user, divider, thinking]);
+    assert.equal(marks(1), 'bandSeat');
+  });
+});
+
 test('the reply that takes the leaving band slot is re-measured in the same commit', async () => {
   await withList(async ({ render, heights, spacerHeight }) => {
     await render([user, final, thinking]);

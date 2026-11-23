@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useRef } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef } from 'react';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentRoom } from './agent-room-store';
 import { MarkdownMentionNamesContext } from './markdown-mentions';
@@ -16,7 +16,12 @@ import type { TranscriptRowModel } from './transcript-rows';
 import { useScrollProgress } from './scroll-progress';
 import { TranscriptList } from './TranscriptList';
 import { useTranscriptJump } from './transcript-jump';
-import { TurnChangesContext, type TurnChangesSurface } from './TurnChangesCard';
+import {
+  TurnCardsWithheldContext,
+  TurnChangesContext,
+  TurnRowsContext,
+  type TurnChangesSurface,
+} from './TurnChangesCard';
 import type { ConversationTimeline } from './use-conversation-timeline';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
@@ -79,6 +84,7 @@ function TranscriptRowContexts({
   multiDevice,
   viewerDevice,
   turnChangesSurface,
+  rows,
   children,
 }: {
   project: string;
@@ -88,8 +94,15 @@ function TranscriptRowContexts({
   multiDevice: boolean;
   viewerDevice: string | null;
   turnChangesSurface: TurnChangesSurface | null;
+  /** The transcript's rows: a turn's changes card reads its turn's own records from them. */
+  rows: readonly TranscriptRowModel[];
   children: ReactNode;
 }) {
+  const shownRows = useRef(rows);
+  shownRows.current = rows;
+  const rowsOf = useCallback(() => shownRows.current, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one set per session shown
+  const withheldCards = useMemo(() => new Set<string>(), [sessionId]);
   const room = useAgentRoom(sessionId);
   const inRoom = room !== null;
   const memberNames = room?.memberNames;
@@ -102,7 +115,11 @@ function TranscriptRowContexts({
             <MarkdownOpenFolderContext.Provider value={openFolder ?? null}>
               <TranscriptDevicesContext.Provider value={multiDevice}>
                 <TranscriptViewerDeviceContext.Provider value={viewerDevice}>
-                  <TurnChangesContext.Provider value={turnChangesSurface}>{children}</TurnChangesContext.Provider>
+                  <TurnChangesContext.Provider value={turnChangesSurface}>
+                    <TurnRowsContext.Provider value={rowsOf}>
+                      <TurnCardsWithheldContext.Provider value={withheldCards}>{children}</TurnCardsWithheldContext.Provider>
+                    </TurnRowsContext.Provider>
+                  </TurnChangesContext.Provider>
                 </TranscriptViewerDeviceContext.Provider>
               </TranscriptDevicesContext.Provider>
             </MarkdownOpenFolderContext.Provider>
@@ -134,7 +151,6 @@ export function ConversationTranscript({
   renderRow,
   itemCount,
   cover,
-  listHeld = false,
   intro,
   agentMode = false,
 }: {
@@ -160,7 +176,12 @@ export function ConversationTranscript({
   >;
   timeline: Pick<
     ConversationTimeline,
-    'transcriptRows' | 'transcriptRevealed' | 'jumpToLatest' | 'shouldAnchorTranscriptBottom' | 'reportTranscriptReader'
+    | 'transcriptRows'
+    | 'transcriptRevealed'
+    | 'transcriptListShown'
+    | 'jumpToLatest'
+    | 'shouldAnchorTranscriptBottom'
+    | 'reportTranscriptReader'
   >;
   links: { openFile?: OpenFile; openFolder?: OpenFolder; turnChangesSurface: TurnChangesSurface | null };
   sessionKey: string;
@@ -182,13 +203,7 @@ export function ConversationTranscript({
   const { viewport, content, follow } = view;
   useScrollProgress(viewport, ':scope > .transcript-scroll-fade');
   const { requestEarlierTranscript, requestLaterTranscript, transcriptHistoryActive } = source;
-  const revealRef = useRef<((match: (row: TranscriptRowModel) => boolean) => boolean) | null>(null);
-  useTranscriptJump({
-    sessionId: draftMode ? '' : routeSessionId,
-    rows: timeline.transcriptRows,
-    leaveTail: follow.pause,
-    reveal: revealRef,
-  });
+  useTranscriptJump({ sessionId: draftMode ? '' : routeSessionId, leaveTail: follow.pause });
   const revealed = timeline.transcriptRevealed;
   const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
   const showWelcome = conversationShowsWelcome({
@@ -274,8 +289,9 @@ export function ConversationTranscript({
             multiDevice={multiDevice}
             viewerDevice={viewerDevice}
             turnChangesSurface={links.turnChangesSurface}
+            rows={timeline.transcriptRows}
           >
-            {source.showTranscriptTimeline && !listHeld && (
+            {timeline.transcriptListShown && (
               <TranscriptList
                 key={source.transcriptIdentity.current}
                 sessionKey={sessionKey}
@@ -292,7 +308,6 @@ export function ConversationTranscript({
                 scrollToEndRef={view.scrollToEndRef}
                 renderRow={renderRow}
                 surface={agentMode ? agentSurface : 'coding'}
-                revealRef={revealRef}
               />
             )}
           </TranscriptRowContexts>

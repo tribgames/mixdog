@@ -138,6 +138,7 @@ export function activityVerb({
   now: number;
   language?: UiLanguage;
 }): string {
+  if (mode === 'stopping') return localizedOrFallback('Stopping…', language);
   if (SPINNER_MODE_OVERRIDE_VERBS[mode]) {
     const key = MODE_VERB_KEYS[mode] || String(SPINNER_MODE_OVERRIDE_VERBS[mode]);
     return localizedOrFallback(key, language);

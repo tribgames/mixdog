@@ -21,6 +21,8 @@ import type {
   DesktopModelOption,
   DesktopModelSelection,
   DesktopNewTaskDraft,
+  DesktopTurnTakeover,
+  DesktopTurnTakeoverReceipt,
   DesktopNewTaskSubmitResult,
   DesktopPromptContent,
   DesktopSessionStateUpdate,
@@ -979,6 +981,9 @@ export interface DesktopApi {
    *  session (active or parked), keyed by sessionId. */
   submitToSession(sessionId: string, prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abortSession(sessionId: string, options?: DesktopAbortOptions): Promise<unknown>;
+  /** "Send now": the running turn ends taken over by the queued message. One command per press; the receipt says what
+   *  became of the message. */
+  takeOverTurn(sessionId: string, takeover: DesktopTurnTakeover): Promise<DesktopTurnTakeoverReceipt>;
   resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** Secret input card: hands the value to this PC's main process for the
    *  request id; it is filled into the target field and never leaves this

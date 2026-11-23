@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { ENTRY_CHROME_MAX_MS } from './use-transcript-reveal';
 import { useConversationTimeline } from './use-conversation-timeline';
 import { NOTIFICATION_JUMP_LATEST_EVENT } from './use-push-notification-navigation';
-import { rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
+import { forgetTranscriptVirtualSnapshot, rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
 
 const ITEMS = [
   { id: 'u1', kind: 'user', text: 'hello' },
@@ -30,6 +29,8 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
     },
   });
   t.mock.method(performance, 'now', () => now);
+  // What a case's lists left of their sessions is the renderer's, not the next case's.
+  t.after(() => ['session-a', 'session-b'].forEach(forgetTranscriptVirtualSnapshot));
   const viewport = { current: document.getElementById('viewport') };
   Object.defineProperties(viewport.current, {
     clientHeight: { value: 100 },
@@ -168,14 +169,15 @@ test('a tapped notification for this session returns the pane to its latest row;
   assert.equal(entry.calls.resumed, 1);
 });
 
-test('a slow dock chrome releases the hidden report after the bound', (t) => {
+test('a slow dock chrome holds the hidden report until it answers, however long that takes', (t) => {
   const entry = mount(t);
   entry.tick(16);
-  entry.tick(ENTRY_CHROME_MAX_MS - 16);
+  entry.tick(60_000);
   assert.equal(entry.hidden(), true);
   assert.deepEqual(entry.calls.revealed, []);
-  entry.tick(ENTRY_CHROME_MAX_MS);
-  entry.tick(ENTRY_CHROME_MAX_MS + 16);
+  for (const marker of entry.window.document.querySelectorAll('[data-entry-pending]')) marker.remove();
+  entry.tick(60_016);
+  entry.tick(60_032);
   assert.equal(entry.hidden(), false);
   assert.deepEqual(entry.calls.revealed, ['session-a']);
 });

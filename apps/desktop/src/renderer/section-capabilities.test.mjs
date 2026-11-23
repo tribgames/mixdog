@@ -4,7 +4,6 @@ import test from 'node:test';
 import { isSectionCapability, providerSetupRefresh, sectionOf } from '../shared/section-capabilities.ts';
 import { invokeOrHeld, readHeldCapability, readOrHeld } from './section-capabilities.ts';
 import { createSectionStore } from './section-store.ts';
-import { wasPrioritized } from './prioritized-answer.ts';
 
 const entry = (section, key, value) => ({ section, key, revision: 1, value });
 
@@ -174,11 +173,4 @@ test('on a core connection a capability the sections did not replace still goes 
     snapshot: null,
   });
   assert.deepEqual(sent, ['getProfile']);
-});
-
-test("prioritizeQueued is taken for Node's count or the core's turn/steer answer", () => {
-  assert.equal(wasPrioritized({ count: 1, ids: ['q1'], priority: 'now' }), true);
-  assert.equal(wasPrioritized({ accepted: true, queuedId: 'q1' }), true);
-  assert.equal(wasPrioritized({ count: 0, ids: [], priority: 'now' }), false);
-  assert.equal(wasPrioritized(undefined), false);
 });

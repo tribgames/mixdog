@@ -25,14 +25,14 @@ import { createPanes } from './panes';
 import { createProblemTracker } from './problem-tracker';
 import { createReadActions } from './read-actions';
 import { createReloads } from './reloads';
-import { createPublish, createSessionViews, publishedHold } from './session-views';
+import { createPublish, createSessionViews, readStates } from './session-views';
 import { currentAnnotations, type FileTarget, type SessionState, type VisualizeResult, view } from './tab-state';
 import { createTabVersions } from './tab-versions';
 import { createTabs } from './tabs';
 import { parseVisualizeRequest } from './targets';
 import { type VisualizeAnnotation, visualizePaneMarks } from '../../shared/visualize-annotations';
 import { createThumbnails } from './thumbnails';
-import { createTurnHolds } from './turn-hold';
+import { createTurnHolds, refusePast } from './turn-hold';
 import { createVersionRestore } from './version-restore';
 import { createVersionSelection } from './version-select';
 import { createVisualizeVersionStore, type VisualizeVersionLimits } from './versions';
@@ -344,10 +344,6 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
 
   const thumbnails = createThumbnails(ctx);
   const publish = createPublish(ctx);
-  const withHold = <T extends { sessionId: string }>(sessionId: string, state: T): T => ({
-    ...state,
-    ...publishedHold(ctx, sessionId),
-  });
   const problems = createProblemTracker(ctx);
   const leases = createLeaseGuard((lease, kind, message) => {
     const found = problems.paneOfUrl([lease]);
@@ -363,7 +359,8 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
   const commands = createPanelCommands(ctx);
   const turns = createTurnHolds(ctx);
 
-  const run = (request: ReturnType<typeof parseVisualizeRequest>): Promise<VisualizeResult> | VisualizeResult => {
+  const run = async (request: ReturnType<typeof parseVisualizeRequest>): Promise<VisualizeResult> => {
+    await turns.ended(request.sessionId);
     if (request.action === 'open') return opens.open(request);
     if (request.action === 'close') return tabs.close(request);
     if (request.action === 'annotate') return reads.annotate(request);
@@ -377,6 +374,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
   return {
     /** See `createTurnHolds`: the session roster tells when agent turns run. */
     observeTurns: turns.observeTurns,
+    observeTurnEdge: turns.observeEdge,
     setTurnActive: turns.setTurnActive,
     /** The source text of a displayed pane (the source view). */
     paneText: reads.paneText,
@@ -429,15 +427,11 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     },
     /** Every session's tabs, for a renderer that (re)loads. */
     snapshot(): VisualizeSessionState[] {
-      return [...sessions.keys()]
-        .map((id) => withHold(id, ctx.views.stateOf(id)))
-        .filter((state) => state.tabs.length > 0 || state.history?.length);
+      return readStates(ctx, (hold) => hold.shown.state, ctx.views.stateOf);
     },
     /** Every session's tabs with their resolved files, for the remote mirror. */
     hostSnapshot(): VisualizeHostState[] {
-      return [...sessions.keys()]
-        .map((id) => withHold(id, ctx.views.hostStateOf(id)))
-        .filter((state) => state.tabs.length > 0 || state.history?.length);
+      return readStates(ctx, (hold) => hold.shown.host, ctx.views.hostStateOf);
     },
     /** One panel tab as the renderer draws it (feedback finds its frames). */
     tabView(sessionId: string, tabId: string): VisualizeTabView | null {
@@ -451,7 +445,10 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
      *  The daemon hands the file to the device as a download and removes it.
      *  Drawn without the desktop panel wherever a pane can be, so the panel
      *  may be hidden. */
-    exportForDevice: (command: DesktopVisualizeTabCommand) => exportTabForDevice(sessions, exports, command),
+    exportForDevice: async (command: DesktopVisualizeTabCommand) => {
+      refusePast(ctx, command.sessionId, command.tabId);
+      return exportTabForDevice(sessions, exports, command);
+    },
     dispose(): void {
       for (const state of sessions.values()) for (const tab of state.tabs) tabs.dispose(tab);
       sessions.clear();

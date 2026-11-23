@@ -1,5 +1,6 @@
 // Agent mode (에이전트 모드): which sessions take it, the bubble runs, the
 // messenger composer, the phone's no-tab chat slot — and coding mode left as it was.
+import { preloadSyncMarkdownParser } from './markdown-worker-client.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -460,6 +461,9 @@ test('a bot chat shows one typing bubble and none of the words while a reply str
 });
 
 test('a bot chat shows a completed reply whole, without dots', async (t) => {
+  // A settled reply is drawn parsed in the commit that mounts it once the page's parser is loaded, as the app loads
+  // it at boot (lazy-widgets.ts). Unloaded, the reply stands pending for as long as the import takes.
+  await preloadSyncMarkdownParser();
   const render = rowHarness(t);
   const whole = await showRows(render, HOME, [
     user('u1', DAY1),
@@ -472,6 +476,9 @@ test('a bot chat shows a completed reply whole, without dots', async (t) => {
 });
 
 test("a turn's earlier message stays whole above the next one's typing bubble", async (t) => {
+  // A settled reply is drawn parsed in the commit that mounts it once the page's parser is loaded, as the app loads
+  // it at boot (lazy-widgets.ts). Unloaded, the reply stands pending for as long as the import takes.
+  await preloadSyncMarkdownParser();
   const render = rowHarness(t);
   const first = { ...reply('a1', DAY1), item: { ...reply('a1', DAY1).item, text: 'Checking first', streaming: false } };
   const second = await showRows(render, HOME, [user('u1', DAY1), first, streamingTail('Then', true), THINKING]);

@@ -38,6 +38,8 @@ export type TranscriptItem = RecordValue & {
    *  refusal; a `visualize` call's owner conversation, `ownerSessionId`). */
   toolMeta?: { code: string; missing: string[]; ownerSessionId?: string };
   isError?: boolean;
+  /** A stored tool call that ended with its turn and has no result: not answered. */
+  stopped?: boolean;
   streaming?: boolean;
   expanded?: boolean;
   count?: number;

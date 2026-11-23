@@ -49,6 +49,7 @@ export const DIRECT_KEYS = {
     'submitNewTask',
     'submitToSession',
     'abortSession',
+    'takeOverTurn',
     'resolveToolApprovalForSession',
     'resyncSessionState',
     'subscribeSessionState',

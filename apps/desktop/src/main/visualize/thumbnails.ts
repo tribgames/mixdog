@@ -1,6 +1,7 @@
 import { visualizeThumbnail } from '../../shared/visualize';
 import { ACTIVATE_SETTLE_MS, type VisualizeServiceContext } from './context';
 import { shownLayout, type TabState, view } from './tab-state';
+import { joinPicture, showsTab } from './turn-hold';
 import { keepVersionThumbnail, shownVersionOf } from './version-thumbnails';
 
 /** How long a turn's end waits for its cards' pictures; a card whose picture
@@ -25,8 +26,9 @@ export function createThumbnails(
 
   const refresh = (sessionId: string, tab: TabState): void => {
     const take = ctx.deps.thumbnail;
-    // A running turn (or its end, which takes its own) is never captured.
-    if (!take || tab.url || ctx.holds.has(sessionId)) return;
+    // A running turn's work is never captured (no window draws it), nor a tab during a turn's end, which takes its own.
+    const hold = ctx.holds.get(sessionId);
+    if (!take || tab.url || (hold && (hold.flushing || !showsTab(hold, tab)))) return;
     cancel(tab);
     const revision = tab.revision;
     const job = { revision, controller: new AbortController() };
@@ -42,6 +44,9 @@ export function createThumbnails(
       const n = shownVersionOf(tab);
       if (!thumbnail || !current() || (thumbnail === tab.thumbnail && tab.thumbnailVersion === n)) return;
       keepVersionThumbnail(ctx, sessionId, tab, n, thumbnail);
+      // A turn that started meanwhile keeps its own work back, not this picture of what the session shows.
+      const held = ctx.holds.get(sessionId);
+      if (held) joinPicture(held, tab);
       ctx.publish(sessionId);
     })()
       .catch((error: unknown) => {

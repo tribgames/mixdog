@@ -276,22 +276,44 @@ function restoreStreamingTailEpoch(source: Record<string, unknown>, target: Reco
   }
 }
 
+/** Own enumerable fields that hold a value. */
+function definedFields(record: Record<string, unknown>): number {
+  let count = 0;
+  for (const key in record) if (Object.hasOwn(record, key) && record[key] !== undefined) count += 1;
+  return count;
+}
+
+/** Compares in place: no key list or closure is made for the objects walked. */
 function sameSnapshotField(before: unknown, after: unknown): boolean {
   if (Object.is(before, after)) return true;
   if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false;
   if (Array.isArray(before) || Array.isArray(after)) {
-    return (
-      Array.isArray(before) &&
-      Array.isArray(after) &&
-      before.length === after.length &&
-      before.every((value, index) => sameSnapshotField(value, after[index]))
-    );
+    if (!Array.isArray(before) || !Array.isArray(after) || before.length !== after.length) return false;
+    for (let index = 0; index < before.length; index += 1) {
+      if (!sameSnapshotField(before[index], after[index])) return false;
+    }
+    return true;
   }
   const left = before as Record<string, unknown>;
   const right = after as Record<string, unknown>;
-  const keys = Object.keys(left).filter((key) => left[key] !== undefined);
-  if (keys.length !== Object.keys(right).filter((key) => right[key] !== undefined).length) return false;
-  return keys.every((key) => Object.hasOwn(right, key) && sameSnapshotField(left[key], right[key]));
+  if (definedFields(left) !== definedFields(right)) return false;
+  // An aggregate card's `rawResult` is its members' outputs joined, held as a rope over their strings (rows
+  // tool-result-status.mjs `aggregateRawResult`). Two ropes compared by content are each flattened into a copy of
+  // every member's text, kept for as long as the cards are. The members are compared; of the join, its length.
+  const joined = left.aggregate === true && right.aggregate === true && Array.isArray(left.toolMembers);
+  for (const key in left) {
+    if (!Object.hasOwn(left, key)) continue;
+    const value = left[key];
+    if (value === undefined) continue;
+    if (!Object.hasOwn(right, key)) return false;
+    const other = right[key];
+    if (joined && key === 'rawResult' && typeof value === 'string' && typeof other === 'string') {
+      if (value.length !== other.length) return false;
+      continue;
+    }
+    if (!sameSnapshotField(value, other)) return false;
+  }
+  return true;
 }
 
 function itemId(item: unknown): unknown {

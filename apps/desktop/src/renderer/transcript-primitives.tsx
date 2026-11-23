@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { createContext, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { uiTimeUnit } from './ui-format';
@@ -145,9 +145,24 @@ export function CopyControl({
   );
 }
 
+/** A turn end whose turn a message the user sent now took over (the core's `cause: "message"`). */
+export function isTakenOverTurnEnd(item: TranscriptItem): boolean {
+  return item.kind === 'turndone' && item.cause === 'message';
+}
+
+/** A compaction's divider (or the status line its check leaves): it lands where the working band stood. */
+export function isCompactionDivider(item: TranscriptItem | undefined): boolean {
+  return item?.kind === 'statusdone' && completionTone(item) === 'compaction';
+}
+
+/** The id of the compaction divider standing directly above the working band; '' when another row does. */
+export const BandDividerContext = createContext('');
+
 export function completionTone(item: TranscriptItem): 'complete' | 'failed' | 'interrupted' | 'compaction' {
   const label = String(item.label || item.status || '').trim();
   const status = String(item.status || '').toLowerCase();
+  // The user's own message took the turn over: an ordinary end, not a stop.
+  if (isTakenOverTurnEnd(item)) return 'complete';
   if (status === 'failed' || item.tone === 'error' || /failed|error/i.test(label)) return 'failed';
   if (
     /^(?:cancelled|canceled|aborted|interrupted)$/.test(status) ||

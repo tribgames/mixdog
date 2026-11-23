@@ -1,4 +1,4 @@
-import { Code, Download, ExternalLink, History, LayoutList, Save, Undo2 } from 'lucide-react';
+import { Code, Download, ExternalLink, History, LayoutList, Loader, Save, Undo2 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { VisualizeHistoryItem, VisualizePaneView, VisualizeSessionState } from '../shared/visualize';
@@ -14,8 +14,8 @@ import {
   exportVisualizeTab,
   openVisualizeHistory,
   reopenVisualizeTargets,
+  requestVisualizeVersion,
   restoreVisualizeVersion,
-  showVisualizeVersion,
   toggleVisualizeCompare,
   visualizeExportPane,
   visualizeHistoryTime,
@@ -102,7 +102,8 @@ function HistoryList({ items, onPick }: { items: VisualizeHistoryItem[]; onPick(
 /** The header's version button and its menu: versions newest first (the
  *  shown one checked), Back to live while a kept version is shown, Compare,
  *  and Restore for a kept version of a file tab. Null until the tab keeps two
- *  versions. A failed restore is reported through `setNotice`. */
+ *  versions. A step, a Compare or a restore the host refuses is reported
+ *  through `setNotice`. */
 export function visualizeVersionActions(
   sessionId: string,
   tab: Tab,
@@ -111,10 +112,13 @@ export function visualizeVersionActions(
   const position = visualizeVersionPosition(tab);
   if (!position) return null;
   const snapshot = tab.version ?? null;
+  const refused = (reason: unknown) => setNotice({ error: true, text: visualizeFailureMessage(reason) });
   const show = (version: number | null) => {
     // Comparing stays on: the newest version then sits beside live.
-    if (tab.compare) showVisualizeVersion(sessionId, tab.id, version ?? position.newest, true);
-    else showVisualizeVersion(sessionId, tab.id, version);
+    const step = tab.compare
+      ? requestVisualizeVersion(sessionId, tab.id, version ?? position.newest, true)
+      : requestVisualizeVersion(sessionId, tab.id, version);
+    void step.catch(refused);
   };
   const restore = () => {
     if (snapshot === null) return;
@@ -132,9 +136,7 @@ export function visualizeVersionActions(
       : t('Restore v{{n}}? This overwrites {{files}} in the project.', { n: snapshot, files });
     void confirmAction(message, { confirmLabel: t('Restore'), danger: true }).then((approved) => {
       if (!approved) return;
-      return restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch((reason: unknown) =>
-        setNotice({ error: true, text: visualizeFailureMessage(reason) })
-      );
+      return restoreVisualizeVersion(sessionId, tab.id, snapshot, assets).catch(refused);
     });
   };
   const list = [...(tab.versions ?? [])].reverse();
@@ -158,7 +160,7 @@ export function visualizeVersionActions(
     checked: tab.compare === true,
     checkbox: true,
     separatorBefore: true,
-    onSelect: () => toggleVisualizeCompare(sessionId, tab),
+    onSelect: () => void toggleVisualizeCompare(sessionId, tab).catch(refused),
   });
   if (snapshot !== null && !tab.panes.some((pane) => pane.inline)) {
     items.push({ id: 'version-restore', label: t('Restore'), onSelect: restore });
@@ -172,6 +174,23 @@ export function visualizeVersionActions(
     attention: snapshot !== null,
     submenu: items,
     onSelect: () => {},
+  };
+}
+
+/** The mark of the running turn's own tab, shown because the user asked for it while the turn still writes it. */
+export function visualizeTurnWorkAction(
+  tab: Pick<Tab, 'turnWork'>,
+  setNotice: (notice: Notice | null) => void
+): DockAction | null {
+  if (!tab.turnWork) return null;
+  const label = t('In progress');
+  return {
+    id: 'turn-work',
+    label,
+    icon: Loader,
+    inline: true,
+    attention: true,
+    onSelect: () => setNotice({ error: false, text: label }),
   };
 }
 
@@ -236,6 +255,9 @@ export function useVisualizePanelExtras(
         }),
     });
   }
+
+  const turnWork = tab ? visualizeTurnWorkAction(tab, setNotice) : null;
+  if (turnWork) actions.push(turnWork);
 
   const versions = tab ? visualizeVersionActions(sessionId, tab, setNotice) : null;
   if (versions) actions.push(versions);

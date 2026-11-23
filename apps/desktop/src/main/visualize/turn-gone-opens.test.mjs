@@ -175,11 +175,12 @@ test('a turn starting while the end checks the disk keeps its own open out of th
     await t.run('s1', 'open', { targets: ['a/index.html'] }, 'turn1-open');
     const ending = t.service.setTurnActive('s1', false);
     while (!fail) await new Promise((resolve) => setImmediate(resolve));
-    // The next turn reopens the same tab (its file is there) before the first answer arrives.
+    // The next turn reopens the same tab (its file is there) before the first answer arrives: its open follows that end.
     await t.service.setTurnActive('s1', true);
-    await t.run('s1', 'open', { targets: ['a/index.html'] }, 'turn2-open');
+    const reopening = t.run('s1', 'open', { targets: ['a/index.html'] }, 'turn2-open');
     fail();
     await ending;
+    await reopening;
     await t.service.setTurnActive('s1', false);
     assert.deepEqual(t.gone('s1'), [{ tab: 'v1', call: 'turn1-open' }]);
   } finally {

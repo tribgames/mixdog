@@ -71,6 +71,17 @@ const PAGE = `
     agents: { turns: 20, tokens: 580_000_000, input: 1000, cacheRead: 98000, cacheWrite: 10, unmeasuredTurns: 0, costUsd: 178.85, costUnpricedTurns: 0 },
     sessions,
   };
+  // The same session with figures the ledger can only bound: unmeasured and unpriced turns on both parts and on
+  // every other row, so every item of the footer and those rows carry the ≥ mark.
+  const exact = usage;
+  const floored = {
+    ...exact,
+    unmeasuredTurns: 1,
+    costUnpricedTurns: 1,
+    agents: { ...exact.agents, unmeasuredTurns: 3, costUnpricedTurns: 3 },
+    sessions: Object.fromEntries(Object.entries(sessions).map(([id, s], i) => [id, i % 2 ? s : { ...s, unmeasuredTurns: 1 }])),
+  };
+  window.__floors = (on) => { usage = on ? floored : exact; };
   window.__lead = (n) => { LEAD = 'lead-' + n; };
   // __usageGate holds getSessionUsage so the loading footer can be measured.
   window.mixdogDesktop = new Proxy({
@@ -270,7 +281,14 @@ const PAGE = `
       cutRows,
       moreBelow: list.hasAttribute('data-more'),
       namesEllipsize: names.every((n) => getComputedStyle(n).textOverflow === 'ellipsis' && getComputedStyle(n).overflow === 'hidden'),
-      summary: { overflow: summary.scrollWidth - summary.clientWidth, overlaps: summaryOverlaps, text: summary.textContent },
+      summary: {
+        overflow: summary.scrollWidth - summary.clientWidth,
+        overlaps: summaryOverlaps,
+        text: summary.textContent,
+        lines: new Set(parts.map((part) => Math.round(box(part).top))).size,
+        clipped: parts.some((part) => part.scrollWidth > part.clientWidth + 1 || box(part).right > box(summary).right + 0.5),
+      },
+      markedRows: items.filter((item) => item.querySelector('.composer-island-agent-tokens')?.textContent.startsWith('≥')).length,
     };
   };
 `;
@@ -425,6 +443,42 @@ test('the Agents popover header never overlaps or clips on a phone, in any langu
     }
     assert.deepEqual(failures, []);
     assert.deepEqual(errors, []);
+  } finally {
+    await tab.close();
+  }
+});
+
+test('figures marked as lower bounds keep the footer on one unclipped line and the rows clear, in every language', async () => {
+  const { browser, js, css } = await sharedBrowser();
+  const tab = await browser.newPage();
+  const failures = [];
+  const mobileHtml = `<!doctype html><html data-mixdog-mobile-tabs><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>${HOST}</body></html>`;
+  const desktopHtml = `<!doctype html><html><head><style>${css}</style></head><body>${HOST}</body></html>`;
+  try {
+    for (const [label, html, paneWidth, phone] of [
+      ['phone', mobileHtml, 0, true],
+      ['desktop', desktopHtml, 340, false],
+      ['desktop', desktopHtml, 560, false],
+    ]) {
+      await tab.setViewport(phone ? { width: 360, height: 800, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { width: 1400, height: 900 });
+      await tab.setContent(html);
+      await tab.addScriptTag({ content: js });
+      if (paneWidth) await tab.evaluate((width) => { document.querySelector('#host').style.width = `${width}px`; }, paneWidth);
+      await tab.evaluate(() => window.__floors(true));
+      // The page holds agents for 24 leads; a fresh page starts the island's answers over, so each size reuses them.
+      let leads = 0;
+      for (const language of ['en', ...LANGUAGES]) {
+        await tab.evaluate((n) => window.__lead(n), ++leads);
+        await tab.evaluate((lang) => window.__render(lang), language);
+        const m = await tab.evaluate(() => window.__measure());
+        const at = `${label} ${language} @${paneWidth || 360}`;
+        failures.push(...problems(`${at} floors`, m, phone));
+        if (!m.summary.text.includes('≥')) failures.push(`${at}: the footer carries no mark: ${m.summary.text}`);
+        if (m.summary.lines !== 1 || m.summary.clipped) failures.push(`${at}: the footer wraps or clips: ${m.summary.text}`);
+        if (m.markedRows === 0) failures.push(`${at}: no row shows its marked total`);
+      }
+    }
+    assert.deepEqual(failures, []);
   } finally {
     await tab.close();
   }

@@ -3,6 +3,17 @@ import type { TranscriptVirtualizer } from './transcript-list-geometry';
 import { rowIsStreaming } from './transcript-list-held-shrinks';
 
 const PENDING_SELECTOR = '[data-transcript-pending]';
+const ROW_CONTENT = 'transcript-virtual-row-content';
+
+/** Whether a body of the row is still to be laid out (a reply being parsed): its box is not the row's yet. A marker
+ *  that stands in the row beside its bodies (a card still to be read, which may turn out to be none) leaves the
+ *  boxes laid out as they are: the row's size is what it measures, and the card resizes it if it comes. */
+function bodyPending(element: HTMLElement): boolean {
+  for (const marker of element.querySelectorAll(PENDING_SELECTOR)) {
+    if (!marker.parentElement?.classList.contains(ROW_CONTENT)) return true;
+  }
+  return false;
+}
 
 /** Keeps a row's learned estimate while its markdown is pending
  *  (data-transcript-pending) and takes the settled box once the marker leaves.
@@ -32,7 +43,7 @@ export function useProvisionalRowResize({
           provisionalRows.current.delete(element);
           continue;
         }
-        if (element.querySelector(PENDING_SELECTOR)) continue;
+        if (bodyPending(element)) continue;
         provisionalRows.current.delete(element);
         const index = instance.indexFromElement(element as HTMLDivElement);
         if (index >= 0 && index < instance.options.count) {
@@ -55,7 +66,7 @@ export function useProvisionalRowResize({
         !takesPendingBox &&
         !fallbackEstimates.current.has(key) &&
         (provisionalRows.current.has(element) || !virtualizer.itemSizeCache.has(key)) &&
-        element.querySelector(PENDING_SELECTOR)
+        bodyPending(element)
       ) {
         provisionalRows.current.add(element);
         if (!provisionalFrame.current) provisionalFrame.current = window.requestAnimationFrame(settleProvisional);

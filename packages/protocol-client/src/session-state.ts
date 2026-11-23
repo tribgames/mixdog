@@ -5,13 +5,17 @@ import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
 import { itemRows, mergeToolRows, mergeToolRowsFrom, mergeToolRowsSteps, rowOf, rowsOf } from './rows.ts';
 import {
+  adoptHeldText,
   cutAfter,
+  foldWork,
+  runUnchanged,
+  shownAt,
   emptied,
   runRows,
   tailRun,
   transcriptChanged,
   unitShowing,
-  viewRun,
+  viewRuns,
   windowChanged,
   type HeldUnit,
   type HeldWindow,
@@ -84,8 +88,12 @@ export interface SessionFold {
   /** A positioned subscription's window (`thread/snapshot.window`): the stored records it holds. `items` are then the rows of
    *  the run that holds the followed tail, then `loose`. */
   readonly held?: HeldWindow;
-  /** Of a positioned fold: the rows no stored record it holds shows yet (the running turn's, live-only rows), oldest first. */
+  /** Of a positioned fold: the rows no stored record shows yet (the running turn's rows in progress, a row shown ahead
+   *  of its record), oldest first. They stand at the transcript's newest end, and give way to their record by identity. */
   readonly loose?: readonly Obj[];
+  /** Of a positioned fold: the rows made for the stretches shown apart from the tail, carried from fold to fold of the
+   *  thread (one holder, by reference). An entry lives as long as its stretch is shown (`positionedFields`). */
+  readonly views?: Map<HeldUnit, ViewRows>;
 }
 
 /** The core item each row was folded from (a row's id is not always its item's: a prompt's row is named by its submission). */
@@ -115,132 +123,216 @@ function boundaryItem(s: SessionFold, held: readonly string[], shown: string): n
 // ───────────────────────────── a positioned window ─────────────────────────────
 
 const ownRow: RowOwner = (row, item) => void rowItems.set(row, item);
+/** `ownRow` for a record stored after its rows were shown: its rows take the texts of the rows shown for it (`adoptHeldText`). */
+const ownShown = (shown: readonly Obj[] | undefined): RowOwner => {
+  if (!shown?.length) return ownRow;
+  return (row, item) => {
+    ownRow(row, item);
+    const prior = shown.find((candidate) => candidate.id === row.id && rowItems.get(candidate) === item);
+    if (prior) adoptHeldText(row, prior);
+  };
+};
 const itemOfRow = (row: Obj): string | undefined => rowItems.get(row);
 
-/** Where a row no stored record shows stands. A row arrives after the records stored by then and before the ones stored
- *  later, and some never get a record of their own. */
-interface Place {
-  /** The record it stands after (`before`: before); null: before every record. */
-  readonly at: string | null;
-  readonly before?: boolean;
-  /** The record is known to be stored: the window held it, or the core says it lies above the records a snapshot
-   *  carried. Until then a named record is one still to arrive. */
-  stored: boolean;
-  /** A snapshot's row the core named no record for, put at the tail's end as it was then: it is never taken for a
-   *  row of the history above the tail. */
-  readonly guessed?: boolean;
-}
-const loosePlace = new WeakMap<Obj, Place>();
-const FIRST: Place = { at: null, stored: true };
-
-/** The newest record of the followed tail. */
-const tailEnd = (held: HeldWindow): string | null => tailRun(held)?.positions.at(-1) ?? null;
-
-/** `loose` with `row`: in the place of the row of its id, where that one stood; else last, after the tail as it is now. */
-function withLoose(held: HeldWindow, loose: readonly Obj[], row: Obj): Obj[] {
-  const { items, at } = upsert(loose, row);
-  const prior = loose[at];
-  loosePlace.set(row, prior ? (loosePlace.get(prior) ?? FIRST) : { at: tailEnd(held), stored: true });
-  return items;
+/** `loose` with `row` in the place of the row of its id, or after them all. */
+function withLoose(loose: readonly Obj[], row: Obj): Obj[] {
+  return upsert(loose, row).items;
 }
 
-/** The rows a positioned fold shows on its live tail: the run of the followed tail, each row no stored record shows
- *  beside the record it stands after (or before). One whose record is still to arrive stands after them all until it
- *  does. One whose stored record is not in the run stands in the history above it and is not shown while the run
- *  continues there (it returns with its record); in a run that reaches the thread's start it stands before them all. */
-function positionedItems(held: HeldWindow, loose: readonly Obj[]): Obj[] {
-  const run = tailRun(held);
-  if (loose.length === 0 || !run) return [...runRows(held, run), ...loose];
-  const first: Obj[] = [];
-  const last: Obj[] = [];
-  const before = new Map<string, Obj[]>();
-  const after = new Map<string, Obj[]>();
-  const inRun = new Set(run.positions);
-  for (const row of loose) {
-    const place = loosePlace.get(row) ?? FIRST;
-    if (place.at === null) first.push(row);
-    else if (inRun.has(place.at)) {
-      place.stored = true;
-      const beside = place.before ? before : after;
-      const shown = beside.get(place.at);
-      if (shown) shown.push(row);
-      else beside.set(place.at, [row]);
-    } else {
-      if (held.units.has(place.at)) place.stored = true;
-      if (place.guessed) first.push(row);
-      else if (!place.stored) last.push(row);
-      else if (run.older === null) first.push(row);
+/** How the rows shown are laid out: the tail run's records, and where the rows of each begin. It belongs to one row
+ *  array and moves on to the array made from it (`positionedItems`), so a frame places only what it changed. */
+interface Layout {
+  positions: readonly string[];
+  readonly index: Map<string, number>;
+  /** `starts[i]`: where the rows of `positions[i]` begin; `starts[positions.length]`: where the rows that stand last do. */
+  readonly starts: number[];
+}
+const layouts = new WeakMap<readonly Obj[], Layout>();
+
+/** The rows of one record of the run onto `out`. */
+function pushBlock(out: Obj[], unit: HeldUnit | undefined): void {
+  const rows = unit?.rows ?? [];
+  const work = foldWork();
+  if (work) work.placed += rows.length;
+  for (const row of rows) out.push(row);
+}
+
+const NO_POSITIONS: readonly string[] = [];
+
+/** The rows a positioned fold shows on its live tail, a function of what it holds: the records of the followed tail's
+ *  run in their order, then the rows no record shows yet (`loose`).
+ *
+ *  `prior` and `dirty`: the rows shown before this change and the records whose rows it changed. Only those records'
+ *  rows are placed again; the rest are the rows `prior` holds. Without them every row is placed. `from`: no row before
+ *  it changed. */
+function positionedItems(
+  held: HeldWindow,
+  loose: readonly Obj[],
+  prior?: readonly Obj[],
+  dirty?: readonly string[]
+): { items: readonly Obj[]; from: number; same?: { until: number; moved: number } } {
+  const positions = tailRun(held)?.positions ?? NO_POSITIONS;
+  const last = loose;
+  const work = foldWork();
+  // The rows no record shows are read each time: they are the running turn's few.
+  if (work) work.placed += last.length;
+  const block = (out: Obj[], position: string): void => pushBlock(out, held.units.get(position));
+  const layout = prior && dirty ? layouts.get(prior) : undefined;
+  const old = layout?.positions ?? NO_POSITIONS;
+  const count = old.length;
+  // The first and last record of the run whose rows changed, as the layout numbers them.
+  let first = count;
+  let final = -1;
+  if (layout)
+    for (const position of dirty ?? []) {
+      const at = layout.index.get(position);
+      if (at === undefined) continue;
+      first = Math.min(first, at);
+      final = Math.max(final, at);
     }
+  const sameEnds = (to: number): boolean => to === 0 || (positions[0] === old[0] && positions[to - 1] === old[to - 1]);
+  if (layout && prior && positions.length === count && sameEnds(count) && (final < 0 || positions[final] === old[final])) {
+    // The run holds the records it held: the changed stretch is placed again between the rows before and after it.
+    const { starts } = layout;
+    const lastFrom = starts[count]!;
+    if (final < 0) {
+      let same = prior.length - lastFrom === last.length;
+      for (let at = 0; same && at < last.length; at += 1) same = prior[lastFrom + at] === last[at];
+      if (same) return { items: prior, from: prior.length };
+      first = count;
+    }
+    const begin = starts[first]!;
+    const rows: Obj[] = [];
+    for (let at = first; at <= final; at += 1) {
+      starts[at] = begin + rows.length;
+      block(rows, positions[at]!);
+    }
+    const resume = final < 0 ? lastFrom : starts[final + 1]!;
+    const moved = begin + rows.length - resume;
+    if (moved !== 0) {
+      if (work) work.copied += count - final;
+      for (let at = final + 1; at <= count; at += 1) starts[at]! += moved;
+    }
+    const items = prior.slice(0, begin).concat(rows, prior.slice(resume, lastFrom), last as Obj[]);
+    if (work) work.copied += items.length;
+    layouts.delete(prior);
+    layout.positions = positions;
+    layouts.set(items, layout);
+    // The rows after the changed stretch are the ones held, to the end, when the rows no record shows are too.
+    let sameLast = prior.length - lastFrom === last.length;
+    for (let at = 0; sameLast && at < last.length; at += 1) sameLast = prior[lastFrom + at] === last[at];
+    return {
+      items,
+      from: unchangedFrom(items, prior, begin, rows.length + last.length),
+      ...(sameLast && final >= 0 ? { same: { until: begin + rows.length, moved } } : {}),
+    };
   }
-  const rows = first;
-  for (const position of run.positions) {
-    for (const row of before.get(position) ?? []) rows.push(row);
-    const unit = held.units.get(position);
-    if (unit) for (const row of unit.rows) rows.push(row);
-    for (const row of after.get(position) ?? []) rows.push(row);
+  const grown = positions.length === count + 1 && !layout?.index.has(positions[count]!);
+  const shrunk = positions.length === count - 1 && final >= 0;
+  if (layout && prior && (grown || shrunk) && sameEnds(first)) {
+    // A record joined the run's end, or one left it: the rows from the first one changed on are placed again.
+    const { starts, index } = layout;
+    const begin = starts[first]!;
+    for (let at = first; at < count; at += 1) index.delete(old[at]!);
+    starts.length = first;
+    const rows: Obj[] = [];
+    for (let at = first; at < positions.length; at += 1) {
+      starts.push(begin + rows.length);
+      index.set(positions[at]!, at);
+      block(rows, positions[at]!);
+    }
+    starts.push(begin + rows.length);
+    const items = prior.slice(0, begin).concat(rows, last as Obj[]);
+    if (work) work.copied += items.length;
+    layouts.delete(prior);
+    layout.positions = positions;
+    layouts.set(items, layout);
+    return { items, from: unchangedFrom(items, prior, begin, rows.length + last.length) };
   }
-  for (const row of last) rows.push(row);
-  return rows;
+  const items: Obj[] = [];
+  const starts: number[] = [];
+  const index = new Map<string, number>();
+  positions.forEach((position, at) => {
+    starts.push(items.length);
+    index.set(position, at);
+    block(items, position);
+  });
+  starts.push(items.length);
+  for (const row of last) items.push(row);
+  layouts.set(items, { positions, index, starts });
+  return { items, from: 0 };
 }
 
-const heldItemSets = new WeakMap<ReadonlyMap<string, HeldUnit>, ReadonlySet<string>>();
-/** The core items the window's records show. */
-function heldItems(held: HeldWindow): ReadonlySet<string> {
-  let ids = heldItemSets.get(held.units);
-  if (!ids) {
-    ids = new Set([...held.units.values()].flatMap((unit) => unit.items));
-    heldItemSets.set(held.units, ids);
-  }
-  return ids;
+/** The first row from `begin` on that `items` does not share with `prior`, looking at no more than the `placed` rows
+ *  placed anew. */
+function unchangedFrom(items: readonly Obj[], prior: readonly Obj[], begin: number, placed: number): number {
+  const until = Math.min(begin + placed, items.length, prior.length);
+  let from = begin;
+  while (from < until && items[from] === prior[from]) from += 1;
+  return from;
 }
+
+/** `loose` without the rows a held record shows: a record's rows are its unit's. */
+function unshown(held: HeldWindow, loose: readonly Obj[]): readonly Obj[] {
+  if (loose.length === 0) return loose;
+  const kept = loose.filter((row) => !shownIn(held, row.id) && !shownIn(held, rowItems.get(row)));
+  return kept.length === loose.length ? loose : kept;
+}
+
+const shownIn = (held: HeldWindow, id: unknown): boolean => shownAt(held, id) !== undefined;
 
 /** `s` holding `held` and `loose`; `told`: the change is a publication of its own (no `thread/frame` follows a window's
- *  change), so the frame count moves with it. */
-function withHeld(s: SessionFold, held: HeldWindow, loose: readonly Obj[], told: boolean): SessionFold {
+ *  change), so the frame count moves with it. `dirty`: the records whose rows the change touched (`positionedItems`);
+ *  null: any of them. */
+function withHeld(
+  s: SessionFold,
+  held: HeldWindow,
+  loose: readonly Obj[],
+  told: boolean,
+  dirty: readonly string[] | null
+): SessionFold {
+  const placed = dirty === null ? positionedItems(held, loose) : positionedItems(held, loose, s.items, dirty);
+  const { items } = placed;
+  // As a fold of no window does (`oweTranscript`): the transcript is merged on from the one held, from the first row
+  // that is not the row held there, and its reader is told which leading rows it keeps. A change that names the
+  // records it touched knows that row; one that may touch any (a window's change) finds it.
+  let { from } = placed;
+  if (dirty === null) {
+    const shared = Math.min(items.length, s.items.length);
+    while (from < shared && items[from] === s.items[from]) from += 1;
+  }
+  if (items !== s.items) oweTranscript(s.items, items, from, placed.same);
   return {
     ...s,
     held,
     loose,
-    items: positionedItems(held, loose),
+    items,
+    views: s.views ?? new Map(),
     structureRevision: s.structureRevision + 1,
     ...(told ? { frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) + 1 } : {}),
   };
-}
-
-/** A turn's boundary: a reply still streamed whose record has not reached the window yet stays shown, settled, until it does. */
-function settleLive(s: SessionFold): SessionFold {
-  const live = s.live;
-  if (!live || !s.held) return withLive(s, null);
-  if (heldItems(s.held).has(live.id)) return withLive(s, null);
-  const { streaming: _streaming, ...identity } = live.identity;
-  const row: Obj = { ...identity, text: live.lines + live.rest };
-  rowItems.set(row, live.id);
-  return { ...withHeld(s, s.held, withLoose(s.held, s.loose ?? [], row), false), live: null };
 }
 
 /** The folding of a notification a positioned fold reads its own way; undefined for one it folds as any fold does. */
 function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotification): SessionFold | undefined {
   const p = asObj(n.params);
   switch (n.method) {
-    case 'turn/started':
-    case 'turn/completed':
-      return settleLive(s);
     case 'item/started':
     case 'item/completed': {
-      // A record's rows reach the window as its unit (`thread/transcript/changed`); these are the running turn's and the
-      // live-only rows.
+      // A record's rows reach the window as its unit (`thread/transcript/changed`), which states where it stands. These
+      // are the rows of the running turn no record shows yet: they stand at the newest end until their record is told.
       const item = asObj(p.item);
       const rows = itemRows(item);
       const [row] = rows;
-      if (row === undefined || (typeof item.id === 'string' && heldItems(held).has(item.id))) return s;
+      if (row === undefined || shownIn(held, item.id)) return s;
       if (item.type === 'agentMessage' && n.method === 'item/started') return withLive(s, liveOf(item, row));
       for (const folded of rows) rowItems.set(folded, String(item.id));
       const live = s.live?.id === item.id && n.method === 'item/completed' ? null : s.live;
       const fields =
         p.roomView === undefined ? s.fields : withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView);
       let loose: readonly Obj[] = s.loose ?? [];
-      for (const folded of rows) loose = withLoose(held, loose, folded);
-      return { ...withHeld(s, held, loose, false), live, fields };
+      for (const folded of rows) loose = withLoose(loose, folded);
+      return { ...withHeld(s, held, loose, false, NO_POSITIONS), live, fields };
     }
     case 'thread/transcript/changed': {
       if (p.change === undefined) {
@@ -250,30 +342,19 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
           : { ...s, fields: withSection(s.fields, SECTIONS['thread/roomView/updated']!, p.roomView) };
       }
       if (p.lineage !== held.lineage) return s;
-      const changed = transcriptChanged(held, p.change, ownRow);
+      const changed = transcriptChanged(held, p.change, ownShown(s.loose));
       if (!changed) return s;
-      // The rows shown for the record until it was stored give way to its unit.
+      // The rows shown for the record until it was stored give way to its unit: they are the same rows, by identity.
       const gone = new Set<unknown>([...changed.items, ...changed.rows.map((row) => row.id)]);
       const prior = s.loose ?? [];
-      const taken = (row: Obj) => gone.has(rowItems.get(row)) || gone.has(row.id);
-      const loose = prior.filter((row) => !taken(row));
-      // What arrived after the rows the record takes the place of stands after the record.
-      const first = prior.findIndex(taken);
-      const positions = tailRun(changed.window)?.positions ?? [];
-      const at = positions.indexOf(changed.position);
-      // A row that names a record of its own (one still to arrive, or one of the history above) keeps it.
-      if (first >= 0 && at >= 0)
-        for (const row of prior.slice(first + 1)) {
-          const place = loosePlace.get(row) ?? FIRST;
-          const stands = place.at === null ? -1 : positions.indexOf(place.at);
-          if (!place.before && (place.at === null || stands >= 0) && stands < at)
-            loosePlace.set(row, { at: changed.position, stored: true });
-        }
-      const next = withHeld(s, changed.window, loose, true);
+      const kept = prior.filter((row) => !gone.has(rowItems.get(row)) && !gone.has(row.id));
+      const next = withHeld(s, changed.window, kept.length === prior.length ? prior : kept, true, [changed.position]);
       return s.live && changed.items.includes(s.live.id) ? withLive(next, null) : next;
     }
-    case 'thread/window/changed':
-      return withHeld(s, windowChanged(held, p, ownRow), s.loose ?? [], true);
+    case 'thread/window/changed': {
+      const window = windowChanged(held, p, ownRow);
+      return withHeld(s, window, unshown(window, s.loose ?? []), true, null);
+    }
     case 'thread/historyReset': {
       // A clear leaves nothing. A rewind keeps what the history holds up to its boundary: the records after it in its run go
       // (and the tail's run, when the boundary lies in an older one); a boundary no record held names lies outside every
@@ -283,7 +364,7 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
       const at = boundary === undefined ? undefined : unitShowing(held, boundary, itemOfRow);
       const cut = boundary === undefined ? emptied(held) : at === undefined ? held : cutAfter(held, at);
       return {
-        ...withHeld(s, cut, [], false),
+        ...withHeld(s, cut, [], false, null),
         live: null,
         history: p.hasOlder === true ? 'older' : s.history,
         generation: (s.generation ?? 0) + 1,
@@ -295,16 +376,58 @@ function applyPositioned(s: SessionFold, held: HeldWindow, n: JsonRpcNotificatio
 }
 
 /** The rows of a run shown apart from the tail, merged as the transcript is; the same array while the run holds the same
- *  units, so a change elsewhere in the window does not make the reader's rows anew. */
-const viewRowsCache = new WeakMap<HeldUnit, { units: readonly HeldUnit[]; rows: Obj[] }>();
-function viewRowsOf(held: HeldWindow, run: WindowRun): Obj[] {
-  const units = run.positions.flatMap((position) => held.units.get(position) ?? []);
-  const first = units[0];
-  const known = first ? viewRowsCache.get(first) : undefined;
-  if (known && known.units.length === units.length && known.units.every((unit, at) => unit === units[at]))
-    return known.rows;
-  const rows = mergeToolRows(runRows(held, run));
-  if (first) viewRowsCache.set(first, { units, rows });
+ *  units, so a change elsewhere in the window does not make the reader's rows anew. A run that reaches the transcript's
+ *  newest end shows the rows no record holds yet after its own, as the tail does (`loose`). */
+interface ViewRows {
+  units: ReadonlyMap<string, HeldUnit>;
+  loose: readonly Obj[];
+  /** The run's rows as its records hold them, and merged as the reader is shown them. */
+  raw: readonly Obj[];
+  rows: Obj[];
+}
+const viewRowsCache = new WeakMap<WindowRun, ViewRows>();
+const NO_ROWS: readonly Obj[] = [];
+/** `byFirst`: the rows made for the stretches the fold showed last, by the first record of each. */
+function viewRowsOf(
+  held: HeldWindow,
+  run: WindowRun,
+  loose: readonly Obj[],
+  byFirst: Map<HeldUnit, ViewRows> | undefined
+): Obj[] {
+  const last = run.newer === null ? loose : NO_ROWS;
+  // The run as the window before held it, with the units it held: the rows made for it.
+  const same = viewRowsCache.get(run);
+  const first = held.units.get(run.positions[0] ?? '');
+  if (same && same.loose === last && (same.units === held.units || runUnchanged(run, held.units, same.units))) {
+    same.units = held.units;
+    if (first) byFirst?.set(first, same);
+    return same.rows;
+  }
+  const raw = last.length ? [...runRows(held, run), ...last] : runRows(held, run);
+  const work = foldWork();
+  if (work) work.copied += raw.length;
+  // The rows it held of this stretch, as this run or as the run of an earlier window that began with the same record:
+  // the merge goes on from the first row that is another.
+  const prior = same ?? (first ? byFirst?.get(first) : undefined);
+  let rows: Obj[];
+  if (prior) {
+    const shared = Math.min(raw.length, prior.raw.length);
+    let from = 0;
+    while (from < shared && raw[from] === prior.raw[from]) from += 1;
+    // The rows after the changed ones are the ones held: the merge stops among them.
+    let until = raw.length;
+    const moved = raw.length - prior.raw.length;
+    while (until > from && until - moved > from && raw[until - 1] === prior.raw[until - 1 - moved]) until -= 1;
+    rows =
+      from === raw.length && raw.length === prior.raw.length
+        ? prior.rows
+        : mergeToolRowsFrom(prior.rows, raw, from, { until, moved });
+  } else {
+    rows = mergeToolRows(raw);
+  }
+  const made: ViewRows = { units: held.units, loose: last, raw, rows };
+  viewRowsCache.set(run, made);
+  if (first) byFirst?.set(first, made);
   return rows;
 }
 
@@ -321,6 +444,7 @@ const SECTIONS: Readonly<Record<string, SectionDef>> = {
     stateKey: 'runtime',
     fields: [
       'busy',
+      'turnId',
       'commandBusy',
       'thinking',
       'spinner',
@@ -436,22 +560,32 @@ function withSection(fields: Readonly<Obj>, def: SectionDef, value: Json | undef
 const transcriptCache = new WeakMap<readonly Obj[], Obj[]>();
 /** A row array not merged yet, by the array: the merged transcript of an earlier one it holds the same rows as before
  *  `from`. However many notifications changed rows since that transcript was read, the next read merges once, from there. */
-const transcriptOwed = new WeakMap<readonly Obj[], { held: Obj[]; from: number }>();
+const transcriptOwed = new WeakMap<
+  readonly Obj[],
+  { held: Obj[]; from: number; same?: { until: number; moved: number } }
+>();
 function transcriptOf(items: readonly Obj[]): Obj[] {
   let rows = transcriptCache.get(items);
   if (!rows) {
     const owed = transcriptOwed.get(items);
-    rows = owed ? mergeToolRowsFrom(owed.held, items, owed.from) : mergeToolRows(items);
+    rows = owed ? mergeToolRowsFrom(owed.held, items, owed.from, owed.same) : mergeToolRows(items);
     transcriptOwed.delete(items);
     transcriptCache.set(items, rows);
   }
   return rows;
 }
 /** `next` holds the rows of `prior` before `from`: its transcript is owed from the one `prior` has, or is owed from. */
-function oweTranscript(prior: readonly Obj[], next: readonly Obj[], from: number): void {
+/** `same`: from `until` to its end `next` holds the rows `prior` held `moved` places earlier (a change inside the list);
+ *  it serves a merge made from `prior`'s own transcript, not one owed across several changes. */
+function oweTranscript(
+  prior: readonly Obj[],
+  next: readonly Obj[],
+  from: number,
+  same?: { until: number; moved: number }
+): void {
   const merged = transcriptCache.get(prior);
   const owed = merged ? undefined : transcriptOwed.get(prior);
-  if (merged) transcriptOwed.set(next, { held: merged, from });
+  if (merged) transcriptOwed.set(next, { held: merged, from, ...(same ? { same } : {}) });
   else if (owed) transcriptOwed.set(next, { held: owed.held, from: Math.min(owed.from, from) });
 }
 
@@ -535,22 +669,9 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   const source = Array.isArray(p.items) ? p.items : [];
   const items: Obj[] = [];
   const coreItems: string[] = [];
-  // Of a positioned snapshot: where each row of no record stands, as the core states it (`ext.shownAfter`, or
-  // `ext.shownBefore` for a row no record of the view precedes; `ext.shownStored`: that record lies above the records
-  // the snapshot carries).
-  const named = new Map<Obj, Place>();
   let live: Live | null = null;
   for (let i = 0; i < source.length; i++) {
-    const sent = asObj(source[i]);
-    const { shownAfter, shownBefore, shownStored, ...ext } = asObj(asObj(sent.meta).ext);
-    const stored = shownStored === true;
-    const place: Place | undefined =
-      typeof shownAfter === 'string'
-        ? { at: shownAfter, stored }
-        : typeof shownBefore === 'string'
-          ? { at: shownBefore, before: true, stored }
-          : undefined;
-    const item: Obj = place ? { ...sent, meta: { ...asObj(sent.meta), ext } } : sent;
+    const item = asObj(source[i]);
     const id = typeof item.id === 'string' ? item.id : undefined;
     if (id !== undefined) coreItems.push(id);
     // The reply the turn is streaming (the core's in-progress item, its text so far) is the live row `item/started` and its deltas
@@ -560,21 +681,14 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
     else
       for (const folded of rowsOf(item)) {
         if (id !== undefined) rowItems.set(folded, id);
-        if (place) named.set(folded, { ...place });
         items.push(folded);
       }
     if (i % ITEMS_PER_STEP === ITEMS_PER_STEP - 1) yield;
   }
   if (p.window !== undefined) {
     const held = windowChanged(undefined, p.window, ownRow);
-    // A row a held record shows (a compaction's divider rides the record it follows) is that record's: the snapshot's own
-    // copy of it gives way, as a row does when its record arrives.
-    const recorded = new Set([...held.units.values()].flatMap((unit) => unit.rows.map((row) => row.id)));
-    const loose = items.filter((row) => !recorded.has(row.id));
-    // A snapshot's row of no record stands where the core names; one it names no record for (a core that names none, a
-    // view of no record) is taken for newer than every record held.
-    for (const row of loose) loosePlace.set(row, named.get(row) ?? { at: tailEnd(held), stored: true, guessed: true });
-    const shown = positionedItems(held, loose);
+    const loose = unshown(held, items);
+    const shown = positionedItems(held, loose).items;
     transcriptCache.set(shown, yield* mergeToolRowsSteps(shown));
     const fold: SessionFold = {
       sessionId: String(asObj(p.thread).id ?? ''),
@@ -828,6 +942,7 @@ export function desktopSessionState(
     ...(fold.partialShown ? { streamingPartial: null } : {}),
     promptHistoryList: [],
     transcriptViewItems: null,
+    transcriptViews: [],
     transcriptViewRevision: 0,
     transcriptHistoryBefore: false,
     transcriptHistoryAfter: false,
@@ -871,16 +986,33 @@ export function desktopSessionState(
  *  either way: `transcriptHistoryBefore`, `transcriptHistoryAfter`). */
 function positionedFields(fold: SessionFold, held: HeldWindow): Obj {
   const tail = tailRun(held);
-  const view = viewRun(held);
+  const loose = fold.loose ?? NO_ROWS;
+  const views = viewRuns(held);
+  const view = views.at(-1);
   const history = tail ? (tail.older === null ? 'held' : 'older') : (fold.history ?? 'held');
+  const byFirst = fold.views;
+  const shown = views.map((run) => viewRowsOf(held, run, loose, byFirst));
+  // The rows of a stretch are kept while it is shown: one that joined the tail, or that its reader left, is let go
+  // here with the records it was made from.
+  if (byFirst) {
+    const firsts = new Set(views.map((run) => held.units.get(run.positions[0] ?? '')));
+    for (const unit of [...byFirst.keys()]) if (!firsts.has(unit)) byFirst.delete(unit);
+  }
   return {
     transcriptPositioned: true,
     transcriptWindowVersion: held.version,
     transcriptHistory: history,
     ...(tail ? { transcriptWindowStart: tail.positions[0]! } : {}),
-    transcriptViewItems: view ? viewRowsOf(held, view) : null,
+    transcriptViewItems: view ? shown.at(-1)! : null,
     transcriptHistoryBefore: view ? view.older !== null : false,
     transcriptHistoryAfter: view ? view.newer !== null : false,
+    // Every stretch held apart from the tail, the one asked for last being last: readers of one window may each be
+    // shown one.
+    transcriptViews: views.map((run, at) => ({
+      items: shown[at]!,
+      before: run.older !== null,
+      after: run.newer !== null,
+    })),
   };
 }
 

@@ -109,7 +109,7 @@ test('a reader away from the end keeps the row they read at its offset', (t) => 
   assert.equal(anchor.landing, true, 'the anchor is restored absolutely, in this task');
   assert.equal(anchor.hold.key, 'row-1');
   assert.equal(anchor.hold.offset, -150, 'captured before the new sizes moved the row');
-  assert.ok(anchor.hold.until > anchor.hold.landedAt, 'late sizes above it stay compensated for a while');
+  assert.equal(anchor.hold.until, undefined, 'no clock ends the hold: it stands while the reader is where it was put');
   assert.equal(list.calls.filter((call) => call.kind === 'end-pin').length, 0);
   assert.ok(list.calls.filter((call) => call.kind === 'resize').every((call) => call.suppressed));
 });

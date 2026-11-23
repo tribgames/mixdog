@@ -18,7 +18,10 @@ test('a positioned pane following a tail grown long asks the core for nothing; a
     },
   };
   const tail = Array.from({ length: 400 }, (_, index) => ({ id: `r${index}` }));
-  const facts = (version, viewItems = null) => ({ viewItems, viewOlder: false, viewNewer: false, version });
+  const facts = (version, viewItems = null) => ({
+    views: viewItems ? [{ items: viewItems, older: false, newer: false }] : [],
+    version,
+  });
   let shown;
   function Pane({ positioned }) {
     shown = useTranscriptWindow('s', tail, true, true, undefined, undefined, positioned).items;
@@ -36,6 +39,90 @@ test('a positioned pane following a tail grown long asks the core for nothing; a
     await act(async () => root.render(React.createElement(Pane, { positioned: facts(5) })));
     assert.deepEqual(moves, ['follow'], 'and nothing more once it is gone');
   } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a positioned pane tells the window where its reader is, and that the view follows the end when it does', async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><main></main>',
+    jsdom: { url: 'https://mixdog.test/' },
+  });
+  const { createRoot } = await import('react-dom/client');
+  const { useTranscriptWindow } = await import('./use-transcript-history.ts');
+  const moves = [];
+  window.mixdogDesktop = {
+    moveTranscriptWindow: async (sessionId, move) => {
+      moves.push(move);
+      return true;
+    },
+  };
+  const rows = Array.from({ length: 300 }, (_, index) => ({ id: `r${index}` }));
+  const facts = { views: [], version: 1 };
+  let window_;
+  function Pane({ following }) {
+    window_ = useTranscriptWindow('s', rows, true, following, undefined, undefined, facts);
+    return null;
+  }
+  const root = createRoot(document.querySelector('main'));
+  try {
+    await act(async () => root.render(React.createElement(Pane, { following: false })));
+    await act(async () => window_.readerAt('r10', 'r20'));
+    assert.deepEqual(moves, [{ kind: 'read', first: 'r10', last: 'r20', reader: '' }], 'a place to come back to');
+    await act(async () => root.render(React.createElement(Pane, { following: true })));
+    await act(async () => window_.readerAt('r280', 'r299'));
+    assert.deepEqual(moves.at(-1), { kind: 'read', first: 'r280', last: 'r299', end: true, reader: '' }, 'the end is none');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('each move goes out as it is asked, for its own session; a pane that shows another withdraws from the one it left', async () => {
+  const { restore } = installTestDom(null, {
+    html: '<!doctype html><main></main>',
+    jsdom: { url: 'https://mixdog.test/' },
+  });
+  const { createRoot } = await import('react-dom/client');
+  const { useTranscriptWindow } = await import('./use-transcript-history.ts');
+  const sent = [];
+  window.mixdogDesktop = {
+    moveTranscriptWindow: (sessionId, move) => {
+      const out = Promise.withResolvers();
+      sent.push({ sessionId, first: move.first ?? move.kind, reader: move.reader, answer: out.resolve });
+      return out.promise;
+    },
+  };
+  const rows = Array.from({ length: 300 }, (_, index) => ({ id: `r${index}` }));
+  const facts = { views: [], version: 1 };
+  let window_;
+  function Pane({ session }) {
+    window_ = useTranscriptWindow(session, rows, true, false, undefined, undefined, facts);
+    return null;
+  }
+  const root = createRoot(document.querySelector('main'));
+  const told = () => sent.map((move) => [move.sessionId, move.first]);
+  try {
+    await act(async () => root.render(React.createElement(Pane, { session: 'A' })));
+    await act(async () => window_.readerAt('r10', 'r20'));
+    // The reader moves on while the page is out: the window is told where it is now, not when the page returns.
+    await act(async () => window_.readerAt('r30', 'r40'));
+    assert.deepEqual(told(), [['A', 'r10'], ['A', 'r30']]);
+    // The pane shows another session: it withdraws from A at once, and its move is B's own.
+    await act(async () => root.render(React.createElement(Pane, { session: 'B' })));
+    await act(async () => window_.readerAt('r50', 'r60'));
+    assert.deepEqual(told(), [['A', 'r10'], ['A', 'r30'], ['A', 'follow'], ['B', 'r50']]);
+    // A's pages return: nothing of A is asked of B, and nothing more of A.
+    await act(async () => sent[0].answer(true));
+    await act(async () => sent[1].answer(true));
+    assert.equal(sent.length, 4);
+    // The pane closes: it withdraws from the session it showed.
+    await act(async () => root.render(null));
+    assert.deepEqual(told().at(-1), ['B', 'follow']);
+    assert.equal(sent.at(-1).reader, sent[3].reader, 'as the reader that read it');
+  } finally {
+    for (const move of sent) move.answer(false);
     await act(async () => root.unmount());
     restore();
   }

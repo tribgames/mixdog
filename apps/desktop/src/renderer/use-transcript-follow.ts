@@ -8,6 +8,7 @@ import {
   editableTarget,
   keyUpRecent,
   liftLeftAboveEnd,
+  pressIsOnRowContent,
   touchLiftNeedsJudgement,
   wheelIsVerticalScroll,
   wheelReleasesFollow,
@@ -144,11 +145,49 @@ export function useTranscriptFollow({
     wheelAt.current = 0;
     return false;
   }, []);
+  // A scroll key or the scrollbar moves the viewport natively too: a scrollTop write under it fights a key's smooth
+  // scroll and a dragged thumb, so corrections are held through it as through a wheel ramp, until its scrolls go quiet.
+  const nativeAt = useRef(0);
+  const nativeMotionAt = useRef(0);
+  const barHeld = useRef(false);
+  const nativeScrolling = useCallback(() => {
+    if (barHeld.current) return true;
+    const started = nativeAt.current;
+    if (!started) return false;
+    if (Date.now() - Math.max(started, nativeMotionAt.current) < GESTURE_WINDOW_MS) return true;
+    nativeAt.current = 0;
+    return false;
+  }, []);
+  // A press on the scroller is held until its pointer is released, wherever that is: a drag that began on the scrollbar
+  // or in the padding ends over the composer or outside the window, where the viewport hears no pointerup.
+  const releaseBar = useRef<() => void>(() => undefined);
+  const holdBar = useCallback(() => {
+    releaseBar.current();
+    barHeld.current = true;
+    nativeAt.current = Date.now();
+    nativeMotionAt.current = 0;
+    const release = (): void => {
+      window.removeEventListener('pointerup', release, true);
+      window.removeEventListener('pointercancel', release, true);
+      window.removeEventListener('blur', release);
+      releaseBar.current = () => undefined;
+      if (!barHeld.current) return;
+      barHeld.current = false;
+      nativeAt.current = Date.now();
+      nativeMotionAt.current = 0;
+    };
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
+    window.addEventListener('blur', release);
+    releaseBar.current = release;
+  }, []);
+  useEffect(() => () => releaseBar.current(), []);
   const markReaderMotion = useCallback(() => {
     const now = Date.now();
     readerMotionAt.current = now;
     if (wheelScrolling()) wheelMotionAt.current = now;
-  }, [wheelScrolling]);
+    if (nativeScrolling()) nativeMotionAt.current = now;
+  }, [nativeScrolling, wheelScrolling]);
   const scrollToBottom = useCallback(
     (force: boolean) => {
       const element = viewport.current;
@@ -188,7 +227,7 @@ export function useTranscriptFollow({
   const {
     fingerOnGlass,
     hasTouchScroll,
-    holdsScrollCorrections,
+    holdsScrollCorrections: touchOrWheelHolds,
     touchHoldsCorrections,
     noteScroll,
     reset: resetTouch,
@@ -197,11 +236,18 @@ export function useTranscriptFollow({
     handleTouchEnd,
   } = useFollowTouch({ viewport, markGesture, wheelScrolling, signals, lastWriteAt, onLift });
 
-  /** Reader ownership ends the instant the reader asks for the tail. */
+  const holdsScrollCorrections = useCallback(
+    () => touchOrWheelHolds() || nativeScrolling(),
+    [nativeScrolling, touchOrWheelHolds]
+  );
+
+  /** Reader ownership ends the instant the reader asks for the tail. A press still held on the scroller is not ended
+   *  here: the thumb dragged to the end and back is one press, and the list writes no offset under it until it lifts. */
   const clearReaderGesture = useCallback(() => {
     gestureAt.current = 0;
     readerMotionAt.current = 0;
     wheelAt.current = 0;
+    nativeAt.current = 0;
     resetSignals();
     resetTouch();
   }, [resetSignals, resetTouch]);
@@ -311,15 +357,20 @@ export function useTranscriptFollow({
       if (event.target === root) markGesture();
       if (event.target === root && (event.button ?? 0) === 0 && event.pointerType !== 'touch') {
         signals.current.pressAt = Date.now();
+        holdBar();
       }
-      // Pressing a control is about to change the content under the reader.
-      if (activationReleasesFollow(root, event.target)) stop('press', lastTop.current);
+      // Pressing a control is about to change the content under the reader; pressing a row's content begins a
+      // selection, and the text under the pointer must not scroll away from it.
+      if (activationReleasesFollow(root, event.target) || pressIsOnRowContent(root, event)) {
+        stop('press', lastTop.current);
+      }
     },
     [clearMutation, lastTop, markGesture, signals, stop]
   );
 
   const handlePointerUp = useCallback(() => {
     signals.current.pressAt = 0;
+    releaseBar.current();
   }, [signals]);
 
   const handleKeyDown = useCallback(
@@ -346,6 +397,8 @@ export function useTranscriptFollow({
       if (direction === 'none') return;
       clearMutation();
       markGesture();
+      nativeAt.current = Date.now();
+      nativeMotionAt.current = 0;
       // An up key does not release by itself: the scroll it causes does, within
       // the window, and the window keeps the end pin off meanwhile.
       if (direction === 'up') signals.current.keyUpAt = Date.now();

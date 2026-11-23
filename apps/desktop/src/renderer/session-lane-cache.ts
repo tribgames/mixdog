@@ -15,6 +15,8 @@ interface SessionLaneEntry {
   rawOffset?: number | undefined;
   /** The rows shown from `rawOffset` on are `windowAnchored` (transcript-alignment); unset: not read yet. */
   anchored?: boolean | undefined;
+  /** A sweep has decided what is kept of this state (`sweep`). */
+  swept?: boolean;
 }
 
 export class SessionLaneCache {
@@ -90,6 +92,37 @@ export class SessionLaneCache {
       this.entries.delete(sessionId);
       inactive -= entry.bytes;
     }
+  }
+
+  /** Every lane no pane shows is handed to `trim`, once per state it holds: what `trim` returns is what is kept of it
+   *  (the same snapshot: all of it), and null lets the lane go. */
+  sweep(trim: (sessionId: string, snapshot: Snapshot) => Snapshot | null): void {
+    for (const [sessionId, entry] of [...this.entries]) {
+      if (this.options.subscribed(sessionId) || entry.swept) continue;
+      const kept = trim(sessionId, entry.snapshot);
+      if (!kept) this.entries.delete(sessionId);
+      else if (kept === entry.snapshot) entry.swept = true;
+      else {
+        this.entries.set(sessionId, {
+          snapshot: kept,
+          bytes: Math.min(entry.bytes, 2 * estimateRetainedChars(kept, Math.max(0, this.options.maxBytes) / 2)),
+          estimatedAt: Date.now(),
+          revision: entry.revision,
+          swept: true,
+        });
+      }
+    }
+  }
+
+  /** Rows held by the lanes no pane shows. */
+  get inactiveRows(): number {
+    let rows = 0;
+    for (const [sessionId, entry] of this.entries) {
+      if (this.options.subscribed(sessionId)) continue;
+      const view = (entry.snapshot as { transcriptViewItems?: unknown }).transcriptViewItems;
+      rows += (entry.snapshot.items?.length ?? 0) + (Array.isArray(view) ? view.length : 0);
+    }
+    return rows;
   }
 
   evictInactive(): void {

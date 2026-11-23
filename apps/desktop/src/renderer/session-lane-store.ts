@@ -16,6 +16,9 @@ import { heldWindowGoesOn, transcriptWindowAlignment, windowAnchored } from './t
 import { reconcileSessionProjection } from '../main/state-delta';
 import { noteCarried } from './list-carry';
 import { rowsHeldFrom, streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
+import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { registerIdleReclaim } from './idle-reclaim';
+import { readerPositionsOf, sessionHasTab } from './transcript-list-reader-place';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
@@ -43,6 +46,8 @@ interface SessionLaneStore {
   streamPosition(sessionId: string): DesktopStreamPosition | null;
   /** Hears the session's shown position move (a publication that changes no state included). */
   subscribeStreamPosition(sessionId: string, listener: () => void): () => void;
+  /** Rows held by the lanes no pane shows. */
+  hiddenRows(): number;
   stats(): {
     entries: number;
     estimatedBytes: number;
@@ -64,15 +69,71 @@ interface SessionLaneStore {
    *  their lane is current. Changes notify the approval listeners; a new set
    *  identity only when membership changes. */
   liveSessionIds(): ReadonlySet<string>;
+  /** The core ended the session's lane for good (deleted, or lost to this connection) and nothing is held of it; heard
+   *  with `subscribeApprovals`. */
+  sessionEnded(sessionId: string): boolean;
   /** Drop cached lanes with no subscribers (remote sync-gap recovery: an
    *  emptied lane re-reads through session.read on its next open). */
   evictInactive(): void;
+  /** Trims the lanes no pane shows to what their readers may come back to (`keptOfHiddenLane`). Runs on a timer, when
+   *  the window is hidden and on an idle reclaim once the store is started. */
+  sweepHidden(): void;
   clear(): void;
 }
 
 const SESSION_LANE_CACHE_LIMIT = 64;
 const SESSION_LANE_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
 const SESSION_LANE_ESTIMATE_INTERVAL_MS = 1_000;
+/** The rows kept of a session no pane shows (its lane is the state it had when the core let it go: a return reads the
+ *  session again, and rows that come back equal keep the objects, and so the rendered bodies, held here). */
+export const HIDDEN_SESSION_ROW_BUDGET = 512;
+/** How often the lanes no pane shows are swept while the window is in use; hiding the window and an idle reclaim
+ *  sweep at once. */
+const HIDDEN_SESSION_SWEEP_MS = 60_000;
+
+const showsRecord = (row: unknown, positions: readonly string[]): boolean =>
+  positions.some((position) => historyPositionOf(row) === position || historyPositionOf(row, 'after') === position);
+
+/** What is kept of the state of a session no pane shows. Memory follows the readers: a session no pane holds a tab of
+ *  keeps nothing; one a reader may come back to keeps its rows from the earliest record a reader is on down (all of
+ *  them when its readers follow the end) while they fit HIDDEN_SESSION_ROW_BUDGET, and otherwise none. What is not
+ *  kept is read again around the reader's record when a pane shows the session. */
+function keptOfHiddenLane(sessionId: string, snapshot: Snapshot): Snapshot | null {
+  if (sessionHasTab(sessionId) === false) return null;
+  const items = laneTranscript(snapshot) ?? [];
+  const { transcriptViewItems: stretch, transcriptViews: listed } = snapshot as {
+    transcriptViewItems?: unknown;
+    transcriptViews?: unknown;
+  };
+  // Of the stretches apart from the tail, the one a reader is on is kept (the first of them, were two panes on two).
+  const stretches: TranscriptItem[][] = Array.isArray(listed)
+    ? (listed as { items: TranscriptItem[] }[]).map((entry) => entry.items)
+    : Array.isArray(stretch)
+      ? [stretch as TranscriptItem[]]
+      : [];
+  const readers = readerPositionsOf(sessionId);
+  const inItems = readers.length ? items.findIndex((row) => showsRecord(row, readers)) : -1;
+  let keptView: TranscriptItem[] | null = null;
+  for (const view of stretches) {
+    const inView = readers.length ? view.findIndex((row) => showsRecord(row, readers)) : -1;
+    if (inView < 0) continue;
+    keptView = inView === 0 ? view : view.slice(inView);
+    break;
+  }
+  const keptItems = inItems > 0 ? items.slice(inItems) : items;
+  if (keptItems.length + (keptView?.length ?? 0) > HIDDEN_SESSION_ROW_BUDGET) return null;
+  if (keptItems === items && stretches.length === (keptView ? 1 : 0) && (stretches[0] ?? null) === keptView) return snapshot;
+  // Part of a state is a preview of it: painted where nothing else is, never taken for the session's window.
+  return {
+    ...snapshot,
+    items: keptItems,
+    transcriptViewItems: keptView,
+    transcriptViews: keptView ? [{ items: keptView, before: true, after: true }] : [],
+    transcriptHistory: 'older',
+    transcriptHasOlder: true,
+    transcriptPreview: true,
+  } as Snapshot;
+}
 
 function queuedIdentity(snapshot: Snapshot): string {
   const queued = Array.isArray(snapshot.queued) ? snapshot.queued : [];
@@ -571,13 +632,29 @@ export function createSessionLaneStore({
         return;
       }
     }
+    // A read of a thread not followed (its newest rows, no window) never takes the place of the window a shown
+    // session's subscription holds or held: the panes keep the session followed, the window is what they read (a
+    // reader may be far from those newest rows), and the subscription's own frame is the one that brings it up to date.
+    if (
+      update.snapshot &&
+      update.frameSource === 'replay' &&
+      shown.has(sessionId) &&
+      (priorSnapshot as Record<string, unknown> | null)?.transcriptPositioned === true &&
+      (update.snapshot as Record<string, unknown>).transcriptPositioned !== true
+    ) {
+      reportSessionReadFrame(update, 'rejected');
+      return;
+    }
     if (prior) snapshots.delete(sessionId);
     // A genuine teardown ends the session's identity baseline and failure scope, and no answer seeds it again.
     if (!update.snapshot && update.laneEnd === 'gone') {
       decorator.forget?.(sessionId);
       positions.delete(sessionId);
       notifiedAt.delete(sessionId);
-      ended.add(sessionId);
+      if (!ended.has(sessionId)) {
+        ended.add(sessionId);
+        for (const listener of [...approvalListeners]) listener();
+      }
     }
     if (update.snapshot) {
       // A stored preview may predate a rewind. Reuse equal row objects below, but never retain its rows or fields over a real frame.
@@ -703,6 +780,14 @@ export function createSessionLaneStore({
       scheduleLayoutFrame(key, () => notify(sessionId));
     }
   };
+  const sweepHidden = (): void => {
+    snapshots.sweep((sessionId, snapshot) => {
+      const kept = keptOfHiddenLane(sessionId, snapshot);
+      if (!kept) decorator.forget?.(sessionId);
+      return kept;
+    });
+    syncApprovals();
+  };
   return {
     get(sessionId) {
       const entry = snapshots.get(sessionId);
@@ -750,6 +835,7 @@ export function createSessionLaneStore({
       setLive(new Set([...live].filter((id) => shown.has(id))));
     },
     liveSessionIds: () => live,
+    sessionEnded: (sessionId) => ended.has(sessionId) && !snapshots.get(sessionId),
     subscribeApprovals(listener) {
       approvalListeners.add(listener);
       return () => {
@@ -764,9 +850,18 @@ export function createSessionLaneStore({
       if (stop) return stop;
       if (typeof source !== 'function') return () => {};
       const unsubscribe = source(apply);
+      const timer = window.setInterval(sweepHidden, HIDDEN_SESSION_SWEEP_MS);
+      const onHidden = (): void => {
+        if (document.visibilityState === 'hidden') sweepHidden();
+      };
+      document.addEventListener('visibilitychange', onHidden);
+      const offReclaim = registerIdleReclaim(sweepHidden);
       const halt = (): void => {
         if (stop !== halt) return;
         stop = null;
+        window.clearInterval(timer);
+        document.removeEventListener('visibilitychange', onHidden);
+        offReclaim();
         try {
           unsubscribe();
         } catch {
@@ -802,6 +897,8 @@ export function createSessionLaneStore({
         if (bucket.size === 0) positionListeners.delete(sessionId);
       };
     },
+    sweepHidden,
+    hiddenRows: () => snapshots.inactiveRows,
     stats: () => ({
       entries: snapshots.size,
       estimatedBytes: snapshots.bytes,

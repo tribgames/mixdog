@@ -3,7 +3,7 @@
 // `thread/transcript/changed` tell them (protocol: `SnapshotWindow`, `ThreadWindowChangedParams`, `TranscriptChange`).
 import { asObj } from './obj.ts';
 import type { Obj } from './obj.ts';
-import { rowsOf } from './rows.ts';
+import { countMergedRows, rowsOf } from './rows.ts';
 
 /** The range a followed tail makes (the core's `TAIL_RANGE`). */
 export const TAIL_RANGE = 'tail';
@@ -12,6 +12,8 @@ export const TAIL_RANGE = 'tail';
 export interface HeldUnit {
   readonly rows: readonly Obj[];
   readonly items: readonly string[];
+  /** Where the record stands in its lineage's log (`TranscriptUnit.ordinal`): what the records held are ordered by. */
+  readonly ordinal?: number;
 }
 
 /** A granted range: the positions of the records it holds, oldest first, and where it continues (null: the transcript ends
@@ -30,6 +32,9 @@ export interface HeldWindow {
   /** In the order the core listed them. */
   readonly ranges: readonly HeldRange[];
   readonly units: ReadonlyMap<string, HeldUnit>;
+  /** A record joined the followed tail whose predecessor the tail does not hold: the records between the one named
+   *  here (the newest held before the hole) and it are still to be read (transcript-window.ts `mendTranscriptWindow`). */
+  readonly gap?: string;
 }
 
 /** Ranges that share a record are one stretch of the transcript: a run. */
@@ -45,6 +50,36 @@ export interface WindowRun {
   readonly rank: number;
 }
 
+/** Test seam: what a fold's frames cost, counted while a counter is set. `placed`: rows laid out again; `copied`:
+ *  entries of what is held (records, positions, ids, rows) copied or walked to make the next window; `merged`: rows
+ *  the transcript's merge read. */
+export interface FoldWork {
+  placed: number;
+  copied: number;
+  merged: number;
+}
+let work: FoldWork | null = null;
+export function countFoldWork(counter: FoldWork | null): void {
+  work = counter;
+  countMergedRows(counter);
+}
+export const foldWork = (): FoldWork | null => work;
+
+/** The rows each range holds, by the range: counted once, and carried on as records join or change. */
+const rowsOfRange = new WeakMap<HeldRange, number>();
+export function rangeRows(window: HeldWindow, id: string): number {
+  const range = window.ranges.find((candidate) => candidate.id === id);
+  if (!range) return 0;
+  let rows = rowsOfRange.get(range);
+  if (rows === undefined) {
+    rows = 0;
+    for (const position of range.positions) rows += window.units.get(position)?.rows.length ?? 0;
+    if (work) work.copied += range.positions.length;
+    rowsOfRange.set(range, rows);
+  }
+  return rows;
+}
+
 /** Called with every row a unit folds to and the core item it came from. */
 export type RowOwner = (row: Obj, item: string) => void;
 
@@ -53,6 +88,31 @@ const edge = (value: unknown): string | null => {
   const e = asObj(value);
   return e.kind === 'continuation' && typeof e.position === 'string' ? e.position : null;
 };
+
+/** A record told again brings its text again: a frame parses to strings of its own. The reader keeps the row it holds
+ *  when the row told is equal to it, so the fold would hold a second copy of every text for as long as both live. The
+ *  texts of `row` that are the texts `held` holds in the same places become the strings held. */
+export function adoptHeldText(row: Obj, held: Obj): void {
+  for (const key in row) {
+    const told = row[key];
+    const prior = held[key];
+    if (typeof told === 'string') {
+      if (typeof prior === 'string' && told.length === prior.length && told === prior) row[key] = prior;
+    } else if (told && prior && typeof told === 'object' && typeof prior === 'object' && Array.isArray(told) === Array.isArray(prior)) {
+      adoptHeldText(told as Obj, prior as Obj);
+    }
+  }
+}
+
+/** `unit` with the texts of the rows `held` shows under the same ids. */
+function adoptHeldUnit(unit: HeldUnit, held: HeldUnit | undefined): HeldUnit {
+  if (!held || held === unit) return unit;
+  for (const row of unit.rows) {
+    const prior = held.rows.find((candidate) => candidate.id === row.id);
+    if (prior && prior !== row) adoptHeldText(row, prior);
+  }
+  return unit;
+}
 
 /** A `TranscriptUnit` as its rows. */
 export function unitOf(value: unknown, own: RowOwner): { position: string; unit: HeldUnit } | null {
@@ -69,7 +129,7 @@ export function unitOf(value: unknown, own: RowOwner): { position: string; unit:
       rows.push(row);
     }
   }
-  return { position: u.position, unit: { rows, items } };
+  return { position: u.position, unit: { rows, items, ...(typeof u.ordinal === 'number' ? { ordinal: u.ordinal } : {}) } };
 }
 
 /** The records no range holds any more are let go. */
@@ -93,7 +153,7 @@ export function windowChanged(held: HeldWindow | undefined, params: unknown, own
     for (const value of list(add.units)) {
       const read = unitOf(value, own);
       if (!read) continue;
-      units.set(read.position, read.unit);
+      units.set(read.position, adoptHeldUnit(read.unit, held?.units.get(read.position)));
       if (!positions.includes(read.position)) positions.push(read.position);
     }
     added.set(add.range, positions);
@@ -105,13 +165,211 @@ export function windowChanged(held: HeldWindow | undefined, params: unknown, own
     const positions = added.get(range.id) ?? before.get(range.id)?.positions ?? [];
     return [{ id: range.id, older: edge(range.older), newer: edge(range.newer), positions }];
   });
+  // A tail the change reads anew, or no longer lists, has no hole left from before.
+  const gap = held?.gap !== undefined && !added.has(TAIL_RANGE) && ranges.some((range) => range.id === TAIL_RANGE);
   return pruned({
     version: typeof p.windowVersion === 'number' ? p.windowVersion : (held?.version ?? 0),
     lineage: typeof p.lineage === 'number' ? p.lineage : (held?.lineage ?? 0),
     followTail: p.followTail === true,
     ranges,
     units,
+    ...(gap ? { gap: held!.gap } : {}),
   });
+}
+
+/** What the records of a window show, by id (a row's, a core item's): the record that shows each. One index serves a
+ *  line of windows made from one another: it belongs to the newest (`owner`) and takes each record told, so nothing
+ *  held is read again for a record that arrives. An entry may outlive its record; a lookup is checked against the
+ *  record it names. A window off the line (an earlier one, another branch) builds its own. */
+interface Shown {
+  readonly ids: Map<unknown, string>;
+  owner: ReadonlyMap<string, HeldUnit>;
+}
+const shownOf = new WeakMap<ReadonlyMap<string, HeldUnit>, Shown>();
+const noteShown = (ids: Map<unknown, string>, position: string, unit: HeldUnit): void => {
+  for (const item of unit.items) ids.set(item, position);
+  for (const row of unit.rows) ids.set(row.id, position);
+};
+/** The record of `window` that shows `id`. */
+export function shownAt(window: HeldWindow, id: unknown): string | undefined {
+  if (id === undefined) return undefined;
+  let shown = shownOf.get(window.units);
+  if (!shown || shown.owner !== window.units) {
+    shown = { ids: new Map(), owner: window.units };
+    for (const [position, unit] of window.units) noteShown(shown.ids, position, unit);
+    if (work) work.copied += window.units.size;
+    shownOf.set(window.units, shown);
+  }
+  const position = shown.ids.get(id);
+  if (position === undefined) return undefined;
+  const shows = (unit: HeldUnit | undefined): boolean =>
+    unit !== undefined && (unit.items.includes(id as string) || unit.rows.some((row) => row.id === id));
+  if (shows(window.units.get(position))) return position;
+  // The record the id was last told for shows it no more (let go, or told without it). Another may: the records are
+  // read once, and the entry then names that one or is gone.
+  if (work) work.copied += window.units.size;
+  for (const [other, unit] of window.units) {
+    if (!shows(unit)) continue;
+    shown.ids.set(id, other);
+    return other;
+  }
+  shown.ids.delete(id);
+  return undefined;
+}
+/** `next` was made from `prior` by telling the record at `position`: the line's index goes on to it. */
+function carryShown(
+  prior: ReadonlyMap<string, HeldUnit>,
+  next: ReadonlyMap<string, HeldUnit>,
+  position: string
+): void {
+  const shown = shownOf.get(prior);
+  if (!shown || shown.owner !== prior) return;
+  const unit = next.get(position);
+  if (unit) noteShown(shown.ids, position, unit);
+  shown.owner = next;
+  shownOf.set(next, shown);
+}
+
+/** A run's records by place, and the rows before each: `upTo[i]` is the rows of the records before the i-th. Made
+ *  once for a run and carried on to the run a record joined at its end; a place read is checked against the run. */
+export interface RunLayout {
+  readonly index: Map<string, number>;
+  readonly upTo: number[];
+}
+const layoutOf = new WeakMap<WindowRun, RunLayout>();
+export function runLayout(window: HeldWindow, run: WindowRun): RunLayout {
+  let layout = layoutOf.get(run);
+  if (!layout) {
+    layout = { index: new Map(), upTo: [0] };
+    run.positions.forEach((position, at) => {
+      layout!.index.set(position, at);
+      layout!.upTo.push(layout!.upTo[at]! + (window.units.get(position)?.rows.length ?? 0));
+    });
+    if (work) work.copied += run.positions.length;
+    layoutOf.set(run, layout);
+  }
+  return layout;
+}
+/** The place in `run` of the record that shows `id` (a row's id, or a core item's); -1 when the run shows none. */
+export function placeInRun(window: HeldWindow, run: WindowRun, id: string): number {
+  const position = shownAt(window, id);
+  if (position === undefined) return -1;
+  const at = runLayout(window, run).index.get(position);
+  return at !== undefined && run.positions[at] === position ? at : -1;
+}
+
+/** The records of a window after a few were told: the records it was made from (`base`) with those told since laid
+ *  over them (`over`; null: let go). A record told costs what was told since the last whole copy, not what is held:
+ *  the whole is copied once every UNITS_OVER records. Reads as the map it stands for. */
+const UNITS_OVER = 64;
+class ToldUnits implements ReadonlyMap<string, HeldUnit> {
+  readonly [Symbol.toStringTag] = 'Map';
+  readonly base: ReadonlyMap<string, HeldUnit>;
+  readonly over: ReadonlyMap<string, HeldUnit | null>;
+  readonly size: number;
+  constructor(base: ReadonlyMap<string, HeldUnit>, over: ReadonlyMap<string, HeldUnit | null>, size: number) {
+    this.base = base;
+    this.over = over;
+    this.size = size;
+  }
+  get(position: string): HeldUnit | undefined {
+    const told = this.over.get(position);
+    return told === undefined ? this.base.get(position) : (told ?? undefined);
+  }
+  has(position: string): boolean {
+    const told = this.over.get(position);
+    return told === undefined ? this.base.has(position) : told !== null;
+  }
+  *entries(): Generator<[string, HeldUnit], undefined, unknown> {
+    for (const [position, unit] of this.base) {
+      const told = this.over.get(position);
+      if (told === undefined) yield [position, unit];
+      else if (told !== null) yield [position, told];
+    }
+    for (const [position, told] of this.over) if (told !== null && !this.base.has(position)) yield [position, told];
+    return undefined;
+  }
+  *keys(): Generator<string, undefined, unknown> {
+    for (const [position] of this.entries()) yield position;
+    return undefined;
+  }
+  *values(): Generator<HeldUnit, undefined, unknown> {
+    for (const [, unit] of this.entries()) yield unit;
+    return undefined;
+  }
+  [Symbol.iterator](): Generator<[string, HeldUnit], undefined, unknown> {
+    return this.entries();
+  }
+  forEach(each: (unit: HeldUnit, position: string, map: ReadonlyMap<string, HeldUnit>) => void): void {
+    for (const [position, unit] of this.entries()) each(unit, position, this);
+  }
+}
+
+/** `units` with the record at `position` told as `unit` (null: let go). */
+function toldUnits(
+  units: ReadonlyMap<string, HeldUnit>,
+  position: string,
+  unit: HeldUnit | null
+): ReadonlyMap<string, HeldUnit> {
+  const layered = units instanceof ToldUnits ? units : undefined;
+  if (layered && layered.over.size >= UNITS_OVER) {
+    const whole = new Map(units);
+    if (work) work.copied += whole.size;
+    if (unit) whole.set(position, unit);
+    else whole.delete(position);
+    return whole;
+  }
+  const over = new Map(layered?.over);
+  if (work) work.copied += over.size;
+  over.set(position, unit);
+  const held = units.has(position);
+  return new ToldUnits(layered?.base ?? units, over, units.size + (unit ? (held ? 0 : 1) : held ? -1 : 0));
+}
+
+/** How many changes back a reader of a run looks for the units it last read: one that fell further behind reads again. */
+const CHANGES_BACK = 64;
+/** The records told along a line of units made from one another: the positions of its last CHANGES_BACK changes. A
+ *  units map knows its place on the line and nothing of the maps before it, so a superseded map, with its records and
+ *  their rows, is unreachable once the change that replaced it is applied. */
+interface ChangeLine {
+  readonly positions: string[];
+  /** The change `positions[0]` is. */
+  first: number;
+  latest: number;
+}
+const changeOf = new WeakMap<ReadonlyMap<string, HeldUnit>, { line: ChangeLine; seq: number }>();
+/** `next` was made from `prior` by telling the record at `position`. Two maps made from one are two lines. */
+function noteChange(prior: ReadonlyMap<string, HeldUnit>, next: ReadonlyMap<string, HeldUnit>, position: string): void {
+  const before = changeOf.get(prior);
+  const line = before && before.seq === before.line.latest ? before.line : { positions: [], first: 1, latest: 0 };
+  if (line !== before?.line) changeOf.set(prior, { line, seq: 0 });
+  line.positions.push(position);
+  line.latest += 1;
+  if (line.positions.length > CHANGES_BACK) {
+    line.positions.shift();
+    line.first += 1;
+  }
+  changeOf.set(next, { line, seq: line.latest });
+}
+const runPositions = new WeakMap<WindowRun, ReadonlySet<string>>();
+
+/** Whether `run` holds the same records in `units` as it did in `since`: `units` was made from `since` by changes of
+ *  records the run does not hold. Looks at the changes, not at the run's records. */
+export function runUnchanged(
+  run: WindowRun,
+  units: ReadonlyMap<string, HeldUnit>,
+  since: ReadonlyMap<string, HeldUnit>
+): boolean {
+  let held = runPositions.get(run);
+  if (!held) runPositions.set(run, (held = new Set(run.positions)));
+  if (units === since) return true;
+  const now = changeOf.get(units);
+  const then = changeOf.get(since);
+  if (!now || !then || now.line !== then.line || now.seq < then.seq) return false;
+  const { positions, first } = now.line;
+  if (then.seq + 1 < first) return false;
+  for (let seq = then.seq + 1; seq <= now.seq; seq += 1) if (held.has(positions[seq - first]!)) return false;
+  return true;
 }
 
 /** What a `TranscriptChange` did: the window after it, and the core items and rows of the unit it told (the rows shown
@@ -134,8 +392,9 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
         ? { ...range, positions: range.positions.filter((position) => position !== c.position) }
         : range
     );
-    const units = new Map(held.units);
-    units.delete(c.position);
+    const units = toldUnits(held.units, c.position, null);
+    noteChange(held.units, units, c.position);
+    carryShown(held.units, units, c.position);
     return { window: { ...held, ranges, units }, position: c.position, items: gone.items, rows: gone.rows };
   }
   const read = unitOf(c.unit, own);
@@ -143,13 +402,28 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
   const { position, unit } = read;
   if (c.op === 'replace') {
     if (!held.units.has(position)) return null;
-    const units = new Map(held.units);
-    units.set(position, unit);
-    return { window: { ...held, units }, position, items: unit.items, rows: unit.rows };
+    const was = held.units.get(position)!;
+    const units = toldUnits(held.units, position, adoptHeldUnit(unit, was));
+    noteChange(held.units, units, position);
+    carryShown(held.units, units, position);
+    const window: HeldWindow = { ...held, units };
+    // The record reads differently where it stands: the ranges and runs are the ones held, their rows counted on.
+    const grew = unit.rows.length - was.rows.length;
+    const known = runsOf.get(held);
+    if (known && grew === 0) runsOf.set(window, known);
+    else if (known) {
+      if (work) work.copied += known.length;
+      runsOf.set(window, known.map((run) => (run.positions.includes(position) ? { ...run, rows: run.rows + grew } : run)));
+    }
+    if (grew !== 0) for (const range of held.ranges) if (range.positions.includes(position)) rowsOfRange.delete(range);
+    return { window, position, items: unit.items, rows: unit.rows };
   }
   if (c.op !== 'insert') return null;
-  const units = new Map(held.units);
-  units.set(position, unit);
+  let gap = held.gap;
+  let appended = false;
+  const units = toldUnits(held.units, position, unit);
+  noteChange(held.units, units, position);
+  carryShown(held.units, units, position);
   const ranges = held.ranges.slice();
   const at = ranges.findIndex((range) => range.id === TAIL_RANGE);
   if (at < 0) {
@@ -162,13 +436,35 @@ export function transcriptChanged(held: HeldWindow, change: unknown, own: RowOwn
     });
   } else {
     const tail = ranges[at]!;
-    ranges[at] = {
-      ...tail,
-      newer: null,
-      positions: tail.positions.includes(position) ? tail.positions : [...tail.positions, position],
-    };
+    if (held.units.has(position) && tail.positions.includes(position)) {
+      ranges[at] = { ...tail, newer: null };
+    } else {
+      // The record stands where its ordinal says, among the records the tail holds: after the newest one stored
+      // before it. One that states no ordinal is the newest.
+      let place = tail.positions.length;
+      if (unit.ordinal !== undefined)
+        while (place > 0 && (held.units.get(tail.positions[place - 1]!)?.ordinal ?? -1) > unit.ordinal) place -= 1;
+      const before = tail.positions[place - 1];
+      // The core names the stored record shown before it. The tail holding another there has a hole between them; so
+      // has a tail the record lands before all of: what lies between it and the tail's first record is not known.
+      if (typeof c.after === 'string' && before !== undefined && before !== c.after && !tail.positions.includes(c.after))
+        gap = before;
+      else if (before === undefined && tail.positions.length > 0) gap = position;
+      const positions =
+        place === tail.positions.length
+          ? [...tail.positions, position]
+          : [...tail.positions.slice(0, place), position, ...tail.positions.slice(place)];
+      if (work) work.copied += positions.length;
+      const joined_ = { ...tail, newer: null, positions };
+      const counted = rowsOfRange.get(tail);
+      if (counted !== undefined) rowsOfRange.set(joined_, counted + unit.rows.length);
+      ranges[at] = joined_;
+      appended = place === positions.length - 1;
+    }
   }
-  return { window: { ...held, ranges, units }, position, items: unit.items, rows: unit.rows };
+  const window: HeldWindow = { ...held, ranges, units, ...(gap !== undefined ? { gap } : {}) };
+  if (appended) carryRuns(held, window, position, unit);
+  return { window, position, items: unit.items, rows: unit.rows };
 }
 
 /** `a` and `b`, two stretches of one sequence that share a position, as the one stretch they make; null when they share
@@ -185,7 +481,40 @@ function joined(a: readonly string[], b: readonly string[]): string[] | null {
   return null;
 }
 
+/** `a` and `b` as one stretch when they share a record: ordered by the ordinals their records state, and where one
+ *  states none, by the order each range lists (`joined`). */
+function merged(window: HeldWindow, a: readonly string[], b: readonly string[]): string[] | null {
+  const inA = new Set(a);
+  if (!b.some((position) => inA.has(position))) return null;
+  const all = [...a, ...b.filter((position) => !inA.has(position))];
+  const ordinals = all.map((position) => window.units.get(position)?.ordinal);
+  if (ordinals.some((ordinal) => ordinal === undefined)) return joined(a, b);
+  const order = new Map(all.map((position, at) => [position, ordinals[at]!]));
+  return all.sort((x, y) => order.get(x)! - order.get(y)!);
+}
+
 const runsOf = new WeakMap<HeldWindow, readonly WindowRun[]>();
+
+/** The runs of `next`, which is `prior` with the record at `position` joined to the newest end of its tail: the runs
+ *  `prior` has, the tail's one record longer. Nothing is joined again for a record that arrives. */
+function carryRuns(prior: HeldWindow, next: HeldWindow, position: string, unit: HeldUnit): void {
+  const known = runsOf.get(prior);
+  const tail = known?.find((run) => run.tail);
+  if (!known || !tail) return;
+  const longer: WindowRun = { ...tail, positions: [...tail.positions, position], newer: null, rows: tail.rows + unit.rows.length };
+  if (work) work.copied += longer.positions.length;
+  // The run's layout goes on to the longer run, once: a second run made from the same one lays itself out.
+  const layout = layoutOf.get(tail);
+  if (layout && layout.upTo.length === tail.positions.length + 1) {
+    layout.index.set(position, tail.positions.length);
+    layout.upTo.push(layout.upTo.at(-1)! + unit.rows.length);
+    layoutOf.set(longer, layout);
+  }
+  runsOf.set(
+    next,
+    known.map((run) => (run === tail ? longer : run))
+  );
+}
 
 /** The window's runs: the ranges joined where they share a record. */
 export function windowRuns(window: HeldWindow): readonly WindowRun[] {
@@ -197,8 +526,8 @@ export function windowRuns(window: HeldWindow): readonly WindowRun[] {
     let group = { ranges: [range], positions: range.positions.slice(), rank };
     const rest: typeof groups = [];
     for (const other of groups) {
-      const merged = joined(other.positions, group.positions);
-      if (merged) group = { ranges: [...other.ranges, ...group.ranges], positions: merged, rank };
+      const one = merged(window, other.positions, group.positions);
+      if (one) group = { ranges: [...other.ranges, ...group.ranges], positions: one, rank };
       else rest.push(other);
     }
     groups = [...rest, group];
@@ -232,6 +561,13 @@ export function viewRun(window: HeldWindow): WindowRun | undefined {
   let view: WindowRun | undefined;
   for (const run of windowRuns(window)) if (!run.tail && (!view || run.rank > view.rank)) view = run;
   return view;
+}
+
+/** Every run apart from the tail, the one asked for last being last: each is a stretch some reader may be shown. */
+export function viewRuns(window: HeldWindow): readonly WindowRun[] {
+  return windowRuns(window)
+    .filter((run) => !run.tail)
+    .sort((a, b) => a.rank - b.rank);
 }
 
 /** The rows of `run`, oldest first. */
