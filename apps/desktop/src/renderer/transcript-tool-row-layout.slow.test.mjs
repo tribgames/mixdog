@@ -46,7 +46,7 @@ const NOTIFICATION = [
   '<status>completed</status>',
   '<exit-code>0</exit-code>',
   "<summary>Shell task completed (exit 0): $f = Join-Path $env:TEMP 'follow-live2.js'; Set-Content -LiteralPath $f -Encoding utf8 -Value @' (async () =&gt; { const wait=(ms)=&gt;new Promise(r=&gt;setTimeout(r,ms)…</summary>",
-  `<output-file>C:/Users/tempe/.mixdog/data/scratch/jobs/${TASK}.stdout.log</output-file>`,
+  `<output-file>C:/Users/sample/.mixdog/data/scratch/jobs/${TASK}.stdout.log</output-file>`,
   `<result>\n${OUTPUT}\n</result>`,
   '</task-notification>',
 ].join('\n');
@@ -89,7 +89,7 @@ const ROWS = [
       kind: 'tool',
       id: 'shell',
       name: 'shell',
-      args: { command: COMMAND, cwd: 'C:\\Project\\mixdog\\apps\\desktop', timeout_ms: 60000 },
+      args: { command: COMMAND, cwd: 'C:\\Work\\mixdog\\apps\\desktop', timeout_ms: 60000 },
       result: BACKGROUND,
       completedAt: 4,
     },
