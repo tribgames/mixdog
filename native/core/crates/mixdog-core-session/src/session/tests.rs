@@ -2195,6 +2195,64 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
     assert_eq!(header.get("usageMetricsEpoch").and_then(Value::as_u64).unwrap_or(0), 0);
 }
 
+/// A compaction inside a running turn changes the context the last call measured: the session's reading turns pending at the
+/// pass, not at the next call's usage, so the gauge never shows the pre-compaction figure over the compacted context.
+#[tokio::test(start_paused = true)]
+async fn a_compaction_inside_a_turn_leaves_the_reading_pending_until_the_next_call() {
+    let rig = Rig::new();
+    let compact = Arc::new(tokio::sync::Notify::new());
+    let (gate, release) = (compact.clone(), Arc::new(tokio::sync::Notify::new()));
+    let end = release.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (gate, end) = (gate.clone(), end.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 495_000, output_tokens: 1, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 0,
+                    request_ms: 0,
+                    delta_prompt: 495_000,
+                    send_tools: Default::default(),
+                    reasoning_tokens: None,
+                    reasoning_tokens_complete: false,
+                    outgoing: Vec::new().into(),
+                    sent_at_ms: 0,
+                    input_excludes_cache: false,
+                    tail_book: None,
+                })
+                .await
+                .expect("usage");
+            gate.notified().await;
+            let stage = mixdog_agent::env::PassStage::Done { changed: true, handoff_source: "session-local", after_tokens: 9_000, duration_ms: 1, after: Vec::new() };
+            let pass = mixdog_agent::env::CompactPass {
+                request: Vec::new(),
+                tools: Vec::new(),
+                reactive: false,
+                trigger: mixdog_agent::env::CompactTrigger::Auto,
+                stage,
+            };
+            run.port.compact_pass(Box::new(pass)).await.expect("pass");
+            end.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    let stats = |handle: &super::SessionHandle| handle.cell.view.load_full().state.context.clone().and_then(|context| context.stats).unwrap_or_default();
+    eventually_on!(&[&handle.cell.stepped], || (stats(&handle)["currentContextTokens"] == json!(495_000)).then_some(())).await;
+    compact.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (stats(&handle)["currentContextSource"] == json!("pending")).then_some(())).await;
+    assert_eq!(stats(&handle)["currentContextTokens"], Value::Null, "the pre-compaction figure is gone");
+    release.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+}
+
 /// The Goal runtime with a held `turn_settled`.
 pub(crate) struct HeldSettle {
     pub(crate) goals: mixdog_core_goal::goal::GoalRuntime,

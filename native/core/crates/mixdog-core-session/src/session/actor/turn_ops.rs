@@ -742,6 +742,9 @@ impl SessionActor {
     }
     /// The rest of a manual compaction once its Goal reminder is marked.
     pub(super) fn compacted(&mut self, op: Option<OpId>, tx: Waiter, result: Value, recover: bool) {
+        if result.get("changed") == Some(&Value::Bool(true)) {
+            self.context_compacted();
+        }
         self.mark_goal_reminder("compaction");
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
         tokio::spawn(async move {

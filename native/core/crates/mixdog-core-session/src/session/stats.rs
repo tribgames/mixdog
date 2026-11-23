@@ -169,6 +169,15 @@ impl SessionStats {
         changed
     }
 
+    /// A compaction changed the context: the last request's reading no longer measures it, so the reading is pending until the
+    /// next call measures the compacted context (`sessionContextMeasurement`: a compaction after the reading). Returns whether the
+    /// stats changed.
+    pub(crate) fn compacted(&mut self) -> bool {
+        let changed = self.measurement != Measurement::Pending;
+        self.measurement = Measurement::Pending;
+        changed
+    }
+
     /// The running input and output token totals (`stats.inputTokens`, `stats.outputTokens`).
     /// The spinner counts whole non-negative tokens, so a fraction or a net negative total reads as its floor or 0.
     pub(crate) fn tokens(&self) -> (u64, u64) {

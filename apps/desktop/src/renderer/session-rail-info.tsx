@@ -325,7 +325,8 @@ const contextStatuses = new RendererLruCache<string, unknown>({
 });
 
 /** The session's context status (what its window holds, by kind), read while
- *  the category is open: for the session shown and again for each `reading`. */
+ *  the category is open: for the session shown and again for each `reading`
+ *  the head shows, so the rows describe the window the head measures. */
 function useContextStatus(sessionId: string, open: boolean, reading: number | null): unknown {
   const [read, setRead] = useState<{ sessionId: string; status: unknown } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new reading is what asks again
@@ -349,7 +350,7 @@ function useContextStatus(sessionId: string, open: boolean, reading: number | nu
 
 /** The Context category: how full the window is, as its figures, a bar of
  *  what it holds and a row for each kind, with the gauge's two actions.
- *  Absent before the session has a reading. */
+ *  Absent while the session's window size is unknown. */
 export function ContextSection({
   open,
   onToggle,
@@ -363,11 +364,10 @@ export function ContextSection({
 }) {
   const usage = useContextUsage(snapshot);
   const sessionId = String(snapshot.sessionId || '');
-  // The composition is read again for each reading a turn settles on, not for every request of a running turn.
-  const settled = useRef(usage.used);
-  if (!snapshot.busy) settled.current = usage.used;
-  const status = useContextStatus(sessionId, open && usage.percent !== null, settled.current);
-  if (usage.percent === null) return null;
+  // A window not measured yet (after a compaction, until the next request) still shows, its head awaiting the reading.
+  const shown = usage.limit > 0;
+  const status = useContextStatus(sessionId, open && shown, usage.used);
+  if (!shown) return null;
   const mix = status ? contextMix(status, usage.limit) : null;
   // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for.
   const parts = mix
@@ -384,10 +384,13 @@ export function ContextSection({
       // The window's figures as its rows write them: 19k / 256k · 7.5%.
       meta={
         <span title={usage.title}>
-          {usage.used !== null && usage.limit > 0 && `${compactTokens(usage.used)} / ${compactTokens(usage.limit)} · `}
-          <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
-            {`${usage.percent.toFixed(1)}%`}
-          </span>
+          {usage.limit > 0 &&
+            `${usage.used === null ? '—' : compactTokens(usage.used)} / ${compactTokens(usage.limit)}${usage.percent === null ? '' : ' · '}`}
+          {usage.percent !== null && (
+            <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
+              {`${usage.percent.toFixed(1)}%`}
+            </span>
+          )}
         </span>
       }
       open={open}
@@ -420,7 +423,7 @@ export function ContextSection({
           aria-label={t('Context usage')}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={usage.percent}
+          aria-valuenow={usage.percent ?? undefined}
         >
           {mix ? (
             // What the window holds, a colour for each kind; the track left over is free space.
@@ -430,7 +433,7 @@ export function ContextSection({
                 <b key={category.key} data-context-key={category.key} style={{ width: `${share(category.tokens)}%` }} />
               ))
           ) : (
-            <i style={{ width: `${Math.min(100, usage.percent)}%` }} />
+            <i style={{ width: `${Math.min(100, usage.percent ?? 0)}%` }} />
           )}
         </div>
         {parts.map((part) => (

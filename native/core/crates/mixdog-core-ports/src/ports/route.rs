@@ -86,6 +86,11 @@ pub trait RouteSession: Send + Sync {
     fn generation(&self, thread: &ThreadId) -> u64;
     /// `session.liveTurnMessages`: the first turn's working messages before they are committed.
     async fn live_turn_messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError>;
+    /// Whether [`live_turn_messages`](Self::live_turn_messages) holds any row: a turn runs. A session that holds the rows answers
+    /// without copying them.
+    async fn turn_running(&self, thread: &ThreadId) -> Result<bool, PortError> {
+        Ok(!self.live_turn_messages(thread).await?.is_empty())
+    }
     /// `hasUserConversationMessage`: a user message that is not a protected context turn, a
     /// reference-files message or a summary anchor.
     fn has_user_conversation(&self, messages: &[Value]) -> bool;

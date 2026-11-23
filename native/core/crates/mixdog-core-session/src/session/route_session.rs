@@ -197,6 +197,10 @@ impl RouteSession for SessionRouteAdapter {
         Ok(self.directory.handle(thread).map(|handle| handle.turn_messages_snapshot()).unwrap_or_default())
     }
 
+    async fn turn_running(&self, thread: &ThreadId) -> Result<bool, PortError> {
+        Ok(self.directory.handle(thread).is_some_and(|handle| handle.turn_running()))
+    }
+
     fn has_user_conversation(&self, messages: &[Value]) -> bool {
         has_user_conversation(messages)
     }
