@@ -316,7 +316,7 @@ fn migrating_is_kept_and_draining_stops_republication() {
     wait_until("migrating discovery", || path(root.path()).is_file());
     owned.publish(&running_discovery("inst-1", CoreState::Draining)).unwrap();
     std::fs::remove_file(path(root.path())).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    await_recheck(&owned);
     assert!(!path(root.path()).exists());
 }
 #[test]
@@ -325,8 +325,15 @@ fn a_released_core_does_not_put_its_file_back() {
     let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
     owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
     assert!(owned.release("inst-1").unwrap());
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    await_recheck(&owned);
     assert!(!path(root.path()).exists());
+}
+/// Another writer's document, replaced as every writer of the file replaces it: written in place, the file is empty between
+/// its truncation and its write, and a recheck that reads it then restores over the write.
+fn overwrite(root: &Path, bytes: &[u8]) {
+    let staging = root.join("foreign.tmp");
+    std::fs::write(&staging, bytes).unwrap();
+    std::fs::rename(&staging, path(root)).unwrap();
 }
 #[test]
 fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
@@ -335,12 +342,12 @@ fn overwritten_or_invalid_discovery_is_restored_but_same_pid_is_untouched() {
     let document = running_discovery("owner", CoreState::Serving);
     owned.publish(&document).unwrap();
     for bytes in [b"{}".as_slice(), b"{broken", b"{\"pid\":0}", b"null"] {
-        std::fs::write(path(root.path()), bytes).unwrap();
+        overwrite(root.path(), bytes);
         wait_until("overwritten discovery", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
     }
     let bytes = format!("{{\"pid\":\"{}\",\"other\":\"\\ud800\"}}", document.pid);
-    std::fs::write(path(root.path()), &bytes).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    overwrite(root.path(), bytes.as_bytes());
+    await_recheck(&owned);
     assert_eq!(std::fs::read_to_string(path(root.path())).unwrap(), bytes);
 }
 #[test]
@@ -359,7 +366,8 @@ fn a_blocked_contender_does_not_compete_with_the_owner_or_restore_a_deleted_file
     std::fs::remove_file(path(root.path())).unwrap();
     wait_until("owner republish", || std::fs::read(path(root.path())).is_ok_and(|bytes| names_instance(&bytes, "owner")));
     owner.release("owner").unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    await_recheck(&owner);
+    await_recheck(&contender);
     assert!(!path(root.path()).exists(), "blocked contender must not take the discovery file");
 }
 #[test]
@@ -367,9 +375,16 @@ fn dropping_the_watch_cannot_resurrect_discovery() {
     let root = tempfile::tempdir().unwrap();
     let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
     owned.publish(&running_discovery("owner", CoreState::Serving)).unwrap();
+    let events = owned.events.clone();
     drop(owned);
     std::fs::remove_file(path(root.path())).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    let (done, completion) = std::sync::mpsc::channel();
+    let _ = events.send(WatchSignal::Rechecked(done));
+    assert_eq!(
+        completion.recv_timeout(std::time::Duration::from_secs(10)),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected),
+        "the watch ended at its stop without another recheck"
+    );
     assert!(!path(root.path()).exists());
 }
 /// Invoked only by the isolated launcher integration below. This is a test
