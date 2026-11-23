@@ -474,8 +474,18 @@ pub fn chain_refused(error: &mixdog_core_api::domain::provider::ProviderError) -
 /// previous request plus its response; otherwise a full frame with the
 /// reason.
 pub fn compute(delta: bool, chain: &Chain, body: &Map<String, Value>) -> Framed {
+    compute_with(delta, true, chain, body)
+}
+
+/// [`compute`] for a provider that may refuse `instructions` beside `previous_response_id`
+/// (`ResponsesProfile::instructions_with_previous_response`). The stored response does not hold them, so a request that has
+/// them goes as a full frame there.
+pub fn compute_with(delta: bool, instructions_with_previous_response: bool, chain: &Chain, body: &Map<String, Value>) -> Framed {
     if !delta {
         return full(body, "full_default");
+    }
+    if !instructions_with_previous_response && body.get("instructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {
+        return full(body, "instructions_with_previous_response");
     }
     let (Some(sans), Some(response_id)) = (chain.sans_input, chain.response_id.as_deref().filter(|s| !s.is_empty())) else {
         return full(body, "no_anchor");

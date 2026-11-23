@@ -5,6 +5,7 @@ use mixdog_ai::providers::openai::delta::Chain;
 use mixdog_ai::providers::openai::delta::Framed;
 use mixdog_ai::providers::openai::delta::Mode;
 use mixdog_ai::providers::openai::delta::compute;
+use mixdog_ai::providers::openai::delta::compute_with;
 use mixdog_ai::providers::openai::delta::logical_item_match;
 use mixdog_ai::providers::openai::delta::response_create;
 use mixdog_ai::providers::openai::delta::sans_input;
@@ -56,6 +57,32 @@ fn a_request_that_extends_the_exchange_sends_only_its_new_tail_anchored_on_the_r
         "type first, the anchor right before the tail, no transport-only fields"
     );
     assert_eq!(framed.frame["type"], "response.create");
+}
+
+/// The same extending request, framed by the provider rule on `instructions` beside `previous_response_id`: OpenAI's socket
+/// keeps them on the chained frame, a provider that refuses them gets the whole request.
+#[test]
+fn a_chained_frame_keeps_instructions_only_where_the_profile_accepts_them_beside_the_chain() {
+    let first = body(vec![user("hello")]);
+    let chain = anchored(&first, &[answer("hi there")]);
+    let second = body(vec![user("hello"), answer("hi there"), user("and now?")]);
+    let text = |framed: Framed| serde_json::to_string(&Value::Object(framed.frame)).unwrap();
+    assert_eq!(
+        text(compute(true, &chain, &second)),
+        r#"{"type":"response.create","model":"gpt-5","instructions":"be brief","previous_response_id":"resp_1","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"and now?"}]}],"tools":[],"store":false}"#
+    );
+    let refused = compute_with(true, false, &chain, &second);
+    assert_eq!((refused.mode, refused.reason.as_deref()), (Mode::Full, Some("instructions_with_previous_response")));
+    assert_eq!(
+        text(refused),
+        r#"{"type":"response.create","model":"gpt-5","instructions":"be brief","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi there"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"and now?"}]}],"tools":[],"store":false}"#
+    );
+    let bare = |mut request: Map<String, Value>| {
+        request.shift_remove("instructions");
+        request
+    };
+    let chain = anchored(&bare(first), &[answer("hi there")]);
+    assert_eq!(compute_with(true, false, &chain, &bare(second)).mode, Mode::Delta, "without instructions the chain stands");
 }
 
 #[test]

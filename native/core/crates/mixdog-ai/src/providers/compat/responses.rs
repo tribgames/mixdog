@@ -427,6 +427,12 @@ impl WireCodec for CompatResponsesCodec {
 }
 
 impl CompatResponsesCodec {
+    /// Whether a request chained on `previous_response_id` may still carry `instructions` on this wire.
+    pub(crate) fn instructions_with_previous_response(&self, request: &ModelRequest) -> bool {
+        let info = self.config.models.get(&request.model);
+        self.responses_profile(request, info.as_deref()).instructions_with_previous_response
+    }
+
     /// The neutral Responses decoder of this wire.
     pub(crate) fn responses_decoder(&self, request: &ModelRequest) -> ResponsesDecoder {
         let framing = if self.is_socket() { Framing::WebSocket } else { Framing::Sse };
