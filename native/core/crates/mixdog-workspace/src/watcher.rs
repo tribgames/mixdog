@@ -158,17 +158,86 @@ struct Sub {
 
 #[derive(Default)]
 struct OsPath {
-    /// The path the backend knows the watch by (the first one registered of its case-folded key).
+    /// The path the watch was registered under (the first one of its case-folded key), and the one the backend knows it by
+    /// unless it has a `.` or `..` step ([`Self::given`]).
     path: PathBuf,
-    /// `path` resolved, as the backend may name it in events ([`crate::pathguard::resolved`]).
+    /// `path` resolved, as the backend may name it in events ([`crate::pathguard::resolved`]). Of a path with a `.` or `..`
+    /// step: the path it was opened under ([`Self::given`]).
     real: PathBuf,
+    /// What the backend was asked to open for this watch and is asked to close for it, and whether recursively; `None` while it
+    /// holds none. `path` itself, or of a `path` with a `.` or `..` step its resolution by the OS
+    /// ([`crate::pathguard::without_dot_steps`]): the backend is never given such a step.
+    given: Option<(PathBuf, bool)>,
     recursive_refs: usize,
     direct_refs: usize,
     coverage: Option<Arc<()>>,
 }
 
+/// What a test's backend was asked.
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Asked {
+    Watch(PathBuf, bool),
+    Unwatch(PathBuf),
+}
+
+enum Backend {
+    Os(RecommendedWatcher),
+    /// Opens nothing and records what it is asked: a test's controlled watcher sees only the events the test queues.
+    #[cfg(test)]
+    Recorded(Vec<Asked>),
+}
+
+impl Backend {
+    fn watch(&mut self, path: &Path, recursive: bool) -> notify::Result<()> {
+        match self {
+            Self::Os(watcher) => watcher.watch(path, if recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive }),
+            #[cfg(test)]
+            Self::Recorded(asked) => {
+                asked.push(Asked::Watch(path.to_path_buf(), recursive));
+                Ok(())
+            }
+        }
+    }
+
+    fn unwatch(&mut self, path: &Path) {
+        match self {
+            Self::Os(watcher) => {
+                let _ = watcher.unwatch(path);
+            }
+            #[cfg(test)]
+            Self::Recorded(asked) => asked.push(Asked::Unwatch(path.to_path_buf())),
+        }
+    }
+
+    /// Returns once the backend has acted on every unwatch sent to it before: Windows' backend only queues an unwatch for its own
+    /// thread, which closes the handle later, and answers a configure request after everything queued ahead of it. The other
+    /// backends unwatch within the call. A request the backend did not answer is no proof: an error.
+    fn settle(&mut self) -> WsResult<()> {
+        #[cfg(windows)]
+        match self {
+            Self::Os(watcher) => {
+                watcher
+                    .configure(notify::Config::default())
+                    .map_err(|error| WsError::new(Reason::Io, format!("The file watcher did not confirm that it closed its watches: {error}")))?;
+            }
+            #[cfg(test)]
+            Self::Recorded(_) => {}
+        }
+        Ok(())
+    }
+}
+
+impl OsPath {
+    /// Gives up what the backend holds for this watch; what it is then asked to close: what it was asked to open for it, else
+    /// (as ever, though it holds none) the registered path, unless that has a `.` or `..` step.
+    fn give_up(&mut self) -> Option<PathBuf> {
+        self.given.take().map(|(given, _)| given).or_else(|| (!crate::pathguard::has_dot_step(&self.path)).then(|| self.path.clone()))
+    }
+}
+
 struct State {
-    watcher: Option<RecommendedWatcher>,
+    watcher: Option<Backend>,
     subs: HashMap<String, Sub>,
     os: HashMap<PathBuf, OsPath>,
     registry: crate::watch::WatchRegistry,
@@ -189,19 +258,6 @@ fn live_watchers() -> Vec<Arc<Mutex<State>>> {
     let mut all = WATCHERS.lock().unwrap_or_else(PoisonError::into_inner);
     all.retain(|state| state.strong_count() > 0);
     all.iter().filter_map(Weak::upgrade).collect()
-}
-
-/// Returns once the backend has acted on every unwatch sent to it before: Windows' backend only queues an unwatch for its own thread,
-/// which closes the handle later, and answers a configure request after everything queued ahead of it. The other backends unwatch
-/// within the call. A request the backend did not answer is no proof: an error.
-fn settle(watcher: &mut RecommendedWatcher) -> WsResult<()> {
-    #[cfg(windows)]
-    watcher
-        .configure(notify::Config::default())
-        .map_err(|error| WsError::new(Reason::Io, format!("The file watcher did not confirm that it closed its watches: {error}")))?;
-    #[cfg(not(windows))]
-    let _ = watcher;
-    Ok(())
 }
 
 /// Keeps every watcher of this process from holding a handle at or under `root` until it is dropped: Windows refuses to rename or
@@ -331,44 +387,89 @@ fn joined(root: &Path, rest: &Path) -> PathBuf {
 }
 
 impl State {
+    /// Whether a watch of this watcher holds the very path `given` open at the backend. A path with a `.` or `..` step is
+    /// opened under its resolution, which may be a path another watch was registered under as it stands: the backend is asked
+    /// to open such a path once, and to close it when the last of them gives it up.
+    fn holds(&self, given: &Path) -> Option<bool> {
+        self.os.values().find_map(|entry| entry.given.as_ref().filter(|(held, _)| held == given).map(|(_, recursive)| *recursive))
+    }
+
+    /// Asks the backend to close `given`, which the watch asking has given up.
+    fn close(&mut self, given: &Path) {
+        if self.holds(given).is_none()
+            && let Some(w) = self.watcher.as_mut()
+        {
+            w.unwatch(given);
+        }
+    }
+
+    /// Asks the backend to open `given`; the mode it is open in then. A path another watch holds open is not opened again,
+    /// but to become recursive: the watches that held it may have missed changes meanwhile and get a new revision, and when
+    /// it does not open they are left without it.
+    fn open(&mut self, given: &Path, recursive: bool) -> notify::Result<bool> {
+        let held = self.holds(given);
+        let State { watcher, os, .. } = self;
+        let Some(w) = watcher.as_mut() else { return Ok(recursive) };
+        match held {
+            None => w.watch(given, recursive).map(|()| recursive),
+            Some(open) if open || !recursive => Ok(open),
+            Some(_) => {
+                w.unwatch(given);
+                let opened = w.watch(given, true);
+                for entry in os.values_mut().filter(|entry| entry.given.as_ref().is_some_and(|(held, _)| held == given)) {
+                    entry.given = opened.is_ok().then(|| (given.to_path_buf(), true));
+                    entry.coverage = entry.coverage.take().filter(|_| opened.is_ok()).map(|_| Arc::new(()));
+                }
+                opened.map(|()| true)
+            }
+        }
+    }
+
     fn apply(&mut self, path: &Path) -> WsResult<()> {
         let key = comparable(path);
-        let Some(entry) = self.os.get_mut(&key) else {
-            if let Some(w) = self.watcher.as_mut() {
-                let _ = w.unwatch(path);
-            }
-            return Ok(());
-        };
+        let Some(entry) = self.os.get_mut(&key) else { return Ok(()) };
         entry.coverage = None;
-        let mode = if entry.recursive_refs > 0 { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+        let recursive = entry.recursive_refs > 0;
         let path = entry.path.clone();
-        let Some(w) = self.watcher.as_mut() else {
-            // No backend (a test's controlled watcher): its registrations are covered, and only the events the test queues change them.
+        if self.watcher.is_none() {
             entry.coverage = Some(Arc::new(()));
             return Ok(());
-        };
-        let _ = w.unwatch(&path);
+        }
+        if let Some(was) = entry.give_up() {
+            self.close(&was);
+        }
         // Under a held root the registration stays without a handle; the hold's end opens it.
         if held(&path) {
             return Ok(());
         }
-        w.watch(&path, mode).map_err(|error| watch_failure(&error, &path))?;
-        // Resolved at each open: a hold's end may reopen the watch on a folder that replaced the old one.
-        entry.real = crate::pathguard::resolved(&path);
-        entry.coverage = Some(Arc::new(()));
+        let dotted = crate::pathguard::has_dot_step(&path);
+        // Where a path with a step does not resolve, its watch fails as the backend's own open of it would.
+        let given = crate::pathguard::without_dot_steps(&path).map_err(|error| crate::nodeerr::io_error(&error, "watch", &path))?;
+        let open = self.open(&given, recursive).map_err(|error| watch_failure(&error, &path))?;
+        if let Some(entry) = self.os.get_mut(&key) {
+            // Resolved at each open: a hold's end may reopen the watch on a folder that replaced the old one.
+            entry.real = if dotted { given.clone() } else { crate::pathguard::resolved(&path) };
+            entry.given = Some((given, open));
+            entry.coverage = Some(Arc::new(()));
+        }
         Ok(())
     }
 
     /// Gives up every OS watch at or under `root` (every one for `None`), returning once the backend has closed their handles (and
     /// any it was told to close before).
     fn close_under(&mut self, root: Option<&Path>) -> WsResult<()> {
-        let State { watcher, os, .. } = self;
-        let Some(w) = watcher.as_mut() else { return Ok(()) };
-        for entry in os.values_mut().filter(|entry| root.is_none_or(|root| is_within(root, &entry.path))) {
-            entry.coverage = None;
-            let _ = w.unwatch(&entry.path);
+        if self.watcher.is_none() {
+            return Ok(());
         }
-        settle(w)
+        let under: Vec<PathBuf> = self.os.iter().filter(|(_, entry)| root.is_none_or(|root| is_within(root, &entry.path))).map(|(key, _)| key.clone()).collect();
+        for key in under {
+            let Some(entry) = self.os.get_mut(&key) else { continue };
+            entry.coverage = None;
+            if let Some(was) = entry.give_up() {
+                self.close(&was);
+            }
+        }
+        self.watcher.as_mut().map_or(Ok(()), Backend::settle)
     }
 
     /// Opens again the OS watches under `root` that no other hold covers; the ids of the watches they serve.
@@ -439,9 +540,10 @@ impl State {
         let empty = entry.recursive_refs + entry.direct_refs == 0;
         let still_recursive = entry.recursive_refs > 0;
         if empty {
-            self.os.remove(&key);
-        }
-        if empty || was_recursive != still_recursive {
+            if let Some(was) = self.os.remove(&key).and_then(|mut entry| entry.give_up()) {
+                self.close(&was);
+            }
+        } else if was_recursive != still_recursive {
             let _ = self.apply(&registered);
         }
     }
@@ -452,10 +554,20 @@ impl FolderWatcher {
         Self::build(sink, true)
     }
 
-    /// A watcher with no OS backend: it sees only the events a test queues (`queue_test_change`).
+    /// A watcher whose backend opens nothing and records what it is asked ([`Backend::Recorded`]): it sees only the events a
+    /// test queues (`queue_test_change`).
     #[cfg(test)]
     pub(crate) fn without_backend(sink: Arc<dyn ChangeSink>) -> Self {
         Self::build(sink, false).expect("a watcher without a backend starts")
+    }
+
+    /// What the recording backend of [`Self::without_backend`] was asked so far.
+    #[cfg(test)]
+    fn asked(&self) -> Vec<Asked> {
+        match &self.lock().watcher {
+            Some(Backend::Recorded(asked)) => asked.clone(),
+            _ => Vec::new(),
+        }
     }
 
     fn build(sink: Arc<dyn ChangeSink>, backend: bool) -> WsResult<Self> {
@@ -464,17 +576,22 @@ impl FolderWatcher {
         let pending = Arc::new(AtomicUsize::new(0));
         let callback_pending = pending.clone();
         let watcher = if backend {
-            Some(
+            Backend::Os(
                 notify::recommended_watcher(move |event| {
                     enqueue_event(&callback_tx, &callback_pending, event);
                 })
                 .map_err(|e| WsError::new(Reason::Io, format!("Cannot start the file watcher: {e}")))?,
             )
         } else {
-            None
+            #[cfg(test)]
+            {
+                Backend::Recorded(Vec::new())
+            }
+            #[cfg(not(test))]
+            unreachable!("only a test builds a watcher without the OS backend")
         };
         let state = Arc::new(Mutex::new(State {
-            watcher,
+            watcher: Some(watcher),
             subs: HashMap::new(),
             os: HashMap::new(),
             registry: crate::watch::WatchRegistry::default(),
@@ -868,6 +985,135 @@ mod tests {
         assert!(watcher.recursive_revision(&root).is_none());
         drop(queued);
         assert!(!Arc::ptr_eq(&before, &watcher.recursive_revision(&root).unwrap()));
+    }
+
+    /// A watcher whose backend records what it is asked.
+    fn recording() -> FolderWatcher {
+        FolderWatcher::without_backend(Arc::new(Collect(Mutex::new(mpsc::channel().0))))
+    }
+
+    /// What a change of `changed`, named as the backend names it, gives each watch at the end of its window.
+    fn batch_of(watcher: &FolderWatcher, changed: &Path) -> Batch {
+        let (mut batcher, now) = (Batcher::default(), Instant::now());
+        let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(changed.to_path_buf());
+        batcher.event(&mut watcher.lock(), &event, now);
+        batcher.flush(now + Duration::from_millis(BATCH_WINDOW_MS))
+    }
+
+    fn modified(id: &str, path: PathBuf) -> ((String, ChangeKind), BTreeSet<String>) {
+        ((id.to_owned(), ChangeKind::Modified), BTreeSet::from([path.to_string_lossy().into_owned()]))
+    }
+
+    /// An install as a composed core watches it: `<base>/js/src` with `agents` in it, registered through `<base>/core/..`.
+    /// Answers `(the tempdir, base, src, the spelling through core)`.
+    fn install() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let base = crate::pathguard::canonical(dir.path()).unwrap();
+        let src = base.join("js").join("src");
+        std::fs::create_dir_all(src.join("agents")).unwrap();
+        std::fs::create_dir_all(base.join("core")).unwrap();
+        let through = base.join("core").join("..").join("js").join("src");
+        (dir, base, src, through)
+    }
+
+    /// What the backend is asked to open and to close never holds a `.` or a `..`, whatever a watch was registered through, and
+    /// also once its folder is gone: macOS' backend walks a path it cannot reach and never comes back from one
+    /// ([`crate::pathguard::dotless`]). A composed core watches `<install>/core/../js/src`; the close of that watch never ended
+    /// once the folder had been removed, and a test's runtime with it (release gate run 45099074939).
+    #[test]
+    fn the_backend_is_asked_no_path_with_a_dot_step_to_open_or_to_close() {
+        let (_dir, base, src, through) = install();
+        let watcher = recording();
+        watcher.watch("parent", &through, false).unwrap();
+        watcher.watch("root", &through.join(".").join("agents"), true).unwrap();
+        assert_eq!(batch_of(&watcher, &src.join("a.txt")), [modified("parent", through.join("a.txt"))], "in the spelling it was registered in");
+        std::fs::remove_dir_all(&base).unwrap();
+        watcher.watch("late", &through, true).expect_err("the folder is gone");
+        watcher.unwatch("root");
+        watcher.unwatch("parent");
+        let asked = watcher.asked();
+        for path in asked.iter().map(|asked| match asked {
+            Asked::Watch(path, _) | Asked::Unwatch(path) => path,
+        }) {
+            let stepped = path.components().any(|step| matches!(step, std::path::Component::CurDir | std::path::Component::ParentDir));
+            assert!(!stepped && !path.to_string_lossy().contains("/./"), "the backend was asked {}", path.display());
+        }
+        let agents = src.join("agents");
+        assert_eq!(asked, [Asked::Watch(src.clone(), false), Asked::Watch(agents.clone(), true), Asked::Unwatch(src), Asked::Unwatch(agents)]);
+    }
+
+    /// The same order on the OS's own backend: the watches close after their folder is gone.
+    #[test]
+    fn a_watch_registered_through_a_parent_step_closes_after_its_folder_is_gone() {
+        let (_dir, base, _src, through) = install();
+        let (watcher, _rx) = watcher();
+        watcher.watch("parent", &through, false).unwrap();
+        watcher.watch("root", &through.join("agents"), true).unwrap();
+        // Windows keeps a folder a handle is open in; what it refuses to remove stays.
+        let _ = std::fs::remove_dir_all(&base);
+        watcher.unwatch("root");
+        drop(watcher);
+    }
+
+    /// A watch through `<base>/core/..` that is opened again after `core` is gone (as a hold's end or a change of mode opens
+    /// it) has what the OS answers: Unix no longer resolves the path, so the watch is closed, fails and claims no coverage;
+    /// Windows applies `..` to the text and opens the folder. With `core` back it opens everywhere and covers again, its
+    /// events in the spelling it was registered in.
+    #[test]
+    fn a_watch_through_a_parent_step_fails_while_that_folder_is_gone_and_covers_again_once_it_is_back() {
+        let (_dir, base, src, through) = install();
+        let watcher = recording();
+        watcher.watch("w", &through, true).unwrap();
+        let (open, close) = (Asked::Watch(src.clone(), true), Asked::Unwatch(src.clone()));
+        std::fs::remove_dir(base.join("core")).unwrap();
+        let opened = watcher.lock().apply(&through).is_ok();
+        assert_eq!(opened, cfg!(windows), "`..` after a folder that is gone is the OS's answer");
+        assert_eq!(watcher.recursive_revision(&through).is_some(), opened);
+        let mut asked = vec![open.clone(), close.clone()];
+        asked.extend(opened.then(|| open.clone()));
+        assert_eq!(watcher.asked(), asked);
+
+        std::fs::create_dir(base.join("core")).unwrap();
+        watcher.lock().apply(&through).unwrap();
+        asked.extend(opened.then(|| close.clone()));
+        asked.push(open);
+        assert_eq!(watcher.asked(), asked);
+        assert!(watcher.recursive_revision(&through).is_some());
+        assert_eq!(batch_of(&watcher, &src.join("b.txt")), [modified("w", through.join("b.txt"))]);
+    }
+
+    /// A path with a `..` step is opened under its resolution, which here is the very path another watch is registered under.
+    /// The backend is asked to open that path once and to close it once, when the last of the two goes, whichever is registered
+    /// first and whichever goes first (Windows' backend replaces a watch opened twice without closing its handle); each gets
+    /// every event in its own spelling for as long as it is registered, and the one that stays misses nothing.
+    #[test]
+    fn a_path_opened_for_two_watches_is_opened_once_and_closed_when_the_last_of_them_goes() {
+        let (_dir, _base, src, through) = install();
+        let spelling = |id: &str| if id == "plain" { src.clone() } else { through.clone() };
+        let (open, close) = (Asked::Watch(src.clone(), true), Asked::Unwatch(src.clone()));
+        for (order, leaves_first) in [(["plain", "through"], "plain"), (["plain", "through"], "through"), (["through", "plain"], "plain"), (["through", "plain"], "through")]
+        {
+            let case = format!("registered {order:?}, {leaves_first} goes first");
+            let stays = if leaves_first == "plain" { "through" } else { "plain" };
+            let watcher = recording();
+            for id in order {
+                watcher.watch(id, &spelling(id), true).unwrap();
+            }
+            // A watch registered without a step is closed before it is opened, as ever, when nothing holds its path yet.
+            let mut asked = if order[0] == "plain" { vec![close.clone(), open.clone()] } else { vec![open.clone()] };
+            assert_eq!(watcher.asked(), asked, "{case}");
+            assert_eq!(watcher.open_watches(), 2, "{case}");
+            assert_eq!(batch_of(&watcher, &src.join("a.txt")), [modified("plain", src.join("a.txt")), modified("through", through.join("a.txt"))], "{case}");
+            let before = watcher.recursive_revision(&spelling(stays)).expect("covered");
+            watcher.unwatch(leaves_first);
+            assert_eq!(watcher.asked(), asked, "{case}: the path stays open for the other watch");
+            assert!(Arc::ptr_eq(&before, &watcher.recursive_revision(&spelling(stays)).expect("covered")), "{case}: nothing was missed");
+            assert_eq!(batch_of(&watcher, &src.join("b.txt")), [modified(stays, spelling(stays).join("b.txt"))], "{case}");
+            watcher.unwatch(stays);
+            asked.push(close.clone());
+            assert_eq!(watcher.asked(), asked, "{case}");
+            assert_eq!(watcher.open_watches(), 0, "{case}");
+        }
     }
 
     /// A hold closes the handles under its root before it returns (Windows renames the folder at once), keeps a watch registered

@@ -251,8 +251,13 @@ fn refresh_watch(watcher: Option<&mut notify::RecommendedWatcher>, watching: &mu
         candidates.push(parent.to_path_buf());
     }
     for directory in candidates {
-        match watcher.watch(&directory, notify::RecursiveMode::NonRecursive) {
-            Ok(()) => watching.push(directory),
+        // No `.` or `..` reaches the backend: the watch is closed under this path too, after the directory may have gone.
+        let opened = mixdog_workspace::pathguard::without_dot_steps(&directory).map_err(notify::Error::io);
+        if opened.as_ref().is_ok_and(|opened| watching.contains(opened)) {
+            continue;
+        }
+        match opened.and_then(|directory| watcher.watch(&directory, notify::RecursiveMode::NonRecursive).map(|()| directory)) {
+            Ok(opened) => watching.push(opened),
             Err(error) => {
                 tracing::warn!(%error, path = %directory.display(), "discovery watch unavailable; ancestor events may restore it")
             }
