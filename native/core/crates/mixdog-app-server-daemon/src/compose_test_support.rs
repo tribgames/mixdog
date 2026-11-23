@@ -239,12 +239,18 @@ fn threads_of_child(pid: u32, deadline: Instant) -> Option<String> {
     Some(text)
 }
 
-/// What the threads of this process are doing, read by itself: on macOS the call stacks `sample` reads over two seconds, on Linux
-/// the summary of [`thread_summary`] (nothing is attached to a process by its own child). `None` on Windows. Until `deadline`.
+/// What the threads of this process are doing, read by itself: on macOS the call stacks `sample` reads, on Linux the summary of
+/// [`thread_summary`] (nothing is attached to a process by its own child). `None` on Windows. Until `deadline`.
+///
+/// `sample` reads for one second with ten milliseconds of run time between two samples, and without `-mayDie`: a thread that does
+/// not end is in every sample, and the process does not end by itself (a kill takes this output with it either way). With two
+/// seconds at one millisecond and the symbols taken first, three tests sampled at once had only the sampler's first line
+/// after 25 s (release gate run 45099074939, macos 3/3); one alone, its process at 23.3 GB, ended in time with 1 325 samples
+/// (macos 2/3).
 fn threads_of_self(deadline: Instant) -> Option<String> {
     let pid = std::process::id();
     if cfg!(target_os = "macos") {
-        return Some(sampled("/usr/bin/sample", &[pid.to_string().as_str(), "2", "-mayDie"], deadline));
+        return Some(sampled("/usr/bin/sample", &[pid.to_string().as_str(), "1", "10"], deadline));
     }
     thread_summary(pid)
 }
@@ -414,9 +420,9 @@ where
 
 /// Runs `body` on `runtime`, then ends the runtime, and says each end on stderr. A runtime's end waits for every blocking task that has
 /// started and for its workers to drop what the tasks held: of a test that does not end, the two lines tell a body that did not end from
-/// a runtime that did not. A runtime that has not ended [`RUNTIME_END`] after the body has the process's threads written to stderr
-/// ([`threads_of_self`]): on the macOS runners four such tests ended their bodies and then never ended, with nothing said of what
-/// the runtime waited for (release gate run 44959677392).
+/// a runtime that did not. A runtime that has not ended [`RUNTIME_END`] after the body is said so at once, and then has the
+/// process's threads written to stderr ([`threads_of_self`]): on the macOS runners four such tests ended their bodies and then
+/// never ended, with nothing said of what the runtime waited for (release gate run 44959677392).
 #[allow(clippy::disallowed_methods, reason = "test harness: a thread of its own, which the runtime's end it reports on cannot hold")]
 fn end_marked(runtime: tokio::runtime::Runtime, body: impl std::future::Future<Output = ()>) {
     runtime.block_on(body);
@@ -426,9 +432,10 @@ fn end_marked(runtime: tokio::runtime::Runtime, body: impl std::future::Future<O
         if late.recv_timeout(RUNTIME_END) != Err(RecvTimeoutError::Timeout) {
             return;
         }
-        match threads_of_self(Instant::now() + Duration::from_secs(THREADS_SHARE)) {
-            Some(threads) => eprintln!("[stuck-diag] the runtime has not ended {RUNTIME_END:?} after the test's body; the process's threads:\n{threads}"),
-            None => eprintln!("[stuck-diag] the runtime has not ended {RUNTIME_END:?} after the test's body (this system has no reader of its threads)"),
+        eprintln!("[stuck-diag] the runtime has not ended {RUNTIME_END:?} after the test's body; its process's threads are read next");
+        match threads_of_self(Instant::now() + Duration::from_secs(SELF_THREADS_SHARE)) {
+            Some(threads) => eprintln!("[stuck-diag] the process's threads:\n{threads}"),
+            None => eprintln!("[stuck-diag] this system has no reader of its threads"),
         }
     });
     drop(runtime);
@@ -436,8 +443,13 @@ fn end_marked(runtime: tokio::runtime::Runtime, body: impl std::future::Future<O
     eprintln!("[composed-test] the runtime ended");
 }
 
-/// What a runtime's end may take before the threads of the process are read.
-const RUNTIME_END: Duration = Duration::from_secs(20);
+/// What a runtime's end may take before the threads of the process are read. A wait that does not end may be a thread that
+/// allocates without end (run 45099074939: 23.3 GB 20 s after the body), which the sampler then reads on a machine out of memory.
+const RUNTIME_END: Duration = Duration::from_secs(5);
+
+/// What reading this process's own threads may take ([`end_marked`]). Nothing follows it but the end of the test, at nextest's
+/// limit for it (120 s, `.config/nextest.toml`), so it has what a body of seconds leaves of that.
+const SELF_THREADS_SHARE: u64 = 60;
 
 /// A composed test outside the runner, on the runtime `#[tokio::test(flavor = "multi_thread")]` would give it, its two ends said
 /// ([`end_marked`]): such tests ended every stop step on the macOS runners and then did not end.

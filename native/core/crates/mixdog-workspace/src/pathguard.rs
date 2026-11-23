@@ -52,6 +52,37 @@ pub fn resolved(path: &Path) -> PathBuf {
         .unwrap_or_else(|| path.to_path_buf())
 }
 
+/// The folder `path` names as the OS resolves it ([`canonical`]): what a file watcher's backend is given to open a watch and
+/// again to close it, with no link, `.` or `..` in it. One folder has one such spelling however it is named.
+///
+/// `..` after a component that does not exist is the OS's answer, never a lexical one, so a watch opens exactly where the path
+/// leads: on Unix the path does not resolve and this is its error (`/b/core/../js` without `core` is no folder, though `/b/js`
+/// is one); Windows applies `.` and `..` to the text of a path before it looks anything up, and resolves it.
+///
+/// notify 8.2.1's FSEvents backend walks a path it cannot reach up to its first reachable ancestor one component at a time
+/// (`fsevent::path_to_cfstring_ref`, in every watch and unwatch), and CoreFoundation answers the parent of `..` or `.` by
+/// appending `../`: once the folder before them is gone no longer spelling is reachable either, and the walk never ends while
+/// its URL grows. Without them it ends at the root.
+pub fn dotless(path: &Path) -> io::Result<PathBuf> {
+    let plain: PathBuf = path.components().collect();
+    match canonical(&plain) {
+        // A Windows volume whose driver does not name the final path of a folder that is there: the text, as Windows reads it.
+        Err(_) if cfg!(windows) && std::fs::metadata(&plain).is_ok() => std::path::absolute(&plain),
+        answer => answer,
+    }
+}
+
+/// Whether a step of `path`, as it is written, is `.` or `..`.
+pub fn has_dot_step(path: &Path) -> bool {
+    path.to_string_lossy().split(std::path::is_separator).any(|step| step == "." || step == "..")
+}
+
+/// `path` as a file watcher's backend is given it, to open a watch and again to close it: itself when it has no `.` or `..` step,
+/// else as the OS resolves it ([`dotless`]).
+pub fn without_dot_steps(path: &Path) -> io::Result<PathBuf> {
+    if has_dot_step(path) { dotless(path) } else { Ok(path.to_path_buf()) }
+}
+
 /// `fs::canonicalize` without the Windows verbatim prefix.
 pub fn canonical(path: &Path) -> io::Result<PathBuf> {
     let real = std::fs::canonicalize(path)?;
