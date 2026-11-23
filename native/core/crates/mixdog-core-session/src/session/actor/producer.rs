@@ -3,6 +3,22 @@
 use super::*;
 
 impl SessionActor {
+    /// Answers `tx` once everything accepted so far is on disk (`Ok`; a write a failed save held goes again with it), or
+    /// once that write fails (`Err`).
+    pub(super) fn when_writes_landed(&mut self, tx: oneshot::Sender<Result<(), RunError>>) {
+        match self.outbox.last_id().filter(|through| self.outbox.unwritten_through(*through)) {
+            None => {
+                let _ = tx.send(Ok(()));
+            }
+            Some(through) => {
+                // What a failed barrier held goes again only with a next write: the pump hands it now. A barrier would not
+                // wait for it (a view-only entry behind held ones settles at once), so the waiter watches the records.
+                self.retry_due |= self.outbox.has_unsaved() || self.outbox.awaits_retry();
+                self.writes_landed.push((through, tx));
+            }
+        }
+    }
+
     pub(super) fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::EarlyResult { turn, row } => {
@@ -77,6 +93,8 @@ impl SessionActor {
 
     fn apply_producer(&mut self, msg: ProducerMsg) {
         match msg {
+            // In its place among the run's messages: what the run handed over before it is accepted by now.
+            ProducerMsg::WritesLanded { ack } => self.when_writes_landed(ack),
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
             // Node publishes a route value only when it changed (`local-session-runtime.mjs` `publishChanged`).
             ProducerMsg::Section(Section::TurnEffort(effort)) if effort == self.acked.route().turn_effort => {}
@@ -244,6 +262,19 @@ impl SessionActor {
                 // The header is computed after the replacement is in, as Node stamps `committedAt` after the transcript and
                 // provider-state mutations (`compaction-runner.mjs:695-749`); its record follows the compaction's, and the
                 // caller's ack rides the last record, so the header is durable when the commit answers.
+                // A turn's compaction states no header of its own, and owes its session's rebuilt prompt a fold: marked in
+                // the compaction's unit, so the rewritten history is never stored without it, and cleared by the fold the
+                // run takes next. A turn that ends or a process that stops in between leaves it to the next turn start.
+                let header = header.or_else(|| {
+                    let folds = self.projected.header.get("promptIdentity").is_some_and(Value::is_object);
+                    folds.then(|| -> super::super::run::DeferredHeader {
+                        Box::new(|_| HeaderChange {
+                            set: [("compactionFoldPending".to_owned(), Value::Bool(true))].into_iter().collect(),
+                            unset: Vec::new(),
+                            patch: Default::default(),
+                        })
+                    })
+                });
                 // A manual compaction's commit awaits its save (`commitCompaction`): a failed save fails it, as a close's mark.
                 let ack = if turn.as_str().is_empty() { Effect::MarkAck(ack) } else { Effect::ItemAck(ack) };
                 let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![ack]) } else { (vec![ack], Vec::new()) };
@@ -312,7 +343,7 @@ impl SessionActor {
                 let note = cut.map(|cut| self.history_reset(HistoryResetReason::Rewind, self.before_rewind(cut)));
                 let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
                 self.transcript_rewritten = true;
-                self.deps.side.forget(&self.id, false);
+                self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Transcript);
                 let notes: Vec<Note> = note.into_iter().collect();
                 // The provider continuation described the rows that left.
                 match self.provider_state_change(None) {

@@ -954,7 +954,8 @@ fn manifest_in(m: w::ProxyManifest) -> Option<WireManifest> {
     if tail.is_some_and(|t| t >= markers.len()) {
         return None;
     }
-    Some(WireManifest { markers, boundaries, tail })
+    // The proxy wire carries no block kinds: a relayed manifest counts every block as its own lookback position.
+    Some(WireManifest { markers, boundaries, tail, positions: Vec::new() })
 }
 
 fn counters_out(c: Counters) -> w::ProxyCounters {

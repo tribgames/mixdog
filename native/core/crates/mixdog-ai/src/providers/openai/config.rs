@@ -57,6 +57,8 @@ pub struct ModelFacts {
     pub reasoning_summaries: Option<bool>,
     pub verbosity: Option<bool>,
     pub native_tool_search: Option<bool>,
+    /// The model takes top-level `instructions` after the input, where no later request reads them from the prompt cache.
+    pub instructions_after_input: bool,
     /// The public API's fast tiers (`openAiDirectSupportsFast`, `openAiDirectSupportsUltrafast`).
     pub fast_tier: bool,
     pub ultrafast_tier: bool,
@@ -67,6 +69,14 @@ pub struct ModelFacts {
     pub prompt_cache: PromptCacheLifetime,
     /// Codex route only: the catalog's `access_programs` value for the model.
     pub access_programs: Option<Value>,
+}
+
+/// Whether `model` takes top-level `instructions` after the input ([`ModelFacts::instructions_after_input`]): GPT 6.2 and
+/// later, a fine-tune (`ft:<base>:...`) by its base model.
+pub fn instructions_after_input(model: &str) -> bool {
+    let id = mixdog_js::js_trim(model);
+    let base = id.strip_prefix("ft:").and_then(|rest| rest.split(':').next()).unwrap_or(id);
+    crate::service::routes::gpt_version(base).is_some_and(|version| version >= (6, 2))
 }
 
 pub trait ModelFactsSource: Send + Sync {

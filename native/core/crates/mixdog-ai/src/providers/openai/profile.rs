@@ -125,6 +125,10 @@ pub enum SystemPlacement {
     /// the `Env` cache tier move to a leading developer message so the shared
     /// instruction prefix stays stable.
     Instructions { fallback: Option<String>, environment_message: bool },
+    /// A leading developer message, then the `Env` tier's in its own: for a model that takes top-level `instructions`
+    /// after the input, where every request would send them outside the cached prefix. `instructions` is the fixed text
+    /// the key still carries, for a backend that requires one.
+    LeadingMessage { instructions: Option<String> },
     /// Items of `input` (`LowerOptions::system_in_input` must be set).
     InputItems,
 }
@@ -316,21 +320,19 @@ fn instructions_and_environment(messages: &[Message], fallback: Option<&str>, en
     (instructions, joined(&environment, "\n\n---\n\n"))
 }
 
-fn environment_item(text: &str, codex_parity: bool) -> Value {
+fn developer_item(text: String, codex_parity: bool) -> Value {
     let mut item = Map::new();
     item.insert("type".into(), json!("message"));
     item.insert("role".into(), json!("developer"));
-    item.insert(
-        "content".into(),
-        json!([{
-            "type": "input_text",
-            "text": format!("<environment_context>\n{text}\n</environment_context>"),
-        }]),
-    );
+    item.insert("content".into(), json!([{"type": "input_text", "text": text}]));
     if codex_parity {
         item.insert("internal_chat_message_metadata_passthrough".into(), json!({}));
     }
     Value::Object(item)
+}
+
+fn environment_item(text: &str, codex_parity: bool) -> Value {
+    developer_item(format!("<environment_context>\n{text}\n</environment_context>"), codex_parity)
 }
 
 fn function_tool(tool: &ToolDefinition, name: &str) -> Map<String, Value> {
@@ -467,13 +469,31 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     let previous_response_id = inputs.continuation.and_then(|c| c.previous_response_id.clone());
     let mut input = lower_from(&request.messages, &profile.input, &extras);
     let mut instructions = None;
-    if let SystemPlacement::Instructions { fallback, environment_message } = &profile.system {
-        let (text, environment) = instructions_and_environment(&request.messages, fallback.as_deref(), *environment_message);
-        instructions = text;
-        if !environment.is_empty() {
-            input.insert(0, environment_item(&environment, profile.input.codex_parity));
+    // The system text the cache key is derived from, wherever the request carries it.
+    let mut keyed_instructions = None;
+    match &profile.system {
+        SystemPlacement::Instructions { fallback, environment_message } => {
+            let (text, environment) = instructions_and_environment(&request.messages, fallback.as_deref(), *environment_message);
+            instructions = text;
+            if !environment.is_empty() {
+                input.insert(0, environment_item(&environment, profile.input.codex_parity));
+            }
         }
+        SystemPlacement::LeadingMessage { instructions: fixed } => {
+            let (text, environment) = instructions_and_environment(&request.messages, None, true);
+            if !environment.is_empty() {
+                input.insert(0, environment_item(&environment, profile.input.codex_parity));
+            }
+            // A continued response already holds the message.
+            if let Some(text) = text.clone().filter(|_| previous_response_id.is_none()) {
+                input.insert(0, developer_item(text, profile.input.codex_parity));
+            }
+            keyed_instructions = text;
+            instructions.clone_from(fixed);
+        }
+        SystemPlacement::InputItems => {}
     }
+    let keyed_instructions = keyed_instructions.or_else(|| instructions.clone());
     let fallback_memo = SchemaMemo::default();
     let mut excluded = Vec::new();
     let custom = profile.input.custom_tools;
@@ -496,7 +516,7 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     let derived = inputs.prompt_cache_key.map(|derive| {
         derive(&super::cache_key::Prefix {
             model: &request.model,
-            instructions: instructions.as_deref().unwrap_or_default(),
+            instructions: keyed_instructions.as_deref().unwrap_or_default(),
             tools: &tools,
             effort: reasoning.as_ref().and_then(|r| r.get("effort")).and_then(Value::as_str),
             service_tier: profile.service_tier.as_deref(),

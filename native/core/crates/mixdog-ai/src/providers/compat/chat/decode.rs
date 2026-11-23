@@ -680,4 +680,23 @@ mod number_tests {
         assert_eq!(usage.cost, Some(UsdTicks(25_000_000)));
         assert_eq!(usage_from(&json!({"cost": " "}), CostField::UsdDecimal).cost, None);
     }
+
+    /// OpenRouter's `prompt_tokens` holds the cached part (its usage object, `prompt_tokens_details.cached_tokens` and
+    /// `cache_write_tokens`): the input is booked whole under the route's inclusive convention, reads and writes apart.
+    #[test]
+    fn an_openrouter_usage_books_cache_reads_and_writes_apart_from_an_inclusive_input() {
+        let usage = usage_from(
+            &json!({
+                "prompt_tokens": 12_000,
+                "completion_tokens": 60,
+                "prompt_tokens_details": {"cached_tokens": 9_000, "cache_write_tokens": 2_500},
+                "cost": 0.0042,
+            }),
+            CostField::UsdDecimal,
+        );
+        assert_eq!((usage.input_tokens, usage.cache_read_tokens, usage.cache_write_tokens, usage.output_tokens), (12_000, 9_000, 2_500, 60));
+        assert!(!crate::registry::accounted::input_excludes_cache("openrouter"), "the ledger reads this input as inclusive");
+        assert_eq!(usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens, 500, "the uncached input");
+        assert_eq!(usage.cost, Some(UsdTicks(42_000_000)));
+    }
 }

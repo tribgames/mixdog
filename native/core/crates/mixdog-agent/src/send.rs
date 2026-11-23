@@ -340,6 +340,9 @@ impl Run {
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         // A failed reduction's leave is the request it was decided for: this one, and no later one.
         options.tail_unreduced = self.config.options.tail_unreduced.take();
+        if let Some(wiring) = &self.config.effort {
+            options.effort_projection = wiring.carried(&self.messages);
+        }
         let messages = if self.unprojected { self.messages.iter().map(AgentMessage::wire).collect() } else { crate::project::project_for_wire(&self.messages) };
         let messages = self.with_image_choices(messages);
         // The tail reminder rides on this request only; the assistant turn it
@@ -534,6 +537,8 @@ impl Run {
                         match reloaded {
                             Ok((conversation, generation)) if Some(generation) != self.config.options.tail_generation => {
                                 self.adopt_reloaded(conversation, generation);
+                                // A compaction made outside this run: its fold is taken with the rewritten transcript too.
+                                self.fold_compacted().await?;
                             }
                             _ => return Err(AgentError::Provider(Box::new(failure.error))),
                         }
@@ -610,15 +615,16 @@ impl Run {
                     _ => "provider message prefix changed outside compaction",
                 });
             }
-            if self.cache_break_keys.insert(crate::prefix_guard::trace_key(&details))
-                && let Some(log) = &self.env.failures
-            {
+            if self.cache_break_keys.insert(crate::prefix_guard::trace_key(&details)) {
                 let mut record = serde_json::Map::new();
                 record.insert("sessionId".into(), serde_json::json!(self.config.thread_id.as_str()));
                 record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
                 record.insert("intentionalTransition".into(), intent.map_or(serde_json::Value::Null, serde_json::Value::String));
                 record.extend(details);
-                log.cache_break(record);
+                self.keep_prefix_event(&record);
+                if let Some(log) = &self.env.failures {
+                    log.cache_break(record);
+                }
             }
         }
         if let Some(message) = refused {
@@ -626,6 +632,21 @@ impl Run {
         }
         self.guard_candidate = Some(next);
         Ok(())
+    }
+
+    /// A break the prefix guard found is kept on the session record (`providerPrefixEvents`, the first of a turn, and the
+    /// session's running total) and written to the core's log: the cache-break trace is off in a shipped build, and these
+    /// are what the user's records are counted from afterwards.
+    fn keep_prefix_event(&mut self, record: &serde_json::Map<String, serde_json::Value>) {
+        const KEPT: usize = 32;
+        let mut event = record.clone();
+        event.shift_remove("sessionId");
+        event.insert("at".into(), serde_json::json!(self.env.clock.now_ms()));
+        tracing::warn!("[prefix-guard] session={} {}", self.config.thread_id.as_str(), serde_json::Value::Object(event.clone()));
+        self.carry.guard_event_total += 1;
+        if self.carry.guard_events.len() < KEPT {
+            self.carry.guard_events.push(serde_json::Value::Object(event));
+        }
     }
 
     /// `settleSendResult` for a completed send: the request becomes the session's prefix baseline, the usage-based cache

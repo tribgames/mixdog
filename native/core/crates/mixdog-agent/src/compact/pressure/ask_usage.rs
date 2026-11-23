@@ -358,11 +358,8 @@ pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: 
             }
             if *changed {
                 draft.apply(invalidate_provider_context_baseline());
-                // The compacted transcript is a cold point: the next turn start rebuilds the system text from current sources.
-                let mut fold = HeaderPatch::default();
-                fold.put("promptFoldPending", Value::Bool(true));
-                fold.put("compactionFoldPending", Value::Bool(true));
-                draft.apply(fold);
+                // No fold is marked owed: the run folds the prompt with its compaction (`Run::fold_compacted`), in the
+                // request that writes the compacted transcript.
                 let snapshot = post_compact_snapshot(&status_input(&draft.working, after, &pass.tools, books), *after_tokens as f64, now);
                 if let Some(patch) = snapshot {
                     draft.apply(patch);

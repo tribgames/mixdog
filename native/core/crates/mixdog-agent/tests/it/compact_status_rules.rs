@@ -592,7 +592,6 @@ fn a_pass_records_its_stages_and_an_adopted_one_restarts_the_metrics_and_voids_t
 
     go(&mut session, PassStage::Skipped, 2_500.0);
     assert_eq!(session["compaction"]["lastError"], Value::Null, "a later pass that has nothing to do clears the error");
-    assert!(session.get("compactionFoldPending").is_none(), "only an adopted transcript is a cold point");
 
     let after = vec![AgentMessage::user("summary"), AgentMessage::user("thanks, now the docs")];
     go(&mut session, PassStage::Done { changed: true, handoff_source: "session-local", after_tokens: 1_234, duration_ms: 77, after: after.clone() }, 3_000.0);
@@ -603,10 +602,9 @@ fn a_pass_records_its_stages_and_an_adopted_one_restarts_the_metrics_and_voids_t
     assert_eq!(session["usageMetricsEpoch"], 1, "the loop's iteration counter restarts with the new transcript");
     assert_eq!(session["lastContextTokensStaleAfterCompact"], true, "the old transcript's reading no longer describes the context");
     assert_eq!(session["contextUsageSnapshot"]["usedTokens"], 1_234);
-    assert_eq!(
-        (&session["promptFoldPending"], &session["compactionFoldPending"]),
-        (&json!(true), &json!(true)),
-        "the next turn start rebuilds the system text"
+    assert!(
+        session.get("promptFoldPending").is_none() && session.get("compactionFoldPending").is_none(),
+        "the run folds the prompt with its compaction: no fold is left owed to a later turn start"
     );
 
     // Until the next send, the gauge shows what the pass measured.

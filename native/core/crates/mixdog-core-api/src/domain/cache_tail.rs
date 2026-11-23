@@ -12,7 +12,9 @@ use super::provider::Usage;
 pub const TTL_5M_MS: u64 = 300_000;
 pub const TTL_1H_MS: u64 = 3_600_000;
 
-/// How many block boundaries before a marker the provider looks back for an earlier entry (Anthropic: 20).
+/// How many positions before a marker the provider looks back for an earlier entry (Anthropic: 20). A position is one
+/// block, but a run of consecutive `tool_use` blocks is one position and so is a run of consecutive `tool_result` blocks
+/// ([`WireManifest::positions`]): a step's parallel calls and their results cost two positions, whatever their number.
 pub const LOOKBACK_BLOCKS: usize = 20;
 
 /// The digest of a wire prefix through one block, `cache_control` excluded.
@@ -47,6 +49,9 @@ pub struct WireManifest {
     pub boundaries: Vec<Digest>,
     /// The marker that covers the owning transcript (the last one in the messages), when there is one.
     pub tail: Option<usize>,
+    /// The lookback position of each block, in wire order: blocks of one run of `tool_use` or of `tool_result` share
+    /// one. Empty for a manifest whose blocks' kinds are not known: every block is then its own position.
+    pub positions: Vec<usize>,
 }
 
 impl WireManifest {
@@ -54,10 +59,15 @@ impl WireManifest {
         self.tail.and_then(|index| self.markers.get(index))
     }
 
+    fn position(&self, block: usize) -> usize {
+        self.positions.get(block).copied().unwrap_or(block)
+    }
+
     /// Whether an entry ending at `block` with `digest` can be read by this request: the prefix through `block` is the same,
-    /// and some marker at or after it lies within the provider's lookback.
+    /// and some marker at or after it lies within the provider's lookback, counted in positions as the provider counts.
     pub fn reaches(&self, block: usize, digest: Digest) -> bool {
-        self.boundaries.get(block) == Some(&digest) && self.markers.iter().any(|m| m.block >= block && m.block - block < LOOKBACK_BLOCKS)
+        self.boundaries.get(block) == Some(&digest)
+            && self.markers.iter().any(|m| m.block >= block && self.position(m.block).saturating_sub(self.position(block)) < LOOKBACK_BLOCKS)
     }
 }
 

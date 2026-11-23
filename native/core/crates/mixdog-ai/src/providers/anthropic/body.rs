@@ -133,6 +133,13 @@ impl CacheStrategy {
     }
 }
 
+/// The lifetime a body built from the default layers writes its message tail at under `strategy` (a session's
+/// `cacheStrategy`); `None` leaves the tail unmarked.
+pub fn written_tail_ttl(strategy: Option<&Value>) -> Option<CacheTtl> {
+    let parameters = strategy.map(|strategy| json!({ "cacheStrategy": strategy }));
+    CacheStrategy::default().with_overrides(parameters.as_ref()).ordered().messages
+}
+
 // Configuration and result
 
 pub(crate) struct BodyConfig<'a> {
@@ -728,7 +735,8 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     let available: HashSet<String> = request.tools.iter().map(|t| t.name.trim().to_owned()).collect();
     let context = LowerContext { owner: cfg.owner, own_provider: cfg.provider_name, available_tools: &available };
     let updates = request.options.effort_projection.as_ref().filter(|_| {
-        effort_updates::enabled(
+        claude_floors::enabled(claude_floors::Feature::EffortUpdates, cfg.floors, &request.model)
+            && effort_updates::enabled(
             cfg.provider_name,
             &request.model,
             &Gate {

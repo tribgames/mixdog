@@ -78,6 +78,58 @@ pub fn warm_delay_ms(ttl_ms: f64) -> f64 {
     f64::max(1.0, ttl_ms - LEAD_MS)
 }
 
+fn tier_ms(tier: Option<&str>) -> Option<f64> {
+    match tier {
+        Some("5m") => Some(TTL_5M_MS),
+        Some("1h") => Some(TTL_1H_MS),
+        _ => None,
+    }
+}
+
+/// `writtenCacheTtlMs(usage, cacheStrategy)`: the lifetime of the message-tail entry a response wrote, from its own write split
+/// (`cache_write_1h` of `cache_write`); 0 when the usage does not prove it. Any write reaches the tail (a prefix write rewrites
+/// everything after it), so a single written tier is the tail's; with both written, the tail's tier is the one no other
+/// breakpoint of `strategy` asked for. A response that wrote nothing proves nothing.
+pub fn written_cache_ttl_ms(cache_write: f64, cache_write_1h: f64, strategy: Option<&CacheStrategy>) -> f64 {
+    if cache_write.is_nan() || cache_write <= 0.0 {
+        return 0.0;
+    }
+    let written_1h = if cache_write_1h.is_nan() { 0.0 } else { cache_write_1h.clamp(0.0, cache_write) };
+    if cache_write - written_1h <= 0.0 {
+        return TTL_1H_MS;
+    }
+    if written_1h <= 0.0 {
+        return TTL_5M_MS;
+    }
+    let Some(strategy) = strategy else { return 0.0 };
+    let tail = strategy.messages.as_deref();
+    let Some(ttl) = tier_ms(tail) else { return 0.0 };
+    let shared = [&strategy.tools, &strategy.system, &strategy.tier3].into_iter().any(|other| other.as_deref() == tail);
+    if shared { 0.0 } else { ttl }
+}
+
+#[cfg(test)]
+mod written_ttl_tests {
+    use super::*;
+
+    fn strategy(messages: &str) -> CacheStrategy {
+        CacheStrategy { tools: Some("none".into()), system: Some("1h".into()), tier3: Some("1h".into()), messages: Some(messages.into()) }
+    }
+
+    /// The armed lifetime is the one the response wrote: a single written tier is the tail's, a mixed write is the tail's own
+    /// tier only when no other breakpoint shares it, and nothing written proves nothing.
+    #[test]
+    fn the_tail_lifetime_is_the_one_the_response_wrote() {
+        assert_eq!(written_cache_ttl_ms(5000.0, 5000.0, Some(&strategy("1h"))), TTL_1H_MS);
+        assert_eq!(written_cache_ttl_ms(5000.0, 0.0, Some(&strategy("1h"))), TTL_5M_MS, "a 1h strategy whose write was 5m arms 5m");
+        assert_eq!(written_cache_ttl_ms(5000.0, 3000.0, Some(&strategy("5m"))), TTL_5M_MS);
+        assert_eq!(written_cache_ttl_ms(5000.0, 3000.0, Some(&strategy("1h"))), 0.0, "the 1h part may be the system layer's");
+        assert_eq!(written_cache_ttl_ms(5000.0, 3000.0, None), 0.0);
+        assert_eq!(written_cache_ttl_ms(0.0, 0.0, Some(&strategy("1h"))), 0.0);
+        assert_eq!(written_cache_ttl_ms(5000.0, 9000.0, None), TTL_1H_MS, "a split larger than the write is clamped");
+    }
+}
+
 /// The tiers of a session's `cacheStrategy`, as the strings the config holds.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct CacheStrategy {
@@ -93,6 +145,12 @@ impl CacheStrategy {
         let map = value.as_object()?;
         let tier = |key: &str| map.get(key).and_then(Value::as_str).map(str::to_owned);
         Some(Self { tools: tier("tools"), system: tier("system"), tier3: tier("tier3"), messages: tier("messages") })
+    }
+
+    /// The `cacheStrategy` object these tiers came from, an absent tier left out.
+    pub fn to_value(&self) -> Value {
+        let tiers = [("tools", &self.tools), ("system", &self.system), ("tier3", &self.tier3), ("messages", &self.messages)];
+        Value::Object(tiers.into_iter().filter_map(|(key, tier)| tier.clone().map(|tier| (key.to_owned(), Value::from(tier)))).collect())
     }
 }
 

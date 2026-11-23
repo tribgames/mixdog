@@ -599,6 +599,11 @@ pub(crate) enum ProducerMsg {
         change: mixdog_store::schema::record::HeaderChange,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// Answered once everything the session accepted so far is on disk, or once a write of it fails: an ack of a run's
+    /// record says only that the session holds it (a failed save keeps it in memory and acks it).
+    WritesLanded {
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
     /// The header a compaction states, computed by the actor from the header as it stands once the compaction is applied
     /// (the provider continuation reset, the replacement in), because Node stamps `committedAt` after those mutations
     /// (`compaction-runner.mjs:695-749`).
@@ -830,6 +835,13 @@ impl RunPort {
             reply.await.map_err(|_| RunError::Closed)
         })
         .await
+    }
+
+    /// Whether everything the session accepted so far is on disk: the one fresh save a held write gets is made for it.
+    /// `Err`: that write failed, and what it held is in memory only.
+    pub async fn writes_landed(&self) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::WritesLanded { ack }, rx).await?
     }
 
     /// Resolves once the run's input rows are durable (the first model call waits on it).

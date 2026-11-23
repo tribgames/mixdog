@@ -12,7 +12,7 @@ use mixdog_protocol::tool_call_ids::{OPENAI_CHAT_IDS, wire_id_map};
 use serde_json::json;
 
 /// Body of a result synthesized for a call that never completed.
-pub const PAIRING_STUB: &str = "Cancelled";
+pub const PAIRING_STUB: &str = mixdog_core_api::domain::provider::MISSING_TOOL_RESULT;
 
 /// id → wire id for every tool call and result in `messages` that Chat
 /// Completions would refuse (`[A-Za-z0-9_.:-]`, up to 40 characters): a valid
@@ -79,12 +79,12 @@ pub fn ensure_chat_tool_pairs(messages: Vec<JsonValue>) -> Vec<JsonValue> {
                 kept.push(result.clone());
             }
         }
+        // In the order of the calls, where the transcript repair stores a missing result's row: the stub is then the
+        // same bytes at the same place before and after that row exists.
         for id in &ids {
-            if !answered.contains(&id.as_str()) {
-                out.push(json!({"role": "tool", "tool_call_id": id, "content": PAIRING_STUB}));
-            }
+            let result = kept.iter().find(|result| result.get("tool_call_id").and_then(JsonValue::as_str) == Some(id.as_str()));
+            out.push(result.cloned().unwrap_or_else(|| json!({"role": "tool", "tool_call_id": id, "content": PAIRING_STUB})));
         }
-        out.extend(kept);
         i = end;
     }
     out

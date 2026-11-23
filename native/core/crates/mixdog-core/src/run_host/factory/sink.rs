@@ -120,6 +120,8 @@ pub(super) struct PortSink {
     pub(super) terminal: Mutex<Option<(u32, u64)>>,
     pub(super) applied: AppliedSkills,
     pub(super) drafted: Mutex<DraftClock>,
+    /// The job of the last rewrite handed over (`replace`); 0 before any.
+    pub(super) rewrite: AtomicU64,
 }
 
 /// The run's jobs in order, and the draft they take from: what a draft takes from `observed`, and an assistant commit
@@ -271,6 +273,7 @@ impl PortSink {
             terminal: Mutex::new(None),
             applied,
             drafted: Mutex::new(DraftClock::default()),
+            rewrite: AtomicU64::new(0),
         })
     }
 
@@ -486,7 +489,8 @@ impl TranscriptSink for PortSink {
         // Node splices any other rewrite into `state.messages` in place (`route-fallback.mjs:161` for a route's replay
         // strip): the context restarts silently.
         if !rewrite.compaction {
-            self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Rewound(n, replacement));
+            let job = self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Rewound(n, replacement));
+            self.rewrite.store(job, Ordering::SeqCst);
             return;
         }
         let compaction = mixdog_core_session::session::run::Compaction {
@@ -495,7 +499,8 @@ impl TranscriptSink for PortSink {
             dropped_count: rewrite.dropped_count,
             dropped: rewrite.dropped.as_ref().map(dropped_of),
         };
-        self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
+        let job = self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
+        self.rewrite.store(job, Ordering::SeqCst);
     }
 
     fn call_epoch(&self) -> u64 {
@@ -542,5 +547,17 @@ impl TranscriptSink for PortSink {
         let queued = self.jobs.seq.load(Ordering::SeqCst);
         let mut done = self.done.clone();
         let _ = done.wait_for(|d| *d >= queued).await;
+    }
+
+    /// The last rewrite is on disk. Its job's ack does not say so (a failed save acks the record it keeps in memory): once
+    /// the actor has taken the job, the session is asked whether everything it accepted has landed. A run that rewrote
+    /// nothing has nothing unstored.
+    async fn replaced(&self) -> bool {
+        let job = self.rewrite.load(Ordering::SeqCst);
+        if job == 0 {
+            return true;
+        }
+        let mut accepted = self.accepted.clone();
+        accepted.wait_for(|a| *a >= job).await.is_ok() && self.port.writes_landed().await.is_ok()
     }
 }

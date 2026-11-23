@@ -212,7 +212,7 @@ impl SessionActor {
         let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
         let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
         self.transcript_rewritten = true;
-        self.deps.side.forget(&self.id, false);
+        self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Transcript);
         let note = self.history_reset(HistoryResetReason::Rewind, previous);
         self.accept_record(record, Class::Normal, Display::None, vec![note], Vec::new());
         if let Some(reset) = self.provider_state_change(None) {

@@ -58,9 +58,9 @@ struct RunTap {
     route: Mutex<(String, Arc<dyn ProviderAdapter>)>,
 }
 
-/// `cacheStrategy.messages` of the request's model parameters.
-fn messages_tier(request: &ModelRequest) -> Option<String> {
-    request.options.model_parameters.as_ref()?.get("cacheStrategy")?.get("messages")?.as_str().map(str::to_owned)
+/// `cacheStrategy` of the request's model parameters.
+fn cache_strategy(request: &ModelRequest) -> Option<serde_json::Value> {
+    request.options.model_parameters.as_ref()?.get("cacheStrategy").cloned()
 }
 
 impl SendTap for RunTap {
@@ -85,7 +85,7 @@ impl SendTap for RunTap {
         let saved = SavedRequest {
             provider_name: provider_name.clone(),
             model: request.model.clone(),
-            messages_tier: messages_tier(request),
+            cache_strategy: cache_strategy(request),
             catalog_supports_prompt_caching: (side.caching)(&provider_name, &request.model),
             sent_at: side.clock.now_ms().max(0) as u64,
             settled: false,

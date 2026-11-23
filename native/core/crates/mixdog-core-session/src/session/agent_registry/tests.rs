@@ -2592,6 +2592,11 @@ async fn an_owner_close_stamps_the_session_and_cancels_its_running_turn() {
     let sessions = sessions_over(&world, statusline.clone(), shells.clone());
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
     assert!(sessions.close_session(id, "cli-agent-close", options).await);
+    assert_eq!(
+        world._srig.side.forgets.lock().unwrap().last(),
+        Some(&(id.clone(), crate::session::turn_ops::SideEnd::Detach)),
+        "the agent close is a detach: the warm chain ends, its touch stays"
+    );
     // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
     assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
     eventually_on!(&[&handle.cell.stepped], || idle(handle).then_some(())).await;

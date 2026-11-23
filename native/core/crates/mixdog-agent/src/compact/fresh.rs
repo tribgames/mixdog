@@ -172,7 +172,7 @@ pub fn reconcile_dedup_stubs(messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
                 && !rest[..end].is_empty()
                 && !present.contains(&rest[..end])
             {
-                m.message.content = Content::Text("[Older tool result unavailable after context compaction]".to_owned().into());
+                m.message.content = Content::Text(mixdog_core_api::domain::provider::MISSING_TOOL_RESULT.to_owned().into());
             }
             m
         })

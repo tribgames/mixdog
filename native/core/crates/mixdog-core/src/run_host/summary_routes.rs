@@ -140,8 +140,8 @@ impl RouteResolver for SummaryRoutes {
 pub struct SavedRequest {
     pub provider_name: String,
     pub model: String,
-    /// The request's cache strategy `messages` tier (`5m`/`1h`/`none`).
-    pub messages_tier: Option<String>,
+    /// The `cacheStrategy` of the request's model parameters.
+    pub cache_strategy: Option<Value>,
     /// `getCachedModelInfo(model) ?? getModelMetadataSync(model, provider)` marks prompt caching.
     pub catalog_supports_prompt_caching: bool,
     /// When the provider read (and refreshed) its prompt cache; epoch ms.
@@ -184,7 +184,7 @@ impl SessionFork {
 impl ForkSource for SessionFork {
     fn warm(&self) -> bool {
         let request =
-            self.forkable().map(|r| (request_cache_lifetime(&r.provider_name, r.messages_tier.as_deref(), r.catalog_supports_prompt_caching), r.sent_at));
+            self.forkable().map(|r| (request_cache_lifetime(&r.provider_name, r.cache_strategy.as_ref(), r.catalog_supports_prompt_caching), r.sent_at));
         compaction_cache_warm(request, self.clock.now_ms().max(0) as u64)
     }
 
@@ -362,7 +362,7 @@ mod tests {
         SavedRequest {
             provider_name: provider.into(),
             model: "m".into(),
-            messages_tier: tier.map(str::to_owned),
+            cache_strategy: tier.map(|messages| serde_json::json!({ "messages": messages })),
             catalog_supports_prompt_caching: false,
             sent_at,
             settled: true,
@@ -378,6 +378,9 @@ mod tests {
         // Anthropic 5m tier: lifetime 300 000, margin 30 000.
         assert!(fork(Some(saved("anthropic", Some("5m"), 0)), 269_999).warm());
         assert!(!fork(Some(saved("anthropic", Some("5m"), 0)), 270_000).warm());
+        // A gateway's Claude session stamped with the 1h tail: lifetime 3 600 000, margin 360 000.
+        assert!(fork(Some(saved("openrouter", Some("1h"), 0)), 6 * 60_000).warm());
+        assert!(!fork(Some(saved("openrouter", Some("1h"), 0)), 3_240_000).warm());
         assert!(fork(Some(saved("openai-oauth", None, 0)), 99_999_999).warm(), "never expires");
         assert!(!fork(None, 0).warm());
         let mut unsettled = saved("openai-oauth", None, 0);

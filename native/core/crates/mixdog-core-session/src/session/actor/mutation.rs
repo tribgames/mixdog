@@ -756,7 +756,7 @@ impl SessionActor {
         let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: self.op_ref(req, Some(&value))? });
         self.transcript_rewritten = true;
         // The saved request carried the truncated transcript (`session-crud.mjs:475`).
-        self.deps.side.forget(&self.id, false);
+        self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Transcript);
         let note = self.history_reset(HistoryResetReason::Rewind, previous);
         let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
         // The provider continuation is keyed on the truncated prefix (`session-crud.mjs:473`).
@@ -773,7 +773,7 @@ impl SessionActor {
         let record = Record::Rewind(RewindRecord { to_ordinal, reason: RewindReason::Clear, op: self.op_ref(req, Some(&value))? });
         self.transcript_rewritten = true;
         // The saved request carried the cleared transcript (`session-crud.mjs:345`).
-        self.deps.side.forget(&self.id, false);
+        self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Transcript);
         let note = self.history_reset(HistoryResetReason::Clear, None);
         let mut records = vec![(record, Class::Normal, Display::None, vec![note])];
         // A cleared session starts without provider state (`session-crud.mjs:137`), and with its

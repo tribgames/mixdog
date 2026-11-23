@@ -670,18 +670,28 @@ impl SessionRouteAdapter {
         use std::sync::atomic::{AtomicBool, Ordering};
         let (change, clock, route) = (self.change.clone(), self.clock.clone(), route.clone());
         let written = Arc::new(AtomicBool::new(false));
-        let seen = written.clone();
+        let moved = Arc::new(AtomicBool::new(false));
+        let (seen, moving) = (written.clone(), moved.clone());
         let update: super::actor::AwaitingHeaderUpdate = Box::new(move |header| {
             Box::pin(async move {
                 if header.get("closed") == Some(&Value::Bool(true)) {
                     return HeaderChange { set: Map::new(), unset: Vec::new(), patch: Default::default() };
                 }
                 let lookups = change.lookups(&header, &route).await;
+                let previous: Route = ["provider", "model"].into_iter().filter_map(|key| Some((key.to_owned(), header.get(key)?.clone()))).collect();
+                moving.store(route_changed(&route, &previous), Ordering::SeqCst);
                 Self::route_write(&*change, &*clock, &header, &route, cross_provider, &lookups, extra, &seen)
             })
         });
         match self.directory.update_header_awaiting(thread, update).await {
-            Ok(()) => Ok(written.load(Ordering::SeqCst)),
+            Ok(()) => {
+                let written = written.load(Ordering::SeqCst);
+                // `resetSessionForRouteChange`: the cached prefix is the old route's, so its warm chain ends.
+                if written && moved.load(Ordering::SeqCst) {
+                    self.directory.deps().side.forget(thread, super::turn_ops::SideEnd::Route);
+                }
+                Ok(written)
+            }
             Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(false),
             Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
         }

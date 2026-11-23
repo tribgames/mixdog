@@ -171,6 +171,26 @@ pub struct SideRun {
     pub end: Box<dyn Send + Sync>,
 }
 
+/// Why a session's saved side request goes, and with it what becomes of the session's cache warm. Two things are decided
+/// apart: the chain (the timer in memory) ends with every end but an unload; the touch (the durable record the restart
+/// re-arm reads) goes only where the request it describes can no longer be the session's next one or the session is gone
+/// for good: a rewrite, a route change, a tombstone (a delete purges it). A detach keeps it: the record stays resumable,
+/// and the restart re-arm decides from the stored session.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SideEnd {
+    /// The transcript it carried is gone (a clear, a rewind, a compaction): a later question waits for the next request.
+    Transcript,
+    /// The session moved to another route: the cached prefix is the old route's.
+    Route,
+    /// The session was closed and its record stays resumable (the shutdown's, a context switch's, an owner's or an agent
+    /// close): the question in flight is aborted too.
+    Detach,
+    /// The session was closed for good (a tombstone), loaded or not: the question in flight is aborted too.
+    Tombstone,
+    /// The session left memory and stays open: the question in flight is aborted too.
+    Unload,
+}
+
 /// The side-question store as the session reads it: the latest provider request the loop sent
 /// (`side-question-store.mjs`) and the fork that sends a question on it. The composition backs it
 /// with the run host's one `SideQuestionStore`, shared with the loop's send path.
@@ -182,10 +202,8 @@ pub trait SideQuestions: Send + Sync {
     fn begin(&self, thread: &ThreadId) -> SideRun;
     /// `cancelSideQuestion`: whether a question was in flight.
     fn cancel(&self, thread: &ThreadId) -> bool;
-    /// `forgetSideQuestion(sessionId, { cancel })`: the transcript the saved request carried is gone
-    /// (clear, rewind), so a later question waits for the next request; `cancel` (a close or runtime
-    /// unload) also aborts the question in flight.
-    fn forget(&self, thread: &ThreadId, cancel: bool);
+    /// `forgetSideQuestion(sessionId, { cancel })` for `end` ([`SideEnd`]: what of the session's cache warm ends with it).
+    fn forget(&self, thread: &ThreadId, end: SideEnd);
     /// Sends the fork of the session's request (`buildForkedRequest`) with `prompt` as its last
     /// user message and `tool_stub` answering each tool call of the saved reply, on its own
     /// transport scope, one provider call, no tools executed; logs the usage as `side-question`. `idle`: no turn or

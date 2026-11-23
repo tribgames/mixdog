@@ -17,7 +17,7 @@ use serde_json::json;
 
 const ERROR_RESULT_EMPTY_TEXT: &str = "[error result had no text; its attached content follows this block]";
 const ERROR_RESULT_MEDIA_NOTE: &str = "[attached screenshot/media for this failed call follows this block]";
-const MISSING_RESULT_TEXT: &str = "[tool_result missing — recovered by sanitizeAnthropicContentPairs]";
+const MISSING_RESULT_TEXT: &str = mixdog_core_api::domain::provider::MISSING_TOOL_RESULT;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum WireContent {
@@ -405,6 +405,9 @@ fn push_tool_result(result: &mut Vec<WireMessage>, message: &Message, cx: &Lower
 }
 
 pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec<WireMessage> {
+    // An open call is closed as a message, before the lowering: the text that follows folds into its result exactly as
+    // it does once the repair has stored that result's row.
+    let messages = &*mixdog_core_api::domain::provider::close_open_calls(messages);
     let ids = wire_id_map(messages);
     let wire_id = |id: &str| ids.get(id).cloned().unwrap_or_else(|| id.to_owned());
     let mut result: Vec<WireMessage> = Vec::new();

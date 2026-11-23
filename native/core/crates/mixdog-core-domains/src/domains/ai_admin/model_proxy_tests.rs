@@ -655,6 +655,7 @@ fn a_manifest_crosses_the_wire_whole_and_a_malformed_one_is_refused() {
         ],
         boundaries: vec![Digest([1; 32]), Digest([2; 32]), Digest([0xab; 32])],
         tail: Some(1),
+        positions: Vec::new(),
     };
     let wire = manifest_out(&manifest);
     assert_eq!(manifest_in(wire.clone()), Some(manifest));

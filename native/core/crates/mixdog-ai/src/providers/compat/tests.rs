@@ -249,7 +249,7 @@ fn an_unanswered_tool_call_is_stubbed_and_a_bad_id_is_projected() {
     let id = body["messages"][2]["tool_calls"][0]["id"].as_str().unwrap().to_owned();
     assert!(id.starts_with("toolu_odd_id_"), "{id}");
     assert_eq!(body["messages"][3]["tool_call_id"], id.as_str());
-    assert_eq!(body["messages"][3]["content"], "Cancelled");
+    assert_eq!(body["messages"][3]["content"], mixdog_core_api::domain::provider::MISSING_TOOL_RESULT);
 }
 
 #[test]

@@ -53,6 +53,7 @@ struct Request {
     owner: Option<&'static str>,
 }
 
+#[async_trait]
 impl WarmRequest for Request {
     fn provider_name(&self) -> &str {
         self.provider
@@ -90,7 +91,7 @@ impl WarmRequest for Request {
     fn fast(&self) -> bool {
         false
     }
-    fn warm_request(&self) -> Result<ModelRequest, String> {
+    async fn warm_request(&self) -> Result<ModelRequest, String> {
         Ok(ModelRequest { model: self.model.to_owned(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() })
     }
     fn provider_generation(&self) -> Option<u64> {

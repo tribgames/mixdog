@@ -241,6 +241,7 @@ impl AgentSessions {
             return Err(format!("agent session {session_id} could not be durably closed"));
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
+        self.directory.deps().side.forget(&thread, crate::session::turn_ops::SideEnd::Detach);
         // Only a close that stopped a running turn is a cancellation; closing a finished agent keeps its status.
         if was_running {
             self.registry.set_cancelled(session_id, true);
@@ -374,6 +375,7 @@ impl Sessions for AgentSessions {
         if self.stop_turn_work(&thread, &turn, reason).await {
             self.registry.set_cancelled(session_id, true);
         }
+        self.directory.deps().side.forget(&thread, crate::session::turn_ops::SideEnd::Detach);
         true
     }
 
@@ -417,6 +419,9 @@ impl Sessions for AgentSessions {
             }
         };
         let stopped = crate::session::close::stop_idle_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, at_turn);
+        if stopped {
+            self.directory.deps().side.forget(&thread, crate::session::turn_ops::SideEnd::Detach);
+        }
         Ok(match (stopped, stamped) {
             (true, _) => MemberOutcome::Closed,
             // A turn started after the stamp landed: a close the session was resumed after.

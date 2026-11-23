@@ -572,33 +572,45 @@ const ANTHROPIC_TAIL_1H_MS: u64 = 60 * 60_000;
 /// OpenAI public API, GPT-5.6+ Responses: request ttl "30m".
 const OPENAI_TAIL_LIFETIME_MS: u64 = 30 * 60_000;
 
-/// `providerTailCacheLifetimeMs`: how long a session's message-tail cache
-/// stays readable. `None`: it does not expire (openai-oauth) or the provider
-/// exposes no tail lifetime. `messages_tier` is the session cache strategy's
-/// `messages` tier (`5m`/`1h`/`none`).
-pub fn provider_tail_cache_lifetime_ms(provider: &str, messages_tier: Option<&str>) -> Option<u64> {
-    let key = mixdog_js::js_trim(provider).to_lowercase();
-    match key.as_str() {
-        "openai-oauth" => None,
-        "openai" => Some(OPENAI_TAIL_LIFETIME_MS),
-        "anthropic" | "anthropic-oauth" => match messages_tier {
-            Some("5m") => Some(ANTHROPIC_TAIL_5M_MS),
-            Some("1h") => Some(ANTHROPIC_TAIL_1H_MS),
-            _ => None,
-        },
-        _ => None,
+/// The providers besides Anthropic's own whose adapters send Anthropic Messages bodies (Claude on Vertex AI, and the
+/// gateways that offer the Messages wire); a custom endpoint is any of `custom-*`.
+const MESSAGES_BODY_PROVIDERS: [&str; 5] = ["vertex-ai", "openrouter", "deepseek", "command-code-oauth", "opencode-go-oauth"];
+
+/// Whether a session's requests carry an Anthropic message-tail breakpoint: the direct Anthropic routes write the codec's
+/// default tail without a strategy; a route that sends Anthropic Messages bodies writes one when its `cacheStrategy`
+/// (stamped only where the wire is Messages, or the user's own) says so. Every other codec (OpenAI, xAI, Gemini, ...)
+/// reads no strategy, whatever the header holds.
+pub fn writes_tail_breakpoint(provider: &str, strategy: Option<&Value>) -> bool {
+    let provider = mixdog_js::js_trim(provider).to_lowercase();
+    match provider.as_str() {
+        "anthropic" | "anthropic-oauth" => true,
+        other => (MESSAGES_BODY_PROVIDERS.contains(&other) || other.starts_with("custom-")) && strategy.is_some_and(Value::is_object),
     }
 }
 
-/// `requestCacheLifetimeMs`: how long the cache a saved request wrote or read
-/// stays readable. Anthropic: the request's message-tail tier; OpenAI: 30m;
-/// other providers: the catalog's prompt-caching flag decides.
-pub fn request_cache_lifetime(provider: &str, messages_tier: Option<&str>, catalog_supports_prompt_caching: bool) -> CacheLifetime {
+/// How long a session's message-tail cache stays readable, from `strategy` (the `cacheStrategy` of its header's
+/// `providerCacheOpts`, which each request carries in its model parameters): the lifetime the tail breakpoint is
+/// written at, `None` when the strategy leaves the tail unmarked. A route without a breakpoint: OpenAI's request ttl;
+/// openai-oauth never expires and the rest name no lifetime.
+pub fn tail_cache_lifetime_ms(provider: &str, strategy: Option<&Value>) -> Option<u64> {
+    if writes_tail_breakpoint(provider, strategy) {
+        return crate::providers::anthropic::written_tail_ttl(strategy).map(|ttl| match ttl {
+            crate::providers::anthropic::CacheTtl::OneHour => ANTHROPIC_TAIL_1H_MS,
+            crate::providers::anthropic::CacheTtl::FiveMinutes => ANTHROPIC_TAIL_5M_MS,
+        });
+    }
+    (mixdog_js::js_trim(provider).to_lowercase() == "openai").then_some(OPENAI_TAIL_LIFETIME_MS)
+}
+
+/// `requestCacheLifetimeMs`: how long the cache a saved request wrote or read stays readable. A route with a tail
+/// breakpoint or OpenAI: [`tail_cache_lifetime_ms`] of the request's `cacheStrategy`; openai-oauth never expires; other
+/// providers: the catalog's prompt-caching flag decides.
+pub fn request_cache_lifetime(provider: &str, strategy: Option<&Value>, catalog_supports_prompt_caching: bool) -> CacheLifetime {
     if provider == "openai-oauth" {
         return CacheLifetime::Forever;
     }
-    if provider == "openai" || matches!(provider, "anthropic" | "anthropic-oauth") {
-        return CacheLifetime::Ms(provider_tail_cache_lifetime_ms(provider, messages_tier).unwrap_or(0));
+    if provider == "openai" || writes_tail_breakpoint(provider, strategy) {
+        return CacheLifetime::Ms(tail_cache_lifetime_ms(provider, strategy).unwrap_or(0));
     }
     CacheLifetime::Ms(if catalog_supports_prompt_caching { CATALOG_PROMPT_CACHE_LIFETIME_MS } else { 0 })
 }

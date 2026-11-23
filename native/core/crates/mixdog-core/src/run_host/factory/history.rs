@@ -108,6 +108,10 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
         self.parts.request_snapshot(&self.thread, tools, native_searches(messages)).await.map_err(|error| error.message)
     }
 
+    async fn fold_compacted(&self) -> Result<Option<Vec<AgentMessage>>, String> {
+        self.parts.fold_compacted(&self.thread).await.map_err(|error| error.message)
+    }
+
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let rows = messages.iter().map(super::super::message_row::row_of).collect();
         self.parts.migrate_exposure(&self.thread, rows).await.map_err(|error| error.message)

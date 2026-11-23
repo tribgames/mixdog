@@ -520,6 +520,7 @@ fn tool_result_parts(
 fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits) -> Result<Vec<Value>, ProviderError> {
     let family = traits.is_gemini_family(&request.model);
     let messages = crate::providers::own_call_ids::own_call_ids(&request.messages);
+    let messages = mixdog_core_api::domain::provider::close_open_calls(&messages);
     let chat: Vec<&Message> = messages.iter().filter(|m| m.role != Role::System).collect();
     let mut names: HashMap<String, String> = HashMap::new();
     let mut calls: HashMap<String, Value> = HashMap::new();
@@ -582,11 +583,12 @@ fn contents(request: &ModelRequest, dialect: &Dialect, traits: &dyn ModelTraits)
 
 /// Every model step of the active turn must open its first call with a
 /// signature; a history without a real one gets the documented sentinel.
+///
+/// The provider validates the active turn alone, but the sentinel is written on every step of the history: a step is
+/// lowered to the same bytes in each request that carries it, so the turn that follows does not rewrite the rows the
+/// prefix cache holds of this one.
 fn ensure_signatures(contents: &mut [Value]) {
-    let has = |content: &Value, key: &str| content["parts"].as_array().is_some_and(|p| p.iter().any(|x| x.get(key).is_some()));
-    let start =
-        contents.iter().rposition(|c| c["role"] == "user" && c["parts"].as_array().is_some_and(|p| !p.is_empty()) && !has(c, "functionResponse")).unwrap_or(0);
-    for content in contents.iter_mut().skip(start) {
+    for content in contents.iter_mut() {
         if content["role"] != "model" {
             continue;
         }

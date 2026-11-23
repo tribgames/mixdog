@@ -24,10 +24,11 @@ use super::stores::{GapStore, Touch, TouchStore};
 use super::stream::{WarmFailure, WarmUsage};
 use crate::accounts::ACCOUNT_PROVIDERS;
 use crate::registry::warm::WarmUse;
-use crate::service::routes::provider_tail_cache_lifetime_ms;
+use crate::service::routes::{tail_cache_lifetime_ms, writes_tail_breakpoint};
 
 /// The request a warm replays (`side-question-store.mjs` snapshot) and the facts the warmer reads
 /// of it.
+#[async_trait]
 pub trait WarmRequest: Send + Sync {
     fn provider_name(&self) -> &str;
     fn model(&self) -> &str;
@@ -55,20 +56,33 @@ pub trait WarmRequest: Send + Sync {
     /// `cacheWarmSend(request)` before its one-token cap (the provider's warm applies that): the
     /// saved messages plus the tail reminder of the moment (read now, not at capture), the tools
     /// and the send options. `Err` when the session cannot be read now.
-    fn warm_request(&self) -> Result<mixdog_core_api::domain::provider::ModelRequest, String>;
+    async fn warm_request(&self) -> Result<mixdog_core_api::domain::provider::ModelRequest, String>;
     /// The registry generation of the provider instance the request was captured on, `None` when
     /// that instance is no longer registered (`registeredProvider(name) === request.provider`).
     fn provider_generation(&self) -> Option<u64>;
+    /// This request once its session has left memory.
+    fn detached(&self) -> Detached {
+        Detached::Keep
+    }
+    /// One warm of this request ended, sent or not: what reading it opened for the warm is let go.
+    fn warmed(&self) {}
 }
 
-/// `cacheCapabilityForProvider(name) === 'explicit-breakpoint'`.
-fn explicit_breakpoint(provider: &str) -> bool {
-    matches!(provider, "anthropic" | "anthropic-oauth")
+/// What a warm's request becomes once its session has left memory ([`WarmRequest::detached`]).
+pub enum Detached {
+    /// The request holds nothing the session's memory owns: the chain goes on with it.
+    Keep,
+    /// The request that reads what it repeats from what is stored at each warm.
+    Stored(Arc<dyn WarmRequest>),
+    /// What is stored cannot reproduce what the session last sent (a value its send carried that the store keeps nowhere):
+    /// a warm of it would rewrite the whole prompt, so the chain and its touch end.
+    Unreproducible,
 }
 
 /// `cacheWarmIneligibility(request)`: why `request` may not be warmed, or `None`.
 pub fn ineligibility(request: &dyn WarmRequest) -> Option<&'static str> {
-    if !explicit_breakpoint(request.provider_name()) {
+    let strategy = request.cache_strategy().map(|strategy| strategy.to_value());
+    if !writes_tail_breakpoint(request.provider_name(), strategy.as_ref()) {
         return Some("provider caches without breakpoints");
     }
     if !request.has_warm_mode() {
@@ -83,9 +97,7 @@ pub fn ineligibility(request: &dyn WarmRequest) -> Option<&'static str> {
     if request.has_effort() && request.effort_levels_empty() {
         return Some("thinking budget derives from max_tokens");
     }
-    let strategy = request.cache_strategy();
-    let tier = strategy.as_ref().and_then(|s| s.messages.as_deref());
-    if provider_tail_cache_lifetime_ms(request.provider_name(), tier).is_none() {
+    if tail_cache_lifetime_ms(request.provider_name(), strategy.as_ref()).is_none() {
         return Some("no expiring message-tail cache");
     }
     None
@@ -257,7 +269,13 @@ impl Warmer {
         *state.on.get_or_insert_with(|| self.deps.read_config_enabled())
     }
 
-    /// The setting changed: authoritative; off cancels every armed chain.
+    /// Whether warming is on, as arming reads it.
+    pub fn enabled(&self) -> bool {
+        self.enabled_now()
+    }
+
+    /// The setting changed: authoritative. Off ends every armed chain and removes every durable touch: while it is off nothing
+    /// is kept, so a touch older than a send made while off can never be re-armed once it is on again.
     pub fn note_enabled(&self, enabled: bool) {
         self.state().on = Some(enabled);
         if enabled {
@@ -266,6 +284,9 @@ impl Warmer {
         let ids: Vec<String> = self.state().chains.keys().cloned().collect();
         for id in ids {
             self.cancel(&id);
+        }
+        for id in self.touches.ids() {
+            self.touches.forget(&id);
         }
     }
 
@@ -286,6 +307,48 @@ impl Warmer {
 
     fn forget_use(&self, session_id: &str) {
         self.touches.forget_warm_use(session_id);
+    }
+
+    /// The session left memory (an unload): its chain goes on with the same schedule and touch, its request swapped for the one
+    /// [`WarmRequest::detached`] gives.
+    pub fn detach(self: &Arc<Self>, session_id: &str) {
+        let Some(chain) = self.state().chains.get(session_id).cloned() else { return };
+        let request = match chain.request.detached() {
+            Detached::Keep => return,
+            Detached::Stored(request) => request,
+            Detached::Unreproducible => return self.forget(session_id),
+        };
+        let from = {
+            let c = chain.inner();
+            Suspended { request, ttl_ms: c.ttl_ms, touch_at: c.touch_at, prompt_tokens: c.prompt_tokens, account_id: c.account_id.clone(), latency_ms: c.latency_ms }
+        };
+        let latency = from.latency_ms;
+        self.stop_chain(session_id, &chain, "session unloaded", true);
+        let detached = self.start_chain(session_id, from);
+        detached.inner().latency_ms = latency;
+    }
+
+    /// `cancelCacheWarm` of a close that leaves the record resumable (a detach): the chain ends and the durable touch stays for
+    /// the restart re-arm, unless what is stored cannot reproduce the request it warms ([`Detached::Unreproducible`]), when the
+    /// touch goes too.
+    pub fn close(&self, session_id: &str) {
+        let chain = self.state().chains.get(session_id).cloned();
+        if chain.is_some_and(|chain| matches!(chain.request.detached(), Detached::Unreproducible)) {
+            return self.forget(session_id);
+        }
+        self.cancel(session_id);
+    }
+
+    /// `forgetCacheWarm`: the session's cached prefix is gone (a compaction, a clear, a rewind): its chain, its durable
+    /// touch and its warm use go, and a missed session may arm again. Its idle history stays.
+    pub fn forget(&self, session_id: &str) {
+        self.cancel(session_id);
+        if session_id.is_empty() {
+            return;
+        }
+        self.state().missed.remove(session_id);
+        self.touches.forget(session_id);
+        self.forget_use(session_id);
     }
 
     /// A session deleted for good drops everything it learned and touched.
@@ -538,20 +601,27 @@ impl Warmer {
             if !self.enabled_now() {
                 return armed;
             }
-            let request = match self.deps.last_sent_request(&id).await {
-                Ok(request) => request,
+            let (request, read) = match self.deps.last_sent_request(&id).await {
+                Ok(request) => (request, true),
                 Err(message) => {
                     self.deps.log(&format!("{id}: restart re-arm skipped ({message})"));
-                    None
+                    (None, false)
                 }
             };
             if !self.enabled_now() {
                 return armed;
             }
-            let Some(request) = request else { continue };
-            if ineligibility(request.as_ref()).is_some() || self.state().chains.contains_key(&id) {
+            if self.state().chains.contains_key(&id) {
                 continue;
             }
+            // A session with nothing to repeat (closed, deleted, or never answered) or nothing a warm may keep has no chain to
+            // come back to: its touch goes. A read that failed keeps it for the next start.
+            let Some(request) = request.filter(|request| ineligibility(request.as_ref()).is_none()) else {
+                if read {
+                    self.touches.forget(&id);
+                }
+                continue;
+            };
             self.start_chain(
                 &id,
                 Suspended {

@@ -106,15 +106,38 @@ fn text_is_trimmed_with_js_whitespace() {
 #[test]
 fn request_cache_lifetimes_follow_the_provider_rules() {
     use CacheLifetime::{Forever, Ms};
+    let tail = |messages: &str| serde_json::json!({ "tools": "none", "system": "1h", "tier3": "1h", "messages": messages });
     assert_eq!(request_cache_lifetime("openai-oauth", None, false), Forever);
     assert_eq!(request_cache_lifetime("openai", None, false), Ms(1_800_000));
-    assert_eq!(request_cache_lifetime("anthropic", Some("5m"), false), Ms(300_000));
-    assert_eq!(request_cache_lifetime("anthropic-oauth", Some("1h"), false), Ms(3_600_000));
-    assert_eq!(request_cache_lifetime("anthropic", Some("none"), true), Ms(0));
+    assert_eq!(request_cache_lifetime("anthropic", Some(&tail("5m")), false), Ms(300_000));
+    assert_eq!(request_cache_lifetime("anthropic-oauth", Some(&tail("1h")), false), Ms(3_600_000));
+    assert_eq!(request_cache_lifetime("anthropic", Some(&tail("none")), true), Ms(0));
     assert_eq!(request_cache_lifetime("gemini", None, true), Ms(300_000));
     assert_eq!(request_cache_lifetime("deepseek", None, false), Ms(0));
-    assert_eq!(provider_tail_cache_lifetime_ms(" OpenAI ", None), Some(1_800_000));
-    assert_eq!(provider_tail_cache_lifetime_ms("openai-oauth", None), None);
+    assert_eq!(request_cache_lifetime("openrouter", Some(&tail("1h")), true), Ms(3_600_000));
+}
+
+/// The tail lives as long as the strategy the requests are written with says, whatever route carries it; without one,
+/// as long as the codec's default tail on a direct route, and nothing names a lifetime for a gateway.
+#[test]
+fn the_tail_lifetime_is_the_written_strategys() {
+    let tail = |messages: &str| serde_json::json!({ "tools": "none", "system": "1h", "tier3": "1h", "messages": messages });
+    for provider in ["anthropic", "anthropic-oauth", "openrouter", "vertex-ai"] {
+        assert_eq!(tail_cache_lifetime_ms(provider, Some(&tail("1h"))), Some(3_600_000), "{provider}");
+        assert_eq!(tail_cache_lifetime_ms(provider, Some(&tail("5m"))), Some(300_000), "{provider}");
+        assert_eq!(tail_cache_lifetime_ms(provider, Some(&tail("none"))), None, "{provider}");
+    }
+    assert_eq!(tail_cache_lifetime_ms("anthropic-oauth", None), Some(300_000));
+    assert_eq!(tail_cache_lifetime_ms("openrouter", None), None);
+    // A longer tail never follows a shorter layer: the codec writes it at 5m.
+    assert_eq!(tail_cache_lifetime_ms("openrouter", Some(&serde_json::json!({ "system": "5m", "messages": "1h" }))), Some(300_000));
+    assert_eq!(tail_cache_lifetime_ms("openai", Some(&tail("1h"))), Some(1_800_000));
+    // A strategy a user set on a route whose codec writes no Anthropic breakpoint names no tail.
+    for provider in ["xai", "gemini", "openai-oauth", "mimo-oauth"] {
+        assert!(!writes_tail_breakpoint(provider, Some(&tail("1h"))), "{provider}");
+        assert_eq!(tail_cache_lifetime_ms(provider, Some(&tail("1h"))), None, "{provider}");
+    }
+    assert!(writes_tail_breakpoint("custom-gw", Some(&tail("1h"))));
 }
 
 #[test]

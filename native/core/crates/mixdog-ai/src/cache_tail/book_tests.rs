@@ -729,3 +729,116 @@ fn only_the_turn_or_a_side_question_after_its_own_compaction_writes_the_compacte
     assert_eq!(refused(admit(&mut book, &base, "a", Purpose::SideQuestion, T0)), TailRefusal::Skip(Cold::Unproven));
     let _ = sent(admit(&mut book, &base, "a", Purpose::SideAfterCompaction, T0 + 1));
 }
+
+/// The kept book of an unloaded session goes through the warmer's touch file: a warm's refresh, kept there, survives the
+/// process, and the next process's first load of the session judges the tail from it.
+#[tokio::test]
+async fn a_kept_book_is_persisted_in_the_touch_file_and_read_at_the_next_load() {
+    use crate::warmer::stores::TouchStore;
+    let dir = tempfile::tempdir().unwrap();
+    let io = mixdog_rt::testing::tokens().durability_io;
+    let open = || async {
+        let at: crate::warmer::stores::Now = std::sync::Arc::new(|| T0 as f64);
+        std::sync::Arc::new(TouchStore::open(dir.path().join("touches.json"), io, std::sync::Arc::new(|_| {}), at).await.unwrap())
+    };
+    let settings = |at: i64| super::GateSettings {
+        clock: std::sync::Arc::new(move || at),
+        auto_clear: std::sync::Arc::new(|| true),
+        sizing: SIZING,
+        fresh: false,
+        last_send_at: None,
+    };
+    let (book, manifest) = proven("5m");
+    let header = book.to_json();
+    let extent = book.receipts()[0].extent.unwrap();
+    let session = "kept-in-file";
+    let touches = open().await;
+    let books = super::Books::kept_in(touches.clone());
+    let warm_at = T0 + 240_000;
+    let warm = books.gate(session, Some(&header), settings(warm_at));
+    let on_a = route("a");
+    let Verdict::Send(permit) =
+        warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
+    else {
+        panic!("the warm is admitted inside the lifetime")
+    };
+    warm.0.settle(&permit, Some(Counters { read: Some(extent), created: Some(0), created_5m: Some(0), created_1h: Some(0) }));
+    books.keep_unloaded(session);
+    touches.flush().await;
+    drop((books, touches));
+
+    let books = super::Books::kept_in(open().await);
+    let later = anthropic(&body(2, "5m"));
+    let at = warm_at + TTL_5M_MS as i64 - 1;
+    assert_eq!(book.judge(&on_a, &later, at), Judgment::Cold(Cold::Expired), "the header alone has expired");
+    let load = books.gate(session, Some(&header), settings(at));
+    assert!(matches!(ask_turn(&load, &on_a, &later).await, Verdict::Send(_)), "the next process's load judges from the kept warm");
+}
+
+#[derive(Default)]
+struct Kept(std::sync::Mutex<std::collections::HashMap<String, Value>>);
+
+impl super::KeptBooks for Kept {
+    fn kept(&self, session_id: &str) -> Option<Value> {
+        self.0.lock().unwrap().get(session_id).cloned()
+    }
+    fn keep(&self, session_id: &str, book: Value) {
+        self.0.lock().unwrap().insert(session_id.to_owned(), book);
+    }
+    fn drop_kept(&self, session_id: &str) {
+        self.0.lock().unwrap().remove(session_id);
+    }
+}
+
+/// A warm of a session that is not loaded refreshes its tail on a book opened from the header; the book is kept and leaves
+/// memory, and the session's next load judges the tail from the warm's use, which the header alone does not hold. The
+/// load's own release, once its owner committed the book to the header, drops the kept one; a header that moved on since
+/// (a send of the session's own) wins over a kept book.
+#[tokio::test]
+async fn a_warm_of_an_unloaded_session_reaches_its_next_load() {
+    use super::KeptBooks as _;
+    let kept = std::sync::Arc::new(Kept::default());
+    let books = super::Books::kept_in(kept.clone());
+    let session = "unloaded-warm";
+    let settings = |at: i64| super::GateSettings {
+        clock: std::sync::Arc::new(move || at),
+        auto_clear: std::sync::Arc::new(|| true),
+        sizing: SIZING,
+        fresh: false,
+        last_send_at: None,
+    };
+    let (book, manifest) = proven("5m");
+    let header = book.to_json();
+    let extent = book.receipts()[0].extent.unwrap();
+    let warm_at = T0 + 240_000;
+    let warm = books.gate(session, Some(&header), settings(warm_at));
+    let on_a = route("a");
+    let Verdict::Send(permit) =
+        warm.0.admit(Admission { purpose: Purpose::Warm, route: &on_a, manifest: &manifest, generation: None, unreduced: None }).await
+    else {
+        panic!("the warm is admitted inside the lifetime")
+    };
+    warm.0.settle(&permit, Some(Counters { read: Some(extent), created: Some(0), created_5m: Some(0), created_1h: Some(0) }));
+    books.keep_unloaded(session);
+    assert!(!books.loaded(session), "nothing stays open after the warm");
+    assert!(kept.kept(session).is_some(), "the warm's evidence is kept");
+
+    let later = anthropic(&body(2, "5m"));
+    let past_send = warm_at + TTL_5M_MS as i64 - 1;
+    assert_eq!(book.judge(&on_a, &later, past_send), Judgment::Cold(Cold::Expired), "the header alone has expired");
+    let load = books.gate(session, Some(&header), settings(past_send));
+    assert!(matches!(ask_turn(&load, &on_a, &later).await, Verdict::Send(_)), "the load judges from the warm's use");
+    let committed = books.unsaved(session).expect("a kept book is committed by the loaded owner");
+    books.release(session);
+    assert!(kept.kept(session).is_none(), "the header holds it now");
+    let reloaded = books.gate(session, Some(&committed), settings(past_send));
+    assert!(matches!(ask_turn(&reloaded, &on_a, &later).await, Verdict::Send(_)), "and the header judges as the kept book did");
+    books.release(session);
+
+    kept.keep(session, header.clone());
+    let mut moved = header.clone();
+    moved["lastSendAt"] = json!(T0 + 1_000);
+    assert_eq!(books.generation(session, Some(&moved)), 0);
+    let gate = books.gate(session, Some(&moved), settings(T0 + 1_000 + TTL_5M_MS as i64));
+    assert!(matches!(ask_turn(&gate, &on_a, &later).await, Verdict::Send(_)), "the header's later send decides, not the kept book");
+}

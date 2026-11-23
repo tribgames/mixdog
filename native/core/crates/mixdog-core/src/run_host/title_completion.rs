@@ -13,7 +13,7 @@ use mixdog_rt::CancellationToken;
 use serde_json::{Map, Value, json};
 
 use crate::run_host::retry::{RandomJitter, TimerWait};
-use crate::run_host::session_cache_opts::session_provider_cache_opts;
+use crate::run_host::session_cache_opts::call_cache_opts;
 use crate::run_host::summary_host::{NoApprovals, SummaryDeps};
 
 const MAINTAINER_ROLE: &str = "maintainer";
@@ -114,8 +114,14 @@ fn title_tool_env(deps: &SummaryDeps, session_id: &str) -> ToolEnv {
     }
 }
 
-fn title_options(provider_name: &str, session_id: &str) -> RequestOptions {
-    let cache = session_provider_cache_opts(provider_name, Some(TITLE_AGENT), &json!({}));
+/// The wire `provider` sends a tool-less call to `model` on (`sendWireRoute` with no pin); `None` for a provider of one wire.
+async fn call_wire(provider: &dyn mixdog_core_api::domain::provider::ProviderAdapter, model: &str) -> Option<String> {
+    let context = mixdog_core_api::domain::provider::WireRouteContext::default();
+    provider.wire_routing()?.resolve_wire_route(model, &context).await.ok()?.map(|route| route.wire)
+}
+
+fn title_options(provider_name: &str, model: &str, wire: Option<&str>, session_id: &str) -> RequestOptions {
+    let cache = call_cache_opts(provider_name, model, wire, Some(TITLE_AGENT), &json!({}));
     let scope = cache.as_ref().and_then(|c| c.get("promptCacheScope")).and_then(Value::as_str).map(str::to_owned);
     let strategy = cache.as_ref().and_then(|c| c.get("cacheStrategy")).cloned();
     RequestOptions {
@@ -158,7 +164,8 @@ impl TitleModel for TitleCompletion {
             return Err(TitleError::Failed(format!("Error: Session title provider is unavailable: {provider_name}")));
         };
         let tool_env = title_tool_env(deps, session_id);
-        let options = title_options(&provider_name, session_id);
+        let wire = call_wire(&*provider, &model).await;
+        let options = title_options(&provider_name, &model, wire.as_deref(), session_id);
         let one_shot = OneShot::standalone(
             deps.clock.clone(),
             Arc::new(RandomJitter),
@@ -192,9 +199,20 @@ mod tests {
 
     #[test]
     fn title_spend_is_booked_to_the_titled_session_as_a_title_call() {
-        let options = title_options("openai", "sess_1");
+        let options = title_options("openai", "gpt-x", None, "sess_1");
         assert_eq!((options.usage_session_id.as_deref(), options.source_type.as_deref()), (Some("sess_1"), Some("session-title")));
-        assert_eq!(title_options("openai", "").usage_session_id, None);
+        assert_eq!(title_options("openai", "gpt-x", None, "").usage_session_id, None);
+    }
+
+    /// A title on Claude through OpenRouter's Messages wire or on Vertex AI takes the one-shot policy of the direct route:
+    /// system and tools at an hour, no message tail; on OpenRouter's Chat wire it states none.
+    #[test]
+    fn a_title_on_a_breakpoint_route_takes_the_one_shot_policy_of_the_direct_route() {
+        let direct = title_options("anthropic-oauth", "claude-haiku-4-5", None, "sess_1").model_parameters;
+        assert_eq!(direct, Some(json!({ "cacheStrategy": { "tools": "none", "system": "1h", "tier3": "1h", "messages": "none" } })));
+        assert_eq!(title_options("openrouter", "anthropic/claude-haiku-4.5", Some("messages"), "sess_1").model_parameters, direct);
+        assert_eq!(title_options("vertex-ai", "claude-haiku-4-5", None, "sess_1").model_parameters, direct);
+        assert_eq!(title_options("openrouter", "anthropic/claude-haiku-4.5", Some("chat"), "sess_1").model_parameters, None);
     }
 
     fn config(value: Value) -> Map<String, Value> {

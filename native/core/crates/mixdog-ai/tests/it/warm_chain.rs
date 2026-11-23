@@ -79,6 +79,7 @@ impl Default for Req {
     }
 }
 
+#[async_trait]
 impl WarmRequest for Req {
     fn provider_name(&self) -> &str {
         self.provider
@@ -113,7 +114,7 @@ impl WarmRequest for Req {
     fn fast(&self) -> bool {
         false
     }
-    fn warm_request(&self) -> Result<ModelRequest, String> {
+    async fn warm_request(&self) -> Result<ModelRequest, String> {
         Ok(ModelRequest { model: self.model.to_owned(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() })
     }
     fn provider_generation(&self) -> Option<u64> {
@@ -138,12 +139,25 @@ fn only_a_session_request_of_an_explicit_breakpoint_provider_with_an_expiring_ta
     assert_eq!(reason(Req { thinking: 8000.0, ..Req::default() }), Some("thinking budget derives from max_tokens"));
     assert_eq!(reason(Req { effort: true, levels_empty: true, ..Req::default() }), Some("thinking budget derives from max_tokens"));
     assert_eq!(reason(Req { effort: true, levels_empty: false, ..Req::default() }), None);
-    // The tail of the messages must be a tier that expires: none, or an unknown tier, has nothing to keep warm.
-    assert_eq!(reason(Req { strategy: None, ..Req::default() }), Some("no expiring message-tail cache"));
+    // The tail is the one the request is written with: an unmarked tail has nothing to keep warm, while no strategy or an
+    // unknown tier leaves the codec's default 5m tail.
     let tier =
         |messages: Option<&str>| Req { strategy: Some(CacheStrategy { messages: messages.map(str::to_owned), ..CacheStrategy::default() }), ..Req::default() };
+    assert_eq!(reason(tier(Some("none"))), Some("no expiring message-tail cache"));
     assert_eq!(reason(tier(Some("5m"))), None);
-    assert_eq!(reason(tier(Some("forever"))), Some("no expiring message-tail cache"));
+    assert_eq!(reason(tier(Some("forever"))), None);
+    assert_eq!(reason(Req { strategy: None, ..Req::default() }), None);
+}
+
+/// OpenRouter's Claude adapter runs on the gateway engine, which has no cache-warm mode: its one-hour write arms no chain,
+/// stamped strategy or not.
+#[tokio::test]
+async fn an_openrouter_claude_session_is_not_warmed_since_its_adapter_has_no_warm_mode() {
+    let gateway = Req { provider: "openrouter", model: "anthropic/claude-opus-4-7", warm_mode: false, ..Req::default() };
+    assert_eq!(ineligibility(&gateway), Some("provider has no cache-warm mode"));
+    let f = fixture().await;
+    f.arm(gateway, &wrote_one_hour(None));
+    assert!(f.warmer.chain_state("s1").is_none());
 }
 
 // the scripted world
@@ -457,7 +471,7 @@ async fn a_new_request_replaces_the_chain_and_its_timer() {
 // the setting
 
 #[tokio::test]
-async fn nothing_is_armed_while_warming_is_off_and_turning_it_off_cancels_every_chain() {
+async fn nothing_is_armed_while_warming_is_off_and_turning_it_off_ends_every_chain_and_touch() {
     let f = fixture().await;
     *lock(&f.deps.enabled) = false;
     f.arm_default();
@@ -467,9 +481,11 @@ async fn nothing_is_armed_while_warming_is_off_and_turning_it_off_cancels_every_
     f.warmer.note_enabled(true);
     f.arm_default();
     assert!(f.warmer.chain_state("s1").is_some());
+    f.touches.record("other", Touch { touch_at: T0, ttl_ms: HOUR, prompt_tokens: 70_000.0, account_id: None });
     f.warmer.note_enabled(false);
     assert!(f.warmer.chain_state("s1").is_none());
     assert_eq!(f.pending_timers(), 0);
+    assert!(f.touches.ids().is_empty(), "no touch is kept while warming is off, a chainless one included");
 }
 
 // warming
@@ -703,6 +719,24 @@ async fn purging_a_session_drops_its_chain_touch_warm_use_and_what_it_learned() 
     assert!(f.gaps.gaps("s1").is_empty() && f.gaps.open_at("s1") == 0.0);
 }
 
+/// A compaction, a clear or a rewind takes the cached prefix: the chain, the touch and the warm use go, what the session
+/// learned of its returns stays.
+#[tokio::test]
+async fn forgetting_a_sessions_prefix_drops_its_chain_touch_and_warm_use_and_keeps_its_idle_history() {
+    let f = fixture().await;
+    f.arm_default();
+    f.advance(f.at(REFRESH)).await;
+    assert!(f.touches.warm_use("s1").is_some());
+    let learned = f.gaps.gaps("s1");
+    assert!(!learned.is_empty());
+    f.warmer.forget("s1");
+    assert!(f.warmer.chain_state("s1").is_none());
+    assert!(f.touches.get("s1").is_none() && f.touches.warm_use("s1").is_none());
+    assert_eq!(f.pending_timers(), 0);
+    assert_eq!(f.gaps.gaps("s1"), learned);
+    assert_eq!(f.gaps.open_at("s1"), T0, "the idle clock still runs from the last real request");
+}
+
 // after a restart
 
 #[tokio::test]
@@ -723,14 +757,20 @@ async fn a_restart_rearms_the_sessions_whose_entry_is_still_alive_and_drops_the_
 #[tokio::test]
 async fn a_restart_arms_nothing_while_warming_is_off_or_for_a_session_whose_request_is_gone_or_ineligible() {
     let f = fixture().await;
-    f.touches.record("s1", Touch { touch_at: T0 + 1000.0, ttl_ms: HOUR, prompt_tokens: 70_000.0, account_id: None });
+    let touch = || Touch { touch_at: T0 + 1000.0, ttl_ms: HOUR, prompt_tokens: 70_000.0, account_id: None };
+    f.touches.record("s1", touch());
     assert_eq!(f.warmer.rearm_after_restart().await, 0, "no request to replay");
+    assert!(f.touches.get("s1").is_none(), "nothing to repeat: the touch goes");
+    f.touches.record("s1", touch());
     *lock(&f.deps.last_sent) = Some(arc(Req { provider: "openai-oauth", ..Req::default() }));
     assert_eq!(f.warmer.rearm_after_restart().await, 0, "an ineligible request");
+    assert!(f.touches.get("s1").is_none(), "nothing a warm may keep: the touch goes");
     *lock(&f.deps.last_sent) = Some(arc(Req::default()));
+    f.touches.record("s1", touch());
     f.warmer.note_enabled(false);
     assert_eq!(f.warmer.rearm_after_restart().await, 0);
     f.warmer.note_enabled(true);
+    f.touches.record("s1", touch());
     assert_eq!(f.warmer.rearm_after_restart().await, 1);
 }
 

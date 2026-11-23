@@ -269,6 +269,58 @@ async fn a_refused_turn_scoped_reminder_is_replayed_as_a_block_of_the_user_messa
     assert!(!claude_floors::enabled(Feature::TurnScopedSystem, "anthropic-oauth", model));
 }
 
+/// A model of a family no floor measures is offered effort updates on the subscription route. One that refuses them is
+/// served by the replay without them (its own turn effort at the top level, no control message), and no later request
+/// of that model carries one: the conversation never fails on the update.
+#[tokio::test]
+async fn a_refused_effort_update_is_replayed_once_without_it_and_never_sent_to_that_model_again() {
+    use mixdog_core_api::domain::provider::EffortProjection;
+    let model = "claude-nova-5-2";
+    let asked = || {
+        let mut messages = base_messages();
+        messages.push(text_message(Role::Assistant, "a1"));
+        messages.push(text_message(Role::User, "q2"));
+        let at = messages.len() - 1;
+        let projection = EffortProjection { initial_effort: "low".into(), updates: [(at, "high".to_owned())].into_iter().collect() };
+        let mut req = request(messages, RequestOptions { effort: Some("high".into()), effort_projection: Some(projection), ..RequestOptions::default() });
+        req.model = model.into();
+        Arc::new(req)
+    };
+    let refused = refusal_body("invalid_request_error", "messages.2: mid-conversation output_config requires a model that supports per-turn effort");
+    let (adapter, http, _store) =
+        subscription(caps_config(display_caps()), vec![Scripted::body(400, &refused), Scripted::body(200, OK), Scripted::body(200, OK)]);
+    assert_eq!(text_of(&adapter, asked()).await.expect("the turn is served"), "fine");
+    let sent = http.sent();
+    assert_eq!(sent.len(), 2);
+    let controls = |i: usize| body_of(&sent[i])["messages"].as_array().unwrap().iter().filter(|m| m["role"] == "system").count();
+    assert_eq!((controls(0), &body_of(&sent[0])["output_config"]["effort"]), (1, &json!("low")));
+    assert_eq!((controls(1), &body_of(&sent[1])["output_config"]["effort"]), (0, &json!("high")));
+    assert!(!find(&sent[1].headers, "anthropic-beta").unwrap().contains("mid-conversation-output-config"));
+    assert!(!claude_floors::enabled(Feature::EffortUpdates, "anthropic-oauth", model));
+    text_of(&adapter, asked()).await.expect("the next turn is served at once");
+    let sent = http.sent();
+    assert_eq!(sent.len(), 3, "no refused attempt precedes it");
+    assert_eq!(body_of(&sent[2])["messages"].as_array().unwrap().iter().filter(|m| m["role"] == "system").count(), 0);
+    // A refused level is the level's own failure, and a turn-scoped message's error is not the update's.
+    assert_eq!(claude_floors::rejection(Some(400), "output_config.effort: 'ultra' is not a valid level"), None);
+    assert_eq!(claude_floors::rejection(Some(400), "messages.3.clear_at: mid-conversation system message"), Some(Feature::TurnScopedSystem));
+}
+
+/// A 400 that names `output_config` or "mid-conversation" on a request that carried no effort update says nothing
+/// about updates: it surfaces as it is, with no replay, and the model keeps its updates.
+#[tokio::test]
+async fn a_400_naming_output_config_on_a_request_without_an_update_switches_nothing_off() {
+    let model = "claude-nova-5-4";
+    for said in ["output_config: Extra inputs are not permitted", "a mid-conversation system message is not allowed here"] {
+        let refused = refusal_body("invalid_request_error", said);
+        let (adapter, http, _store) = subscription(caps_config(display_caps()), vec![Scripted::body(400, &refused)]);
+        let err = text_of(&adapter, ask(model, RequestOptions { effort: Some("high".into()), ..RequestOptions::default() })).await.expect_err("refused");
+        assert_eq!(err.status, Some(400), "{said}");
+        assert_eq!(http.sent().len(), 1, "{said}: no replay");
+        assert!(claude_floors::enabled(Feature::EffortUpdates, "anthropic-oauth", model), "{said}");
+    }
+}
+
 #[tokio::test]
 async fn a_fast_request_the_pool_refuses_is_replayed_at_standard_speed_on_the_subscription_route() {
     let fast = Arc::new(FastMode::new());

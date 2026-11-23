@@ -762,7 +762,75 @@ pub struct ScopedCacheSource {
     pub body_sha256: String,
 }
 
+/// What a tool call without a result is answered with: the one text, as a failed result, that the transcript repair stores
+/// for it and every codec sends for it, so the call is the same bytes before and after its row exists. It states only
+/// what is known: the result is gone, and whether the call ran is not (a call the user interrupted is closed by the
+/// interruption's own row, which says so).
+pub const MISSING_TOOL_RESULT: &str = "[No result is available for this tool call. It may or may not have run.]";
+
+/// `messages` with every tool call no message answers closed by [`Message::missing_tool_result`], placed where the
+/// transcript repair stores it: in the tool block right after the call's assistant message, in the order of that
+/// message's calls. The same messages when every call has a result somewhere.
+pub fn close_open_calls(messages: &[Message]) -> std::borrow::Cow<'_, [Message]> {
+    let answered: std::collections::HashSet<&str> = messages.iter().filter(|m| m.role == Role::Tool).filter_map(|m| m.tool_call_id.as_deref()).collect();
+    let open = |message: &Message| message.call_ids().iter().any(|id| !answered.contains(id));
+    if !messages.iter().any(open) {
+        return std::borrow::Cow::Borrowed(messages);
+    }
+    let mut out = Vec::with_capacity(messages.len() + 1);
+    let mut next = 0;
+    while next < messages.len() {
+        let message = &messages[next];
+        next += 1;
+        out.push(message.clone());
+        if !open(message) {
+            continue;
+        }
+        let end = next + messages[next..].iter().take_while(|m| m.role == Role::Tool).count();
+        let block = &messages[next..end];
+        let mut placed = vec![false; block.len()];
+        for id in message.call_ids() {
+            match block.iter().position(|row| row.tool_call_id.as_deref() == Some(id)) {
+                Some(at) if !placed[at] => {
+                    placed[at] = true;
+                    out.push(block[at].clone());
+                }
+                None if !answered.contains(id) => out.push(Message::missing_tool_result(id)),
+                _ => {}
+            }
+        }
+        out.extend(block.iter().zip(&placed).filter(|(_, placed)| !**placed).map(|(row, _)| row.clone()));
+        next = end;
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 impl Message {
+    /// The result of the call `call_id` that has none ([`MISSING_TOOL_RESULT`]).
+    pub fn missing_tool_result(call_id: impl Into<String>) -> Self {
+        let mut message = Self::new(Role::Tool, Content::Text(MISSING_TOOL_RESULT.to_owned().into()));
+        message.tool_call_id = Some(call_id.into());
+        message.is_error = true;
+        message
+    }
+
+    /// Ids of the tool calls an assistant message carries: its call list first, then the `tool_use` blocks of its
+    /// native block list.
+    pub fn call_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        if self.role != Role::Assistant {
+            return ids;
+        }
+        let blocks = self.assistant_blocks.as_ref().and_then(JsonValue::as_array).into_iter().flatten();
+        let native = blocks.filter(|block| block.get("type").and_then(JsonValue::as_str) == Some("tool_use")).filter_map(|block| block.get("id")?.as_str());
+        for id in self.tool_calls.iter().map(|call| call.id.as_str()).chain(native) {
+            if !id.is_empty() && !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
     pub fn new(role: Role, content: Content) -> Self {
         Self {
             role,

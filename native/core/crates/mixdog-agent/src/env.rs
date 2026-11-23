@@ -623,6 +623,13 @@ pub trait TranscriptSink: Send + Sync {
     /// it, so a process killed with that request on the wire recovers knowing the request was sent; a request that left
     /// first would be recovered as a turn still in its tool run. Cancel-safe. A sink with nothing stored has nothing to wait for.
     async fn drafted(&self) {}
+
+    /// Whether the rewrite last given to [`Self::replace`] is in the store, answered once its save has ended: what is done
+    /// on a rewritten history (the prompt folded for it) is done on a history the store holds. Cancel-safe. A sink with no
+    /// store behind it, and a run that rewrote nothing, have nothing unstored.
+    async fn replaced(&self) -> bool {
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,6 +1137,14 @@ pub trait McpCatalog: Send + Sync {
         _messages: &[crate::message::AgentMessage],
     ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         Ok(tools)
+    }
+
+    /// The prompt fold a compaction owes, taken with it: the session's prompt rebuilt from current sources (the settings
+    /// its dropped notices told, the tools opened since), for the request that follows the compaction and writes the
+    /// conversation anew anyway. The system messages of the session's prompt as it stands after the fold, moved or not;
+    /// `None` when the session's prompt is never rebuilt.
+    async fn fold_compacted(&self) -> Result<Option<Vec<crate::message::AgentMessage>>, String> {
+        Ok(None)
     }
 
     /// `migrateToolExposureAtBoundary(session, messages)`: a session persisted for another tool exposure than its

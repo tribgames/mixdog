@@ -15,7 +15,7 @@ use mixdog_core_session::session::SessionDirectory;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
-use super::assemble::HostRunParts;
+use super::assemble::{HostRunParts, Owners};
 use super::side_question_store::{NextMainRequest, SideMaterial};
 
 #[derive(Default)]
@@ -41,8 +41,8 @@ impl NextRequestSource {
 }
 
 impl NextRequestSource {
-    /// The thread's header and the request its next turn would send.
-    async fn rebuilt(&self, thread: &ThreadId) -> Option<(Arc<Header>, SideMaterial)> {
+    /// The thread's header and the request its next turn would send, for a session of `owners`.
+    async fn rebuilt(&self, thread: &ThreadId, owners: Owners) -> Option<(Arc<Header>, SideMaterial)> {
         let (directory, parts) = self.bound.get()?;
         let directory = directory.upgrade()?;
         let handle = directory.handle(thread)?;
@@ -51,27 +51,80 @@ impl NextRequestSource {
         // Read as one load with the rows: the request carries the generation of the history it was built from.
         let generation = directory.deps().cache_tail.generation(thread.as_str(), header.get("cacheTailBook"));
         let prior = directory.model_context(thread).read().await.ok()?;
-        let (provider, request) = parts.next_request(thread, &header, &surface, (prior, generation)).await?;
+        let (provider, request) = parts.next_request(thread, &header, &surface, (prior, generation), owners).await?;
         Some((header, SideMaterial { request: Arc::new(request), provider }))
     }
 
-    /// `lastSentMainRequest`: what the cache warmer replays after a restart lost the in-memory
-    /// request. The rebuilt next request (no tail reminder: the warm adds it, see
-    /// `with_tail_reminder`) cut back to the last request that was sent, with its send time.
-    pub async fn last_sent(&self, thread: &ThreadId) -> Option<LastSent> {
-        let (header, material) = self.rebuilt(thread).await?;
+    /// [`Self::rebuilt`] of any session, an agent's included, from what is stored, never loading the thread (Node's
+    /// `loadSession`): a loaded thread's live header and surface, else its stored record and the surface that record states,
+    /// and its stored rows.
+    async fn rebuilt_stored(&self, thread: &ThreadId) -> Option<(Arc<Header>, SideMaterial)> {
+        let (directory, parts) = self.bound.get()?;
+        let directory = directory.upgrade()?;
+        if directory.handle(thread).is_some() {
+            return self.rebuilt(thread, Owners::Any).await;
+        }
+        let header = directory.stored_header(thread).await?;
+        let surface = directory.deps().surfaces.surface(thread, &header);
+        let generation = directory.deps().cache_tail.generation(thread.as_str(), header.get("cacheTailBook"));
+        let prior = directory.model_context(thread).read().await.ok()?;
+        let (provider, request) = parts.next_request(thread, &header, &surface, (prior, generation), Owners::Any).await?;
+        Some((Arc::new(header), SideMaterial { request: Arc::new(request), provider }))
+    }
+
+    /// `lastSentMainRequest`: what the cache warmer replays for a session that is not in memory (after its unload or a
+    /// restart), an agent's session included. The next request rebuilt from what is stored (no tail reminder: the warm adds
+    /// it, see `with_tail_reminder`) cut back to the last request that was sent, with its send time, and the header it was
+    /// read from.
+    pub async fn last_sent(&self, thread: &ThreadId) -> Option<(LastSent, Arc<Header>)> {
+        let (header, material) = self.rebuilt_stored(thread).await?;
         // The kept request is the sent one without its tail reminder.
         let (request, sent_at) = last_sent_of(mixdog_agent::without_tail_reminder(&material.request), &header)?;
-        let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-        let owner = text("ownerSessionId");
-        let parent = text("parentSessionId");
-        Some(LastSent {
+        let sent = LastSent {
             material: SideMaterial { request: Arc::new(request), ..material },
             sent_at,
-            provider_name: text("provider"),
-            // `session.ownerSessionId || session.parentSessionId`.
-            owner_session_id: [owner, parent].into_iter().find(|id| !id.is_empty()),
-        })
+            provider_name: header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            owner_session_id: ledger_owner(&header),
+        };
+        Some((sent, header))
+    }
+
+    /// The tail reminder for `model` from `header` (`withTailReminder` reads the session object at each send).
+    pub fn tail_text_of(&self, header: &Header, model: &str) -> Result<Option<String>, String> {
+        let (_, parts) = self.bound.get().ok_or("the session directory is not bound")?;
+        Ok(parts.tail_reminder(header).text(model))
+    }
+
+    /// The thread's header as it is now: the live one of a loaded thread, else the stored record; the thread is not loaded.
+    pub async fn header_now(&self, thread: &ThreadId) -> Result<Header, String> {
+        let (directory, _) = self.bound.get().ok_or("the session directory is not bound")?;
+        let directory = directory.upgrade().ok_or("the session directory is gone")?;
+        directory.stored_header(thread).await.ok_or_else(|| format!("thread {} is unknown or deleted", thread.as_str()))
+    }
+
+    /// The ledger owner of a loaded thread, from its live header. `None` for a thread that is not loaded.
+    pub fn live_owner(&self, thread: &ThreadId) -> Option<Option<String>> {
+        let (directory, _) = self.bound.get()?;
+        let header = directory.upgrade()?.loaded_fields(thread, &["ownerSessionId", "parentSessionId"])?;
+        Some(ledger_owner(&header))
+    }
+
+    /// The effort a rebuild of a loaded thread takes: its live header's `effort`, as the route options read it
+    /// ([`super::assemble`]'s `apply_route_options`; a rebuild makes no first send, so no auto effort is judged). `None` for a
+    /// thread that is not loaded.
+    pub fn live_effort(&self, thread: &ThreadId) -> Option<Option<String>> {
+        let (directory, _) = self.bound.get()?;
+        let header = directory.upgrade()?.loaded_fields(thread, &["effort"])?;
+        Some(header.get("effort").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|effort| !effort.is_empty()).map(str::to_owned))
+    }
+
+    /// The cache book a rebuild of a thread that is not loaded opened: what it learned (a warm's evidence) is kept where the
+    /// thread's next load reads it, and it leaves memory. A loaded thread keeps its book.
+    pub fn keep_unloaded_book(&self, thread: &ThreadId) {
+        let Some(directory) = self.bound.get().and_then(|(directory, _)| directory.upgrade()) else { return };
+        if directory.handle(thread).is_none() {
+            directory.deps().cache_tail.keep_unloaded(thread.as_str());
+        }
     }
 
     /// The provider request the thread's next send would carry, as `tools/toolsStatus` with `snapshot` reads it
@@ -95,16 +148,6 @@ impl NextRequestSource {
         }
     }
 
-    /// The tail reminder text for `thread` and `model` from the thread's live header, read now:
-    /// its response language and role are the session's as they are at this moment
-    /// (`withTailReminder` reads the session object at each send).
-    pub fn tail_text(&self, thread: &ThreadId, model: &str) -> Result<Option<String>, String> {
-        let (directory, parts) = self.bound.get().ok_or("the session directory is not bound")?;
-        let directory = directory.upgrade().ok_or("the session directory is gone")?;
-        let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
-        let header = handle.live_header().header();
-        Ok(parts.tail_reminder(&header).text(model))
-    }
 }
 
 /// What `lastSentMainRequest` answers and the warm reads of it besides the request: the provider's
@@ -114,6 +157,12 @@ pub struct LastSent {
     pub sent_at: u64,
     pub provider_name: String,
     pub owner_session_id: Option<String>,
+}
+
+/// The ledger owner `session.ownerSessionId || session.parentSessionId`.
+fn ledger_owner(header: &Header) -> Option<String> {
+    let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+    [text("ownerSessionId"), text("parentSessionId")].into_iter().find(|id| !id.is_empty())
 }
 
 /// The part of `lastSentMainRequest` that follows the rebuild: the request without the reply the last
@@ -146,7 +195,7 @@ impl mixdog_core_ports::ports::tools_status::RequestSnapshots for NextRequestSou
 #[async_trait]
 impl NextMainRequest for NextRequestSource {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial> {
-        self.rebuilt(thread).await.map(|(_, material)| material)
+        self.rebuilt(thread, Owners::Main).await.map(|(_, material)| material)
     }
 
     async fn compact(&self, thread: &ThreadId) -> Result<(), String> {

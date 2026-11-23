@@ -131,6 +131,10 @@ impl SessionSeams for HostSeams {
         self.parts.config.first_response_timeout_ms(agent).await
     }
 
+    fn synced_cache_opts(&self, header: &Header) -> Option<Value> {
+        self.parts.config.synced_cache_opts(header)
+    }
+
     fn todo_view(&self, thread: &ThreadId, header: &Header) -> Arc<dyn TodoView> {
         self.parts.todos.todo_view(thread, header)
     }

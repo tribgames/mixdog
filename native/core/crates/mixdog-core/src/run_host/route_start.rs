@@ -275,6 +275,10 @@ impl TurnSettings for TurnStart {
         self.settings.migrate_exposure(thread, rows).await
     }
 
+    async fn fold_compacted(&self, thread: &ThreadId) -> Result<Option<Header>, String> {
+        self.settings.fold_compacted(thread).await
+    }
+
     async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
         self.settings.current_agents(thread, header).await
     }

@@ -205,6 +205,12 @@ pub trait RunParts: Send + Sync + 'static {
         Ok(())
     }
 
+    /// The prompt fold a compaction of the running turn owes: the thread's system messages once its prompt is rebuilt
+    /// from current sources, for the request that follows. `None` for a thread whose prompt is never rebuilt.
+    async fn fold_compacted(&self, _thread: &ThreadId) -> Result<Option<Vec<AgentMessage>>, TurnError> {
+        Ok(None)
+    }
+
     /// `currentAgents()`: the agents the thread's Lead may delegate to now, for the turn's agent list reminder;
     /// `None` for a thread that gets none (an agent's own, a bot's).
     async fn current_agents(

@@ -8,7 +8,7 @@ use mixdog_agent::fork::{forked_request_stubbed, send_forked};
 use mixdog_agent::response::ModelResponse;
 use mixdog_core_api::domain::provider::{ModelRequest, ProviderAdapter};
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_session::session::turn_ops::{SIDE_QUESTION_NO_REQUEST, SideFailure, SideQuestions, SideReply, SideRun};
+use mixdog_core_session::session::turn_ops::{SIDE_QUESTION_NO_REQUEST, SideEnd, SideFailure, SideQuestions, SideReply, SideRun};
 use mixdog_rt::CancellationToken;
 
 use super::summary_routes::{ForkSender, SavedRequest};
@@ -50,9 +50,24 @@ pub struct Capture {
     previous: Option<Slot>,
 }
 
+/// The cache warmer as the store tells it of the main loop's sends (`side-question-store.mjs`): every send, the kept or not
+/// (an agent-owned session keeps no request but is warmed like any other), its settled reply, and the end of its prefix.
+pub trait SendWarmth: Send + Sync {
+    /// `noteCacheWarmActivity`: a request of the main loop is going out.
+    fn sending(&self, thread: &ThreadId, provider_name: &str, side: &SideMaterial, sent_at: u64);
+    /// `armCacheWarm`: that request settled with `reply`.
+    fn settled(&self, thread: &ThreadId, provider_name: &str, side: &SideMaterial, sent_at: u64, reply: &ModelResponse);
+    /// `forgetCacheWarm`: the session's chain ends with its durable touch (a rewrite, a route change, a tombstone), loaded
+    /// or not.
+    fn forget(&self, thread: &ThreadId);
+    /// `cancelCacheWarm`: the chain ends and the touch stays for the restart re-arm (a detach).
+    fn cancel(&self, thread: &ThreadId);
+}
+
 #[derive(Default)]
 pub struct SideQuestionStore {
     requests: Mutex<HashMap<String, Slot>>,
+    warm: std::sync::OnceLock<Arc<dyn SendWarmth>>,
 }
 
 /// The fork of a session with no saved request. A compaction only sends it for a request that
@@ -98,23 +113,33 @@ impl SideQuestionStore {
         self.requests.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// The process's cache warmer, bound once after it is built (it reads this store's request source).
+    pub fn bind_warm(&self, warm: Arc<dyn SendWarmth>) {
+        let _ = self.warm.set(warm);
+    }
+
     /// `captureSideQuestionRequest`: records the request the loop is sending as the session's
     /// latest. An agent-owned session keeps nothing (`/btw` is a Lead command). The request starts
     /// unsettled and uncompacted.
     pub fn capture(&self, thread: &ThreadId, request: SavedRequest, sender: Arc<dyn ForkSender>, side: SideMaterial, agent_owner: bool) -> Capture {
         let kept = !agent_owner;
         let request = SavedRequest { settled: false, compacted: false, ..request };
+        if let Some(warm) = self.warm.get() {
+            warm.sending(thread, &request.provider_name, &side, request.sent_at);
+        }
         let slot: Slot = Arc::new(Mutex::new(Entry { request, sender, side, reply: None }));
         let previous = if kept { self.requests().insert(thread.as_str().to_owned(), slot.clone()) } else { None };
         Capture { thread: thread.as_str().to_owned(), slot, kept, previous }
     }
 
     /// `handle.settle(response)`: the reply settled with an answer (`response` truthy). It sets the
-    /// captured request itself, wherever it now is.
+    /// captured request itself, wherever it now is, and a settled one arms the session's next warm.
     pub fn settle(&self, capture: &Capture, response: Option<ModelResponse>) {
         let mut entry = lock(&capture.slot);
         entry.request.settled = response.is_some();
         entry.reply = response;
+        drop(entry);
+        self.arm(capture);
     }
 
     /// [`SideQuestionStore::settle`] that also records the tokens of the forked messages plus the
@@ -125,6 +150,18 @@ impl SideQuestionStore {
         entry.request.settled = response.is_some();
         entry.request.prompt_tokens = prompt_tokens;
         entry.reply = response;
+        drop(entry);
+        self.arm(capture);
+    }
+
+    fn arm(&self, capture: &Capture) {
+        let Some(warm) = self.warm.get() else { return };
+        let (provider_name, side, sent_at, reply) = {
+            let entry = lock(&capture.slot);
+            let Some(reply) = entry.reply.clone() else { return };
+            (entry.request.provider_name.clone(), entry.side.clone(), entry.request.sent_at, reply)
+        };
+        warm.settled(&ThreadId::from(capture.thread.as_str()), &provider_name, &side, sent_at, &reply);
     }
 
     /// The saved material and reply, together with the slot a retry may invalidate.
@@ -187,11 +224,24 @@ impl SideQuestionStore {
         if let Some(slot) = self.current(thread) {
             lock(&slot).request.compacted = true;
         }
+        self.warm_end(thread, SideEnd::Transcript);
     }
 
-    /// `forgetSideQuestion`: the transcript the request carried is gone (clear, rewind, close).
-    pub fn forget(&self, thread: &ThreadId) {
+    /// `forgetSideQuestion(id, { cancel })` for `end`: the saved request goes, and the session's cache warm as [`SideEnd`] says.
+    pub fn end(&self, thread: &ThreadId, end: SideEnd) {
         self.requests().remove(thread.as_str());
+        self.warm_end(thread, end);
+    }
+
+    /// The one place the warm hears how a session's request ended: an unload keeps the chain and its touch; a detach ends
+    /// the chain and keeps the touch for the restart re-arm; a rewrite, a route change and a tombstone end both.
+    fn warm_end(&self, thread: &ThreadId, end: SideEnd) {
+        let Some(warm) = self.warm.get() else { return };
+        match end {
+            SideEnd::Unload => {}
+            SideEnd::Detach => warm.cancel(thread),
+            SideEnd::Transcript | SideEnd::Route | SideEnd::Tombstone => warm.forget(thread),
+        }
     }
 
     fn forget_if_current(&self, thread: &ThreadId, slot: &Slot) {
@@ -288,9 +338,9 @@ impl SideQuestions for SideQuestionService {
         run.map(|(_, cancel)| cancel.cancel()).is_some()
     }
 
-    fn forget(&self, thread: &ThreadId, cancel: bool) {
-        self.store.forget(thread);
-        if cancel {
+    fn forget(&self, thread: &ThreadId, end: SideEnd) {
+        self.store.end(thread, end);
+        if matches!(end, SideEnd::Detach | SideEnd::Tombstone | SideEnd::Unload) {
             self.cancel(thread);
         }
     }
@@ -675,7 +725,7 @@ mod tests {
         SavedRequest {
             provider_name: "anthropic".into(),
             model: "m".into(),
-            messages_tier: Some("5m".into()),
+            cache_strategy: Some(serde_json::json!({ "messages": "5m" })),
             catalog_supports_prompt_caching: true,
             sent_at,
             settled: true,
@@ -789,7 +839,7 @@ mod tests {
         store.retire_compaction_fork(&thread());
         let retired = store.saved_request(&thread()).unwrap();
         assert!(retired.settled && retired.compacted, "settled, but a compaction rewrote the transcript since");
-        store.forget(&thread());
+        store.end(&thread(), SideEnd::Transcript);
         assert_eq!(store.saved_request(&thread()), None);
     }
 }

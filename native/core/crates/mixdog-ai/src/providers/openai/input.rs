@@ -26,7 +26,7 @@ use serde_json::json;
 use super::effort::EffortProjection;
 use crate::providers::file_text::{FileKind, file_fallback_text, file_kind};
 /// Synthetic output for a call whose result never committed (cancel/abort).
-const CANCELLED_OUTPUT: &str = "Cancelled";
+const CANCELLED_OUTPUT: &str = mixdog_core_api::domain::provider::MISSING_TOOL_RESULT;
 
 /// What a replayed `tool_search` item becomes on a wire without the native
 /// search tool.
@@ -539,7 +539,28 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
     // batch update.
     let mut after_batch: Option<&str> = None;
     let update_at = |index: usize| extras.effort.as_ref().and_then(|e| e.updates.get(&index)).map(String::as_str);
+    // A call no message answers is closed where the transcript repair stores its result's row (in its turn's results, in
+    // the order of the calls) and through the lowering a stored row takes: the same items before and after that row
+    // exists. `pending` are the calls of the turn being answered that no result has reached yet.
+    let answered: HashSet<&str> = messages.iter().filter(|m| m.role == Role::Tool).filter_map(|m| m.tool_call_id.as_deref()).collect();
+    let mut pending: Vec<&str> = Vec::new();
+    let close = |lowering: &mut Lowering<'_>, calls: Vec<&str>| {
+        for id in calls.into_iter().filter(|id| !answered.contains(id)) {
+            lowering.push_tool_result(&Message::missing_tool_result(id), &wire(id));
+        }
+    };
     for (index, message) in messages.iter().enumerate().skip(extras.start_index) {
+        match message.role {
+            Role::Tool => {
+                let at = message.tool_call_id.as_deref().and_then(|id| pending.iter().position(|call| *call == id));
+                if let Some(at) = at {
+                    let mut before: Vec<&str> = pending.drain(..=at).collect();
+                    before.pop();
+                    close(&mut lowering, before);
+                }
+            }
+            _ => close(&mut lowering, std::mem::take(&mut pending)),
+        }
         match message.role {
             Role::System => {
                 if opts.system_in_input {
@@ -565,6 +586,8 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
         let assistant = message.role == Role::Assistant;
         let replays = if assistant { replay_items(message, &opts.replay_owner) } else { Vec::new() };
         if assistant && lowering.push_ordered_replay(&replays) {
+            // The turn's own items carried its calls: their results are owed in the same order.
+            pending = message.tool_calls.iter().map(|call| call.id.as_str()).filter(|id| !id.is_empty()).collect();
             continue;
         }
         if let Some(carried) = extras.reasoning_by_index.get(&index) {
@@ -580,11 +603,13 @@ pub fn lower_from(messages: &[Message], opts: &LowerOptions, extras: &LowerExtra
                 lowering.out.push(wire_message(opts.codex_parity, "assistant", content, message.phase.filter(|_| opts.phase)));
             }
             lowering.push_assistant_calls(&message.tool_calls, &wire);
+            pending = message.tool_calls.iter().map(|call| call.id.as_str()).filter(|id| !id.is_empty()).collect();
             continue;
         }
         let role = if assistant { "assistant" } else { "user" };
         lowering.out.push(wire_message(opts.codex_parity, role, content, message.phase.filter(|_| opts.phase)));
     }
+    close(&mut lowering, pending);
     lowering.flush_media();
     if let Some(carried) = extras.reasoning_by_index.get(&messages.len()) {
         lowering.out.extend(carried.iter().cloned());

@@ -55,8 +55,6 @@ pub struct RunConfig {
     pub hidden_agent: bool,
     pub agent_mode: bool,
     pub limits: Option<TurnLimits>,
-    /// The first request of the turn must call a tool.
-    pub forced_first_tool: bool,
     pub compact: Option<CompactSettings>,
     /// The higher `max_tokens` the route can offer after an output-limit stop.
     pub escalated_max_output_tokens: Option<u32>,
@@ -129,7 +127,6 @@ impl RunConfig {
             hidden_agent: false,
             agent_mode: false,
             limits: None,
-            forced_first_tool: false,
             compact: None,
             escalated_max_output_tokens: None,
             continuation_no_tool_limit: 8,
@@ -166,6 +163,11 @@ pub struct RunCarry {
     pub prefix_guard: Option<crate::prefix_guard::Snapshot>,
     /// What the usage-based cache-miss check reads and updates on the session record.
     pub cache: CacheReadings,
+    /// The breaks the prefix guard found in this run (the first of each kind in a turn), stored on the record
+    /// (`providerPrefixEvents`) with the session's running total (`providerPrefixEventTotal`), so they can be counted
+    /// after a restart.
+    pub guard_events: Vec<serde_json::Value>,
+    pub guard_event_total: u64,
 }
 
 /// The cache diagnostic's measured observation is separate from request timing and from the
@@ -180,17 +182,14 @@ pub struct CacheReadings {
 }
 
 impl CacheReadings {
+    /// The lifetime of the message-tail breakpoint the session's requests are written with; `None` for a route that
+    /// writes none or a tail left unmarked.
     pub(crate) fn messages_ttl(saved: &serde_json::Map<String, serde_json::Value>) -> Option<i64> {
-        let ttl = saved
-            .get("providerCacheOpts")
-            .and_then(|opts| opts.get("cacheStrategy"))
-            .and_then(|strategy| strategy.get("messages"))
-            .and_then(serde_json::Value::as_str);
-        match ttl {
-            Some("5m") => Some(5 * 60 * 1000),
-            Some("1h") => Some(60 * 60 * 1000),
-            _ => None,
-        }
+        use mixdog_ai::service::routes::{tail_cache_lifetime_ms, writes_tail_breakpoint};
+        let provider = saved.get("provider").and_then(serde_json::Value::as_str).unwrap_or("");
+        let strategy = saved.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy"));
+        let ttl = writes_tail_breakpoint(provider, strategy).then(|| tail_cache_lifetime_ms(provider, strategy)).flatten()?;
+        i64::try_from(ttl).ok()
     }
 
     fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
@@ -207,7 +206,14 @@ impl CacheReadings {
 impl RunCarry {
     /// The carry a session record holds.
     pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
-        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None, prefix_guard: None, cache: CacheReadings::from_saved(saved) }
+        Self {
+            repeat: RepeatGuards::from_saved(saved),
+            wire_route: None,
+            prefix_guard: None,
+            cache: CacheReadings::from_saved(saved),
+            guard_events: Vec::new(),
+            guard_event_total: saved.get("providerPrefixEventTotal").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        }
     }
 
     /// The record fields the carry is saved under.
@@ -227,6 +233,10 @@ impl RunCarry {
             if let Some(baseline) = &self.cache.prefix_baseline {
                 saved.insert("providerPrefixBaseline".into(), baseline.clone());
             }
+        }
+        if !self.guard_events.is_empty() {
+            saved.insert("providerPrefixEvents".into(), serde_json::Value::Array(self.guard_events.clone()));
+            saved.insert("providerPrefixEventTotal".into(), serde_json::json!(self.guard_event_total));
         }
         saved
     }
@@ -865,14 +875,8 @@ impl Run {
         let next = self.iterations + 1;
         let options = &mut self.config.options;
         options.iteration = next;
-        options.tool_choice = if self.config.forced_first_tool && self.tool_calls_total == 0 {
-            Some("required".to_owned())
-        } else if self.turn_limit_noticed {
-            // A capped turn told to reply may only answer.
-            Some("none".to_owned())
-        } else {
-            None
-        };
+        // A capped turn told to reply may only answer.
+        options.tool_choice = self.turn_limit_noticed.then(|| "none".to_owned());
     }
 
     /// Folds a completed send into the state: usage, baselines, budgets.
@@ -1031,5 +1035,36 @@ impl Run {
             Some(checked) if *checked == *self.messages => checked,
             _ => Arc::from(self.messages.as_slice()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tail_ttl_tests {
+    use super::CacheReadings;
+    use serde_json::json;
+
+    fn header(provider: &str, messages: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
+        let mut header = serde_json::Map::new();
+        header.insert("provider".into(), json!(provider));
+        if let Some(messages) = messages {
+            header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": { "tools": "none", "system": "1h", "tier3": "1h", "messages": messages } }));
+        }
+        header
+    }
+
+    /// Six minutes after the last send, against the lifetime the tail is written with.
+    fn expired_at_six_minutes(header: &serde_json::Map<String, serde_json::Value>) -> bool {
+        CacheReadings::messages_ttl(header).is_some_and(|ttl| 6 * 60_000 > ttl)
+    }
+
+    #[test]
+    fn the_expired_tail_rule_reads_the_strategy_the_requests_are_written_with() {
+        assert!(!expired_at_six_minutes(&header("openrouter", Some("1h"))), "an OpenRouter Claude tail of an hour is alive");
+        assert!(!expired_at_six_minutes(&header("anthropic-oauth", Some("1h"))));
+        assert!(expired_at_six_minutes(&header("openrouter", Some("5m"))), "a route left at 5 minutes has expired");
+        assert!(expired_at_six_minutes(&header("anthropic", Some("5m"))));
+        assert_eq!(CacheReadings::messages_ttl(&header("anthropic", Some("none"))), None);
+        assert_eq!(CacheReadings::messages_ttl(&header("openrouter", None)), None, "a gateway without a stamped strategy writes no tail");
+        assert_eq!(CacheReadings::messages_ttl(&header("openai", Some("1h"))), None, "OpenAI writes no tail breakpoint");
     }
 }

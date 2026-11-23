@@ -193,6 +193,43 @@ async fn a_warm_posts_the_request_attempt_builds_once_and_plain() {
     assert_eq!(serde_json::from_slice::<Value>(&sent[0].body).unwrap()["max_tokens"], 1);
 }
 
+/// A model whose thinking is a token budget cannot keep it under the warm's one-token cap, and the cache keys every
+/// message entry on the thinking configuration: that warm would write an entry no turn reads, so it is not sent. A model
+/// whose thinking is adaptive sends the same configuration under the cap and is warmed.
+#[tokio::test]
+async fn a_warm_whose_cap_would_change_the_thinking_configuration_is_not_sent() {
+    let budgeted = ModelCaps { manual_thinking: true, effort_levels: vec!["high".into()], max_output_tokens: Some(32_000), ..ModelCaps::default() };
+    for (caps, warmed) in [(budgeted, false), (sonnet_caps(), true)] {
+        let http = Arc::new(WarmHttp::default());
+        http.script.lock().unwrap().push_back(Reply::Sse(vec![
+            b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1,\"cache_read_input_tokens\":9}}}\n\n".to_vec(),
+            b"data: {\"type\":\"content_block_start\"}\n\n".to_vec(),
+        ]));
+        let store = MemoryStore::signed_in();
+        let adapter = AnthropicAdapter::oauth(
+            AnthropicConfig::new(Arc::new(move |_: &str| Some(caps.clone()))),
+            http.clone(),
+            Arc::new(OAuthSession::new(store.file.clone(), http.clone())),
+            false,
+            cpu_bulk(),
+        );
+        let real = request(base_messages(), RequestOptions { effort: Some("high".into()), ..RequestOptions::default() });
+        let turn: Value = serde_json::from_slice(&adapter.codec().encode(&real).unwrap().body).unwrap();
+        let (gate, _dir) = gate();
+        let ctx = WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
+        let outcome = adapter.send_cache_warm(&real, &ctx, &CancellationToken::new(), &mut |_| {}).await;
+        let sent = http.sent.lock().unwrap();
+        if warmed {
+            outcome.expect("an adaptive model is warmed");
+            assert_eq!(serde_json::from_slice::<Value>(&sent[0].body).unwrap()["thinking"], turn["thinking"], "the warm reads under the turn's thinking");
+        } else {
+            assert_eq!(turn["thinking"]["type"], "enabled", "the turn thinks under a budget");
+            assert!(outcome.unwrap_err().message.starts_with("cache warm not sent"));
+            assert!(sent.is_empty(), "nothing is posted");
+        }
+    }
+}
+
 struct NoPrice;
 
 /// The warmer reaches the warm through the registered (accounting-wrapped) adapter, and the

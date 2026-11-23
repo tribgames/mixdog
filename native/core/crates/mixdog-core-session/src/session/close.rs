@@ -272,7 +272,7 @@ impl SessionClose {
                 return false;
             }
         }
-        self.teardown(&thread, reason).await;
+        self.teardown(&thread, reason, crate::session::turn_ops::SideEnd::Tombstone).await;
         // A closed conversation ends its "Allow for this session" grants.
         self.directory.deps().session_grants.forget(session_id);
         true
@@ -294,15 +294,15 @@ impl SessionClose {
                 return false;
             }
         }
-        self.teardown(&thread, reason).await;
+        self.teardown(&thread, reason, crate::session::turn_ops::SideEnd::Detach).await;
         true
     }
 
-    /// What a landed close does to the runtime: its work stops, its side checkouts and provider
-    /// connections go and the actor learns the thread is closed.
-    async fn teardown(&self, thread: &ThreadId, reason: &str) {
+    /// What a landed close (`end`: a tombstone or a detach) does to the runtime: its work stops, its side checkouts and
+    /// provider connections go and the actor learns the thread is closed.
+    async fn teardown(&self, thread: &ThreadId, reason: &str, end: crate::session::turn_ops::SideEnd) {
         stop_session_work(&self.directory, &*self.shells, &self.read_state, thread, reason, "session-close").await;
-        self.directory.deps().side.forget(thread, true);
+        self.directory.deps().side.forget(thread, end);
         self.providers.release_session(thread.as_str());
         self.directory.deps().deletion.release_mcp_scope(thread.as_str());
         if let Some(handle) = self.directory.handle(thread) {
@@ -531,6 +531,7 @@ pub(crate) async fn close_idle(
     }
     // `_logSessionCloseMetric`, once the tombstone is acknowledged.
     deps.deletion.session_closed(id, IDLE_SWEEP_REASON, &header, at);
+    deps.side.forget(&thread, super::turn_ops::SideEnd::Tombstone);
     deps.deletion.release_mcp_scope(id);
     deps.session_grants.forget(id);
     Ok(true)

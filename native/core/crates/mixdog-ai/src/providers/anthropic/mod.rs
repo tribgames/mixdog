@@ -50,6 +50,7 @@ pub use adapter::reset_gzip_latch;
 pub use body::CacheStrategy;
 pub use body::CacheTtl;
 pub use body::anthropic_tool_exclusion;
+pub use body::written_tail_ttl;
 pub use caps::CapsLookup;
 pub use caps::ModelCaps;
 pub use client_version::ClaudeClientVersion;
