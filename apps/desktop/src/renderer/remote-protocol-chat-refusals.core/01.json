@@ -1,17 +1,17 @@
 {
   "manifest": {
     "binary": "mixdogd.exe",
-    "binarySha256": "fc31602fd00177622caad3a3ba8b62daf3fda056919141bf0846c3485be51434",
-    "binaryBuilt": "2026-11-22T11:45:56.976Z",
+    "binarySha256": "10c66443a97486414d54f34f592b6e5ef237061aeb76f5b2e34170eb6e483b06",
+    "binaryBuilt": "2026-11-23T05:16:37.499Z",
     "builtFrom": {
-      "sources": 3956,
-      "sourceSha256": "36fa637549f43407a015a446fbff9446543607eddfd1b07c98575f5e2d9ec8ac"
+      "sources": 3959,
+      "sourceSha256": "107b2c75cb69a9ddf755f00891bf4d87a3273a86a9f474cb1562c709a8b5a1df"
     },
     "recorder": {
       "remote-protocol-chat-refusals.record.mjs": "8de931c0ec88db4d93efacf2c65465143f9e12e2c10639a4fe0937c5300b9b0e",
-      "../../../../packages/protocol-client/src/client.ts": "9638705fdda4eb496f2da6268427232b65dc3d2c942922f33ff6550cd2c8b8e9",
+      "../../../../packages/protocol-client/src/client.ts": "aabdc53c28ec152300f0c7df9a15406b3e62e954264f01de4c525d1c3cdb30cc",
       "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
-      "../shared/core-lanes/service-route.ts": "dd24515167a16cbd1cffe9f110df4d100db52b8f0f51767f6b7ad5a79073a95f",
+      "../shared/core-lanes/service-route.ts": "a3dc121df9b6b7312ca4f31d7c78dde3e11abfd53f4656996f006b7933683748",
       "remote-protocol-chat-abort-live.mjs": "4cf7f57657a0443202f9105e054d4c0265f14cc7a3f123fa1705ace75ca45edb",
       "remote-protocol-chat-record-core.mjs": "e20cdfa2f5c6125d05888c0c490a29d80d1cdfb69cfb24c5b9321477172c961e",
       "remote-protocol-chat-fixtures.mjs": "0b9f09acc0f8e3081caeca251fda858d25fe8f89223a38aeefc77c46db83a6dc",
@@ -29,21 +29,21 @@
     "clientVersion": "1.5.0",
     "source": "running mixdogd serve, isolated env (the public harness remote-protocol-chat-harness/lib, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
-  "thread": "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
-  "project": "C:\\mixdog-chat-record\\refusals-D1gnut\\ws\\a",
-  "unregistered": "C:\\mixdog-chat-record\\refusals-D1gnut\\ws\\never-registered",
+  "thread": "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
+  "project": "C:\\mixdog-chat-record\\refusals-1Qhzh0\\ws\\a",
+  "unregistered": "C:\\mixdog-chat-record\\refusals-1Qhzh0\\ws\\never-registered",
   "cases": [
     {
       "name": "abortSession-idle",
       "call": "abortSession",
       "args": [
-        "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
+        "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
         {}
       ],
       "request": {
         "method": "turn/interrupt",
         "params": {
-          "threadId": "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493"
+          "threadId": "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084"
         }
       },
       "reply": {
@@ -63,7 +63,7 @@
       "name": "submitToSession-empty",
       "call": "submitToSession",
       "args": [
-        "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
+        "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
         "",
         {
           "id": "refusals-empty"
@@ -72,7 +72,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
+          "threadId": "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
           "input": {
             "prompt": "",
             "options": {
@@ -97,7 +97,7 @@
       "name": "submitToSession-blank",
       "call": "submitToSession",
       "args": [
-        "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
+        "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
         "   ",
         {
           "id": "refusals-blank"
@@ -106,7 +106,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_14512_1795347988658_1795347988658_77cc540c3a3c4a07be9318f49e021493",
+          "threadId": "sess_35504_1795411417479_1795411417479_0e20f504bdbf4fa28a5122e2f7217084",
           "input": {
             "prompt": "   ",
             "options": {
@@ -208,12 +208,12 @@
       "name": "startProjectTask-unknown",
       "call": "startProjectTask",
       "args": [
-        "C:\\mixdog-chat-record\\refusals-D1gnut\\ws\\never-registered"
+        "C:\\mixdog-chat-record\\refusals-1Qhzh0\\ws\\never-registered"
       ],
       "request": {
         "method": "project/directory",
         "params": {
-          "path": "C:\\mixdog-chat-record\\refusals-D1gnut\\ws\\never-registered",
+          "path": "C:\\mixdog-chat-record\\refusals-1Qhzh0\\ws\\never-registered",
           "owner": true
         }
       },
