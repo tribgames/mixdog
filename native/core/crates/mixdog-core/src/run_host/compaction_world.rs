@@ -571,7 +571,7 @@ mod seated_fork_tests {
         let saved = SavedRequest {
             provider_name: provider.into(),
             model: model.into(),
-            messages_tier: None,
+            cache_strategy: None,
             catalog_supports_prompt_caching: true,
             sent_at: 1,
             settled: true,

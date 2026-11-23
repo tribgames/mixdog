@@ -442,6 +442,12 @@ impl CacheWarmSend for AnthropicAdapter {
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
         let warm = cache_warm_request(request);
+        // The provider renders the thinking configuration into the prompt, so every message entry is keyed on it. A
+        // budget must stay under `max_tokens`: the one-token cap drops it, and that warm would read no message entry and
+        // write one no turn reads. It is not sent.
+        if self.thinking_of(&warm) != self.thinking_of(request) {
+            return Err(WarmFailure::new("cache warm not sent: the one-token cap changes this request's thinking configuration, which its cache entries are keyed on"));
+        }
         // A warm never threads: Node builds its body with the plain request builder.
         let plain = self.plain(&warm).await.map_err(|e| WarmFailure::new(e.into_message()))?;
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.into_message()))?;
@@ -1685,6 +1691,20 @@ impl AnthropicAdapter {
         sent.map(|(response, attempt)| (response, attempt, tail))
     }
 
+    /// The `thinking` field the body of `request` carries: it depends on the model, the options and `max_tokens`, never
+    /// on the transcript, so it is read off the request without its messages and tools. `None` for a body without one
+    /// (or a request that does not encode: its send reports why).
+    fn thinking_of(&self, request: &ModelRequest) -> Option<Value> {
+        let mut options = request.options.clone();
+        options.shared_cache_prefix_count = None;
+        options.effort_projection = None;
+        use mixdog_core_api::domain::provider::{Content, Message, Role};
+        let probe =
+            ModelRequest { model: request.model.clone(), messages: vec![Message::new(Role::User, Content::Text("x".into()))], tools: Vec::new(), options };
+        let body: Value = serde_json::from_slice(&self.codec.encode_plain(&probe).ok()?.wire.body).ok()?;
+        body.get("thinking").cloned()
+    }
+
     /// The body to replay at standard speed after `rejected` refused the fast request `body`, when
     /// the refusal switches fast mode down (`dropFastSpeedAfter`): the same body without `speed`
     /// (the betas stay). `None` for a request that did not ask for fast speed or a refusal that
@@ -1710,17 +1730,26 @@ impl AnthropicAdapter {
     /// Whether `rejected` refused a version-floor feature of the request (`anthropicCapabilityReplay`): the feature is
     /// then switched off for the model on this route and the request is to be encoded again, once per feature and
     /// attempt. Nothing has streamed yet.
-    fn floor_rejected(&self, request: &ModelRequest, status: Option<u16>, text: &str, replayed: &mut Vec<Feature>) -> bool {
+    fn floor_rejected(&self, request: &ModelRequest, wire: &WireRequest, status: Option<u16>, text: &str, replayed: &mut Vec<Feature>) -> bool {
         // An engine has no capability replay (Node's gateway and custom engines had none): its refusal surfaces.
         if self.engine.is_some() {
             return false;
         }
         let Some(feature) = claude_floors::rejection(status, text) else { return false };
+        // A 400 can name `output_config` or the beta for another reason: only a request that carried an effort update
+        // was refused one. Any other surfaces as it is, and the model keeps its updates.
+        if feature == Feature::EffortUpdates && !super::codec::beta_names(wire).iter().any(|beta| beta == super::effort_updates::BETA) {
+            return false;
+        }
         if replayed.contains(&feature) {
             return false;
         }
         replayed.push(feature);
         claude_floors::mark_unsupported(feature, self.state_key(), &request.model);
+        if feature == Feature::EffortUpdates {
+            let said: String = text.chars().take(300).collect();
+            mixdog_rt::node_stderr!("[{}] {} rejected the mid-conversation effort update; retrying once without it: {said}", self.state_key(), request.model);
+        }
         true
     }
 
@@ -1980,7 +2009,7 @@ impl AnthropicAdapter {
                     }
                     let opened = BeforeOutput::read(stream).await;
                     if let Some(err) = opened.failure()
-                        && self.floor_rejected(&request, err.status, &err.message, &mut floor_replays)
+                        && self.floor_rejected(&request, &wire, err.status, &err.message, &mut floor_replays)
                     {
                         if err.partial_usage.is_some() {
                             let mut failed = err.clone();
@@ -2018,7 +2047,7 @@ impl AnthropicAdapter {
                     shrunk_max_tokens = Some(max);
                     continue;
                 }
-                if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
+                if self.floor_rejected(&request, &wire, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
                     directive = None;
                     plain = self.plain(&request).await?;
                     continue 'plan;

@@ -278,6 +278,11 @@ pub(crate) fn adopt_dynamic_tool_changes(fixed: Option<&[ToolDefinition]>, candi
 }
 
 impl Run {
+    /// The run's frozen surface is given up: the next boundary takes the session's tools whole.
+    pub(crate) fn unfreeze_surface(&mut self) {
+        self.fixed_surface = None;
+    }
+
     /// The tools the session offers now, less those the provider rejected the schema of.
     fn candidate_tools(&self) -> Vec<ToolDefinition> {
         self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect()
@@ -673,9 +678,13 @@ impl Run {
         let handoff_source = if output.summarized() { "session-local" } else { "rules" };
         let changed = output.messages != self.messages;
         let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped, compaction: true };
+        // A fold that fails after the adoption fails the turn only once the compaction's own record is out: the session
+        // counts the compaction, and the fold its write left owed is the next turn start's.
+        let mut folded = Ok(());
         if changed {
             self.adopt_compacted(output.messages, &rewrite);
             compactor.adopted(&self.messages).await;
+            folded = self.fold_compacted().await;
         }
         // The gauge's scale: the compacted transcript's estimate plus the request reserve (the provider
         // baseline died with the old transcript).
@@ -684,7 +693,34 @@ impl Run {
         let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
         self.emit(pass(PassStage::Done { changed, handoff_source, after_tokens, duration_ms: duration(&*self.env.clock), after: self.messages.clone() }));
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
+        folded?;
         Ok(if changed { Ran::Changed } else { Ran::Unchanged })
+    }
+
+    /// The prompt fold a rewritten transcript owes, taken now: the request that follows writes the conversation anew, so
+    /// the rebuilt system text and tools cost no cache the turn still holds, and none is left for a later turn start to
+    /// break. The transcript's thinking is already unbound (`rebind_thinking`).
+    pub(crate) async fn fold_compacted(&mut self) -> Result<(), AgentError> {
+        // Folded only on a rewrite the store holds, and after it: a restart between the two finds the rewritten history
+        // with its fold still marked owed, never the folded prompt over the old history. A rewrite the store did not take
+        // folds nothing: the disk keeps the old history under the old prompt, and the run goes on from the rewritten
+        // transcript it holds under the prompt it has.
+        let stored = or_cancelled(&self.cancel, self.env.sink.replaced()).await.ok_or(AgentError::Aborted)?;
+        if stored
+            && let Some(mcp) = self.env.mcp.clone()
+            && let Some(system) = mcp.fold_compacted().await.map_err(AgentError::RequestTools)?
+        {
+            let leading = self.messages.iter().take_while(|m| m.message.role == Role::System).count();
+            // Compared with the set this run sends, not with what the store held: a fold another writer made first is
+            // taken too.
+            if !self.messages[..leading].iter().map(|m| &m.message).eq(system.iter().map(|m| &m.message)) {
+                self.messages.splice(..leading, system);
+                self.carry.prefix_guard = None;
+            }
+        }
+        // The rewritten transcript is a cold point whether or not the prompt moved: the run's tools are frozen anew for it.
+        self.unfreeze_surface();
+        self.adopt_request_tool_surface().await
     }
 
     /// A compaction's own model usage goes to the host and into the run's aggregate.
@@ -749,11 +785,18 @@ impl Run {
     }
 
     /// The store's history replaces the run's transcript, which a rewrite this run did not make retired: what the old
-    /// transcript keyed is reset as after a compaction (the store already holds the rewrite, so nothing is written), and the
-    /// run's requests carry the generation of the reloaded history.
-    pub(crate) fn adopt_reloaded(&mut self, conversation: Vec<AgentMessage>, generation: u64) {
-        let system: Vec<AgentMessage> = self.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
-        self.messages = system.into_iter().chain(conversation).collect();
+    /// transcript keyed is reset as after a compaction, and the run's requests carry the generation of the reloaded
+    /// history. The store already holds the rewrite; the rows it kept from this run (appended since the rewrite's
+    /// snapshot) still carry thinking signed over the history that left, which is unbound here as a compaction of the
+    /// run's own unbinds it, and only that is written.
+    pub(crate) fn adopt_reloaded(&mut self, mut conversation: Vec<AgentMessage>, generation: u64) {
+        let leading = self.messages.iter().take_while(|m| m.role() == Role::System).count();
+        let rebound = crate::recovery::rebind_thinking(&self.messages[leading..], &mut conversation);
+        self.messages.truncate(leading);
+        self.messages.extend(conversation);
+        if rebound {
+            self.env.sink.replace(&self.messages, &Rewrite::default());
+        }
         self.baseline = None;
         self.provider_state = None;
         self.provider_state_changed = true;

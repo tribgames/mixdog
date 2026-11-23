@@ -44,8 +44,8 @@ pub use mixdog_ai::effort::EffortProjection;
 pub enum EffortMode {
     /// `configuration_update` items on the Responses wire.
     Responses,
-    /// Anthropic `output_config` control messages (the Anthropic adapter's own
-    /// projection; the Responses projection is not built for it).
+    /// Anthropic `output_config` control messages, placed by the Messages
+    /// adapter from the same projection.
     Anthropic,
     /// A custom route that takes its effort with every request: the snapshot only records it,
     /// nothing is projected into the history.
@@ -136,12 +136,13 @@ impl EffortRoute {
             && self.allowed.contains(&snapshot.effort)
     }
 
-    /// The projection of `messages` for a Responses-wire request, or `None`
-    /// when the route takes none or no valid snapshot seeds it. A user message
-    /// carries a turn's effort; a tool result the effort of the step that
-    /// follows its tool batch.
+    /// The projection of `messages` for a route that takes mid-conversation
+    /// updates (`projectEffortConfiguration`: the Responses and the Messages
+    /// wires alike), or `None` when the route takes none or no valid snapshot
+    /// seeds it. A user message carries a turn's effort; a tool result the
+    /// effort of the step that follows its tool batch.
     pub fn project(&self, messages: &[AgentMessage]) -> Option<EffortProjection> {
-        let mode = self.mode.filter(|m| *m == EffortMode::Responses)?;
+        let mode = self.mode.filter(|m| matches!(m, EffortMode::Responses | EffortMode::Anthropic))?;
         let marked: Vec<(usize, &EffortSnapshot)> = messages
             .iter()
             .enumerate()
@@ -206,6 +207,15 @@ impl EffortAdapter for ProjectingAdapter {
 pub struct EffortWiring {
     pub route: EffortRoute,
     pub adapter: Arc<dyn EffortAdapter>,
+}
+
+impl EffortWiring {
+    /// The projection a request of `messages` carries on itself. A Messages request is lowered around its effort
+    /// updates, so whatever sends it again (a summary fork, a side question, a cache warm) must lower the same history.
+    /// `None` for a route whose adapter takes the projection with each attempt only.
+    pub fn carried(&self, messages: &[AgentMessage]) -> Option<mixdog_core_api::domain::provider::EffortProjection> {
+        (self.route.mode == Some(EffortMode::Anthropic)).then(|| self.route.project(messages)).flatten().map(Into::into)
+    }
 }
 
 #[cfg(test)]
@@ -274,8 +284,44 @@ mod tests {
         let mut r = route();
         r.wire = Arc::new(|e| (e != "high").then(|| e.to_owned()));
         assert!(r.project(&[marked(Role::User, Some(snap("low", "high")))]).is_none());
-        r.mode = Some(EffortMode::Anthropic);
+        r.mode = Some(EffortMode::Custom);
         assert!(r.project(&[marked(Role::User, Some(snap("low", "low")))]).is_none());
+    }
+
+    /// A Messages route projects as a Responses one does: the initial effort is the first stamped row's, a turn's
+    /// change lands on its user message and a step's on the tool result that carries it, whatever the turn runs at now.
+    #[test]
+    fn a_messages_route_projects_the_efforts_its_rows_recorded() {
+        let snap = |initial: &str, effort: &str| EffortSnapshot {
+            provider: "anthropic-oauth".into(),
+            model: "claude-opus-5-5".into(),
+            mode: EffortMode::Anthropic,
+            initial_effort: initial.into(),
+            effort: effort.into(),
+        };
+        let route = |seed: Option<EffortSnapshot>| EffortRoute {
+            provider: "anthropic-oauth".into(),
+            model: "claude-opus-5.5-20260101".into(),
+            mode: Some(EffortMode::Anthropic),
+            allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+            seed,
+            wire: Arc::new(|e| Some(e.to_owned())),
+        };
+        let messages = vec![
+            marked(Role::User, Some(snap("low", "low"))),
+            AgentMessage::assistant("a", Vec::new()),
+            marked(Role::User, Some(snap("low", "high"))),
+            marked(Role::Tool, Some(snap("low", "medium"))),
+        ];
+        let updates = [(2, "high".to_owned()), (3, "medium".to_owned())];
+        for seed in [None, Some(snap("low", "medium")), Some(snap("low", "low"))] {
+            let projection = route(seed).project(&messages).unwrap();
+            assert_eq!(projection.initial_effort, "low");
+            assert_eq!(projection.updates.into_iter().collect::<Vec<_>>(), updates);
+        }
+        // The first two turns project as they did when they were sent: a later row adds an update and moves none.
+        let earlier = route(None).project(&messages[..3]).unwrap();
+        assert_eq!(earlier.updates.into_iter().collect::<Vec<_>>(), updates[..1]);
     }
 
     #[test]

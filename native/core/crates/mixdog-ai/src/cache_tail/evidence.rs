@@ -93,7 +93,7 @@ mod tests {
         }
         markers.push(Marker { zone: Zone::Messages, ttl_ms: tail_ttl, block: 9, digest: d(9) });
         let tail = Some(markers.len() - 1);
-        WireManifest { markers, boundaries: (0..12).map(d).collect(), tail }
+        WireManifest { markers, boundaries: (0..12).map(d).collect(), tail, positions: Vec::new() }
     }
 
     /// A body whose only marker is the five-minute message tail cannot have written at the hour tier: a report that says
@@ -104,6 +104,7 @@ mod tests {
             markers: vec![Marker { zone: Zone::Messages, ttl_ms: TTL_5M_MS, block: 9, digest: d(9) }],
             boundaries: (0..12).map(d).collect(),
             tail: Some(0),
+            positions: Vec::new(),
         };
         assert_eq!(interpret(&only_tail, counters(0, 300, 200), &[]), Evidence::Unknown);
         assert_eq!(interpret(&only_tail, counters(0, 300, 0), &[]), Evidence::Wrote { extent: 300 });

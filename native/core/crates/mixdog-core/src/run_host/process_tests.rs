@@ -293,6 +293,18 @@ async fn reasoning_summaries_follow_the_cached_codex_row() {
     assert_eq!(facts.facts("gpt-6-luna").reasoning_summaries, None);
     assert_eq!(facts.facts("gpt-6-terra").reasoning_summaries, None);
 }
+/// GPT 6.2 and later take top-level instructions after the input; a dated snapshot and a fine-tune read as their model.
+#[tokio::test]
+async fn instructions_go_after_the_input_from_gpt_6_2_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let facts = CatalogOpenAiFacts::new(catalog_with(dir.path(), Vec::new()).await);
+    for model in ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.2-sol-2026-11-18", "gpt-6.3", "gpt-7", "ft:gpt-6.2-sol:acme::a1b2"] {
+        assert!(facts.facts(model).instructions_after_input, "{model}");
+    }
+    for model in ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.5", "gpt-reserve", "ft:gpt-6.1-sol:acme::a1b2"] {
+        assert!(!facts.facts(model).instructions_after_input, "{model}");
+    }
+}
 #[tokio::test]
 async fn the_always_enable_switch_gives_every_model_adaptive_effort() {
     let dir = tempfile::tempdir().unwrap();

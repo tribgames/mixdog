@@ -321,8 +321,8 @@ pub struct TestSide {
     pub begins: std::sync::atomic::AtomicUsize,
     /// Wakes after a begin or a send's prompt is recorded.
     pub began: tokio::sync::Notify,
-    /// Every `forget(thread, cancel)`, in order.
-    pub forgets: Mutex<Vec<(String, bool)>>,
+    /// Every `forget(thread, end)`, in order.
+    pub forgets: Mutex<Vec<(String, super::turn_ops::SideEnd)>>,
     active: Mutex<Option<mixdog_rt::CancellationToken>>,
 }
 
@@ -343,8 +343,8 @@ impl super::turn_ops::SideQuestions for TestSide {
     fn cancel(&self, _: &ThreadId) -> bool {
         lock(&self.active).take().map(|token| token.cancel()).is_some()
     }
-    fn forget(&self, thread: &ThreadId, cancel: bool) {
-        lock(&self.forgets).push((thread.as_str().to_owned(), cancel));
+    fn forget(&self, thread: &ThreadId, end: super::turn_ops::SideEnd) {
+        lock(&self.forgets).push((thread.as_str().to_owned(), end));
     }
     async fn send(
         &self,

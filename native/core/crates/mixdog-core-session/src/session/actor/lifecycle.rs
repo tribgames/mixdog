@@ -351,11 +351,12 @@ impl SessionActor {
         // Left, or a subscriber came back and it stays: either way a close has its answer.
         if let Some(stopped) = directory.unload(&self.id, &self.cell, self.close_work("other")) {
             self.unload_stopped = Some(stopped);
-            // A warm chain can retain a full request and later mutate the cache book.
+            // The session's warm chain outlives it: from here each warm reads the request it repeats from what is stored.
             self.deps.warm.unloaded(&self.id);
             self.deps.deletion.release_unloaded_runtime(self.id.as_str());
-            // A side question after the reload forks the next turn's request, not the old runtime's.
-            self.deps.side.forget(&self.id, false);
+            // A side question after the reload forks the next turn's request, not the old runtime's. An unload, as a close, keeps
+            // the prompt-cache touch for the restart re-arm (`forgetSideQuestion(id, { cancel: true })`).
+            self.deps.side.forget(&self.id, crate::session::turn_ops::SideEnd::Unload);
             // Its book is on disk (committed above): it is no longer open, released here while no other load of the thread
             // can have begun, and is read back from the header on the next use.
             self.deps.cache_tail.release(self.id.as_str());

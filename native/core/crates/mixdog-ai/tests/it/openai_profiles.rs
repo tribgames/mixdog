@@ -20,9 +20,11 @@ use mixdog_ai::providers::openai::profile::ResponsesProfile;
 use mixdog_ai::providers::openai::profile::SystemPlacement;
 use mixdog_ai::providers::openai::profile::ToolLowering;
 use mixdog_ai::providers::openai::profile::build_body as build_request;
+use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::Phase;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::RequestOptions;
@@ -901,4 +903,140 @@ fn the_xai_http_and_websocket_heads_differ_only_in_the_stream_flag_and_carry_the
     let mut over_ws = head;
     over_ws.as_object_mut().unwrap().shift_remove("stream");
     assert_eq!(text_of(&body_of(&ws, &BuildInputs::new(&req))), over_ws.to_string(), "websocket");
+}
+
+// consecutive requests of one session
+//
+// A provider's prompt cache serves a request the bytes it shares with an earlier one from their start, so each request of a
+// growing transcript has to carry the one before it unchanged up to the end of that one's input.
+
+/// A session's transcript as each of its requests sees it: the system and environment texts and the first prompt, then a
+/// step replayed from `owner`'s response items (reasoning, a commentary message, a function call and a custom tool call),
+/// a step lowered from the stored message (a phased text and a call), and an answer followed by the next prompt.
+fn growing_transcripts(owner: &str) -> Vec<Vec<Message>> {
+    let mut environment = text(Role::System, "cwd: /w");
+    environment.cache_tier = Some(CacheTier::Env);
+    let patch = ToolCall { native_type: Some("custom_tool_call".into()), ..call("c2", "apply_patch", json!("*** Begin Patch")) };
+    let mut replayed = assistant_calls("", vec![call("c1", "Read", json!({"path": "a.txt"})), patch]);
+    replayed.push_replay(ProviderReplay {
+        owner: ProviderId::from(owner),
+        items: json!([
+            {"type": "reasoning", "id": "rs_1", "encrypted_content": "ENC", "summary": []},
+            {"type": "message", "id": "msg_1", "role": "assistant", "phase": "commentary", "content": [{"type": "output_text", "text": "looking"}]},
+            {"type": "function_call", "id": "fc_1", "call_id": "c1", "name": "Read", "arguments": "{\"path\":\"a.txt\"}", "status": "completed"},
+            {"type": "custom_tool_call", "id": "ctc_1", "call_id": "c2", "name": "apply_patch", "input": "*** Begin Patch", "status": "completed"}
+        ]),
+    });
+    let mut spoken = assistant_calls("reading on", vec![call("c3", "mcp__weather__forecast", json!({"city": "Seoul"}))]);
+    spoken.phase = Some(Phase::Commentary);
+    let steps = [
+        vec![text(Role::System, "rules"), environment, text(Role::User, "find it")],
+        vec![replayed, tool("c1", "file text"), tool("c2", "patched")],
+        vec![spoken, tool("c3", "sunny")],
+        vec![text(Role::Assistant, "done"), text(Role::User, "next")],
+    ];
+    let mut so_far = Vec::new();
+    steps
+        .into_iter()
+        .map(|step| {
+            so_far.extend(step);
+            so_far.clone()
+        })
+        .collect()
+}
+
+/// `base`'s capabilities with where each model takes its instructions, as the catalog's facts decide it.
+struct ByModel<F>(F);
+impl<F: ModelFactsSource> ModelFactsSource for ByModel<F> {
+    fn facts(&self, model: &str) -> ModelFacts {
+        ModelFacts { instructions_after_input: mixdog_ai::providers::openai::config::instructions_after_input(model), ..self.0.facts(model) }
+    }
+}
+
+/// Top-level instructions such a model reads after the input are outside what the next request shares with this one, so
+/// the system text leads the input instead; the cache key stays the one the same text gives as instructions.
+#[test]
+fn a_model_that_takes_instructions_after_the_input_gets_its_system_text_as_the_first_message() {
+    let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
+    let mut req = request("gpt-6.2-astra", growing_transcripts("openai-responses").remove(0), session_tools(), None);
+    req.options.session_id = Some("sess-1".into());
+    let environment = "<environment_context>\ncwd: /w\n</environment_context>";
+
+    let public = build(&OpenAiConfig::api_key(false, Arc::new(ByModel(Facts)), Arc::new(Ctx)), &req).map;
+    assert!(!public.contains_key("instructions"), "{}", text_of(&public));
+    assert_eq!(public["input"][0], json!({"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "rules"}]}));
+    assert_eq!(public["input"][1]["content"][0]["text"], environment);
+    assert_eq!(public["input"][2]["role"], "user");
+    let top_level = build(&OpenAiConfig::api_key(false, Arc::new(Facts), Arc::new(Ctx)), &req).map;
+    assert_eq!(top_level["instructions"], "rules");
+    assert_eq!(public["prompt_cache_key"], top_level["prompt_cache_key"]);
+
+    let codex = build(&OpenAiConfig::codex(false, identity, Arc::new(ByModel(Facts)), Arc::new(Ctx)), &req).map;
+    assert_eq!(codex["instructions"], "You are a helpful assistant.");
+    assert_eq!(
+        codex["input"][0],
+        json!({"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "rules"}], "internal_chat_message_metadata_passthrough": {}})
+    );
+    assert_eq!(codex["input"][1]["content"][0]["text"], environment);
+}
+
+/// A request as the provider's cache compares it, in the order the model reads it: the tools, then the input, with the
+/// top-level instructions ahead of both, or behind the input for a model that takes them there. The input is left open,
+/// as a later request continues it.
+fn as_the_model_reads_it(body: &Map<String, Value>, instructions_after_input: bool) -> (String, usize) {
+    let part = |key: &str| body.get(key).map(Value::to_string).unwrap_or_default();
+    let input = body["input"].as_array().unwrap().iter().map(Value::to_string).collect::<Vec<_>>().join(",");
+    let through_input = part("tools").len() + input.len();
+    if instructions_after_input {
+        (format!("{}{input}{}", part("tools"), part("instructions")), through_input)
+    } else {
+        (format!("{}{}{input}", part("instructions"), part("tools")), part("instructions").len() + through_input)
+    }
+}
+
+/// The next request reads from cache what it shares with this one from the start: that has to be the whole of this
+/// request through its input, the session's system text (`rules`) included.
+fn assert_each_request_is_read_from_cache_by_the_next(shape: &str, instructions_after_input: bool, bodies: &[Map<String, Value>]) {
+    for (at, pair) in bodies.windows(2).enumerate() {
+        let (before, through_input) = as_the_model_reads_it(&pair[0], instructions_after_input);
+        let (after, _) = as_the_model_reads_it(&pair[1], instructions_after_input);
+        let shared = before.bytes().zip(after.bytes()).take_while(|(a, b)| a == b).count();
+        assert!(shared >= through_input, "{shape}: request {} shares {shared} bytes with request {}, whose input ends at {through_input}", at + 2, at + 1);
+        assert!(before[..shared].contains("rules"), "{shape}: the system text of request {} is outside what request {} shares with it", at + 1, at + 2);
+        assert!(pair[1]["input"].as_array().unwrap().len() > pair[0]["input"].as_array().unwrap().len(), "{shape}: request {} adds nothing", at + 2);
+    }
+}
+
+#[test]
+fn each_request_of_a_session_is_read_from_cache_by_the_next_through_the_end_of_its_input() {
+    use mixdog_ai::providers::openai::config::NoFacts;
+    use mixdog_ai::providers::openai::config::instructions_after_input;
+
+    let identity = || CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
+    let first_party = [
+        ("openai, capabilities declared", OpenAiConfig::api_key(false, Arc::new(ByModel(Facts)), Arc::new(Ctx))),
+        ("openai, no catalog row", OpenAiConfig::api_key(false, Arc::new(ByModel(NoFacts)), Arc::new(Ctx))),
+        ("openai-oauth, capabilities declared", OpenAiConfig::codex(false, identity(), Arc::new(ByModel(Facts)), Arc::new(Ctx))),
+        ("openai-oauth, no catalog row", OpenAiConfig::codex(false, identity(), Arc::new(ByModel(NoFacts)), Arc::new(Ctx))),
+    ];
+    for (route, config) in &first_party {
+        for model in ["gpt-6.2-astra", "gpt-6.2-sol", "ft:gpt-6.2-sol:acme::a1b2", "gpt-6.1-sol", "gpt-6-astra", "gpt-5.5"] {
+            let bodies: Vec<_> = growing_transcripts("openai-responses")
+                .into_iter()
+                .map(|messages| {
+                    let mut req = request(model, messages, deferred_tools(), Some("sess-1"));
+                    req.options.session_id = Some("sess-1".into());
+                    build(config, &req).map
+                })
+                .collect();
+            assert_each_request_is_read_from_cache_by_the_next(&format!("{route}, {model}"), instructions_after_input(model), &bodies);
+        }
+    }
+    for (route, profile) in [("compat gateway", gateway("x", true)), ("xai", xai_http())] {
+        let bodies: Vec<_> = growing_transcripts(profile.input.replay_owner.as_str())
+            .into_iter()
+            .map(|messages| body_of(&profile, &BuildInputs::new(&request("m", messages, deferred_tools(), Some("sess-1")))))
+            .collect();
+        assert_each_request_is_read_from_cache_by_the_next(route, false, &bodies);
+    }
 }

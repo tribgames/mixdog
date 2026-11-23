@@ -100,7 +100,7 @@ use super::turn_reminders::agent_list_entries;
 use super::turn_settings::TurnSettings;
 use super::workflow_surface::RunWorkflowSurface;
 use super::workflow_surface::denials::reaction_disabled;
-use mixdog_ai::service::routes::provider_tail_cache_lifetime_ms;
+use mixdog_ai::service::routes::tail_cache_lifetime_ms;
 use mixdog_core_prompt::prompt::notice::OwnedSections;
 use mixdog_core_prompt::prompt::notice::note_presented;
 use mixdog_core_prompt::prompt::notice::stage_prompt_settings_notice;
@@ -671,34 +671,42 @@ impl LeadSurfaceHost {
         Ok((prompt, denied))
     }
 
-    async fn fold_prompt_if_cold(&self, thread: &ThreadId, core_memory_empty: bool) -> Result<(), CoreError> {
+    /// The prompt rebuilt from current sources and written to the header, at `point`. A turn start folds only where the
+    /// next request writes the conversation anew anyway; a compaction's own fold is the running turn's
+    /// ([`FoldPoint::Compacted`]), so none is left owed to break the cache the turn has rewarmed since. The header as the
+    /// fold leaves it, moved or not; `None` for a turn start that folds nothing.
+    async fn fold_prompt(&self, thread: &ThreadId, point: FoldPoint) -> Result<Option<Header>, CoreError> {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
-            let had_core_memory = header
-                .get("promptSettings")
-                .and_then(|settings| settings.pointer("/texts/coreMemory"))
-                .and_then(Value::as_str)
-                .is_some_and(|text| !text.is_empty());
-            if !(core_memory_empty && had_core_memory)
-                && !compaction_cold(&header)
-                && !tail_expired(&header, s.clock.now_ms())
-                && !self.reminder_dropped(thread, &header).await?
-            {
-                return Ok(());
+            if let FoldPoint::TurnStart { core_memory_empty } = point {
+                let had_core_memory = header
+                    .get("promptSettings")
+                    .and_then(|settings| settings.pointer("/texts/coreMemory"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.is_empty());
+                if !(core_memory_empty && had_core_memory)
+                    && !compaction_unsent(&header)
+                    && !tail_expired(&header, s.clock.now_ms())
+                    && !self.reminder_dropped(thread, &header).await?
+                {
+                    return Ok(None);
+                }
             }
             let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
             let (composed, denied) =
                 self.composed(thread, &header, workflow_id, Some(current_mode(&header).as_str())).await.map_err(|message| failed("tools", message))?;
-            let next = self.folded_prompt(thread, &header, &composed, &denied).map_err(|message| failed("tools", message))?;
+            let (next, _) = self.folded_prompt(thread, &header, &composed, &denied, point).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
+            // The stored header may already be the folded one (another writer's fold, or this one's after a lost race): the
+            // caller holds its own copy of the prompt and compares with that.
             if change.set.is_empty() && change.unset.is_empty() {
-                return Ok(());
+                return Ok(Some(header));
             }
             let expect: Map<String, Value> =
                 change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
-                return Ok(());
+                return Ok(Some(next));
             }
         }
     }
@@ -723,7 +731,8 @@ impl LeadSurfaceHost {
         Ok(dropped.iter().any(|content| !holds(content)))
     }
 
-    fn folded_prompt(&self, thread: &ThreadId, header: &Header, composed: &SessionPrompt, denied: &[String]) -> Result<Header, String> {
+    /// The header with the prompt folded in, and whether the request's prefix (system text or tools) moved.
+    fn folded_prompt(&self, thread: &ThreadId, header: &Header, composed: &SessionPrompt, denied: &[String], point: FoldPoint) -> Result<(Header, bool), String> {
         let s = &self.sources;
         let (_, model) = self.seated_route(thread, header);
         let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
@@ -742,26 +751,40 @@ impl LeadSurfaceHost {
         }
         note_presented(&mut next, &composed.sections);
         let prefix = |header: &Header| (SystemBlocks::from_header(header).node_messages(), header.get("tools").cloned());
-        if prefix(header) == prefix(&next) {
+        let moved = prefix(header) != prefix(&next);
+        if !moved {
             match header.get("updatedAt") {
                 Some(at) => next.insert("updatedAt".into(), at.clone()),
                 None => next.shift_remove("updatedAt"),
             };
         } else {
             let pending = header.get("pendingCacheBreakIntent").and_then(Value::as_str).unwrap_or("prompt_fold").to_owned();
-            let marked = mark_tool_surface_migrated(s.clock.as_ref(), Some(&pending), None).change;
+            let mut marked = mark_tool_surface_migrated(s.clock.as_ref(), Some(&pending), None).change;
             // The kept prefix guard describes the prefix that moved: Node deletes it in `markToolSurfaceMigrated`, and the
             // core's deletion is a new lineage (`transcriptEpoch`, as a route change names one). Without it a fold that is no
             // compaction (`prompt_fold` is no compaction intent) is refused as a rewritten prefix at the next send.
             next.insert("transcriptEpoch".into(), json!(uuid::Uuid::now_v7().to_string()));
-            // Owed to the stored rows, in this same write: the turn that starts on the moved prefix rebinds them.
-            next.insert("thinkingRebindPending".into(), Value::Bool(true));
+            match point {
+                // Owed to the stored rows, in this same write: the turn that starts on the moved prefix rebinds them.
+                FoldPoint::TurnStart { .. } => {
+                    next.insert("thinkingRebindPending".into(), Value::Bool(true));
+                }
+                // The running turn takes the moved prefix with the transcript its compaction just rebound and tags its
+                // own send: nothing is left for a later turn to pay.
+                FoldPoint::Compacted => {
+                    marked.set.shift_remove("pendingCacheBreakIntent");
+                }
+            }
             for key in marked.unset {
                 next.shift_remove(&key);
             }
             next.extend(marked.set);
         }
-        Ok(next)
+        // The compaction this fold answers is no longer unsent: its parked intent would fold the next turn start again.
+        if matches!(point, FoldPoint::Compacted) && compaction_unsent(&next) {
+            next.shift_remove("pendingCacheBreakIntent");
+        }
+        Ok((next, moved))
     }
 
     async fn stage(&self, thread: &ThreadId, tools: bool, notice: Option<&OwnedSections>) -> Result<Staged, CoreError> {
@@ -865,7 +888,8 @@ impl TurnSettings for LeadSurfaceHost {
         self.stage(thread, !unchanged, sections.as_ref().filter(|_| !unchanged)).await.map_err(described)?;
         // After the gates: a tool opened since the compaction is in the catalog the fold builds from.
         if identity {
-            self.fold_prompt_if_cold(thread, sections.as_ref().is_some_and(|value| value.core_memory.is_empty())).await.map_err(described)?;
+            let point = FoldPoint::TurnStart { core_memory_empty: sections.as_ref().is_some_and(|value| value.core_memory.is_empty()) };
+            self.fold_prompt(thread, point).await.map_err(described)?;
         }
         self.note_applied(&work, key);
         self.fold_mcp_surface(thread).await.map_err(described)
@@ -898,6 +922,17 @@ impl TurnSettings for LeadSurfaceHost {
     /// `orchestrationInstructions(mode)`.
     async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
         self.sources.workflow.orchestration_instructions(mode).await.map_err(String::from)
+    }
+
+    /// The fold a compaction of the running turn owes, for the request that follows it. A thread whose prompt is never
+    /// rebuilt (no recorded identity) folds nothing, as at a turn start.
+    async fn fold_compacted(&self, thread: &ThreadId) -> Result<Option<Header>, String> {
+        let described = |error: CoreError| format!("{error:?}");
+        let header = self.sources.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
+        if !header.get("promptIdentity").is_some_and(Value::is_object) {
+            return Ok(None);
+        }
+        self.fold_prompt(thread, FoldPoint::Compacted).await.map_err(described)
     }
 
     /// The request boundary's `migrateToolExposureAtBoundary`: the migrated header is written once, the thread's own
@@ -1358,18 +1393,27 @@ fn message_text(message: &Value) -> String {
     }
 }
 
-/// A compaction is a cold point: its pass marked it (`compactionFoldPending`) or parked a compaction intent for the next send
-/// (`COLD_INTENTS` of `agent-profile-fold.mjs`).
-fn compaction_cold(header: &Header) -> bool {
+/// Where a prompt fold lands.
+#[derive(Clone, Copy)]
+enum FoldPoint {
+    /// A turn's start: only when its first request writes the conversation anew anyway.
+    TurnStart { core_memory_empty: bool },
+    /// The request that follows a compaction of the running turn.
+    Compacted,
+}
+
+/// A compaction whose fold is still owed: its write marked the header (`compactionFoldPending`), and one made outside a turn
+/// parked its intent for the next send (`COLD_INTENTS` of `agent-profile-fold.mjs`). A running turn's compaction is folded
+/// by that turn ([`FoldPoint::Compacted`]), which clears the mark; a turn that ended before its fold leaves it here.
+fn compaction_unsent(header: &Header) -> bool {
     header.get("compactionFoldPending") == Some(&Value::Bool(true))
         || matches!(header.get("pendingCacheBreakIntent").and_then(Value::as_str), Some("post_turn_compaction" | "manual_compaction"))
 }
 
 /// `sessionTailCacheExpired`: the provider's cache already let the message tail expire since the session's last send.
 fn tail_expired(header: &Header, now_ms: i64) -> bool {
-    let tier = header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(Value::as_str);
     let last_send = mixdog_js::to_number_of(header.get("lastProviderSendAt"));
-    provider_tail_cache_lifetime_ms(&clean(header.get("provider")), tier).is_some_and(|lifetime| last_send > 0.0 && now_ms as f64 - last_send > lifetime as f64)
+    tail_cache_lifetime_ms(&clean(header.get("provider")), header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy"))).is_some_and(|lifetime| last_send > 0.0 && now_ms as f64 - last_send > lifetime as f64)
 }
 
 /// `leadRosterRevision(parts)` (`role-instructions.mjs:413`): the bot roster a Lead's prompt lists (its

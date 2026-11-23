@@ -82,7 +82,12 @@ pub(super) fn build_with_tool_outputs(
 
     let profile = ResponsesProfile {
         order: ORDER_FIRST_PARTY.to_vec(),
-        system: SystemPlacement::Instructions { fallback: Some(DEFAULT_INSTRUCTIONS.to_owned()), environment_message: true },
+        system: if facts.instructions_after_input {
+            // The Codex backend takes no request without instructions.
+            SystemPlacement::LeadingMessage { instructions: codex.then(|| DEFAULT_INSTRUCTIONS.to_owned()) }
+        } else {
+            SystemPlacement::Instructions { fallback: Some(DEFAULT_INSTRUCTIONS.to_owned()), environment_message: true }
+        },
         input: LowerOptions {
             replay_owner: ProviderId::from(REPLAY_OWNER),
             codex_parity: codex,

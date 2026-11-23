@@ -171,6 +171,7 @@ impl ModelFactsSource for CatalogOpenAiFacts {
             codex_ultrafast_tier: codex_tier("ultrafast"),
             verbosity: Some(at_least(version, 5, 0)),
             native_tool_search: Some(at_least(version, 5, 4)),
+            instructions_after_input: mixdog_ai::providers::openai::config::instructions_after_input(id),
             fast_tier: self.catalog.fast_capable("openai", &row, None, &json!({})),
             ultrafast_tier: self.catalog.ultrafast_capable("openai", &row),
             prompt_cache,

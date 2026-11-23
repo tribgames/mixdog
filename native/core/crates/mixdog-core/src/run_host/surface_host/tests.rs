@@ -322,6 +322,10 @@ mod unloading {
     }
 
     fn host_on(threads: Arc<dyn ThreadState>) -> Arc<LeadSurfaceHost> {
+        host_with(threads, Arc::new(NoPrompt), Arc::new(NoWorkflow))
+    }
+
+    fn host_with(threads: Arc<dyn ThreadState>, prompt: Arc<dyn PromptRebuild>, workflow: Arc<dyn WorkflowSurface>) -> Arc<LeadSurfaceHost> {
         let sources = SurfaceSources {
             mode: String::new(),
             pool: Vec::new(),
@@ -334,14 +338,14 @@ mod unloading {
             connectors: Arc::new(NoConnectors),
             orchestration_mode: Arc::new(String::new),
             hidden_agent: Arc::new(|_| false),
-            prompt: Arc::new(NoPrompt),
+            prompt,
             skills: Arc::new(NoSkills),
             tool_host: Arc::new(NoHost),
             clock: Arc::new(Now),
             threads,
             messages: Arc::new(NoMessages),
             live: Arc::new(NoneLive),
-            workflow: Arc::new(NoWorkflow),
+            workflow,
             config_revision: Arc::new(|| 1),
             surface_generation: SurfaceGeneration::default(),
         };
@@ -393,6 +397,138 @@ mod unloading {
         assert!(host.working.lock().expect("working").is_empty(), "no work is counted once it ended");
         host.reconcile(&thread, true).await.expect("the next load reconciles");
         assert_eq!(held(&host, &thread), (true, true), "the next load's reconcile is remembered");
+    }
+
+    /// Composes the prompt whose core block is `.0`, whatever the thread.
+    struct Composed(&'static str);
+    #[async_trait]
+    impl PromptRebuild for Composed {
+        async fn rebuild(&self, _: RebuildRequest) -> Result<SessionPrompt, String> {
+            let sections = OwnedSections::default();
+            Ok(SessionPrompt {
+                blocks: SystemBlocks {
+                    base: Some("base".into()),
+                    stable: Some("stable".into()),
+                    core: Some(self.0.into()),
+                    env: Some("env".into()),
+                    ..SystemBlocks::default()
+                },
+                environment_tail: String::new(),
+                prompt_identity: json!({}),
+                prompt_settings: sections.record(),
+                sections,
+                response_language: Value::Null,
+                profile_revision: String::new(),
+            })
+        }
+    }
+
+    struct PlainWorkflow;
+    #[async_trait]
+    impl WorkflowSurface for PlainWorkflow {
+        async fn target(&self, _: &Header, _: &str, _: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
+            Ok(WorkflowTarget {
+                summary: Value::Null,
+                orchestration_mode: String::new(),
+                pack_context: String::new(),
+                orchestration_context: String::new(),
+                agent_catalog_context: String::new(),
+                contact_catalog_context: String::new(),
+            })
+        }
+        async fn live_denied_tools(&self, _: &Header, _: &Value) -> Result<Vec<String>, SurfaceFailure> {
+            Ok(Vec::new())
+        }
+        async fn internal_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+            Ok(Vec::new())
+        }
+        async fn orchestration_instructions(&self, _: &str) -> Result<String, SurfaceFailure> {
+            Ok(String::new())
+        }
+    }
+
+    /// A conversation whose prompt sources moved since its prompt was written: `marks` over a warm cache (sent this
+    /// instant under an hour's lifetime).
+    fn compacted(marks: Value) -> Header {
+        let mut header = json!({
+            "id": "t", "provider": "anthropic-oauth", "model": "claude-opus-5-5", "tools": [], "promptIdentity": {},
+            "bp3EnvSplit": true, "promptBase": "base", "promptStable": "stable", "bp3CoreContext": "old core", "promptEnv": "env",
+            "promptSettings": OwnedSections::default().record(),
+            "lastProviderSendAt": 1, "providerCacheOpts": { "cacheStrategy": { "messages": "1h" } },
+        })
+        .as_object()
+        .expect("header")
+        .clone();
+        header.extend(marks.as_object().expect("marks").clone());
+        header
+    }
+
+    fn prefix(header: &Header) -> (Vec<Value>, Option<Value>, Option<Value>) {
+        (SystemBlocks::from_header(header).node_messages(), header.get("tools").cloned(), header.get("transcriptEpoch").cloned())
+    }
+
+    /// A running turn's compaction is stored with its fold marked owed. The fold the turn takes next rebuilds the prompt,
+    /// clears the mark and leaves no other; the turn start after it, which would fold a compaction still marked, moves
+    /// nothing: the prefix the compaction's request wrote stands. A fold asked for again answers the prompt as stored,
+    /// so a run that holds an older one takes it.
+    #[tokio::test]
+    async fn a_compactions_fold_clears_its_mark_and_the_next_turn_start_moves_nothing() {
+        let store = Arc::new(Store(Mutex::new(compacted(json!({ "compactionFoldPending": true })))));
+        let host = host_with(store.clone(), Arc::new(Composed("new core")), Arc::new(PlainWorkflow));
+        let thread = ThreadId::from("t");
+        let stored = || store.0.lock().expect("store").clone();
+
+        let folded = host.fold_compacted(&thread).await.expect("the fold").expect("a thread whose prompt is rebuilt");
+        assert_eq!(folded["bp3CoreContext"], "new core");
+        let after = stored();
+        assert_eq!(after["bp3CoreContext"], "new core");
+        for mark in ["compactionFoldPending", "promptFoldPending", "thinkingRebindPending", "pendingCacheBreakIntent", "promptSettingsTold", "promptSettingsNotice"] {
+            assert!(after.get(mark).is_none(), "{mark} survives the fold that applied it");
+        }
+
+        host.reconcile(&thread, true).await.expect("the next turn start");
+        let next = stored();
+        assert_eq!(prefix(&next), prefix(&after), "the next turn's first request leads with what the compaction's request wrote");
+        assert!(next.get("thinkingRebindPending").is_none(), "and rebinds nothing");
+
+        let again = host.fold_compacted(&thread).await.expect("a second fold").expect("the prompt as it stands");
+        assert_eq!(again["bp3CoreContext"], "new core", "a prompt already folded is answered, not withheld");
+        assert_eq!(prefix(&stored()), prefix(&after), "and moves nothing");
+    }
+
+    /// A compaction whose fold never ran (its turn failed at the fold, the process stopped between the two writes, or it
+    /// was made outside a turn) is in the store with its mark. The next turn start folds it over a warm cache, owes the
+    /// stored rows their rebind, and the turn start after that moves nothing.
+    #[tokio::test]
+    async fn a_compaction_whose_fold_never_ran_is_folded_once_by_the_next_turn_start() {
+        let unfolded = [
+            json!({ "compactionFoldPending": true }),
+            json!({ "compactionFoldPending": true, "promptFoldPending": true, "pendingCacheBreakIntent": "manual_compaction" }),
+        ];
+        for marks in unfolded {
+            let store = Arc::new(Store(Mutex::new(compacted(marks.clone()))));
+            let host = host_with(store.clone(), Arc::new(Composed("new core")), Arc::new(PlainWorkflow));
+            let thread = ThreadId::from("t");
+            let stored = || store.0.lock().expect("store").clone();
+
+            host.reconcile(&thread, true).await.expect("the turn start");
+            let after = stored();
+            assert_eq!(after["bp3CoreContext"], "new core", "{marks}");
+            assert!(after.get("compactionFoldPending").is_none() && after.get("promptFoldPending").is_none(), "{marks}");
+            assert_eq!(after["thinkingRebindPending"], true, "{marks}: the stored rows are rebound by the turn that starts on the moved prefix");
+
+            host.reconcile(&thread, true).await.expect("the turn start after it");
+            assert_eq!(prefix(&stored()), prefix(&after), "{marks}: folded once");
+        }
+    }
+
+    /// Without a compaction's mark the same conversation keeps its prompt at a warm turn start, whatever moved.
+    #[tokio::test]
+    async fn a_warm_turn_start_with_no_fold_owed_keeps_its_prompt() {
+        let store = Arc::new(Store(Mutex::new(compacted(json!({})))));
+        let host = host_with(store.clone(), Arc::new(Composed("new core")), Arc::new(PlainWorkflow));
+        host.reconcile(&ThreadId::from("t"), true).await.expect("a warm turn start");
+        assert_eq!(store.0.lock().expect("store")["bp3CoreContext"], "old core");
     }
 
     #[tokio::test]

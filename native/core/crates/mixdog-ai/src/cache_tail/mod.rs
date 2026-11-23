@@ -148,14 +148,48 @@ impl TailGate for SessionGate {
     }
 }
 
+/// Where the book of a session that is not loaded is kept when a use of it outside the session (a warm) taught it something:
+/// the session's header is written only by its loaded owner, so this is what its next load reads beside the header.
+pub trait KeptBooks: Send + Sync {
+    fn kept(&self, session_id: &str) -> Option<Value>;
+    fn keep(&self, session_id: &str, book: Value);
+    fn drop_kept(&self, session_id: &str);
+}
+
 /// The live books of one session store's open sessions, held by that store's session owner: a session id names a book of
 /// this store only, so another store (another data directory) has books of its own, whatever its ids.
 #[derive(Default)]
-pub struct Books(Mutex<HashMap<String, Arc<Held>>>);
+pub struct Books {
+    held: Mutex<HashMap<String, Arc<Held>>>,
+    kept: Option<Arc<dyn KeptBooks>>,
+}
+
+/// The book's history position: a rewrite moves the generation, a send the last send time.
+fn position(book: &Value) -> (u64, i64) {
+    (book.get("generation").and_then(Value::as_u64).unwrap_or(0), book.get("lastSendAt").and_then(Value::as_i64).unwrap_or(0))
+}
 
 impl Books {
+    /// Books whose sessions' books, when a use outside a loaded session taught them something, are kept in `kept`.
+    pub fn kept_in(kept: Arc<dyn KeptBooks>) -> Self {
+        Self { held: Mutex::default(), kept: Some(kept) }
+    }
+
     fn held(&self, session_id: &str) -> Option<Arc<Held>> {
-        lock(&self.0).get(session_id).cloned()
+        lock(&self.held).get(session_id).cloned()
+    }
+
+    /// The book to open for `session_id`, none being open: the kept one while the header holds no later history (no send or
+    /// rewrite the session's own owner committed since it was kept), else `persisted`. A kept book is unsaved: the session's
+    /// owner commits it to the header.
+    fn opened(&self, session_id: &str, persisted: Option<&Value>, now: i64, last_send: Option<i64>) -> Option<Book> {
+        let kept = self.kept.as_ref()?.kept(session_id)?;
+        if persisted.is_some_and(|header| position(header) > position(&kept)) {
+            return None;
+        }
+        let mut book = Book::from_json(&kept, now, last_send);
+        book.mark_unsaved();
+        Some(book)
     }
 
     /// The gate of one turn of `session_id`, judging with that turn's `settings`. `persisted` is the session header's
@@ -163,10 +197,13 @@ impl Books {
     /// session is new); a later open of the session is the same book, and its settings stay its own.
     pub fn gate(&self, session_id: &str, persisted: Option<&Value>, settings: GateSettings) -> TailGateHandle {
         let GateSettings { clock, auto_clear, sizing, fresh, last_send_at } = settings;
-        let held = lock(&self.0)
+        let held = lock(&self.held)
             .entry(session_id.to_owned())
             .or_insert_with(|| {
-                let book = persisted.map_or_else(|| Book::unrecorded(fresh, last_send_at), |value| Book::from_json(value, clock(), last_send_at));
+                let now = clock();
+                let book = self.opened(session_id, persisted, now, last_send_at).unwrap_or_else(|| {
+                    persisted.map_or_else(|| Book::unrecorded(fresh, last_send_at), |value| Book::from_json(value, now, last_send_at))
+                });
                 Arc::new(Held { book: Mutex::new(book), decided: Notify::new(), retired: AtomicBool::new(false) })
             })
             .clone();
@@ -188,20 +225,25 @@ impl Books {
                 json
             }
             None => {
-                let mut book = persisted.map_or_else(|| Book::unrecorded(false, None), |value| Book::from_json(value, now, None));
+                let mut book = self
+                    .opened(session_id, persisted, now, None)
+                    .unwrap_or_else(|| persisted.map_or_else(|| Book::unrecorded(false, None), |value| Book::from_json(value, now, None)));
                 book.rebuilt();
                 book.to_json()
             }
         }
     }
 
-    /// The generation of `session_id`'s history: the open book's, else the one `persisted` (the header's `cacheTailBook`)
-    /// holds. Read with the transcript it describes, as one value of its load: a request built from that transcript carries
-    /// it, and a rewrite committed since refuses the request as stale instead of letting it be stamped as current.
+    /// The generation of `session_id`'s history: the open book's, else the one its next open reads (kept, or `persisted`,
+    /// the header's `cacheTailBook`). Read with the transcript it describes, as one value of its load: a request built from
+    /// that transcript carries it, and a rewrite committed since refuses the request as stale instead of letting it be
+    /// stamped as current.
     pub fn generation(&self, session_id: &str, persisted: Option<&Value>) -> u64 {
         match self.held(session_id) {
             Some(held) => lock(&held.book).generation(),
-            None => persisted.map_or(0, |value| Book::from_json(value, 0, None).generation()),
+            None => self
+                .opened(session_id, persisted, 0, None)
+                .map_or_else(|| persisted.map_or(0, |value| Book::from_json(value, 0, None).generation()), |book| book.generation()),
         }
     }
 
@@ -212,18 +254,40 @@ impl Books {
     }
 
     /// `session_id` left memory (unloaded, closed or deleted): its book is no longer open and is loaded again from the
-    /// header on its next use. A rewrite in flight or offered is released, not orphaned: its waiters wake and admit again,
-    /// on the reloaded book.
+    /// header, which its owner committed it to, on its next use; a kept one is no longer needed. A rewrite in flight or
+    /// offered is released, not orphaned: its waiters wake and admit again, on the reloaded book.
     pub fn release(&self, session_id: &str) {
-        let Some(held) = lock(&self.0).remove(session_id) else { return };
+        if let Some(kept) = &self.kept {
+            kept.drop_kept(session_id);
+        }
+        self.retire(session_id);
+    }
+
+    /// The book a use outside the session opened for a session that is not loaded (a warm's rebuild) leaves memory: what it
+    /// learned since it was opened is kept ([`KeptBooks`]), where the session's next open reads it.
+    pub fn keep_unloaded(&self, session_id: &str) {
+        let Some(snapshot) = self.retire(session_id) else { return };
+        if let Some(kept) = &self.kept {
+            kept.keep(session_id, snapshot);
+        }
+    }
+
+    /// Closes the open book of `session_id`; what it learned since its last snapshot.
+    fn retire(&self, session_id: &str) -> Option<Value> {
+        let held = lock(&self.held).remove(session_id)?;
         held.retired.store(true, Ordering::SeqCst);
-        lock(&held.book).retire();
+        let snapshot = {
+            let mut book = lock(&held.book);
+            book.retire();
+            book.take_snapshot()
+        };
         held.decided.notify_waiters();
+        snapshot
     }
 
     /// Whether a book of `session_id` is open.
     pub fn loaded(&self, session_id: &str) -> bool {
-        lock(&self.0).contains_key(session_id)
+        lock(&self.held).contains_key(session_id)
     }
 
     /// The open book of `session_id` as it would be persisted, for a test to read.

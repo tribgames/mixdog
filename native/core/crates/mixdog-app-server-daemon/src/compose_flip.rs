@@ -1841,17 +1841,18 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .await
         .map_err(ComposeError::WarmStore)?,
     );
+    let warm_sessions = Arc::new(mixdog_core::run_host::warm_ports::SessionsWarm::new(
+        side_wiring.next(), // the ONE `Arc<NextRequestSource>` that is `TurnPathParts.next`, bound by `build_directory`; read at call time
+        registry.clone(),
+        mixdog_core::run_host::builder_env::CatalogCaps::new(b.catalog.clone(), &*process.env),
+        side_wiring.next(), // as `Arc<dyn WarmStore>`: the session's stored request and its language and role per warm (`cache-warm.mjs:207`)
+    ));
     let warmer: Arc<mixdog_ai::warmer::Warmer> = mixdog_ai::warmer::Warmer::new(
         Arc::new(mixdog_ai::warmer::process::ProcessWarmDeps {
             now: now_wall,
             timers: mixdog_ai::warmer::process::TokioTimers,
             config: Arc::new(mixdog_core::run_host::warm_ports::ConfigWarm::new(config.clone())),
-            sessions: Arc::new(mixdog_core::run_host::warm_ports::SessionsWarm::new(
-                side_wiring.next(), // the ONE `Arc<NextRequestSource>` that is `TurnPathParts.next`, bound by `build_directory`; read at call time
-                registry.clone(),
-                mixdog_core::run_host::builder_env::CatalogCaps::new(b.catalog.clone(), &*process.env),
-                side_wiring.next(), // as `Arc<dyn WarmTail>`: the session's language and role per warm (`cache-warm.mjs:207`)
-            )),
+            sessions: warm_sessions.clone(),
             providers: Arc::new(mixdog_core::run_host::warm_ports::ProvidersWarm::new(
                 registry.clone(),
                 b.catalog.clone(),
@@ -1869,6 +1870,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         warm_touches.clone(),
         warm_gaps,
     );
+    // The store tells the warmer of every main-loop send (`side-question-store.mjs`): built before it, bound here.
+    side_store.bind_warm(Arc::new(mixdog_core::run_host::warm_ports::SessionWarmth::new(warmer.clone(), warm_sessions)));
+    let warm_rearm = warmer.clone();
     // ---- 4. the live gauge and the one auth refresh -------------------------------------------
     let gauge = mixdog_core::run_host::live_gauge::LiveGauge::new(); // wu-context-status-13 (FILED)
 
@@ -3884,11 +3888,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let archive = archive_states.clone();
             let read_state = read_state.clone();
             let agents = agents.clone();
+            // A warm of a session that is not loaded leaves its book's evidence in the warmer's touch file, which the next load reads.
+            let kept_books = warm_touches.clone();
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
                 completion_holders: Arc::default(),
                 store: store_threads,
-                cache_tail: Arc::default(),
+                cache_tail: Arc::new(mixdog_ai::cache_tail::Books::kept_in(kept_books)),
                 codec: Arc::new(mixdog_core_session::session::StoreCodec),
                 transcript: Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new()),
                 prompts: Arc::new(mixdog_core_session::session::FilePromptHistory::new(&data_dir)),
@@ -5770,6 +5776,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         &*tool_surface,
     ])?;
     boot.boot_mark("cells-bound");
+    // `rearmCacheWarmsAfterRestart` (`daemon.mjs:1160`): the chains died with the previous process; the saved touches re-arm
+    // them once the providers are up. It rebuilds each request from its session, so it starts once the directory is bound.
+    drop(mixdog_rt::spawn("cache-warm-rearm", mixdog_rt::TaskClass::Work, async move {
+        warm_rearm.rearm_after_restart().await;
+    }));
     // The restart failure notices open their owners' threads, and an opened thread's recovery starts a completion wake at once: its
     // run reads the late cells above (turn admission, catalog, workspaces, ..), which panic while unbound and leave the thread with
     // a started run no task drives. So the notices go only once every cell is bound. They go beside the start, not on its path:

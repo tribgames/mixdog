@@ -98,7 +98,7 @@ async fn a_turn_runs_through_the_turn_path() {
 
     // With no saved request (a restart, a forgotten one) the question forks the request the next turn
     // would send, rebuilt from the stored rows by the turn's own assembly.
-    store.forget(&id);
+    store.end(&id, mixdog_core_session::session::turn_ops::SideEnd::Transcript);
     let rebuilt = handle.request(request("thread/askSide", json!({ "opId": "op-side-2", "question": "again?" }), "op-side-2")).await.expect("thread/askSide");
     let Reply::Value(rebuilt) = rebuilt else { panic!("thread/askSide answers a value") };
     assert_eq!(rebuilt["text"], "rebuilt");

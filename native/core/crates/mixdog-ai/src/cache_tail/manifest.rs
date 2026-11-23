@@ -69,10 +69,31 @@ fn feed_block(hasher: &mut Sha256, role: Option<&str>, block: &Value) -> Option<
 struct Chain {
     hasher: Sha256,
     manifest: WireManifest,
+    /// The tool run the previous block belongs to (`tool_use` or `tool_result`), when it is one.
+    run: Option<Run>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Run {
+    Calls,
+    Results,
 }
 
 impl Chain {
     fn block(&mut self, zone: Zone, role: Option<&str>, block: &Value) {
+        let run = match block.get("type").and_then(Value::as_str) {
+            Some("tool_use") if zone == Zone::Messages => Some(Run::Calls),
+            Some("tool_result") if zone == Zone::Messages => Some(Run::Results),
+            _ => None,
+        };
+        // A run of calls, or of results, is one position of the provider's lookback.
+        let position = match self.manifest.positions.last() {
+            Some(last) if run.is_some() && run == self.run => *last,
+            Some(last) => last + 1,
+            None => 0,
+        };
+        self.manifest.positions.push(position);
+        self.run = run;
         let ttl = feed_block(&mut self.hasher, role, block);
         let digest = Digest(self.hasher.clone().finalize().into());
         self.manifest.boundaries.push(digest);
@@ -89,7 +110,7 @@ pub fn anthropic(body: &Value) -> WireManifest {
 
 /// The manifest of the body the encoder holds before it serializes it: no parse of the bytes it sends.
 pub fn of_body(body: &Map<String, Value>) -> WireManifest {
-    let mut chain = Chain { hasher: Sha256::new(), manifest: WireManifest::default() };
+    let mut chain = Chain { hasher: Sha256::new(), manifest: WireManifest::default(), run: None };
     feed_bytes(&mut chain.hasher, b"anthropic-messages");
     feed_value(&mut chain.hasher, body.get("model").unwrap_or(&Value::Null));
     for tool in body.get("tools").and_then(Value::as_array).into_iter().flatten() {
@@ -165,6 +186,33 @@ mod tests {
             { "role": "user", "content": [{ "type": "text", "text": "more", "cache_control": { "type": "ephemeral" } }] },
         ])));
         assert!(!edited.reaches(tail.block, tail.digest), "an edit cannot inherit the entry");
+    }
+
+    /// The provider's lookback counts a run of parallel calls as one position and their results as one: the entry the
+    /// request before a step of any width wrote stays within reach of the request after it, where twenty-one plain blocks
+    /// put it out of reach.
+    #[test]
+    fn a_step_of_any_width_costs_two_lookback_positions() {
+        let mark = |text: &str| json!({ "role": "user", "content": [{ "type": "text", "text": text, "cache_control": { "type": "ephemeral" } }] });
+        let first = anthropic(&body(json!([mark("go")])));
+        let tail = first.tail_marker().unwrap().clone();
+        for width in [2usize, 10, 20, 40] {
+            let calls: Vec<Value> = (0..width).map(|n| json!({ "type": "tool_use", "id": format!("c{n}"), "name": "t", "input": {} })).collect();
+            let mut results: Vec<Value> = (0..width).map(|n| json!({ "type": "tool_result", "tool_use_id": format!("c{n}"), "content": "ok" })).collect();
+            results.last_mut().unwrap()["cache_control"] = json!({ "type": "ephemeral" });
+            let next = anthropic(&body(json!([
+                { "role": "user", "content": "go" },
+                { "role": "assistant", "content": calls },
+                { "role": "user", "content": results },
+            ])));
+            let marked = next.tail_marker().unwrap();
+            assert_eq!(marked.block, tail.block + 2 * width, "the tail marker is on the step's last result");
+            assert_eq!(next.positions[marked.block] - next.positions[tail.block], 2, "width {width}");
+            assert!(next.reaches(tail.block, tail.digest), "width {width}: the earlier tail is within the lookback");
+        }
+        let plain: Vec<Value> = (0..21).map(|n| json!({ "type": "text", "text": format!("t{n}") })).collect();
+        let far = anthropic(&body(json!([{ "role": "user", "content": "go" }, { "role": "assistant", "content": plain }, mark("more")])));
+        assert!(!far.reaches(tail.block, tail.digest), "twenty-two positions on: out of reach");
     }
 
     #[test]

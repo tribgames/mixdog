@@ -4938,17 +4938,7 @@ impl SessionActor {
                 let ack = self.ingest_when_durable();
                 self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
-            Inbox::WritesLanded { tx } => match self.outbox.last_id().filter(|through| self.outbox.unwritten_through(*through)) {
-                None => {
-                    let _ = tx.send(Ok(()));
-                }
-                Some(through) => {
-                    // What a failed barrier held goes again only with a next write: the pump hands it now. A barrier would not
-                    // wait for it (a view-only entry behind held ones settles at once), so the waiter watches the records.
-                    self.retry_due |= self.outbox.has_unsaved() || self.outbox.awaits_retry();
-                    self.writes_landed.push((through, tx));
-                }
-            },
+            Inbox::WritesLanded { tx } => self.when_writes_landed(tx),
             Inbox::ForkPlan { idle, tx } => {
                 // A person's clear (the idle plan) waits out the scheduled compaction, as Node's `afterCompaction(clear)`
                 // does: its copy is then of the conversation the compaction left.

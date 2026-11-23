@@ -26,7 +26,8 @@ pub trait TurnWarmth: Send + Sync {
     /// session's model messages as the turn found them, read only for a retry
     /// (`cacheWarmTurnKind(input, claimed.preSession?.messages)`).
     fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send>;
-    /// `thread` left memory: its warm chain (and the whole request it holds) goes; what is durable about its cache stays.
+    /// `thread` left memory: its warm chain stays, with its schedule and touch, and lets go of the request it holds; each
+    /// later warm rebuilds that request from what is stored, without loading the thread.
     fn unloaded(&self, _thread: &ThreadId) {}
 }
 

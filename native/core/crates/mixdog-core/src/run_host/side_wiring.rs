@@ -100,7 +100,7 @@ mod tests {
 
         assert_eq!(ask_side_question(&*questions, &thread, " why ", true).await.unwrap(), "the answer");
 
-        questions.forget(&thread, false);
+        questions.forget(&thread, mixdog_core_session::session::turn_ops::SideEnd::Transcript);
         let refused = ask_side_question(&*questions, &thread, "again", true).await.unwrap_err();
         assert!(format!("{refused:?}").contains(SIDE_QUESTION_NO_REQUEST), "{refused:?}");
     }

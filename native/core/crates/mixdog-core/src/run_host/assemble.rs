@@ -557,7 +557,7 @@ mod rebuilt_tests {
         let messages = rebuilt_messages(&header, &rows).unwrap();
         let tail = &messages[messages.len() - 1];
         assert_eq!(tail.tool_call_id(), Some("c1"));
-        assert_eq!(tail.text(), "[Older tool result unavailable after context compaction]");
+        assert_eq!(tail.text(), mixdog_core_api::domain::provider::MISSING_TOOL_RESULT);
         assert_eq!(messages.len() - mixdog_core_prompt::prompt::blocks::request_system_messages(&header).len(), 3, "user, assistant, stub; no tail reminder");
         // A complete transcript is untouched.
         let whole = vec![rows[0].clone(), rows[1].clone(), json!({ "role": "tool", "toolCallId": "c1", "content": { "content": "ok" } })];
@@ -714,6 +714,10 @@ pub trait SessionSeams: Send + Sync + 'static {
     /// `readAgentFirstResponseTimeoutMs(agent)`: the agent definition's own first-response
     /// deadline (0 turns it off); `None` when it sets none.
     async fn first_response_timeout_ms(&self, _agent: &str) -> Option<i64> {
+        None
+    }
+    /// `providerCacheOpts` as `header`'s route and the saved `autoClear` decide it, when that differs from the header's.
+    fn synced_cache_opts(&self, _header: &Header) -> Option<Value> {
         None
     }
     /// The todo list, goal and background work as the turn guards read them. Owner:
@@ -972,15 +976,16 @@ impl HostRunParts {
 
     /// `nextMainRequest`: the request the thread's next turn would send, assembled by the same parts
     /// and the same wire function as the turn's, without the turn's side effects. `None` for a thread
-    /// that has no conversation yet, runs for an agent, or whose provider is not available.
+    /// that has no conversation yet, runs for an agent while `owners` is [`Owners::Main`], or whose provider is not available.
     pub async fn next_request(
         &self,
         thread: &ThreadId,
         header: &Header,
         surface: &mixdog_tools::policy::SessionSurface,
         (prior, generation): (Vec<(mixdog_core_api::ids::ItemId, Value)>, u64),
+        owners: Owners,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        self.rebuild_request(thread, header, surface, (prior, generation), None).await.map(|(provider, request, _)| (provider, request))
+        self.rebuild_request(thread, header, surface, (prior, generation), None, owners).await
     }
 
     /// [`Self::next_request`] as `nextMainRequest` returns it (`side-question.mjs:64-99`): the tools taken through
@@ -994,9 +999,7 @@ impl HostRunParts {
         loaded: (Vec<(mixdog_core_api::ids::ItemId, Value)>, u64),
         user_message: Option<&str>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        let (provider, mut request, native) = self.rebuild_request(thread, header, surface, loaded, user_message).await?;
-        request.tools = boundary_tools(header, std::mem::take(&mut request.tools), &native);
-        Some((provider, request))
+        self.rebuild_request(thread, header, surface, loaded, user_message, Owners::Main).await
     }
 
     async fn rebuild_request(
@@ -1006,8 +1009,13 @@ impl HostRunParts {
         surface: &mixdog_tools::policy::SessionSurface,
         (prior, generation): (Vec<(mixdog_core_api::ids::ItemId, Value)>, u64),
         user_message: Option<&str>,
-    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest, Vec<Value>)> {
-        if super::compaction_world::is_agent_owner(header) {
+        owners: Owners,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        if owners == Owners::Main && super::compaction_world::is_agent_owner(header) {
+            return None;
+        }
+        // `nextMainRequest` is null for a closed session: nothing is sent from a tombstoned record.
+        if header.get("closed") == Some(&Value::Bool(true)) || header.get("status").and_then(Value::as_str) == Some("closed") {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
@@ -1023,14 +1031,15 @@ impl HostRunParts {
         messages.extend(user_message.map(mixdog_agent::message::AgentMessage::user));
         let mut options = parts.options;
         options.iteration = 1;
-        let (request, _) = mixdog_agent::assemble_request(
-            text(header, "model"),
-            options,
-            mixdog_agent::project::project_for_wire(&messages),
-            None,
-            parts.tool_set.definitions(),
-        );
-        Some((parts.provider, request, super::factory::native_searches(&messages)))
+        // The rebuilt request lowers the stored history as the turn's own request did.
+        if let Some(wiring) = &parts.settings.effort {
+            options.effort_projection = wiring.carried(&messages);
+        }
+        // The tools as the turn's request boundary takes them (`McpCatalog::snapshot`, [`RunParts::request_snapshot`]): the
+        // header's deferred and MCP snapshot and the transcript's native tool-search references after the session's own.
+        let tools = boundary_tools(header, parts.tool_set.definitions(), &super::factory::native_searches(&messages));
+        let (request, _) = mixdog_agent::assemble_request(text(header, "model"), options, mixdog_agent::project::project_for_wire(&messages), None, tools);
+        Some((parts.provider, request))
     }
 
     /// The source of the tail reminder the session's sends carry (`withTailReminder`): what the
@@ -1095,6 +1104,15 @@ pub struct HostServices {
 pub struct HostRunParts {
     services: HostServices,
 }
+
+/// Whose sessions a rebuilt request is made for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Owners {
+    /// `nextMainRequest`'s: none for an agent's session.
+    Main,
+    /// Every session, an agent's included: the warm of what a session last sent.
+    Any,
+}
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -1130,27 +1148,49 @@ async fn pin_wire_route(
     input: &AssembleInput<'_>,
     header: &Header,
     provider: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
+    seams: &dyn SessionSeams,
     options: &mut mixdog_core_api::domain::provider::RequestOptions,
-) -> Result<(), TurnError> {
+) -> Result<Option<Value>, TurnError> {
     let (thread, provider_id, model) = (input.thread, text(header, "provider"), text(header, "model"));
     let current = header.get("wireRoute");
     let answered = input.prior.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant"));
-    let Some(pin) = mixdog_core_run::run_host::hop_host::resolve_pin(provider, current, provider_id, model, current.is_none() && answered).await else {
-        return Ok(());
-    };
+    let pin = mixdog_core_run::run_host::hop_host::resolve_pin(provider, current, provider_id, model, current.is_none() && answered).await;
+    // The cache policy is the wire's: decided again with the wire the adapter resolved (a pin written now, or one a hop or a
+    // fallback wrote since the policy was), before this request is built.
+    let mut pinned = header.clone();
+    if let Some(pin) = &pin {
+        pinned.insert("wireRoute".into(), pin.clone());
+    }
+    let opts = seams.synced_cache_opts(&pinned);
+    if pin.is_none() && opts.is_none() {
+        return Ok(None);
+    }
     let live = directory.live_header(thread).header();
     if text(&live, "provider") != provider_id || text(&live, "model") != model {
-        return Ok(());
+        return Ok(None);
     }
-    options.wire_pin = wire_pin_of(Some(&pin));
     let mut set = serde_json::Map::new();
-    set.insert("wireRoute".into(), pin);
+    if let Some(opts) = &opts {
+        pinned.insert("providerCacheOpts".into(), opts.clone());
+        if let Some(parameters) = options.model_parameters.as_mut().and_then(Value::as_object_mut) {
+            match header.get("modelParameters").and_then(|own| own.get("cacheStrategy")) {
+                Some(own) => parameters.insert("cacheStrategy".into(), own.clone()),
+                None => parameters.remove("cacheStrategy"),
+            };
+        }
+        apply_cache_opts(options, &pinned);
+        set.insert("providerCacheOpts".into(), opts.clone());
+    }
+    if let Some(pin) = pin {
+        options.wire_pin = wire_pin_of(Some(&pin));
+        set.insert("wireRoute".into(), pin);
+    }
     input
         .port
         .save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() })
         .await
         .map_err(|_| refuse("the pinned wire route could not be saved"))?;
-    Ok(())
+    Ok(opts)
 }
 
 #[async_trait]
@@ -1163,6 +1203,12 @@ impl RunParts for HostRunParts {
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), TurnError> {
         use super::turn_settings::TurnSettings;
         self.services.turn_settings.refresh_mcp(thread).await.map_err(refuse)
+    }
+
+    async fn fold_compacted(&self, thread: &ThreadId) -> Result<Option<Vec<mixdog_agent::message::AgentMessage>>, TurnError> {
+        use super::turn_settings::TurnSettings;
+        let folded = self.services.turn_settings.fold_compacted(thread).await.map_err(refuse)?;
+        Ok(folded.map(|header| super::factory::system_messages(&header)))
     }
 
     async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
@@ -1267,7 +1313,7 @@ impl RunParts for HostRunParts {
             .await?;
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
-        pin_wire_route(&directory, &input, header, &*provider, &mut options).await?;
+        let synced_cache_opts = pin_wire_route(&directory, &input, header, &*provider, &**seams, &mut options).await?;
         let tool_env = ToolEnv {
             thread_id: thread.clone(),
             turn_id: input.turn.clone(),
@@ -1402,7 +1448,15 @@ impl RunParts for HostRunParts {
                 &cwd.to_string_lossy(),
             ))),
             blobs: s.blobs.clone(),
-            carry: RunCarry::from_saved(header),
+            // The carry reads the cache policy this run's requests are written with, the one decided with its wire just now.
+            carry: match synced_cache_opts {
+                Some(opts) => {
+                    let mut written = header.clone();
+                    written.insert("providerCacheOpts".into(), opts);
+                    RunCarry::from_saved(&written)
+                }
+                None => RunCarry::from_saved(header),
+            },
         })
     }
 }

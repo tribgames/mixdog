@@ -519,6 +519,11 @@ impl Book {
         self.dirty = true;
     }
 
+    /// The book holds what its session's header does not: its next snapshot persists it.
+    pub fn mark_unsaved(&mut self) {
+        self.dirty = true;
+    }
+
     /// The book as persisted, once after each change.
     pub fn take_snapshot(&mut self) -> Option<Value> {
         if !std::mem::take(&mut self.dirty) {

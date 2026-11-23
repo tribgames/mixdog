@@ -573,6 +573,11 @@ mod tests {
         assert_eq!(error.message, "provider down");
         turns.unload_runtime(handle.id.as_str(), "agent-turn-complete");
         assert_eq!(*released.0.lock().unwrap(), [format!("{} agent-turn-complete", handle.id)]);
+        assert_eq!(
+            rig.side.forgets.lock().unwrap().last(),
+            Some(&(handle.id.as_str().to_owned(), crate::session::turn_ops::SideEnd::Unload)),
+            "the agent unload is an unload: the warm chain stays"
+        );
     }
     /// A worker's report leaves the worker: a value it marked sensitive is the marker in the result its owner gets, in the
     /// terminal hook's copy and in the rows a stopped turn's handoff is read from; carried, the value is the owner's too.
@@ -954,7 +959,8 @@ impl TurnSessions for SessionTurns {
         {
             return;
         }
-        self.directory.deps().side.forget(&thread, true);
+        // An unload, whichever path takes it: the warm chain stays.
+        self.directory.deps().side.forget(&thread, crate::session::turn_ops::SideEnd::Unload);
         self.release.release(&thread, reason);
     }
 }

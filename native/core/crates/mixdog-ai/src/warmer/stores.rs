@@ -146,6 +146,16 @@ fn warm_use_of(value: &Value) -> Option<WarmUse> {
 struct TouchState {
     touches: Vec<(String, Touch)>,
     uses: Vec<(String, WarmUse)>,
+    /// The cache books of sessions that are not loaded, as their warms left them (`crate::cache_tail::KeptBooks`).
+    books: Vec<(String, Value)>,
+}
+
+/// Whether a kept book still proves an entry inside its lifetime at `now`: past that, it tells a load nothing its header
+/// does not.
+fn book_alive(book: &Value, now: f64) -> bool {
+    entries(Some(book), "receipts")
+        .flat_map(|(_, held)| held.as_object().into_iter().flat_map(Map::values))
+        .any(|receipt| num(receipt.get("touchedAt")) + num(receipt.get("ttlMs")) > now)
 }
 
 pub struct TouchStore {
@@ -176,17 +186,24 @@ impl TouchStore {
                 state.uses.push((id.clone(), record));
             }
         }
+        for (id, book) in entries(stored.as_ref(), "cacheTailBooks") {
+            if book.is_object() {
+                state.books.push((id.clone(), book.clone()));
+            }
+        }
         Ok(Self { state: Mutex::new(state), writer: Writer::spawn(path, io, log, "touch store"), now })
     }
 
-    /// The document of the state now, expired touches dropped.
+    /// The document of the state now, expired touches and kept books dropped.
     fn snapshot(&self, state: &mut TouchState) -> Value {
         let now = (self.now)();
         state.touches.retain(|(_, t)| t.touch_at + t.ttl_ms > now);
+        state.books.retain(|(_, book)| book_alive(book, now));
         let touches: Map<String, Value> = state.touches.iter().map(|(id, t)| (id.clone(), t.json())).collect();
         let uses: Map<String, Value> =
             state.uses.iter().map(|(id, u)| (id.clone(), json!({ "at": u.at, "provider": u.provider, "model": u.model, "accountId": u.account_id }))).collect();
-        json!({ "version": 1, "touches": touches, "warmUses": uses })
+        let books: Map<String, Value> = state.books.iter().cloned().collect();
+        json!({ "version": 1, "touches": touches, "warmUses": uses, "cacheTailBooks": books })
     }
 
     fn changed(&self, mut state: MutexGuard<'_, TouchState>) {
@@ -269,6 +286,31 @@ impl TouchStore {
             self.snapshot(&mut state)
         };
         self.writer.flush(doc).await;
+    }
+}
+
+impl crate::cache_tail::KeptBooks for TouchStore {
+    fn kept(&self, session_id: &str) -> Option<Value> {
+        lock(&self.state).books.iter().find(|(id, _)| id == session_id).map(|(_, book)| book.clone())
+    }
+
+    fn keep(&self, session_id: &str, book: Value) {
+        let mut state = lock(&self.state);
+        match state.books.iter_mut().find(|(id, _)| id == session_id) {
+            Some(slot) if slot.1 == book => return,
+            Some(slot) => slot.1 = book,
+            None => state.books.push((session_id.to_owned(), book)),
+        }
+        self.changed(state);
+    }
+
+    fn drop_kept(&self, session_id: &str) {
+        let mut state = lock(&self.state);
+        let before = state.books.len();
+        state.books.retain(|(id, _)| id != session_id);
+        if state.books.len() != before {
+            self.changed(state);
+        }
     }
 }
 

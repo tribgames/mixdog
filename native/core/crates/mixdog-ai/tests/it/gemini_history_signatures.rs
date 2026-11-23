@@ -1,6 +1,6 @@
 //! The thought signatures of a Gemini request's history. Gemini refuses a tool loop whose active turn opens a model step
 //! with an unsigned call, so a history that has no real signature gets the documented bypass token on the first call of
-//! each step of the active turn; real signatures are sent back as recorded, and a recording another model made is not.
+//! each step, in every turn alike; real signatures are sent back as recorded, and a recording another model made is not.
 
 use mixdog_ai::providers::google::request::Dialect;
 use mixdog_ai::providers::google::request::build_request;
@@ -100,15 +100,21 @@ fn every_step_of_a_sequential_tool_loop_is_signed() {
     assert_eq!(signatures, [sentinel("read"), sentinel("edit")]);
 }
 
+/// A step is sent as the same bytes by every request that carries it: the turn that follows it does not take the token
+/// back, which would rewrite a row the provider's prefix cache already holds.
 #[test]
-fn steps_of_an_earlier_turn_are_left_as_they_were() {
+fn a_step_keeps_its_bytes_when_a_later_turn_follows_it() {
     let mut messages = vec![text(Role::User, "first")];
     messages.extend(step(&["old"]));
+    let within = contents("gemini-3-pro", messages.clone());
     messages.push(text(Role::Assistant, "done"));
     messages.push(text(Role::User, "second"));
+    let after = contents("gemini-3-pro", messages.clone());
+    assert_eq!(after[..within.len()], within[..], "the next turn's request starts with the rows the last one sent");
     messages.extend(step(&["new"]));
-    let signatures = call_signatures(&contents("gemini-3-pro", messages));
-    assert_eq!(signatures, [unsigned("old"), sentinel("new")], "the new turn begins at the last user message that is not a tool result");
+    let later = contents("gemini-3-pro", messages);
+    assert_eq!(later[..after.len()], after[..]);
+    assert_eq!(call_signatures(&later), [sentinel("old"), sentinel("new")]);
 }
 
 #[test]

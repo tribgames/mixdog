@@ -99,6 +99,13 @@ pub trait TurnSettings: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// The prompt fold a compaction of the running turn owes, applied for the request that follows it: the thread's
+    /// header once its prompt is rebuilt from current sources, moved or not; `None` when the thread's prompt is never
+    /// rebuilt.
+    async fn fold_compacted(&self, _thread: &ThreadId) -> Result<Option<Header>, String> {
+        Ok(None)
+    }
+
     /// `currentAgents()` (`agent-profile-fold.mjs`): the agents `header`'s Lead may delegate to now, as its prompt
     /// would list them, for the turn's agent list reminder; `None` for a session that gets none.
     async fn current_agents(&self, _thread: &ThreadId, _header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
@@ -142,6 +149,13 @@ impl TurnSettings for LateTurnSettings {
     async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
         match self.0.get() {
             Some(host) => host.migrate_exposure(thread, rows).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn fold_compacted(&self, thread: &ThreadId) -> Result<Option<Header>, String> {
+        match self.0.get() {
+            Some(host) => host.fold_compacted(thread).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
     }

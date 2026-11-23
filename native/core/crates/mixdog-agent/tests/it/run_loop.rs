@@ -444,6 +444,8 @@ struct Sink {
     stalled: std::sync::atomic::AtomicBool,
     /// A store that cannot classify a message: every commit is refused.
     refused: std::sync::atomic::AtomicBool,
+    /// The save of every rewrite fails.
+    unstored: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl TranscriptSink for Sink {
@@ -467,6 +469,9 @@ impl TranscriptSink for Sink {
         if self.stalled.load(Ordering::Relaxed) {
             std::future::pending::<()>().await;
         }
+    }
+    async fn replaced(&self) -> bool {
+        !self.unstored.load(Ordering::Relaxed)
     }
 }
 
@@ -496,6 +501,8 @@ struct Compactor100 {
     session_single_shot_consumed: bool,
     /// The session's last actual prompt size and the transcript length its anchor covers.
     session_last_reading: Option<(u64, usize)>,
+    /// The pass keeps the transcript's system messages ahead of its summary, as the product's does.
+    keeps_system: bool,
 }
 #[async_trait]
 impl Compactor for Compactor100 {
@@ -533,7 +540,9 @@ impl Compactor for Compactor100 {
         if self.fail {
             return Err(CompactError::Failed("boom".into()));
         }
-        let mut kept = vec![AgentMessage::user("[summary]")];
+        let system = request.messages.iter().take_while(|m| self.keeps_system && m.role() == mixdog_core_api::domain::provider::Role::System);
+        let mut kept: Vec<AgentMessage> = system.cloned().collect();
+        kept.push(AgentMessage::user("[summary]"));
         kept.push(request.messages.last().unwrap().clone());
         Ok(CompactOutput {
             messages: kept,
@@ -3098,6 +3107,129 @@ async fn each_request_carries_the_effort_projection_of_its_transcript() {
     }
 }
 
+/// A Messages route's request carries its projection itself, so a fork, a side question or a cache warm of the saved request
+/// lowers the history as the turn did; a Responses route's request carries none (its adapter takes it with each attempt).
+#[tokio::test]
+async fn a_messages_request_carries_its_effort_projection_and_a_responses_one_does_not() {
+    use mixdog_agent::effort::EffortMode;
+    use mixdog_agent::effort::EffortRoute;
+    use mixdog_agent::effort::EffortSnapshot;
+    use mixdog_agent::effort::EffortWiring;
+    for (provider, mode, carried) in [("anthropic-oauth", EffortMode::Anthropic, true), ("anthropic", EffortMode::Anthropic, true), ("openai", EffortMode::Responses, false)] {
+        let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+        let snap =
+            |effort: &str| EffortSnapshot { provider: provider.into(), model: "claude-opus-5-5".into(), mode, initial_effort: "low".into(), effort: effort.into() };
+        let mut first = AgentMessage::user("earlier");
+        first.effort = Some(snap("low"));
+        let mut second = AgentMessage::user("go");
+        second.effort = Some(snap("high"));
+        let mut cfg = config();
+        // The turn runs at the effort judged for it; the conversation began at another.
+        cfg.options.effort = Some("high".into());
+        cfg.effort = Some(EffortWiring {
+            route: EffortRoute {
+                provider: provider.into(),
+                model: "claude-opus-5.5".into(),
+                mode: Some(mode),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: Some(snap("high")),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            },
+            adapter: adapter.clone(),
+        });
+        finish(h.run(cfg, vec![Echo::tool()], vec![first, AgentMessage::assistant("a", Vec::new()), second])).await;
+        let expected = mixdog_core_api::domain::provider::EffortProjection { initial_effort: "low".into(), updates: [(2, "high".to_owned())].into() };
+        let requests = h.provider.requests();
+        assert_eq!(requests.len(), 2, "{provider}");
+        for request in &requests {
+            assert_eq!(request.options.effort_projection, carried.then(|| expected.clone()), "{provider}");
+        }
+        assert_eq!(adapter.seen.lock().unwrap().len(), 2, "the adapter is handed the projection on either wire");
+    }
+}
+
+/// Two turns of one session on an Anthropic route, the second judged at another effort, each run through the loop and
+/// its request encoded by the Messages codec: the later body keeps every byte of the earlier one, up to its end, and the
+/// change rides as a control message before the turn's user message.
+#[tokio::test]
+async fn an_effort_change_between_two_turns_keeps_every_byte_the_earlier_request_sent() {
+    use mixdog_agent::effort::EffortMode;
+    use mixdog_agent::effort::EffortRoute;
+    use mixdog_agent::effort::EffortSnapshot;
+    use mixdog_agent::effort::EffortWiring;
+    use mixdog_ai::providers::anthropic::AnthropicCodec;
+    use mixdog_ai::providers::anthropic::AnthropicConfig;
+    use mixdog_ai::providers::anthropic::Flavor;
+    use mixdog_ai::providers::anthropic::ModelCaps;
+    use mixdog_core_api::domain::provider::WireCodec;
+    const MODEL: &str = "claude-opus-5-5";
+    fn snap(provider: &str, effort: &str) -> EffortSnapshot {
+        EffortSnapshot { provider: provider.into(), model: MODEL.into(), mode: EffortMode::Anthropic, initial_effort: "low".into(), effort: effort.into() }
+    }
+    fn stamped(provider: &str, text: &str, effort: &str) -> AgentMessage {
+        let mut message = AgentMessage::user(text);
+        message.effort = Some(snap(provider, effort));
+        message
+    }
+    /// One turn of the session at `effort`, over `messages`: the request the loop sent.
+    async fn sent(provider: &str, effort: &str, messages: Vec<AgentMessage>) -> ModelRequest {
+        let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
+        let mut cfg = config();
+        cfg.options.effort = Some(effort.into());
+        cfg.effort = Some(EffortWiring {
+            route: EffortRoute {
+                provider: provider.into(),
+                model: MODEL.into(),
+                mode: Some(EffortMode::Anthropic),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: Some(snap(provider, effort)),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            },
+            adapter,
+        });
+        finish(h.run(cfg, Vec::new(), messages)).await;
+        let mut request = (*h.provider.requests().pop().expect("the turn's request")).clone();
+        request.model = MODEL.into();
+        request
+    }
+    for (provider, flavor) in [("anthropic", Flavor::ApiKey), ("anthropic-oauth", Flavor::OAuth)] {
+        let first = sent(provider, "low", vec![stamped(provider, "q1", "low")]).await;
+        let history = vec![stamped(provider, "q1", "low"), AgentMessage::assistant("ok", Vec::new()), stamped(provider, "q2", "high")];
+        let second = sent(provider, "high", history).await;
+        let caps = ModelCaps {
+            adaptive_thinking: true,
+            effort_levels: ["low", "medium", "high"].map(String::from).to_vec(),
+            max_output_tokens: Some(16384),
+            ..ModelCaps::default()
+        };
+        let codec = AnthropicCodec::new(flavor, AnthropicConfig::new(Arc::new(move |_: &str| Some(caps.clone()))));
+        let body = |request: &ModelRequest| -> serde_json::Value {
+            let mut body: serde_json::Value = serde_json::from_slice(&codec.encode(request).expect("encodes").body).expect("a JSON body");
+            // The cache reads the bytes without their breakpoints.
+            for block in body["messages"].as_array_mut().expect("messages").iter_mut().filter_map(|m| m["content"].as_array_mut()).flatten() {
+                block.as_object_mut().expect("a block").shift_remove("cache_control");
+            }
+            body
+        };
+        let (earlier, later) = (body(&first), body(&second));
+        let frame = |body: &serde_json::Value| {
+            let mut frame = body.clone();
+            frame.as_object_mut().expect("a body").shift_remove("messages");
+            frame
+        };
+        assert_eq!(frame(&earlier), frame(&later), "{provider}: nothing ahead of the messages moves with the effort");
+        assert_eq!(later["output_config"]["effort"], "low", "{provider}: the conversation's first effort stays at the top");
+        let (was, now) = (earlier["messages"].to_string(), later["messages"].to_string());
+        assert!(now.starts_with(was.strip_suffix(']').expect("an array")), "{provider}: {was} is not a prefix of {now}");
+        let messages = later["messages"].as_array().expect("messages");
+        let roles: Vec<&str> = messages.iter().map(|m| m["role"].as_str().expect("a role")).collect();
+        assert_eq!(roles, ["user", "assistant", "system", "user"], "{provider}");
+        assert_eq!(messages[2], json!({ "role": "system", "content": [], "output_config": { "effort": "high" } }), "{provider}");
+    }
+}
+
 /// Resolves only when the test releases it, and says when it was entered.
 struct GatedJudge {
     entered: std::sync::atomic::AtomicBool,
@@ -3790,6 +3922,214 @@ async fn the_exposure_migration_runs_at_every_request_boundary() {
     };
     assert!(first_system(&sent[0]).unwrap().contains("migrated rules"), "the first request is built from the migrated prompt");
     assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
+}
+
+/// Folds the prompt whenever a rewritten transcript asks, and counts how often it was asked.
+#[derive(Default)]
+struct FoldMcp {
+    folds: AtomicU64,
+}
+
+impl FoldMcp {
+    fn folds(&self) -> u64 {
+        self.folds.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for FoldMcp {
+    async fn refresh(&self) {}
+
+    async fn fold_compacted(&self) -> Result<Option<Vec<AgentMessage>>, String> {
+        let made = self.folds.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(Some(vec![system_message(&format!("folded rules {made}"))]))
+    }
+}
+
+/// The prompt fold a compaction owes lands in the request that follows the compaction, which writes the conversation anew
+/// anyway: that request carries the rebuilt system text with the compacted history, the fold is asked for once, and the
+/// turn's next request keeps every message the folded one sent.
+#[tokio::test]
+async fn a_compactions_prompt_fold_lands_in_the_request_that_follows_it() {
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let folds = Arc::new(FoldMcp::default());
+    h.mcp = Some(folds.clone());
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    let mut messages = vec![system_message("old rules")];
+    messages.extend(eleven_messages());
+    finish(h.run(cfg, vec![Echo::tool()], messages)).await;
+    assert_eq!(compact_marker(&h).len(), 1, "one compaction, before the turn's first request");
+    assert_eq!(folds.folds(), 1, "one fold, with the compaction");
+    let sent = h.provider.requests();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(wire_dump(&sent[0]), ["System:folded rules 1", "User:[summary]", "User:latest"], "the compacted history goes out under the folded prompt");
+    let (first, second) = (wire_dump(&sent[0]), wire_dump(&sent[1]));
+    assert_eq!(second[..first.len()], first[..], "the next request keeps what the folded one sent");
+}
+
+/// A run with no compaction asks for no fold: a prompt is never rebuilt under a cache the turn holds.
+#[tokio::test]
+async fn a_turn_that_compacts_nothing_folds_nothing() {
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    let folds = Arc::new(FoldMcp::default());
+    h.mcp = Some(folds.clone());
+    finish(h.run(config(), vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
+    assert_eq!(folds.folds(), 0);
+    assert!(h.provider.requests().iter().all(|request| wire_dump(request)[0] == "System:old rules"));
+}
+
+/// Its fold cannot be made.
+struct FailingFoldMcp;
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for FailingFoldMcp {
+    async fn refresh(&self) {}
+
+    async fn fold_compacted(&self) -> Result<Option<Vec<AgentMessage>>, String> {
+        Err("the prompt could not be composed".to_owned())
+    }
+}
+
+/// A fold that fails after the compaction was adopted fails the turn with the compaction's own record out: the rewrite
+/// reached the store, and the pass ended as a changed one, which is what the session counts the compaction and resets
+/// its reading by.
+#[tokio::test]
+async fn a_fold_that_fails_after_a_compaction_leaves_the_compactions_record() {
+    let mut h = Harness::new(vec![turn(vec![text("never"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    h.mcp = Some(Arc::new(FailingFoldMcp));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    let mut messages = vec![system_message("old rules")];
+    messages.extend(eleven_messages());
+    let failure = h.run(cfg, vec![Echo::tool()], messages).run().await.expect_err("the fold failed");
+    assert!(matches!(&failure.error, AgentError::RequestTools(text) if text.contains("could not be composed")), "{:?}", failure.error);
+    assert!(h.provider.requests().is_empty(), "nothing is sent under the prompt the fold did not rebuild");
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.iter().filter(|(_, rewrite)| rewrite.compaction).count(), 1, "the compacted history is the store's");
+    let events = h.observer.events();
+    let ended_changed = |event: &RunEvent| {
+        matches!(event, RunEvent::CompactPass(pass) if matches!(pass.stage, mixdog_agent::env::PassStage::Done { changed: true, .. }))
+    };
+    assert_eq!(events.iter().filter(|event| ended_changed(event)).count(), 1, "the pass ends as a changed one");
+    let marked = compact_marker(&h);
+    assert_eq!(marked.len(), 1);
+    assert!(matches!(marked[0].status, mixdog_agent::env::CompactStatus::Compacted));
+}
+
+/// A compaction whose save failed is not folded: the store still holds the old history under the old prompt, so no fold
+/// is asked for, and the turn goes on from the compacted transcript it holds, under the prompt it held before.
+#[tokio::test]
+async fn a_compaction_the_store_did_not_take_is_not_folded() {
+    let mut h = Harness::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { keeps_system: true, ..Default::default() }));
+    let folds = Arc::new(FoldMcp::default());
+    h.mcp = Some(folds.clone());
+    h.sink.unstored.store(true, Ordering::Relaxed);
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    let mut messages = vec![system_message("old rules")];
+    messages.extend(eleven_messages());
+    finish(h.run(cfg, vec![Echo::tool()], messages)).await;
+    assert_eq!(compact_marker(&h).len(), 1);
+    assert_eq!(folds.folds(), 0, "no fold is asked for on a history the store does not hold");
+    assert_eq!(wire_dump(&h.provider.requests()[0]), ["System:old rules", "User:[summary]", "User:latest"]);
+}
+
+/// The store's history after a compaction another actor made: its summary, then the rows this run appended since that
+/// compaction's snapshot, one of them with thinking signed over the history that left.
+struct AppendedSince;
+
+#[async_trait]
+impl StoredHistory for AppendedSince {
+    async fn reload(&self) -> Result<(Vec<AgentMessage>, u64), String> {
+        let signed = json!({
+            "role": "assistant", "content": "step",
+            "thinkingBlocks": [{ "type": "thinking", "thinking": "t", "signature": "sig" }],
+        });
+        let signed = mixdog_agent::message_row::message_of_owned(signed).map_err(|(error, _)| error)?;
+        Ok((vec![AgentMessage::user("compacted: go"), signed, AgentMessage::user("more")], 3))
+    }
+}
+
+/// A stale request reloads a history compacted elsewhere, inside the send loop. The request that follows carries that
+/// compaction's fold, asked for once, and none of the thinking the appended rows held under the old history; the
+/// unbound rows are written, as a silent rewrite and no compaction.
+#[tokio::test]
+async fn a_reloaded_history_is_sent_folded_with_the_thinking_of_its_appended_rows_unbound() {
+    use mixdog_core_api::domain::cache_tail::{TailGateHandle, TailRefusal};
+    let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(TailRefusal::Stale)), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let folds = Arc::new(FoldMcp::default());
+    h.mcp = Some(folds.clone());
+    let mut config = config();
+    config.options.tail_gate = Some(TailGateHandle(Arc::new(NoBook)));
+    config.options.tail_generation = Some(1);
+    config.history = Some(Arc::new(AppendedSince));
+    finish(h.run(config, vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
+    assert_eq!(folds.folds(), 1, "one fold, with the reloaded history");
+    let sent = h.provider.requests();
+    assert_eq!(wire_dump(&sent[0])[0], "System:old rules");
+    assert_eq!(wire_dump(&sent[1]), ["System:folded rules 1", "User:compacted: go", "Assistant:step", "User:more"]);
+    assert!(sent[1].messages.iter().all(|message| message.thinking_blocks.is_none()), "no thinking signed over the history that left");
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.len(), 1, "the unbound rows are stored");
+    assert!(!replaced[0].1.compaction, "as a silent rewrite: the compaction is the other actor's");
+    assert!(replaced[0].0.iter().all(|message| message.message.thinking_blocks.is_none()));
+}
+
+/// A cache owner that offers this run the rewrite of its expired history.
+struct OwnsRewrite;
+
+impl mixdog_core_api::domain::cache_tail::TailGate for OwnsRewrite {
+    fn admit<'a>(
+        &'a self,
+        _: mixdog_core_api::domain::cache_tail::Admission<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_core_api::domain::cache_tail::Verdict> + Send + 'a>> {
+        unreachable!("the scripted provider asks no gate")
+    }
+    fn settle(&self, _: &mixdog_core_api::domain::cache_tail::Permit, _: Option<mixdog_core_api::domain::cache_tail::Counters>) {}
+    fn claim(&self, _: mixdog_core_api::domain::cache_tail::ColdRequest) -> mixdog_core_api::domain::cache_tail::Claim {
+        mixdog_core_api::domain::cache_tail::Claim::Owner
+    }
+    fn resolve(&self, _: u64, _: mixdog_core_api::domain::cache_tail::Resolution) -> Option<mixdog_core_api::domain::cache_tail::Unreduced> {
+        None
+    }
+    fn rebuilt(&self) -> u64 {
+        2
+    }
+    fn snapshot(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn generation(&self) -> u64 {
+        2
+    }
+    fn wait_for(&self, _: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        unreachable!("the run owns the rewrite")
+    }
+}
+
+/// The rewrite of an expired history is made inside the send loop: its fold lands in the request that follows it, once.
+#[tokio::test]
+async fn the_rewrite_of_an_expired_history_is_sent_under_its_fold() {
+    use mixdog_core_api::domain::cache_tail::{Cold, ColdRequest, TailGateHandle, TailRefusal};
+    let expired = TailRefusal::Rebuild(ColdRequest { ticket: 1, cold: Cold::Expired });
+    let mut h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(expired)), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100::default()));
+    let folds = Arc::new(FoldMcp::default());
+    h.mcp = Some(folds.clone());
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    cfg.options.tail_gate = Some(TailGateHandle(Arc::new(OwnsRewrite)));
+    cfg.options.tail_generation = Some(1);
+    let messages = vec![system_message("old rules"), AgentMessage::user("m0"), AgentMessage::user("m1"), AgentMessage::user("latest")];
+    finish(h.run(cfg, vec![Echo::tool()], messages)).await;
+    assert_eq!(compact_marker(&h).len(), 1, "one compaction, after the refused request");
+    assert_eq!(folds.folds(), 1, "one fold, with it");
+    let sent = h.provider.requests();
+    assert_eq!(wire_dump(&sent[0])[0], "System:old rules", "the refused request was built before the rewrite");
+    assert_eq!(wire_dump(&sent[1])[..2], ["System:folded rules 1", "User:[summary]"]);
 }
 
 /// Migrates at the second boundary only: after the first send settled, so the loop holds a guard of the old system prompt.

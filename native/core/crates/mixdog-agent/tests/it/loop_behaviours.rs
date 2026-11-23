@@ -886,6 +886,72 @@ async fn a_model_or_tool_change_between_sends_is_an_intentional_break_and_the_se
     assert_eq!(breaks[0]["reason"].as_str(), Some("tool_schema_changed"));
 }
 
+struct FixedWire;
+
+impl mixdog_ai::providers::openai::config::WireContext for FixedWire {
+    fn request_id(&self) -> String {
+        "0".repeat(32)
+    }
+    fn now_unix_ms(&self) -> u64 {
+        0
+    }
+    fn turn_state(&self, _scope: &str, _turn_id: &str) -> Option<String> {
+        None
+    }
+    fn var(&self, _name: &str) -> Option<String> {
+        None
+    }
+}
+
+/// The product's codec of each wire family, with the provider and the model a session of it runs under.
+fn wire_families() -> Vec<(&'static str, &'static str, Arc<dyn WireCodec>)> {
+    use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor};
+    use mixdog_ai::providers::google::codec::GoogleCodec;
+    use mixdog_ai::providers::google::traits::CatalogGoogleTraits;
+    use mixdog_ai::providers::openai::codec::OpenAiCodec;
+    use mixdog_ai::providers::openai::config::{NoFacts, OpenAiConfig};
+    let responses = OpenAiConfig::api_key(false, Arc::new(NoFacts), Arc::new(FixedWire));
+    vec![
+        ("anthropic", "claude-sonnet-4-5", Arc::new(AnthropicCodec::new(Flavor::ApiKey, AnthropicConfig::new(Arc::new(|_: &str| None))))),
+        ("openai", "gpt-5", Arc::new(OpenAiCodec::new(responses, mixdog_core_api::domain::keepalive::TransportKind::Http1))),
+        ("local", "local-model", mixdog_ai::providers::local::codec("http://127.0.0.1:9/v1")),
+        ("gemini", "gemini-2.5-flash", Arc::new(GoogleCodec::gemini("https://generativelanguage.googleapis.com", Arc::new(CatalogGoogleTraits(Vec::new()))))),
+    ]
+}
+
+/// A break the prefix guard finds is kept where it survives a restart, whether or not the cache-break trace is written:
+/// on the session record, as the break the trace would have held, with the session's running total.
+#[tokio::test]
+async fn a_break_the_prefix_guard_finds_is_kept_on_the_session_record_with_its_running_total() {
+    async fn turn_of(model: &str, tools: Vec<Arc<dyn Tool>>, carry: RunCarry) -> RunCarry {
+        let h = Harness::new(reply());
+        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
+        let cfg = RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model);
+        let messages = vec![system("rules"), AgentMessage::user("one")];
+        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), cfg, messages, carry);
+        run.run().await.unwrap_or_else(|f| panic!("{}", f.error)).carry
+    }
+    let first = turn_of("m", vec![], RunCarry::default()).await;
+    assert!(!first.to_saved().contains_key("providerPrefixEvents"), "a first request breaks nothing");
+    let second = turn_of("m", vec![Echo::tool()], RunCarry { prefix_guard: first.prefix_guard.clone(), ..RunCarry::default() }).await;
+    let saved = second.to_saved();
+    let event = &saved["providerPrefixEvents"][0];
+    assert_eq!((event["classification"].as_str(), event["reason"].as_str()), (Some("intentional"), Some("tool_schema_changed")));
+    assert_eq!((event["requestPrefixChanged"].as_bool(), event["iteration"].as_u64()), (Some(true), Some(1)));
+    assert!(event["at"].is_number() && event.get("sessionId").is_none(), "{event}");
+    assert_eq!((saved["providerPrefixEvents"].as_array().map(Vec::len), saved["providerPrefixEventTotal"].as_u64()), (Some(1), Some(1)));
+    // The record read back from its stored text, as a restarted daemon reads it: the count goes on from there.
+    let stored: serde_json::Map<String, JsonValue> = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+    let third = turn_of("other-model", vec![Echo::tool()], RunCarry { prefix_guard: second.prefix_guard.clone(), ..RunCarry::from_saved(&stored) }).await;
+    let saved = third.to_saved();
+    assert_eq!(saved["providerPrefixEvents"][0]["reason"], "model_changed");
+    assert_eq!(saved["providerPrefixEventTotal"], 2);
+    // A turn that breaks nothing leaves the record's events and total as they are.
+    let stored: serde_json::Map<String, JsonValue> = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+    let quiet = turn_of("other-model", vec![Echo::tool()], RunCarry { prefix_guard: third.prefix_guard.clone(), ..RunCarry::from_saved(&stored) }).await;
+    assert!(!quiet.to_saved().contains_key("providerPrefixEvents"));
+}
+
 #[tokio::test]
 async fn a_refused_image_is_not_replayed_so_no_rebaseline_is_traced() {
     let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
@@ -1128,7 +1194,9 @@ async fn cache_reads(provider: &str, read: u64) -> Vec<serde_json::Map<String, J
             })),
         ]
     };
+    // The session header the host passes: the provider the run is seated on, and its cache policy.
     let mut header = serde_json::Map::new();
+    header.insert("provider".into(), json!(provider));
     header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": { "messages": "5m" } }));
     let mut messages = vec![system("rules"), AgentMessage::user("one")];
     let mut guard = None;
@@ -1174,6 +1242,85 @@ async fn a_send_that_reads_far_less_of_the_cache_than_the_last_one_held_is_trace
     );
     assert_eq!((miss["cachedTokens"].as_u64(), miss["previousCachedPrefixTokens"].as_u64()), (Some(1_000), Some(10_000)));
     assert_eq!(miss["actualCacheMiss"], true);
+}
+
+/// The provider's own record of a turn that made `ids`' calls, as each wire's decoder stores it (`providerReplay`), with a
+/// mark only that record carries; `None` for a wire that records none.
+fn recorded_turn(provider: &str, ids: &[&str]) -> Option<(JsonValue, &'static str)> {
+    let items = match provider {
+        "anthropic" => {
+            let mut blocks = vec![json!({ "type": "thinking", "thinking": "hm", "signature": "sig-1" })];
+            blocks.extend(ids.iter().map(|id| json!({ "type": "tool_use", "id": id, "name": "echo", "input": { "n": 1 } })));
+            (json!({ "version": 1, "provider": "anthropic", "items": blocks }), "sig-1")
+        }
+        "openai" => {
+            // The arguments as the provider spelled them: a call rebuilt from the row's own list spells them without the space.
+            let calls: Vec<JsonValue> =
+                ids.iter().map(|id| json!({ "type": "function_call", "call_id": id, "name": "echo", "arguments": "{\"n\": 1}" })).collect();
+            (json!({ "version": 1, "provider": "openai-responses", "items": calls }), "{\\\"n\\\": 1}")
+        }
+        "gemini" => {
+            let parts: Vec<JsonValue> =
+                ids.iter().map(|id| json!({ "functionCall": { "name": "echo", "args": { "n": 1 }, "id": id }, "thoughtSignature": "sig-1" })).collect();
+            (json!({ "version": 1, "provider": "gemini", "items": { "parts": parts } }), "sig-1")
+        }
+        _ => return None,
+    };
+    Some(items)
+}
+
+/// A tool call no row answers goes out as the same bytes before the transcript repair stores a result for it and after,
+/// on each wire, for a turn stored as its calls alone and for one that carries the provider's own record of it: alone in
+/// its step, behind an answered call and ahead of one, two in one step, one in an earlier turn with one in the newest
+/// step, with and without text after it.
+#[test]
+fn an_open_call_is_the_same_bytes_on_each_wire_before_and_after_the_repair_stores_its_result() {
+    let row = |row: JsonValue| mixdog_agent::message_row::message_of_owned(row).unwrap_or_else(|(error, _)| panic!("{error}"));
+    let result = |id: &str| row(json!({ "role": "tool", "toolCallId": id, "content": format!("done {id}") }));
+    for (provider, model, codec) in wire_families() {
+        for recorded in [false, true] {
+            let mark = recorded_turn(provider, &[]).filter(|_| recorded).map(|(_, mark)| mark);
+            if recorded && mark.is_none() {
+                continue;
+            }
+            let calls = |ids: &[&str]| {
+                let calls: Vec<JsonValue> = ids.iter().map(|id| json!({ "id": id, "name": "echo", "arguments": { "n": 1 } })).collect();
+                let mut turn = json!({ "role": "assistant", "content": "", "toolCalls": calls });
+                if recorded && let Some((replay, _)) = recorded_turn(provider, ids) {
+                    turn["providerReplay"] = replay;
+                }
+                row(turn)
+            };
+            let (go, next) = (AgentMessage::user("go"), AgentMessage::user("next"));
+            let histories = [
+                (1, vec![go.clone(), calls(&["call_1"]), next.clone()]),
+                (1, vec![go.clone(), calls(&["call_1", "call_2"]), result("call_1"), next.clone()]),
+                (1, vec![go.clone(), calls(&["call_1", "call_2"]), result("call_2"), next.clone()]),
+                (1, vec![go.clone(), calls(&["call_1"])]),
+                (2, vec![go.clone(), calls(&["call_1", "call_2"]), next.clone()]),
+                (2, vec![go.clone(), calls(&["call_1"]), next.clone(), calls(&["call_2"])]),
+            ];
+            for (case, (open, history)) in histories.iter().enumerate() {
+                let body = |messages: &[AgentMessage]| -> JsonValue {
+                    let request = ModelRequest {
+                        model: model.into(),
+                        messages: mixdog_agent::project::project_for_wire(messages),
+                        tools: Vec::new(),
+                        options: RequestOptions::default(),
+                    };
+                    serde_json::from_slice(&codec.encode(&request).expect("the request encodes").body).expect("a JSON body")
+                };
+                let before = body(history);
+                if let Some(mark) = mark {
+                    assert!(before.to_string().contains(mark), "{provider} case {case}: the turn goes out as the provider recorded it: {before}");
+                }
+                let mut repaired = history.clone();
+                assert!(mixdog_agent::repair::repair_before_send(&mut repaired), "{provider} case {case}: the repair stores the missing result");
+                assert_eq!(repaired.len(), history.len() + open, "{provider} case {case}");
+                assert_eq!(body(&repaired), before, "{provider} case {case}, recorded turn: {recorded}");
+            }
+        }
+    }
 }
 
 #[tokio::test]

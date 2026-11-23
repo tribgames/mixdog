@@ -51,6 +51,7 @@ use crate::transport::http::HttpSend;
 
 mod cache_tail_wire;
 mod cut_recovery;
+mod effort_pairs;
 mod fallback_rows;
 mod oauth_route;
 mod recoveries;

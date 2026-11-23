@@ -14,7 +14,7 @@ use mixdog_core_ports::ports::route::Route;
 
 use super::deferred_manifest::apply_initial_manifest;
 use super::route_change::{RouteFacts, SurfaceLookup};
-use super::session_cache_opts::session_provider_cache_opts;
+use super::session_cache_opts::route_cache_opts;
 use super::session_tools::header_scope;
 use super::surface_host::thread_mode;
 use super::tool_exposure::{
@@ -364,8 +364,8 @@ impl RouteFacts for AiRouteFacts {
         session_context_meta(&self.catalog, provider, model, seed)
     }
 
-    fn cache_opts(&self, provider: &str, _session_id: &str, agent: Option<&str>, _header: &Header) -> Option<Value> {
-        session_provider_cache_opts(provider, agent, &(self.auto_clear)())
+    fn cache_opts(&self, _provider: &str, _session_id: &str, agent: Option<&str>, header: &Header) -> Option<Value> {
+        route_cache_opts(header, agent, &(self.auto_clear)())
     }
 
     async fn surface_lookup(&self, header: &Header, previous: &Route) -> SurfaceLookup {

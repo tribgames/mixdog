@@ -260,7 +260,8 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
         }
         // The next turn's first send tags its cache break.
         working.insert("pendingCacheBreakIntent".into(), json!("manual_compaction"));
-        // The next turn start rebuilds the system text from current sources (`surface_host` `fold_prompt_if_cold`).
+        // No request has followed this compaction: the next one (a turn's first, or the running turn's after it reloads the
+        // rewritten history) rebuilds the system text from current sources (`surface_host` `fold_prompt`).
         working.insert("promptFoldPending".into(), json!(true));
         working.insert("compactionFoldPending".into(), json!(true));
         // The compacted history no longer holds the late-tool announcements nor the settings notices.

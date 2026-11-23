@@ -7,8 +7,6 @@ use mixdog_core_api::domain::provider::ToolCall;
 
 use crate::message::AgentMessage;
 
-const TOOL_MISSING_STUB: &str = "[Older tool result unavailable after context compaction]";
-
 /// The tool result answering `call_id`: first in the tool block right after
 /// the assistant turn, then anywhere later, then anywhere earlier.
 fn pick_result<'a>(messages: &'a [AgentMessage], assistant_idx: usize, call_id: &str) -> Option<&'a AgentMessage> {
@@ -43,11 +41,8 @@ pub fn sanitize_tool_pairs(messages: &[AgentMessage]) -> Vec<AgentMessage> {
             }
             match pick_result(messages, idx, &id) {
                 Some(result) => out.push(result.clone()),
-                None => {
-                    let mut stub = AgentMessage::tool_text(id.clone(), TOOL_MISSING_STUB, crate::message::ToolKind::Normal);
-                    stub.tool_kind = None;
-                    out.push(stub);
-                }
+                // What every codec sends for a call without a result: the row stored here is lowered to those bytes.
+                None => out.push(AgentMessage::new(mixdog_core_api::domain::provider::Message::missing_tool_result(id.clone()))),
             }
             placed.insert(id);
         }
@@ -232,7 +227,8 @@ mod tests {
         assert!(repair_before_send(&mut messages));
         assert_eq!(messages.len(), 5);
         assert_eq!(messages[3].tool_call_id(), Some("b"));
-        assert_eq!(messages[3].text(), TOOL_MISSING_STUB);
+        assert_eq!(messages[3].text(), mixdog_core_api::domain::provider::MISSING_TOOL_RESULT);
+        assert!(messages[3].message.is_error, "a missing result is a failed one, as every wire sends it");
         assert_eq!(messages[4].text(), "new prompt");
     }
 

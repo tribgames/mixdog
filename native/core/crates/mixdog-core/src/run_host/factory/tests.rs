@@ -11,6 +11,7 @@ mod text_sharing;
 mod turn_path;
 mod turn_run;
 mod units;
+mod warm_store;
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicI64};
@@ -2028,6 +2029,7 @@ async fn turn_world_routed(
     };
     let hop_clocks: (Arc<dyn Clock>, Arc<dyn mixdog_core_session::session::Clock>) = (clock.clone(), rig.clock.clone());
     let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(builder).with_accounting(accounting));
+    let world_registry = registry.clone();
     let compaction = if summaries_on_turn_registry {
         super::super::compaction_world::tests::services_over(
             workspace.path(),
@@ -2229,7 +2231,7 @@ async fn turn_world_routed(
     let settings = Arc::new(Mutex::new(serde_json::Map::new()));
     assert!(!lead, "a Lead surface host needs the recorded tool pool, which only the local comparison build has");
     assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
-    World { workspace, rig, ledger, asked, store, next, directory }
+    World { workspace, rig, ledger, asked, store, next, directory, registry: world_registry }
 }
 
 /// The two providers of a switched-off test: `primary` and the Codex fallback `openai-oauth`, each answering `answers`
@@ -2324,6 +2326,8 @@ struct World {
     store: Arc<super::super::side_question_store::SideQuestionStore>,
     next: Arc<super::super::next_request_source::NextRequestSource>,
     directory: Arc<SessionDirectory>,
+    /// The turns' provider registry, which the cache warmer's ports read too.
+    registry: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
 }
 
 async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {

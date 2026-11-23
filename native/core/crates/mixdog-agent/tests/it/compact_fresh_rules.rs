@@ -271,7 +271,7 @@ async fn a_call_without_a_result_gets_a_stub_result_and_a_result_without_a_call_
     let result = fresh_context_compact_messages(&ctx, &messages, 50_000, &options(&valid_summary("go"))).await.unwrap();
     assert!(pairs_whole(&result.messages), "{:?}", texts(&result.messages));
     let stub = result.messages.iter().find(|m| m.tool_call_id() == Some("lost")).expect("the call stays paired");
-    assert_eq!(stub.text(), "[Older tool result unavailable after context compaction]");
+    assert_eq!(stub.text(), mixdog_core_api::domain::provider::MISSING_TOOL_RESULT);
     assert!(!result_ids(&result.messages).contains(&"orphan".to_owned()));
 }
 

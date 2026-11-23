@@ -40,8 +40,8 @@ pub(crate) const FLOORS: &[FloorRow] = &[
     FloorRow { family: "mythos", major: 5, minor: 1 },
 ];
 
-/// A family with no row takes updates on these routes only; a model that
-/// rejects one surfaces as the provider error (no replay without updates).
+/// A family with no row takes updates on these routes only (`ANTHROPIC_REPLAYING_PROVIDERS`): a model that
+/// rejects one is replayed once without them and sent none afterwards (`claude_floors::Feature::EffortUpdates`).
 pub(crate) const UNMEASURED_FAMILY_PROVIDERS: &[&str] = &["anthropic-oauth"];
 
 /// The session's model key: lowercase, no snapshot date, dots as dashes.

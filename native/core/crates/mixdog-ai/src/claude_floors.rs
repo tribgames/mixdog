@@ -115,6 +115,9 @@ pub enum Feature {
     /// Switched off by the threads' own rejection classifier (`anthropic-message-threads.mjs` `disableModel`), never
     /// by [`rejection`].
     MessageThreads,
+    /// Mid-conversation effort updates (`markEffortConfigurationUnsupported`): a model that rejects one is sent each
+    /// request's own effort from then on.
+    EffortUpdates,
 }
 
 impl Feature {
@@ -123,6 +126,7 @@ impl Feature {
             Self::ProgressUpdates => "progressUpdates",
             Self::TurnScopedSystem => "turnScopedSystem",
             Self::MessageThreads => "messageThreads",
+            Self::EffortUpdates => "effortUpdates",
         }
     }
 }
@@ -144,7 +148,30 @@ pub fn rejection(status: Option<u16>, text: &str) -> Option<Feature> {
     if PROGRESS_REJECTION.is_match(text) {
         return Some(Feature::ProgressUpdates);
     }
-    (TURN_SCOPED_REJECTION.is_match(text) && !TURN_SCOPED_CONTENT_RULE.is_match(text)).then_some(Feature::TurnScopedSystem)
+    // A turn-scoped message's error is never about the effort update, even when it names `output_config` or the beta.
+    if TURN_SCOPED_REJECTION.is_match(text) {
+        return (!TURN_SCOPED_CONTENT_RULE.is_match(text)).then_some(Feature::TurnScopedSystem);
+    }
+    effort_update_rejection(text).then_some(Feature::EffortUpdates)
+}
+
+static EFFORT_UPDATE_NAMED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i-u)mid-conversation|configuration_update|reasoning_effort_update|per-turn effort").expect("static pattern"));
+static EFFORT_FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i-u)output_config\.effort\b").expect("static pattern"));
+static QUOTED_EFFORT_LEVEL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i-u)['"`](?:none|minimal|low|medium|high|xhigh|max|ultra)['"`]"#).expect("static pattern"));
+static OUTPUT_CONFIG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i-u)output_config").expect("static pattern"));
+
+/// `isEffortConfigurationRejection` for a 400 that is no turn-scoped error: the update itself is named, or
+/// `output_config` is refused as a field; a refused effort level (the error quotes one) is the level's own failure.
+fn effort_update_rejection(text: &str) -> bool {
+    if EFFORT_UPDATE_NAMED.is_match(text) {
+        return true;
+    }
+    if EFFORT_FIELD.is_match(text) && QUOTED_EFFORT_LEVEL.is_match(text) {
+        return false;
+    }
+    OUTPUT_CONFIG.is_match(text)
 }
 
 static UNSUPPORTED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);

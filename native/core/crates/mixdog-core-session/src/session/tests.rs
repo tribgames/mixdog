@@ -3576,6 +3576,80 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
 }
 
+/// A turn's compaction of a session whose prompt is rebuilt is stored with its fold marked owed, in the compaction's own
+/// unit: a process that stops before the fold reopens on the compacted history with the mark, which the next turn start
+/// folds. A session whose prompt is never rebuilt owes none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turns_compaction_is_stored_with_its_fold_marked_owed() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let compacting = |identity: bool, iid: &'static str| -> Script {
+        Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                if identity {
+                    let set = [("promptIdentity".to_owned(), json!({}))].into_iter().collect();
+                    let change = mixdog_store::schema::record::HeaderChange { set, unset: Vec::new(), patch: Default::default() };
+                    run.port.save_header(change).await.expect("the identity");
+                }
+                run.port.compacted(compaction_record(iid, 5, 0)).await.expect("the compaction");
+                RunOutcome::Completed(Default::default())
+            })
+        })
+    };
+    let mark = |handle: &SessionHandle| handle.header_snapshot().get("compactionFoldPending").cloned();
+    let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+    let handle = start_thread(&directory).await;
+    rig.set_script(compacting(false, "sum1"));
+    turn(&handle, "first", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    assert_eq!(mark(&handle), None, "a prompt that is never rebuilt owes no fold");
+    rig.set_script(compacting(true, "sum2"));
+    turn(&handle, "second", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
+    assert_eq!(mark(&handle), Some(json!(true)));
+    let id = handle.id.clone();
+    let reopened =
+        SessionDirectory::new(rig.deps_on(store)).open_handle(&id, &CallContext::internal("test")).await.expect("the session opens again");
+    assert_eq!(mark(&reopened), Some(json!(true)), "the stored compaction carries its mark");
+}
+
+/// What a run folds its prompt on: whether its compaction is on disk, which the record's own ack does not say (a failed
+/// save keeps the record in memory). While the store refuses writes the run is told the compaction has not landed, and
+/// nothing of it is in the log; once the store takes writes again the fresh save lands it and the run is told so.
+#[tokio::test(start_paused = true)]
+async fn a_run_is_told_its_compaction_landed_only_once_it_is_on_disk() {
+    use mixdog_store::schema::record::Record;
+    let rig = Rig::new();
+    let failing = rig.store.failing.clone();
+    let told: Arc<Mutex<Vec<(bool, bool)>>> = Arc::default();
+    let thread: Arc<Mutex<Option<ThreadId>>> = Arc::default();
+    let (seen, store, known) = (told.clone(), rig.store.clone(), thread.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (failing, seen, store, known) = (failing.clone(), seen.clone(), store.clone(), known.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let id = known.lock().unwrap().clone().expect("the thread is known");
+            let on_disk = || store.records(&id).iter().any(|(_, record)| matches!(record, Record::Compacted(_)));
+            *failing.lock().unwrap() = Some("EIO: injected".into());
+            let _ = run.port.compacted(compaction_record("sum1", 5, 0)).await;
+            let refused = run.port.writes_landed().await;
+            seen.lock().unwrap().push((refused.is_ok(), on_disk()));
+            *failing.lock().unwrap() = None;
+            let landed = run.port.writes_landed().await;
+            seen.lock().unwrap().push((landed.is_ok(), on_disk()));
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    *thread.lock().unwrap() = Some(handle.id.clone());
+    turn(&handle, "compact", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (told.lock().unwrap().len() == 2 && idle(&handle)).then_some(())).await;
+    assert_eq!(*told.lock().unwrap(), [(false, false), (true, true)]);
+}
+
 /// A fork copies its source's rows, and a copied call keeps the id it entered the source under, which says the count of
 /// that session it entered at (`c~7`: its seventh). The fork's own header need not carry that count (the source's did not
 /// here). The fork counts no lower than its copied calls from the write that gives it the rows, and the compaction that
