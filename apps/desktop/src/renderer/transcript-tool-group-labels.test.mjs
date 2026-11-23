@@ -52,13 +52,13 @@ const CASES = [
     'explore reads like every other group',
     [finished('explore', EXPLORE)],
     ['Explore 3 questions', 'Explored 3 questions'],
-    ['3개 항목 탐색', '3개 항목 탐색함'],
+    ['3개 항목 탐색', '3개 항목 탐색'],
   ],
   [
     'git and shell commands',
     [finished('git', { command: ['git status', 'git diff'] }), finished('shell', { command: 'npm test' })],
     ['Run 2 Git commands, Run 1 command', 'Ran 2 Git commands, Ran 1 command'],
-    ['Git 명령 2회 실행, 명령 1회 실행', 'Git 명령 2회 실행함, 명령 1회 실행함'],
+    ['Git 명령 2회 실행, 명령 1회 실행', 'Git 명령 2회 실행, 명령 1회 실행'],
   ],
   [
     'a viewed image and a read resource are files read, one phrase',
@@ -68,7 +68,7 @@ const CASES = [
       finished('read_mcp_resource', { uri: 'mcp://x' }),
     ],
     ['Read 3 files', 'Read 3 files'],
-    ['파일 3개 읽기', '파일 3개 읽음'],
+    ['파일 3개 읽기', '파일 3개 읽기'],
   ],
   [
     'agent and task calls keep one tense per state',
@@ -79,31 +79,31 @@ const CASES = [
       finished('task', { action: 'read', task_id: 't1' }),
     ],
     ['Call 2 agents, Wait for task, Check task', 'Called 2 agents, Waited for task, Checked task'],
-    ['에이전트 2회 호출, 작업 대기, 작업 상태 확인', '에이전트 2회 호출함, 작업 대기함, 작업 상태 확인함'],
+    ['에이전트 2회 호출, 작업 대기, 작업 상태 확인', '에이전트 2회 호출, 작업 대기, 작업 상태 확인'],
   ],
   [
     'stopping an agent is not calling it',
     [finished('agent', { type: 'cancel', task_id: 'task_agent_1' })],
     ['Agent cancellations', 'Agent cancellations'],
-    ['에이전트 취소', '에이전트 취소함'],
+    ['에이전트 취소', '에이전트 취소'],
   ],
   [
     'closing a finished agent ends it, it does not cancel it',
     [finished('agent', { type: 'close', tag: 'worker-a' })],
     ['Ended agents', 'Ended agents'],
-    ['에이전트 종료', '에이전트 종료함'],
+    ['에이전트 종료', '에이전트 종료'],
   ],
   [
     'git worktree operations',
     [finished('git', { action: 'worktree', worktree_action: 'enter', worktree: 'x' })],
     ['Worktree management', 'Worktree management'],
-    ['워크트리 관리', '워크트리 관리함'],
+    ['워크트리 관리', '워크트리 관리'],
   ],
   [
     'session create is not a project check',
     [finished('session', { action: 'create', project: 'mixdog', title: 'UI 테스트', worktree: { mode: 'branch' } })],
     ['Session creation', 'Session creation'],
-    ['세션 생성', '세션 생성함'],
+    ['세션 생성', '세션 생성'],
   ],
   [
     'session send, rename and status',
@@ -113,7 +113,7 @@ const CASES = [
       finished('session', { action: 'status' }),
     ],
     ['Session message, Session management, Session status', 'Session message, Session management, Session status'],
-    ['세션 메시지, 세션 관리, 세션 상태', '세션 메시지 보냄, 세션 관리함, 세션 상태 확인함'],
+    ['세션 메시지, 세션 관리, 세션 상태', '세션 메시지, 세션 관리, 세션 상태'],
   ],
   [
     'a unit without a count phrase shows its count as ×N, in Korean N회 like the other labels',
@@ -122,7 +122,7 @@ const CASES = [
       finished('session', { action: 'create', title: 'b' }, 's2'),
     ],
     ['Session creation ×2', 'Session creation ×2'],
-    ['세션 생성 2회', '세션 생성 2회 함'],
+    ['세션 생성 2회', '세션 생성 2회'],
   ],
   [
     'repeated worktree operations count in 회',
@@ -133,13 +133,13 @@ const CASES = [
       finished('git', { action: 'worktree', worktree_action: 'remove', branch: 'd' }, 'w4'),
     ],
     ['Worktree management ×4', 'Worktree management ×4'],
-    ['워크트리 관리 4회', '워크트리 관리 4회 함'],
+    ['워크트리 관리 4회', '워크트리 관리 4회'],
   ],
   [
     'directory listings count the same way running and finished',
     [finished('list', { path: ['apps', 'src'] })],
     ['List 2 directories', 'Listed 2 directories'],
-    ['폴더 목록 2회 조회', '폴더 목록 2회 조회함'],
+    ['폴더 목록 2회 조회', '폴더 목록 2회 조회'],
   ],
   [
     'browser and computer actions both count in 회',
@@ -150,7 +150,7 @@ const CASES = [
       finished('computer', { action: 'capture' }, 'c2'),
     ],
     ['Browser 2 actions, Computer 2 actions', 'Browser 2 actions, Computer 2 actions'],
-    ['브라우저 작업 2회, 컴퓨터 조작 2회', '브라우저 2회 조작함, 컴퓨터 2회 조작함'],
+    ['브라우저 작업 2회, 컴퓨터 조작 2회', '브라우저 작업 2회, 컴퓨터 조작 2회'],
   ],
   [
     'a failed edit, glob, git command or search says it failed, as a command does',
@@ -175,7 +175,7 @@ const CASES = [
       finished('read', { file_path: 'a.css' }, 'r'),
     ],
     ['Edit 2 files, Read file', 'Edited 1 file, Read file, 1 failed'],
-    ['파일 2개 수정, 파일 읽기', '파일 1개 수정함, 파일 읽음, 1회 실패'],
+    ['파일 2개 수정, 파일 읽기', '파일 1개 수정, 파일 읽기, 1회 실패'],
   ],
   [
     'a stopped change did not happen',
@@ -193,7 +193,7 @@ const CASES = [
     'one todo call is one plan update, whatever steps it carries',
     [finished('todo', { op: 'set', items: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] })],
     ['Plan updates', 'Plan updates'],
-    ['계획 업데이트', '계획 업데이트함'],
+    ['계획 업데이트', '계획 업데이트'],
   ],
   [
     'goal, reaction, handoff and a terminal run are their own units',
@@ -204,13 +204,13 @@ const CASES = [
       finished('terminal', { action: 'run', command: 'npm run dev' }),
     ],
     ['Goal, Reaction, Hand off to user, Terminal commands', 'Goal, Reaction, Hand off to user, Terminal commands'],
-    ['목표, 반응, 사용자에게 넘기기, 터미널 명령', '목표, 반응함, 사용자에게 넘김, 터미널 명령 실행함'],
+    ['목표, 반응, 사용자에게 넘기기, 터미널 명령', '목표, 반응, 사용자에게 넘기기, 터미널 명령'],
   ],
   [
     'closing a session and listing worktrees are not a project check',
     [finished('session', { action: 'close' }), finished('session', { action: 'list-worktrees' })],
     ['Session management, Worktree management', 'Session management, Worktree management'],
-    ['세션 관리, 워크트리 관리', '세션 관리함, 워크트리 관리함'],
+    ['세션 관리, 워크트리 관리', '세션 관리, 워크트리 관리'],
   ],
   [
     'a stopped edit did not change its file, even without an error flag',
@@ -222,7 +222,7 @@ const CASES = [
     'a cancel action that did its work is not a stop',
     [answered('task', { action: 'cancel', task_id: 't1' }, 'Cancelled')],
     ['Cancel task', 'Cancelled task'],
-    ['작업 취소', '작업 취소함'],
+    ['작업 취소', '작업 취소'],
   ],
   [
     'a failure and a stop of the same unit are both said',
@@ -234,19 +234,19 @@ const CASES = [
     'a failed read is not counted as read',
     [finished('read', { file_path: 'a.ts' }, 'r1'), failed('read', { file_path: 'b.ts' }, 'r2')],
     ['Read 2 files', 'Read file, 1 failed'],
-    ['파일 2개 읽기', '파일 읽음, 1회 실패'],
+    ['파일 2개 읽기', '파일 읽기, 1회 실패'],
   ],
   [
     'a stopped read is not counted as read',
     [finished('read', { file_path: 'a.ts' }, 'r1'), halted('read', { file_path: 'b.ts' }, 'r2')],
     ['Read 2 files', 'Read file, 1 stopped'],
-    ['파일 2개 읽기', '파일 읽음, 1회 중지됨'],
+    ['파일 2개 읽기', '파일 읽기, 1회 중지됨'],
   ],
   [
     'a stopped fetch fetched no page',
     [finished('web_fetch', { url: 'https://a.example' }, 'f1'), halted('web_fetch', { url: 'https://b.example' }, 'f2')],
     ['Fetch 2 pages', 'Fetched page, 1 stopped'],
-    ['웹페이지 2개 가져오기', '웹페이지 가져옴, 1회 중지됨'],
+    ['웹페이지 2개 가져오기', '웹페이지 가져오기, 1회 중지됨'],
   ],
   [
     'an empty lookup and a stopped one found no file between them',
@@ -258,7 +258,7 @@ const CASES = [
     'a stopped command is not counted as run',
     [finished('shell', { command: 'a' }, 's1'), stopped('shell', { command: 'b' }, 's2')],
     ['Run 2 commands', 'Ran 1 command, 1 stopped'],
-    ['명령 2회 실행', '명령 1회 실행함, 1회 중지됨'],
+    ['명령 2회 실행', '명령 1회 실행, 1회 중지됨'],
   ],
   [
     'a command that ran to a failing exit ran; one that never started did not',
@@ -268,7 +268,7 @@ const CASES = [
       { ...failed('shell', { command: 'c' }, 's3'), callErrorCount: 1 },
     ],
     ['Run 3 commands', 'Ran 2 commands, 2 failed'],
-    ['명령 3회 실행', '명령 2회 실행함, 2회 실패'],
+    ['명령 3회 실행', '명령 2회 실행, 2회 실패'],
   ],
   [
     'an interrupted cancel action did not cancel',
@@ -280,7 +280,7 @@ const CASES = [
     'a file whose name opens like an empty-result message is a file found',
     [answered('glob', { pattern: '*.md' }, 'No files.md')],
     ['Find files', 'Found files'],
-    ['파일 찾기', '파일 찾음'],
+    ['파일 찾기', '파일 찾기'],
   ],
   [
     'a path lookup and a symbol search that matched nothing found none',
@@ -301,7 +301,7 @@ const CASES = [
       }),
     ],
     ['Edit 2 files', 'Edited 2 files'],
-    ['파일 2개 수정', '파일 2개 수정함'],
+    ['파일 2개 수정', '파일 2개 수정'],
   ],
   [
     'a lookup that matched nothing does not claim it found files',
@@ -317,13 +317,13 @@ const CASES = [
       finished('tidy', { action: 'check' }),
     ],
     ['Plan view, Tidy scan, Tidy check', 'Plan view, Tidy scan, Tidy check'],
-    ['계획 보기, 정리 검사, 정리 확인', '계획 확인함, 정리 검사함, 정리 확인함'],
+    ['계획 보기, 정리 검사, 정리 확인', '계획 보기, 정리 검사, 정리 확인'],
   ],
   [
     'a settled web search reads in the past tense',
     [finished('web_search', { query: ['a', 'b', 'c'] })],
     ['Search web 3 times', 'Searched web 3 times'],
-    ['웹 검색 3회', '웹 3회 검색함'],
+    ['웹 검색 3회', '웹 검색 3회'],
   ],
 ];
 

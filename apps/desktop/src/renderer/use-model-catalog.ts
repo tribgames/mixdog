@@ -8,6 +8,21 @@ import {
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
+import { record } from './record-utils';
+import { type SectionStore, windowSectionStore } from './section-store';
+
+/** The settings value's `acpAgents` last seen by any picker of this window. */
+let heldAcpAgents: string | undefined;
+
+/** An external agent's entries come and go with its readiness, and the core announces that only in the
+ *  settings value: a change there has the catalog read again. */
+function followAcpAgents(store: SectionStore): void {
+  const value = store.get('toolModules', null)?.value;
+  if (value === undefined) return;
+  const next = JSON.stringify(record(value).acpAgents ?? null);
+  if (heldAcpAgents !== undefined && next !== heldAcpAgents) invalidateSharedModelCatalogRequest();
+  heldAcpAgents = next;
+}
 
 /** The provider model catalog and setup a route control shows: seeded from the
  *  cached catalog, refreshed once on mount and every day after, and re-read
@@ -126,6 +141,14 @@ export function useProviderModelCatalog() {
       }),
     [loadCatalog]
   );
+
+  useEffect(() => {
+    const store = windowSectionStore();
+    if (!store) return;
+    const follow = () => followAcpAgents(store);
+    follow();
+    return store.subscribe('toolModules', follow);
+  }, []);
 
   useDesktopProvidersRetry(desktopProvidersAway, invalidateSharedModelCatalogRequest);
 

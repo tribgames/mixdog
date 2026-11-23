@@ -172,6 +172,10 @@
 :is(.context-surface-view, .session-rail-context) [data-context-key="free"] {
   --ctx-color: var(--mx-chart-grey);
 }
+/* What the reading holds beyond the kinds' estimates: a neutral ink, no kind's colour. */
+.session-rail-context [data-context-key="other"] {
+  --ctx-color: var(--mx-text-muted);
+}
 @media (max-width: 640px) {
   .context-mix-grid {
     grid-template-columns: 1fr;

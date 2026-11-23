@@ -82,12 +82,16 @@ function selectionFixture(t) {
   });
   const pins = [];
   const scrolls = [];
+  const holds = [];
   let detach = attachTranscriptSelectionDrag({
     root,
     rowKeyAt: (index) => (rows[index] ? `row-${index}` : undefined),
     setPin: (pin) => pins.push(pin),
     onAutoScroll: (delta) => scrolls.push(delta),
+    onHold: (held) => holds.push(held),
   });
+  // Attaching reads the selection once, for one the transcript comes back to; the reads counted are a gesture's.
+  reads.selection = 0;
   const dispose = () => {
     detach?.();
     detach = null;
@@ -139,6 +143,7 @@ function selectionFixture(t) {
     caretReads,
     pins,
     scrolls,
+    holds,
     reads,
     emit,
     begin,
@@ -371,4 +376,37 @@ test('detaching cancels a pending final correction and clears the selection fenc
   assert.equal(f.pins.at(-1), null);
   assert.equal(f.document.documentElement.dataset.transcriptSelecting, undefined);
   assert.equal(f.root.dataset.transcriptSelectionRoot, undefined);
+});
+
+test('a select-all anchored outside the rows holds follow; one elsewhere does not; collapsing ends the hold', (t) => {
+  const f = selectionFixture(t);
+  const changed = () => f.document.dispatchEvent(new f.window.Event('selectionchange'));
+  f.selection.selectAllChildren(f.document.body);
+  changed();
+  assert.equal(f.holds.at(-1), true, 'the whole document covers the transcript text');
+  f.selection.selectAllChildren(f.document.getElementById('other'));
+  changed();
+  assert.equal(f.holds.at(-1), false, 'text outside the transcript holds nothing');
+  f.selection.selectAllChildren(f.document.body);
+  changed();
+  f.selection.removeAllRanges();
+  changed();
+  assert.equal(f.holds.at(-1), false, 'collapsed');
+});
+
+test('a transcript attached with its text still selected holds follow at once, and lets go when it detaches', (t) => {
+  const f = selectionFixture(t);
+  f.selection.setBaseAndExtent(f.rows[0].firstChild, 0, f.rows[1].firstChild, 3);
+  f.dispose();
+  const holds = [];
+  const detach = attachTranscriptSelectionDrag({
+    root: f.root,
+    rowKeyAt: (index) => (f.rows[index] ? `row-${index}` : undefined),
+    setPin: () => {},
+    onAutoScroll: () => {},
+    onHold: (held) => holds.push(held),
+  });
+  assert.deepEqual(holds, [true], 'the pane came back on screen with its text selected');
+  detach();
+  assert.deepEqual(holds, [true, false]);
 });

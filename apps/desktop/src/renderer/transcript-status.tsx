@@ -18,6 +18,8 @@ import { useHoverPopover } from './hover-popover';
 import { centeredPanelOffset, rectFrom, viewportRect } from './anchored-panel';
 import { isPhoneSurfaceMarked } from './mobile-surface';
 import { cachedAutoEffortCapable, useAutoEffortShown } from './auto-effort-store';
+import { cachedModelCatalogRevision, cachedModelRow, subscribeCachedModelCatalog } from './model-catalog-cache';
+import { useAgentRoute } from './acp-agent-status';
 import { subscribeUiLanguage, t, uiFormatLocale } from './i18n';
 import { modelDisplayName, modelRouteDisplayParts } from './provider-display';
 import { uiCurrency } from './ui-format';
@@ -194,7 +196,16 @@ function contextMetrics(snapshot: Snapshot) {
   return usage;
 }
 
-function useCompactAction(snapshot: Snapshot): { busy: boolean; compact: () => Promise<void> } {
+/** False on a route whose agent keeps its own context (an external agent's): Compact is left out. */
+function useCompactApplies(snapshot: Snapshot): boolean {
+  useSyncExternalStore(subscribeCachedModelCatalog, cachedModelCatalogRevision, cachedModelCatalogRevision);
+  const provider = String(snapshot.provider || '');
+  const model = String(snapshot.model || '');
+  return !useAgentRoute(provider, model, cachedModelRow(provider, model))?.notApplicable.has('compaction');
+}
+
+function useCompactAction(snapshot: Snapshot): { busy: boolean; applies: boolean; compact: () => Promise<void> } {
+  const applies = useCompactApplies(snapshot);
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
   const state = asRecord(snapshot);
@@ -213,7 +224,7 @@ function useCompactAction(snapshot: Snapshot): { busy: boolean; compact: () => P
       setPending(false);
     }
   };
-  return { busy, compact };
+  return { busy, applies, compact };
 }
 
 /** The gauge's tone at a share of the window. */
@@ -236,6 +247,7 @@ export function useContextUsage(snapshot: Snapshot) {
     text: context && context.used != null ? contextUsageText(context) : '',
     title: context ? contextUsageTitle(context) : undefined,
     compactBusy: action.busy,
+    compactApplies: action.applies,
     compact: action.compact,
   };
 }
@@ -274,7 +286,7 @@ export function ContextUsageIndicator({
   const context = contextMetrics(snapshot);
   const descriptionId = useId();
   const tone = contextTone(context?.percent);
-  const { busy: actionBusy, compact } = useCompactAction(snapshot);
+  const { busy: actionBusy, applies: compactApplies, compact } = useCompactAction(snapshot);
   const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
   return (
     <div
@@ -317,9 +329,13 @@ export function ContextUsageIndicator({
             })
           }
           actionBusy={actionBusy}
-          onCompact={() => {
-            void compact();
-          }}
+          onCompact={
+            compactApplies
+              ? () => {
+                  void compact();
+                }
+              : undefined
+          }
         />
       )}
     </div>
@@ -339,7 +355,7 @@ function ContextUsagePopover({
   cost: number;
   onViewDetails?: () => void;
   actionBusy: boolean;
-  onCompact: () => void;
+  onCompact?: () => void;
 }) {
   return (
     <div className="session-context-popover" id={id} role="tooltip">
@@ -363,10 +379,12 @@ function ContextUsagePopover({
           {t('View context details')}
         </button>
       )}
-      <button type="button" className="context-action context-compact" disabled={actionBusy} onClick={onCompact}>
-        <FoldVertical size={14} aria-hidden="true" />
-        {t('Compact context')}
-      </button>
+      {onCompact && (
+        <button type="button" className="context-action context-compact" disabled={actionBusy} onClick={onCompact}>
+          <FoldVertical size={14} aria-hidden="true" />
+          {t('Compact context')}
+        </button>
+      )}
     </div>
   );
 }

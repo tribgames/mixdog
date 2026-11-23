@@ -1306,8 +1306,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   top: 50%;
   transform: translateY(-50%);
   /* The last 24px button's center sits on the shared trailing centerline on
-     every row (the desktop rail insets it 8px further); a dot or status
-     hides under it (11-sidebar-usage.css). */
+     every row, the axis of the panel header's "+"; a dot or status hides
+     under it (11-sidebar-usage.css). */
   right: calc(var(--mx-rail-trailing-center, 20px) - 12px);
   height: 24px;
   padding-left: 12px;
@@ -1599,8 +1599,14 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
     #000 calc(100% - var(--sidebar-fade-bottom)),
     transparent 100%
   );
-  /* Top grows over the first 4% of the scroll, bottom shrinks over the last
-     4% (0 for a list that cannot scroll). */
+}
+/* Top grows over the first 4% of the scroll, bottom shrinks over the last 4%
+   (0 for a list that cannot scroll). The session panel's column and lists
+   fade by the same lengths (session-rail.css). */
+.session-sidebar-scroll,
+.utility-dock .agent-activity-page,
+.session-rail-body,
+.session-rail-bd[data-scroll] {
   --sidebar-fade-top: calc(
     20px *
     clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) *
@@ -1741,8 +1747,11 @@ html[data-mixdog-mobile-tabs]
   box-shadow: var(--mx-list-focus-ring);
 }
 .sidebar-recent-heading.sidebar-heading-toggle > span {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-recent-heading.sidebar-heading-toggle svg {
   color: var(--mx-text-muted);
@@ -1800,12 +1809,6 @@ html[data-mixdog-mobile-tabs]
   flex: 1 1 auto;
   min-width: 0;
 }
-.project-folder-toggle > span {
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .project-folder > .project-folder-new {
   position: absolute;
   right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
@@ -1861,15 +1864,20 @@ html[data-mixdog-mobile-tabs]
 }
 /* A git branch inside a project: a 28px sub-heading (8px above) with the
    branch glyph in the slot, the name on the row-title line in the row-name
-   style, then the chevron. Its sessions follow as ordinary rows. */
+   style, then the chevron. Its sessions follow as ordinary rows.
+   min-width: 0 keeps the full branch name from widening the list's grid track
+   (and every row in it) past the sidebar. Like the project heading, a long
+   name truncates 40px short of the edge so the chevron stays off the
+   trailing line. */
 .session-subheading {
   width: 100%;
+  min-width: 0;
   height: 28px;
   margin-top: 8px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
+  padding: 0 40px 0 8px;
   border: 0;
   background: transparent;
   color: var(--mx-text-muted);
@@ -1880,6 +1888,11 @@ html[data-mixdog-mobile-tabs]
 /* Under sub-headings the rows step in to the branch name's x (slot + 22). */
 .session-sidebar .project-session-list-split .session-row:not(.editing) {
   padding-left: 30px;
+}
+/* The indent already marks a branch's session, so its title takes the chat
+   bubble's place on that line. */
+.session-sidebar .project-session-list-split .session-row-slot:has(> .session-row-chat-icon) {
+  display: none;
 }
 .project-session-list > .session-subheading:first-child {
   margin-top: 0;
@@ -1894,8 +1907,10 @@ html[data-mixdog-mobile-tabs]
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The heading toggle's 4px name-to-chevron step. */
 .session-subheading > svg:last-child {
   flex: none;
+  margin-left: -2px;
 }
 /* Sections and project folders reorder by drag (shared
    usePersistedListOrder): the heading/folder row is the grip, the whole

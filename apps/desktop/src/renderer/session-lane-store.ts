@@ -16,9 +16,8 @@ import { heldWindowGoesOn, transcriptWindowAlignment, windowAnchored } from './t
 import { reconcileSessionProjection } from '../main/state-delta';
 import { noteCarried } from './list-carry';
 import { rowsHeldFrom, streamPositionReached } from '../../../../packages/protocol-client/src/index.ts';
-import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 import { registerIdleReclaim } from './idle-reclaim';
-import { readerPositionsOf, sessionHasTab } from './transcript-list-reader-place';
+import { sessionHasTab } from './transcript-list-reader-place';
 
 type SessionLaneSource = (listener: (update: DesktopSessionStateUpdate) => void) => () => void;
 
@@ -91,44 +90,25 @@ export const HIDDEN_SESSION_ROW_BUDGET = 512;
  *  sweep at once. */
 const HIDDEN_SESSION_SWEEP_MS = 60_000;
 
-const showsRecord = (row: unknown, positions: readonly string[]): boolean =>
-  positions.some((position) => historyPositionOf(row) === position || historyPositionOf(row, 'after') === position);
-
-/** What is kept of the state of a session no pane shows. Memory follows the readers: a session no pane holds a tab of
- *  keeps nothing; one a reader may come back to keeps its rows from the earliest record a reader is on down (all of
- *  them when its readers follow the end) while they fit HIDDEN_SESSION_ROW_BUDGET, and otherwise none. What is not
- *  kept is read again around the reader's record when a pane shows the session. */
+/** What is kept of the state of a session no pane shows. A session no pane holds a tab of keeps nothing; one a pane may
+ *  show again keeps its tail while it fits HIDDEN_SESSION_ROW_BUDGET, and otherwise none: a pane that shows it again
+ *  enters it at its end (use-conversation-timeline.ts), and what is not kept is read again then. */
 function keptOfHiddenLane(sessionId: string, snapshot: Snapshot): Snapshot | null {
   if (sessionHasTab(sessionId) === false) return null;
   const items = laneTranscript(snapshot) ?? [];
+  if (items.length > HIDDEN_SESSION_ROW_BUDGET) return null;
   const { transcriptViewItems: stretch, transcriptViews: listed } = snapshot as {
     transcriptViewItems?: unknown;
     transcriptViews?: unknown;
   };
-  // Of the stretches apart from the tail, the one a reader is on is kept (the first of them, were two panes on two).
-  const stretches: TranscriptItem[][] = Array.isArray(listed)
-    ? (listed as { items: TranscriptItem[] }[]).map((entry) => entry.items)
-    : Array.isArray(stretch)
-      ? [stretch as TranscriptItem[]]
-      : [];
-  const readers = readerPositionsOf(sessionId);
-  const inItems = readers.length ? items.findIndex((row) => showsRecord(row, readers)) : -1;
-  let keptView: TranscriptItem[] | null = null;
-  for (const view of stretches) {
-    const inView = readers.length ? view.findIndex((row) => showsRecord(row, readers)) : -1;
-    if (inView < 0) continue;
-    keptView = inView === 0 ? view : view.slice(inView);
-    break;
-  }
-  const keptItems = inItems > 0 ? items.slice(inItems) : items;
-  if (keptItems.length + (keptView?.length ?? 0) > HIDDEN_SESSION_ROW_BUDGET) return null;
-  if (keptItems === items && stretches.length === (keptView ? 1 : 0) && (stretches[0] ?? null) === keptView) return snapshot;
+  const apart = Array.isArray(listed) ? listed.length > 0 : Array.isArray(stretch);
+  if (!apart) return snapshot;
   // Part of a state is a preview of it: painted where nothing else is, never taken for the session's window.
   return {
     ...snapshot,
-    items: keptItems,
-    transcriptViewItems: keptView,
-    transcriptViews: keptView ? [{ items: keptView, before: true, after: true }] : [],
+    items,
+    transcriptViewItems: null,
+    transcriptViews: [],
     transcriptHistory: 'older',
     transcriptHasOlder: true,
     transcriptPreview: true,

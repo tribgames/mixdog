@@ -62,6 +62,18 @@ test('exhausted weekly usage is pinned; missing weekly data is never invented; k
   assert.equal(pinPercent(many), 12);
 });
 
+test('Antigravity ACP is an entry of its own beside the OAuth one, each with its own windows', () => {
+  const oauth = { id: 'antigravity-oauth', label: 'Antigravity OAuth', group: 'oauth', authenticated: true, windows: [{ label: '7D', usedPct: 20 }] };
+  const acp = { id: 'acp-antigravity', label: 'Antigravity ACP', group: 'acp', authenticated: true, windows: [{ label: '7D', usedPct: 60 }] };
+  const shown = (rows) => usagePinEntries({ rows }).map((entry) => [entry.key, entry.label, entry.percent]);
+  assert.deepEqual(shown([acp]), [['antigravity-acp', 'Antigravity ACP', 60]]);
+  assert.deepEqual(shown([acp, oauth]), [
+    ['antigravity', 'Antigravity', 20],
+    ['antigravity-acp', 'Antigravity ACP', 60],
+  ]);
+  assert.deepEqual(shown([oauth]), [['antigravity', 'Antigravity', 20]]);
+});
+
 test('Grok usage is not borrowed by Muse Code or MiMo', () => {
   const grokOnly = usagePinEntries({
     rows: [

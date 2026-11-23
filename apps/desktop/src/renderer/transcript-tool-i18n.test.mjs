@@ -109,7 +109,7 @@ test('imported tool use reads as one native activity line with per-kind counts',
     await i18n.changeLanguage('en');
     assert.equal(desktopToolActivitySummary(calls, true), 'Edited 1 file, Ran 2 commands, Read file');
     await i18n.changeLanguage('ko');
-    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정함, 명령 2회 실행함, 파일 읽음');
+    assert.equal(desktopToolActivitySummary(calls, true), '파일 1개 수정, 명령 2회 실행, 파일 읽기');
     const row = desktopToolActivityItemPresentation(calls[0]);
     assert.equal(row.outputNote, t('Results were not imported'));
     assert.equal(row.headerSubject, '×2');

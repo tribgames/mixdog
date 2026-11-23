@@ -9,11 +9,10 @@ export const READER_SCROLL_IDLE_MS = 180;
 // Browser anchoring and virtual-core both compensate rows that resize above
 // the viewport, so enabling both makes upward reader motion oscillate.
 export const TRANSCRIPT_OVERFLOW_ANCHOR = 'none';
-// A scroll that lands this close to the end, moving down with no reader
-// gesture behind it, is the reader arriving: follow re-engages on the spot.
-const REPIN_PX = 1;
 // Within this distance of the end an upward scroll is never a leave (a clamp
 // to a shrunken extent lands here), and a pinned resnap needs more than this.
+// A view this close is at the end: it follows, and past it the end is not kept
+// and the jump control says so.
 const END_TOLERANCE_PX = 2;
 // A wheel notch toward older rows vouches for the scrolls that follow it.
 const WHEEL_UP_WINDOW_MS = 200;
@@ -30,7 +29,8 @@ const RESTORE_QUIET_MS = 150;
 // A scroll up smaller than this many device pixels after a zoom change is
 // rounding, not a leave.
 const DEVICE_PX_FLOOR = 0.75;
-// The jump control needs the end this far below the viewport.
+// A scroll moving down with no reader gesture behind it that ends this close to the end is the reader coming back:
+// follow re-engages on the spot.
 const JUMP_CONTROL_PX = 200;
 // A press on the scrollbar is held open by the pointer release, which the
 // native scrollbar does not always deliver (the pointer left the window mid
@@ -124,9 +124,8 @@ export function chromePressHeld({ pressedAt, now }: { pressedAt: number; now: nu
   return pressedAt > 0 && now - pressedAt < CHROME_PRESS_MAX_MS;
 }
 
-/** Does this wheel notch release follow? Only a vertical notch toward older
- *  rows over a transcript that has rows above its viewport, wherever in the
- *  transcript (a nested scroller included) it lands. */
+/** Does this wheel notch, taken by the transcript itself, release follow? Only a vertical notch toward older rows over
+ *  a transcript that has rows above its viewport. */
 export function wheelReleasesFollow(
   event: { deltaY: number; deltaX?: number; ctrlKey?: boolean },
   scrollTop: number
@@ -199,12 +198,24 @@ export function widthShiftPending(seen: { client: number; spent: number | null }
   return seen !== null && clientWidth !== seen.client && clientWidth !== seen.spent;
 }
 
+/** Does this move of the offset bring the reader back near the end: down, not onto an offset the timeline wrote, and
+ *  ending where a scroll toward the end takes follow back? Content resizing or a write that brings the end near is
+ *  not the reader coming back. */
+export function moveArrivesNearEnd(move: {
+  previousTop: number;
+  top: number;
+  distance: number;
+  written: boolean;
+}): boolean {
+  return move.top > move.previousTop && !move.written && move.distance <= JUMP_CONTROL_PX;
+}
+
 type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
 
 /**
  * What one scroll observation means for follow.
  *
- * Arriving at the end re-engages follow at once; a pinned viewport that moved
+ * Arriving where the jump control would not show re-engages follow at once; a pinned viewport that moved
  * up is a leave only when something corroborates it, and is otherwise put
  * back whenever the timeline's own write, a zoom change, or a fresh layout
  * change explains the move. A move nothing explains is a leave as well.
@@ -215,8 +226,8 @@ export function judgeScrollEvent(input: {
   top: number;
   /** Distance from the end after this move. */
   distance: number;
-  /** Direction of the last move that changed the offset: 1 down, -1 up, 0 unknown. */
-  lastDirection: number;
+  /** The last move that changed the offset was the reader's way back near the end (`moveArrivesNearEnd`). */
+  arrived: boolean;
   touchDown: boolean;
   wheelUpRecent: boolean;
   /** This is a scroll event within the write window of the timeline's last write. */
@@ -238,7 +249,15 @@ export function judgeScrollEvent(input: {
   // moving down, is the reader's own arrival: nothing would reconsider it
   // once the window closes.
   const writeExplains = input.atWrittenTop || (input.inWriteWindow && !(input.top > input.previousTop));
-  if (!gesture && !writeExplains && input.lastDirection > 0 && input.distance <= REPIN_PX) {
+  // A thumb still held has not stopped: its release is judged (use-transcript-follow.ts `holdPress`).
+  if (
+    !input.pinned &&
+    !gesture &&
+    !input.pressHeld &&
+    !writeExplains &&
+    input.arrived &&
+    input.distance <= JUMP_CONTROL_PX
+  ) {
     return 'pin';
   }
   if (!input.pinned || !(input.top < input.previousTop) || input.distance <= END_TOLERANCE_PX) return 'none';
@@ -287,31 +306,11 @@ const PRESS_INTERACTIVE =
 const KEEPS_FOLLOW = '[data-transcript-keeps-follow]';
 
 /** Is this target an interactive control (an expander, a link, a button)? Activating one is about to change the
- *  content under the reader, so a press or an Enter/Space on it lets go of follow; so does one on a row's content
- *  (`rowContentOf`). Chrome does not. */
+ *  content under the reader, so a press or an Enter/Space on it lets go of follow. Chrome does not. */
 export function activationReleasesFollow(root: Element, target: EventTarget | null): boolean {
   if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return false;
   const control = target.closest(PRESS_INTERACTIVE);
   return control !== null && control !== root && root.contains(control);
-}
-
-const ROW_CONTENT = '.transcript-virtual-row-content';
-
-/** The row whose content this target lies in (its text, a code block, a table), or null: the scroller's own padding and
- *  scrollbar, chrome, and what is marked to keep follow are not a row's content. A press there begins a selection: the
- *  text under the pointer must not scroll away. */
-function rowContentOf(root: Element, target: EventTarget | null): Element | null {
-  if (!(target instanceof Element) || target === root || target.closest(KEEPS_FOLLOW)) return null;
-  const content = target.closest(ROW_CONTENT);
-  return content !== null && root.contains(content) ? content : null;
-}
-
-/** Is this a primary press of a mouse or pen on a row's content? A finger's press is the start of a scroll. */
-export function pressIsOnRowContent(
-  root: Element,
-  event: { target: EventTarget | null; button?: number; pointerType?: string }
-): boolean {
-  return (event.button ?? 0) === 0 && event.pointerType !== 'touch' && rowContentOf(root, event.target) !== null;
 }
 
 /** Is this target an editable field? Enter and Space there are typing. */
@@ -319,10 +318,15 @@ export function editableTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(EDITABLE_TARGET) !== null;
 }
 
-/** Is the tail far enough out of sight to offer the jump? Only when follow is
- *  off and the end is more than a short step below the viewport. */
-export function jumpButtonVisible(metrics: ScrollMetrics, following: boolean): boolean {
-  return !following && distanceFromBottom(metrics) > JUMP_CONTROL_PX;
+/** Does the view stand at the end? */
+export function standsAtEnd(metrics: ScrollMetrics): boolean {
+  return distanceFromBottom(metrics) <= END_TOLERANCE_PX;
+}
+
+/** The jump control says the view is not kept at the end: it shows whenever the end is not kept (follow off, or held
+ *  by a selection) and the view does not stand at it. */
+export function jumpButtonVisible(metrics: ScrollMetrics, endKept: boolean): boolean {
+  return !endKept && !standsAtEnd(metrics);
 }
 
 /** Does a scroller own this delta, or has it reached its boundary and handed
@@ -342,12 +346,36 @@ export function boundaryGestureReached(
 export function reportRelease(reason: string, metrics: ScrollMetrics, previousTop: number): void {
   logTranscriptScroll('follow-release', { reason, top: metrics.top, delta: metrics.top - previousTop });
   try {
+    window.mixdogDesktop?.rendererDiagnostic?.({
+      kind: 'follow-release',
+      reason,
+      top: metrics.top,
+      delta: metrics.top - previousTop,
+      distance: distanceFromBottom(metrics),
+      windowFocused: document.hasFocus(),
+      pageHidden: document.hidden,
+    });
     window.mixdogDesktop?.perfLog?.(
       `transcript-follow-release reason=${reason}` +
         ` top=${Math.round(metrics.top)}` +
         ` delta=${Math.round(metrics.top - previousTop)}` +
         ` distance=${Math.round(distanceFromBottom(metrics))}`
     );
+  } catch {
+    /* diagnostics only */
+  }
+}
+
+/** Follow taken back after a release: what took it and where the view stood. */
+export function reportRearm(reason: string, metrics: ScrollMetrics): void {
+  logTranscriptScroll('follow-rearm', { reason, top: metrics.top });
+  try {
+    window.mixdogDesktop?.rendererDiagnostic?.({
+      kind: 'follow-rearm',
+      reason,
+      top: metrics.top,
+      distance: distanceFromBottom(metrics),
+    });
   } catch {
     /* diagnostics only */
   }
@@ -379,10 +407,27 @@ export function normalizeWheelDelta(event: WheelLike): number {
   return event.deltaY;
 }
 
-export function boundaryTarget(root: HTMLElement, target: EventTarget | null): HTMLElement {
-  const current = target instanceof Element ? target : null;
-  const nested = current?.closest<HTMLElement>('[data-scrollable]');
-  return nested && nested !== root ? nested : root;
+const SCROLLS = /^(auto|scroll|overlay)$/;
+const CONTAINS_OVERSCROLL = /^(contain|none)$/;
+
+/** The scroller inside the transcript that a gesture beginning over `target` reaches first: the innermost element
+ *  between them that scrolls and has room to. Null when there is none. */
+export type GestureScroller = { element: Element; contained: boolean } | null;
+
+/** Read once, where the gesture begins: the browser latches a gesture to one scroller. */
+export function gestureScroller(root: Element, target: EventTarget | null): GestureScroller {
+  for (let node = target instanceof Element ? target : null; node && node !== root; node = node.parentElement) {
+    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+    if (!style || !SCROLLS.test(style.overflowY) || boundaryGestureReached(node, 0)) continue;
+    return { element: node, contained: CONTAINS_OVERSCROLL.test(style.overscrollBehaviorY) };
+  }
+  return null;
+}
+
+/** Does the gesture's scroller take this vertical delta? It moves while it has room in the delta's direction, and one
+ *  whose overscroll is contained keeps the delta at its edge too; whatever it does not take moves the transcript. */
+export function scrollerTakes(scroller: GestureScroller, delta: number): boolean {
+  return scroller !== null && (scroller.contained || !boundaryGestureReached(scroller.element, delta));
 }
 
 /** Scroll extent of a viewport owned by the virtual timeline, known without a

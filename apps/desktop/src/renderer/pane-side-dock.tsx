@@ -32,13 +32,12 @@ import {
   useDockRoomHeight,
   useInlineDockFlag,
   usePanelWidthDrag,
-  useSessionInfoDisplay,
+  useSessionPanelShown,
   useSheetExit,
   useSidePanelPlacement,
   useSideFileProblems,
 } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
-import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import { DeferredPersistentSurface } from './PaneSurfaceGate';
 import {
   PANE_SIDE_DOCK_WIDTH_KEY,
@@ -53,9 +52,13 @@ import {
   paneFilesShowing,
   paneFileShowing,
   paneDockActiveFile,
+  paneDockOpenNow,
   paneDiffShowing,
   paneDockActiveRoot,
   paneDiffStacks,
+  paneOverlayRoom,
+  paneSidePresentation,
+  paneSideRoom,
   readStoredWidth,
   readSharedDockWidth,
   type PaneSideDockDiff,
@@ -78,9 +81,10 @@ import {
 } from './workbench-side-view-layout';
 import { t } from './i18n';
 import { syncTranscriptWidths } from './transcript-list-resize-patch';
-import type { PaneSideDockFile } from './side-file-tabs';
+import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { SessionRailCard } from './SessionRailCard';
-import { clampSessionRailWidth, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
+import { useSessionDiffStripHasTabs } from './use-session-diff-tabs';
+import { clampSessionRailWidth, type SessionRailFit, sessionRailFit, useSessionRailWidth } from './session-rail-layout';
 
 export {
   PANE_SIDE_DOCK_DEFAULT_WIDTH,
@@ -94,6 +98,8 @@ export {
   PANE_DOCK_FILES_SURFACE,
   paneFilesShowing,
   paneDockActiveFile,
+  paneDockOpenNow,
+  paneDockOwnerOf,
   paneDiffShowing,
   paneDockActiveRoot,
   paneDiffStacks,
@@ -102,6 +108,7 @@ export {
   paneDockRestored,
   paneLocalSurface,
   paneDockForeign,
+  withPaneLocalOwner,
   reconcilePaneDockOwners,
   withPaneDockFileOpened,
   withPaneDockFileKept,
@@ -195,24 +202,22 @@ function resolveDockLayout({
 }) {
   const panelDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, PANE_SIDE_DOCK_MAX_WIDTH));
   const diffDesired = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(diffPref, PANE_SIDE_DOCK_MAX_WIDTH));
-  const sheetAvail = cellWidth > 0 ? cellWidth - 48 : Number.POSITIVE_INFINITY;
   const pairMin = PANE_SIDE_DOCK_MIN_WIDTH * 2;
-  const twoDepth = paneDiffStacks(diffShowing, sheetAvail, pairMin, mobileSheet);
+  const twoDepth = paneDiffStacks(diffShowing, paneOverlayRoom(cellWidth), pairMin, mobileSheet);
   const pairShowing = diffShowing && !twoDepth;
   let columnMin = PANE_SIDE_DOCK_MIN_WIDTH;
   if (sessionSurfaceShowing) columnMin = sessionMin;
   else if (pairShowing) columnMin = pairMin;
-  const fullTakeover = openNow && cellWidth > 0 && sheetAvail < columnMin;
   // Overlay decision: the diff PAIR never shrinks inline — the moment panel+diff no longer fit beside the
   // conversation floor, the whole unit floats over the pane. View/browser
   // modes shrink toward their own minimum first.
   let inlineFloor = columnMin;
   if (pairShowing) inlineFloor = panelDesired + diffDesired;
   else if (sessionSurfaceShowing) inlineFloor = sessionMin;
-  const overlay = fullTakeover || (openNow && room < inlineFloor);
-  let avail = room;
-  if (fullTakeover) avail = cellWidth;
-  else if (overlay) avail = Math.max(columnMin, sheetAvail);
+  const ladder = paneSidePresentation({ cellWidth, room, columnMin, inlineFloor });
+  const fullTakeover = openNow && ladder.presentation === 'full';
+  const overlay = openNow && ladder.presentation !== 'beside';
+  const avail = openNow ? ladder.avail : room;
   let asideTarget = Math.max(PANE_SIDE_DOCK_MIN_WIDTH, Math.min(panelPref, avail));
   if (fullTakeover) asideTarget = cellWidth;
   else if (sessionSurfaceShowing) {
@@ -230,11 +235,14 @@ function resolveDockLayout({
 type DockLayoutInput = Omit<Parameters<typeof resolveDockLayout>[0], 'room' | 'cellWidth'>;
 
 /** The dock and the session panel decided together, from the pane cell's
- *  width: the dock as it lays out alone (resolveDockLayout), and the panel's
- *  cards at the width the conversation beside that dock has room for, with
- *  what it gives up for them (sessionRailFit; width 0: not shown, the
- *  composer keeps its controls). Before the first measure the cards have
- *  their preferred width. */
+ *  width: the dock as it lays out alone (resolveDockLayout), and the panel
+ *  on the same ladder in the whole cell, with what the conversation gives up
+ *  for it (sessionRailFit). A dock open at the pane's side, inline, floating
+ *  or expanded, covers the panel: it is not shown (width 0), and the composer
+ *  keeps its island and controls until the dock closes. A dock below the
+ *  conversation covers nothing. Before the first measure (a render that is
+ *  never painted: useDockCellWidth measures before paint) the panel has its
+ *  preferred width, beside. */
 export function paneDockRailLayout({
   cellWidth,
   bottom,
@@ -249,17 +257,16 @@ export function paneDockRailLayout({
   rail: number | null;
   dock: DockLayoutInput;
 }) {
-  const roomFor = (cell: number) => {
-    if (cell <= 0) return Number.POSITIVE_INFINITY;
-    return bottom ? cell - 2 : cell - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame;
-  };
+  const roomFor = (cell: number) => (bottom && cell > 0 ? cell - 2 : paneSideRoom(cell, sheetFrame));
   const alone = resolveDockLayout({ ...dock, cellWidth, room: roomFor(cellWidth) });
-  if (rail === null) return { dock: alone, rail: { width: 0, reserve: 0 } };
-  if (cellWidth <= 0) return { dock: alone, rail: { width: clampSessionRailWidth(rail), reserve: 0 } };
-  // A dock floating over a narrow pane has no room of its own beside the conversation, so the panel has none either.
-  const inline = alone.overlay ? cellWidth : alone.baseAsideWidth + alone.diffWidth;
-  return { dock: alone, rail: sessionRailFit({ cellWidth, dockWidth: dock.openNow && !bottom ? inline : 0, railPref: rail }) };
+  if (rail === null || (dock.openNow && !bottom)) return { dock: alone, rail: SESSION_RAIL_OFF };
+  if (cellWidth <= 0) {
+    return { dock: alone, rail: { width: clampSessionRailWidth(rail), reserve: 0, presentation: 'beside' as const } };
+  }
+  return { dock: alone, rail: sessionRailFit({ cellWidth, railPref: rail }) };
 }
+
+const SESSION_RAIL_OFF: SessionRailFit = { width: 0, reserve: 0, presentation: 'beside' };
 
 /** The desktop header row for the diff and the panel views. */
 function PaneDockChromeRow({
@@ -363,6 +370,9 @@ type PaneSideDockProps = {
   entry: PaneSideDockEntry;
   /** A session stands behind the pane (its session-owned toggles are live). */
   sessionBound?: boolean;
+  /** This tab's session has its Changes view open (its user opened it and has
+   *  not folded the panel since): Changes leads the file tabs. */
+  changesTab?: boolean;
   /** The session whose terminal this dock shows when it is not the dock's own
    *  (a child's terminal revealed in its owner's dock): that terminal's X
    *  names the child, so the dock answers to it too. */
@@ -381,6 +391,8 @@ type PaneSideDockProps = {
   focused: boolean;
   /** The session this pane shows; its browser/terminal X closes this dock. */
   sessionId?: string;
+  /** The New Task draft this pane shows instead: its session panel shows as a session's does. */
+  draftId?: string;
   /** Hidden-mount only the focused pane's panel shell after boot. */
   prewarm?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
@@ -413,6 +425,8 @@ type PaneSideDockProps = {
     placement: WorkbenchSideViewPlacement
   ): void;
   onFocusPane(): void;
+  /** A side file tab holds unsaved edits (`fileKey`: sideFileKey). */
+  isFileDirty?(fileKey: string): boolean;
   openFileTab(project: string, rel: string, line?: number, accessToken?: string): void;
   /** `exiting`: the dock closed, but its sheet's exit slide still carries the
    *  surface (useSheetExit) — it keeps its pixels and nothing else: inert,
@@ -516,8 +530,11 @@ function renderDockDiffSurface(selection: PaneSideDockDiff, context: DockDiffSur
 function renderPaneDockSurfaces(
   props: Pick<
     PaneSideDockProps,
+    | 'leafId'
     | 'entry'
-    | 'sessionBound'
+    | 'focused'
+    | 'onFocusPane'
+    | 'isFileDirty'
     | 'onSelect'
     | 'onClose'
     | 'onCloseFile'
@@ -539,6 +556,7 @@ function renderPaneDockSurfaces(
     twoDepth,
     fileProblems,
     diffContext,
+    changesTab,
   }: {
     showing: ReturnType<typeof paneDockShowing>;
     exiting: boolean;
@@ -546,11 +564,16 @@ function renderPaneDockSurfaces(
     twoDepth: boolean;
     fileProblems: ReturnType<typeof useSideFileProblems>;
     diffContext: DockDiffSurfaceContext;
+    /** The session's Changes leads the file tabs. */
+    changesTab: boolean;
   }
 ) {
   const {
+    leafId,
     entry,
-    sessionBound,
+    focused,
+    onFocusPane,
+    isFileDirty,
     onSelect,
     onClose,
     onCloseFile,
@@ -577,14 +600,19 @@ function renderPaneDockSurfaces(
   );
   const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing, exiting) ?? null) : null;
   const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing, exiting) ?? null) : null;
-  const leadingTab =
-    sessionBound && entry.view === 'session-diff'
-      ? { label: t('Changes'), onSelect: () => onSelect('session-diff') }
-      : undefined;
+  const leadingTab = changesTab ? { label: t('Changes'), onSelect: () => onSelect('session-diff') } : undefined;
+  // Other tabs' file tabs held behind the front keep their editors only while
+  // they hold unsaved edits; a clean one opens again when it is in front.
+  const heldFiles = Object.values(entry.held ?? {}).flatMap((part) =>
+    (part.files ?? []).filter((file) => isFileDirty?.(sideFileKey(file)))
+  );
   const fileSurface =
-    dockBodyMounted && entry.files?.length ? (
+    dockBodyMounted && (entry.files?.length || heldFiles.length) ? (
       <PaneDockFileSurface
-        files={entry.files}
+        leafId={leafId}
+        files={entry.files ?? []}
+        heldFiles={heldFiles}
+        onFocusPane={focused ? undefined : onFocusPane}
         activeFile={activeFile}
         active={fileShowing}
         problems={fileProblems}
@@ -803,6 +831,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     groups,
     focused,
     sessionId = '',
+    draftId = '',
     terminalSessionId = '',
     prewarm = false,
     onClose,
@@ -810,11 +839,12 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     onFocusPane,
     openFileTab,
   } = props;
-  const openNow = entry.open && (entry.view !== null || entry.surface !== '');
+  const openNow = paneDockOpenNow(entry);
   // The body shows in the commit that opens the sheet, with the sheet.
   const { panelMounted, dockBodyMounted } = useDockMounting(openNow, prewarm);
   const mobileSheet = useMobileRemoteSurface();
   const fileProblems = useSideFileProblems((entry.files?.length ?? 0) > 0);
+  const changesStripHasTabs = useSessionDiffStripHasTabs(sessionId);
   // Geometry and semantics follow `openNow`.
   const showing = paneDockShowing(entry, openNow);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -834,8 +864,8 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   const bodyProps = closing ? { ...props, entry: lastOpenEntry.current } : props;
   const bodyOpen = openNow || closing;
   const bodyShowing = paneDockShowing(bodyProps.entry, bodyOpen);
-  // Settings → Session info: Automatic shows a session's panel while the conversation has room, never on the phone.
-  const railWanted = useSessionInfoDisplay() === 'auto' && Boolean(sessionId) && !mobileSheet;
+  // The header's toggle shows a session's or a draft's panel at every width, never on the phone.
+  const railWanted = useSessionPanelShown() && Boolean(sessionId || draftId) && !mobileSheet;
   const railPref = useSessionRailWidth();
   const cellWidth = useDockCellWidth(hostRef, openNow || railWanted);
   // Desktop placement (Settings → Side panel position); the phone sheet keeps
@@ -930,7 +960,9 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
       diffPref,
     },
   });
-  const { width: railWidth, reserve: railReserve } = layout.rail;
+  const { width: railWidth, reserve: railReserve, presentation: railPresentation } = layout.rail;
+  // A dock open at the pane's side covers the panel (paneDockRailLayout).
+  const railShown = railWanted && !(openNow && !bottom);
   const { diffDesired, twoDepth, pairShowing, overlay: sideOverlay, baseAsideWidth, diffWidth } = layout.dock;
   const overlay = sideOverlay && !bottom;
   const dockExpanded = expanded && openNow && !mobileSheet;
@@ -938,7 +970,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
   inlineDock.current = openNow && !overlay && !dockExpanded;
   const dockExpandValue = mobileSheet ? null : { expanded: dockExpanded, toggle: toggleExpanded };
   const asideWidth = expandedAsideWidth(baseAsideWidth, expandedRect, pairShowing ? diffWidth : 0);
-  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railReserve}`;
+  committedEdge.current = `${placement}|${openNow}|${overlay}|${dockExpanded}|${asideWidth}|${pairShowing ? diffWidth : 0}|${bottom ? dockHeight : 0}|${railReserve}|${railPresentation}`;
   const diffContext: DockDiffSurfaceContext = {
     diffShowing: bodyShowing.diffShowing,
     diffView,
@@ -952,6 +984,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     twoDepth,
     fileProblems,
     diffContext,
+    changesTab: Boolean(bodyProps.changesTab) && changesStripHasTabs,
   });
   // File Diff: PAIRED to the LEFT of the panel view under the same header
   // selection; a project-tool click replaces the file in place. The narrow
@@ -1027,12 +1060,14 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
           })}
       </div>
       </PaneDockExpandContext.Provider>
-      {railWidth > 0 && (
+      {railShown && (
         <SessionRailCard
           leafId={leafId}
           sessionId={sessionId}
+          draftId={draftId}
           width={railWidth}
           reserve={railReserve}
+          presentation={railPresentation}
           onFocusPane={focused ? undefined : onFocusPane}
         />
       )}

@@ -8,7 +8,7 @@ import {
   getSidePanelPosition,
   normalizeSidePanelPosition,
   resolveSidePanelPlacement,
-  setSessionInfoDisplay,
+  setSessionPanelShown,
   setSidePanelPosition,
   SIDE_PANEL_AUTO_BOTTOM_MAX_WIDTH,
   subscribeSidePanelPosition,
@@ -18,7 +18,7 @@ import {
   PANE_SIDE_DOCK_BOTTOM_CHAT_FLOOR,
   PANE_SIDE_DOCK_MIN_HEIGHT,
   paneDockResizeAxis,
-  useSessionInfoDisplay,
+  useSessionPanelShown,
 } from './pane-side-dock-hooks.ts';
 import { PaneSideDock } from './pane-side-dock.tsx';
 
@@ -61,27 +61,35 @@ test('side panel position persists and unknown values normalize to right', () =>
   }
 });
 
-test('session info display defaults to auto and a change reaches the hook', async () => {
+test('the session panel shows by default, its toggle reaches the hook, and a stored Hidden reads as not shown', async () => {
   const { dom: jsdom, restore } = dom();
   const seen = [];
   function Probe() {
-    seen.push(useSessionInfoDisplay());
+    seen.push(useSessionPanelShown());
     return null;
   }
   const root = createRoot(document.getElementById('root'));
-  try {
-    await act(async () => root.render(React.createElement(Probe)));
-    assert.equal(seen.at(-1), 'auto');
-    await act(async () => {
-      assert.equal(setSessionInfoDisplay('island'), true);
-    });
-    assert.equal(seen.at(-1), 'island');
-    assert.equal(jsdom.window.localStorage.getItem(SESSION_INFO_KEY), 'island');
-    await act(async () => {
-      jsdom.window.localStorage.setItem(SESSION_INFO_KEY, 'none');
+  const fromAnotherWindow = (value) =>
+    act(async () => {
+      jsdom.window.localStorage.setItem(SESSION_INFO_KEY, value);
       jsdom.window.dispatchEvent(new jsdom.window.StorageEvent('storage', { key: SESSION_INFO_KEY }));
     });
-    assert.equal(seen.at(-1), 'none', 'another window changing the choice reaches the hook');
+  try {
+    await act(async () => root.render(React.createElement(Probe)));
+    assert.equal(seen.at(-1), true);
+    await act(async () => {
+      assert.equal(setSessionPanelShown(false), true);
+    });
+    assert.equal(seen.at(-1), false);
+    await act(async () => setSessionPanelShown(true));
+    assert.equal(seen.at(-1), true);
+    // The previous version's values, from another window or a restart.
+    await fromAnotherWindow('none');
+    assert.equal(seen.at(-1), false, "the retired 'Hidden' shows no panel");
+    await fromAnotherWindow('auto');
+    assert.equal(seen.at(-1), true);
+    await fromAnotherWindow('island');
+    assert.equal(seen.at(-1), false);
   } finally {
     await act(async () => root.unmount());
     restore();

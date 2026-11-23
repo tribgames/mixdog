@@ -1,4 +1,4 @@
-import { ArrowUp, GitCommitHorizontal, GitPullRequest, List, Play } from 'lucide-react';
+import { ArrowUp, GitCommitHorizontal, GitPullRequest, Play } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
@@ -6,9 +6,8 @@ import { IslandSegmentPending, useComposerIslandTab } from './composer-island-st
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { type IslandGitAction, useIslandGitRequest } from './island-git-request';
-import { IslandPanelFoot, IslandPanelHead } from './IslandPanelFoot';
+import { IslandPanelHead } from './IslandPanelFoot';
 import { useMobileBack } from './mobile-back';
-import { requestOpenDockTab } from './open-dock-tab-event';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
 /** The checkout's status (branch, commits ahead of upstream), re-read on Git
@@ -89,10 +88,7 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
       return;
     }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    const items = [
-      ...(panel.current?.querySelectorAll<HTMLElement>('.composer-island-git-run, .composer-island-git-foot button') ??
-        []),
-    ];
+    const items = [...(panel.current?.querySelectorAll<HTMLElement>('.composer-island-git-run') ?? [])];
     const index = items.indexOf(document.activeElement as HTMLElement);
     const step = event.key === 'ArrowDown' ? 1 : -1;
     event.preventDefault();
@@ -161,19 +157,6 @@ export function IslandGitSegment({ sessionId, cwd }: { sessionId: string; cwd: s
               ))}
             </div>
           </div>
-          <IslandPanelFoot className="composer-island-git-foot">
-            <button
-              type="button"
-              className="composer-island-button"
-              onClick={() => {
-                setOpen(false);
-                requestOpenDockTab('source-control');
-              }}
-            >
-              <List size={14} aria-hidden="true" />
-              <span>{t('Island: Source Control')}</span>
-            </button>
-          </IslandPanelFoot>
         </section>
       )}
     </>

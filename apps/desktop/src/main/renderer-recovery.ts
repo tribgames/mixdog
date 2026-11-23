@@ -118,6 +118,39 @@ export function normalizeRendererCoreLinkDiagnostic(
   return { event: record.event, fields };
 }
 
+const followReason = (value: unknown) =>
+  String(value ?? '')
+    .replace(/[^a-z-]/g, '')
+    .slice(0, 24);
+
+const pixels = (value: unknown) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : 0;
+};
+
+export function normalizeRendererFollowReleaseDiagnostic(input: unknown): Record<string, unknown> | null {
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'follow-release') return null;
+  const reason = followReason(record.reason);
+  if (!reason) return null;
+  return {
+    reason,
+    top: pixels(record.top),
+    delta: pixels(record.delta),
+    distance: pixels(record.distance),
+    windowFocused: record.windowFocused === true,
+    pageHidden: record.pageHidden === true,
+  };
+}
+
+export function normalizeRendererFollowRearmDiagnostic(input: unknown): Record<string, unknown> | null {
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'follow-rearm') return null;
+  const reason = followReason(record.reason);
+  if (!reason) return null;
+  return { reason, top: pixels(record.top), distance: pixels(record.distance) };
+}
+
 export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<string, unknown> | null {
   const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   if (record.kind !== 'whats-new') return null;

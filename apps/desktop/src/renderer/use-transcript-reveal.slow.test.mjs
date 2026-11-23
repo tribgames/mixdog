@@ -11,7 +11,6 @@ const HARNESS = `
   import { TranscriptList } from './TranscriptList';
   import { useTranscriptFollow } from './use-transcript-follow';
   import { useTranscriptReveal } from './use-transcript-reveal';
-  import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
   import { setFontSettings } from './appearance/font-settings';
 
   const WORDS = 'transcript rows wrap differently at every width so a stale measurement is visible';
@@ -39,7 +38,6 @@ const HARNESS = `
     const revealed = useTranscriptReveal({
       identity: active, enabled: true, draft: false, viewport, content, scope,
       hasScrollGesture: follow.hasScrollGesture,
-      retainedGeometry: readTranscriptVirtualSnapshot(active)?.measurements,
       pinned: follow.following,
     });
     return <section ref={scope} className="conversation" style={{ width, height, margin: 20 }}>
@@ -130,7 +128,7 @@ const HARNESS = `
   });
 `;
 
-test('a revisit reveals in its first frame only while its remembered geometry still holds', async (t) => {
+test('a revisit paints only rows at their final boxes, from its first frame when nothing changed', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
     build({
@@ -251,13 +249,12 @@ test('a revisit reveals in its first frame only while its remembered geometry st
   await away('B', ['append', 'A', 3]);
   const appended = await visit('A');
   assertNoWrongFrame(appended, 'rows appended while away');
-  expect(!appended[0].visible, 'rows appended while away: not revealed in frame 1');
-  expect(firstVisible(appended) >= 0, 'it reveals');
+  expect(firstVisible(appended) >= 0, 'rows appended while away: it reveals');
 
   // The viewport width changed while away.
   await away('B', ['resize', 480]);
   const resized = await visit('A');
-  expect(!resized[0].visible, 'width changed while away: not revealed in frame 1');
+  expect(firstVisible(resized) >= 0, 'width changed while away: it reveals');
   assertNoWrongFrame(resized, 'width changed while away');
   await page.evaluate(() => window.fixture.resize(620));
   await page.evaluate(() => window.settle());
@@ -266,23 +263,23 @@ test('a revisit reveals in its first frame only while its remembered geometry st
   await visit('B');
   await away('B', ['codeSize', 18]);
   const bigger = await visit('A');
-  expect(!bigger[0].visible, 'code size changed while away: not revealed in frame 1');
+  expect(firstVisible(bigger) >= 0, 'code size changed while away: it reveals');
   assertNoWrongFrame(bigger, 'code size changed while away');
   await away('B', ['monoFont', 'Courier New']);
   const family = await visit('A');
-  expect(!family[0].visible, 'code font family changed while away: not revealed in frame 1');
+  expect(firstVisible(family) >= 0, 'code font family changed while away: it reveals');
   assertNoWrongFrame(family, 'code font family changed while away');
 
   // Skin activation re-pads replies and tool rows through CSS alone.
   await away('B', ['skin', true]);
   const skinned = await visit('A');
-  expect(!skinned[0].visible, 'skin activated while away: not revealed in frame 1');
+  expect(firstVisible(skinned) >= 0, 'skin activated while away: it reveals');
   assertNoWrongFrame(skinned, 'skin activated while away');
 
   // Tool expansion mounts bodies the remembered rows did not have.
   await away('B', ['toolsOpen', true]);
   const expanded = await visit('A');
-  expect(!expanded[0].visible, 'tool expansion changed while away: not revealed in frame 1');
+  expect(firstVisible(expanded) >= 0, 'tool expansion changed while away: it reveals');
   assertNoWrongFrame(expanded, 'tool expansion changed while away');
 
   const edge = await page.evaluate(() => window.fixture.findPartialTopRow());
@@ -290,7 +287,7 @@ test('a revisit reveals in its first frame only while its remembered geometry st
   await visit('B');
   await away('B', ['tall', edge.key]);
   const topChanged = await visit('A');
-  expect(!topChanged[0].visible, 'a changed partly visible top row: not revealed in frame 1');
+  expect(firstVisible(topChanged) >= 0, 'a changed partly visible top row: it reveals');
   assertNoWrongFrame(topChanged, 'a changed partly visible top row');
 
   // Unchanged again after all of that: the direct check still passes.

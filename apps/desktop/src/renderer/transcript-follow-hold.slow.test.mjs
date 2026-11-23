@@ -1,7 +1,7 @@
 // Follow at the end of a running turn, in a real browser: it holds through everything the page does to the transcript
 // (text streaming, tool rows growing and folding, rows leaving the top of the window, the pane's width and height
-// changing, at fractional display scales too) and lets go only when the reader scrolls or selects text; a click on
-// the text is neither.
+// changing, at fractional display scales too) and lets go only when the reader scrolls; a click on the text does not,
+// and a selection holds it, writing no end under the selected text until the selection collapses.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -73,7 +73,8 @@ const HARNESS = `
               scrollToEndRef={scrollToEndRef} setAnchorBottomRef={setAnchorBottomRef}
               markProgrammaticScroll={follow.markProgrammaticScroll} hasScrollGesture={follow.hasScrollGesture}
               hasTouchScroll={follow.holdsScrollCorrections} touchHoldsCorrections={follow.touchHoldsCorrections}
-              onSelectionAutoScroll={follow.handleSelectionAutoScroll} renderRow={renderTranscriptRow} />
+              onSelectionAutoScroll={follow.handleSelectionAutoScroll} onSelectionHold={follow.handleSelectionHold}
+              renderRow={renderTranscriptRow} />
           </div>
         </div>
       </div></section>
@@ -83,10 +84,14 @@ const HARNESS = `
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const sample = () => {
     const view = document.querySelector('.transcript');
+    const selection = document.getSelection();
     return {
       following: pane.follow.following && pane.follow.followingRef.current,
+      jump: pane.follow.showJump,
       gap: Math.round(view.scrollHeight - view.clientHeight - view.scrollTop),
       releases: releases.slice(),
+      // Where the selected text stands in the window, or null with nothing selected.
+      selected: selection && !selection.isCollapsed ? selection.getRangeAt(0).getBoundingClientRect().top : null,
     };
   };
   // Every frame of a change until it settles: follow, and how far the end is.
@@ -304,14 +309,14 @@ for (const scale of [1.25, 1.5]) {
   });
 }
 
-test("a click on a reply's text keeps follow while the turn streams; a selection dragged out of it lets go", async (t) => {
+test("a click on a reply's text keeps follow while the turn streams; a selection dragged out of it holds follow, the selected text still, until it collapses", async (t) => {
   const { page, errors } = await mountedAtEnd(t);
   const states = turn();
   await page.evaluate((s) => window.fixture.step(s), states[1]);
-  // A word of the reply in view: the first line of the last reply's text.
+  // A word of a reply in view above the streaming one: the first line of its text.
   const text = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')];
-    const row = rows.filter((node) => node.getBoundingClientRect().top > 40).at(-1);
+    const row = rows.filter((node) => node.getBoundingClientRect().top > 40).at(-2);
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => (/word/.test(node.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
     });
@@ -326,8 +331,69 @@ test("a click on a reply's text keeps follow while the turn streams; a selection
   await page.mouse.down();
   await page.mouse.move(text.x + 160, text.y, { steps: 6 });
   await page.mouse.up();
-  const after = await page.evaluate((s) => window.fixture.step(s), states[3]);
-  assert.equal(after.at(-1).following, false, 'the text being selected is not scrolled away');
+  const selectedAt = (await page.evaluate(() => window.fixture.sample())).selected;
+  assert.notEqual(selectedAt, null, 'the drag selected text');
+  for (const state of states.slice(2, 7)) {
+    for (const [at, sample] of (await page.evaluate((s) => window.fixture.step(s), state)).entries()) {
+      assert.deepEqual(sample.releases, [], `frame ${at}: a selection released follow`);
+      assert.ok(sample.following, `frame ${at}: not following`);
+      assert.equal(sample.selected, selectedAt, `frame ${at}: the selected text moved`);
+    }
+  }
+  assert.ok((await page.evaluate(() => window.fixture.sample())).gap > 1, 'the turn grew below the held view');
+  await page.evaluate(() => document.getSelection().removeAllRanges());
+  assertHeld(await page.evaluate((s) => window.fixture.step(s), states[7]), 'after the selection collapsed');
+  assert.deepEqual(errors, []);
+});
+
+test('a selection inside the reply that is still streaming holds follow: the selected words stay put as more stream in, and the jump control says the end is not kept', async (t) => {
+  const { page, errors } = await mountedAtEnd(t);
+  // The reply streams a second paragraph under a first one it has written.
+  const streaming = (count) =>
+    running(history, [{ kind: 'assistant', id: 'r', text: `${body(1)}\n\n${words(count)}`, at: 1_100, streaming: true }]);
+  await page.evaluate((s) => window.fixture.step(s), streaming(40));
+  // The first paragraph is written out: all of it revealed, none of it still fading in.
+  await page.waitForFunction(
+    (written) => {
+      const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
+      const first = row?.querySelector('[data-md-unit="p@0"]');
+      return first?.textContent === written && !first.querySelector('mx-fade');
+    },
+    { timeout: 10_000, polling: 100 },
+    body(1)
+  );
+  // The first words of the streaming reply's first paragraph, in the last row.
+  const text = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.transcript-virtual-row-content[data-tag="AssistantPart"]')].at(-1);
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) =>
+        /Reply paragraph/.test(node.textContent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+    });
+    const range = document.createRange();
+    range.selectNodeContents(walker.nextNode());
+    const line = range.getClientRects()[0];
+    return { x: line.left + 4, y: line.top + line.height / 2 };
+  });
+  await page.mouse.move(text.x, text.y);
+  await page.mouse.down();
+  await page.mouse.move(text.x + 160, text.y, { steps: 6 });
+  await page.mouse.up();
+  const selectedAt = (await page.evaluate(() => window.fixture.sample())).selected;
+  assert.notEqual(selectedAt, null, 'the drag selected text of the streaming reply');
+  for (const count of [60, 90, 120, 160, 200]) {
+    for (const [at, sample] of (await page.evaluate((s) => window.fixture.step(s), streaming(count))).entries()) {
+      assert.deepEqual(sample.releases, [], `${count} words, frame ${at}: a selection released follow`);
+      assert.ok(sample.following, `${count} words, frame ${at}: not following`);
+      assert.equal(sample.selected, selectedAt, `${count} words, frame ${at}: the selected words moved`);
+    }
+  }
+  const held = await page.evaluate(() => window.fixture.sample());
+  assert.ok(held.gap > 1, 'the reply grew below the held view');
+  assert.equal(held.jump, true, 'the jump control shows while the end is not kept');
+  await page.evaluate(() => document.getSelection().removeAllRanges());
+  const after = await page.evaluate((s) => window.fixture.step(s), streaming(220));
+  assertHeld(after, 'after the selection collapsed');
+  assert.equal(after.at(-1).jump, false, 'following again: no jump control');
   assert.deepEqual(errors, []);
 });
 

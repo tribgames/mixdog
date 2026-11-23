@@ -14,12 +14,11 @@ import {
 import { flushSync } from 'react-dom';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import {
-  getSessionInfoDisplay,
+  getSessionPanelShown,
   getSidePanelPosition,
   resolveSidePanelPlacement,
-  subscribeSessionInfoDisplay,
+  subscribeSessionPanelShown,
   subscribeSidePanelPosition,
-  type SessionInfoDisplay,
   type SidePanelPlacement,
 } from './side-panel-preferences';
 import { expandedDockRect } from './surface-slots';
@@ -223,12 +222,13 @@ export function useDiffColumnResize({
   };
 }
 
-/** The dock measures its own pane cell while open. A resize commits inside
- *  the observer, before paint: the dock's width, overlay and diff stacking
- *  follow a window drag in the frame that moved the cell, never one later. */
+/** The dock measures its own pane cell while open. The first measure and a
+ *  resize both commit before paint (the layout effect, and flushSync in the
+ *  observer): a new pane's first frame and a window drag's frame already
+ *  have the dock's width, overlay, diff stacking and session panel. */
 export function useDockCellWidth(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean): number {
   const [cellWidth, setCellWidth] = useState(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!openNow) return undefined;
     const cell = hostRef.current?.parentElement;
     if (!cell) return undefined;
@@ -375,9 +375,9 @@ export function useSidePanelPlacement(): SidePanelPlacement {
   return useSyncExternalStore(subscribeSidePanelPlacement, sidePanelPlacementSnapshot, () => 'right');
 }
 
-/** The desktop session info display (Settings → Windows and panels). */
-export function useSessionInfoDisplay(): SessionInfoDisplay {
-  return useSyncExternalStore(subscribeSessionInfoDisplay, getSessionInfoDisplay, () => 'auto');
+/** Whether the session panel shows on desktop (the pane header's toggle). */
+export function useSessionPanelShown(): boolean {
+  return useSyncExternalStore(subscribeSessionPanelShown, getSessionPanelShown, () => true);
 }
 
 /** The cell rows that share the chat's column and never yield to the dock:

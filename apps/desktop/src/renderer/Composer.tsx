@@ -71,6 +71,7 @@ import { attachmentContextNotice } from './composer-attachments';
 import { backfillAgentChatRoute } from './agent-chat-route';
 import { BtwCard, useBtwCard } from './BtwCard';
 import { readCachedModelCatalog } from './model-catalog-cache';
+import { useAgentRoute } from './acp-agent-status';
 import { modelOffersUltrafast } from './model-route-utils';
 import {
   AttachmentChips,
@@ -646,6 +647,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setDraft(next);
     queueMicrotask(() => textarea.current?.focus());
   };
+  const agentRoute = useAgentRoute(provider, model);
   const palettes = useComposerPalettes({
     draft,
     projectScope,
@@ -657,6 +659,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     userMessages,
     room: Boolean(roomMembers),
     plain: agentMode,
+    notApplicable: agentRoute?.notApplicable,
   });
   const { setCaretOffset, slash, mention, skillMention } = palettes;
   const tags = useComposerRoomTags({
@@ -760,6 +763,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     turnBusy,
     provider,
     model,
+    agentRoute,
     effort,
     fast,
     fastCapable,

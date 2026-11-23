@@ -1,21 +1,22 @@
-// The session panel's building block: a category as a card of its own: a head
-// that folds it as the left rail's groups fold (name, chevron, then its count
-// and what it holds), a body and a foot of actions in the island panels'
-// grammar. Its head drags the card to another place in the panel.
+// The session panel's building block: a category as a section of the panel: a
+// head that folds it (the category's name with the fold's chevron beside it,
+// then what it holds at the head's end), a body and a foot of actions in the
+// island panels' grammar. Its head drags the section to another place in the
+// panel.
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { DragEvent, KeyboardEvent, ReactNode } from 'react';
-import { type DockAction, DockOverflowMenu } from './pane-dock-chrome';
+import { type DragEvent, type KeyboardEvent, type ReactNode, useRef } from 'react';
 import { t } from './i18n';
 import { TidyButton } from './IslandPanelFoot';
+import { useScrollProgress } from './scroll-progress';
 import {
   moveSessionRailCategory,
+  releasePointerFocus,
   type SessionRailCategory,
   sessionRailOrderNow,
   setSessionRailOrder,
 } from './session-rail-folds';
 
 export type RailTidy = { kind: string; description: string; disabled: boolean; onClick(): void };
-
 /** The category whose head is being dragged (drops are taken from it alone),
  *  and the arrangement it was picked up from. */
 let dragged: { category: SessionRailCategory; from: readonly SessionRailCategory[] } | null = null;
@@ -31,52 +32,52 @@ export function RailSection({
   count,
   summary,
   meta,
+  action,
   open,
   onToggle,
   tidy,
-  menu = [],
-  top,
   foot,
   scroll = false,
   children,
 }: {
   category: SessionRailCategory;
   title: string;
-  /** The figure beside the name (how many, how far). */
+  /** The figure at the head's end (a state mark, then how many or how far). */
   count?: ReactNode;
   /** What the category holds, shown at the head's end while it is closed. */
   summary?: ReactNode;
   /** The head's end in both states; replaces the summary. */
   meta?: ReactNode;
+  /** The category's one action, a button at the head's end while it is open. */
+  action?: ReactNode;
   open: boolean;
   onToggle(): void;
-  /** The category's Clean up, the foot's last button. */
+  /** The category's Clean up, at the foot's right end as on the island panels. */
   tidy?: RailTidy;
-  /** The "…" menu; no "…" when it is empty. */
-  menu?: readonly DockAction[];
-  /** Fixed above the body (a search field). */
-  top?: ReactNode;
-  /** The foot's own buttons or line, before Clean up. */
+  /** The foot's own buttons or line. */
   foot?: ReactNode;
-  /** The body is a list that scrolls inside the sheet past its height. */
+  /** The body is a list that scrolls inside the section past its height. */
   scroll?: boolean;
   children: ReactNode;
 }) {
   const Chevron = open ? ChevronDown : ChevronRight;
   const end = meta ?? (open ? null : summary);
+  // A scrolling list's position, for its edge fades (session-rail.css); the list is drawn anew each time it opens.
+  const list = useRef<HTMLDivElement>(null);
+  useScrollProgress(list, undefined, open && scroll);
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
     const head = event.currentTarget;
-    const cards = head.closest('.session-rail-content')?.querySelectorAll<HTMLElement>('.session-rail-sec:not([data-leaving])');
-    const shown = [...(cards ?? [])].map(
-      (node) => node.dataset.category as SessionRailCategory
-    );
+    const sections = head
+      .closest('.session-rail-content')
+      ?.querySelectorAll<HTMLElement>('.session-rail-sec:not([data-leaving])');
+    const shown = [...(sections ?? [])].map((node) => node.dataset.category as SessionRailCategory);
     const down = event.key === 'ArrowDown';
     const neighbour = shown[shown.indexOf(category) + (down ? 1 : -1)];
     if (!neighbour) return;
     event.preventDefault();
     moveSessionRailCategory(category, neighbour, down);
-    // The card moved in the document, which drops focus: the head keeps it.
+    // The section moved in the document, which drops focus: the head keeps it.
     requestAnimationFrame(() => head.focus());
   };
   const onDragOver = (event: DragEvent<HTMLElement>) => {
@@ -100,19 +101,22 @@ export function RailSection({
           aria-expanded={open}
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           draggable
-          onClick={onToggle}
+          onClick={(event) => {
+            onToggle();
+            releasePointerFocus(event);
+          }}
           onKeyDown={onKeyDown}
           onDragStart={(event) => {
             dragged = { category, from: sessionRailOrderNow() };
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', title);
-            // What is carried is the whole card, held where it was pressed.
-            const card = event.currentTarget.closest<HTMLElement>('.session-rail-sec');
-            if (!card) return;
-            const box = card.getBoundingClientRect();
-            event.dataTransfer.setDragImage(card, event.clientX - box.left, event.clientY - box.top);
-            // After the browser has taken the card's picture: its place in the column dims.
-            requestAnimationFrame(() => card.setAttribute('data-dragging', 'true'));
+            // What is carried is the whole section, held where it was pressed.
+            const section = event.currentTarget.closest<HTMLElement>('.session-rail-sec');
+            if (!section) return;
+            const box = section.getBoundingClientRect();
+            event.dataTransfer.setDragImage(section, event.clientX - box.left, event.clientY - box.top);
+            // After the browser has taken the section's picture: its place in the column dims.
+            requestAnimationFrame(() => section.setAttribute('data-dragging', 'true'));
           }}
           onDragEnd={(event) => {
             // Let go outside the panel or cancelled with Escape: the order it was picked up from.
@@ -123,14 +127,13 @@ export function RailSection({
         >
           <span className="session-rail-tt">{title}</span>
           <Chevron size={12} className="session-rail-cv" aria-hidden="true" />
-          {count != null && <span className="session-rail-ct">{count}</span>}
           <span className="session-rail-sm">{end}</span>
+          {count != null && <span className="session-rail-ct">{count}</span>}
         </button>
-        {open && menu.length > 0 && <DockOverflowMenu items={menu} />}
+        {open && action}
       </div>
-      {open && top}
       {open && (
-        <div className="session-rail-bd" data-scroll={scroll || undefined}>
+        <div ref={scroll ? list : undefined} className="session-rail-bd" data-scroll={scroll || undefined}>
           {children}
         </div>
       )}
@@ -138,17 +141,14 @@ export function RailSection({
         <div className="session-rail-ft">
           {foot}
           {tidy && (
-            <span className="session-rail-ft-end">
-              <TidyButton
-                className="composer-island-button"
-                kind={tidy.kind}
-                label={t('Clean up')}
-                description={tidy.description}
-                named
-                disabled={tidy.disabled}
-                onClick={tidy.onClick}
-              />
-            </span>
+            <TidyButton
+              className="composer-island-button session-rail-tidy"
+              kind={tidy.kind}
+              label={t('Clean up')}
+              description={tidy.description}
+              disabled={tidy.disabled}
+              onClick={tidy.onClick}
+            />
           )}
         </div>
       )}
@@ -156,8 +156,8 @@ export function RailSection({
   );
 }
 
-/** A fold inside a category (a to-do group, an agent role): its name, the
- *  chevron, then how many it holds, in the order of the category's own head. */
+/** A fold inside a category (a to-do group): its name, the chevron, then how
+ *  many it holds, in the order of the category's own head. */
 export function RailFold({
   id,
   name,
@@ -172,12 +172,21 @@ export function RailFold({
   onToggle(): void;
 }) {
   return (
-    <button type="button" className="session-rail-gh" data-fold={id} aria-expanded={open} onClick={onToggle}>
+    <button
+      type="button"
+      className="session-rail-gh"
+      data-fold={id}
+      aria-expanded={open}
+      onClick={(event) => {
+        onToggle();
+        releasePointerFocus(event);
+      }}
+    >
       <span className="session-rail-gn">{name}</span>
       {open ? (
-        <ChevronDown size={10} className="session-rail-cv" aria-hidden="true" />
+        <ChevronDown size={12} className="session-rail-cv" aria-hidden="true" />
       ) : (
-        <ChevronRight size={10} className="session-rail-cv" aria-hidden="true" />
+        <ChevronRight size={12} className="session-rail-cv" aria-hidden="true" />
       )}
       {count != null && <span className="session-rail-ct">{count}</span>}
     </button>

@@ -83,9 +83,6 @@
 :is(.utility-dock, .composer-island-jobs) .agent-activity-elapsed[data-state="failed"] {
   color: var(--mx-status-failed);
 }
-.composer-island-failed {
-  color: var(--mx-status-failed);
-}
 
 /* Quiet-time cue: neutral while a long silence is still ordinary (silent
    thinking), the warning hue once it reaches the stall watchdog's warn point. */

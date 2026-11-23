@@ -21,7 +21,8 @@ export { usageNumber };
 const ROW_MATCHERS: Record<string, (id: string, label: string) => boolean> = {
   'opencode-go-oauth': (id) => id === 'opencode-go-oauth',
   cursor: (id, label) => id === 'cursor-oauth' || label.includes('cursor oauth'),
-  antigravity: (id, label) => id === 'antigravity-oauth' || label.includes('antigravity'),
+  antigravity: (id, label) => id === 'antigravity-oauth' || (id !== 'acp-antigravity' && label.includes('antigravity')),
+  'antigravity-acp': (id) => id === 'acp-antigravity',
 };
 
 /** Subscriptions matched inside the `oauth` group by id/label text. */

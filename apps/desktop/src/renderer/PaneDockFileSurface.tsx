@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react';
 import type { SideFileProblemsState } from './pane-side-dock-hooks';
 import { PaneDockSurfaceSlot } from './pane-side-dock-surface-slot';
+import { SideFileEditorSlot } from './side-file-editor-portals';
 import { SideFileProblems } from './side-file-problems';
 import { SideFileStatusRow, sideFileHasFooter } from './side-file-status-row';
 import { sideFileKey, type PaneSideDockFile } from './side-file-tabs';
 import { SideFileStrip, type SideFileChrome } from './side-surface-strip';
 
 export function PaneDockFileSurface({
+  leafId,
   files,
+  heldFiles,
+  onFocusPane,
   activeFile,
   active,
   problems,
@@ -22,8 +26,14 @@ export function PaneDockFileSurface({
   leadingTab,
 }: {
   leadingTab?: { label: string; onSelect(): void };
+  leafId: string;
   /** The open file tabs, in order. */
   files: readonly PaneSideDockFile[];
+  /** Other tabs' file tabs with unsaved edits, held behind these: their
+   *  editors stay, unseen (a clean held tab has none until it is in front). */
+  heldFiles: readonly PaneSideDockFile[];
+  /** Focuses the pane on a click inside an editor (absent while focused). */
+  onFocusPane?(): void;
   activeFile: PaneSideDockFile | null;
   /** The file child is the dock's showing surface. */
   active: boolean;
@@ -52,18 +62,25 @@ export function PaneDockFileSurface({
   } = problems;
   const activeFileId = activeFile ? sideFileKey(activeFile) : null;
   const fileChrome = activeFileId ? (fileChromes[activeFileId] ?? null) : null;
-  // One mounted editor per file tab, so unsaved edits survive a tab switch;
-  // only the active tab's editor shows.
-  const fileSurface = files.map((file) => {
+  // One editor per file tab, so unsaved edits survive a tab switch; only the
+  // active tab's editor shows. The editor follows the file, not this pane
+  // (side-file-editor-portals): this is only its slot.
+  const frontIds = new Set(files.map(sideFileKey));
+  const fileSurface = [...files, ...heldFiles.filter((file) => !frontIds.has(sideFileKey(file)))].map((file) => {
     const fileId = sideFileKey(file);
-    const shown = fileId === activeFileId;
+    const shown = frontIds.has(fileId) && fileId === activeFileId;
+    const side = { onChrome: chromeSetter(fileId), onShowProblems: toggleFileProblems };
     return (
-      <div key={fileId} className="pane-side-file-tab" hidden={!shown}>
-        {renderFileSurface?.(file, active && shown, {
-          onChrome: chromeSetter(fileId),
-          onShowProblems: toggleFileProblems,
-        }) ?? null}
-      </div>
+      <SideFileEditorSlot
+        key={fileId}
+        editorKey={fileId}
+        slotId={`side-file-slot:${leafId}:${fileId}`}
+        shown={shown}
+        onFocusPane={onFocusPane}
+        hidden={renderFileSurface?.(file, false, side) ?? null}
+      >
+        {renderFileSurface?.(file, active && shown, side) ?? null}
+      </SideFileEditorSlot>
     );
   });
   const fileProblems = fileProblemsOpen && activeFile ? (renderFileProblems?.(activeFile) ?? null) : null;

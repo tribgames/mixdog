@@ -1,4 +1,4 @@
-import { type ComponentProps, lazy, type RefObject, Suspense, useMemo } from 'react';
+import { type ComponentProps, type RefObject, useContext, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { BranchChip } from './BranchChip';
 import { Composer, OrchestrationModeSelect, WorkflowSelect } from './Composer';
@@ -11,12 +11,13 @@ import { useComposerUserMessages } from './conversation-pane-user-messages';
 import type { RecordValue, Snapshot, TranscriptItem } from './desktop-types';
 import type { ConversationIsland } from './use-conversation-island';
 import type { ConversationSubmission } from './use-conversation-submission';
-import { useSessionInfoDisplay } from './pane-side-dock-hooks';
-import { sessionRailHost, useSessionRailSlot } from './session-rail-layout';
+import { PaneHandOverContext, sessionRailPlace, useSessionRailSlot } from './session-rail-layout';
 import { useSurfaceActive } from './surface-activity';
+import { deferredModule, useDeferredModule } from './deferred-module';
 
-// The panel's categories load with the first panel shown, as the island's Goal does.
-const SessionRail = lazy(() => import('./SessionRail'));
+// The panel's categories load with the first panel offered; until they have,
+// the composer keeps the island and the controls the panel would take.
+const sessionRailModule = deferredModule(() => import('./SessionRail'));
 
 export type ConversationComposerDockProps = Pick<
   ConversationProps,
@@ -210,52 +211,77 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
   const reviewSessionId = draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '');
   const pendingInput = !draftMode && submission.steerItems.length > 0;
   const reviewBusy = Boolean(snapshot.busy || routeSnapshot.commandBusy);
-  // The pane's session panel draws the session the pane shows, from its
-  // on-screen conversation only (sessionRailHost); it takes that
+  // The pane's session panel draws the session or draft the pane shows, from
+  // its on-screen conversation only (sessionRailPlace); it takes that
   // conversation's island and the controls under its composer.
   const railSlot = useSessionRailSlot(props.paneLeafId ?? '');
   const onScreen = useSurfaceActive();
-  const railHost = sessionRailHost(railSlot, { sessionId: draftMode ? '' : reviewSessionId, onScreen });
-  const railShown = Boolean(railHost);
-  // Settings → Session info: Hidden draws neither the panel nor the island.
-  const islandOff = useSessionInfoDisplay() === 'none';
+  const handOver = useContext(PaneHandOverContext);
+  const SessionRail = useDeferredModule(sessionRailModule, { load: Boolean(railSlot.element) })?.default;
+  const railPlace = SessionRail
+    ? sessionRailPlace(railSlot, {
+        sessionId: draftMode ? '' : reviewSessionId,
+        draftId: draftMode ? draftId : '',
+        onScreen,
+        handOver,
+      })
+    : { host: null, taken: false };
+  const railHost = railPlace.host;
+  const contextControls = Boolean(showProjectSelector) && !agentMode;
+  const railShown = railPlace.taken;
   return (
     <>
-      {railHost &&
+      {SessionRail &&
+        railHost &&
         createPortal(
-          <Suspense fallback={null}>
-            <SessionRail
-              sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
-              reviewSessionId={reviewSessionId}
-              workspace={routeSnapshot.workspace ?? null}
-              projectPath={activeProjectPath}
-              projectLabel={props.activeProjectLabel}
-              routeProject={routeProject}
-              projects={props.projects}
-              agentMode={agentMode}
-              goalSubmissionId={submission.goalSubmissionId}
-              reviewItems={submission.reviewItems}
-              reviewActive={reviewActive}
-              reviewBusy={reviewBusy}
-              pendingInput={pendingInput}
-              model={{
-                ...route,
-                sessionId: routeSessionId,
-                modelDisabled: transitioning,
-                tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
-                invokeResult: actions.composerInvokeResult,
-                applySnapshot: actions.composerApplySnapshot,
-                onOpenSettings: actions.composerOnOpenSettings,
-                onRoutePreferenceApplied,
-              }}
-              sessionChoices={sessionChoices}
-              onOpenSessionDiff={onOpenSessionDiff}
-              onOpenAgentSession={onOpenAgentSession}
-              onMoveSessionToProject={props.onMoveSessionToProject}
-              onAddProject={props.onAddProject}
-              onOpenCommandSurface={actions.composerOnOpenCommandSurface}
-            />
-          </Suspense>,
+          <SessionRail
+            sessionId={draftMode ? '' : String(snapshot.sessionId || '')}
+            reviewSessionId={reviewSessionId}
+            workspace={routeSnapshot.workspace ?? null}
+            projectPath={activeProjectPath}
+            projectLabel={props.activeProjectLabel}
+            routeProject={routeProject}
+            projects={props.projects}
+            agentMode={agentMode}
+            goalSubmissionId={submission.goalSubmissionId}
+            reviewItems={submission.reviewItems}
+            reviewActive={reviewActive}
+            reviewBusy={reviewBusy}
+            pendingInput={pendingInput}
+            model={{
+              ...route,
+              sessionId: routeSessionId,
+              modelDisabled: transitioning,
+              tuningDisabled: Boolean(routeSnapshot.commandBusy) || transitioning,
+              invokeResult: actions.composerInvokeResult,
+              applySnapshot: actions.composerApplySnapshot,
+              onOpenSettings: actions.composerOnOpenSettings,
+              onDraftModelSelection: draftMode ? onDraftModelSelection : undefined,
+              onRoutePreferenceApplied,
+            }}
+            sessionChoices={sessionChoices}
+            onOpenSessionDiff={onOpenSessionDiff}
+            onOpenAgentSession={onOpenAgentSession}
+            onMoveSessionToProject={props.onMoveSessionToProject}
+            onAddProject={props.onAddProject}
+            onOpenCommandSurface={actions.composerOnOpenCommandSurface}
+            draft={
+              draftMode
+                ? {
+                    draftId,
+                    contextControls,
+                    projectDisabled: transitioning || Boolean(snapshot.busy),
+                    routeDisabled: transitioning,
+                    workflow: props.draftWorkflow ?? null,
+                    orchestrationMode: props.draftOrchestrationMode ?? null,
+                    onClearProject: props.onClearProject,
+                    onSelectProject: props.onSelectProject,
+                    onWorkflow: props.onDraftWorkflow,
+                    onOrchestrationMode: props.onDraftOrchestrationMode,
+                  }
+                : undefined
+            }
+          />,
           railHost
         )}
     <ComposerDock
@@ -277,7 +303,7 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
       reviewBusy={reviewBusy}
       reviewSessionId={reviewSessionId}
       reviewCwd={routeProject}
-      islandHidden={railShown || islandOff}
+      islandHidden={railShown}
     >
       <Composer
         onOpenFile={props.openFile}
@@ -299,9 +325,9 @@ export function ConversationComposerDock(props: ConversationComposerDockProps) {
         onRoutePreferenceApplied={onRoutePreferenceApplied}
         modelAside={modelAside}
         sessionChoices={sessionChoices}
-        // Before the first message the pickers stand in for the readout.
+        // Before the first message the pickers stand in for the readout; the panel's Info rows, while it shows.
         contextBar={
-          showProjectSelector && !agentMode ? (
+          contextControls && !railShown ? (
             <div className="composer-model-line-context">{conversationContextBar(props)}</div>
           ) : undefined
         }

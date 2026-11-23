@@ -51,6 +51,18 @@
   inherits: false;
   initial-value: 0;
 }
+/* The edge fades' lengths that position gives (10-rail-pages.css), resolved
+   where they are set. */
+@property --sidebar-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --sidebar-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 
 /* The composer island slot's eased height (desktop/15-composer.css). */
 @property --island-slot-height {

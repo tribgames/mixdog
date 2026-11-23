@@ -600,10 +600,16 @@ export function toolActivityOutcomeText(presentation: ToolActivityPresentation):
   return [...new Set([outcome, ...rest])].join(' · ');
 }
 
-export function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
-  // A row that cannot open has nowhere to keep its status and id: they ride
-  // here, beside the verb ("실행 · 완료 · 971b88").
-  if (!presentation.hasDetails && presentation.tone === 'neutral' && presentation.metaText) {
+export function ToolRowOutcome({
+  presentation,
+  metaBesideVerb = !presentation.hasDetails,
+}: {
+  presentation: ToolActivityPresentation;
+  metaBesideVerb?: boolean;
+}) {
+  // A row that cannot open, or names no subject, has nowhere else to keep its
+  // status and id: they ride here, beside the verb ("실행 · 완료 · 971b88").
+  if (metaBesideVerb && presentation.tone === 'neutral' && presentation.metaText) {
     const meta = toolActivityMetaLine({ ...presentation, resultLabel: '', fields: [], fieldsInline: false });
     if (meta) return <span className="tool-activity-item-result">{meta}</span>;
   }
@@ -686,23 +692,24 @@ function renderToolActivityHeader({
       )}
       <span className="tool-title tool-activity-item-title">
         <b>{presentation.verb}</b>
-        {presentation.headerSubject &&
-          !(open && presentation.hideSubjectWhenOpen) &&
-          !(presentation.pending && !presentation.command) && (
-            <small data-kind={presentation.subjectKind}>
-              {presentation.subjectIsTarget ? (
-                <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
-                  {presentation.headerSubject}
-                </LocalPathMention>
-              ) : (
-                presentation.headerSubject
-              )}
-            </small>
-          )}
+        {presentation.headerSubject && !(open && presentation.hideSubjectWhenOpen) && (
+          <small data-kind={presentation.subjectKind}>
+            {presentation.subjectIsTarget ? (
+              <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
+                {presentation.headerSubject}
+              </LocalPathMention>
+            ) : (
+              presentation.headerSubject
+            )}
+          </small>
+        )}
       </span>
       <ToolDiffCounts counts={presentation.diffCounts} />
       {metaLine && <span className="tool-activity-item-meta">{metaLine}</span>}
-      <ToolRowOutcome presentation={presentation} />
+      <ToolRowOutcome
+        presentation={presentation}
+        metaBesideVerb={!metaLine && (!presentation.hasDetails || !presentation.headerSubject)}
+      />
       {presentation.pending && <ToolWorkingStatus startedAt={startedAt} />}
       {presentation.pending && (
         <span className="sr-only" role="status">

@@ -18,8 +18,8 @@ export type FollowSignals = {
   /** The scroller's content width and the client width it had then. */
   width: { box: number; client: number; spent: number | null } | null;
   zoom: number;
-  /** Direction of the last offset change: 1 down, -1 up, 0 unknown. */
-  direction: number;
+  /** The last offset change was the reader's way back near the end (`moveArrivesNearEnd`). */
+  arrived: boolean;
   touchStartTop: number;
   touchStartY: number;
   touchStartWriteAt: number;
@@ -37,7 +37,7 @@ function freshSignals(): FollowSignals {
     restoredAt: Number.NEGATIVE_INFINITY,
     width: null,
     zoom: (typeof window === 'undefined' ? 1 : window.devicePixelRatio) || 1,
-    direction: 0,
+    arrived: false,
     touchStartTop: 0,
     touchStartY: 0,
     touchStartWriteAt: 0,

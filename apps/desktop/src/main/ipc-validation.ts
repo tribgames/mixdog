@@ -421,8 +421,17 @@ const TOGGLEABLE_BUILTIN_TOOLS = new Set([
   'autoEffort',
   'visualize',
   'media',
+  'acpAgents',
 ]);
-const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
+const INSTALLABLE_BUILTIN_FEATURES = new Set([
+  'git',
+  'memory',
+  'office',
+  'localProvider',
+  'tidy',
+  'autoEffort',
+  'acpAgents',
+]);
 
 export const CAPABILITY_ARITY = {
   restoreQueued: [0, 2],
@@ -1519,7 +1528,7 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
   }
   if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
     throw new TypeError(
-      'setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, or media.'
+      'setBuiltinToolEnabled requires git, office, localProvider, tidy, autoEffort, visualize, media, or acpAgents.'
     );
   }
   if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
@@ -1534,7 +1543,9 @@ function validateSettingCapabilityArgs(capability: DesktopCapability, args: read
     }
   }
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
-    throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
+    throw new TypeError(
+      'installBuiltinFeature requires git, memory, office, localProvider, tidy, autoEffort, or acpAgents.'
+    );
   }
   if (capability === 'installBuiltinFeature' && args[1] !== undefined) {
     const engines = (args[1] as { engines?: unknown } | null)?.engines;

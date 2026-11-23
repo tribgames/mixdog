@@ -1,8 +1,10 @@
 import { startTransition, useEffect, useState } from 'react';
-import { FolderTree } from 'lucide-react';
+import { FolderTree, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { t } from './i18n';
 import { useDockVisibilityMenu } from './dock-icon-visibility';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { isMobileRemoteSurface, useMobileRemoteSurface } from './mobile-surface';
+import { useSessionPanelShown, useSidePanelPlacement } from './pane-side-dock-hooks';
+import { setSessionPanelShown } from './side-panel-preferences';
 import type {
   WorkbenchSideViewDescriptor,
   WorkbenchSideViewGroup,
@@ -52,6 +54,8 @@ export function PaneDockToggles({
   activeRoot,
   sessionBound,
   files,
+  sessionPanel = false,
+  dockOpen = false,
   onSelect,
   onClose,
 }: {
@@ -62,6 +66,10 @@ export function PaneDockToggles({
   sessionBound: boolean;
   /** The project Files tree child (the phone sheet header). Absent, no toggle. */
   files?: { active: boolean; onOpen(): void };
+  /** The pane shows a session or a draft, which get the session panel: its toggle ends the strip. */
+  sessionPanel?: boolean;
+  /** The pane's dock is open; at the pane's side it covers the session panel. */
+  dockOpen?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
   onClose(): void;
 }) {
@@ -79,7 +87,14 @@ export function PaneDockToggles({
     ],
     'Utility panel'
   );
-  if (toggles.length === 0 && !files) return null;
+  // The phone has no session panel to toggle. A dock at the pane's side covers
+  // the panel (paneDockRailLayout), so the toggle reads what is on screen.
+  const panelShown = useSessionPanelShown();
+  const placement = useSidePanelPlacement();
+  const dockCovers = dockOpen && placement !== 'bottom';
+  const phone = useMobileRemoteSurface();
+  const panelToggle = sessionPanel && !phone;
+  if (toggles.length === 0 && !files && !panelToggle) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the toggle strip.
     <div
@@ -140,7 +155,39 @@ export function PaneDockToggles({
             </button>
           );
         })}
+      {panelToggle && (
+        <SessionPanelToggle
+          shown={panelShown && !dockCovers}
+          onShow={() => {
+            // The dock covering the panel folds, as its own strip button would.
+            if (dockCovers) onClose();
+            setSessionPanelShown(true);
+          }}
+        />
+      )}
       {menu}
     </div>
+  );
+}
+
+/** The session panel's toggle, its one switch: it shows the panel or hides it
+ *  (the composer island takes its controls back), in every pane, whether the
+ *  panel stands beside the conversation, over it or over the whole pane.
+ *  `shown`: the panel is on screen. */
+function SessionPanelToggle({ shown, onShow }: { shown: boolean; onShow(): void }) {
+  const label = shown ? t('Hide session panel') : t('Show session panel');
+  const Icon = shown ? PanelRightClose : PanelRightOpen;
+  return (
+    <button
+      type="button"
+      className="pane-dock-toggle"
+      data-view="session-panel"
+      aria-pressed={shown}
+      aria-label={label}
+      data-tooltip={label}
+      onClick={() => (shown ? setSessionPanelShown(false) : onShow())}
+    >
+      <Icon size={15} aria-hidden="true" />
+    </button>
   );
 }

@@ -1,40 +1,74 @@
 /* ── Session panel ──
-   The session's categories as cards in the top right of the pane's
-   conversation, under the tab strip, shown while the margins beside the
-   reading column hold them (session-rail-layout.ts sessionRailFit). The
-   column has no frame of its own; it hugs its cards and scrolls past the
-   conversation's height. The 8px at its right (SESSION_RAIL_GAP) is the
-   transcript scrollbar's lane. */
+   The session's categories in a side panel at the pane's right edge, from
+   its top beside the tab strip, in the left panel's surface: beside the
+   reading column while the margins beside it hold the panel, over the
+   conversation when they do not, over the whole pane when that is too narrow
+   (session-rail-layout.ts sessionRailFit, data-presentation). The 8px it
+   takes beside its width (SESSION_RAIL_GAP) are its two edges' 4px. A dock
+   open at the pane's side covers it: it is not drawn meanwhile
+   (pane-side-dock.tsx paneDockRailLayout). */
+.pane-cell {
+  --session-rail-surface: var(--mx-window-band);
+}
+/* Under Mica and skins the band token is cleared inside the main panel: the
+   left panel's and the pane dock's solid plate (03-titlebar.css). */
+html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-cell {
+  --session-rail-surface: var(--mx-mica-panel-solid);
+}
+/* From the pane's top, beside the tab strip, as the left panel stands beside
+   it: the pane's right corners are the panel's (pane-layout.css's flags). */
 .pane-cell > .session-rail {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1 / 3;
   justify-self: end;
-  align-self: start;
-  max-height: 100%;
-  margin-right: 8px;
+  align-self: stretch;
+  box-sizing: content-box;
+  padding-inline: 4px;
+  border-top-right-radius: calc(var(--mx-cell-corner) * var(--no-top) * var(--open-right));
+  border-bottom-right-radius: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--open-right));
+  background: var(--session-rail-surface);
+  box-shadow: inset 1px 0 0 var(--mx-border-muted);
+}
+/* Over the conversation, which keeps its width under it: the dock's overlay
+   shadow (pane-layout.css .pane-side-dock[data-overlay]). */
+.pane-cell > .session-rail[data-presentation="overlay"] {
+  box-shadow:
+    var(--mx-overlay),
+    inset 1px 0 0 var(--mx-border-muted);
+}
+/* Over the whole pane: the conversation's whole width, under the tab strip,
+   which keeps the panel's toggle. */
+.pane-cell > .session-rail[data-presentation="full"] {
+  grid-row: 2;
+  justify-self: stretch;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: calc(var(--mx-cell-corner) * var(--no-bottom) * var(--no-left) * var(--folded));
+  box-shadow: none;
+}
+/* The tab strip, its end buttons with it, ends at the panel's edge
+   (--session-rail-band, the panel's whole width). */
+:root:not([data-mixdog-mobile-tabs])
+  .pane-cell:has(> .session-rail:not([data-presentation="full"]))
+  > .workspace-tabs-shell {
+  margin-right: var(--session-rail-band);
+  border-top-right-radius: 0;
 }
 /* When the right margin alone is too narrow, the conversation re-centres
-   left of the cards (--session-rail-reserve, set on the cell by
+   left of the panel (--session-rail-reserve, set on the cell by
    SessionRailCard): its pane container narrows by that much, so every width
    rule inside follows. */
 .pane-conversation-slot > .conversation-persistent-surface > .workspace {
   box-sizing: border-box;
   padding-right: var(--session-rail-reserve, 0px);
 }
-/* The transcript's scroller alone keeps the pane's full width: its scrollbar
-   stays on the pane's edge, in the lane right of the cards, and its rows keep
-   the narrowed column. */
-.pane-conversation-slot .conversation > .transcript-shell {
-  margin-right: calc(-1 * var(--session-rail-reserve, 0px));
-}
-/* The boxes between the two clip at their edge; the scroller's width past it
-   is let through. */
-.pane-conversation-slot :is(.pane-surface-body, .pane-chat-surface) {
-  overflow: clip;
-  overflow-clip-margin: var(--session-rail-reserve, 0px);
-}
+/* While the margin holds the panel the conversation keeps the pane's width
+   and its column stays where it was: the scroller alone ends at the panel's
+   edge (--session-rail-over, the panel's width then), its scrollbar beside
+   the panel, and gives the same room up on its left so its rows stay centred
+   in the pane. */
 .pane-conversation-slot .conversation > .transcript-shell > .transcript {
-  padding-right: var(--session-rail-reserve, 0px);
+  margin-right: var(--session-rail-over, 0px);
+  padding-left: var(--session-rail-over, 0px);
 }
 /* The left rail's type ramp (30-dialogs.css "Rail type ramp"): names and
    items 14, supporting figures 13 and 12. */
@@ -59,12 +93,12 @@
   font-size: var(--mx-font-item);
   line-height: var(--mx-line-ui);
 }
-/* The resize edge: a hit area in the gutter left of the cards. */
+/* The resize edge: a hit area on the panel's left edge, its full height. */
 .session-rail-resize {
   position: absolute;
   z-index: 3;
-  top: 8px;
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
   left: 0;
   width: 8px;
   cursor: col-resize;
@@ -79,21 +113,18 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 0;
   width: 2px;
   background: var(--mx-focus);
   pointer-events: none;
 }
 /* The body scrolls the categories as one column by wheel, touch or keys, with
-   no bar of its own beside the transcript's: cards passing its top or bottom
-   edge fade out there instead. The 8px around the cards holds their shadow. */
+   no bar of its own beside the transcript's. */
 .session-rail-body {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden auto;
   scrollbar-width: none;
-  padding: 8px;
-  mask-image: linear-gradient(to bottom, transparent, #000 8px, #000 calc(100% - 8px), transparent);
 }
 .session-rail-body::-webkit-scrollbar {
   display: none;
@@ -101,44 +132,71 @@
 .session-rail-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-/* A category: a card of its own. Its head folds it as the left rail's groups
-   fold (the rail's label, its chevron, then the count and what it holds); the
-   body and the foot of actions follow the island panels, parted by spacing
-   alone. Its place in the column is the user's. */
+/* A category: a section of the panel, open or folded, set apart from the one
+   above by a hairline that stops at the rows' inset, short of the panel's
+   edges. Its head folds it (the left rail's label with the fold's chevron
+   beside it, then what it holds at the head's end, in the island's own
+   figures); the body and the foot of actions follow the island panels. Its
+   place in the column is the user's. */
 .session-rail-sec {
+  position: relative;
   min-width: 0;
-  border-radius: 12px;
-  /* The island's frame: the same plate, hairline and raised shadow. */
-  background: var(--mx-island-frame);
-  box-shadow:
-    inset 0 0 0 0.5px var(--mx-border),
-    var(--mx-raised);
+  padding-block: 8px;
+}
+.session-rail-sec + .session-rail-sec::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: var(--session-rail-inset);
+  left: var(--session-rail-inset);
+  height: 1px;
+  background: var(--mx-border-muted);
+}
+/* The first section's head row (.session-rail-tg, 28px) on the tab strip's
+   row beside it (--mx-rail-panel-band). */
+.session-rail-content > .session-rail-sec:first-child {
+  padding-top: calc((var(--mx-rail-panel-band) - 28px) / 2);
 }
 .session-rail-sec[data-dragging] {
   opacity: var(--mx-op-dim);
 }
-/* The head's press area is a row inset in the card, as the left rail's rows
-   are in the rail: its hover wash never meets the card's own edge. */
+/* The head's press area is a row inset in the panel, as the left rail's rows
+   are in the rail: its hover wash never meets the panel's own edge. It is the
+   left rail's heading (.sidebar-heading-toggle): the name from the rows' own
+   left edge, the fold's chevron right after it, then what the category holds
+   at the head's end, on the rows' right edge in every section. A category's
+   actions stand in its foot, as the island panels' do. */
 .session-rail-hd {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
+  gap: 4px;
+  padding: 0 4px;
 }
-.session-rail-hd > .dock-header-more {
+/* The category's one action: a button whose border ends where a row's wash
+   does, as a foot's button. */
+.session-rail-hd > .composer-island-button {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 2px;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.session-rail-sec[data-open] > .session-rail-hd {
+  padding-bottom: 4px;
 }
 .session-rail-tg {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 34px;
+  height: 28px;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 6px 0 calc(var(--session-rail-inset) - 4px);
+  padding: 0 calc(var(--session-rail-inset) - 4px);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: none;
@@ -150,6 +208,12 @@
 .session-rail-tg:hover {
   background: var(--mx-hover);
 }
+/* Keyboard focus as the left sidebar's headings show it. */
+.session-rail-tg:focus-visible {
+  outline: none;
+  background: var(--mx-hover);
+  box-shadow: var(--mx-list-focus-ring);
+}
 /* The left rail's group label (--mx-rail-label-*, 01-tokens.css). */
 .session-rail-tt {
   flex: none;
@@ -159,66 +223,146 @@
 }
 .session-rail-ct {
   flex: none;
+  /* Its mark and figure stand on the head's centre line, not on a text line's baseline. */
+  display: inline-flex;
+  align-items: center;
   margin-left: 4px;
-  color: var(--mx-text-muted);
+  /* The left sidebar's heading count ink (.sidebar-recent-heading > small). */
+  color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
-  font-weight: 400;
+  font-weight: var(--mx-weight-regular);
   font-variant-numeric: tabular-nums;
 }
 .session-rail-cv {
   flex: none;
   color: var(--mx-text-muted);
 }
+/* The heading's chevron sits on its label's optical line, as the left rail's does. */
+.session-rail-tg > .session-rail-cv {
+  transform: translateY(1px);
+}
+/* The head's figures stand at its end, on the rows' own right edge: what the
+   category holds, then its count. More than fits is cut at its end, the
+   first figure kept. */
 .session-rail-sm {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
+  margin-left: 4px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: safe flex-end;
   align-items: center;
   gap: 6px;
   overflow: hidden;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
+  font-size: var(--mx-font-meta);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.session-rail-sm > * {
+  flex: none;
+}
+.session-rail-sm > .session-rail-cut {
+  flex: 0 1 auto;
+}
+.session-rail-sm b {
+  font-weight: inherit;
+}
+.session-rail-tg > .session-rail-ct {
+  margin-left: 4px;
+}
+/* The island's figures in a head, the mark before its figure 6px apart: an
+   agent's or a shell's state mark before the count (the head's own gap), the
+   To-do's ring before its n/m. */
+.session-rail-todo-figure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .session-rail-bd {
   padding: 0 var(--session-rail-inset) 8px;
 }
-/* A list that outgrows the sheet scrolls inside it; at its end the wheel
-   goes on to the column. */
+/* A list that outgrows the section scrolls inside it; at its end the wheel
+   goes on to the column. Its 8px below stand outside the scroller, so rows
+   cut at its edge never meet the foot's buttons. */
 .session-rail-bd[data-scroll] {
   max-height: var(--session-rail-list-max);
+  margin-bottom: 8px;
+  padding-bottom: 0;
   overflow: hidden auto;
   scrollbar-gutter: stable;
   /* The gutter pays part of the inset; a row's wash reaches the gutter, no further. */
   --session-rail-list-end: calc(var(--session-rail-inset) - var(--mx-scrollbar-gutter));
   padding-right: var(--session-rail-list-end);
 }
+/* Its rows end on the panel's right line, as every other row does: the
+   row's width past the list's content is its 8px on the left and what the
+   gutter leaves of the inset on the right. */
 .session-rail-bd[data-scroll] > .session-rail-row {
+  width: calc(100% + 8px + var(--session-rail-list-end));
   margin-right: calc(-1 * var(--session-rail-list-end));
   padding-right: var(--session-rail-list-end);
 }
+/* Every scroller in the panel (its column, a category's list) fades its
+   content out at an edge with more beyond it, as the left sidebar's lists
+   do: its fade lengths (--sidebar-fade-top / -bottom, 10-rail-pages.css: 0
+   at an edge the list rests against, up to 20px over the first 4% of the
+   scroll) and its linear mask. The position is scroll-progress.ts's, bound in
+   RailSection and SessionRailCard. */
+.session-rail-body,
+.session-rail-bd[data-scroll] {
+  --session-rail-fade: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--sidebar-fade-top),
+    #000 calc(100% - var(--sidebar-fade-bottom)),
+    transparent 100%
+  );
+  mask-image: var(--session-rail-fade);
+}
+/* A list's scrollbar is never faded: its gutter stays whole beside the fade. */
+.session-rail-bd[data-scroll] {
+  mask-image: linear-gradient(#000, #000), var(--session-rail-fade);
+  mask-position:
+    right top,
+    left top;
+  mask-size:
+    var(--mx-scrollbar-gutter) 100%,
+    100% 100%;
+  mask-repeat: no-repeat;
+}
+/* The foot, as the island panels' (IslandPanelFoot): the category's own line
+   or actions from the left, its Clean up at the right end. */
 .session-rail-ft {
-  min-height: 38px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
-  padding: 0 8px 8px var(--session-rail-inset);
+  /* Its last button's border ends where a row's wash does, 8px past the text's right line: a box meets the
+     boxes' edge, text the text's. */
+  padding: 2px calc(var(--session-rail-inset) - 8px) 4px var(--session-rail-inset);
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
-}
-.session-rail-ft > .composer-usage-readout {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding-inline: 0;
+  font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
 }
 .session-rail-ft-end {
   flex: none;
   display: flex;
   gap: 6px;
   margin-left: auto;
+}
+.session-rail-ft > .session-rail-tidy {
+  margin-left: auto;
+}
+/* The island's usage line (AgentsSummary) takes the foot's free room, flush
+   with the inset, on Clean up's row as on the island panels' foot. */
+.session-rail .session-rail-ft > .composer-usage-readout {
+  min-width: 0;
+  flex: 1 1 0;
+  padding-inline: 0;
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  cursor: default;
 }
 .session-rail-ft .composer-island-button {
   flex: none;
@@ -231,32 +375,6 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
-/* A category's search: one field above its list. */
-.session-rail-search {
-  height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 var(--session-rail-inset) 6px;
-  padding: 0 10px;
-  border-radius: var(--mx-radius-md);
-  box-shadow: inset 0 0 0 1px var(--mx-border);
-  color: var(--mx-text-muted);
-}
-.session-rail-search:focus-within {
-  box-shadow: inset 0 0 0 1px var(--mx-focus);
-}
-.session-rail-search > input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--mx-text);
-  font: inherit;
-  font-size: var(--mx-font-meta);
-}
-
 /* A row: one line, content from the name's line, the left rail's row wash. */
 .session-rail-row {
   position: relative;
@@ -274,7 +392,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-weight: 400;
+  font-weight: var(--mx-weight-regular);
   text-align: left;
   list-style: none;
 }
@@ -292,10 +410,25 @@ button.session-rail-row:disabled,
 button.session-rail-row[aria-disabled="true"] {
   cursor: default;
 }
-button.session-rail-row:not(:disabled):hover,
-.session-rail-hover:hover,
-.session-rail-row[aria-expanded="true"] {
+/* A row that can be pressed answers as the left sidebar's rows do: its wash
+   and the active title ink, the open one the selected wash, keyboard focus
+   the neutral inner line. */
+button.session-rail-row {
+  color: var(--mx-row-title-ink);
+  transition: background-color var(--mx-motion-ink);
+}
+button.session-rail-row:not(:disabled):hover {
   background: var(--mx-hover);
+}
+button.session-rail-row:is(:not(:disabled):hover, [aria-expanded="true"]) {
+  color: var(--mx-row-title-ink-active);
+}
+.session-rail-row[aria-expanded="true"] {
+  background: var(--mx-pressed);
+}
+button.session-rail-row:focus-visible {
+  outline: none;
+  box-shadow: var(--mx-list-focus-ring);
 }
 .session-rail-pk {
   flex: none;
@@ -315,15 +448,12 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-grow {
   flex: 1 1 auto;
 }
-.session-rail-fx {
-  flex: none;
-}
 .session-rail-muted {
   color: var(--mx-text-muted);
 }
 .session-rail-ic {
   flex: none;
-  color: var(--mx-text-muted);
+  color: var(--mx-icon-muted);
 }
 .session-rail-num {
   flex: none;
@@ -335,32 +465,46 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-num[data-pending] {
   flex: 0 1 auto;
 }
-.session-rail-el {
-  flex: none;
-  min-width: 64px;
-  text-align: right;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 .session-rail-add {
   color: var(--mx-success);
 }
 .session-rail-del {
   color: var(--mx-danger);
 }
-/* A name keeps up to half the row; a file's folder gives way before its name. */
-.session-rail-name {
-  flex: 0 1 auto;
-  max-width: 50%;
+/* A changed file: the file mark in the rows' mark column, the island's path
+   (the folder gives way before the name) and its line counts at the row's end. */
+/* Marks stand with their ink on the heads' left line (the section name's
+   edge). An icon keeps about 2px of margin inside its own box, the Goal's
+   narrow flag more, so each is drawn that far left of its 16px column; the
+   text line after the column does not move. A swatch and a shell's dot stand
+   on the line by their own edge. */
+.session-rail-row > .session-rail-ic,
+.session-rail-group > .session-rail-row > svg,
+.session-rail-select .mx-select-leading,
+.session-rail .composer-island-agents .sidebar-resource-icon,
+.session-rail .composer-island-git-label > svg {
+  transform: translateX(-2px);
 }
-.session-rail-dir {
-  flex: 0 1000 auto;
+.session-rail-row > .session-rail-ic-file {
+  transform: translateX(-3px);
 }
-.session-rail-dir + .session-rail-name {
-  max-width: none;
-  margin-left: -8px;
+.session-rail-goal :is(.session-rail-goal-title, .session-rail-goal-marked) > .session-rail-ic {
+  transform: translateX(-4px);
+}
+.session-rail-row > .diff-stats {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-rail-row > .diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.session-rail-row > .diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
 }
 .session-rail-note {
   margin: 0;
@@ -414,68 +558,116 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-text-button[data-danger] {
   color: var(--mx-danger);
 }
-/* A row's actions sit over its figure and show on hover or focus. */
-.session-rail-act {
-  position: absolute;
-  right: 4px;
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-}
-.session-rail-row:is(:hover, :focus-within) .session-rail-act {
-  opacity: 1;
-}
-.session-rail-row:is(:hover, :focus-within) .session-rail-under-act {
-  visibility: hidden;
-}
+/* A to-do fold (Rest, Done), the quiet line tier the agents' kind lines share
+   (15-composer.css .composer-island-agent-fold); it answers the pointer as
+   the left sidebar's rows do, its chevron and gap the sidebar heading's. */
 .session-rail-gh {
-  height: 28px;
+  height: var(--mx-control-sm);
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   margin: 0 -8px;
   padding: 0 8px;
   border: 0;
-  border-radius: var(--mx-radius-md);
+  border-radius: var(--mx-radius-lg);
   background: none;
   color: var(--mx-text-muted);
   font: inherit;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-meta);
+  transition: background-color var(--mx-motion-ink);
   cursor: pointer;
 }
 .session-rail-gh:hover {
   background: var(--mx-hover);
-  color: var(--mx-text);
+  color: var(--mx-row-title-ink-active);
+}
+.session-rail-gh:focus-visible {
+  outline: none;
+  box-shadow: var(--mx-list-focus-ring);
+}
+.session-rail-gh > .session-rail-cv {
+  transform: translateY(1px);
 }
 /* A to-do group's name and, inside a list, a phase's: labels, not folds. */
 .session-rail-gl,
 .session-rail-phase {
-  height: 28px;
+  height: var(--mx-control-sm);
   display: flex;
   align-items: center;
   margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-meta);
 }
 .session-rail-phase {
   height: 24px;
-  font-weight: 400;
+  font-weight: var(--mx-weight-regular);
 }
 
-/* Info: the borrowed pickers take the row's whole width. */
+/* Info: the composer's pickers, each trigger a row of the panel's width with
+   its picker a popup under it. */
 .session-rail-project {
   display: flex;
   align-items: center;
   gap: 2px;
 }
-.session-rail-project > .session-rail-row {
-  flex: 1 1 auto;
-  width: auto;
+/* Project: the composer's project select (OpenSelect), drawn as a row. */
+.session-rail-select {
+  margin: 0 -8px;
 }
-.session-rail-project > .session-rail-row:not(:last-child) {
+.session-rail-project > .session-rail-select {
+  flex: 1 1 auto;
+}
+.session-rail-project > .session-rail-select:not(:last-child) {
   margin-right: 0;
+}
+.session-rail .session-rail-select > .mx-select-trigger {
+  height: var(--session-rail-row);
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-lg);
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.session-rail
+  .session-rail-select
+  > .mx-select-trigger:is(:hover:not(:disabled), :focus-visible, [aria-expanded="true"]) {
+  background: var(--mx-hover);
+}
+.session-rail .session-rail-select > .mx-select-trigger:disabled {
+  cursor: default;
+}
+/* The folder in the rows' 16px mark column. */
+.session-rail-select .mx-select-leading {
+  flex: none;
+  width: 16px;
+  display: flex;
+  justify-content: center;
+}
+/* A pending move follows the name. */
+.session-rail-select .mx-select-value {
+  flex: 0 1 auto;
+}
+.session-rail .session-rail-select .mx-select-trigger svg {
+  transform: none;
+}
+/* The select's chevron as the rows' pick mark (.session-rail-pk). */
+.session-rail .session-rail-select > .mx-select-trigger > svg {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  color: var(--mx-text-muted);
+  visibility: hidden;
+}
+.session-rail .session-rail-select > .mx-select-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) > svg {
+  visibility: visible;
 }
 .session-rail-model {
   position: relative;
@@ -484,9 +676,44 @@ button.session-rail-row:not(:disabled):hover,
   height: auto;
   min-width: 0;
 }
-/* The branch tab's press boundary (BranchIslandSegment, hosted) draws no box. */
+/* Branch: the island's branch tab (BranchIslandSegment, hosted) as a popup
+   under its row, on the popups' surface with the island panels' own tokens. */
 .branch-tab-host {
-  display: contents;
+  --island-panel-width: 100%;
+  --island-panel-inset: 14px;
+  --composer-island-wash: var(--mx-hover);
+  --composer-island-rule: var(--mx-border-muted);
+  position: fixed;
+  z-index: var(--mx-menu-z-index);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  color: var(--mx-text);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
+}
+/* The popup's frame: 6px around the search and rows, the foot's rule inside
+   it and its buttons on the rows' inset. */
+.branch-tab-host .composer-island-panel > .composer-island-pbody.branch-menu-body {
+  padding: 6px 6px 0;
+  scrollbar-gutter: auto;
+}
+.branch-tab-host .composer-island-panel-foot.branch-menu-foot {
+  min-height: 0;
+  margin: 6px 6px 0;
+  padding: 8px 2px;
+}
+/* At a row's width Clean up is its broom alone, named by its tooltip. */
+.branch-tab-host .composer-island-panel-foot.branch-menu-foot [data-kind="prune"] {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+}
+.branch-tab-host .composer-island-panel-foot.branch-menu-foot [data-kind="prune"] > span {
+  display: none;
 }
 /* The model row and, in a server-login window, the footer's "Server account" after it. */
 .session-rail-model {
@@ -495,7 +722,7 @@ button.session-rail-row:not(:disabled):hover,
   gap: 4px;
 }
 /* The route controls hug their trigger elsewhere; here the trigger is a row
-   of the card's width, pressed anywhere along it like every other row. */
+   of the panel's width, pressed anywhere along it like every other row. */
 .session-rail-model > .route-controls {
   flex: 1 1 auto;
   min-width: 0;
@@ -518,7 +745,11 @@ button.session-rail-row:not(:disabled):hover,
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Context: the share at the head's end and the bar take the gauge's tone. */
+/* Context: the share at the head's end is the figure read first; it and the
+   bar take the gauge's tone. */
+.session-rail-context-percent {
+  color: var(--mx-text);
+}
 .session-rail-context-percent[data-tone="warning"] {
   color: var(--mx-warning);
 }
@@ -529,7 +760,7 @@ button.session-rail-row:not(:disabled):hover,
   height: 6px;
   display: flex;
   gap: 1px;
-  margin: 2px 0 6px;
+  margin: 4px 0 8px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--mx-meter-track);
@@ -557,6 +788,8 @@ button.session-rail-row:not(:disabled):hover,
   flex: none;
   width: 8px;
   height: 8px;
+  /* On the marks' left line, in the rows' 16px mark column. */
+  margin-inline: 0 8px;
   border-radius: 2px;
   background: var(--ctx-color);
 }
@@ -565,6 +798,13 @@ button.session-rail-row:not(:disabled):hover,
 }
 .session-rail-part > .session-rail-num {
   color: var(--mx-text);
+}
+/* A kind that holds nothing reads quieter; free space stands apart from what is used. */
+.session-rail-part[data-zero] > .session-rail-num {
+  color: var(--mx-text-muted);
+}
+.session-rail-part[data-context-key="free"] {
+  margin-top: 6px;
 }
 .session-rail-part > .session-rail-share {
   width: 44px;
@@ -577,24 +817,88 @@ button.session-rail-row:not(:disabled):hover,
 .session-rail-meter[data-tone="danger"] > i {
   background: var(--mx-danger);
 }
-/* Usage: the footer readout's items on its own 8px gap (ITEM_GAP in
-   composer-usage-readout.tsx), in the value ink of the rows above. */
+/* Usage: a row as the ones above it (its mark, then its value in their ink),
+   the value being the composer's usage line on one line, in words
+   ("665.8k tokens · 83 tok/s · Cache hit 92.0%") at the panel's least
+   width: the supporting size, a word space around each `·` (FittedReadout's
+   gap, session-rail-info.tsx). A line still too long takes its icon form. */
 .session-rail-usage > .composer-usage-readout:not([hidden]) {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--readout-gap, 8px);
   overflow: hidden;
   color: var(--mx-text);
-  font-size: inherit;
+  font-size: var(--mx-font-supporting);
 }
 .session-rail-usage .composer-readout-sep {
   color: var(--mx-text-muted);
 }
+/* The routines row's value is the composer's readout, itself a button (it
+   opens a new routine): it wears no chrome of its own, and the row answers
+   for it as the rows that are buttons answer. */
+.session-rail-usage > button.composer-usage-readout {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.session-rail-usage > button.composer-usage-readout:focus-visible {
+  outline: none;
+}
+.session-rail-usage:has(> button.composer-usage-readout:hover) {
+  background: var(--mx-hover);
+}
+.session-rail-usage:has(> button.composer-usage-readout:focus-visible) {
+  box-shadow: var(--mx-list-focus-ring);
+}
 
-/* Goal */
+/* Goal: its row reads to the row's end; unfolded, the whole of it wraps. */
 .session-rail-goal-title {
   gap: 4px;
+}
+.session-rail-goal-title[data-whole] {
+  height: auto;
+  min-height: var(--session-rail-row);
+  align-items: flex-start;
+  padding-block: 6px;
+}
+.session-rail-goal-title[data-whole] > span {
+  overflow-wrap: anywhere;
+}
+.session-rail-goal-title[data-whole] > .session-rail-cv {
+  margin-top: 4px;
+}
+/* The Goal's mark leads its text as every row's mark does; what follows the
+   text (its state line, the whole objective, a note) starts on the text's line. */
+.session-rail-goal-title > .session-rail-ic,
+.session-rail-goal-marked > .session-rail-ic {
+  width: 16px;
+  margin-right: 4px;
+}
+.session-rail-goal-title[data-whole] > .session-rail-ic,
+.session-rail-goal-marked > .session-rail-ic {
+  margin-top: 3px;
+}
+.session-rail-goal-marked {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.session-rail-goal
+  > :is(
+    .session-rail-goal-line,
+    .session-rail-goal-text:not(.session-rail-goal-marked),
+    .session-rail-note,
+    .session-rail-goal-confirm
+  ) {
+  padding-left: 24px;
 }
 .session-rail-goal-text {
   margin: 0 0 4px;
@@ -627,22 +931,29 @@ button.session-rail-row:not(:disabled):hover,
   margin: 0;
 }
 
-/* To-do: the island's marks and tones. The working step carries the row
-   wash; a dropped one stays readable, never struck through. */
+/* To-do: the island's marks and tones. The working step reads by its ink
+   and weight (a wash is a row pointed at, never a state that stays); a
+   finished one keeps its ink; a dropped one stays readable, never struck
+   through. */
 .session-rail-group > .session-rail-row > svg {
   flex: none;
+  /* A 14px mark in the rows' 16px mark column. */
+  margin-inline: 1px;
   color: var(--mx-text-faint);
-}
-.session-rail-group > .session-rail-row[data-status="completed"],
-.session-rail-group > .session-rail-row[data-status="abandoned"] {
-  color: var(--mx-text-muted);
 }
 .session-rail-group > .session-rail-row[data-status="completed"] > svg {
   color: var(--mx-success);
 }
+/* A step rests in the left sidebar's row title ink; the one in progress
+   takes the active ink. */
+.session-rail-group > .session-rail-row {
+  color: var(--mx-row-title-ink);
+}
+.session-rail-group > .session-rail-row[data-status="abandoned"] {
+  color: var(--mx-text-muted);
+}
 .session-rail-group > .session-rail-row[data-status="in_progress"] {
-  background: var(--mx-hover);
-  color: var(--mx-text);
+  color: var(--mx-row-title-ink-active);
   font-weight: var(--mx-weight-label);
 }
 .session-rail-group > .session-rail-row[data-status="in_progress"] > svg {
@@ -652,8 +963,8 @@ button.session-rail-row:not(:disabled):hover,
   opacity: var(--mx-op-dim);
 }
 
-/* Agents and shells: the island's own lists. The sheet's body is the scroller
-   here, so the list keeps no height or scroll of its own. */
+/* Agents and shells: the island's own lists. The section's body is the
+   scroller here, so the list keeps no height or scroll of its own. */
 .session-rail .composer-island-jobs {
   max-height: none;
   margin: 0;
@@ -661,53 +972,59 @@ button.session-rail-row:not(:disabled):hover,
   overflow: visible;
   overscroll-behavior: auto;
 }
-
-/* Agents: All and each state that has agents, as tabs under the head; the one
-   picked filters the list. */
-/* One line at every width: tabs wider than the card scroll sideways, with no
-   bar of their own (the picked one is brought into view, AgentFilterTabs). */
-.session-rail-pills {
-  display: flex;
-  gap: 2px;
-  padding: 0 10px 8px;
-  overflow: auto hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
+/* An agent's state column is as wide as its widest clock and the widest word
+   of its states (the size-holder, session-rail-jobs.tsx), whatever the rows
+   show: a row's state adds nothing to it (contained), and one longer than
+   the column wraps inside it, read whole, taking nothing from the names. A
+   shell's is as wide as a clock under an hour, so a running command keeps
+   the room; a longer run or an end state shown is as wide as it reads. */
+.session-rail .session-rail-state-col {
+  width: min-content;
+  max-width: none;
 }
-.session-rail-pills::-webkit-scrollbar {
-  display: none;
+.session-rail .composer-island-agents .agent-activity-elapsed {
+  white-space: normal;
 }
-.session-rail-pill {
-  flex: none;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: 12px;
-  background: none;
-  color: var(--mx-text-muted);
-  font: inherit;
-  font-size: var(--mx-font-micro);
+.session-rail .composer-island-jobs .agent-activity-elapsed[data-clock] {
   white-space: nowrap;
-  cursor: pointer;
 }
-.session-rail-pill > b {
-  font-weight: var(--mx-weight-medium);
-  font-variant-numeric: tabular-nums;
+.session-rail .composer-island-jobs .composer-island-row > .agent-activity-status {
+  height: auto;
+  min-height: var(--island-row-button-height, 26px);
+  line-height: var(--mx-line-meta);
 }
-.session-rail-pill:hover {
-  color: var(--mx-text);
+.session-rail .composer-island-agents .agent-pool-row > .agent-activity-status {
+  contain: inline-size;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  line-height: var(--mx-line-meta);
 }
-.session-rail-pill[aria-selected="true"] {
-  background: color-mix(in srgb, var(--mx-text) 10%, transparent);
-  color: var(--mx-text);
+/* An agent and a kind's line: the To-do list's rows and "Remaining" line
+   (AgentGroupList's rhythm), on the heads' left line. Their wash reaches as
+   far as a to-do row's: 8px on the left, to the panel's right line (in a
+   scrolling list, what the gutter leaves of the inset). */
+.session-rail .composer-island-jobs.composer-island-agents.agent-pool-list {
+  --island-agent-row: var(--session-rail-row);
+  --island-row-bleed: 8px;
+  --island-row-bleed-end: var(--session-rail-list-end, 8px);
 }
-.session-rail-pill:focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: -1px;
+/* The island's rows on the panel's type ramp: a shell's name at the item size
+   in the label weight, its state in the regular weight (the state's ink alone
+   says running, done or failed). */
+.session-rail ul.composer-island-jobs .agent-pool-name {
+  font-weight: var(--mx-weight-label);
 }
+.session-rail .composer-island-jobs .agent-activity-elapsed {
+  font-weight: var(--mx-weight-regular);
+}
+/* Their names start on the panel rows' text line (a 16px mark, 8px). */
+.session-rail .composer-island-jobs,
+.session-rail .composer-island-jobs :is(.agent-pool-row, .composer-island-row) {
+  column-gap: 8px;
+}
+
 /* A fold's name gives way before its chevron and count. */
 .session-rail-gn {
   min-width: 0;
@@ -715,191 +1032,129 @@ button.session-rail-row:not(:disabled):hover,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A group of agents, a label: the role in small capitals, the model as the
-   island's row names it, muted, then how many it shows. */
-.session-rail-agent-group {
-  height: 26px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
+
+/* Shells: the island's rows on the panel's one-line row, in the island's own
+   columns. A state dot stands for the mark (no prompt mark on every row) on
+   the head's left line, then the command, the clock or end state, and the
+   row's Stop or Dismiss in a column of its own, always shown as on the
+   island, its glyph on the head's right line. */
+.session-rail ul.composer-island-jobs {
+  grid-template-columns: 6px minmax(0, 1fr) auto auto;
 }
-.session-rail-group:first-child > .session-rail-agent-group {
-  margin-top: 0;
+/* Stop and Dismiss: the 16px mark in a 24px button, its ink ending on the
+   head's right line (the list's content edge). The ink stands inside the
+   button by the 4px beside the mark and the glyph's own margin in its
+   24-unit box: Stop's square ends at 22, the X at 19 (the stroke's half
+   included). The button reaches past the content edge only as far as the
+   list's end padding (past it the scrollbar's gutter clips the press area);
+   the mark covers what is left. */
+.session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon] {
+  width: 24px;
 }
-[data-category="agents"] .session-rail-group + .session-rail-group {
-  margin-top: 2px;
+.session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon="stop"] {
+  --session-rail-mark-margin: 2;
 }
-.session-rail-caps {
-  flex: none;
-  color: color-mix(in srgb, var(--mx-text) 18%, var(--mx-text-muted));
-  font-size: 11px;
-  font-weight: var(--mx-weight-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.session-rail ul.composer-island-jobs .composer-island-row-dismiss[data-icon="close-small"] {
+  --session-rail-mark-margin: 5;
 }
-.session-rail-agent-group > .agent-route-summary {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: color-mix(in srgb, var(--mx-text-muted) 82%, var(--mx-island-frame));
-  font-size: var(--mx-font-micro);
+.session-rail ul.composer-island-jobs .composer-island-row-actions > [data-icon]:last-child {
+  --session-rail-mark-reach: calc(
+    (24px - var(--mx-icon-md)) /
+    2 +
+    var(--mx-icon-md) *
+    var(--session-rail-mark-margin) /
+    24
+  );
+  margin-right: calc(-1 * min(var(--session-rail-list-end), var(--session-rail-mark-reach)));
 }
-.session-rail-agent-group .model-route-label {
-  display: inline;
+.session-rail ul.composer-island-jobs .composer-island-row-actions > [data-icon]:last-child > svg {
+  transform: translateX(max(0px, var(--session-rail-mark-reach) - var(--session-rail-list-end)));
 }
-.session-rail-agent-group :is(.model-route-label-model, .model-route-label-effort) {
-  color: inherit;
+.session-rail ul.composer-island-jobs > .composer-island-row {
+  min-height: var(--session-rail-row);
+  padding-block: 0;
 }
-.session-rail-agent-group > .session-rail-ct {
-  margin-left: auto;
+.session-rail ul.composer-island-jobs .sidebar-resource-icon > svg {
+  display: none;
 }
-/* An agent at work (session-rail-agent-rows.tsx): brand mark; its name, the
-   step progress in a column of its own so every ring stands in one place, and
-   the time; under them the step in hand and the tokens. A finished one on one
-   muted line. */
-.session-rail-agent,
-.session-rail-agent-past {
-  box-sizing: border-box;
-  width: calc(100% + 16px);
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  column-gap: 10px;
-  align-items: center;
-  margin: 0 -8px;
-  border: 0;
-  border-radius: var(--mx-radius-lg);
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-  user-select: none;
+.session-rail ul.composer-island-jobs .sidebar-resource-icon::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-accent);
+  animation: composer-island-pulse 1.6s ease-in-out infinite;
 }
-.session-rail-agent {
-  min-height: 52px;
-  grid-template-columns: 16px minmax(0, 1fr) 46px 56px;
-  grid-template-rows: 20px 18px;
-  align-content: center;
-  padding: 6px 8px;
+.session-rail ul.composer-island-jobs > [data-finished="true"] .sidebar-resource-icon::before {
+  background: var(--mx-text-faint);
+  animation: none;
 }
-.session-rail-agent-past {
-  height: 30px;
-  padding: 0 8px;
-  color: var(--mx-text-muted);
+.session-rail
+  ul.composer-island-jobs
+  > :has(.agent-activity-elapsed[data-state="failed"])
+  .sidebar-resource-icon::before {
+  background: var(--mx-danger);
 }
-:is(.session-rail-agent, .session-rail-agent-past):not(:disabled):hover {
-  background: var(--mx-hover);
+@media (prefers-reduced-motion: reduce) {
+  .session-rail ul.composer-island-jobs .sidebar-resource-icon::before {
+    animation: none;
+  }
 }
-:is(.session-rail-agent, .session-rail-agent-past):disabled {
-  cursor: default;
+.session-rail ul.composer-island-jobs .composer-island-shell-command {
+  font-weight: var(--mx-weight-regular);
 }
-:is(.session-rail-agent, .session-rail-agent-past):focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: -1px;
-}
-:is(.session-rail-agent, .session-rail-agent-past)[data-dragging="true"] {
-  opacity: var(--mx-op-dim);
-}
-:is(.session-rail-agent, .session-rail-agent-past) > .sidebar-resource-icon {
-  display: grid;
-  place-items: center;
-  color: var(--mx-icon-muted);
-}
-.session-rail-agent > .sidebar-resource-icon {
-  grid-row: 1 / 3;
-}
-/* Without a step list the name takes the step's column too. */
-.session-rail-agent > .agent-pool-name {
-  grid-column: 2 / 4;
-  grid-row: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--mx-text);
-  font-weight: var(--mx-weight-semibold);
-}
-.session-rail-agent:has(> .agent-todo-mark) > .agent-pool-name {
-  grid-column: 2;
-}
-.session-rail-agent > .agent-todo-mark {
-  grid-column: 3;
-  grid-row: 1;
-  font-size: var(--mx-font-micro);
-}
-.session-rail-agent:has(.agent-activity-elapsed[data-state="queued"]) > .agent-pool-name {
-  font-weight: var(--mx-weight-medium);
-}
-.session-rail-agent > .agent-activity-status {
-  grid-column: 4;
-  grid-row: 1;
+.session-rail ul.composer-island-jobs .composer-island-row-actions {
   justify-self: end;
-  height: 20px;
-  line-height: 20px;
+  align-self: center;
 }
-.session-rail-agent-line {
-  grid-column: 2 / 4;
-  grid-row: 2;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: 18px;
+/* A worded button (Stopping…, Retry, Release anyway, with the Stop beside it)
+   stands on a line of its own under the command, so the state stays in its
+   column ("Termination unconfirmed", as the island shows both) and the
+   button adds nothing to the columns' widths. */
+.session-rail ul.composer-island-jobs > :has(> .composer-island-row-actions > :not([data-icon])) {
+  grid-template-rows: minmax(var(--session-rail-row), auto) auto;
+  row-gap: 0;
 }
-.session-rail-agent > .composer-island-agent-tokens {
-  grid-column: 4;
-  grid-row: 2;
-  justify-self: end;
-}
-.session-rail-agents .agent-activity-elapsed[data-state="queued"] {
-  font-weight: 400;
-}
-.session-rail-agent-past > .agent-pool-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-rail-agent-figures {
-  font-size: var(--mx-font-micro);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-/* "Finished N": its text starts on the names' line (8 + 16 + 10). */
-.session-rail-agent-fold {
-  box-sizing: border-box;
-  width: calc(100% + 16px);
-  height: 26px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0 -8px;
-  padding: 0 8px 0 34px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: none;
-  color: var(--mx-text-muted);
-  font: inherit;
-  font-size: var(--mx-font-micro);
-  text-align: start;
-  cursor: pointer;
-}
-.session-rail-agent-fold:hover {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
-.session-rail-agent-fold:focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: -1px;
+.session-rail
+  ul.composer-island-jobs
+  > :has(> .composer-island-row-actions > :not([data-icon]))
+  > .composer-island-row-actions {
+  grid-area: 2 / 2 / 3 / -1;
 }
 
-/* Git: the island's rows, a label and its Run. */
+/* Git: the island's actions as one choice, each on the panel's own row: the
+   mark column, the label line, and the check of the one picked on the right
+   line. The pick reads by its check and its weight; a wash is a row pointed
+   at. */
 .session-rail .composer-island-git-row {
-  min-height: 36px;
+  min-height: var(--session-rail-row);
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.session-rail .composer-island-git-row:hover {
+  background: var(--mx-hover);
+}
+.session-rail .composer-island-git-row:focus-visible {
+  outline: none;
+  background: var(--mx-hover);
+  box-shadow: var(--mx-list-focus-ring);
+}
+.session-rail .composer-island-git-label {
+  gap: 8px;
+  padding: 0;
+  color: var(--mx-row-title-ink);
+}
+.session-rail .composer-island-git-row[aria-checked="true"] > .composer-island-git-label {
+  color: var(--mx-row-title-ink-active);
+  font-weight: var(--mx-weight-label);
+}
+.session-rail-git-on {
+  flex: none;
+  color: var(--mx-text-accent);
 }

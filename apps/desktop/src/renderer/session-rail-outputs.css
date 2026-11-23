@@ -1,0 +1,96 @@
+/* The Outputs rows (session-rail-outputs.tsx) on the panel's row, with the
+   left sidebar's session-row grounds: the wash under the pointer, the selected
+   ground for the output open in the side panel, the neutral inner line for
+   keyboard focus. The open button's press area is the whole row; the X takes
+   the time's place while the row is hovered or holds keyboard focus. */
+.session-rail-row.session-outputs-row {
+  color: var(--mx-row-title-ink);
+  transition: background-color var(--mx-motion-ink);
+}
+.session-rail-row.session-outputs-row:hover {
+  color: var(--mx-row-title-ink-active);
+  background: var(--mx-hover);
+}
+.session-rail-row.session-outputs-row[data-selected] {
+  color: var(--mx-row-title-ink-active);
+  background: var(--mx-pressed);
+}
+.session-rail-row.session-outputs-row:has(:focus-visible) {
+  box-shadow: var(--mx-list-focus-ring);
+}
+/* The name, its version and its age stand on one baseline (their sizes
+   differ, so centred boxes would not); the kind's mark and the update's dot
+   are centred on the line. */
+.session-outputs-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.session-outputs-open::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.session-outputs-open:focus-visible,
+.session-outputs-close:focus-visible {
+  outline: none;
+}
+/* The kind's ink on the heads' left line, as the panel's other row marks. */
+.session-outputs-open > .session-rail-ic {
+  align-self: center;
+  transform: translateX(-2px);
+}
+.session-outputs-name {
+  flex: 0 1 auto;
+}
+.session-outputs-state {
+  flex: 1 0 auto;
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 6px;
+}
+.session-outputs-dot {
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-accent);
+}
+/* Its glyph ends on the rows' right line, where the time ends. */
+.session-outputs-close {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: none;
+  place-items: center;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: none;
+  color: var(--mx-text);
+  cursor: pointer;
+}
+.session-outputs-close:is(:hover, :focus-visible) {
+  background: var(--mx-hover);
+}
+.session-outputs-row:is(:hover, :has(:focus-visible)) > .session-outputs-close {
+  display: grid;
+}
+.session-outputs-row:is(:hover, :has(:focus-visible)) .session-outputs-state {
+  display: none;
+}

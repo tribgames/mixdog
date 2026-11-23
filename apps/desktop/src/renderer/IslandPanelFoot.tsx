@@ -4,8 +4,8 @@ import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 
 /** Every composer island panel's header: its own title chip (never a tab
- *  switcher), quiet state counts beside it, an optional control, and the close
- *  button at the right end. */
+ *  switcher), an optional quiet status beside it, an optional control, and the
+ *  close button at the right end. */
 export function IslandPanelHead({
   chip,
   meta,
@@ -85,14 +85,14 @@ export function IslandPanelFoot({
 }
 
 /** The quiet "Clean up" button with the broom: the island footers' right-end
- *  action and the branch menu's last one. `description` (what it removes) is
- *  the tooltip, and the accessible name when `named`. */
+ *  action and the branch menu's last one. `label` is its accessible name, the
+ *  broom alone too; `description` (what it removes) its tooltip and
+ *  description. */
 export function TidyButton({
   className,
   kind,
   label,
   description,
-  named = false,
   disabled = false,
   onClick,
 }: {
@@ -100,7 +100,6 @@ export function TidyButton({
   kind: string;
   label: string;
   description: string;
-  named?: boolean;
   /** Shown but not clickable (aria-disabled, so the tooltip still reads). */
   disabled?: boolean;
   onClick(): void;
@@ -111,7 +110,7 @@ export function TidyButton({
       className={className}
       data-kind={kind}
       aria-disabled={disabled || undefined}
-      aria-label={named ? description : undefined}
+      aria-label={label}
       title={description}
       onClick={() => {
         if (!disabled) onClick();

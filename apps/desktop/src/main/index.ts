@@ -198,6 +198,8 @@ import {
 import {
   normalizeRendererComposerActionDiagnostic,
   normalizeRendererDiagnostic,
+  normalizeRendererFollowReleaseDiagnostic,
+  normalizeRendererFollowRearmDiagnostic,
   normalizeRendererLongTaskDiagnostic,
   normalizeRendererWhatsNewDiagnostic,
   normalizeRendererCoreLinkDiagnostic,
@@ -1878,6 +1880,16 @@ function rendererDiagnosticListener(
     const coreLink = normalizeRendererCoreLinkDiagnostic(payload);
     if (coreLink) {
       coreLinkLog(coreLink.event, coreLink.fields);
+      return;
+    }
+    const followRelease = normalizeRendererFollowReleaseDiagnostic(payload);
+    if (followRelease) {
+      diagnostics?.write('renderer-follow-release', followRelease);
+      return;
+    }
+    const followRearm = normalizeRendererFollowRearmDiagnostic(payload);
+    if (followRearm) {
+      diagnostics?.write('renderer-follow-rearm', followRearm);
       return;
     }
     const whatsNew = normalizeRendererWhatsNewDiagnostic(payload);

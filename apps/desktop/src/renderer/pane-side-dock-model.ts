@@ -1,3 +1,4 @@
+import { DESKTOP_WORKSPACE_MIN_WIDTH } from '../shared/window-layout';
 import type { WorkspaceSelection } from './nav-types';
 import {
   closeSideFileTab,
@@ -40,10 +41,15 @@ export type PaneSideDockEntry = {
   folder?: PaneSideDockFolder | null;
   /** The single open file diff — a project-tool click REPLACES it. */
   diff: PaneSideDockDiff | null;
-  /** The session the pane showed when its file tabs, Files tree or diff were
-   *  last brought up: they show beside that session only. Absent when the
-   *  pane showed no session (a draft or a main file tab). */
+  /** Who the file tabs, Files tree and diff in the entry belong to: the
+   *  session (`paneDockOwnerOf`), or the New Task draft, that brought them
+   *  up; they show beside that tab only. Absent when the pane showed neither
+   *  (a main file tab). */
   owner?: string;
+  /** The other tabs' file tabs, Files tree and diff, by owner, while the
+   *  owner's are in front: each kept as it stood, front included, and back in
+   *  front when its tab is shown or opens something (`withPaneLocalOwner`). */
+  held?: Readonly<Record<string, PaneDockHeld>>;
   /** The front (open, surface) the tabs that are not in front keep while
    *  the other side is: with the owner's file tabs, Files tree or diff in
    *  front, what every other tab sees (a pane-level view, open or folded);
@@ -51,6 +57,22 @@ export type PaneSideDockEntry = {
    *  the owner is shown again. Absent when nothing is parked. */
   parked?: { open: boolean; surface: string };
 };
+
+/** One owner's file tabs, Files tree and diff held behind another's, with
+ *  the front the entry had for it then. */
+export type PaneDockHeld = Pick<
+  PaneSideDockEntry,
+  'open' | 'surface' | 'diff' | 'files' | 'activeFile' | 'folder' | 'parked'
+>;
+
+/** The owner key of a pane's tab: a session's id, or the New Task draft's
+ *  scope (`draft:<id>`, as composer-draft records its promotion); '' for
+ *  any other tab. */
+export function paneDockOwnerOf(selection: WorkspaceSelection | null | undefined): string {
+  if (selection?.kind === 'session') return selection.id;
+  if (selection?.kind === 'new') return `draft:${selection.draftId || 'default'}`;
+  return '';
+}
 
 export const PANE_SIDE_DOCK_KEY = 'mixdog.desktop.pane-side-dock.v1';
 /** The session panel's one width for every pane. */
@@ -77,6 +99,46 @@ export const PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH = PANE_SIDE_DOCK_DEFAULT_WIDTH;
  *  come on top of the measured column width on desktop. Keep in step with
  *  --mx-sheet-gap in pane-layout.css. */
 export const PANE_SIDE_DOCK_SHEET_FRAME_WIDTH = 2 + 2;
+/** A sheet floating over the conversation leaves it this much on its left. */
+export const PANE_SIDE_OVERLAY_INSET = 48;
+/** Where a sheet at a pane's right edge stands: beside the conversation,
+ *  over it, or over the whole pane. */
+export type PaneSidePresentation = 'beside' | 'overlay' | 'full';
+
+/** The most a sheet floating over a pane cell `cellWidth` wide may take
+ *  (unbounded before the cell is measured). */
+export function paneOverlayRoom(cellWidth: number): number {
+  return cellWidth > 0 ? cellWidth - PANE_SIDE_OVERLAY_INSET : Number.POSITIVE_INFINITY;
+}
+
+/** What the conversation, at its floor, leaves a sheet with a `sheetFrame`
+ *  frame beside it in a pane cell `cellWidth` wide (unbounded before the cell
+ *  is measured): the `room` of every surface's ladder at the pane's side. */
+export function paneSideRoom(cellWidth: number, sheetFrame: number): number {
+  return cellWidth > 0 ? cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH - sheetFrame : Number.POSITIVE_INFINITY;
+}
+
+/** The side dock's ladder for a sheet at the right edge of a pane cell
+ *  `cellWidth` wide: beside the conversation while `room`, what the
+ *  conversation leaves it there, holds `inlineFloor`; over the conversation
+ *  when not; the whole pane once floating over it would leave the sheet less
+ *  than `columnMin`. `avail` is the most width the sheet may take there. */
+export function paneSidePresentation({
+  cellWidth,
+  room,
+  columnMin,
+  inlineFloor,
+}: {
+  cellWidth: number;
+  room: number;
+  columnMin: number;
+  inlineFloor: number;
+}): { presentation: PaneSidePresentation; avail: number } {
+  const overlayRoom = paneOverlayRoom(cellWidth);
+  if (overlayRoom < columnMin) return { presentation: 'full', avail: cellWidth };
+  if (room < inlineFloor) return { presentation: 'overlay', avail: Math.max(columnMin, overlayRoom) };
+  return { presentation: 'beside', avail: room };
+}
 export const PANE_DOCK_BROWSER_SURFACE = 'browser';
 export const PANE_DOCK_TERMINAL_SURFACE = 'terminal';
 export const PANE_DOCK_DIFF_SURFACE = 'diff';
@@ -94,6 +156,10 @@ export function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface
 export function paneDockActiveFile(entry: Pick<PaneSideDockEntry, 'files' | 'activeFile'>): PaneSideDockFile | null {
   const files = entry.files ?? [];
   return files.find((file) => sideFileKey(file) === entry.activeFile) ?? files.at(-1) ?? null;
+}
+/** The unit is open on a child (a folded unit, or one with nothing to show, is not). */
+export function paneDockOpenNow(entry: Pick<PaneSideDockEntry, 'open' | 'view' | 'surface'>): boolean {
+  return entry.open && (entry.view !== null || entry.surface !== '');
 }
 /** The diff child is the showing surface of an open unit. */
 export function paneDiffShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'diff'>): boolean {
@@ -223,17 +289,28 @@ function entryFiles(entry: Record<string, unknown> | null, files: PaneSideDockFi
 export function storablePaneSideDocks(docks: Record<string, PaneSideDockEntry>): Record<string, PaneSideDockEntry> {
   let out = docks;
   for (const [leafId, entry] of Object.entries(docks)) {
-    if (!entry.files?.some((file) => file.accessToken !== undefined)) continue;
-    const { files: _files, activeFile: _activeFile, ...rest } = entry;
-    const files = entry.files.filter((file) => file.accessToken === undefined);
-    const activeFile = files.some((file) => sideFileKey(file) === entry.activeFile) ? entry.activeFile : undefined;
-    const surface = files.length === 0 && entry.surface === PANE_DOCK_FILE_SURFACE ? '' : entry.surface;
-    out = {
-      ...out,
-      [leafId]: { ...rest, surface, ...(files.length > 0 ? { files, ...(activeFile ? { activeFile } : {}) } : {}) },
-    };
+    const heldTokens = Object.values(entry.held ?? {}).some(hasTokenFile);
+    if (!hasTokenFile(entry) && !heldTokens) continue;
+    const front = withoutTokenFiles(entry);
+    const held = heldTokens
+      ? Object.fromEntries(Object.entries(entry.held ?? {}).map(([owner, part]) => [owner, withoutTokenFiles(part)]))
+      : entry.held;
+    out = { ...out, [leafId]: held ? { ...front, held } : front };
   }
   return out;
+}
+
+function hasTokenFile(part: Pick<PaneSideDockEntry, 'files'>): boolean {
+  return Boolean(part.files?.some((file) => file.accessToken !== undefined));
+}
+
+function withoutTokenFiles<T extends Pick<PaneSideDockEntry, 'files' | 'activeFile' | 'surface'>>(part: T): T {
+  if (!hasTokenFile(part)) return part;
+  const { files: _files, activeFile: _activeFile, ...rest } = part;
+  const files = (part.files ?? []).filter((file) => file.accessToken === undefined);
+  const activeFile = files.some((file) => sideFileKey(file) === part.activeFile) ? part.activeFile : undefined;
+  const surface = files.length === 0 && part.surface === PANE_DOCK_FILE_SURFACE ? '' : part.surface;
+  return { ...rest, surface, ...(files.length > 0 ? { files, ...(activeFile ? { activeFile } : {}) } : {}) } as T;
 }
 
 function isDockFolder(value: unknown): value is PaneSideDockFolder {
@@ -311,6 +388,7 @@ function normalizePaneSideDockEntry(raw: unknown, context: DockNormalizeContext)
   }
   const owner = entry && typeof entry.owner === 'string' ? entry.owner : '';
   const parked = storedDockParked(entry, owner, sessionSurfaces, { diff, files, folder });
+  const held = storedDockHeld(entry, owner, live);
   return {
     open,
     view,
@@ -320,7 +398,68 @@ function normalizePaneSideDockEntry(raw: unknown, context: DockNormalizeContext)
     ...(folder ? { folder } : {}),
     ...(owner ? { owner } : {}),
     ...(parked ? { parked } : {}),
+    ...(held ? { held } : {}),
   };
+}
+
+/** The other owners' held file tabs, Files tree and diff; a part holding
+ *  nothing, or the front owner's own, drops. Keeps the live map when nothing changed. */
+function storedDockHeld(
+  entry: Record<string, unknown> | null,
+  owner: string,
+  live: boolean
+): Readonly<Record<string, PaneDockHeld>> | undefined {
+  const raw = entry?.held && typeof entry.held === 'object' ? (entry.held as Record<string, unknown>) : null;
+  if (!raw) return undefined;
+  const held: Record<string, PaneDockHeld> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const part = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+    if (!part || key === owner) continue;
+    const files = storedDockFiles(part, live);
+    const folder = isDockFolder(part.folder) ? part.folder : null;
+    const diff = isDockDiff(part.diff) ? part.diff : null;
+    if (files.length === 0 && !folder && !diff) continue;
+    const surface = typeof part.surface === 'string' && paneLocalSurface(part.surface) ? part.surface : '';
+    const last = files.at(-1);
+    const activeFile =
+      typeof part.activeFile === 'string' && files.some((file) => sideFileKey(file) === part.activeFile)
+        ? part.activeFile
+        : last && sideFileKey(last);
+    const stored = part.parked && typeof part.parked === 'object' ? (part.parked as Record<string, unknown>) : null;
+    held[key] = {
+      open: part.open === true && surface !== '',
+      surface,
+      diff,
+      ...(files.length > 0 ? { files: entryFiles(part, files), activeFile } : {}),
+      ...(folder ? { folder } : {}),
+      ...(stored && typeof stored.surface === 'string'
+        ? { parked: { open: stored.open === true, surface: stored.surface } }
+        : {}),
+    };
+  }
+  if (Object.keys(held).length === 0) return undefined;
+  const liveHeld = entry?.held as Readonly<Record<string, PaneDockHeld>>;
+  return sameHeld(liveHeld, held) ? liveHeld : held;
+}
+
+export function sameHeld(a: PaneSideDockEntry['held'], b: PaneSideDockEntry['held']): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a ?? {});
+  if (keys.length !== Object.keys(b ?? {}).length) return false;
+  return keys.every((key) => {
+    const left = a?.[key];
+    const right = b?.[key];
+    return (
+      Boolean(left && right) &&
+      left?.open === right?.open &&
+      left?.surface === right?.surface &&
+      left?.diff === right?.diff &&
+      sameSideFiles(left?.files, right?.files) &&
+      (left?.activeFile ?? null) === (right?.activeFile ?? null) &&
+      (left?.folder ?? null) === (right?.folder ?? null) &&
+      sameParked(left?.parked, right?.parked)
+    );
+  });
 }
 
 /**
@@ -372,7 +511,8 @@ export function samePaneSideDocks(
       (a.activeFile ?? null) === (b.activeFile ?? null) &&
       (a.folder ?? null) === (b.folder ?? null) &&
       (a.owner ?? '') === (b.owner ?? '') &&
-      sameParked(a.parked, b.parked)
+      sameParked(a.parked, b.parked) &&
+      sameHeld(a.held, b.held)
     );
   });
 }
@@ -381,14 +521,54 @@ export function sameParked(a: PaneSideDockEntry['parked'], b: PaneSideDockEntry[
   return a === b || (Boolean(a) && Boolean(b) && a?.open === b?.open && a?.surface === b?.surface);
 }
 
-/** `entry` as its owner `session` sees it: the owner's parked front back in
- *  front, and what other tabs had in front parked for them. `entry` itself
- *  when `session` is not the owner or nothing of the owner's is parked. */
+/** `entry` as its owner `session` sees it: its held file tabs, Files tree and
+ *  diff back in front (`withPaneLocalOwner`), the owner's parked front back
+ *  in front, and what other tabs had in front parked for them. `entry`
+ *  itself when nothing of `session`'s is held or parked. */
 export function paneDockRestored(entry: PaneSideDockEntry, session: string): PaneSideDockEntry {
-  const parked = entry.parked;
-  if (!session || entry.owner !== session || !parked || !paneLocalSurface(parked.surface)) return entry;
-  if (paneLocalSurface(entry.surface)) return entry;
-  return { ...entry, open: parked.open, surface: parked.surface, parked: { open: entry.open, surface: entry.surface } };
+  const own = entry.held?.[session] ? withPaneLocalOwner(entry, session) : entry;
+  const parked = own.parked;
+  if (!session || own.owner !== session || !parked || !paneLocalSurface(parked.surface)) return own;
+  if (paneLocalSurface(own.surface)) return own;
+  return { ...own, open: parked.open, surface: parked.surface, parked: { open: own.open, surface: own.surface } };
+}
+
+function hasPaneLocal(part: Pick<PaneSideDockEntry, 'files' | 'folder' | 'diff'>): boolean {
+  return Boolean(part.files?.length || part.folder || part.diff);
+}
+
+/** The front owner's file tabs, Files tree and diff as they stand, front included. */
+function heldOf(entry: PaneSideDockEntry): PaneDockHeld {
+  const { open, surface, diff, files, activeFile, folder, parked } = entry;
+  return {
+    open,
+    surface,
+    diff,
+    ...(files?.length ? { files, activeFile } : {}),
+    ...(folder ? { folder } : {}),
+    ...(parked ? { parked } : {}),
+  };
+}
+
+function withHeld(entry: PaneSideDockEntry, held: Readonly<Record<string, PaneDockHeld>>): PaneSideDockEntry {
+  const { held: _held, ...rest } = entry;
+  return Object.keys(held).length > 0 ? { ...rest, held } : rest;
+}
+
+/** `entry` with `owner`'s file tabs, Files tree and diff in front: the front
+ *  owner's are held for it, front included, and `owner`'s held ones come
+ *  back as they stood. `entry` itself when `owner` already owns the front,
+ *  or neither has anything of its own. Nothing is merged: one tab's file tabs
+ *  never show beside another's. */
+export function withPaneLocalOwner(entry: PaneSideDockEntry, owner: string): PaneSideDockEntry {
+  const current = entry.owner ?? '';
+  const incoming = entry.held?.[owner];
+  if (current === owner || (!incoming && !hasPaneLocal(entry))) return entry;
+  const { [owner]: _incoming, ...others } = entry.held ?? {};
+  const outgoing = hasPaneLocal(entry);
+  const held = outgoing ? { ...others, [current]: heldOf(entry) } : others;
+  const next = outgoing ? withoutPaneLocal(withHeld(entry, {})) : withHeld(entry, {});
+  return withHeld(incoming ? movedInto(next, incoming, owner) : next, held);
 }
 
 /** A non-owner tab opening or folding the pane: only the front other tabs see changes. */
@@ -430,39 +610,76 @@ function withoutPaneLocal(entry: PaneSideDockEntry): PaneSideDockEntry {
  * last tab gone (closed, archived, deleted) they are released for good, so the
  * pane is never left hidden behind a session it cannot show.
  *
- * An entry with unsaved file tabs (`isDirty(leafId, fileKey)`) is left exactly
- * where it is: its editors are never remounted elsewhere or merged into
- * another pane's tabs (the editor backup is written asynchronously on
- * unmount, so a remount could load the file before the edits land). When its
- * pane closes it goes the way every pane's dock entry always went.
+ * A side file's editor follows its file, not its pane or owner
+ * (side-file-editor-portals), so a rename or a move never remounts it. Only a
+ * release would drop unsaved file tabs (`isDirty(fileKey)`), and that is
+ * left undone: they stay exactly where they are, as does a move into a pane
+ * that already holds that owner's own. When its pane closes it goes the way
+ * every pane's dock entry always went.
  */
 export function reconcilePaneDockOwners(
   docks: Readonly<Record<string, PaneSideDockEntry>>,
   paneSessions: Readonly<Record<string, readonly string[]>>,
-  isDirty: (leafId: string, fileKey: string) => boolean = () => false
+  isDirty: (fileKey: string) => boolean = () => false,
+  /** The session a New Task draft's owner key became ('' for none). */
+  successorOf: (owner: string) => string = () => ''
 ): Record<string, PaneSideDockEntry> {
   let next = docks as Record<string, PaneSideDockEntry>;
   const put = (leafId: string, entry: PaneSideDockEntry) => {
     if (next === docks) next = { ...docks };
     next[leafId] = entry;
   };
-  for (const [leafId, entry] of Object.entries(docks)) {
-    const owner = entry.owner;
-    if (!owner || paneSessions[leafId]?.includes(owner)) continue;
-    if (entry.files?.some((file) => isDirty(leafId, sideFileKey(file)))) continue;
-    put(leafId, withoutPaneLocal(entry));
-    const holder = Object.keys(paneSessions).find((id) => id !== leafId && paneSessions[id].includes(owner));
-    if (!holder) continue;
+  const tabbed = (leafId: string, owner: string) => paneSessions[leafId]?.includes(owner) ?? false;
+  const dirty = (part: Pick<PaneSideDockEntry, 'files'>) =>
+    part.files?.some((file) => isDirty(sideFileKey(file))) ?? false;
+  /** The pane now holding `owner`'s tab, unless it already has `owner`'s own. */
+  const destinationOf = (owner: string, from: string) => {
+    const holder = Object.keys(paneSessions).find((id) => id !== from && tabbed(id, owner));
+    const dest = holder ? (next[holder] ?? CLOSED_ENTRY) : null;
+    return holder && dest && (dest.owner ?? '') !== owner && !dest.held?.[owner] ? holder : '';
+  };
+  /** `part` of `owner` joins `holder`: in front when that pane has nothing of
+   *  its own there, else held behind what it has. */
+  const moveTo = (owner: string, part: PaneDockHeld, holder: string) => {
     const dest = next[holder] ?? CLOSED_ENTRY;
-    if (dest.files?.length || dest.folder || dest.diff) continue;
-    put(holder, movedInto(dest, entry, owner));
+    put(holder, hasPaneLocal(dest) ? withHeld(dest, { ...dest.held, [owner]: part }) : movedInto(dest, part, owner));
+  };
+  for (const leafId of Object.keys(docks)) {
+    const entry = next[leafId];
+    const owner = entry.owner;
+    if (owner && !tabbed(leafId, owner)) {
+      // A draft became a session in this pane: its file tabs are that session's.
+      const successor = successorOf(owner);
+      if (successor && tabbed(leafId, successor) && !entry.held?.[successor]) put(leafId, { ...entry, owner: successor });
+      else {
+        const holder = destinationOf(owner, leafId);
+        if (holder || !dirty(entry)) {
+          put(leafId, withoutPaneLocal(entry));
+          if (holder) moveTo(owner, heldOf(entry), holder);
+        }
+      }
+    }
+    for (const [heldOwner, part] of Object.entries(next[leafId].held ?? {})) {
+      if (!heldOwner || tabbed(leafId, heldOwner)) continue;
+      const current = next[leafId];
+      const { [heldOwner]: _part, ...rest } = current.held ?? {};
+      const successor = successorOf(heldOwner);
+      if (successor && tabbed(leafId, successor) && current.owner !== successor && !rest[successor]) {
+        put(leafId, withHeld(current, { ...rest, [successor]: part }));
+        continue;
+      }
+      const holder = destinationOf(heldOwner, leafId);
+      if (!holder && dirty(part)) continue;
+      put(leafId, withHeld(current, rest));
+      if (holder) moveTo(heldOwner, part, holder);
+    }
   }
   return next;
 }
 
 /** `dest` taking over `entry`'s file tabs, Files tree and diff (and its front
  *  place when one of them was in front), owned by `owner`. */
-function movedInto(dest: PaneSideDockEntry, entry: PaneSideDockEntry, owner: string): PaneSideDockEntry {
+function movedInto(dest: PaneSideDockEntry, entry: PaneDockHeld, owner: string): PaneSideDockEntry {
   const moved = ownedBy(
     {
       ...dest,
@@ -528,25 +745,37 @@ export function withPaneDockFileKept(entry: PaneSideDockEntry, fileKey?: string)
 }
 
 /** Closes a file tab (the active one by default). Closing the last tab hands
- *  the body back to the panel view. */
+ *  the body back to the panel view. A held tab (another tab's, behind the
+ *  front: a main tab taking its file over) closes where it is held. */
 export function withPaneDockFileClosed(entry: PaneSideDockEntry, fileKey?: string): PaneSideDockEntry {
-  if (!entry.files?.length) return entry;
   const target = fileKey ?? activeFileKey(entry);
-  if (!target || !entry.files.some((file) => sideFileKey(file) === target)) return entry;
-  const rest = closeSideFileTab({ files: entry.files, active: activeFileKey(entry) }, target);
-  if (rest.files.length > 0 && rest.active) return { ...entry, files: rest.files, activeFile: rest.active };
-  const { files: _files, activeFile: _activeFile, ...bare } = entry;
-  return { ...bare, surface: entry.surface === PANE_DOCK_FILE_SURFACE ? '' : entry.surface };
+  if (!target) return entry;
+  if (entry.files?.some((file) => sideFileKey(file) === target)) return withFileClosed(entry, target);
+  const holder = Object.entries(entry.held ?? {}).find(([, part]) =>
+    part.files?.some((file) => sideFileKey(file) === target)
+  );
+  if (!holder) return entry;
+  const [owner, part] = holder;
+  const { [owner]: _part, ...held } = entry.held ?? {};
+  const left = withFileClosed(part, target);
+  return withHeld(entry, hasPaneLocal(left) ? { ...held, [owner]: left } : held);
+}
+
+function withFileClosed<T extends Pick<PaneSideDockEntry, 'files' | 'activeFile' | 'surface'>>(part: T, target: string): T {
+  const rest = closeSideFileTab({ files: part.files ?? [], active: activeFileKey(part) }, target);
+  if (rest.files.length > 0 && rest.active) return { ...part, files: rest.files, activeFile: rest.active };
+  const { files: _files, activeFile: _activeFile, ...bare } = part;
+  return { ...bare, surface: part.surface === PANE_DOCK_FILE_SURFACE ? '' : part.surface } as T;
 }
 
 /** True when closing `fileKey` removes the dock's last tab: the last file tab
- *  with no other surface tab (the session's Changes) left in the strip. The
- *  dock then closes instead of falling back to its panel view.
- *  `sessionBound`: a session's Changes strip still shows a tab. */
-export function paneDockFileCloseEndsDock(entry: PaneSideDockEntry, fileKey: string, sessionBound: boolean): boolean {
+ *  with no other surface tab left in the strip. The dock then closes instead
+ *  of falling back to its panel view.
+ *  `changesTab`: the tab's session has its Changes in the strip. */
+export function paneDockFileCloseEndsDock(entry: PaneSideDockEntry, fileKey: string, changesTab: boolean): boolean {
   const files = entry.files ?? [];
   if (files.length !== 1 || sideFileKey(files[0]) !== fileKey) return false;
-  return !(sessionBound && entry.view === 'session-diff');
+  return !changesTab;
 }
 
 /** Open-or-replace: a transcript folder link shows the project's Files tree

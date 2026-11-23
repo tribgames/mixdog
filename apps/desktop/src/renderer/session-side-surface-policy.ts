@@ -6,11 +6,11 @@ import {
   PANE_DOCK_TERMINAL_SURFACE,
   type PaneSideDockDiff,
   type PaneSideDockEntry,
-  paneDockForeign,
   paneDockRestored,
-  paneLocalSurface,
+  withPaneLocalOwner,
 } from './pane-side-dock';
 import { navigationKey } from './text-format';
+import { sessionOfPromotedDraft } from './composer-draft';
 
 export type SessionSideSurface = typeof PANE_DOCK_BROWSER_SURFACE | typeof PANE_DOCK_TERMINAL_SURFACE;
 
@@ -215,17 +215,26 @@ export function withSessionPanelView(
   return withSessionEntry(current, sessionId, view);
 }
 
-/** The pane entry as the tab `sessionId` sees it: file tabs, a Files tree or
- *  a git diff in front belong to the session they were brought up beside
- *  (`owner`). Any other tab of the pane — another session, a bot chat, a
- *  draft — sees the dock as if closed; the owner gets it back as it was. */
-export function paneDockEntryForSession(entry: PaneSideDockEntry, sessionId: string): PaneSideDockEntry {
-  const restored = paneDockRestored(entry, sessionId);
-  if (restored !== entry || !paneDockForeign(entry, sessionId)) return restored;
-  // Any other tab sees the front parked for it (a pane-level view another
-  // tab opened), else the dock closed.
-  const parked = entry.parked && !paneLocalSurface(entry.parked.surface) ? entry.parked : null;
-  return { ...entry, open: parked?.open ?? false, surface: parked?.surface ?? '' };
+/** Whether the tab with owner key `viewer` owns file tabs owned by
+ *  `entryOwner`: its own, unowned ones, or its New Task draft's once the draft
+ *  became it (the dock re-owns them a commit later; until then they are not
+ *  another tab's, so their editors are never released). */
+export function paneDockOwnedBy(entryOwner: string | undefined, viewer: string): boolean {
+  return !entryOwner || entryOwner === viewer || (Boolean(viewer) && sessionOfPromotedDraft(entryOwner) === viewer);
+}
+
+/** The pane entry as the tab with owner key `owner` (paneDockOwnerOf) sees
+ *  it: file tabs, a Files tree or a git diff in front belong to the session
+ *  or draft they were brought up beside (`owner`). Any other tab of the pane
+ *  — another session, a bot chat, a draft — sees the dock as if closed; the
+ *  owner gets its own back as it was, held ones included. */
+export function paneDockEntryForSession(entry: PaneSideDockEntry, owner: string): PaneSideDockEntry {
+  const restored = paneDockRestored(entry, owner);
+  if (restored !== entry || paneDockOwnedBy(entry.owner, owner)) return restored;
+  // Any other tab sees the owner's file tabs, Files tree and diff held (kept
+  // mounted, never in its strip) and the front parked for it (a pane-level
+  // view another tab opened), else the dock closed.
+  return withPaneLocalOwner(entry, owner);
 }
 
 /**
@@ -242,7 +251,9 @@ export function sessionSideDockEntryForSession(
   surface: SessionSideSurface | null,
   sessionDiff: PaneSideDockDiff | null = null,
   sessionPanelView: SessionSidePanelView | null = null,
-  panelViewInFront = false
+  panelViewInFront = false,
+  /** The tab's owner key (paneDockOwnerOf): a draft's differs from its ''. */
+  owner = sessionId
 ): PaneSideDockEntry {
   // A session diff persisted into the pane entry by an older build belongs to
   // no pane: drop it so the session map below is the only owner.
@@ -250,7 +261,7 @@ export function sessionSideDockEntryForSession(
     entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff?.source === 'session'
       ? { ...entry, surface: '', diff: null }
       : entry,
-    sessionId
+    owner
   );
   if (sessionId && sessionDiff) {
     if (

@@ -913,12 +913,14 @@ html[data-mixdog-mobile-tabs]
 }
 /* The verb is the quiet half of the row and the target the loud half: the
    eye lands on WHAT was read or edited, not on the tool that did it. It never
-   gives way to the subject or the outcome; only a verb longer than half a
-   narrow row ellipsizes. */
+   gives way to the subject or the outcome; only a verb wider than the row
+   ellipsizes. A share below 100% would resolve against this fit-content
+   header, which is only as wide as its content, and cut a verb that stands
+   alone. */
 .tool-title.tool-activity-item-title b {
   flex: 0 0 auto;
   min-width: 0;
-  max-width: 50%;
+  max-width: 100%;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;

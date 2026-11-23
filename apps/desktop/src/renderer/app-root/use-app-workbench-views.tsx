@@ -33,7 +33,7 @@ import { sidebarDiffColumnAvailable } from '../sidebar-diff-column';
 import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { PullRequestOpenHandler } from '../PullRequestsPane';
 import { useAppDockWarmup } from '../use-app-boot';
-import { renderPaneSideDockView } from '../app-shell-side-dock';
+import { renderPaneSideDockView, sideFileEditorKept } from '../app-shell-side-dock';
 import { renderPaneProblemsView } from '../app-shell-pane-problems';
 import type { WorkbenchSide, WorkbenchSideTitleDragProps, WorkbenchSideViewId } from '../workbench-side-view-layout';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -386,7 +386,9 @@ export function useAppWorkbenchViews({
     if (id === 'session-diff') {
       if (!pane) return null;
       const sessionId = pane.sessionId;
-      const sideFiles = paneSideDocks.entryFor(pane.leafId).files ?? [];
+      // Only this session's own file tabs: another tab's stay with it.
+      const dockEntry = paneSideDocks.entryFor(pane.leafId);
+      const sideFiles = dockEntry.owner === sessionId ? (dockEntry.files ?? []) : [];
       const ownsWorkspace = sessionOwnsWorkspace(sessions, registeredProjectPath, sessionId);
       return (
         <SessionDiffPane
@@ -615,5 +617,6 @@ export function useAppWorkbenchViews({
     renderPaneSideDock,
     renderPaneProblems,
     dockSessionIds,
+    sideFileEditorKept: (fileKey: string) => sideFileEditorKept(paneSideDocks, fileKey),
   };
 }

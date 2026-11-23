@@ -250,6 +250,9 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
+.extensions-item-copy > small.extensions-item-fault {
+  color: var(--mx-danger);
+}
 .extensions-item-trailing {
   display: inline-flex;
   align-items: center;
@@ -606,7 +609,8 @@
   justify-content: flex-end;
   gap: 6px;
 }
-.local-provider-actions > .extensions-action {
+.local-provider-actions > .extensions-action,
+[data-acp-agents] .extensions-action[data-tooltip] {
   width: 28px;
   padding: 0;
 }

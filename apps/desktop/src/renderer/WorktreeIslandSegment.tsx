@@ -5,6 +5,7 @@ import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../sh
 import {
   BranchIslandPanel,
   BranchNameDialog,
+  BranchTabHost,
   clearBranchMenuCache,
   startNewBranch,
   useBranchMenuActions,
@@ -141,9 +142,8 @@ function useDetachedCommit(workspace: BranchPresentation | null, detached: boole
 }
 
 /** The session's own worktree: merge it into its target or remove it, each
- *  behind its confirmation; a refusal shows as a dialog, a merge as a flash.
- *  The island's branch tab and the session panel both ask through it. */
-export function useWorktreeSessionActions({
+ *  behind its confirmation; a refusal shows as a dialog, a merge as a flash. */
+function useWorktreeSessionActions({
   sessionId,
   onFlash,
 }: {
@@ -243,10 +243,16 @@ export function BranchIslandSegment({
   onFlash?: (flash: ComposerIslandFlash, sessionId: string) => void;
   /** Another host's trigger for the same tab (the session panel's Branch
    *  row): `button` carries the segment's own wiring, `meta` the branch's
-   *  status; the tab then opens under it. */
+   *  status; the tab then opens as a popup under it. */
   renderTrigger?: (button: BranchTriggerProps, view: { branch: string; meta: string; pending: boolean }) => ReactNode;
 }) {
-  const { running, dialogShown: confirmShown, askMerge, askRemove, dialog } = useWorktreeSessionActions({
+  const {
+    running,
+    dialogShown: confirmShown,
+    askMerge,
+    askRemove,
+    dialog,
+  } = useWorktreeSessionActions({
     sessionId,
     onFlash,
   });
@@ -291,25 +297,8 @@ export function BranchIslandSegment({
   };
   const reopen = () => setOpen(true);
   useMobileBack(open, close);
-  // Hosted outside the island, the open tab closes on a press outside it.
-  // "Inside" is the tab's React tree, its body-portalled row menus included:
-  // they mark the press on its way through React, before it bubbles here.
+  // Hosted outside the island, the tab is a popup under its row (BranchTabHost).
   const hosted = Boolean(renderTrigger);
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  const insidePresses = useRef(new WeakSet<Event>());
-  const markInside = (event: { nativeEvent: Event }) => insidePresses.current.add(event.nativeEvent);
-  useEffect(() => {
-    if (!open || !hosted) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      if (insidePresses.current.has(event)) return;
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && trigger.current?.contains(target)) return;
-      closeRef.current();
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open, hosted]);
   const actions = useBranchMenuActions({
     draft: false,
     intent: Boolean(menu?.pendingWorktree),
@@ -378,7 +367,10 @@ export function BranchIslandSegment({
 
   type WorktreeAction = {
     id: string;
+    /** The full wording: the button's tooltip and name. */
     label: string;
+    /** The word on the button. */
+    short: string;
     icon: typeof FileDiff;
     danger?: boolean;
     /** Changes the workspace: unavailable while work runs. */
@@ -393,6 +385,7 @@ export function BranchIslandSegment({
       items.push({
         id: 'view-changes',
         label: t('View changes'),
+        short: t('View changes'),
         icon: FileDiff,
         onIntent: () => prefetchSessionChanges(sessionId, { paneKey }),
         onSelect: () => {
@@ -405,6 +398,7 @@ export function BranchIslandSegment({
       items.push({
         id: 'merge',
         label: t('Merge into {{value0}}', { value0: mergeInto }),
+        short: t('Merge'),
         icon: GitMerge,
         switches: true,
         onSelect: () => {
@@ -416,6 +410,7 @@ export function BranchIslandSegment({
     items.push({
       id: 'remove',
       label: t('Remove worktree'),
+      short: t('Remove'),
       icon: Trash2,
       danger: true,
       switches: true,
@@ -426,7 +421,7 @@ export function BranchIslandSegment({
     });
   }
   const worktreeActions = items.length
-    ? items.map(({ id, label, icon: Icon, danger, switches, onIntent, onSelect }) => {
+    ? items.map(({ id, label, short, icon: Icon, danger, switches, onIntent, onSelect }) => {
         const unavailable = running || (switches && locked);
         return (
           <button
@@ -437,6 +432,8 @@ export function BranchIslandSegment({
             data-action-id={id}
             data-danger={danger || undefined}
             aria-disabled={unavailable || undefined}
+            aria-label={label}
+            title={label}
             onPointerDown={onIntent}
             onFocus={onIntent}
             onClick={() => {
@@ -444,7 +441,7 @@ export function BranchIslandSegment({
             }}
           >
             <Icon size={14} aria-hidden="true" />
-            <span>{label}</span>
+            <span>{short}</span>
           </button>
         );
       })
@@ -490,85 +487,86 @@ export function BranchIslandSegment({
       aria-label={moving ? `${branch} — ${tooltip}` : undefined}
     >
       {pendingMark ? (
-          <ProgressSpinner size={14} aria-hidden="true" />
-        ) : (
-          <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
-        )}
-        <span className="composer-island-seg-text">
-          <span className="composer-island-seg-label">
-            {recovery ? (
-              t('Worktree missing')
-            ) : (
-              <>
-                {slash > 0 && <span className="composer-island-seg-prefix">{branch.slice(0, slash + 1)}</span>}
-                {branch.slice(slash + 1)}
-              </>
-            )}
-          </span>
+        <ProgressSpinner size={14} aria-hidden="true" />
+      ) : (
+        <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
+      )}
+      <span className="composer-island-seg-text">
+        <span className="composer-island-seg-label">
+          {recovery ? (
+            t('Worktree missing')
+          ) : (
+            <>
+              {slash > 0 && <span className="composer-island-seg-prefix">{branch.slice(0, slash + 1)}</span>}
+              {branch.slice(slash + 1)}
+            </>
+          )}
         </span>
-        {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
-      </button>
+      </span>
+      {!recovery && worktree && target && <span className="composer-island-seg-sub">{target}</span>}
+    </button>
   );
 
   const tab = open && (menu || loading) && (
-        <BranchIslandPanel
-          management={actions.management}
-          panel={panel}
-          panelId={panelId}
-          heightKey={sessionId}
-          title={
-            intent ? (
-              <>
-                <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
-                <span className="composer-island-branch-tab-name">{t('{{base}} → New worktree', { base })}</span>
-              </>
-            ) : (
-              <>
-                <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
-                <span className="composer-island-branch-tab-name">{label}</span>
-              </>
-            )
-          }
-          meta={meta}
-          query={query}
-          onQuery={setQuery}
-          notice={notice}
-          intent={intent}
-          busy={actions.busy}
-          worktreeUnavailable={actions.worktreeUnavailable}
-          pending={actions.pending}
-          loading={!menu}
-          locked={locked}
-          base={base}
-          rows={menu ? branchRows(menu, sessionId, query) : []}
-          worktreeBound={menu ? Boolean(menu.workspace.worktreeId) : worktree}
-          worktreeActions={worktreeActions}
-          onPickWorktree={() => void actions.pickWorktree()}
-          onPickRow={actions.pickRow}
-          onCreateBranch={() =>
-            startNewBranch({
-              actions,
-              query,
-              locked,
-              setNotice,
-              // The name dialog takes the tab's place: the island collapses under it.
-              setNamingBranch: (naming) => {
-                setNamingBranch(naming);
-                if (naming) setOpen(false);
-              },
-            })
-          }
-          onClose={close}
-        />
-      );
+    <BranchIslandPanel
+      management={actions.management}
+      panel={panel}
+      panelId={panelId}
+      title={
+        // Under another host's row the row itself names the branch.
+        hosted ? undefined : intent ? (
+          <>
+            <GitFork size={14} className="composer-island-seg-icon" aria-hidden="true" />
+            <span className="composer-island-branch-tab-name">{t('{{base}} → New worktree', { base })}</span>
+          </>
+        ) : (
+          <>
+            <SegmentIcon size={14} className="composer-island-seg-icon" aria-hidden="true" />
+            <span className="composer-island-branch-tab-name">{label}</span>
+          </>
+        )
+      }
+      meta={meta}
+      query={query}
+      onQuery={setQuery}
+      notice={notice}
+      intent={intent}
+      busy={actions.busy}
+      worktreeUnavailable={actions.worktreeUnavailable}
+      pending={actions.pending}
+      loading={!menu}
+      locked={locked}
+      base={base}
+      rows={menu ? branchRows(menu, sessionId, query) : []}
+      heightKey={sessionId}
+      worktreeBound={menu ? Boolean(menu.workspace.worktreeId) : worktree}
+      worktreeActions={worktreeActions}
+      onPickWorktree={() => void actions.pickWorktree()}
+      onPickRow={actions.pickRow}
+      onCreateBranch={() =>
+        startNewBranch({
+          actions,
+          query,
+          locked,
+          setNotice,
+          // The name dialog takes the tab's place: the island collapses under it.
+          setNamingBranch: (naming) => {
+            setNamingBranch(naming);
+            if (naming) setOpen(false);
+          },
+        })
+      }
+      onClose={close}
+    />
+  );
 
   return (
     <>
       {segment}
       {hosted && tab ? (
-        <div className="branch-tab-host" onPointerDownCapture={markInside}>
+        <BranchTabHost anchor={trigger} onClose={close}>
           {tab}
-        </div>
+        </BranchTabHost>
       ) : (
         tab
       )}

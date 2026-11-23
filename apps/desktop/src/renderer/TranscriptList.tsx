@@ -19,7 +19,7 @@ import { useSelectionPin } from './transcript-list-selection-pin';
 import { createTranscriptRowNodes, paintsNothing, type TranscriptRowNodes } from './transcript-list-row-nodes';
 import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
-import { BandDividerContext, isCompactionDivider } from './transcript-primitives';
+import { BandDividerContext, isCompactionDivider, isThreadDivider } from './transcript-primitives';
 import type { TranscriptRowSurface } from './transcript-row-estimates';
 import type { TranscriptRowModel } from './transcript-rows';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
@@ -52,6 +52,8 @@ type TranscriptListProps = {
   touchHoldsCorrections?: () => boolean;
   /** Claims reader ownership before this list writes selection auto-scroll. */
   onSelectionAutoScroll(delta: number): void;
+  /** A selection covers transcript text (true), or no longer does (false): the follow hook writes no end under it. */
+  onSelectionHold?(held: boolean): void;
   /** Who paints the rows: an agent chat's rows learn their heights apart. */
   surface?: TranscriptRowSurface;
 };
@@ -71,6 +73,7 @@ export function TranscriptList({
   hasTouchScroll = noTouchScroll,
   touchHoldsCorrections = noTouchScroll,
   onSelectionAutoScroll,
+  onSelectionHold = noSelectionHold,
   surface = 'coding',
 }: TranscriptListProps) {
   const surfaceRef = useRef(surface);
@@ -230,7 +233,7 @@ export function TranscriptList({
     anchorOverride,
     settleHeldShrinks,
   });
-  useSelectionDrag({ viewport, sessionKey, rowsRef, setSelectionPin, onSelectionAutoScroll });
+  useSelectionDrag({ viewport, sessionKey, rowsRef, setSelectionPin, onSelectionAutoScroll, onSelectionHold });
 
   useEffect(
     () => () => {
@@ -275,6 +278,7 @@ export function TranscriptList({
 }
 
 const noTouchScroll = () => false;
+const noSelectionHold = () => {};
 
 /** How a row sits against its neighbours: whether it paints, and the gaps and
  *  bands the stylesheet keys off (12-transcript.css). */
@@ -303,21 +307,46 @@ function rowSteps(
   // band's height wherever the band stood (data-band-seat) and leads in as the band did, so the band going for it moves
   // nothing.
   const endsTurn = (row._tag === 'AssistantPart' && row.item.kind === 'turndone') || row._tag === 'Error';
-  // A compaction's divider takes the band's place the same way, whether the band then goes on under it or not.
-  const divides = row._tag === 'AssistantPart' && isCompactionDivider(row.item);
+  // A divider takes the band's place the same way, whether the band then goes on under it or not.
+  const divides = row._tag === 'AssistantPart' && isThreadDivider(row.item);
+  const dividedAbove = !blank && before?._tag === 'AssistantPart' && isThreadDivider(before.item);
   const seated = endsTurn || divides;
-  const bandLead = (row._tag === 'Thinking' || seated) && leadsBand(previous);
+  // A divider stands apart from the rows around it (12-transcript.css). Above, it stands as the band stood (its
+  // lead, a prompt's own room or a turn gap), so the band's compacting state ending for it moves nothing. Below,
+  // the row carries a full step, or the turn gap grows to it; the band alone leads in under a divider as it does
+  // under any part.
+  const dividerStep =
+    !blank &&
+    row._tag !== 'TurnGap' &&
+    ((dividedAbove && row._tag !== 'Thinking') ||
+      (divides &&
+        before !== undefined &&
+        before._tag !== 'UserMessage' &&
+        before._tag !== 'TurnGap' &&
+        !leadsBand(previous)));
+  const dividerGap = row._tag === 'TurnGap' && dividedAbove;
+  const bandLead = !dividerStep && (row._tag === 'Thinking' || seated) && leadsBand(previous);
   const dividerAbove =
     row._tag === 'Thinking' && before?._tag === 'AssistantPart' && isCompactionDivider(before.item)
       ? String(before.item.id ?? before.key)
       : '';
-  const stepBefore = !bandLead && row._tag !== 'TurnGap' && part(previous);
+  const stepBefore = !dividerStep && !bandLead && row._tag !== 'TurnGap' && part(previous);
   const turnEnd = !blank && !part(row._tag) && (!next || next._tag === 'TurnGap');
   // A turn's changed-files card closes its stack: a row after it in the same
   // turn takes the turn gap, never the 8px part step (12-transcript.css).
   const afterChanges =
     stepBefore && (before?._tag === 'AssistantPart' || before?._tag === 'Error') && Boolean(before.turnChanges);
-  return { blank, bandSeat: seated && !blank, bandLead, stepBefore, turnEnd, afterChanges, dividerAbove };
+  return {
+    blank,
+    bandSeat: seated && !blank,
+    bandLead,
+    stepBefore,
+    turnEnd,
+    afterChanges,
+    dividerAbove,
+    dividerStep,
+    dividerGap,
+  };
 }
 
 function renderVirtualRow(
@@ -332,13 +361,8 @@ function renderVirtualRow(
   const row = rows[virtualRow.index];
   if (!row) return null;
   const node = rowNodes.nodeAt(virtualRow.index);
-  const { blank, bandSeat, bandLead, stepBefore, turnEnd, afterChanges, dividerAbove } = rowSteps(
-    row,
-    virtualRow.index,
-    rows,
-    node,
-    rowNodes
-  );
+  const { blank, bandSeat, bandLead, stepBefore, turnEnd, afterChanges, dividerAbove, dividerStep, dividerGap } =
+    rowSteps(row, virtualRow.index, rows, node, rowNodes);
   // What the row paints from other rows (hand-off lines, a hidden report),
   // from the same rows as its node: its measurements are recorded under it
   // (transcript-list-estimates.ts).
@@ -363,6 +387,8 @@ function renderVirtualRow(
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}
         data-after-changes={afterChanges ? 'true' : undefined}
+        data-divider-step={dividerStep ? 'true' : undefined}
+        data-divider-gap={dividerGap ? 'true' : undefined}
         data-blank={blank ? 'true' : undefined}
         data-variant={variant || undefined}
       >

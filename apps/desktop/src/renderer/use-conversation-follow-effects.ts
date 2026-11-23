@@ -13,14 +13,10 @@ export function settledRowCount(items: readonly TranscriptItem[]): number {
 /** Counted per list, and carried on from the list a frame made it from. */
 const settledRows = carriedSum((item: TranscriptItem) => (isRoomTypingItem(item) ? undefined : 0));
 
-const noReader = () => false;
-
 /** Follow re-arming around session entry, transcript shrink and no-overflow
  *  commits. Returns whether the virtual timeline should anchor to the bottom. */
 export function useConversationFollowEffects({
   armFollow,
-  releaseFollow = armFollow,
-  entryReader = noReader,
   following,
   scrollToEndRef,
   settledItems,
@@ -30,11 +26,6 @@ export function useConversationFollowEffects({
   windowGeneration,
 }: {
   armFollow: () => void;
-  /** Lets go of the end without a reader's gesture; called only for an entry `entryReader` accepts. */
-  releaseFollow?: () => void;
-  /** The session is entered at a place its reader has off the end (transcript-list-reader-place.ts): the list puts the
-   *  reader's row back and the entry does not follow. Absent: every entry follows. */
-  entryReader?: () => boolean;
   following: boolean;
   scrollToEndRef: { current: (behavior?: ScrollBehavior) => void };
   /** A positioned transcript's generation (`transcriptGeneration`); undefined for a window whose rows are the transcript's. */
@@ -44,21 +35,16 @@ export function useConversationFollowEffects({
   transcriptSessionKey: string;
   viewport: { current: HTMLDivElement | null };
 }) {
-  // A session route change resumes at the latest row, or at the place its reader has off the end. Measurement
-  // snapshots survive re-entry; a scroll offset does not, a record and its row's place in the viewport do.
+  // A session route change resumes at the latest row. Measurement
+  // snapshots survive re-entry, but a stale per-session scroll offset does not.
   const armedFollowSessionKey = useRef('');
-  const entry = useRef({ entryReader, releaseFollow });
-  entry.current = { entryReader, releaseFollow };
-  const entering = armedFollowSessionKey.current !== transcriptSessionKey;
-  const enteredOnReader = entering && entryReader();
   useLayoutEffect(() => {
     if (armedFollowSessionKey.current === transcriptSessionKey) return;
     armedFollowSessionKey.current = transcriptSessionKey;
     // Entry re-arms following ONLY. The virtual timeline owns the end
     // position; writing scrollTop here too made two authorities aim at
     // different offsets across the first frames (re-entry jump/flicker).
-    if (entry.current.entryReader()) entry.current.releaseFollow();
-    else armFollow();
+    armFollow();
   }, [armFollow, transcriptSessionKey]);
   const transcriptSwapRef = useRef({ sessionKey: '', count: 0, generation: windowGeneration });
   useLayoutEffect(() => {
@@ -88,8 +74,6 @@ export function useConversationFollowEffects({
       overflowCheck.current = 0;
       const element = viewport.current;
       if (latest.current.following || !element) return;
-      // A reader waiting for the rows of its place has no list yet: nothing overflows, and it is not at the end.
-      if (entry.current.entryReader()) return;
       if (element.scrollHeight - element.clientHeight > 1) return;
       latest.current.armFollow();
     });
@@ -101,5 +85,5 @@ export function useConversationFollowEffects({
     },
     []
   );
-  return entering ? !enteredOnReader : following;
+  return following || armedFollowSessionKey.current !== transcriptSessionKey;
 }

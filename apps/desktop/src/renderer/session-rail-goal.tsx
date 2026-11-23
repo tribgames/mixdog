@@ -1,6 +1,7 @@
 // The session panel's Goal and To-do categories, on the island's goal model.
 import { ChevronDown, ChevronRight, Pause, Pencil, Play, Square, X } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { CapabilityIcon } from './CapabilityIcon';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import type { GoalSnapshot } from './desktop-types';
 import { t } from './i18n';
@@ -23,7 +24,6 @@ type Folds = ReturnType<typeof useSessionRailFolds>;
 function GoalState({ model }: { model: GoalModel }) {
   return (
     <>
-      <GoalRing kind={model.kind} progress={model.progress} />
       <span className="session-rail-goal-state" data-state={model.kind}>
         {model.stateLabel}
       </span>
@@ -69,6 +69,8 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
   if (!goal) return null;
   // Without a distinct short title the objective is the title itself.
   const showObjective = Boolean(objective) && Boolean(goal.title) && title !== objective;
+  // In place of a title cut from it, the row reads the objective to its own end, and unfolds to the whole of it.
+  const cutObjective = showObjective && model.cutObjective;
   const iconButton = (
     label: string,
     Icon: typeof Pause,
@@ -106,9 +108,15 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
             type="button"
             className="session-rail-row session-rail-goal-title"
             aria-expanded={detail}
+            data-whole={(cutObjective && detail) || undefined}
             onClick={() => setDetail(!detail)}
           >
-            <span className="session-rail-cut">{title}</span>
+            <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
+            {cutObjective && detail ? (
+              <span>{objective}</span>
+            ) : (
+              <span className="session-rail-cut">{cutObjective ? objective : title}</span>
+            )}
             {detail ? (
               <ChevronDown size={12} className="session-rail-cv" aria-hidden="true" />
             ) : (
@@ -116,9 +124,14 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
             )}
           </button>
         ) : (
-          <p className="session-rail-goal-text">{title}</p>
+          <p className="session-rail-goal-text session-rail-goal-marked">
+            <CapabilityIcon name="goal" size={14} className="session-rail-ic" />
+            <span>{title}</span>
+          </p>
         )}
-        {showObjective && detail && <p className="session-rail-goal-text session-rail-muted">{objective}</p>}
+        {showObjective && !cutObjective && detail && (
+          <p className="session-rail-goal-text session-rail-muted">{objective}</p>
+        )}
         <div ref={line} className="session-rail-goal-line" role="status">
           <GoalState model={model} />
           <span className="session-rail-grow" />
@@ -148,8 +161,7 @@ export function GoalSection({ model, open, onToggle }: { model: GoalModel; open:
                   },
                 })}
                 {/* A stalled Goal (paused, blocked, out of time) waits for the user: it can be let go, as on the island. */}
-                {model.dismissible &&
-                  iconButton(t('Dismiss goal'), X, () => void model.control('dismiss'))}
+                {model.dismissible && iconButton(t('Dismiss goal'), X, () => void model.control('dismiss'))}
               </>
             )
           )}
@@ -260,8 +272,6 @@ export function TodoSection({
   ].filter((group) => group.items.length > 0);
   const restFold = groups.find((group) => group.key === 'rest');
   const doneFold = groups.find((group) => group.key === 'done');
-  const setAll = (value: boolean) => folds.setGroups(Object.fromEntries(groups.map((group) => [group.key, value])));
-  const current = remaining.find(({ task }) => task.status === 'in_progress');
   const fold = (group: (typeof groups)[number]) => (
     <>
       <RailFold
@@ -277,24 +287,15 @@ export function TodoSection({
     <RailSection
       category="todo"
       title={t('To-do')}
-      count={`${progress.completed}/${progress.total}`}
+      // The island's own figure: the progress ring in the state's tint, then n/m.
+      count={
+        <span className="session-rail-todo-figure" data-state={model.kind}>
+          <GoalRing kind={model.kind} progress={progress} />
+          {`${progress.completed}/${progress.total}`}
+        </span>
+      }
       open={open}
       onToggle={onToggle}
-      summary={current ? <span className="session-rail-cut">{String(current.task.content || '')}</span> : undefined}
-      menu={[
-        {
-          id: 'unfold',
-          label: t('Expand all'),
-          disabled: groups.every((group) => group.open),
-          onSelect: () => setAll(true),
-        },
-        {
-          id: 'fold',
-          label: t('Collapse all'),
-          disabled: groups.every((group) => !group.open),
-          onSelect: () => setAll(false),
-        },
-      ]}
     >
       {remaining.length > 0 && (
         <div className="session-rail-group" data-group="remaining">

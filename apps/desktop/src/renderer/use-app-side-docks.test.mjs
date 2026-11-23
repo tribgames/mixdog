@@ -690,14 +690,12 @@ test('access tokens never reach storage: a chat-link file stays live only, acros
   }
 });
 
-test('unsaved file tabs never move or join another pane: their entry stays exactly where it is', async () => {
+test('unsaved file tabs follow their tab to another pane and are never released', async () => {
   const BOT = 'sess_home_agent-marketer';
   const files = (leafId) => (api.sideDocks.paneSideDocks.entryFor(leafId).files ?? []).map((entry) => entry.rel);
   const markDirty = (leafId) => {
     api.sideDocks.paneSideDocks.dirtyKeysRef.current = new Set(
-      (api.sideDocks.paneSideDocks.entryFor(leafId).files ?? []).map((entry) =>
-        sideFileTabDirtyKey(leafId, sideFileKey(entry))
-      )
+      (api.sideDocks.paneSideDocks.entryFor(leafId).files ?? []).map((entry) => sideFileTabDirtyKey(sideFileKey(entry)))
     );
   };
   const api = await mountPanes([
@@ -706,24 +704,21 @@ test('unsaved file tabs never move or join another pane: their entry stays exact
   ]);
   try {
     await act(async () => api.sideDocks.paneSideDocks.openFile('L1', 'C:/p', 'draft.ts'));
-    const dirty = api.sideDocks.paneSideDocks.entryFor('L1');
     markDirty('L1');
-    // s1's tab moves to a free L2 while L1 stays: the dirty entry is not remounted there.
+    // s1's tab moves to L2: its unsaved file goes along.
     await act(async () =>
       api.setPanes(
         [paneOf('L1', [session(BOT)], `session:${BOT}`), paneOf('L2', [session('s2'), session('s1')], 'session:s1')],
         'L2'
       )
     );
-    assert.strictEqual(api.sideDocks.paneSideDocks.entryFor('L1'), dirty, 'L1 keeps the dirty entry untouched');
-    assert.deepEqual(files('L2'), [], 'nothing moved to L2');
-    // L1 closes with it (its last tab leaves): no join into L2 either; the pane's
-    // dock entry goes the way a closed pane's entry always went.
-    await act(async () =>
-      api.setPanes([paneOf('L2', [session('s2'), session('s1'), session(BOT)], 'session:s1')], 'L2')
-    );
-    assert.deepEqual(files('L2'), [], 'the dirty tabs never join L2');
-    assert.deepEqual(Object.keys(api.sideDocks.paneSideDocks.docks), ['L2']);
+    assert.deepEqual(files('L1'), []);
+    assert.deepEqual(files('L2'), ['draft.ts']);
+    // s1's last tab closes: the unsaved file is not released.
+    await act(async () => api.setPanes([paneOf('L2', [session('s2')], 'session:s2')], 'L2'));
+    const kept = api.sideDocks.paneSideDocks.entryFor('L2');
+    const rels = [kept, ...Object.values(kept.held ?? {})].flatMap((part) => (part.files ?? []).map((f) => f.rel));
+    assert.deepEqual(rels, ['draft.ts']);
   } finally {
     await api.unmount();
   }

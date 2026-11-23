@@ -1512,7 +1512,14 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-island[data-open="true"] > .session-goal-trigger {
   display: none;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .session-goal-trigger-time {
+/* The island's goal-time step (useIslandFit): the figures stay, closer. */
+.composer-island:is([data-fit~="goal-time"]:where(:not([data-measuring])), [data-measuring~="goal-time"])
+  .session-goal-trigger {
+  gap: 5px;
+  padding-inline: 8px;
+}
+.composer-island:is([data-fit~="goal-time"]:where(:not([data-measuring])), [data-measuring~="goal-time"])
+  .session-goal-trigger-time {
   display: none;
 }
 /* The approval card and flashes hide the pill even with the Goal tab open. */
@@ -1555,20 +1562,21 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 /* State tint: the ring, the status label and the budget bar share one hue
    per state. Static: the Goal segment never animates. */
-.session-goal-island {
+.session-goal-island,
+.session-rail-todo-figure {
   --goal-tint: var(--mx-accent);
 }
-.session-goal-island[data-state="paused"],
-.session-goal-island[data-state="stopped"] {
+:is(.session-goal-island, .session-rail-todo-figure)[data-state="paused"],
+:is(.session-goal-island, .session-rail-todo-figure)[data-state="stopped"] {
   --goal-tint: var(--mx-text-muted);
 }
-.session-goal-island[data-state="blocked"] {
+:is(.session-goal-island, .session-rail-todo-figure)[data-state="blocked"] {
   --goal-tint: var(--mx-danger);
 }
-.session-goal-island[data-state="waiting"] {
+:is(.session-goal-island, .session-rail-todo-figure)[data-state="waiting"] {
   --goal-tint: var(--mx-warning);
 }
-.session-goal-island[data-state="complete"] {
+:is(.session-goal-island, .session-rail-todo-figure)[data-state="complete"] {
   --goal-tint: var(--mx-success);
 }
 .session-goal-state {
@@ -1771,11 +1779,8 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-tasks li + li {
   margin-top: 1px;
 }
-/* The running row carries a soft fill; rows that need the user or are
+/* The running row reads by its ink and weight; rows that need the user or are
    stalled tint with their state. Text names the state too, not colour alone. */
-.session-goal-tasks li[data-status="in_progress"] {
-  background: var(--composer-island-wash);
-}
 .session-goal-tasks li[data-status="in_progress"] > div > span {
   color: var(--mx-text);
   font-weight: var(--mx-weight-label);

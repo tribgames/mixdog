@@ -14,6 +14,73 @@ installTestDom(null, {
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { PersistentPanePortal } = await import('./PaneSurfaceGate.tsx');
+const { useTranscriptFollow, registerTranscriptScrollGeometry } = await import('./use-transcript-follow.ts');
+
+test('a pane host moved to another slot puts its saved offset back as the app: a transcript pinned since stays followed', async (t) => {
+  let now = 300_000;
+  t.mock.method(Date, 'now', () => now);
+  for (const id of ['slot-a', 'slot-b']) {
+    const slot = document.createElement('div');
+    slot.id = id;
+    document.body.append(slot);
+    t.after(() => slot.remove());
+  }
+  const geometry = { native: 1700, content: 2100 };
+  let restores = 0;
+  const scrollToEndRef = { current: () => (restores += 1) };
+  let follow = null;
+  function Transcript() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'moved-pane', scrollToEndRef });
+    return React.createElement(
+      'div',
+      { ref: viewport, className: 'transcript' },
+      React.createElement('div', { ref: content }, 'rows')
+    );
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (targetId) =>
+    act(async () =>
+      root.render(
+        React.createElement(PersistentPanePortal, { targetId, owner: 'moved' }, React.createElement(Transcript))
+      )
+    );
+  await render('slot-a');
+  const viewport = document.querySelector('#slot-a .transcript');
+  Object.defineProperty(viewport, 'scrollTop', {
+    configurable: true,
+    get: () => geometry.native,
+    set: (top) => (geometry.native = top),
+  });
+  const release = registerTranscriptScrollGeometry(viewport, {
+    viewportHeight: () => 400,
+    contentHeight: () => geometry.content,
+    scrollTop: () => geometry.native,
+    deviation: () => 0,
+  });
+  t.after(async () => {
+    release();
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  const scroll = () => act(async () => follow.handleScroll());
+  await scroll();
+  // The host saves the offset the transcript stood at; the rows grow and the end pin lands before it saves again.
+  viewport.dispatchEvent(new window.Event('scrollend'));
+  geometry.content = 2400;
+  geometry.native = 2000;
+  await scroll();
+  now += 1_000;
+  const before = restores;
+  await render('slot-b');
+  assert.equal(geometry.native, 1700, 'the move put the saved offset back');
+  await scroll();
+  assert.equal(follow.followingRef.current, true, 'the transcript still follows');
+  assert.equal(restores, before + 1, 'and is put back at its end');
+});
 
 test('a pane slot keeps one host per owner; other owners (a handoff) stay', async (t) => {
   const slot = document.getElementById('slot');

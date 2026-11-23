@@ -279,13 +279,11 @@ test('an agent blocked on a user approval reads as needing the user, not working
   // The pill names the agents alone; how many run is in its tooltip.
   assert.equal(segment.textContent, '2 agents');
   await act(async () => segment.click());
-  // Same order as the Agents window (spawn order), not re-ranked by state.
-  const rows = [...document.querySelectorAll('.agent-pool-row')];
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'running');
-  assert.match(rows[0].querySelector('.agent-activity-elapsed').textContent, /\d/);
-  assert.match(rows[1].textContent, /ask-b/);
-  assert.equal(rows[1].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
+  const state = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
+  assert.equal(document.querySelectorAll('.agent-pool-row').length, 2);
+  assert.equal(state('run-a').dataset.state, 'running');
+  assert.match(state('run-a').textContent, /\d/);
+  assert.equal(state('ask-b').textContent, translate('Waiting for approval'));
 });
 
 test('the pill counts the working agents, as shells; finished ones stay listed after them; the Lead row is not listed', async (t) => {
@@ -431,12 +429,6 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     ['run auto-fail', translate('Failed')],
   ]);
   assert.equal(document.querySelector('.composer-island-shell-command').title, 'npm run dev\n/w/app');
-  const head = () => document.querySelector('.composer-island-phead');
-  assert.equal(head().querySelector('.composer-island-tab').textContent, translate('Shell {{shell}}', { shell: 1 }));
-  assert.equal(
-    head().querySelector('.composer-island-phead-meta').textContent,
-    translate('Island: Ended {{count}}', { count: 2 })
-  );
   await act(async () => t.mock.timers.tick(59_000));
   assert.equal(status().length, 3, 'still listed before the minute is over');
   await act(async () => t.mock.timers.tick(1_100));
@@ -446,7 +438,6 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     'only the clean exit left on its own'
   );
   // Clean up is the footer's right-end action, as in the branch panel.
-  assert.equal(head().querySelectorAll('button').length, 1, 'the header holds only the close button');
   const closeAll = document.querySelector('.composer-island-panel-foot-end [data-kind="close-all"]');
   assert.equal(closeAll.textContent, translate('Clean up'));
   await act(async () => closeAll.click());
@@ -736,7 +727,8 @@ test('a shell whose termination is unconfirmed offers Stop beside Release anyway
   await publish({ shellJobs: { count: 1, jobs: [job] } });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
-  const labels = () => [...document.querySelectorAll('.composer-island-row button')].map((b) => b.title || b.textContent);
+  const labels = () =>
+    [...document.querySelectorAll('.composer-island-row button')].map((b) => b.title || b.textContent);
   assert.deepEqual(labels(), [translate('Release anyway'), translate('Stop')]);
 
   // A stop that cannot confirm fails visibly; Release anyway stays reachable.
@@ -763,10 +755,34 @@ test('the agent and shell segments expand the island panel inline', async (t) =>
     shellJobs: { count: 1, jobs: [{ taskId: 'j1', command: 'npm test', startedAt: Date.now() - 5_000 }] },
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
-  await publishPool([poolAgent('a')]);
+  const started = Date.now();
+  await publishPool([
+    poolAgent('a', { startedAt: started - 3_000 }),
+    poolAgent('r', { agent: 'reviewer', startedAt: started - 2_000 }),
+    poolAgent('b', { startedAt: started - 1_000 }),
+  ]);
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'panel');
-  assert.ok(document.querySelector('.composer-island-jobs .agent-pool-name'));
+  // The panel draws the session panel's list: a fold a kind, in the order its first agent appeared, its agents one
+  // line each under it by their own names.
+  const list = document.querySelector('.composer-island-panel .composer-island-jobs.composer-island-agents');
+  assert.deepEqual(
+    [...list.children]
+      .filter((child) => !child.matches('.composer-island-col-sizer'))
+      .map((child) =>
+        child.matches('.composer-island-agent-group')
+          ? `${child.querySelector('.composer-island-agent-fold-name').textContent} ${child.querySelector('.composer-island-agent-fold-count').textContent}`
+          : child.querySelector('.agent-pool-name').textContent
+      ),
+    ['Worker 2', 'a', 'b', 'Reviewer 1', 'r']
+  );
+  assert.equal(list.querySelector('.agent-route-summary, .composer-island-agent-tokens'), null, 'one line a row');
+  await act(async () => list.querySelector('.composer-island-agent-fold').click());
+  assert.deepEqual(
+    [...list.querySelectorAll('.agent-pool-name')].map((name) => name.textContent),
+    ['r'],
+    'Worker folded'
+  );
   await act(async () => document.querySelector('.composer-island-seg-shell').click());
   assert.equal(document.querySelector('.composer-island-jobs .composer-island-shell-command').textContent, 'npm test');
 });
@@ -782,6 +798,8 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   const island = () => document.querySelector('.composer-island');
   const agentsSeg = () => document.querySelector('.composer-island-seg-agents');
   const shellSeg = () => document.querySelector('.composer-island-seg-shell');
+  // The head is the chip and the close button, as the session panel's is its name and figures: no state counts.
+  const head = () => [...panel().querySelector('.composer-island-phead').children].map((part) => part.className);
 
   await act(async () => agentsSeg().click());
   assert.equal(island().dataset.expanded, 'agents');
@@ -790,22 +808,26 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   // One chip, not a button: nothing to switch to.
   assert.equal(panel().querySelectorAll('.composer-island-tab').length, 1);
   assert.equal(panel().querySelector('button.composer-island-tab'), null);
-  assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Agent {{agent}}', { agent: 2 }));
-  assert.ok(panel().querySelector('.composer-island-tab .composer-island-pulse'));
-  assert.ok(panel().querySelector('.composer-island-close'));
+  // As the segment writes it: the name, how many, then the mark ("Agents 2 ●").
+  assert.equal(panel().querySelector('.composer-island-tab').textContent, `${translate('Agents')}2`);
+  assert.ok(
+    panel().querySelector(
+      '.composer-island-tab .composer-island-head-count + .composer-island-mark-slot .composer-island-pulse'
+    )
+  );
+  assert.deepEqual(head(), ['composer-island-tab', 'composer-island-close']);
   assert.equal(panel().querySelectorAll('.agent-pool-row').length, 2);
   assert.equal(panel().querySelector('.composer-island-shell-command'), null, 'no shell row in the agents panel');
-  assert.ok(panel().querySelector('.composer-island-phead .composer-island-phead-meta'));
   await act(async () => panel().querySelector('.composer-island-close').click());
   assert.equal(document.querySelector('.composer-island-slot').dataset.mode, 'pill');
 
   await act(async () => shellSeg().click());
   assert.equal(island().dataset.expanded, 'shells');
   assert.equal(panel().querySelector('button.composer-island-tab'), null);
-  assert.equal(panel().querySelector('.composer-island-tab').textContent, translate('Shell {{shell}}', { shell: 1 }));
+  assert.equal(panel().querySelector('.composer-island-tab').textContent, `${translate('Shell')}1`);
   assert.equal(panel().querySelectorAll('.agent-pool-row').length, 0, 'no agent row in the shells panel');
   assert.equal(panel().querySelector('.composer-island-summary'), null);
-  assert.equal(panel().querySelector('.composer-island-phead-meta'), null);
+  assert.deepEqual(head(), ['composer-island-tab', 'composer-island-close']);
   assert.equal(panel().querySelector('.composer-island-shell-command').textContent, 'npm test');
   // The same segment toggles its panel shut; Escape closes too.
   await act(async () => shellSeg().click());
@@ -820,13 +842,27 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   assert.equal(island().dataset.expanded, undefined);
 });
 
+/** An agent row's token figure in words, a line of its tooltip and description. */
+const rowFigure = (tokens) => translate('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' });
+/** The figure an agent row's tooltip gives for its total ("300k"), or null when it gives none. */
+const rowTokensOf = (row) => {
+  const [before, after] = rowFigure('\u0000').split('\u0000');
+  const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${literal(before)}(.+)${literal(after)}$`);
+  for (const line of row.title.split('\n')) {
+    const match = pattern.exec(line);
+    if (match) return match[1];
+  }
+  return null;
+};
 /** The footer's items in the composer readout's worded form, its `·`
  *  separators left out. */
 const summaryParts = (summary) => [...summary.children].map((part) => part.textContent.replace(/·$/, ''));
-const usageSummary = (tokens, lead, agents, percent, cost) => [
-  `${translate('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' })} (${translate('Lead {{lead}} · Agents {{agents}}', { lead, agents })})`,
+const usageSummary = (tokens, percent, cost) => [
+  translate('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' }),
   translate('Cache hit {{percent}}', { percent }),
-  translate('Island: {{cost}} est. cost', { cost }),
+  // The amount alone: its tooltip names it.
+  cost,
 ];
 
 /** A getSessionUsage answer in the ledger's terms. */
@@ -870,27 +906,16 @@ async function usagePanel(t, answer) {
     await read;
   });
   const summary = document.querySelector('.composer-island-summary');
-  const meta = [...(document.querySelector('.composer-island-phead-meta')?.children ?? [])].map(
-    (part) => part.textContent
-  );
   const rowTokens = Object.fromEntries(
     [...document.querySelectorAll('.composer-island-agent-item')].map((item) => [
       item.querySelector('.agent-pool-row').dataset.agentTag,
-      item.querySelector('.composer-island-agent-tokens')?.textContent ?? null,
+      rowTokensOf(item.querySelector('.agent-pool-row')),
     ])
   );
-  return { reads, summary, meta, rowTokens, document };
+  return { reads, summary, rowTokens, document };
 }
 
-// The header counts by state, as the rows read: one running, one blocked on
-// approval, and the finished worker idles (waiting for its next message).
-const usagePanelMeta = () => [
-  `${translate('Island: Running')} 1`,
-  translate('Needs you {{needs}}', { needs: 1 }),
-  translate('Island: {{waiting}} waiting', { waiting: 1 }),
-];
-
-test('the agents summary shows the session totals with the Lead split out, cache and cost', async (t) => {
+test("the agents summary shows the agents' own total, cache and cost, the Lead's left to its readout", async (t) => {
   const answer = {
     sessionId: 'island-session',
     ...ledgerUsage(1_000_000, { cacheRead: 800_000, costUsd: 1.5 }),
@@ -902,68 +927,96 @@ test('the agents summary shows the session totals with the Lead split out, cache
       's-c': ledgerUsage(0),
     },
   };
-  const { reads, summary, meta, rowTokens } = await usagePanel(t, answer);
+  const { reads, summary, rowTokens, document } = await usagePanel(t, answer);
   // One read: the Lead's session, naming its listed agents.
   assert.equal(reads.length, 1);
   assert.equal(reads[0].capability, 'getSessionUsage');
   assert.equal(reads[0].sessionId, 'island-session');
   assert.deepEqual([...reads[0].args[0].sessionIds].sort(), ['s-a', 's-b', 's-c']);
   assert.equal(reads[0].args[0].agents, true);
-  assert.deepEqual(meta, usagePanelMeta());
   // The totals are the footer, below the rows.
   const foot = summary.parentElement;
   assert.ok(foot.classList.contains('composer-island-panel-foot'));
   assert.equal(foot.previousElementSibling.classList.contains('composer-island-agents'), true);
-  // The composer usage readout's own line: (800k + 200k) / 1.8M is the hit.
+  // The composer usage readout's own line, of the agents alone: 200k / 800k is the hit.
   assert.ok(summary.classList.contains('composer-usage-readout'));
-  assert.deepEqual(summaryParts(summary), usageSummary('1.8M', '1M', '800k', '55.6%', '$2.50'));
-  // Rows use the footer's (the composer readout's) token units.
+  assert.deepEqual(summaryParts(summary), usageSummary('800k', '25.0%', '$1.00'));
+  // Rows use the footer's (the composer readout's) token units, in words: not on the row's one line but in its
+  // tooltip and description.
   assert.deepEqual(rowTokens, { 'run-a': '300k', 'ask-c': '0', 'done-b': '200k' });
+  const row = document.querySelector('[data-agent-tag="run-a"]');
+  assert.equal(row.querySelector('.composer-island-agent-tokens'), null);
+  assert.ok(row.title.split('\n').includes(rowFigure('300k')));
+  const description = row
+    .getAttribute('aria-describedby')
+    .split(' ')
+    .slice(1)
+    .map((id) => document.getElementById(id).textContent)
+    .join('');
+  assert.equal(description, row.title);
 });
 
 test('an unpriced turn makes only the cost a floor in the agents summary', async (t) => {
   const { summary } = await usagePanel(t, {
     ...ledgerUsage(1_000, { cacheRead: 500, costUsd: 1 }),
-    agents: ledgerUsage(300, { unpriced: 1 }),
+    agents: ledgerUsage(300, { cacheRead: 150, costUsd: 1, unpriced: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
-  // The priced turns' cost, marked as the lower bound it is; the exact figures stay plain.
-  assert.deepEqual(summaryParts(summary), usageSummary('1.3k', '1k', '300', '38.5%', '≥ $1.00'));
+  // The priced turns' cost, plain like every figure: only its tooltip says it is a lower bound, naming no mark.
+  assert.deepEqual(summaryParts(summary), usageSummary('300', '50.0%', '$1.00'));
+  const note = translate(
+    'Some usage was not reported by its provider or has no known price; this figure is a lower bound.'
+  );
+  assert.deepEqual(
+    [...summary.children].map((part) => part.title.split('\n').length > 1 && part.title.split('\n').at(-1)),
+    [false, false, note]
+  );
 });
 
-// Every figure the footer cannot show reads "-" (the Lead and Agents split
-// included), so the three items exist from the first render.
-const unknownSummary = () => usageSummary('-', '-', '-', '-', '-');
-
-test('an unmeasured agent turn marks the combined figures and its row as floors; a missing row has none', async (t) => {
-  const { summary, meta, rowTokens } = await usagePanel(t, {
+test("an unmeasured agent turn makes the agents' figures and its row floors, said in their tooltips alone; a missing row has none", async (t) => {
+  const { summary, rowTokens } = await usagePanel(t, {
     ...ledgerUsage(1_000, { costUsd: 1 }),
-    agents: ledgerUsage(200, { unmeasured: 1 }),
+    agents: ledgerUsage(200, { costUsd: 1, unmeasured: 1 }),
     sessions: { 's-a': ledgerUsage(100, { unmeasured: 1 }), 's-b': ledgerUsage(100) },
   });
-  // What the ledger measured stays on the line, marked as the lower bound it is; the header counts stay.
-  // The hit rate is the measured calls' own: plain, its tooltip says so.
-  assert.deepEqual(summaryParts(summary), usageSummary('≥ 1.2k', '1k', '≥ 200', '0.0%', '≥ $1.00'));
+  // What the ledger measured stays on the line, plain; that it is a lower bound is its tooltip's to say. The hit rate
+  // is the measured calls' own, its tooltip says so.
+  assert.deepEqual(summaryParts(summary), usageSummary('200', '0.0%', '$1.00'));
   const note = translate(
-    'Some usage was not reported by its provider or has no known price; figures marked ≥ are a lower bound.'
+    'Some usage was not reported by its provider or has no known price; this figure is a lower bound.'
   );
   const hitNote = translate('The rate covers only the calls whose usage was reported.');
   assert.deepEqual(
     [...summary.children].map((part) => part.title.split('\n').at(-1)),
     [note, hitNote, note]
   );
-  assert.deepEqual(meta, usagePanelMeta());
-  assert.deepEqual(rowTokens, { 'run-a': '≥ 100', 'ask-c': null, 'done-b': '100' });
+  assert.deepEqual(rowTokens, { 'run-a': '100', 'ask-c': null, 'done-b': '100' });
 });
 
-test('without a usage read the footer holds "-" placeholders and the header counts remain', async (t) => {
-  const { summary, meta, rowTokens } = await usagePanel(t, null);
-  assert.deepEqual(summaryParts(summary), unknownSummary());
-  assert.deepEqual(meta, usagePanelMeta());
+test('a figure the ledger has no value for is left out of the agents summary, never written as a placeholder', async (t) => {
+  // No prompt token was measured (no cache hit to read) and no turn is priced (no cost): the total stands alone.
+  const { summary } = await usagePanel(t, {
+    ...ledgerUsage(5_000, { input: 0, unpriced: 2 }),
+    agents: ledgerUsage(200, { input: 0, unpriced: 2 }),
+    sessions: {},
+  });
+  assert.deepEqual(summaryParts(summary), usageSummary('200', '', '').slice(0, 1));
+  assert.doesNotMatch(summary.textContent, /(^|[\s·])-([\s·]|$)/, 'no placeholder');
+});
+
+test('without a usage read the foot holds Clean up alone and no row gives a total', async (t) => {
+  const { summary, rowTokens, document } = await usagePanel(t, null);
+  assert.equal(summary, null, 'no usage line');
+  const foot = document.querySelector('.composer-island-agents + .composer-island-panel-foot');
+  assert.deepEqual(
+    [...foot.children].map((part) => part.className),
+    ['composer-island-panel-foot-end']
+  );
+  assert.ok(foot.querySelector('[data-kind="clear-finished"]'), 'Clean up');
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
 });
 
-test('the footer is laid out with "-" while getSessionUsage is pending, then filled in place', async (t) => {
+test('while getSessionUsage is pending the foot holds Clean up alone; the answer adds the usage line before it', async (t) => {
   const { root, document, window, publishPool } = mount(t);
   let release;
   const gate = new Promise((resolve) => {
@@ -1000,14 +1053,17 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
     await read;
   });
   const summary = () => document.querySelector('.composer-island-summary');
-  const before = summary();
-  assert.deepEqual(summaryParts(before), unknownSummary());
+  const foot = () => document.querySelector('.composer-island-agents + .composer-island-panel-foot');
+  assert.equal(summary(), null, 'nothing known yet: no line');
+  const before = foot();
+  assert.ok(before.querySelector('[data-kind="clear-finished"]'), 'the foot keeps Clean up');
   await act(async () => {
     release();
     await done;
   });
-  assert.equal(summary(), before, 'the same footer line before and after the answer');
-  assert.deepEqual(summaryParts(summary()), usageSummary('1.3k', '1k', '300', '38.5%', '$1.50'));
+  assert.equal(foot(), before, 'the same foot before and after the answer');
+  assert.equal(foot().firstElementChild, summary(), 'the line first, Clean up after it');
+  assert.deepEqual(summaryParts(summary()), usageSummary('300', '0.0%', '$0.50'));
 });
 
 test('an open agents panel reads when the ledger records a response for the Lead or any agent under it, and only then', async (t) => {
@@ -1056,7 +1112,7 @@ test('an open agents panel reads when the ledger records a response for the Lead
     Object.fromEntries(
       [...document.querySelectorAll('.composer-island-agent-item')].map((item) => [
         item.querySelector('.agent-pool-row').dataset.agentTag,
-        item.querySelector('.composer-island-agent-tokens')?.textContent ?? null,
+        rowTokensOf(item.querySelector('.agent-pool-row')),
       ])
     );
   assert.equal(reads.length, 1, 'opening reads the ledger');
@@ -1097,7 +1153,12 @@ test('an open agents panel reads when the ledger records a response for the Lead
   await commit();
   assert.equal(reads.length, 4);
   await answer();
-  assert.equal(rowTokens()['run-a'], '≥ 250k', 'the number is marked a floor');
+  assert.equal(rowTokens()['run-a'], '250k', 'the figure stands plain');
+  assert.equal(
+    document.querySelector('[data-agent-tag="run-a"]').title.split('\n').at(-1),
+    translate('Some usage was not reported by its provider or has no known price; this figure is a lower bound.'),
+    'its tooltip says it is a floor'
+  );
 
   // The Lead's turn settling takes one reading.
   await publish({ busy: false });
@@ -1107,37 +1168,36 @@ test('an open agents panel reads when the ledger records a response for the Lead
   await answer();
 });
 
-test('the usage summary model sums the sessions and marks floors', async () => {
+test("the usage summary model reads the agents' total and marks floors", async () => {
   const { islandUsageSummary, islandUsageSessionIds } = await import('./island-session-usage.ts');
   assert.deepEqual(islandUsageSessionIds(['a', 'bad id', 'a', 'b:c', 'd']), ['a', 'd']);
   const lead = ledgerUsage(100, { cacheRead: 50, costUsd: 0.1 });
   // The agents' figure is the ledger's total of every agent, closed ones
   // included; a listed row shows its own.
   const exact = islandUsageSummary(
-    { ...lead, agents: ledgerUsage(80, { costUsd: 0.4 }), sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) } },
+    {
+      ...lead,
+      agents: ledgerUsage(80, { cacheRead: 20, costUsd: 0.4 }),
+      sessions: { x: ledgerUsage(50, { costUsd: 0.2 }) },
+    },
     ['x']
   );
-  assert.equal(exact.totalTokens, 180);
-  assert.equal(exact.leadTokens, 100);
+  // The Lead's 100 tokens, its cache reads and its cost are its own readout's.
   assert.equal(exact.agentTokens, 80);
-  assert.equal(exact.cacheHitRate, 50 / 180);
-  assert.ok(Math.abs(exact.costUsd - 0.5) < 1e-9);
+  assert.equal(exact.cacheHitRate, 20 / 80);
+  assert.equal(exact.costUsd, 0.4);
   assert.deepEqual([...exact.agentRowTokens], [['x', 50]]);
-  // No agents: the Lead alone is the session.
-  assert.equal(islandUsageSummary({ ...lead, agents: { ...ledgerUsage(0), turns: 0 } }, []).totalTokens, 100);
-  // Without an agents total nothing is combined.
-  assert.equal(islandUsageSummary(lead, []).totalTokens, null);
-  // An unmeasured Lead turn makes the Lead's and the combined figures floors; a cost of nothing measured is none.
+  // No agents: nothing used, exactly.
+  assert.equal(islandUsageSummary({ ...lead, agents: { ...ledgerUsage(0), turns: 0 } }, []).agentTokens, 0);
+  // Without an agents total there is no figure.
+  assert.equal(islandUsageSummary(lead, []).agentTokens, null);
+  // An unmeasured Lead turn leaves the agents' figures exact.
   const noLead = islandUsageSummary({ ...ledgerUsage(100, { unmeasured: 1 }), agents: ledgerUsage(50) }, []);
-  assert.deepEqual(
-    [noLead.totalTokens, noLead.leadTokens, noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd],
-    [150, 100, 50, 0, null]
-  );
-  assert.deepEqual([noLead.leadFloor, noLead.agentsFloor], [true, false]);
+  assert.deepEqual([noLead.agentTokens, noLead.cacheHitRate, noLead.costUsd, noLead.agentsFloor], [50, 0, 0, false]);
   // A session with no turns at all has no cost to show.
   const idle = { ...ledgerUsage(0), turns: 0, costKnownTurns: 0 };
   assert.equal(islandUsageSummary({ ...idle, agents: idle }, []).costUsd, null);
-  assert.equal(islandUsageSummary(null, []).totalTokens, null);
+  assert.equal(islandUsageSummary(null, []).agentTokens, null);
 });
 
 /** The app's @property registrations (font-faces.css): --island-slot-height
@@ -1683,7 +1743,7 @@ for (const width of [900, 412, 360, 300]) {
   });
 }
 
-test("the overlay bot pinned above the message box takes its width from the island's room: compact where it was full", async (t) => {
+test("the overlay bot pinned above the message box takes its width from the island's room: labels give way where they were full", async (t) => {
   const page = await realPage(
     t,
     `
@@ -1719,43 +1779,44 @@ test("the overlay bot pinned above the message box takes its width from the isla
         if (width !== undefined) window.__reserve(width, inRegion);
         const island = document.querySelector('.composer-island');
         return {
-          compact: island.hasAttribute('data-compact'),
+          gaveWay: island.getAttribute('data-fit') !== '',
           room: island.parentElement.clientWidth,
-          pill: island.querySelector('.composer-island-pill').offsetWidth,
+          // The whole pixels the pill spans (its width is fractional).
+          pill: Math.ceil(island.querySelector('.composer-island-pill').getBoundingClientRect().width),
         };
       },
       reserve,
       here
     );
   const full = await state();
-  assert.equal(full.compact, false, `full labels in the room: ${JSON.stringify(full)}`);
+  assert.equal(full.gaveWay, false, `full labels in the room: ${JSON.stringify(full)}`);
   // The pill is centred: it clears the bot while room - 2 x reserve still holds it.
   const slack = full.room - full.pill;
   assert.ok(slack > 2, JSON.stringify(full));
-  assert.equal((await state(Math.floor(slack / 2))).compact, false, 'clears the bot: full');
+  assert.equal((await state(Math.floor(slack / 2))).gaveWay, false, 'clears the bot: full');
   const pinned = await state(Math.floor(slack / 2) + 1);
-  assert.equal(pinned.compact, true, 'would run under the bot: compact');
+  assert.equal(pinned.gaveWay, true, 'would run under the bot: a label gives way');
   assert.ok(pinned.pill < full.pill);
   assert.equal(pinned.room, full.room, 'the room itself is unchanged');
-  assert.equal((await state(Math.floor(slack / 2) + 1, false)).compact, false, "another pane's bot: full");
-  assert.equal((await state(Math.floor(slack / 2) + 1)).compact, true);
-  assert.equal((await state(0)).compact, false, 'unpinned (0): full again');
+  assert.equal((await state(Math.floor(slack / 2) + 1, false)).gaveWay, false, "another pane's bot: full");
+  assert.equal((await state(Math.floor(slack / 2) + 1)).gaveWay, true);
+  assert.equal((await state(0)).gaveWay, false, 'unpinned (0): full again');
   // Room for the full pill beside Mixy at 100% (main's reserve: its art from
   // column 1, 52.5px, + the 2px inset + 4px = 59 a side): a room 2 x 59 wider
-  // than the pill keeps it full, where the whole sprite box (66) went compact.
+  // than the pill keeps it full, where the whole sprite box (66) gave way.
   await page.setViewport({ width: full.pill + 2 * 59, height: 800 });
   await fitted(page);
   const beside = await state(59);
   assert.equal(beside.room, full.pill + 2 * 59, JSON.stringify(beside));
-  assert.equal(beside.compact, false, `full beside the bot's art: ${JSON.stringify(beside)}`);
-  assert.equal((await state(66)).compact, true, 'the whole sprite box would not fit');
-  // A pill one px wider each side would reach the art's clearance: compact.
+  assert.equal(beside.gaveWay, false, `full beside the bot's art: ${JSON.stringify(beside)}`);
+  assert.equal((await state(66)).gaveWay, true, 'the whole sprite box would not fit');
+  // A pill one px wider each side would reach the art's clearance: it gives way.
   await page.setViewport({ width: full.pill + 2 * 59 - 2, height: 800 });
   await fitted(page);
-  assert.equal((await state(59)).compact, true, 'would reach the visible art');
+  assert.equal((await state(59)).gaveWay, true, 'would reach the visible art');
 });
 
-test('labels that change beside an open side panel still go compact under the pinned bot once it closes', async (t) => {
+test('labels that change beside an open side panel still give way under the pinned bot once it closes', async (t) => {
   const page = await realPage(
     t,
     `
@@ -1795,8 +1856,8 @@ test('labels that change beside an open side panel still go compact under the pi
     page.evaluate(() => {
       const island = document.querySelector('.composer-island');
       return {
-        compact: island.hasAttribute('data-compact'),
-        glyph: island.hasAttribute('data-fit-glyph'),
+        gaveWay: island.getAttribute('data-fit') !== '',
+        glyph: !island.querySelector('.composer-island-seg-branch .composer-island-seg-text').getClientRects().length,
         room: island.parentElement.clientWidth,
         pill: island.querySelector('.composer-island-pill').offsetWidth,
       };
@@ -1804,15 +1865,15 @@ test('labels that change beside an open side panel still go compact under the pi
   await page.evaluate(() => window.__render(12));
   await fitted(page);
   const full = await state();
-  assert.equal(full.compact, false, `full labels in the room: ${JSON.stringify(full)}`);
+  assert.equal(full.gaveWay, false, `full labels in the room: ${JSON.stringify(full)}`);
   const reserve = 40;
   await page.evaluate((width) => window.__reserve(width), reserve);
-  // A side panel opens: the room is so narrow that even the compact pill
-  // gives way (the worktree name down to its glyph).
+  // A side panel opens: the room is so narrow that even the bare counts
+  // give way (the worktree name down to its glyph).
   await page.setViewport({ width: 140, height: 800 });
   await settle();
   const narrow = await state();
-  assert.ok(narrow.compact && narrow.glyph, JSON.stringify(narrow));
+  assert.ok(narrow.gaveWay && narrow.glyph, JSON.stringify(narrow));
   // A count changes meanwhile (labels never laid out before: read, not reused).
   await page.evaluate(() => window.__render(13));
   await settle();
@@ -1822,12 +1883,12 @@ test('labels that change beside an open side panel still go compact under the pi
   await settle();
   const wide = await state();
   assert.equal(wide.room, room, JSON.stringify(wide));
-  assert.equal(wide.compact, true, `would run under the bot: ${JSON.stringify(wide)}`);
+  assert.equal(wide.gaveWay, true, `would run under the bot: ${JSON.stringify(wide)}`);
   assert.ok(wide.pill <= room - 2 * reserve, JSON.stringify(wide));
   // A room that clears the bot takes the full labels back.
   await page.setViewport({ width: 900, height: 800 });
   await settle();
-  assert.equal((await state()).compact, false);
+  assert.equal((await state()).gaveWay, false);
 });
 
 /** ComposerDock on a real page: a New Task draft (context bar) or a session. */
@@ -2559,22 +2620,26 @@ test('the worktree menu is an island tab with search, branches and the Merge and
   assert.deepEqual(
     [...menu().querySelectorAll('[data-action-id]')].map((node) => [
       node.textContent,
+      node.getAttribute('aria-label'),
+      node.title,
       Boolean(node.querySelector('svg')),
     ]),
     [
-      ['Merge into main', true],
-      ['Remove worktree', true],
-    ]
+      ['Merge', 'Merge into main', 'Merge into main', true],
+      ['Remove', 'Remove worktree', 'Remove worktree', true],
+    ],
+    'a short word on the button, the full wording and the target in its tooltip and name'
   );
   assert.equal(item('remove').getAttribute('data-danger'), 'true');
   assert.deepEqual(
     [...menu().querySelectorAll('[data-kind="branch"]')].map((row) => [
       row.querySelector('span').textContent,
       row.querySelector('small')?.textContent ?? '',
+      Boolean(row.querySelector('.branch-menu-check')),
     ]),
     [
-      ['mixdog/fix-login', 'Current'],
-      ['main', 'Project folder'],
+      ['mixdog/fix-login', '', true],
+      ['main', '', false],
     ]
   );
   assert.equal(menu().querySelector('[data-kind="worktree"], [data-kind="create"]'), null);
@@ -2717,7 +2782,7 @@ test('a worktree on an existing branch (no merge target of its own) merges into 
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const merge = menu().querySelector('[data-action-id="merge"]');
   assert.ok(merge, 'Merge is offered');
-  assert.equal(merge.textContent, 'Merge into trunk');
+  assert.equal(merge.getAttribute('aria-label'), 'Merge into trunk');
   await act(async () => merge.click());
   const popup = document.querySelector('.settings-confirm-dialog');
   assert.equal(popup.querySelector('h3').textContent, 'Merge dev into trunk?');
@@ -2860,10 +2925,9 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
   assert.deepEqual(
     rows.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
     [
-      ['main', 'Current'],
+      ['main', ''],
       ['pr-67', ''],
-      // An unmanaged worktree's branch shows where it is checked out.
-      ['ext', '/elsewhere'],
+      ['ext', ''],
     ]
   );
   assert.deepEqual(
@@ -3173,7 +3237,7 @@ async function mountBranchTab(t) {
   };
 }
 
-test('the branch tab lives in the island: search, branches with ✓ and Current, footer actions', async (t) => {
+test('the branch tab lives in the island: search, branches with ✓, footer actions', async (t) => {
   const { document, island, panel, open } = await mountBranchTab(t);
   // No floating popup anywhere: the menu lives in the island.
   await open();
@@ -3187,9 +3251,8 @@ test('the branch tab lives in the island: search, branches with ✓ and Current,
   assert.equal(panel().querySelector('.branch-menu-list [data-kind="worktree"]'), null, 'no "Worktree" row');
   assert.equal(panel().querySelector('.composer-island-panel-foot [data-kind="worktree"]').textContent, 'New worktree');
   assert.ok(panel().querySelector('[data-branch="main"] .branch-menu-check'), '✓ on the current branch');
-  assert.equal(panel().querySelector('[data-branch="main"] small').textContent, 'Current', 'beside the check');
   assert.equal(panel().querySelectorAll('.branch-menu-check').length, 1);
-  assert.equal(panel().querySelector('[data-branch="ext"] small').textContent, '/elsewhere');
+  assert.equal(panel().querySelector('[data-branch="ext"]').title, 'Checked out in an unmanaged worktree: /elsewhere');
   assert.equal(panel().querySelector('[data-branch="ext"]').getAttribute('aria-disabled'), 'true');
   const prune = panel().querySelector('.composer-island-panel-foot-end [data-kind="prune"]');
   assert.ok(prune, 'Clean up worktrees in the footer');
@@ -3245,7 +3308,7 @@ test('a press inside the branch tab keeps it; a branch row switches and the tab 
   assert.equal(panel(), null);
 });
 
-test('an in-use branch row reads Worktree, carries no explanatory tooltip and shares its folder', async (t) => {
+test('an in-use branch row sits under Worktrees, names its holder even before its title loads, and shares its folder', async (t) => {
   const { root, document, window } = mount(t);
   const base = worktreeMenu();
   const menuWithHolder = {
@@ -3260,8 +3323,10 @@ test('an in-use branch row reads Worktree, carries no explanatory tooltip and sh
   await act(async () => document.querySelector('.composer-island-seg-worktree').click());
   await tick();
   const row = document.querySelector('.composer-island-branch-panel [data-branch="held"]');
-  assert.equal(row.querySelector('small').textContent, 'Worktree');
+  assert.equal(row.closest('.branch-row-shell').previousElementSibling?.textContent, 'Worktrees');
   assert.equal(row.dataset.tooltip, undefined);
+  assert.equal(row.title, 'Another session', 'a holder whose title is not loaded is still named');
+  assert.ok(row.querySelector('svg[class*="lucide-folder-git"]'));
 });
 test('first frame: a snapshot workspace paints the branch segment at once and the menu is not read until used', async (t) => {
   const { root, document, window } = mount(t);
@@ -3573,10 +3638,6 @@ test('the git button opens the Git tab; each row runs its own action and nothing
       [translate('Run'), `${translate('Run')}: ${translate('Commit')}`],
     ]
   );
-  assert.equal(
-    panel().querySelector('.composer-island-git-foot button').textContent,
-    translate('Island: Source Control')
-  );
   // Clicking the button again closes the tab without sending.
   await act(async () => gitMain(document).click());
   assert.equal(panel(), null);
@@ -3768,7 +3829,7 @@ for (const width of [1100, 560, 480]) {
 }
 
 for (const width of [440, 480]) {
-  test(`a switched-to island's first committed state is the compact fit of the island it replaced (${width}px)`, async (t) => {
+  test(`a switched-to island's first committed state is the fit of the island it replaced (${width}px)`, async (t) => {
     const page = await petSwitchPage(t);
     await page.setViewport({ width, height: 800 });
     const result = await page.evaluate(async () => {
@@ -3780,7 +3841,7 @@ for (const width of [440, 480]) {
           return rect ? [Math.round(rect.left), Math.round(rect.width)] : null;
         };
         return {
-          compact: island.hasAttribute('data-compact'),
+          gaveWay: island.getAttribute('data-fit') !== '',
           width: Math.round(island.getBoundingClientRect().width),
           branch: box('.composer-island-seg-branch'),
           agents: box('.composer-island-seg-agents'),
@@ -3796,7 +3857,7 @@ for (const width of [440, 480]) {
       for (let i = 0; i < 30; i += 1) await window.__frame();
       return { before, committed, settled: state() };
     });
-    assert.equal(result.before.compact, true, 'the width compacts the island');
+    assert.equal(result.before.gaveWay, true, 'the width takes labels off the island');
     assert.deepEqual(result.committed, result.before, 'the first committed state is the replaced island’s fit');
     assert.deepEqual(result.settled.branch, result.before.branch);
     assert.deepEqual(result.settled.agents, result.before.agents);
@@ -3819,15 +3880,15 @@ function fitStabilityPage(t) {
             root.render(
               h(ComposerIsland, {
                 sessionId: 'fit-stability',
-                files: h('button', { type: 'button', className: 'composer-island-seg' },
+                files: h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
                   h(IslandSegLabel, { text: count + ' changed files in this session', count, icon: 'file-diff' })),
               })
             )
           );
         window.__toggles = 0;
         window.__watch = () => new MutationObserver((records) => { window.__toggles += records.length; })
-          .observe(document.querySelector('.composer-island'), { attributes: true, attributeFilter: ['data-compact'] });
-        window.__compact = () => document.querySelector('.composer-island').hasAttribute('data-compact');
+          .observe(document.querySelector('.composer-island'), { attributes: true, attributeFilter: ['data-fit'] });
+        window.__compact = () => document.querySelector('.composer-island').getAttribute('data-fit') !== '';
         window.__needed = () => document.querySelector('.composer-island-pill').offsetWidth;
       `
   );
@@ -3854,10 +3915,10 @@ test('the fit holds its form near the threshold: updates never flip it, and it e
   await resizeTo(needed + 10);
   assert.equal(await page.evaluate(() => window.__compact()), false, 'the full labels fit');
   await resizeTo(needed - 10);
-  assert.equal(await page.evaluate(() => window.__compact()), true, 'they overflow: compact');
+  assert.equal(await page.evaluate(() => window.__compact()), true, 'they overflow: the words give way');
   // Just wide enough for the full labels again, but without room to spare.
   await resizeTo(needed + 10);
-  assert.equal(await page.evaluate(() => window.__compact()), true, 'no clear room: stays compact');
+  assert.equal(await page.evaluate(() => window.__compact()), true, 'no clear room: they stay off');
   const toggles = await page.evaluate(() => window.__toggles);
   // Updates at the threshold, a digit wider and back, and re-renders of the same content.
   for (const count of [10, 9, 10, 10, 9, 9, 10]) {
@@ -3869,4 +3930,267 @@ test('the fit holds its form near the threshold: updates never flip it, and it e
   await resizeTo(needed + 60);
   assert.equal(await page.evaluate(() => window.__compact()), false, 'clear room expands it');
   assert.equal(await page.evaluate(() => window.__toggles), toggles + 1, 'once');
+});
+
+/** Every segment the pill carries (a Goal with its elapsed time, agents,
+ *  shells, a worktree branch, files with line counts, the git action) on one
+ *  page the cases below share; reduced motion, so nothing glides. */
+let fullPill;
+function fullPillPage() {
+  fullPill ??= (async () => {
+    const page = await realPage(
+      // The page closes with the shared browser.
+      { after() {} },
+      `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
+        import { defaultSessionLaneStore } from './session-lane-store.ts';
+        const rows = Array.from({ length: 13 }, (_, index) => ({
+          tag: 'agent-' + index, agent: 'worker', ownerSessionId: 'full',
+          stage: index < 2 ? 'running' : 'done', status: index < 2 ? 'running' : 'done', startedAt: Date.now() - 5000,
+        }));
+        window.mixdogDesktop = new Proxy({
+          sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: rows }] }), subscribe: () => () => {} },
+        }, { get: (target, name) => (name in target ? target[name] : String(name).startsWith('subscribe') ? () => () => {} : async () => []) });
+        window.__shells = (count) => defaultSessionLaneStore.apply({ sessionId: 'full', snapshot: { sessionId: 'full', shellJobs: { count,
+          jobs: Array.from({ length: count }, (_, i) => ({ taskId: 'job-' + i, command: 'npm test ' + i, startedAt: Date.now() })) } } });
+        window.__shells(1);
+        const h = React.createElement;
+        const glyph = () => h('svg', { className: 'composer-island-seg-icon', width: 14, height: 14 });
+        const root = createRoot(document.getElementById('root'));
+        window.__render = ({ all = true, approval = false } = {}) =>
+          flushSync(() =>
+            root.render(
+              h(ComposerIsland, {
+                sessionId: 'full',
+                goal: all ? h('div', { className: 'session-goal-island', 'data-state': 'running' },
+                  h('button', { type: 'button', className: 'session-goal-trigger' },
+                    h('svg', { className: 'session-goal-ring', width: 16, height: 16 }),
+                    h('span', { className: 'session-goal-meta' },
+                      h('span', { className: 'session-goal-progress' }, '1/5'),
+                      h('span', { className: 'session-goal-trigger-time' }, '1h 4m')))) : null,
+                branch: all ? () => h('button', { type: 'button', className: 'composer-island-seg composer-island-seg-branch' }, glyph(),
+                  h('span', { className: 'composer-island-seg-text' },
+                    h('span', { className: 'composer-island-seg-label' }, h('span', { className: 'composer-island-seg-prefix' }, 'feature/'), 'island-fits-every-room')),
+                  h('span', { className: 'composer-island-seg-sub' }, 'main')) : undefined,
+                files: all ? h('button', { type: 'button', className: 'composer-island-seg turn-review-segment' },
+                  h(IslandSegLabel, { text: '1041 files', count: 1041, icon: 'file-diff' }),
+                  h('span', { className: 'diff-stats' }, h('i', null, '+76424'), ' ', h('em', null, '-13245'))) : null,
+                git: all ? h('span', { className: 'composer-island-seg composer-island-git' },
+                  h('button', { type: 'button', className: 'composer-island-git-main' }, glyph(), h('span', null, 'Git'))) : null,
+                approval: approval ? h('div', { className: 'approval-prompt' }, 'Allow npm test?') : undefined,
+              })
+            )
+          );
+        // Sets the island's room and resolves once the island has fitted it.
+        window.__room = (width) =>
+          new Promise((resolve) => {
+            document.getElementById('root').style.width = width + 'px';
+            const observer = new ResizeObserver(() => {
+              observer.disconnect();
+              resolve();
+            });
+            observer.observe(document.querySelector('.composer-island').parentElement);
+          });
+      `,
+      readFileSync(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8') +
+        readFileSync(new URL('./session-rail.css', import.meta.url), 'utf8')
+    );
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.setViewport({ width: 1200, height: 800 });
+    return page;
+  })();
+  return fullPill;
+}
+
+/** The pill's labels, least needed first. */
+const PILL_LABELS = [
+  ['Git', '.composer-island-git-main > span'],
+  ['files word', '.turn-review-segment .composer-island-seg-word'],
+  ['line counts', '.turn-review-segment .diff-stats'],
+  ['shell word', '.composer-island-seg-shell .composer-island-seg-word'],
+  ['agents word', '.composer-island-seg-agents .composer-island-seg-word'],
+  ['Goal time', '.session-goal-trigger-time'],
+  ['branch prefix', '.composer-island-seg-branch .composer-island-seg-prefix'],
+  ['branch name', '.composer-island-seg-branch .composer-island-seg-text'],
+];
+
+test('the pill gives way one label at a time, least needed first, and takes them back in reverse', async () => {
+  const page = await fullPillPage();
+  const sweep = await page.evaluate(async (labels) => {
+    window.__render();
+    const figures = [
+      '.session-goal-ring',
+      '.session-goal-progress',
+      ...['.composer-island-seg-agents', '.composer-island-seg-shell', '.turn-review-segment'].map(
+        (segment) => `${segment} :is(.composer-island-seg-word, .composer-island-seg-num)`
+      ),
+      '.composer-island-seg-agents .composer-island-mark-slot',
+      '.composer-island-seg-shell .composer-island-mark-slot',
+    ];
+    const island = document.querySelector('.composer-island');
+    const pill = island.querySelector('.composer-island-pill');
+    const name = island.querySelector('.composer-island-seg-branch .composer-island-seg-text');
+    const shown = (selector) => [...island.querySelectorAll(selector)].some((node) => node.getClientRects().length > 0);
+    const widths = [];
+    for (let width = 1160; width >= 200; width -= 10) widths.push(width);
+    const samples = [];
+    for (const width of [...widths, ...widths.slice(0, -1).reverse()]) {
+      await window.__room(width);
+      samples.push({
+        room: island.parentElement.clientWidth,
+        form: island.getAttribute('data-fit'),
+        pill: pill.getBoundingClientRect().width,
+        overflow: pill.scrollWidth > pill.clientWidth || island.getBoundingClientRect().width > width,
+        labels: labels.filter(([, selector]) => shown(selector)).map(([name]) => name),
+        figures: figures.every(shown),
+        nameCut: name.scrollWidth > name.clientWidth,
+      });
+    }
+    return { down: samples.slice(0, widths.length), up: samples.slice(widths.length - 1) };
+  }, PILL_LABELS);
+  const names = PILL_LABELS.map(([name]) => name);
+  // Each change of form, with the labels it took off or brought back.
+  const changes = (samples) =>
+    samples.slice(1).flatMap((sample, index) => {
+      const before = samples[index];
+      if (sample.form === before.form) return [];
+      return [
+        {
+          from: before,
+          to: sample,
+          off: before.labels.filter((name) => !sample.labels.includes(name)),
+          on: sample.labels.filter((name) => !before.labels.includes(name)),
+        },
+      ];
+    });
+  const down = changes(sweep.down);
+  const last = down.at(-1).to.form;
+  assert.deepEqual(sweep.down[0].labels, names, 'every label shows with room');
+  // One label per step in the order given, then the segments' spacing tightens.
+  assert.deepEqual(
+    down.map((change) => change.off),
+    [...names.map((name) => [name]), []],
+    JSON.stringify(down.map((change) => [change.to.room, change.off]))
+  );
+  assert.ok(down.every((change) => change.on.length === 0));
+  assert.ok(down.at(-1).to.pill < down.at(-1).from.pill, 'the last step narrows the pill');
+  // The fullest form at each width: the form one step fuller is wider than the
+  // room wherever it gave way (its width read where it rested unsqueezed).
+  const natural = new Map();
+  for (const sample of sweep.down) if (sample.pill < sample.room - 0.5) natural.set(sample.form, sample.pill);
+  for (const change of down.slice(0, names.indexOf('branch prefix') + 1)) {
+    const fuller = natural.get(change.from.form);
+    for (const sample of sweep.down.filter((each) => each.form === change.to.form)) {
+      assert.ok(fuller > sample.room, `the fuller form (${fuller}px) fits ${sample.room}px`);
+    }
+  }
+  const up = changes(sweep.up);
+  assert.deepEqual(
+    up.map((change) => change.on),
+    [[], ...names.map((name) => [name]).reverse()],
+    JSON.stringify(up.map((change) => [change.to.room, change.on]))
+  );
+  assert.ok(up.every((change) => change.off.length === 0));
+  for (const sample of [...sweep.down, ...sweep.up]) {
+    assert.ok(sample.figures, `a count or mark gave way at ${sample.room}px`);
+    // Only the capped name squeezes toward its glyph: the full name is never cut.
+    if (sample.labels.includes('branch prefix')) assert.equal(sample.nameCut, false, `name cut at ${sample.room}px`);
+    if (sample.form !== last) assert.equal(sample.overflow, false, `overflows at ${sample.room}px`);
+  }
+});
+
+test('an opened panel is as wide as the pill at rest, between its floor and the approval card, and holds while open', async () => {
+  const page = await fullPillPage();
+  const open = (room, all) =>
+    page.evaluate(
+      async (width, every) => {
+        window.__render({ all: every });
+        await window.__room(width);
+        // The pill's refitted width lands in the frame's next resize delivery.
+        await window.__frame();
+        const rest = document.querySelector('.composer-island').getBoundingClientRect().width;
+        document.querySelector('.composer-island-seg-shell').click();
+        await window.__frame();
+        const panel = () => document.querySelector('.composer-island-panel').getBoundingClientRect().width;
+        const opened = panel();
+        // Rows arrive while it is open.
+        window.__shells(3);
+        await window.__frame();
+        const grown = { width: panel(), rows: document.querySelectorAll('.composer-island-row').length };
+        document.querySelector('.composer-island-close').click();
+        window.__shells(1);
+        await window.__frame();
+        return { rest, opened, grown };
+      },
+      room,
+      all
+    );
+  const between = await open(600, true);
+  assert.ok(between.rest > 440 && between.rest < 680, JSON.stringify(between));
+  assert.ok(Math.abs(between.opened - between.rest) < 0.5, `takes the pill's width: ${JSON.stringify(between)}`);
+  assert.equal(between.grown.rows, 3);
+  assert.equal(between.grown.width, between.opened, 'holds its width as rows arrive');
+  const wide = await open(1200, true);
+  assert.ok(wide.rest > 680, JSON.stringify(wide));
+  assert.equal(wide.opened, 680, 'no wider than the ceiling');
+  const narrow = await open(1200, false);
+  assert.ok(narrow.rest < 440, JSON.stringify(narrow));
+  assert.equal(narrow.opened, 440, "never narrower than every panel's content needs");
+  assert.equal(narrow.grown.width, narrow.opened);
+  // A phone held sideways or a tablet on the mobile layout.
+  await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
+  const mobile = await open(1200, true);
+  await page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
+  assert.equal(mobile.opened, 560, 'the mobile layout keeps its panel width');
+});
+
+test('smaller text with the same content brings back the labels the room now holds', async () => {
+  const page = await fullPillPage();
+  const shown = await page.evaluate(async (labels) => {
+    window.__render();
+    await window.__room(1160);
+    await window.__frame();
+    // Room for the full pill and the margin a form needs to come back.
+    const full = document.querySelector('.composer-island-pill').getBoundingClientRect().width;
+    await window.__room(Math.ceil(full) + 30);
+    const read = () =>
+      labels.filter(([, selector]) =>
+        [...document.querySelectorAll(selector)].some((node) => node.getClientRects().length > 0)
+      ).length;
+    const settle = async () => {
+      await window.__frame();
+      await window.__frame();
+    };
+    document.documentElement.style.fontSize = '20px';
+    await settle();
+    const large = read();
+    document.documentElement.style.fontSize = '';
+    await settle();
+    return { large, small: read() };
+  }, PILL_LABELS);
+  assert.ok(shown.large < PILL_LABELS.length, `the larger text gives way: ${JSON.stringify(shown)}`);
+  assert.equal(shown.small, PILL_LABELS.length, 'every label is back at the smaller size');
+});
+
+test("the approval card keeps its width whatever the pill's, and the session panel's branch popup its host's", async () => {
+  const page = await fullPillPage();
+  const widths = await page.evaluate(async () => {
+    window.__render({ all: false });
+    await window.__room(1200);
+    window.__render({ all: false, approval: true });
+    await window.__frame();
+    const card = document.querySelector('.composer-island-approval').getBoundingClientRect().width;
+    window.__render();
+    const host = document.body.appendChild(document.createElement('div'));
+    host.className = 'branch-tab-host';
+    host.style.width = '300px';
+    host.innerHTML = '<section class="composer-island-panel"></section>';
+    const popup = host.firstElementChild.getBoundingClientRect().width;
+    host.remove();
+    return { card, popup };
+  });
+  assert.deepEqual(widths, { card: 560, popup: 300 });
 });

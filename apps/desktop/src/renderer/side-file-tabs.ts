@@ -34,13 +34,15 @@ export function sideFileKey(target: SideFileRef): string {
   return navigationKey({ kind: 'file', project: target.project, rel: target.rel, accessToken: target.accessToken });
 }
 
-/** Dirty/save-handle key of one tab in one pane. */
-export function sideFileTabDirtyKey(leafId: string, fileKey: string): string {
-  return `side-file:${leafId}:${fileKey}`;
+/** Dirty/save-handle key of a side-dock file tab. A file has one side editor
+ *  across every dock (side-file-guard), so the key follows the file, not the
+ *  pane: its editor keeps it when its tab moves to another pane. */
+export function sideFileTabDirtyKey(fileKey: string): string {
+  return `side-file:${fileKey}`;
 }
 
-export function sideFileDirtyKey(leafId: string, target: SideFileRef): string {
-  return sideFileTabDirtyKey(leafId, sideFileKey(target));
+export function sideFileDirtyKey(target: SideFileRef): string {
+  return sideFileTabDirtyKey(sideFileKey(target));
 }
 
 export interface SideFileTabs {

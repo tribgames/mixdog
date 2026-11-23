@@ -171,8 +171,17 @@
   --composer-island-edge: inset 0 0 0 0.5px var(--mx-border), var(--mx-raised);
   --composer-island-wash: var(--mx-hover);
   --composer-island-rule: var(--mx-border-muted);
-  /* Every panel's width and the one inset its header, list and footer share. */
-  --island-panel-width: 560px;
+  /* A panel opens as wide as the pill at rest (--island-rest-width, set on
+     the stage by useIslandFit) between a floor that holds every panel's
+     header, footer and rows in every locale and the Goal drawer's sentence
+     width; the one inset its header, list and footer share. */
+  --island-panel-min: 440px;
+  --island-panel-max: 680px;
+  --island-panel-width: clamp(
+    var(--island-panel-min),
+    var(--island-rest-width, var(--island-panel-max)),
+    var(--island-panel-max)
+  );
   --island-panel-inset: 14px;
   position: relative;
   z-index: 1;
@@ -432,10 +441,13 @@
   gap: 6px;
   padding: 0 10px;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-git-main > span {
+.composer-island:is([data-fit~="git-word"]:where(:not([data-measuring])), [data-measuring~="git-word"])
+  .composer-island-git-main
+  > span {
   display: none;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-git-main {
+.composer-island:is([data-fit~="git-word"]:where(:not([data-measuring])), [data-measuring~="git-word"])
+  .composer-island-git-main {
   padding: 0 8px;
 }
 /* The branch and git tabs expand the island upward in place, like the files
@@ -469,10 +481,9 @@
   align-items: center;
   gap: 8px;
   padding: 4px 6px 4px 0;
-  border-radius: var(--mx-radius-md);
-}
-.composer-island-git-row + .composer-island-git-row {
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  /* The left sidebar's row wash: its radius and its ink step. */
+  border-radius: var(--mx-radius-lg);
+  transition: background-color var(--mx-motion-ink);
 }
 .composer-island-git-row:hover {
   background: var(--composer-island-wash);
@@ -486,7 +497,7 @@
   gap: 10px;
   padding: 0 6px;
   color: var(--mx-text);
-  font-weight: 500;
+  font-weight: var(--mx-weight-regular);
 }
 .composer-island-git-label > svg {
   flex: none;
@@ -504,21 +515,10 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12.5px;
+  font-size: var(--mx-font-meta);
 }
 .composer-island-git-run > svg {
   flex: none;
-}
-.composer-island-git-foot {
-  justify-content: flex-start;
-  margin-top: 4px;
-  padding-top: 10px;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
-}
-.composer-island-git-foot > .composer-island-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 /* Only text that can ellipsize gives way on a narrow island: the Goal while
    it still shows its title. Counts never shrink. */
@@ -592,9 +592,12 @@
 }
 /* Count segments (agents, shells, files) lead with their glyph at every
    width, the same 14px/1.6 stroke as the Goal state icon; a narrow island
-   swaps the words for the bare count. */
+   swaps their words for the bare count (the segment sets both below). */
+.composer-island-seg-word {
+  display: var(--island-seg-word, inline);
+}
 .composer-island-seg-num {
-  display: none;
+  display: var(--island-seg-count, none);
 }
 .composer-island-seg-num::before {
   content: attr(data-count);
@@ -604,33 +607,35 @@
   flex: none;
   color: var(--mx-text-muted);
 }
-/* The fit check (ComposerIsland's useIslandFit) reads the pill at its
-   full-label width; only when that overflows the island's room does
-   data-compact swap the words for bare counts. */
+/* The pill's labels give way one step at a time (useIslandFit): data-fit
+   lists the steps taken, in its order (git-word, files-word, files-lines,
+   shell-word, agents-word, goal-time, branch-cap, branch-glyph, tight). A
+   fit reads a form under data-measuring instead, which names that form's
+   steps and lays the pill out at its natural width over the form shown. */
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
 }
-.composer-island[data-compact]:where(:not([data-measuring]))
-  :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
-  display: none;
-}
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-num {
-  display: inline-block;
-}
-.composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg, .session-goal-trigger) {
+/* A count segment whose words gave way: its glyph and bare count, closer. */
+.composer-island:is([data-fit~="agents-word"]:where(:not([data-measuring])), [data-measuring~="agents-word"])
+  .composer-island-seg-agents,
+.composer-island:is([data-fit~="shell-word"]:where(:not([data-measuring])), [data-measuring~="shell-word"])
+  .composer-island-seg-shell,
+.composer-island:is([data-fit~="files-word"]:where(:not([data-measuring])), [data-measuring~="files-word"])
+  .turn-review-segment {
+  --island-seg-word: none;
+  --island-seg-count: inline-block;
   gap: 5px;
   padding-inline: 8px;
 }
-/* The git segment's spacing lives on its buttons, never its container. */
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg.composer-island-git {
-  gap: 0;
-  padding-inline: 0;
+.composer-island:is([data-fit~="files-lines"]:where(:not([data-measuring])), [data-measuring~="files-lines"])
+  .composer-island-seg.turn-review-segment
+  .diff-stats {
+  display: none;
 }
 /* The branch segment (BranchIslandSegment) is the one whose text gives way
-   on a narrow island. Compact shows the short name at once (no branch
-   prefix, no base, capped), so long and short names keep one width; after
-   that useIslandFit drops the Goal's pips for a squeezed name, and below a
-   readable width keeps the glyph alone. */
+   by width: capped, it shows the short name (no branch prefix, no base), so
+   long and short names keep one width and may still squeeze to a readable
+   width; past that only its glyph stays. */
 .composer-island-pill > .composer-island-seg.composer-island-seg-branch {
   flex-shrink: 1;
 }
@@ -644,21 +649,32 @@
   flex: none;
   color: var(--mx-accent);
 }
-.composer-island[data-compact]:where(:not([data-measuring]))
+.composer-island:is([data-fit~="branch-cap"]:where(:not([data-measuring])), [data-measuring~="branch-cap"])
+  .composer-island-seg-branch {
+  gap: 5px;
+  padding-inline: 8px;
+}
+.composer-island:is([data-fit~="branch-cap"]:where(:not([data-measuring])), [data-measuring~="branch-cap"])
   .composer-island-seg-branch
   :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
   display: none;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch .composer-island-seg-text {
+.composer-island:is([data-fit~="branch-cap"]:where(:not([data-measuring])), [data-measuring~="branch-cap"])
+  .composer-island-seg-branch
+  .composer-island-seg-text {
   max-width: 104px;
 }
-/* Still overflowing once compact (useIslandFit): every segment tightens. */
-.composer-island[data-fit-tight] :is(.composer-island-seg, .session-goal-trigger) {
+.composer-island:is([data-fit~="branch-glyph"]:where(:not([data-measuring])), [data-measuring~="branch-glyph"])
+  .composer-island-seg-branch
+  .composer-island-seg-text {
+  display: none;
+}
+/* The last step: every segment tightens (the git segment's spacing lives on
+   its buttons, never its container). */
+.composer-island:is([data-fit~="tight"]:where(:not([data-measuring])), [data-measuring~="tight"])
+  :is(.composer-island-seg:not(.composer-island-git), .session-goal-trigger) {
   gap: 4px;
   padding-inline: 6px;
-}
-.composer-island[data-fit-glyph] .composer-island-seg-branch .composer-island-seg-text {
-  display: none;
 }
 /* The files menu: every changed file in one scrolling list (dir muted, name,
    +/− counts), with Delete history and View changes fixed below. */
@@ -685,18 +701,25 @@
   gap: 10px;
   padding: 3px 8px;
   border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
+  /* The left sidebar's rows: their radius, title ink at rest and active
+     pointed at, the neutral inner line for keyboard focus. */
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-row-title-ink);
   background: transparent;
   font: inherit;
   font-size: var(--mx-font-minor);
   text-align: left;
+  transition: background-color var(--mx-motion-ink);
   cursor: pointer;
 }
 .turn-review-files-row:hover,
 .turn-review-files-row:focus-visible {
   outline: none;
+  color: var(--mx-row-title-ink-active);
   background: var(--composer-island-wash);
+}
+.turn-review-files-row:focus-visible {
+  box-shadow: var(--mx-list-focus-ring);
 }
 .turn-review-files-path {
   min-width: 0;
@@ -749,17 +772,28 @@
 }
 /* Expanded tabs: one panel family with a header (title chip, counts, close),
    a body and a footer (IslandPanelHead / IslandPanelFoot). */
-.composer-island-panel,
-.composer-island-approval {
+.composer-island-panel {
   width: var(--island-panel-width);
   max-width: 100%;
 }
-/* The Goal drawer is wider: its steps are sentences. The pill is nowrap; the
-   drawer's text wraps inside the panel. */
+.composer-island-approval {
+  width: 560px;
+  max-width: 100%;
+}
+/* The mobile layout's panels keep one width, the screen's on a phone held
+   upright. */
+html[data-mixdog-mobile-tabs] .composer-island {
+  --island-panel-width: 560px;
+}
+/* The Goal drawer takes the panels' width. The pill is nowrap; the drawer's
+   text wraps inside the panel. */
 .composer-island .session-goal-panel {
-  width: 680px;
+  width: var(--island-panel-width);
   max-width: 100%;
   white-space: normal;
+}
+html[data-mixdog-mobile-tabs] .composer-island .session-goal-panel {
+  width: var(--island-panel-max);
 }
 /* Wrapped panel text breaks between words, Korean included, never inside one
    (a word longer than the line still breaks). */
@@ -771,17 +805,27 @@
    footer keep their height and only the body scrolls, so the close button
    and the panel's actions stay in reach when the room is short (a phone's
    keyboard is up, a short window). Panels a segment carries inside the pill
-   (files, branch, git) take the bound through the pill; the Goal drawer
-   bounds its own body (22-markdown.css). */
+   (files, branch, git, the Goal drawer) take the bound through the pill, so
+   the island itself never scrolls: its scrollbar would widen it. */
 .composer-island-stage > .composer-island[data-mode="panel"] {
   display: flex;
   flex-direction: column;
 }
 .composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-pill:not([hidden]),
-.composer-island-panel {
+.composer-island-panel,
+.composer-island-stage > .composer-island[data-mode="panel"] .session-goal-island[data-open="true"],
+.composer-island .session-goal-island[data-open="true"] > .session-goal-drawer,
+.composer-island .session-goal-panel {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* The pill's Goal segment keeps its width (flex-shrink: 0 above); open, it
+   gives way in height like the drawer's body. */
+.composer-island-stage > .composer-island[data-mode="panel"] .session-goal-island[data-open="true"],
+.composer-island .session-goal-panel > .session-goal-body {
+  min-height: 0;
+  flex: 0 1 auto;
 }
 .composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-pill:not([hidden]) {
   align-items: stretch;
@@ -789,15 +833,25 @@
 .composer-island-panel > :is(.composer-island-phead, .composer-island-panel-foot) {
   flex: none;
 }
+/* While the island's height glides (useIslandGlide) its box is held taller or
+   shorter than its content: the panel fills the box and its body takes or
+   gives the difference, so the head stays on the box's top edge and the foot
+   on its bottom edge, which the bottom-anchored panel holds still. */
+.composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-panel {
+  flex: 1 1 auto;
+}
+.composer-island-stage > .composer-island[data-mode="panel"] > .composer-island-panel > .composer-island-pbody {
+  flex-grow: 1;
+}
 .composer-island-phead {
-  min-height: 44px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 8px;
-  border-bottom: var(--mx-hairline) solid var(--composer-island-rule);
 }
-/* The panel's name by weight alone, starting on the body's inset. */
+/* The panel's name, starting on the body's inset: the title tier the session
+   panel's categories wear (item size, label weight). */
 .composer-island-tab {
   height: 28px;
   display: inline-flex;
@@ -807,9 +861,17 @@
   border: 0;
   color: var(--mx-text);
   font: inherit;
-  font-weight: var(--mx-weight-semibold);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-ui);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* A head's count (HeadFigures), as the pill's segment writes it after the
+   label: the island's type in the segment's soft ink. */
+.composer-island-head-count {
+  color: var(--mx-text-soft);
+  font-variant-numeric: tabular-nums;
 }
 .composer-island-close {
   flex: none;
@@ -835,6 +897,14 @@
   margin: 0;
   padding: 10px 14px 12px;
 }
+/* Under the panel's name the body starts at once: the head's own height is
+   the room above the first row. */
+.composer-island-phead + .composer-island-pbody {
+  padding-top: 0;
+}
+html:not([data-mixdog-mobile-tabs]) .composer-island .session-goal-panel > .session-goal-body {
+  padding-top: 4px;
+}
 /* The cap below is the room; useWholeRowList ends the list at the last row
    that fits whole under it (the rows are its offset children). */
 .composer-island-jobs {
@@ -854,8 +924,9 @@ ul.composer-island-jobs {
   column-gap: 10px;
 }
 ul.composer-island-jobs > .composer-island-row {
-  /* One line: the command's title. */
-  min-height: 40px;
+  /* One line, the command's title, on the agent rows' 32px pitch. */
+  min-height: 32px;
+  padding-block: 0;
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;
@@ -866,8 +937,11 @@ ul.composer-island-jobs > .composer-island-row {
   gap: 6px;
 }
 /* IslandColumnSizer: the state column's every label, unseen, in that column
-   (the third of both lists); capped so a rare long word does not take a
-   narrow panel's names. */
+   (the third of both lists, in the island's panels and in the session
+   panel's Agents and Shells alike), so the column keeps one width while
+   clocks tick and states change; capped so a rare long word does not take a
+   narrow panel's names (the session panel takes the narrow cap,
+   session-rail.css). */
 .composer-island-col-sizer {
   grid-column: 3;
   max-width: 9rem;
@@ -900,7 +974,6 @@ ul.composer-island-jobs > .composer-island-row {
   gap: 10px;
   padding-block: 6px;
 }
-.composer-island-row > .composer-island-row-open,
 .composer-island-row > .schedules-row-copy {
   min-width: 0;
   flex: 1 1 auto;
@@ -927,12 +1000,12 @@ ul.composer-island-jobs > .composer-island-row {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* A command reads at the code size and the name weight: bold mono at the UI
-   size outweighed the agent rows beside it. */
+/* A command reads at the code size in the row name's weight, as an agent's
+   name does: bold mono at the UI size outweighed the agent rows beside it. */
 .composer-island-row .composer-island-shell-command {
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
-  font-weight: var(--mx-weight-medium);
+  font-weight: var(--mx-weight-regular);
 }
 .composer-island-row .schedules-row-copy > small.composer-island-row-error {
   color: var(--mx-danger);
@@ -951,7 +1024,7 @@ ul.composer-island-jobs > .composer-island-row {
   align-items: center;
   justify-content: flex-end;
   height: var(--island-row-button-height, 26px);
-  line-height: var(--island-row-button-line, 20px);
+  line-height: var(--island-row-button-line, var(--mx-line-meta));
 }
 /* An agent's step list: a 12px ring and n/m in the row's progress column. */
 .agent-todo-mark {
@@ -983,118 +1056,186 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-row-dismiss {
   flex: none;
   min-width: 4rem;
-  line-height: var(--island-row-button-line, 20px);
 }
-/* Stop and Dismiss: a mark in a square button, one column down the list. */
+/* A row's worded button on the button tier, its label on the state's line
+   (over the island buttons' `font: inherit`). */
+.composer-island-button.composer-island-row-dismiss {
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--island-row-button-line, var(--mx-line-meta));
+}
+/* Stop and Dismiss: a mark in a square button, one column down the list, in
+   the strong ink of a control at rest; pointed at, the button's wash. */
 .composer-island-row-dismiss[data-icon] {
   min-width: 0;
   width: 28px;
   display: inline-grid;
   place-items: center;
   padding: 0;
-  color: var(--mx-text-muted);
+  color: var(--mx-text);
   box-shadow: none;
 }
-.composer-island-row-dismiss[data-icon]:hover {
-  color: var(--mx-text);
+/* The row's last mark stands under the head's close mark: its button reaches
+   the head button's edge, past the list's inset. */
+.composer-island .composer-island-row-actions > .composer-island-row-dismiss[data-icon]:last-child {
+  margin-right: -6px;
 }
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell[data-finished="true"] {
   color: var(--mx-text-muted);
 }
-.composer-island-row-open {
-  min-height: inherit;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-.composer-island-row-open:hover .agent-pool-name,
-.composer-island-row-open:focus-visible .agent-pool-name {
-  text-decoration: underline;
-}
-.composer-island-row-open:focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: 2px;
-}
-/* Agents (AgentIslandRow): the Agents window's row grammar, flat in the panel
-   on the list's shared columns: the brand mark, the name over the model line
-   (the step mark leads it), and the figures (state over the row's token
-   total). The figures column is as wide as its longest label
-   (IslandColumnSizer), so a clock gaining a digit or a row changing state
-   moves no other row's columns. */
+/* Agents (AgentGroupList, AgentIslandRow), built as the session panel's
+   To-do list: a kind line as To-do's "Remaining 6" line, then its agents one
+   to-do row each on the list's shared columns: the step ring in the column of
+   a to-do's state circle (the rows' 16px mark column), the agent's name on
+   the rows' text line taking the room left, the step figure, and the state.
+   The figure and state columns are right-aligned and shared down the list;
+   the state column is as wide as its longest label (IslandColumnSizer), so a
+   clock gaining a digit or a row changing state moves no other row's
+   columns. A kind after rows starts 8px lower, no rule between them. Rows
+   and kind lines wash like the left sidebar's rows, `--island-row-bleed`
+   past the list's text lines (the island body's own inset; the session
+   panel's rows' 8px there). */
 .composer-island-jobs.composer-island-agents.agent-pool-list {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  --island-agent-row: 32px;
+  --island-kind-row: var(--mx-control-sm);
+  --island-row-bleed: calc(var(--island-panel-inset) - var(--mx-scrollbar-size, 8px));
+  --island-row-bleed-end: var(--island-row-bleed);
+  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto auto;
+  row-gap: 0;
+  /* Rows keep their height when the body is given more room than they fill. */
+  align-content: start;
 }
+.composer-island-agent-item + .composer-island-agent-group {
+  margin-top: 8px;
+}
+.composer-island-agents > .composer-island-col-sizer {
+  grid-column: 4;
+}
+.composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row) {
+  margin: 0 calc(-1 * var(--island-row-bleed-end)) 0 calc(-1 * var(--island-row-bleed));
+  padding: 0 var(--island-row-bleed-end) 0 var(--island-row-bleed);
+  border-radius: var(--mx-radius-lg);
+  transition: background-color var(--mx-motion-ink);
+}
+.composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row:not(:disabled)):hover {
+  background: var(--mx-hover);
+}
+.composer-island-agents :is(.composer-island-agent-fold, .agent-pool-row):focus-visible {
+  outline: none;
+  box-shadow: var(--mx-list-focus-ring);
+}
+/* Rows abut, so no end padding: a list cut at a whole row (useWholeRowList)
+   shows none of the next. */
+.composer-island-panel > .composer-island-pbody.composer-island-jobs.composer-island-agents {
+  padding-bottom: 0;
+}
+.composer-island-agent-group,
 .composer-island-agent-item,
 .composer-island-agents .agent-pool-row {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;
 }
-.composer-island-agents .agent-pool-row {
-  width: 100%;
+/* A kind's line, To-do's "Remaining 6" line: the kind from the heads' left
+   line (and the short model only where two kinds of one name and provider
+   differ by it), the chevron, then at the line's end the mark of whether any
+   is not finished and how many. The quiet tier: the supporting size, the
+   label weight, the muted ink. */
+.composer-island-agent-fold {
+  grid-column: 1 / -1;
+  box-sizing: border-box;
   min-width: 0;
-  min-height: 52px;
+  height: var(--island-kind-row);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-meta);
+  font-variant-numeric: tabular-nums;
+  text-align: start;
+  cursor: pointer;
+}
+.composer-island-agent-fold:hover {
+  color: var(--mx-row-title-ink-active);
+}
+.composer-island-agent-fold-name {
+  flex: none;
+  white-space: nowrap;
+}
+.composer-island-agent-fold-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.composer-island-agent-fold-count {
+  flex: none;
+  font-weight: var(--mx-weight-regular);
+}
+/* What stands after the chevron (the mark, the count) ends the line. */
+.composer-island-agent-fold-cv + * {
+  margin-left: auto;
+}
+.composer-island-agent-fold-cv {
+  flex: none;
+  color: var(--mx-text-muted);
+  transform: translateY(1px);
+}
+/* A to-do row: the row's height, its mark column, its text line. */
+.composer-island-agents .agent-pool-row {
+  width: auto;
+  min-width: 0;
+  min-height: var(--island-agent-row);
   box-sizing: border-box;
   align-items: center;
-  gap: 10px;
-  padding: 6px 0;
+  gap: 8px;
   border: 0;
-  border-radius: 0;
   background: none;
   box-shadow: none;
-  color: inherit;
+  /* Every agent's name in the full ink and the label weight, at work or finished: its ring and its state say
+     which. A wash is a row pointed at, never a state that stays. */
+  color: var(--mx-row-title-ink-active);
   font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-ui);
   text-align: start;
   cursor: pointer;
   user-select: none;
 }
-/* The model line: the model, then the agent's step mark. A long model name
-   gives way; the mark stays whole. */
-.island-agent-route {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* The ring where a to-do's state circle stands, its 14px box drawn 2px left
+   as that glyph's is, so its ink meets the heads' left line. */
+.composer-island-agents .agent-row-ring {
+  width: var(--mx-icon-md);
+  height: var(--mx-icon-md);
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-accent);
+  transform: translateX(-2px);
 }
-.island-agent-route > .agent-todo-mark::before {
-  content: "·";
-  margin-inline-end: 2px;
+.composer-island-agents .agent-row-ring > [data-state="complete"] {
+  color: var(--mx-success);
 }
-.island-agent-route > .agent-route-summary {
-  min-width: 0;
+.composer-island-agents .agent-row-ring > [data-state="dropped"] {
+  color: var(--mx-text-faint);
 }
-.agent-pool-figures {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  align-self: center;
-}
-/* State on the name's line, the total on the model's: the two columns read
-   as two aligned lines. */
-.composer-island-agents .agent-pool-figures > .agent-activity-status {
-  height: 20px;
-  line-height: 20px;
-}
-.composer-island-agent-tokens {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
-  line-height: 18px;
+/* The step figure: the trailing meta tier, right-aligned in its column. */
+.composer-island-agents .agent-row-steps {
+  justify-self: end;
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-/* State counts beside the panel title, quiet: on its line while they fit,
-   wrapping among themselves in the room before the close button. */
+/* A status beside a panel's chip (the branch tab's), quiet: on its line while
+   it fits, wrapping in the room before the close button. */
 .composer-island-phead-meta {
   min-width: 0;
   flex: 1 1 0;
@@ -1103,18 +1244,24 @@ ul.composer-island-jobs > .composer-island-row {
   gap: 2px 10px;
   margin-inline-start: 8px;
   color: var(--mx-text-muted);
-  font-size: 12px;
+  /* The head figures' tier, as the session panel's heads read. */
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .composer-island-phead-meta b {
   color: var(--mx-text);
-  font-weight: 500;
+  font-weight: var(--mx-weight-medium);
 }
 /* The usage readout as the agents panel's footer line: flush with the
    footer's inset, and not a button. */
 .composer-island-panel > .composer-island-panel-foot > .composer-usage-readout {
   padding-inline: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
   cursor: default;
 }
 .composer-island-agents .agent-pool-row:disabled {
@@ -1124,17 +1271,10 @@ ul.composer-island-jobs > .composer-island-row {
   min-width: 0;
   flex: 1 1 auto;
 }
-.composer-island-agents .agent-pool-row:hover .agent-pool-name,
-.composer-island-agents .agent-pool-row:focus-visible .agent-pool-name {
-  text-decoration: underline;
-}
-.composer-island-agents .agent-pool-row:focus-visible {
-  outline: 1px solid var(--mx-accent);
-  outline-offset: 2px;
-}
 .composer-island-agents .agent-pool-row[data-dragging="true"] {
   opacity: var(--mx-op-dim);
 }
+/* The name takes all the room the columns after it leave; cut only past it. */
 .composer-island-agents .agent-pool-heading {
   display: flex;
   align-items: center;
@@ -1145,17 +1285,34 @@ ul.composer-island-jobs > .composer-island-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.composer-island-agents .agent-route-summary > .model-route-label {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: top;
+  color: inherit;
+  font-weight: inherit;
 }
 .composer-island-agents .agent-activity-status {
   flex: none;
+  justify-content: flex-end;
   text-align: right;
+}
+/* The brand mark is a box of its own height, centred on its line. */
+.composer-island-agents .sidebar-resource-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+/* One weight down the list: a state is set apart by its ink, a figure by its size. */
+.composer-island-jobs .agent-activity-elapsed {
+  font-weight: var(--mx-weight-regular);
+}
+/* A state or clock on its size's own line (the session panel's too). */
+.composer-island-jobs .agent-activity-elapsed {
+  line-height: var(--mx-line-meta);
+}
+/* The list starts under the panel's name and ends 4px clear of the foot's rule. */
+.composer-island-panel > .composer-island-pbody.composer-island-jobs.composer-island-agents {
+  padding-top: 0;
+}
+.composer-island-agents + .composer-island-panel-foot {
+  margin-top: 4px;
 }
 .composer-island-quota .composer-island-pbody {
   padding: 14px 16px 12px;
@@ -1253,8 +1410,8 @@ ul.composer-island-jobs > .composer-island-row {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-label);
   line-height: var(--mx-line-ui);
 }
 .composer-island-pnote {
@@ -1274,13 +1431,17 @@ ul.composer-island-jobs > .composer-island-row {
 .composer-island-panel-foot,
 .composer-island .turn-review-files-foot,
 .composer-island .session-goal-controls {
-  min-height: 48px;
+  min-height: 44px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
   padding: 8px var(--island-panel-inset);
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+  /* The one rule a panel draws: above its actions, between the text insets. */
+  border-top: 0;
+  background:
+    linear-gradient(var(--composer-island-rule), var(--composer-island-rule)) top /
+    calc(100% - 2 * var(--island-panel-inset)) var(--mx-hairline) no-repeat;
 }
 /* The files and Goal footers live inside their body (a menu's items, the
    drawer's grid): they reach its edges like the shared footer. */
@@ -1313,10 +1474,13 @@ ul.composer-island-jobs > .composer-island-row {
   scrollbar-gutter: stable both-edges;
   margin-inline: calc(-1 * var(--mx-scrollbar-size, 8px));
 }
-/* The usage line takes the footer's free room; the action keeps its end. */
-.composer-island-panel-foot > .composer-island-summary {
+/* The usage line takes the footer's free room on the action's row, never a
+   row of its own: it starts from nothing (a basis of 0, so the row never
+   wraps for it), FittedReadout drops its parts to the room the action leaves,
+   and what a measure misses is cut at its end. The action keeps its end. */
+.composer-island-panel-foot > .composer-usage-readout.composer-island-summary {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
 }
 .composer-island-panel-foot-end {
   display: flex;
@@ -1324,10 +1488,14 @@ ul.composer-island-jobs > .composer-island-row {
   gap: 6px;
   margin-inline-start: auto;
 }
+/* A foot's buttons on the button tier, as the session panel's foot reads. */
 .composer-island-panel-foot .composer-island-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
 }
 .composer-island-panel-foot .composer-island-button > svg {
   flex: none;
@@ -1810,9 +1978,10 @@ html[data-mixdog-mobile-tabs] :is(.composer-island-panel-foot, .composer-island 
 html[data-mixdog-mobile-tabs] .composer-island .session-goal-content {
   margin-inline: 0;
 }
-/* Long names read whole on a narrow panel: two lines before the ellipsis. */
+/* Long shell names read whole on a narrow panel: two lines before the
+   ellipsis. An agent's row stays one line, its name giving way. */
 @container composer-island (max-width: 479px) {
-  .composer-island-jobs .agent-pool-name {
+  ul.composer-island-jobs .agent-pool-name {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -1830,11 +1999,17 @@ html[data-mixdog-mobile-tabs] .composer-island-pfoot {
   gap: 6px;
   padding-top: 8px;
 }
+/* On touch a kind's fold and an agent's row keep the touch floor; 32px is the
+   pointer's pitch (in the session panel too). */
+html[data-mixdog-mobile-tabs] .composer-island-jobs.composer-island-agents.agent-pool-list {
+  --island-agent-row: var(--mx-touch-main);
+  --island-kind-row: var(--mx-touch-main);
+}
 html[data-mixdog-mobile-tabs] .composer-island-row {
   min-height: var(--mx-touch-row-main);
   gap: 10px;
   --island-row-button-height: 40px;
-  --island-row-button-line: 18px;
+  --island-row-button-line: var(--mx-line-minor);
 }
 html[data-mixdog-mobile-tabs] .composer-island-ptitle {
   gap: 8px;
@@ -2044,13 +2219,13 @@ html:not([data-mixdog-mobile-tabs]) .composer-region > form.composer:last-child 
    (cache hit, then the token total, then the whole readout) to fit; the
    ellipsis only catches a measuring miss. The agents panel's usage footer is
    the same readout (FittedReadout), not clickable. */
-:is(.composer-model-line, .composer-island-panel-foot) > .composer-usage-readout[hidden] {
+:is(.composer-model-line, .composer-island-panel-foot, .session-rail-ft) > .composer-usage-readout[hidden] {
   display: none;
 }
-:is(.composer-model-line, .composer-island-panel-foot) > .composer-usage-readout {
+:is(.composer-model-line, .composer-island-panel-foot, .session-rail-ft) > .composer-usage-readout {
   display: flex;
   align-items: center;
-  gap: 8px; /* ITEM_GAP in composer-usage-readout.tsx */
+  gap: var(--readout-gap, 8px); /* ITEM_GAP in composer-usage-readout.tsx, or FittedReadout's own gap */
   flex: 0 0 auto;
   min-width: 0;
   height: 28px;
@@ -2062,11 +2237,19 @@ html:not([data-mixdog-mobile-tabs]) .composer-region > form.composer:last-child 
   color: var(--mx-text-faint);
   font-family: inherit;
   font-size: var(--mx-font-ui);
-  line-height: 28px;
+  line-height: var(--mx-line-ui);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+/* The agents' usage on a panel's foot is read, not passed over: its figures in
+   the text ink, their icons kept quiet. */
+:is(.composer-island-panel-foot, .session-rail-ft) > .composer-usage-readout {
+  color: var(--mx-text);
+}
+:is(.composer-island-panel-foot, .session-rail-ft) > .composer-usage-readout .composer-readout-item > svg {
+  color: var(--mx-text-faint);
 }
 /* One icon + value item: the icon in the readout's own muted colour (a failure
    is the one red dot). Geometry matches ICON_WIDTH / DOT_WIDTH / ICON_GAP in
@@ -2081,9 +2264,9 @@ html:not([data-mixdog-mobile-tabs]) .composer-region > form.composer:last-child 
 .composer-readout-item > svg {
   flex: none;
 }
-/* The worded form's `·`: 5px + the item's 3px gap = the 8px gap after it. */
+/* The worded form's `·`: with the item's 3px gap, as far from its item as the gap after it. */
 .composer-readout-sep {
-  margin-left: 5px;
+  margin-left: calc(var(--readout-gap, 8px) - 3px);
 }
 .composer-readout-dot {
   flex: none;

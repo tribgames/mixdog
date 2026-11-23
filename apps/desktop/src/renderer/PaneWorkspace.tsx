@@ -10,6 +10,7 @@ import { PaneKeyContext } from './pane-key-context';
 import { type PanePresentation, PanePresentationContext } from './pane-presentation';
 import { keepReaderPlaces } from './transcript-list-reader-place';
 import { SurfaceActiveContext } from './surface-activity';
+import { PaneHandOverContext } from './session-rail-layout';
 import { ConversationReleaseContext } from './conversation-release';
 import { registerComposerPresenter } from './composer-text-inbox';
 import { PaneSplitLayout } from './PaneSplitLayout';
@@ -372,11 +373,15 @@ export function PaneWorkspace({
               <PanePresentationContext.Provider
                 value={presentationFor(owner, entry.preparing === true, entry.visit ?? 0)}
               >
-                <RetainedConversation retained={retained}>
-                  <PaneKeyContext.Provider value={leaf.id}>
-                    {renderConversation(active, focused && shown, focusPane, leaf.id, warm, !parked && !retained)}
-                  </PaneKeyContext.Provider>
-                </RetainedConversation>
+                <PaneHandOverContext.Provider
+                  value={entry.preparing ? 'incoming' : entry.outgoing ? 'outgoing' : null}
+                >
+                  <RetainedConversation retained={retained}>
+                    <PaneKeyContext.Provider value={leaf.id}>
+                      {renderConversation(active, focused && shown, focusPane, leaf.id, warm, !parked && !retained)}
+                    </PaneKeyContext.Provider>
+                  </RetainedConversation>
+                </PaneHandOverContext.Provider>
                 <UnansweredPresentation />
               </PanePresentationContext.Provider>
             </ConversationReleaseContext.Provider>

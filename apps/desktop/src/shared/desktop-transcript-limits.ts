@@ -13,6 +13,17 @@ export const DESKTOP_TRANSCRIPT_TAIL_ITEMS = 32;
  *  rows, and a viewport they do not fill pages older rows on its own. */
 export const REMOTE_TRANSCRIPT_TAIL_BYTES = 128_000;
 
+/** An external agent's picker entry as a catalog row carries it; nothing for a provider's model. */
+export function agentRouteFields(
+  row: Record<string, unknown>
+): Pick<DesktopModelOption, 'runner' | 'agent' | 'notApplicable'> {
+  return {
+    ...(row.runner === 'acp' ? { runner: 'acp' as const } : {}),
+    ...(typeof row.agent === 'string' && row.agent ? { agent: row.agent } : {}),
+    ...(Array.isArray(row.notApplicable) ? { notApplicable: row.notApplicable.map(String) } : {}),
+  };
+}
+
 export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry): DesktopModelOption[] => {
@@ -104,6 +115,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
         ...(row.defaultFast === true ? { defaultFast: true } : {}),
         ...(row.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
+        ...agentRouteFields(row),
         modelParameterOptions,
         parameterVariants,
         defaultModelParameters,

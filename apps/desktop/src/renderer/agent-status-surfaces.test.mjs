@@ -163,7 +163,7 @@ test('the Agents pane shows the failure with its reason, and Clear finished remo
   assert.deepEqual(tags().sort(), ['busy', 'lead:lead-a', 'rested']);
 });
 
-test('the composer island counts failures, and Clear finished leaves only work that is not finished', async (t) => {
+test("the composer island's head reads as its segment, a failure is its row's state, and Clear finished leaves only work that is not finished", async (t) => {
   const { root, document, publishPool } = mount(t);
   await act(async () =>
     root.render(
@@ -194,13 +194,15 @@ test('the composer island counts failures, and Clear finished leaves only work t
   await act(async () => segment().click());
   const row = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
   assert.equal(row('stalled').textContent, 'Failed');
-  assert.match(document.querySelector('.composer-island-phead').textContent, /1 failed/);
-  // The footer's right-end "Clean up", named for what it clears; the header
-  // keeps only the close button.
+  // "Agents 3 ●": the name, how many, the mark; no state counts beside it.
+  assert.equal(document.querySelector('.composer-island-phead').textContent, 'Agents3');
+  assert.ok(document.querySelector('.composer-island-phead .composer-island-head-count + .composer-island-mark-slot'));
+  // The footer's right-end "Clean up", what it clears in its tooltip and
+  // description; the header keeps only the close button.
   assert.equal(document.querySelectorAll('.composer-island-phead button').length, 1);
   const clear = document.querySelector('.composer-island-panel-foot-end [data-kind="clear-finished"]');
   assert.equal(clear.textContent, 'Clean up');
-  assert.equal(clear.getAttribute('aria-label'), 'Clear finished');
+  assert.equal(clear.getAttribute('aria-label'), 'Clean up');
   assert.equal(clear.title, 'Clear finished');
   assert.ok(clear.querySelector('svg.lucide-brush-cleaning'));
   await act(async () => clear.click());

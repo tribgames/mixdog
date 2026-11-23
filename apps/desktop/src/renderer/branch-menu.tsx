@@ -26,6 +26,8 @@ import { useSurfaceActive } from './surface-activity';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { clampOverlayIntoView } from './anchored-panel';
 import { acquireTitleBarDim } from './titlebar-dim';
+import { closeOnUserScroll } from './menu-dismiss';
+import { useAnchoredPlacement } from './use-anchored-placement';
 import { useSessionTitle } from './session-glance-store';
 import {
   type BranchGroup,
@@ -64,6 +66,15 @@ export type CarryChoice = 'leave' | 'carry';
  *  (`name`) or "New branch" (`name`, the created branch). */
 export type BranchMenuPending = { kind: 'worktree' | 'branch' | 'create'; name?: string; move: boolean };
 
+/** A dialog the open menu put over itself (the uncommitted-files choice, a row
+ *  action's confirmation, the row menu): a press there is not outside it. */
+function menuDialog(target: Node | null): boolean {
+  return (
+    (target as Element | null)?.closest?.('.worktree-carry-dialog, .settings-confirm-layer, .dock-scm-context-menu') !=
+    null
+  );
+}
+
 /** Open state and placement of the portal menu: it follows resize and
  *  scroll, and closes on an outside pointer, mobile back, a surface switch
  *  or when the host is disabled. While `modal` (a dialog over the menu) the
@@ -92,13 +103,7 @@ export function useBranchMenuOverlay(disabled: boolean, modal: boolean) {
     const outside = (event: PointerEvent) => {
       if (modal) return;
       const target = event.target as Node | null;
-      if (root.current?.contains(target) || panel.current?.contains(target)) return;
-      // The uncommitted-files choice is a modal over the open menu.
-      if (
-        target instanceof Element &&
-        target.closest('.worktree-carry-dialog, .settings-confirm-layer, .dock-scm-context-menu')
-      )
-        return;
+      if (root.current?.contains(target) || panel.current?.contains(target) || menuDialog(target)) return;
       setOpen(false);
     };
     window.addEventListener('resize', place);
@@ -628,7 +633,7 @@ function BranchMenuContents({
   const otherCollapsed = collapsible && !otherExpanded;
   const otherCount = rows.filter((row) => row.group === 'other').length;
   const toggleOther = () => setOtherExpanded((expanded) => !expanded);
-  const track = useStableMenuList(list, rows, query, heightKey, otherExpanded);
+  const track = useStableMenuList(list, rows, query, heightKey, otherExpanded, loading);
   const newName = onCreateFromSearch ? searchedNewBranch(rows, query) : '';
   return (
     <>
@@ -651,7 +656,8 @@ function BranchMenuContents({
         </p>
       )}
       <div className="branch-menu-list" ref={list} onScroll={track} onPointerOver={track} onFocusCapture={track}>
-        {/* One flat keyed list: a row keeps its element when the group it starts changes. */}
+        {/* One flat keyed list: a row keeps its element when the group it starts changes. The current branch
+            (and the project folder's) leads without a label. */}
         {rows.flatMap((row, index) => {
           if (row.group === 'other' && otherCollapsed) {
             if (rows[index - 1]?.group === 'other') return [];
@@ -661,6 +667,7 @@ function BranchMenuContents({
           }
           const group =
             row.group !== rows[index - 1]?.group &&
+            row.group !== 'current' &&
             (row.group === 'other' && collapsible ? (
               <OtherBranchesToggle key="group:other" count={otherCount} expanded onToggle={toggleOther} />
             ) : (
@@ -710,9 +717,9 @@ function BranchMenuContents({
             }}
           >
             {pending?.kind === 'create' ? (
-              <ProgressSpinner size={14} aria-hidden="true" />
+              <ProgressSpinner size={16} aria-hidden="true" />
             ) : (
-              <Plus size={14} aria-hidden="true" />
+              <Plus size={16} aria-hidden="true" />
             )}
             <span>{t('Create branch "{{name}}"', { name: newName })}</span>
           </button>
@@ -733,8 +740,7 @@ function BranchMenuContents({
   );
 }
 
-const GROUP_LABELS: Record<BranchGroup, () => string> = {
-  current: () => t('Current branch'),
+const GROUP_LABELS: Record<Exclude<BranchGroup, 'current'>, () => string> = {
   worktree: () => t('Worktrees'),
   recent: () => t('Recent'),
   other: () => t('Other branches'),
@@ -756,12 +762,10 @@ function OtherBranchesToggle({ count, expanded, onToggle }: { count: number; exp
 /** "Clean up" (worktrees): the footer's quiet last button wherever the
  *  folder is a git repository; its summary becomes the menu notice. */
 function PruneWorktreesButton({
-  className,
   busy,
   empty,
   onPrune,
 }: {
-  className: string;
   busy: boolean;
   /** Nothing to clean: not clickable, the tooltip says so. */
   empty: boolean;
@@ -769,7 +773,7 @@ function PruneWorktreesButton({
 }) {
   return (
     <TidyButton
-      className={className}
+      className="composer-island-button"
       kind="prune"
       label={t('Clean up')}
       description={
@@ -787,14 +791,12 @@ function PruneWorktreesButton({
  *  Pressed while chosen; not offered to a session already in its worktree;
  *  disabled with the reason as its tooltip outside a git repository. */
 function NewWorktreeButton({
-  className,
   intent,
   pending,
   disabled,
   unavailable = false,
   onPick,
 }: {
-  className: string;
   intent: boolean;
   pending: boolean;
   disabled: boolean;
@@ -804,12 +806,13 @@ function NewWorktreeButton({
   return (
     <button
       type="button"
-      className={className}
+      className="composer-island-button"
       data-kind="worktree"
       data-selected={intent || undefined}
       data-pending={pending || undefined}
       aria-pressed={intent}
       aria-disabled={disabled || unavailable || undefined}
+      aria-label={t('New worktree')}
       title={unavailable ? t('This folder does not support worktrees.') : t('New branch · separate folder')}
       onClick={onPick}
     >
@@ -821,12 +824,10 @@ function NewWorktreeButton({
 
 /** "New branch": the first footer button in both hosts. */
 function CreateBranchButton({
-  className,
   pending,
   disabled,
   onCreate,
 }: {
-  className: string;
   pending: boolean;
   disabled: boolean;
   onCreate(): void;
@@ -834,10 +835,11 @@ function CreateBranchButton({
   return (
     <button
       type="button"
-      className={className}
+      className="composer-island-button"
       data-kind="create"
       data-pending={pending || undefined}
       aria-disabled={disabled || undefined}
+      title={t('New branch')}
       onClick={onCreate}
     >
       {pending ? <ProgressSpinner size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
@@ -846,37 +848,78 @@ function CreateBranchButton({
   );
 }
 
-function BranchTransitionButtons({
-  className,
+/** The foot under the list, the same in every host: New branch · New worktree
+ *  (or a worktree session's `actions`), then Clean up at the end. */
+function BranchMenuFoot({
   contents,
+  actions,
   onCreate,
 }: {
-  className: string;
   contents: Pick<
     BranchMenuContentsProps,
-    'busy' | 'locked' | 'intent' | 'pending' | 'worktreeUnavailable' | 'onPickWorktree'
+    'busy' | 'locked' | 'intent' | 'pending' | 'worktreeUnavailable' | 'onPickWorktree' | 'management'
   >;
+  actions?: ReactNode;
   onCreate(): void;
 }) {
   const disabled = contents.busy || Boolean(contents.locked);
+  const prune = contents.management?.prune;
   return (
-    <>
-      <CreateBranchButton
-        className={className}
-        pending={contents.pending?.kind === 'create'}
-        disabled={disabled}
-        onCreate={onCreate}
-      />
-      <NewWorktreeButton
-        className={className}
-        intent={contents.intent}
-        pending={contents.pending?.kind === 'worktree'}
-        disabled={disabled}
-        unavailable={contents.worktreeUnavailable}
-        onPick={contents.onPickWorktree}
-      />
-    </>
+    <IslandPanelFoot
+      className="branch-menu-foot"
+      end={
+        prune && (
+          <PruneWorktreesButton
+            busy={contents.busy}
+            empty={contents.management?.nothingToClean === true}
+            onPrune={prune}
+          />
+        )
+      }
+    >
+      {actions ?? (
+        <>
+          <CreateBranchButton pending={contents.pending?.kind === 'create'} disabled={disabled} onCreate={onCreate} />
+          <NewWorktreeButton
+            intent={contents.intent}
+            pending={contents.pending?.kind === 'worktree'}
+            disabled={disabled}
+            unavailable={contents.worktreeUnavailable}
+            onPick={contents.onPickWorktree}
+          />
+        </>
+      )}
+    </IslandPanelFoot>
   );
+}
+
+/** Keeps the foot on one line at any width: a label the line cannot hold
+ *  gives way to its icon (the button's tooltip and name keep the words),
+ *  Clean up's first, then the widest. */
+function useOneLineFoot(panel: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const foot = panel.current?.querySelector<HTMLElement>('.branch-menu-foot');
+    if (!foot) return undefined;
+    const fit = () => {
+      const buttons = Array.from(foot.querySelectorAll<HTMLElement>('button'));
+      for (const button of buttons) delete button.dataset.iconOnly;
+      if (foot.scrollWidth <= foot.clientWidth) return;
+      const widths = new Map(buttons.map((button) => [button, button.offsetWidth]));
+      const order = buttons.sort(
+        (a, b) =>
+          Number(b.dataset.kind === 'prune') - Number(a.dataset.kind === 'prune') ||
+          (widths.get(b) ?? 0) - (widths.get(a) ?? 0)
+      );
+      for (const button of order) {
+        if (foot.scrollWidth <= foot.clientWidth) break;
+        button.dataset.iconOnly = '';
+      }
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(foot);
+    return () => observer.disconnect();
+  });
 }
 
 /** The New Task chip's popup: search · branches, then "New branch" ·
@@ -895,12 +938,13 @@ function BranchMenuPanel({
   onCreateBranch(): void;
   onEscape(): void;
 }) {
-  // The menu is sized by its labels (up to 420px), wider than the 280px the
+  // The menu is sized by its rows (up to 420px), wider than the 280px the
   // placement assumed: pull it back inside the visible viewport once measured.
   // biome-ignore lint/correctness/useExhaustiveDependencies: position is the trigger; the effect reads the DOM it produced
   useLayoutEffect(() => {
     clampOverlayIntoView(panel.current);
   }, [position, panel]);
+  useOneLineFoot(panel);
   return (
     <div
       ref={panel}
@@ -912,18 +956,7 @@ function BranchMenuPanel({
       onKeyDown={(event) => moveMenuFocus(event, panel.current, onEscape)}
     >
       <BranchMenuContents {...contents} autoFocusSearch={!touchPrimaryPointer()} onCreateFromSearch={onCreateBranch} />
-      <hr className="branch-menu-rule" />
-      <div className="branch-menu-actions">
-        <BranchTransitionButtons className="branch-menu-item" contents={contents} onCreate={onCreateBranch} />
-        {contents.management?.prune && (
-          <PruneWorktreesButton
-            className="branch-menu-item"
-            busy={contents.busy}
-            empty={contents.management.nothingToClean === true}
-            onPrune={contents.management.prune}
-          />
-        )}
-      </div>
+      <BranchMenuFoot contents={contents} onCreate={onCreateBranch} />
     </div>
   );
 }
@@ -945,8 +978,9 @@ export function BranchIslandPanel({
 }: Omit<BranchMenuContentsProps, 'autoFocusSearch' | 'onCreateFromSearch'> & {
   panel: RefObject<HTMLElement | null>;
   panelId: string;
-  /** The header chip: the branch glyph and name. */
-  title: ReactNode;
+  /** The header chip: the branch glyph and name. No header without it (a
+   *  popup under a row that names the branch). */
+  title?: ReactNode;
   /** The branch's status beside the chip, muted ("Modified 3 · ↑2"). */
   meta?: string;
   worktreeActions?: ReactNode;
@@ -960,6 +994,7 @@ export function BranchIslandPanel({
     if (!worktreeActions || touchPrimaryPointer()) return;
     panel.current?.querySelector<HTMLElement>('[data-action-id]:not([aria-disabled="true"])')?.focus();
   }, []);
+  useOneLineFoot(panel);
   return (
     <section
       ref={panel}
@@ -969,7 +1004,7 @@ export function BranchIslandPanel({
       data-locked={contents.locked || undefined}
       onKeyDown={(event) => moveMenuFocus(event, panel.current, onClose)}
     >
-      <IslandPanelHead chip={title} meta={meta} onClose={onClose} />
+      {title && <IslandPanelHead chip={title} meta={meta} onClose={onClose} />}
       <div className="composer-island-pbody branch-menu-body">
         <BranchMenuContents
           {...contents}
@@ -977,38 +1012,31 @@ export function BranchIslandPanel({
           onCreateFromSearch={worktreeActions ? undefined : onCreateBranch}
         />
       </div>
-      <IslandPanelFoot
-        className="branch-menu-foot"
-        end={
-          contents.management?.prune && (
-            <PruneWorktreesButton
-              className="composer-island-button"
-              busy={contents.busy}
-              empty={contents.management.nothingToClean === true}
-              onPrune={contents.management.prune}
-            />
-          )
-        }
-      >
-        {worktreeActions ?? (
-          <BranchTransitionButtons className="composer-island-button" contents={contents} onCreate={onCreateBranch} />
-        )}
-      </IslandPanelFoot>
+      <BranchMenuFoot contents={contents} actions={worktreeActions} onCreate={onCreateBranch} />
     </section>
   );
 }
 
+/** The list is as tall as its rows. Before its rows are read it holds the
+ *  height they had the last time it was open under `heightKey` (with none
+ *  remembered, the stylesheet's loading height), so the rows land in the
+ *  room they will take. While a search narrows it it keeps the height it had
+ *  when the search began, so the panel (which grows up from the composer)
+ *  never moves the search field under the caret. A row the pointer or focus
+ *  is on stays put when rows arrive above it. */
 function useStableMenuList(
   list: RefObject<HTMLDivElement | null>,
   rows: BranchRow[],
   query: string,
-  heightKey = '',
-  expanded = false
+  heightKey: string,
+  expanded: boolean,
+  loading: boolean
 ) {
-  // Folding a group is the user's own change, like a search: it keys the floor too.
+  // Searching or folding is the user's own change: it drops the row anchor.
   const shape = `${expanded ? '+' : '-'}${query}`;
-  const floor = useRef((heightKey && !query && !expanded && lastListHeights.get(heightKey)) || 0);
-  const seenQuery = useRef(shape);
+  const seenShape = useRef(shape);
+  const unfiltered = useRef(0);
+  const held = useRef(0);
   const anchor = useRef<{ name: string; top: number } | null>(null);
   const rowNodes = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[data-branch]') ?? []);
   const track = () => {
@@ -1020,23 +1048,30 @@ function useStableMenuList(
   useLayoutEffect(() => {
     const element = list.current;
     if (!element) return;
-    if (seenQuery.current !== shape) {
-      // Filtering or folding is the user's own change: no floor, no anchor.
-      seenQuery.current = shape;
-      floor.current = 0;
+    if (seenShape.current !== shape) {
+      seenShape.current = shape;
       anchor.current = null;
-      element.style.minHeight = '';
     } else if (anchor.current) {
       const { name, top } = anchor.current;
       const node = rowNodes().find((row) => row.dataset.branch === name);
       const shift = node ? node.getBoundingClientRect().top - top : 0;
       if (shift) element.scrollTop += shift;
     }
-    floor.current = Math.max(floor.current, element.offsetHeight);
-    element.style.minHeight = floor.current ? `${floor.current}px` : '';
-    if (heightKey && !query && !expanded && floor.current) lastListHeights.set(heightKey, floor.current);
+    if (query.trim()) {
+      // Measured in the render before the first keystroke filtered the rows.
+      held.current ||= unfiltered.current;
+      element.style.height = held.current ? `${held.current}px` : '';
+    } else {
+      held.current = 0;
+      element.style.height = '';
+      const waiting = loading && rows.length === 0;
+      const remembered = heightKey ? lastListHeights.get(heightKey) : undefined;
+      element.style.minHeight = waiting && remembered ? `${remembered}px` : '';
+      unfiltered.current = element.offsetHeight;
+      if (heightKey && !waiting && !expanded) lastListHeights.set(heightKey, unfiltered.current);
+    }
     track();
-  }, [rows, shape]);
+  }, [rows, shape, loading]);
   return track;
 }
 
@@ -1060,14 +1095,18 @@ function moveMenuFocus(event: React.KeyboardEvent, panel: HTMLElement | null, on
   next?.focus();
 }
 
-/** The muted label closing a row: "Current", the owning session's name for a
- *  branch in a managed worktree (`owner`), an unmanaged worktree's path,
- *  "Project folder" for the project's branch. */
-function rowLabel(row: BranchRow, hasWorktree: boolean, owner: string): string {
-  if (row.mark === 'current') return t('Current');
-  if (row.mark === 'external' && row.path) return row.path;
-  if (hasWorktree) return owner;
-  return row.mark === 'project' ? t('Project folder') : '';
+/** What closes a row besides the current branch's check (`tag`: a plain
+ *  branch's age, nothing else; the group label says a row is a worktree), and
+ *  what is left to the tooltip and description (`detail`: the holding
+ *  session's title, an unmanaged worktree's path, the project folder's). */
+function rowEnd(row: BranchRow, hasWorktree: boolean, owner: string): { tag: string; detail: string } {
+  if (row.mark === 'external') {
+    return { tag: '', detail: row.path ? t('Checked out in an unmanaged worktree: {{path}}', { path: row.path }) : '' };
+  }
+  if (row.mark === 'project') return { tag: '', detail: t('Project folder') };
+  if (hasWorktree) return { tag: '', detail: row.mark === 'current' ? '' : owner };
+  if (row.mark !== '' || row.committedAt === undefined) return { tag: '', detail: '' };
+  return { tag: branchAge(row.committedAt), detail: '' };
 }
 
 /** The branch name with the searched text in the accent color. */
@@ -1108,9 +1147,12 @@ function BranchMenuRow({
     (row.mark === 'current' && worktreeBound) || row.mark === 'inUse' || row.mark === 'external' || row.retained;
   // The check marks the selection: the current branch, until the worktree is chosen.
   const selected = row.mark === 'current' && !intent;
-  const owner = useSessionTitle(row.sessionId ?? '', t('Worktree'));
-  // A row with nothing else to say shows how long ago its tip was committed.
-  const label = rowLabel(row, hasWorktree, owner) || (row.committedAt !== undefined ? branchAge(row.committedAt) : '');
+  // A holder whose title is not loaded is still named: another session, or this one's retained worktree.
+  const owner = useSessionTitle(
+    row.sessionId ?? '',
+    row.mark === 'inUse' ? t('Another session') : t('Current session')
+  );
+  const { tag, detail } = rowEnd(row, hasWorktree, owner);
   // Shared and external rows move this session too; only the current row is a no-op.
   const switches = !(row.mark === 'current' && !intent);
   return (
@@ -1124,18 +1166,14 @@ function BranchMenuRow({
       // Held only by running work: the row stays readable and says why when pressed.
       data-locked={(locked && switches && !row.disabled && !busy) || undefined}
       aria-disabled={row.disabled || busy || (locked && switches) || undefined}
-      title={
-        row.mark === 'external' && row.path
-          ? t('Checked out in an unmanaged worktree: {{path}}', { path: row.path })
-          : undefined
-      }
+      title={detail || undefined}
       onClick={() => onPick(row)}
     >
-      {pending && <ProgressSpinner size={14} aria-hidden="true" />}
-      {!pending && hasWorktree && <FolderGit2 size={14} aria-hidden="true" />}
-      {!pending && !hasWorktree && <GitBranch size={14} aria-hidden="true" />}
+      {pending && <ProgressSpinner size={16} aria-hidden="true" />}
+      {!pending && hasWorktree && <FolderGit2 size={16} aria-hidden="true" />}
+      {!pending && !hasWorktree && <GitBranch size={16} aria-hidden="true" />}
       <BranchName name={row.name} query={query} />
-      {label && <small>{label}</small>}
+      {tag && <small>{tag}</small>}
       {selected && <Check size={14} className="branch-menu-check" role="img" aria-label={t('Current')} />}
     </button>
   );
@@ -1164,10 +1202,65 @@ export function startNewBranch({
   }
 }
 
+/** The session panel's Branch popup: a body portal under its row and as wide
+ *  as it, placed again as the window or the row changes. A press or a user
+ *  scroll outside it (its row aside) closes it. "Inside" is its React tree,
+ *  body-portalled row menus included (they mark the press on its way through
+ *  React), and the dialogs it opens over itself. */
+export function BranchTabHost({
+  anchor,
+  onClose,
+  children,
+}: {
+  anchor: RefObject<HTMLElement | null>;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const insidePresses = useRef(new WeakSet<Event>());
+  const { style } = useAnchoredPlacement({
+    anchor,
+    panel: host,
+    width: 'anchor',
+    side: 'below',
+    align: 'start',
+  });
+  useEffect(() => {
+    const inside = (target: Node | null) =>
+      Boolean(target && (host.current?.contains(target) || anchor.current?.contains(target))) || menuDialog(target);
+    const onPointerDown = (event: PointerEvent) => {
+      if (insidePresses.current.has(event)) return;
+      if (inside(event.target instanceof Node ? event.target : null)) return;
+      closeRef.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    const stopScroll = closeOnUserScroll(() => closeRef.current(), inside);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      stopScroll();
+    };
+  }, [anchor]);
+  return createPortal(
+    <div
+      ref={host}
+      className="branch-tab-host"
+      style={style}
+      onPointerDownCapture={(event) => insidePresses.current.add(event.nativeEvent)}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 /** The New Task chip's whole menu: the panel (or the New branch name dialog
- *  in its place) and the uncommitted-files choice. */
+ *  in its place) and the uncommitted-files choice. Under the session panel's
+ *  Branch row (`hosted`) the panel is that row's popup, as a session's is. */
 export function BranchMenuLayer({
   visible,
+  hosted = false,
   namingBranch,
   setNamingBranch,
   panelId,
@@ -1186,6 +1279,7 @@ export function BranchMenuLayer({
   close,
 }: {
   visible: boolean;
+  hosted?: boolean;
   namingBranch: boolean;
   setNamingBranch(naming: boolean): void;
   panelId: string;
@@ -1204,6 +1298,27 @@ export function BranchMenuLayer({
   close(): void;
 }) {
   const { busy, pending, pickWorktree, pickRow, createBranch, carry } = actions;
+  const closeToTrigger = () => {
+    close();
+    trigger.current?.focus();
+  };
+  const contents = {
+    management: actions.management,
+    panelId,
+    query,
+    onQuery: setQuery,
+    notice,
+    intent,
+    busy,
+    worktreeUnavailable: actions.worktreeUnavailable,
+    pending,
+    base,
+    rows,
+    worktreeBound,
+    onPickWorktree: () => void pickWorktree(),
+    onPickRow: pickRow,
+    onCreateBranch: () => startNewBranch({ actions, query, setNotice, setNamingBranch }),
+  };
   return (
     <>
       {visible &&
@@ -1218,31 +1333,13 @@ export function BranchMenuLayer({
             onCreate={createBranch}
             onClose={close}
           />
+        ) : hosted ? (
+          <BranchTabHost anchor={trigger} onClose={close}>
+            <BranchIslandPanel {...contents} panel={panel} onClose={closeToTrigger} />
+          </BranchTabHost>
         ) : (
           createPortal(
-            <BranchMenuPanel
-              management={actions.management}
-              panel={panel}
-              panelId={panelId}
-              position={position}
-              query={query}
-              onQuery={setQuery}
-              notice={notice}
-              intent={intent}
-              busy={busy}
-              worktreeUnavailable={actions.worktreeUnavailable}
-              pending={pending}
-              base={base}
-              rows={rows}
-              worktreeBound={worktreeBound}
-              onPickWorktree={() => void pickWorktree()}
-              onPickRow={pickRow}
-              onCreateBranch={() => startNewBranch({ actions, query, setNotice, setNamingBranch })}
-              onEscape={() => {
-                close();
-                trigger.current?.focus();
-              }}
-            />,
+            <BranchMenuPanel {...contents} panel={panel} position={position} onEscape={closeToTrigger} />,
             document.body
           )
         ))}

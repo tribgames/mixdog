@@ -1,7 +1,7 @@
 // The session panel's folds, remembered per session (which categories and
 // to-do groups the user folded; all are open until then), and the order of
 // its categories.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { type MouseEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { OPEN_MODEL_PICKER_EVENT, requestOpenModelPicker } from './model-picker-event';
 
 /** The panel's categories, in the order a panel nobody arranged shows them. */
@@ -12,7 +12,7 @@ export const SESSION_RAIL_CATEGORIES = [
   'todo',
   'agents',
   'shells',
-  'worktrees',
+  'outputs',
   'changes',
   'git',
 ] as const;
@@ -21,13 +21,21 @@ export type SessionRailCategory = (typeof SESSION_RAIL_CATEGORIES)[number];
 export const SESSION_RAIL_ORDER_KEY = 'mixdog.desktop.session-rail-order.v1';
 
 /** The stored arrangement, completed with the categories it does not name (a
- *  category added since it was written) at their default places' end. */
+ *  category added since it was written): each takes its default place, right
+ *  above the first category after it by default that the arrangement holds
+ *  (else right below the last one before it). */
 export function sessionRailOrder(stored: unknown): SessionRailCategory[] {
   const known = Array.isArray(stored)
     ? stored.filter((id): id is SessionRailCategory => SESSION_RAIL_CATEGORIES.includes(id))
     : [];
-  const named = [...new Set(known)];
-  return [...named, ...SESSION_RAIL_CATEGORIES.filter((id) => !named.includes(id))];
+  const order = [...new Set(known)];
+  for (const [index, id] of SESSION_RAIL_CATEGORIES.entries()) {
+    if (order.includes(id)) continue;
+    const next = SESSION_RAIL_CATEGORIES.slice(index + 1).find((other) => order.includes(other));
+    const previous = SESSION_RAIL_CATEGORIES.slice(0, index).findLast((other) => order.includes(other));
+    order.splice(next ? order.indexOf(next) : previous ? order.indexOf(previous) + 1 : order.length, 0, id);
+  }
+  return order;
 }
 
 /** `moved` placed before or after `target`. */
@@ -91,42 +99,88 @@ export function useSessionRailOrder(): readonly SessionRailCategory[] {
 }
 
 export const SESSION_RAIL_FOLDS_KEY = 'mixdog.desktop.session-rail-folds.v2';
+/** The folds every New Task draft's panel shares (no session id starts with a NUL). */
+export const SESSION_RAIL_DRAFT_FOLDS = '\u0000new-task';
 /** Sessions remembered, the most recently changed kept. */
 const REMEMBERED_SESSIONS = 200;
 
-/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`); a
- *  card's view (the Agents card's state filter) once it was picked (`choices`). */
-type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean>; choices: Record<string, string> };
+/** A category is open until the user folds it (`closed`); a to-do fold is held once it was set (`groups`). */
+type SessionFolds = { closed: SessionRailCategory[]; groups: Record<string, boolean> };
 
-function readAll(): Record<string, SessionFolds> {
+function storedFolds(): string {
   try {
-    const stored: unknown = JSON.parse(window.localStorage.getItem(SESSION_RAIL_FOLDS_KEY) || '{}');
-    return stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, SessionFolds>) : {};
+    return window.localStorage.getItem(SESSION_RAIL_FOLDS_KEY) || '{}';
+  } catch {
+    return '{}';
+  }
+}
+
+function parseAll(raw: string): Record<string, SessionFolds> {
+  try {
+    const stored: unknown = JSON.parse(raw);
+    return stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? (stored as Record<string, SessionFolds>)
+      : {};
   } catch {
     return {};
   }
 }
 
-function readFolds(sessionId: string): SessionFolds {
-  const stored = readAll()[sessionId];
-  return {
-    closed: Array.isArray(stored?.closed) ? stored.closed : [],
-    groups: stored?.groups && typeof stored.groups === 'object' ? stored.groups : {},
-    choices: stored?.choices && typeof stored.choices === 'object' ? stored.choices : {},
-  };
+// One record per session for every panel and island that shows it: each read
+// is the stored one (parsed once per stored text, so a snapshot keeps its
+// identity), each write starts from it, and every reader hears every write.
+let parsedRaw = '';
+let parsed: Record<string, SessionFolds> = {};
+const snapshots = new Map<string, SessionFolds>();
+/** A session that is not stored (none yet): its folds hold in memory. */
+const unstored = new Map<string, SessionFolds>();
+const foldListeners = new Set<() => void>();
+const EMPTY_FOLDS: SessionFolds = { closed: [], groups: {} };
+
+function foldsOf(sessionId: string): SessionFolds {
+  if (!sessionId) return unstored.get(sessionId) ?? EMPTY_FOLDS;
+  const raw = storedFolds();
+  if (raw !== parsedRaw) {
+    parsedRaw = raw;
+    parsed = parseAll(raw);
+    snapshots.clear();
+  }
+  let folds = snapshots.get(sessionId);
+  if (!folds) {
+    const stored = parsed[sessionId];
+    folds = {
+      closed: Array.isArray(stored?.closed) ? stored.closed : [],
+      groups: stored?.groups && typeof stored.groups === 'object' ? stored.groups : {},
+    };
+    snapshots.set(sessionId, folds);
+  }
+  return folds;
 }
 
-function writeFolds(sessionId: string, folds: SessionFolds): void {
-  const all = readAll();
-  delete all[sessionId];
-  all[sessionId] = folds;
-  const ids = Object.keys(all);
-  for (const id of ids.slice(0, Math.max(0, ids.length - REMEMBERED_SESSIONS))) delete all[id];
-  try {
-    window.localStorage.setItem(SESSION_RAIL_FOLDS_KEY, JSON.stringify(all));
-  } catch {
-    // The folds hold while the panel is mounted.
+function changeFolds(sessionId: string, change: (current: SessionFolds) => SessionFolds): void {
+  const next = change(foldsOf(sessionId));
+  if (!sessionId) {
+    unstored.set(sessionId, next);
+  } else {
+    const all = parseAll(storedFolds());
+    delete all[sessionId];
+    all[sessionId] = next;
+    const ids = Object.keys(all);
+    for (const id of ids.slice(0, Math.max(0, ids.length - REMEMBERED_SESSIONS))) delete all[id];
+    try {
+      window.localStorage.setItem(SESSION_RAIL_FOLDS_KEY, JSON.stringify(all));
+    } catch {
+      // Unstorable: the folds hold in memory for this renderer.
+      unstored.set(sessionId, next);
+    }
+    snapshots.set(sessionId, next);
   }
+  for (const listener of foldListeners) listener();
+}
+
+function subscribeFolds(listener: () => void): () => void {
+  foldListeners.add(listener);
+  return () => foldListeners.delete(listener);
 }
 
 /** A model picker request while Info is folded: the panel takes it, unfolds
@@ -154,16 +208,20 @@ export function useFoldedModelPickerRequest(answers: boolean, infoOpen: boolean,
   }, [requested, infoOpen]);
 }
 
+/** A fold's head pressed with the pointer gives its focus up: kept, the next key pressed anywhere would ring it as
+ *  keyboard focus. A head reached by keyboard (a click of no pointer) keeps it. */
+export function releasePointerFocus(event: MouseEvent<HTMLElement>): void {
+  if (event.detail > 0) event.currentTarget.blur();
+}
+
 export function useSessionRailFolds(sessionId: string) {
-  const [folds, setFolds] = useState(() => readFolds(sessionId));
-  useEffect(() => setFolds(readFolds(sessionId)), [sessionId]);
+  const folds = useSyncExternalStore(
+    subscribeFolds,
+    () => foldsOf(sessionId),
+    () => foldsOf(sessionId)
+  );
   const update = useCallback(
-    (change: (current: SessionFolds) => SessionFolds) =>
-      setFolds((current) => {
-        const next = change(current);
-        if (sessionId) writeFolds(sessionId, next);
-        return next;
-      }),
+    (change: (current: SessionFolds) => SessionFolds) => changeFolds(sessionId, change),
     [sessionId]
   );
   const toggle = useCallback(
@@ -177,14 +235,8 @@ export function useSessionRailFolds(sessionId: string) {
     [update]
   );
   const setGroups = useCallback(
-    (groups: Record<string, boolean>) => update((current) => ({ ...current, groups: { ...current.groups, ...groups } })),
-    [update]
-  );
-  const setChoice = useCallback(
-    (key: string, value: string) =>
-      update((current) =>
-        current.choices[key] === value ? current : { ...current, choices: { ...current.choices, [key]: value } }
-      ),
+    (groups: Record<string, boolean>) =>
+      update((current) => ({ ...current, groups: { ...current.groups, ...groups } })),
     [update]
   );
   return {
@@ -193,8 +245,5 @@ export function useSessionRailFolds(sessionId: string) {
     /** A to-do fold as the user left it, `byDefault` until they set it. */
     groupOpen: (key: string, byDefault: boolean) => folds.groups[key] ?? byDefault,
     setGroups,
-    /** A card's view as the user left it, `byDefault` until they pick one. */
-    choice: (key: string, byDefault: string) => folds.choices[key] ?? byDefault,
-    setChoice,
   };
 }

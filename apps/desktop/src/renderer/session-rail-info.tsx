@@ -1,37 +1,33 @@
 // The session panel's Info category (project, branch, model, workflow,
-// delegation and usage, each row opening the product's own picker under it)
-// and its Context category.
-import {
-  Activity,
-  CalendarClock,
-  Folder,
-  FoldVertical,
-  GitBranch,
-  ListTree,
-  Users,
-  Workflow,
-  X,
-} from 'lucide-react';
-import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react';
-import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
+// delegation and usage, each row opening the composer's own picker as a popup
+// under it) and its Context category.
+import { Activity, CalendarClock, Folder, FoldVertical, GitBranch, ListTree, Users, Workflow, X } from 'lucide-react';
+import { type ComponentProps, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  DesktopOrchestrationMode,
+  DesktopProjectSummary,
+  DesktopSessionWorkspace,
+  DesktopWorkflowState,
+} from '../shared/contract';
 import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { ServerAccountBadge, useAgentChatRouteApplied } from './ComposerFooter';
 import { ComposerRouteChoices } from './composer-route-choices';
 import { ComposerRoutineReadout } from './composer-routine-readout';
 import { compactTokens, contextMix } from './ContextBody';
+import { projectContextChoice } from './composer-support';
 import { FittedReadout, usageWithCostVariants } from './composer-usage-readout';
 import type { Snapshot } from './desktop-types';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
-import { ModelSelector } from './model-controls';
+import { BranchChip } from './BranchChip';
+import { ModelSelector, useDraftRouteChoices } from './model-controls';
 import { showDesktopToast } from './notifications';
+import { OpenSelect } from './OpenSelect';
 import { projectIdentity } from './project-catalog-cache';
 import { RendererLruCache } from './renderer-lru-cache';
 import type { RouteSessionChoice } from './route-editor-panes';
-import { ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { openOnArrow, RailPickMark, RailSection } from './session-rail-parts';
-import { projectMoveItems } from './session-sidebar-menus';
 import { groupProjectSessions } from './session-sidebar-sections';
 import { sessionProjectMove } from './session-project-move';
 import { useContextUsage } from './transcript-status';
@@ -43,9 +39,59 @@ export type RailModelProps = Omit<
   'answersModelPickerRequests' | 'sheetAlign' | 'sheetPlacement' | 'sessionChoices' | 'triggerRowLabel'
 >;
 
-/** The Project row: the session menu's move, always pressable. A move the
- *  core keeps for the end of a turn shows as pending (and can be cancelled);
- *  one it could not carry out says why. */
+const NEW_PROJECT = '\u0000new-project';
+
+/** The Project row: the composer's project select as a row of the panel (no
+ *  project, a project and, where adding is offered, a new one). */
+function RailProjectSelect({
+  projects,
+  projectPath,
+  projectLabel,
+  disabled = false,
+  trailing,
+  onClear,
+  onSelect,
+  onAddProject,
+}: {
+  projects: DesktopProjectSummary[];
+  projectPath: string;
+  projectLabel: string;
+  disabled?: boolean;
+  trailing?: ReactNode;
+  onClear(): void;
+  onSelect(path: string): void;
+  onAddProject?: (onAdded?: (projectPath: string) => void) => void;
+}) {
+  const choice = projectContextChoice({
+    projects,
+    activePath: projectPath,
+    activeLabel: projectLabel,
+    onClear,
+    onSelect,
+  });
+  const options = onAddProject
+    ? [...choice.options, { value: NEW_PROJECT, label: t('New project…'), separatorBefore: true }]
+    : choice.options;
+  return (
+    <OpenSelect
+      className="session-rail-select"
+      menuWidth="anchor"
+      ariaLabel={t('Project')}
+      tooltip={t('Select project')}
+      leading={<Folder size={14} aria-hidden="true" />}
+      trailing={trailing}
+      value={choice.value}
+      displayValue={choice.label || t('No project')}
+      disabled={disabled}
+      options={options}
+      onChange={(next) => (next === NEW_PROJECT ? onAddProject?.(onSelect) : choice.pick(next))}
+    />
+  );
+}
+
+/** A session's Project row: a pick moves the session. A move the core keeps
+ *  for the end of a turn shows as pending (and can be cancelled); one it
+ *  could not carry out says why. */
 function ProjectRow({
   sessionId,
   workspace,
@@ -63,65 +109,42 @@ function ProjectRow({
   onMoveSessionToProject?: (sessionId: string, projectPath: string) => Promise<void>;
   onAddProject?: (onAdded?: (projectPath: string) => void) => void;
 }) {
-  const row = useRef<HTMLButtonElement>(null);
-  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const groups = useMemo(() => groupProjectSessions(projects, []), [projects]);
   const { pending, failed } = sessionProjectMove(workspace);
+  if (!onMoveSessionToProject) {
+    return (
+      <div className="session-rail-row" title={t('Project')}>
+        <Folder size={14} className="session-rail-ic" aria-hidden="true" />
+        <span className="sr-only">{t('Project')}</span>
+        <span className="session-rail-cut">{projectLabel || t('No project')}</span>
+      </div>
+    );
+  }
   const nameOf = (path: string | null) =>
     path ? (groups.find((group) => group.key === projectIdentity(path))?.name ?? path) : t('No project');
-  const move = (id: string, path: string) => {
-    void onMoveSessionToProject?.(id, path).catch((reason: unknown) =>
+  const move = (path: string) => {
+    void onMoveSessionToProject(sessionId, path).catch((reason: unknown) =>
       showDesktopToast(errorMessageText(reason), 'error')
     );
   };
-  const items = onMoveSessionToProject
-    ? projectMoveItems({
-        sessionId,
-        groups,
-        currentKey: projectIdentity(projectPath),
-        moveSession: move,
-        onAddProject,
-      })
-    : [];
-  const show = () => {
-    const rect = row.current?.getBoundingClientRect();
-    setMenu({
-      label: t('Move to project'),
-      x: (rect?.left ?? 0) + 8,
-      y: (rect?.bottom ?? 0) + 2,
-      flipY: (rect?.top ?? 0) - 2,
-      items,
-    });
-  };
-  const pickable = items.length > 0;
   return (
     <>
       <div className="session-rail-project">
-        <button
-          ref={row}
-          type="button"
-          className="session-rail-row session-rail-pick"
-          aria-haspopup="menu"
-          aria-expanded={Boolean(menu)}
-          aria-disabled={!pickable || undefined}
-          title={t('Project')}
-          onKeyDown={(event) => openOnArrow(event, Boolean(menu), show)}
-          onClick={() => {
-            if (!pickable) return;
-            if (menu) setMenu(null);
-            else show();
-          }}
-        >
-          <Folder size={14} className="session-rail-ic" aria-hidden="true" />
-          <span className="sr-only">{t('Project')}</span>
-          <span className="session-rail-cut">{projectLabel || t('No project')}</span>
-          {pending && (
-            <span className="session-rail-num session-rail-cut" data-pending="true">
-              {t('Moving to {{project}} after this turn', { project: nameOf(pending.projectPath) })}
-            </span>
-          )}
-          <RailPickMark />
-        </button>
+        <RailProjectSelect
+          projects={projects}
+          projectPath={projectPath}
+          projectLabel={projectLabel}
+          trailing={
+            pending && (
+              <span className="session-rail-num session-rail-cut" data-pending="true">
+                {t('Moving to {{project}} after this turn', { project: nameOf(pending.projectPath) })}
+              </span>
+            )
+          }
+          onClear={() => move('')}
+          onSelect={move}
+          onAddProject={onAddProject}
+        />
         {pending && (
           <button
             type="button"
@@ -129,7 +152,7 @@ function ProjectRow({
             aria-label={t('Cancel move')}
             title={t('Cancel move')}
             // The session's own project again ('' for a task session) drops the pending move.
-            onClick={() => move(sessionId, projectPath)}
+            onClick={() => move(projectPath)}
           >
             <X size={14} aria-hidden="true" />
           </button>
@@ -140,7 +163,6 @@ function ProjectRow({
           {failed.message}
         </p>
       )}
-      <ScmContextMenu state={menu} onClose={() => setMenu(null)} anchorRef={row} />
     </>
   );
 }
@@ -176,6 +198,7 @@ function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
           choices={[choice]}
           side="below"
           align="start"
+          width="anchor"
           onClose={(restoreFocus) => {
             setOpen(false);
             if (restoreFocus) row.current?.focus({ preventScroll: true });
@@ -183,6 +206,124 @@ function ChoiceRow({ choice }: { choice: RouteSessionChoice }) {
         />
       )}
     </>
+  );
+}
+
+/** The Model row: the composer's model pill, its sheet opening under the row. */
+function RailModelRow({
+  model,
+  agentMode,
+  answersModelPickerRequests,
+}: {
+  model: RailModelProps;
+  agentMode: boolean;
+  answersModelPickerRequests: boolean;
+}) {
+  const routeApplied = useAgentChatRouteApplied(model.onRoutePreferenceApplied, model.sessionId, agentMode);
+  return (
+    <div className="session-rail-model">
+      <ModelSelector
+        {...model}
+        onRoutePreferenceApplied={routeApplied}
+        answersModelPickerRequests={answersModelPickerRequests}
+        sheetAlign="start"
+        sheetPlacement="below"
+        triggerRowLabel={t('Model')}
+      />
+      <ServerAccountBadge />
+    </div>
+  );
+}
+
+/** What a New Task draft's composer offers beside the model, for its panel. */
+export type DraftRailInfo = {
+  draftId: string;
+  /** The context bar's project, branch, workflow and delegation (absent in agent mode, as under the composer). */
+  contextControls: boolean;
+  projectDisabled: boolean;
+  routeDisabled: boolean;
+  workflow: DesktopWorkflowState | null;
+  orchestrationMode: DesktopOrchestrationMode | null;
+  onClearProject(): void;
+  onSelectProject(path: string): void;
+  onWorkflow?(workflow: DesktopWorkflowState): void;
+  onOrchestrationMode?(mode: DesktopOrchestrationMode): void;
+};
+
+/** A New Task draft's Info: what its composer offers (project, branch, model,
+ *  workflow and delegation), each row changing the draft's own. */
+export function DraftInfoSection({
+  open,
+  onToggle,
+  draft,
+  projectPath,
+  projectLabel,
+  projects,
+  answersModelPickerRequests,
+  model,
+  onAddProject,
+}: {
+  open: boolean;
+  onToggle(): void;
+  draft: DraftRailInfo;
+  projectPath: string;
+  projectLabel: string;
+  projects: DesktopProjectSummary[];
+  answersModelPickerRequests: boolean;
+  model: RailModelProps;
+  onAddProject?: (onAdded?: (projectPath: string) => void) => void;
+}) {
+  const choices = useDraftRouteChoices({
+    workflow: draft.workflow,
+    mode: draft.orchestrationMode,
+    disabled: draft.routeDisabled,
+    onWorkflow: draft.onWorkflow,
+    onMode: draft.onOrchestrationMode,
+  });
+  return (
+    <RailSection
+      category="info"
+      title={t('Info')}
+      open={open}
+      onToggle={onToggle}
+      summary={<span className="session-rail-cut">{projectLabel || t('No project')}</span>}
+    >
+      {draft.contextControls && (
+        <>
+          <RailProjectSelect
+            projectPath={projectPath}
+            projectLabel={projectLabel}
+            projects={projects}
+            disabled={draft.projectDisabled}
+            onClear={draft.onClearProject}
+            onSelect={draft.onSelectProject}
+            onAddProject={onAddProject}
+          />
+          <BranchChip
+            sessionId=""
+            draftId={draft.draftId}
+            projectPath={projectPath}
+            disabled={draft.routeDisabled}
+            renderTrigger={(button, view) => (
+              <button
+                {...button}
+                type="button"
+                className="session-rail-row session-rail-pick"
+                title={t('Branch and worktree')}
+                onKeyDown={(event) => openOnArrow(event, button['aria-expanded'], view.open)}
+              >
+                <GitBranch size={14} className="session-rail-ic" aria-hidden="true" />
+                <span className="sr-only">{t('Branch')}</span>
+                <span className="session-rail-cut">{view.label}</span>
+                <RailPickMark />
+              </button>
+            )}
+          />
+        </>
+      )}
+      <RailModelRow model={model} agentMode={false} answersModelPickerRequests={answersModelPickerRequests} />
+      {draft.contextControls && choices.map((choice) => <ChoiceRow key={choice.id} choice={choice} />)}
+    </RailSection>
   );
 }
 
@@ -227,7 +368,6 @@ export function InfoSection({
   onAddProject?: (onAdded?: (projectPath: string) => void) => void;
   onOpenCommandSurface(surface: 'context' | 'stats'): void;
 }) {
-  const routeApplied = useAgentChatRouteApplied(model.onRoutePreferenceApplied, model.sessionId, agentMode);
   // What the composer's footer shows for this kind of session: a bot's home
   // thread and a group room read their routines instead of coding usage, and
   // a room's members each run their own model (no model, no context).
@@ -275,17 +415,7 @@ export function InfoSection({
         />
       )}
       {!room && (
-        <div className="session-rail-model">
-          <ModelSelector
-            {...model}
-            onRoutePreferenceApplied={routeApplied}
-            answersModelPickerRequests={answersModelPickerRequests}
-            sheetAlign="start"
-            sheetPlacement="below"
-            triggerRowLabel={t('Model')}
-          />
-          <ServerAccountBadge />
-        </div>
+        <RailModelRow model={model} agentMode={agentMode} answersModelPickerRequests={answersModelPickerRequests} />
       )}
       {sessionChoices.map((choice) => (
         <ChoiceRow key={choice.id} choice={choice} />
@@ -307,7 +437,7 @@ export function InfoSection({
           >
             <Activity size={14} className="session-rail-ic" aria-hidden="true" />
             <span className="sr-only">{t('Usage')}</span>
-            <FittedReadout variants={usage} title={t('Session usage')} />
+            <FittedReadout variants={usage} title={t('Session usage')} gap={4} />
           </button>
         )
       )}
@@ -325,8 +455,9 @@ const contextStatuses = new RendererLruCache<string, unknown>({
 });
 
 /** The session's context status (what its window holds, by kind), read while
- *  the category is open: for the session shown and again for each `reading`
- *  the head shows, so the rows describe the window the head measures. */
+ *  the category is open or its head has no reading to show: for the session
+ *  shown and again for each `reading` the head shows, so the rows describe
+ *  the window the head measures. */
 function useContextStatus(sessionId: string, open: boolean, reading: number | null): unknown {
   const [read, setRead] = useState<{ sessionId: string; status: unknown } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new reading is what asks again
@@ -364,31 +495,41 @@ export function ContextSection({
 }) {
   const usage = useContextUsage(snapshot);
   const sessionId = String(snapshot.sessionId || '');
-  // A window not measured yet (after a compaction, until the next request) still shows, its head awaiting the reading.
   const shown = usage.limit > 0;
-  const status = useContextStatus(sessionId, open && shown, usage.used);
+  const status = useContextStatus(sessionId, (open || usage.used === null) && shown, usage.used);
   if (!shown) return null;
-  const mix = status ? contextMix(status, usage.limit) : null;
+  const mix = status ? contextMix(status, usage.limit, usage.used) : null;
+  // A window with no reading (an agent that reports none; after a compaction, until the next request): the head
+  // shows what its kinds are estimated to hold, marked as an estimate, so it and the rows under it agree.
+  const estimate = usage.used === null && mix ? mix.held : null;
+  const used = usage.used ?? estimate;
+  const percent = usage.percent ?? (estimate === null ? null : (estimate / usage.limit) * 100);
+  // Largest first: the kind filling the window leads, and the bar's segments stand in the rows' order.
+  const held = mix ? [...mix.categories].sort((a, b) => b.tokens - a.tokens) : [];
+  // What the reading holds beyond the kinds' estimates: a row of its own, so the rows add up to the head's figure.
+  const other = mix && mix.unattributed > 0 ? [{ key: 'other', label: t('Other'), tokens: mix.unattributed }] : [];
   // MCP tools keep their row with nothing loaded: whether they cost anything is what the row is read for.
   const parts = mix
     ? [
-        ...mix.categories.filter((category) => category.tokens > 0 || category.key === 'mcp'),
+        ...held.filter((category) => category.tokens > 0 || category.key === 'mcp'),
+        ...other,
         { key: 'free', label: t('Free space'), tokens: mix.free },
       ]
     : [];
   const share = (tokens: number) => (mix && mix.windowTokens > 0 ? (tokens / mix.windowTokens) * 100 : 0);
+  // The bar is filled to the reading: estimates that overrun it share the reading's length in their proportions.
+  const fit = mix && mix.categorized > mix.held ? mix.held / mix.categorized : 1;
   return (
     <RailSection
       category="context"
       title={t('Context')}
       // The window's figures as its rows write them: 19k / 256k · 7.5%.
       meta={
-        <span title={usage.title}>
-          {usage.limit > 0 &&
-            `${usage.used === null ? '—' : compactTokens(usage.used)} / ${compactTokens(usage.limit)}${usage.percent === null ? '' : ' · '}`}
-          {usage.percent !== null && (
+        <span title={estimate === null ? usage.title : t('Estimated usage by category')}>
+          {`${used === null ? '—' : `${estimate === null ? '' : '~'}${compactTokens(used)}`} / ${compactTokens(usage.limit)}${percent === null ? '' : ' · '}`}
+          {percent !== null && (
             <span className="session-rail-context-percent" data-tone={usage.tone || undefined}>
-              {`${usage.percent.toFixed(1)}%`}
+              {`${percent.toFixed(1)}%`}
             </span>
           )}
         </span>
@@ -397,15 +538,17 @@ export function ContextSection({
       onToggle={onToggle}
       foot={
         <>
-          <button
-            type="button"
-            className="composer-island-button"
-            disabled={usage.compactBusy}
-            onClick={() => void usage.compact()}
-          >
-            <FoldVertical size={14} aria-hidden="true" />
-            <span>{t('Compact')}</span>
-          </button>
+          {usage.compactApplies && (
+            <button
+              type="button"
+              className="composer-island-button"
+              disabled={usage.compactBusy}
+              onClick={() => void usage.compact()}
+            >
+              <FoldVertical size={14} aria-hidden="true" />
+              <span>{t('Compact')}</span>
+            </button>
+          )}
           <span className="session-rail-ft-end">
             <button type="button" className="composer-island-button" onClick={onViewDetails}>
               <ListTree size={14} aria-hidden="true" />
@@ -423,21 +566,28 @@ export function ContextSection({
           aria-label={t('Context usage')}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={usage.percent ?? undefined}
+          aria-valuenow={percent ?? undefined}
         >
           {mix ? (
             // What the window holds, a colour for each kind; the track left over is free space.
-            mix.categories
-              .filter((category) => category.tokens > 0)
-              .map((category) => (
-                <b key={category.key} data-context-key={category.key} style={{ width: `${share(category.tokens)}%` }} />
-              ))
+            [...held.filter((category) => category.tokens > 0), ...other].map((category) => (
+              <b
+                key={category.key}
+                data-context-key={category.key}
+                style={{ width: `${share(category.tokens) * (category.key === 'other' ? 1 : fit)}%` }}
+              />
+            ))
           ) : (
-            <i style={{ width: `${Math.min(100, usage.percent ?? 0)}%` }} />
+            <i style={{ width: `${Math.min(100, percent ?? 0)}%` }} />
           )}
         </div>
         {parts.map((part) => (
-          <div key={part.key} className="session-rail-row session-rail-part" data-context-key={part.key}>
+          <div
+            key={part.key}
+            className="session-rail-row session-rail-part"
+            data-context-key={part.key}
+            data-zero={part.tokens === 0 || undefined}
+          >
             <i className="session-rail-swatch" aria-hidden="true" />
             <span className="session-rail-cut">{part.label}</span>
             <span className="session-rail-grow" />

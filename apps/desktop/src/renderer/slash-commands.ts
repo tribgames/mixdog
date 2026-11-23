@@ -298,11 +298,30 @@ const ROOM_ASK_COMMAND: DesktopSlashCommand = {
   description: 'Ask one member of this room; the others skip their turn',
 };
 
-export function desktopComposerSlashCommands(draft: string, room = false): ReadonlyArray<DesktopSlashCommand> {
+/** The session control each of Mixdog's model-setting commands sets. */
+const ROUTE_CONTROL_OF_COMMAND: ReadonlyMap<string, string> = new Map([
+  ['effort', 'effort'],
+  ['fast', 'fast'],
+]);
+
+/** The command sets a control the session's route has no use for (`notApplicable` of an external agent's model row:
+ *  an agent's model takes an effort only where the agent runs it at several). */
+export function slashCommandNotApplicable(name: string, notApplicable?: ReadonlySet<string>): boolean {
+  const control = ROUTE_CONTROL_OF_COMMAND.get(name);
+  return control !== undefined && notApplicable?.has(control) === true;
+}
+
+export function desktopComposerSlashCommands(
+  draft: string,
+  room = false,
+  notApplicable?: ReadonlySet<string>
+): ReadonlyArray<DesktopSlashCommand> {
   if (!/^\/[a-z]*$/i.test(draft)) return [];
   const query = draft.toLowerCase();
   const commands = room ? [ROOM_ASK_COMMAND, ...COMPOSER_SLASH_COMMANDS] : COMPOSER_SLASH_COMMANDS;
-  return commands.filter((command) => command.usage.startsWith(query));
+  return commands.filter(
+    (command) => command.usage.startsWith(query) && !slashCommandNotApplicable(command.name, notApplicable)
+  );
 }
 
 export function desktopSlashCommandDescription(command: DesktopSlashCommand): string {

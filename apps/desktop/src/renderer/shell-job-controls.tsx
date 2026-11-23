@@ -178,13 +178,13 @@ export function ShellRowButton({
       key={text}
       type="button"
       className="composer-island-button composer-island-row-dismiss"
-      data-icon={icon ? 'true' : undefined}
+      data-icon={icon}
       aria-label={disabled ? undefined : `${text}: ${row.label}`}
       title={icon ? text : undefined}
       disabled={disabled}
       onClick={onClick}
     >
-      {icon ? <MxIcon name={icon} size={14} /> : text}
+      {icon ? <MxIcon name={icon} size={16} /> : text}
     </button>
   );
   if (action === 'release') {

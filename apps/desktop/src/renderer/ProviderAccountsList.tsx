@@ -36,7 +36,7 @@ import { emptyStateHost } from './empty-state-host';
 import './provider-accounts.css';
 
 export { PROVIDER_ACCOUNTS_CHANGED };
-type ProviderAccount = {
+export type ProviderAccount = {
   id: string;
   label: string;
   authenticated: boolean;
@@ -55,6 +55,14 @@ type UsageWindow = { label?: string; usedPct: number | null; resetAt?: number | 
 type AccountPolicy = 'manual' | 'limit' | 'headroom';
 /** `auto` predates `policy`; a roster without `policy` maps auto off → manual. */
 type Pool = { accounts: ProviderAccount[]; selectedId: string | null; auto: boolean; policy?: AccountPolicy };
+export type ProviderAccountPool = Pool;
+
+/** Where a roster that is no provider's comes from (an external agent's own sign-in): read in place of
+ *  `getProviderAccounts`, changed in place of `updateProviderAccounts`. */
+export interface ProviderAccountSource {
+  read(): Promise<Pool>;
+  update(change: Record<string, unknown>): Promise<Pool>;
+}
 
 const poolPolicy = (pool: Pool): AccountPolicy => pool.policy ?? (pool.auto === false ? 'manual' : 'limit');
 const lastCheckedAt = (pool: Pool): number | null => {
@@ -535,7 +543,12 @@ function usePointerReorder(
 
 /** The account roster of one provider: its load, its mutations and the usage
  *  re-measure, with the shared pool cache kept in step. */
-function useProviderAccountPool(api: UsageApi | undefined, provider: string, onChange?: () => void) {
+function useProviderAccountPool(
+  api: UsageApi | undefined,
+  provider: string,
+  onChange?: () => void,
+  source?: ProviderAccountSource
+) {
   const [pool, setPoolState] = useState<Pool | null>(() => lastPools.get(provider) ?? null);
   const setPool = useCallback(
     (next: Pool) => {
@@ -552,13 +565,16 @@ function useProviderAccountPool(api: UsageApi | undefined, provider: string, onC
   const mutating = useRef(false);
   const invoke = useCallback(
     async (capability: DesktopCapability, args: unknown[]) => {
+      if (source) {
+        return capability === 'getProviderAccounts' ? source.read() : source.update(record(args[1]));
+      }
       if (!api?.invokeCapability) throw new Error(t('Account controls are unavailable.'));
       const response = await invokeOrHeld(api, { capability, args });
       const result = record(response?.value);
       if (!Array.isArray(result.accounts)) throw new Error(t('Account list could not be loaded.'));
       return result as unknown as Pool;
     },
-    [api]
+    [api, source]
   );
   const load = useCallback(async () => {
     const stamp = ++generation.current;
@@ -647,8 +663,11 @@ export function ProviderAccountsList({
   renderActions,
   headerAction,
   onChange,
+  source,
 }: {
   api?: UsageApi;
+  /** The roster of an entry that is no provider's; absent for a provider. */
+  source?: ProviderAccountSource;
   provider: string;
   title?: string;
   listOnly?: boolean;
@@ -656,7 +675,7 @@ export function ProviderAccountsList({
   headerAction?: ReactNode;
   onChange?(): void;
 }) {
-  const { pool, pending, refreshing, error, change, refreshUsage } = useProviderAccountPool(api, provider, onChange);
+  const { pool, pending, refreshing, error, change, refreshUsage } = useProviderAccountPool(api, provider, onChange, source);
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -824,6 +843,11 @@ export function ProviderAccountsList({
                                 onBlur={() => commitName(account)}
                               />
                             </form>
+                          ) : source ? (
+                            // Named by its source: there is no label of the user's to keep.
+                            <span className="provider-account-name">
+                              <b>{account.label}</b>
+                            </span>
                           ) : (
                             <button
                               type="button"

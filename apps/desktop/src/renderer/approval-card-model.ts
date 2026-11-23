@@ -38,10 +38,16 @@ export function approvalReasonText(text: string): string {
 // command approval shows the command; anything else falls back to the JSON.
 const PRIMARY_ARG_KEYS = ['command', 'cmd', 'script', 'patch', 'file_path', 'path', 'url', 'query', 'pattern'];
 
-function approvalDetail(args: unknown): string {
+function approvalDetail(args: unknown, reason: string): string {
   const record = asRecord(args);
   const key = PRIMARY_ARG_KEYS.find((name) => typeof record?.[name] === 'string' && String(record[name]).trim());
-  return key ? String(record?.[key]).trim() : textOf(args).trim();
+  if (key) return String(record?.[key]).trim();
+  // An external agent's call carries its title, which is already the card's sentence.
+  if (record && typeof record.title === 'string' && record.title.trim() === reason) {
+    const { title: _shown, ...rest } = record;
+    return Object.keys(rest).length ? textOf(rest).trim() : '';
+  }
+  return textOf(args).trim();
 }
 
 /** When a secret card lapses (its own expiry); undefined when unknown. A
@@ -222,8 +228,13 @@ export function approvalCardModel(approval: Approval) {
   const takeover = asRecord(approval.takeover);
   const secret = asRecord(approval.secret);
   const scopes = asRecord(approval.permission)?.scopes;
+  // An external agent's call (mixdog-acp): its own title is the reason, and an untitled one is worded here.
+  const agentLabel = kind === 'approval' ? String(asRecord(approval.agent)?.label || '').trim() : '';
+  const untitledAgentCall =
+    agentLabel && approval.untitled === true ? t('{{agent}} asks to run a tool', { agent: agentLabel }) : '';
   let title = t('Tool approval required');
-  let text = approvalText(approval.reason, 'message') || t('Review this tool request before continuing.');
+  let text =
+    approvalText(approval.reason, 'message') || untitledAgentCall || t('Review this tool request before continuing.');
   if (outbound) {
     title = actionLabel(action);
     text = actionText(action) || text;
@@ -287,7 +298,9 @@ export function approvalCardModel(approval: Approval) {
     tool: outbound || kind !== 'approval' ? '' : String(approval.name || ''),
     /** The tool the call is for, whatever the card (an outbound card shows its action instead of the tool). */
     callName: String(approval.name || ''),
-    detail: outbound || office || kind !== 'approval' ? '' : approvalDetail(approval.args),
+    /** The external agent whose call this is ('' for Mixdog's own tools): the card's service. */
+    agentLabel,
+    detail: outbound || office || kind !== 'approval' ? '' : approvalDetail(approval.args, text),
     // A secret's site is its title; its target is never repeated under it.
     target: String(outbound?.target || ''),
     account: String(outbound?.account || ''),

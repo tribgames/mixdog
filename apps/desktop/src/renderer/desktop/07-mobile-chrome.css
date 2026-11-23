@@ -529,14 +529,22 @@ html[data-mixdog-mobile-tabs] {
 }
 /* Tier 2 for the shared title-row slot: EVERY panel that owns it draws the
    same +. Sessions had the 44 box while Projects/Schedules/Webhooks arrived
-   at their desktop 28, so the control changed size as the panel changed. */
-html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .session-panel-action {
+   at their desktop 28, so the control changed size as the panel changed.
+   The Bots page draws the same title row in its utility dock header. */
+html[data-mixdog-mobile-tabs]
+  :is(.session-sidebar, .utility-dock-header)
+  .session-panel-header-actions
+  > .session-panel-action {
   width: 44px;
   height: 44px;
   min-width: 44px;
   flex-basis: 44px;
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .session-panel-action > svg {
+html[data-mixdog-mobile-tabs]
+  :is(.session-sidebar, .utility-dock-header)
+  .session-panel-header-actions
+  > .session-panel-action
+  > svg {
   width: 22px;
   height: 22px;
 }
@@ -545,7 +553,10 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
    a centered 44px box pulled the glyph 8px inboard of that line. The extra
    width is spent outward, into the rail's own 8px inset — the LAST action
    only, so a slot holding two actions keeps its own gap. */
-html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
+html[data-mixdog-mobile-tabs]
+  :is(.session-sidebar, .utility-dock-header)
+  .session-panel-header-actions
+  > .session-panel-action:last-child {
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
 }
 /* The session-order ⋯ shares the header slot with search, so it takes the

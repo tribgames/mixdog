@@ -1,51 +1,64 @@
-// The session panel: cards right of a pane's reading column. How wide they
-// may be there, what the conversation gives up for them, and the slot their
-// body is drawn into.
-import { useSyncExternalStore } from 'react';
-import { PANE_SIDE_DOCK_SHEET_FRAME_WIDTH, SESSION_RAIL_WIDTH_KEY } from './pane-side-dock-model';
+// The session panel: a band at a pane's right edge, beside the conversation,
+// over it, or over the whole pane. How wide it may be there, what the
+// conversation gives up for it, and the slot its body is drawn into.
+import { createContext, useSyncExternalStore } from 'react';
+import {
+  PANE_SIDE_DOCK_MIN_WIDTH,
+  PANE_SIDE_DOCK_SHEET_FRAME_WIDTH,
+  type PaneSidePresentation,
+  paneSidePresentation,
+  paneSideRoom,
+  SESSION_RAIL_WIDTH_KEY,
+} from './pane-side-dock-model';
 
 export const SESSION_RAIL_MIN_WIDTH = 300;
-/** Until the user widens them, the cards take the least room they can. */
+/** Until the user widens it, the panel takes the least room it can. */
 export const SESSION_RAIL_DEFAULT_WIDTH = SESSION_RAIL_MIN_WIDTH;
 export const SESSION_RAIL_MAX_WIDTH = 560;
-/** The transcript scrollbar's lane, right of the cards (session-rail.css). */
+/** The panel's two 4px edges beside its width (session-rail.css). */
 export const SESSION_RAIL_GAP = 8;
-/** The conversation width that holds the reading column and composer in
- *  full: --pane-column's 800px floor (12-transcript.css) with 8px to spare
- *  either side, which leaves the composer 32px from each edge. */
-export const PANE_READING_COLUMN_MAX = 816;
+
+/** --pane-column in a conversation `width` wide, from 768px on
+ *  (12-transcript.css): clamp(800px, 80cqi, 848px). */
+export function paneReadingColumn(width: number): number {
+  return Math.min(848, Math.max(800, 0.8 * width));
+}
 
 export function clampSessionRailWidth(width: number): number {
   const value = Number.isFinite(width) ? width : SESSION_RAIL_DEFAULT_WIDTH;
   return Math.round(Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, value)));
 }
 
-/** The cards in a pane cell `cellWidth` wide (the cell's width, not the
- *  window's): their `width`, 0 when they have no room, and the `reserve` the
- *  conversation gives up on its right for them. A dock beside the
- *  conversation keeps its width (`dockWidth`), and the reading column and
- *  composer keep their widest: the cards take what the two margins beside
- *  that column add up to, down to their own minimum. While the right margin
- *  alone holds them nothing moves (`reserve` 0); with less the conversation
- *  re-centres left of them. With no room they are not shown, and the composer
- *  keeps its island and controls. */
-export function sessionRailFit({
-  cellWidth,
-  dockWidth,
-  railPref,
-}: {
-  cellWidth: number;
-  /** 0 when no dock is open beside the conversation (none, or one below it). */
-  dockWidth: number;
-  railPref: number;
-}): { width: number; reserve: number } {
-  const dockReserve = dockWidth > 0 ? PANE_SIDE_DOCK_SHEET_FRAME_WIDTH + dockWidth : 0;
-  const margins = cellWidth - dockReserve - PANE_READING_COLUMN_MAX;
-  const room = margins - SESSION_RAIL_GAP;
-  if (room < SESSION_RAIL_MIN_WIDTH) return { width: 0, reserve: 0 };
-  const width = Math.min(clampSessionRailWidth(railPref), room);
+export type SessionRailFit = { width: number; reserve: number; presentation: PaneSidePresentation };
+
+/** The panel in a pane cell `cellWidth` wide (the cell's width, not the
+ *  window's), on the ladder every side-dock surface takes, with the same room
+ *  and floor (paneSidePresentation): its `width`, the `reserve` the
+ *  conversation gives up on its right for it, and its `presentation`. Beside
+ *  the conversation while the conversation keeps its floor: the panel takes
+ *  what the conversation leaves it there, never under its own minimum, which
+ *  its rows need and which is above the ladder's floor. Nothing
+ *  moves (`reserve` 0) while the transcript scroller, giving up the panel's
+ *  band on both sides (session-rail.css --session-rail-over), still holds the
+ *  column the pane gives its rows; with less the conversation re-centres
+ *  left of it. Without that room it floats over the conversation at its own
+ *  width, and in a pane too narrow for that it takes all of it. */
+export function sessionRailFit({ cellWidth, railPref }: { cellWidth: number; railPref: number }): SessionRailFit {
+  const { presentation, avail } = paneSidePresentation({
+    cellWidth,
+    room: paneSideRoom(cellWidth, PANE_SIDE_DOCK_SHEET_FRAME_WIDTH),
+    columnMin: PANE_SIDE_DOCK_MIN_WIDTH,
+    inlineFloor: PANE_SIDE_DOCK_MIN_WIDTH,
+  });
+  if (presentation === 'full') return { width: Math.max(0, cellWidth - SESSION_RAIL_GAP), reserve: 0, presentation };
+  const pref = clampSessionRailWidth(railPref);
+  if (presentation === 'overlay') {
+    return { width: Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(pref, avail)), reserve: 0, presentation };
+  }
+  const width = Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(pref, paneSideRoom(cellWidth, SESSION_RAIL_GAP)));
   const taken = width + SESSION_RAIL_GAP;
-  return { width, reserve: margins / 2 >= taken ? 0 : taken };
+  const reserve = cellWidth - 2 * taken >= paneReadingColumn(cellWidth) ? 0 : taken;
+  return { width, reserve, presentation };
 }
 
 // ── The one width every pane's panel takes, live ─────────────────────────
@@ -97,20 +110,23 @@ export function useSessionRailWidth(): number {
   );
 }
 
-// ── The slot each pane's card offers its conversation ────────────────────
+// ── The slot each pane's panel offers its conversation ───────────────────
 
-/** `sessionId`: the session the pane shows, the only one the panel draws. */
-export type SessionRailSlot = { element: HTMLElement | null; sessionId: string };
+/** `sessionId`: the session the pane shows, the only one the panel draws;
+ *  `draftId`: the New Task draft it shows instead ('' with a session). */
+export type SessionRailSlot = { element: HTMLElement | null; sessionId: string; draftId: string };
 
-const CLOSED_SLOT: SessionRailSlot = { element: null, sessionId: '' };
+const CLOSED_SLOT: SessionRailSlot = { element: null, sessionId: '', draftId: '' };
 const slots = new Map<string, SessionRailSlot>();
 const listeners = new Set<() => void>();
 
-/** The card of pane `leafId`, or null when it is gone. */
+/** The panel of pane `leafId`, or null when it is gone. */
 export function publishSessionRailSlot(leafId: string, slot: SessionRailSlot | null): void {
   const current = slots.get(leafId) ?? CLOSED_SLOT;
   const next = slot ?? CLOSED_SLOT;
-  if (current.element === next.element && current.sessionId === next.sessionId) return;
+  if (current.element === next.element && current.sessionId === next.sessionId && current.draftId === next.draftId) {
+    return;
+  }
   if (slot) slots.set(leafId, slot);
   else slots.delete(leafId);
   for (const listener of [...listeners]) listener();
@@ -126,16 +142,43 @@ export function sessionRailSlot(leafId: string): SessionRailSlot {
 }
 
 /** The element one conversation draws the panel into, or null: only the
- *  pane's own, on-screen conversation of the session the pane shows owns the
- *  card (not a retained one, a parked one or a sub-agent's in the dock). The
- *  card takes that conversation's island and the controls under its composer;
- *  without it the composer keeps them. */
+ *  pane's own, on-screen conversation of the session or New Task draft the
+ *  pane shows owns the panel (not a retained one, a parked one or a
+ *  sub-agent's in the dock). The panel takes that conversation's island and
+ *  the controls under its composer; without it the composer keeps them. */
 export function sessionRailHost(
   slot: SessionRailSlot,
-  conversation: { sessionId: string; onScreen: boolean }
+  conversation: { sessionId: string; draftId?: string; onScreen: boolean }
 ): HTMLElement | null {
-  const owner = conversation.onScreen && Boolean(conversation.sessionId) && conversation.sessionId === slot.sessionId;
-  return owner ? slot.element : null;
+  const { sessionId, draftId = '', onScreen } = conversation;
+  const shown = sessionId ? sessionId === slot.sessionId : Boolean(draftId) && draftId === slot.draftId;
+  return onScreen && shown ? slot.element : null;
+}
+
+/** A conversation's part in its pane's hand-over (pane-surface-model.ts): the
+ *  one switched to, laid out unseen until it can be shown (`incoming`), or the
+ *  one the pane still shows meanwhile (`outgoing`). */
+export type PaneHandOver = 'incoming' | 'outgoing' | null;
+
+export const PaneHandOverContext = createContext<PaneHandOver>(null);
+
+/** One conversation's part in its pane's panel: `host`, the element it draws
+ *  the panel into, or null; `taken`, its composer leaves the panel its island
+ *  and controls. The slot names the pane's active tab, which during a
+ *  hand-over is already the conversation switched to while the pane still
+ *  shows the one before it: that one keeps the panel until the pane hands
+ *  over, and the one switched to is laid out as the panel will leave it,
+ *  drawing nothing until then. */
+export function sessionRailPlace(
+  slot: SessionRailSlot,
+  conversation: { sessionId: string; draftId?: string; onScreen: boolean; handOver: PaneHandOver }
+): { host: HTMLElement | null; taken: boolean } {
+  if (conversation.handOver === 'outgoing') {
+    const host = conversation.onScreen ? slot.element : null;
+    return { host, taken: Boolean(host) };
+  }
+  const own = sessionRailHost(slot, conversation);
+  return { host: conversation.handOver === 'incoming' ? null : own, taken: Boolean(own) };
 }
 
 /** The session panel of the pane the caller is drawn in. */

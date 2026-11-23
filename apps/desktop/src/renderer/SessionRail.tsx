@@ -1,6 +1,6 @@
 // The session panel's body: the session's state and actions as categories,
-// each a sheet of its own in the order the user arranged, drawn into the
-// pane's card (SessionRailCard) from the conversation.
+// each a section of its own in the order the user arranged, drawn into the
+// pane's panel (SessionRailCard) from the conversation.
 import { Fragment, type ReactNode, useRef } from 'react';
 import type { DesktopProjectSummary, DesktopSessionWorkspace } from '../shared/contract';
 import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
@@ -13,17 +13,24 @@ import type { RouteSessionChoice } from './route-editor-panes';
 import { SessionGoalHost } from './session-goal-submission';
 import { ChangesSection, GitSection } from './session-rail-changes';
 import {
+  SESSION_RAIL_DRAFT_FOLDS,
   type SessionRailCategory,
   useFoldedModelPickerRequest,
   useSessionRailFolds,
   useSessionRailOrder,
 } from './session-rail-folds';
 import { GoalSection, TodoSection } from './session-rail-goal';
-import { ContextSection, InfoSection, type RailModelProps } from './session-rail-info';
+import {
+  ContextSection,
+  DraftInfoSection,
+  type DraftRailInfo,
+  InfoSection,
+  type RailModelProps,
+} from './session-rail-info';
 import { AgentsSection, ShellsSection } from './session-rail-jobs';
 import { useSessionRailMotion } from './session-rail-motion';
+import { OutputsSection } from './session-rail-outputs';
 import { sessionRailDragging } from './session-rail-parts';
-import { WorktreesSection } from './session-rail-worktrees';
 import { useSessionGoal } from './SessionGoalIsland';
 
 export type SessionRailProps = {
@@ -51,6 +58,8 @@ export type SessionRailProps = {
   onMoveSessionToProject?: (sessionId: string, projectPath: string) => Promise<void>;
   onAddProject?: (onAdded?: (projectPath: string) => void) => void;
   onOpenCommandSurface(surface: 'context' | 'stats'): void;
+  /** A New Task draft (no session yet): the panel holds its Info alone. */
+  draft?: DraftRailInfo;
 };
 
 const flashToast = (flash: ComposerIslandFlash) => showDesktopToast(flash.text, 'info');
@@ -69,12 +78,6 @@ function SessionRailCategories(props: SessionRailProps) {
     props.pendingInput ||
     jobs.shellCount > 0 ||
     jobs.agentRows.some((row) => !row.finished);
-  const refreshKey = [
-    Boolean(snapshot.busy),
-    Boolean(snapshot.commandBusy),
-    workspace?.revision ?? '',
-    workspace?.cwd ?? '',
-  ].join(':');
   const gitCwd = workspace?.cwd || routeProject;
   const fold = (category: Parameters<typeof folds.toggle>[0]) => ({
     open: folds.isOpen(category),
@@ -82,7 +85,7 @@ function SessionRailCategories(props: SessionRailProps) {
   });
   // A group room shows no model and no context (each member runs its own), here as under the composer.
   const room = Boolean(roomIdOfSession(reviewSessionId || sessionId));
-  // The composer under the card is bare: the panel's Model row answers requestOpenModelPicker.
+  // The composer beside the panel is bare: the panel's Model row answers requestOpenModelPicker.
   const answersModelPicker = props.reviewActive && !room;
   useFoldedModelPickerRequest(answersModelPicker, folds.isOpen('info'), () => folds.toggle('info'));
   const order = useSessionRailOrder();
@@ -121,7 +124,6 @@ function SessionRailCategories(props: SessionRailProps) {
     agents: (
       <AgentsSection
         {...fold('agents')}
-        folds={folds}
         sessionId={sessionId}
         agents={jobs.agentRows}
         poolRows={jobs.poolRows}
@@ -131,17 +133,7 @@ function SessionRailCategories(props: SessionRailProps) {
       />
     ),
     shells: <ShellsSection {...fold('shells')} sessionId={sessionId} shells={jobs.jobRows} shellKeys={jobs.shellKeys} />,
-    worktrees: !agentMode && (
-      <WorktreesSection
-        {...fold('worktrees')}
-        sessionId={reviewSessionId || sessionId}
-        workspace={workspace}
-        projectPath={routeProject}
-        locked={locked}
-        refreshKey={refreshKey}
-        onFlash={flashToast}
-      />
-    ),
+    outputs: <OutputsSection {...fold('outputs')} sessionId={sessionId} />,
     changes: !agentMode && TurnReviewBar && (
         <TurnReviewBar
           variant="segment"
@@ -168,12 +160,32 @@ function SessionRailCategories(props: SessionRailProps) {
   return order.map((category) => <Fragment key={category}>{sections[category]}</Fragment>);
 }
 
+/** A draft's panel: its Info, folded and asking for the model picker as a session's does. */
+function DraftRailCategories({ draft, ...props }: SessionRailProps & { draft: DraftRailInfo }) {
+  const folds = useSessionRailFolds(SESSION_RAIL_DRAFT_FOLDS);
+  useFoldedModelPickerRequest(props.reviewActive, folds.isOpen('info'), () => folds.toggle('info'));
+  return (
+    <DraftInfoSection
+      open={folds.isOpen('info')}
+      onToggle={() => folds.toggle('info')}
+      draft={draft}
+      projectPath={props.projectPath}
+      projectLabel={props.projectLabel}
+      projects={props.projects}
+      answersModelPickerRequests={props.reviewActive}
+      model={props.model}
+      onAddProject={props.onAddProject}
+    />
+  );
+}
+
 /** The panel's categories, in order, each absent when it has nothing. */
 export default function SessionRail(props: SessionRailProps) {
   const content = useRef<HTMLDivElement>(null);
-  useSessionRailMotion(content, props.reviewSessionId || props.sessionId);
+  const { draft } = props;
+  useSessionRailMotion(content, draft ? `new:${draft.draftId}` : props.reviewSessionId || props.sessionId);
   return (
-    // A card let go between two cards is still a drop: the order it was dragged to stays.
+    // A section let go between two sections is still a drop: the order it was dragged to stays.
     <div
       ref={content}
       className="session-rail-content"
@@ -185,7 +197,7 @@ export default function SessionRail(props: SessionRailProps) {
       }}
     >
       <SessionGoalHost submissionId={props.goalSubmissionId}>
-        <SessionRailCategories {...props} />
+        {draft ? <DraftRailCategories {...props} draft={draft} /> : <SessionRailCategories {...props} />}
       </SessionGoalHost>
     </div>
   );

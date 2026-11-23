@@ -1217,6 +1217,16 @@ export function desktopToolActivityItemPresentation(
     if (diffPatch) diffCounts = patchLineCounts(diffPatch);
     else diffCounts = digest?.counts ?? (gitPatchOutput ? facts.patchCounts : null);
   }
+  const callVerb =
+    fileChangeVerb(
+      category,
+      model.pending,
+      tone,
+      diffPatch ? parseUnifiedDiff(diffPatch).map((file) => file.status) : (digest?.statuses ?? null),
+      originalName
+    ) || desktopToolActivityRowVerb(name, item.args, Boolean(facts.described));
+  // A result that arrived after its call was closed is shown as its own item that names the call.
+  const lateResult = typeof asRecord(wireItem.args)?.resultOf === 'string';
   const hasDetails = Boolean(
     commandIsDetail ||
       targets.length ||
@@ -1236,14 +1246,7 @@ export function desktopToolActivityItemPresentation(
     category,
     title,
     ...(identity.via ? { via: identity.via } : {}),
-    verb:
-      fileChangeVerb(
-        category,
-        model.pending,
-        tone,
-        diffPatch ? parseUnifiedDiff(diffPatch).map((file) => file.status) : (digest?.statuses ?? null),
-        originalName
-      ) || desktopToolActivityRowVerb(name, item.args, Boolean(facts.described)),
+    verb: lateResult ? t('Result of {{call}}', { call: callVerb }) : callVerb,
     subject,
     targets,
     resultLabel: describe ? describeResultLabel(describe) : outcome.resultLabel,

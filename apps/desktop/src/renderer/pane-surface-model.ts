@@ -358,8 +358,13 @@ export function usePaneConversationOwners(
   for (const entry of conversationLeaves.filter((candidate) => !candidate.retained && !candidate.handoff)) {
     const shown = presented.current.get(entry.leaf.id);
     const mounted = shown !== undefined && conversationOwners.current.some((owner) => owner.key === shown.owner);
+    // The owner the pane showed went with its tab to another pane and draws there: this pane has nothing to keep on
+    // screen meanwhile.
+    const moved =
+      shown !== undefined &&
+      conversationLeaves.some((candidate) => candidate.owner === shown.owner && candidate.leaf.id !== entry.leaf.id);
     // A parked conversation is behind another surface: there is nothing to hand over on screen.
-    if (!handsOver || !shown || !mounted || shown.owner === entry.owner || entry.parked) {
+    if (!handsOver || !shown || !mounted || moved || shown.owner === entry.owner || entry.parked) {
       presented.current.set(entry.leaf.id, { owner: entry.owner, surface: entry });
       continue;
     }

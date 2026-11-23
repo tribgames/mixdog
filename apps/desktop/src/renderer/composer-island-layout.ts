@@ -17,11 +17,35 @@ function evictOldest<K>(map: Map<K, unknown>, max: number): void {
 /** Below this the worktree name reads as noise: the narrow island keeps its glyph alone. */
 const WORKTREE_NAME_MIN_PX = 72;
 
-/** Full-label pill widths by what decides them (labelFitKey): a pill drawn
- *  again with the same content — a revisited session's island remounting, a
- *  segment re-rendering unchanged — reuses its width instead of reading it. */
-const fullLabelWidths = new Map<string, number>();
-const FULL_LABEL_WIDTHS_MAX = 200;
+/** The pill's labels give way one step at a time, least needed first (words
+ *  before figures; counts and state marks never go), and come back in the
+ *  reverse order. A fit is how many steps are taken; the island lists them in
+ *  data-fit, which the stylesheet reads. */
+const FIT_STEPS = [
+  'git-word',
+  'files-word',
+  'files-lines',
+  'shell-word',
+  'agents-word',
+  'goal-time',
+  'branch-cap',
+  'branch-glyph',
+  'tight',
+] as const;
+const LAST_FIT = FIT_STEPS.length;
+/** The first fits that take the worktree name's cap and its glyph step. */
+const BRANCH_CAPPED = FIT_STEPS.indexOf('branch-cap') + 1;
+const BRANCH_GLYPH = FIT_STEPS.indexOf('branch-glyph') + 1;
+const fitTokens = (fit: number) => FIT_STEPS.slice(0, fit).join(' ');
+
+/** A form's pill at its natural width, and how far its capped worktree name
+ *  may still squeeze before only the glyph reads. */
+type FormWidth = { width: number; squeeze: number };
+/** Each form's width by what decides them (labelFitKey), read as a fit needs
+ *  it: a pill drawn again with the same content — a revisited session's island
+ *  remounting, a segment re-rendering unchanged — reuses them. */
+const formWidths = new Map<string, FormWidth[]>();
+const FORM_WIDTHS_MAX = 200;
 
 /** The pill's markup plus the root's attributes (theme, text size): equal
  *  keys lay out to equal widths. */
@@ -30,26 +54,27 @@ function labelFitKey(pill: Element): string {
   return `${root.className}|${root.getAttribute('style') ?? ''}|${JSON.stringify(root.dataset)}|${pill.innerHTML}`;
 }
 
-/** The fit's give-way attributes, in the order they come off. */
-const FIT_ATTRIBUTES = ['data-compact', 'data-fit-tight', 'data-fit-pips', 'data-fit-glyph'] as const;
-/** The last fitted state per room (the card's width, which every session of a
- *  window shares): a new island starts from it instead of the full labels. */
-const fitByRoom = new Map<number, readonly string[]>();
+/** The last fit per room (the card's width, which every session of a window
+ *  shares): a new island starts from it instead of the full labels. */
+const fitByRoom = new Map<number, number>();
 const FIT_BY_ROOM_MAX = 40;
-let lastFit: readonly string[] = [];
-/** Once compact, the full labels come back only with this much room to spare
- *  past their width: a count that grows or shrinks a digit near the limit
- *  never flips the island between the two forms. */
+let lastFit = 0;
+/** A form that gave way comes back only with this much room to spare past its
+ *  width: a count that grows or shrinks a digit near the limit never flips the
+ *  island between two forms. */
 const FIT_EXPAND_MARGIN_PX = 24;
+/** The pill's width at rest, which an opened panel takes (15-composer.css). */
+const REST_WIDTH = '--island-rest-width';
 
-function applyFit(island: HTMLElement, attributes: readonly string[]): void {
-  for (const name of FIT_ATTRIBUTES) island.toggleAttribute(name, attributes.includes(name));
+function applyFit(island: HTMLElement, fit: number): void {
+  const tokens = fitTokens(fit);
+  if (island.getAttribute('data-fit') !== tokens) island.setAttribute('data-fit', tokens);
 }
 
-function rememberFit(island: HTMLElement, room: number): void {
-  lastFit = FIT_ATTRIBUTES.filter((name) => island.hasAttribute(name));
+function rememberFit(fit: number, room: number): void {
+  lastFit = fit;
   fitByRoom.delete(room);
-  fitByRoom.set(room, lastFit);
+  fitByRoom.set(room, fit);
   evictOldest(fitByRoom, FIT_BY_ROOM_MAX);
 }
 
@@ -59,104 +84,116 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
     const pill = pillRef.current;
     const stage = island?.parentElement;
     if (!island || !pill || !stage) return undefined;
-    let needed = -1;
     let room = -1;
-    const measureFull = (key: string) => {
-      // data-measuring draws the full labels over data-compact (the
-      // stylesheet), so the compact flag itself is never taken off to read.
-      island.setAttribute('data-measuring', '');
-      needed = pill.offsetWidth;
+    let fit = fitByRoom.get(stage.clientWidth) ?? lastFit;
+    let widths: FormWidth[] = [];
+    let widthsKey = '';
+    // A form is read under data-measuring, which lays out the steps it names
+    // at the pill's natural width over the fit shown (the stylesheet), so the
+    // shown fit is never taken off to read.
+    const readForm = (form: number): FormWidth => {
+      island.setAttribute('data-measuring', fitTokens(form));
+      const width = pill.getBoundingClientRect().width;
+      const name =
+        form >= BRANCH_CAPPED && form < BRANCH_GLYPH
+          ? pill.querySelector('.composer-island-seg-branch .composer-island-seg-text')
+          : null;
+      const squeeze = name ? Math.max(0, name.getBoundingClientRect().width - WORKTREE_NAME_MIN_PX) : 0;
+      return { width, squeeze };
+    };
+    const readWidths = (key: string, fresh: boolean) => {
+      widthsKey = key;
+      widths = (fresh ? undefined : formWidths.get(key)) ?? [];
+      formWidths.delete(key);
+      formWidths.set(key, widths);
+      evictOldest(formWidths, FORM_WIDTHS_MAX);
+    };
+    // The width a form takes in this room. The capped worktree name squeezes
+    // only against the room's own edge: no style holds the bot's reserve.
+    const needOf = (form: number, reserve: number) => {
+      const known = widths[form] ?? readForm(form);
+      widths[form] = known;
+      return known.width - (reserve > 0 ? 0 : known.squeeze);
+    };
+    // The fullest form that fits, read from the form shown outward. A wider
+    // form than the one shown needs the expand margin; while a late segment's
+    // reserve (IslandSegmentPending) stands in for it, the pill measures
+    // narrower than it will once the segment arrives, so nothing widens.
+    const decide = () => {
+      const reserve = petIslandReserveFor(island);
+      const budget = room - 2 * reserve;
+      const shown = needOf(fit, reserve);
+      let next = fit;
+      if (shown > budget) {
+        while (next < LAST_FIT && needOf(next, reserve) > budget) next += 1;
+      } else if (!pill.querySelector('[data-island-pending]')) {
+        while (next > 0) {
+          const wider = needOf(next - 1, reserve);
+          if (wider + (wider > shown ? FIT_EXPAND_MARGIN_PX : 0) > budget) break;
+          next -= 1;
+        }
+      }
       island.removeAttribute('data-measuring');
-      fullLabelWidths.set(key, needed);
-      evictOldest(fullLabelWidths, FULL_LABEL_WIDTHS_MAX);
+      return { next, fits: needOf(next, reserve) <= budget };
     };
     // Read as laid out: a segment still gliding to its place (useIslandGlide)
     // paints past the pill's edge without overflowing it.
     const overflows = () => withoutGlides(island, () => pill.scrollWidth > pill.clientWidth);
-    const budget = () => room - 2 * petIslandReserveFor(island);
-    const fitLabels = (contentChanged: boolean) => {
-      if (room < 0) return;
-      const wasCompact = island.hasAttribute('data-compact');
-      if (contentChanged || needed < 0) {
-        const key = labelFitKey(pill);
-        const known = fullLabelWidths.get(key);
-        if (known !== undefined) needed = known;
-        else measureFull(key);
+    const refit = () => {
+      // Only the resting pill is fitted: an open tab hides or fills it.
+      if (room <= 0 || island.getAttribute('data-mode') !== 'pill') return;
+      // The widths are trusted only for what decides them, compared on every
+      // path: a room change, the bot's reserve or the pill resizing may come
+      // with other type (a smaller text size) and no change of markup.
+      const key = labelFitKey(pill);
+      if (key !== widthsKey) readWidths(key, false);
+      let decided = decide();
+      applyFit(island, decided.next);
+      // The remembered widths came from other glyph metrics (a web font that
+      // landed since, a fallback face): a form that should fit overflows as
+      // laid out, so the forms are read again instead of trusted.
+      if (decided.fits && overflows()) {
+        readWidths(key, true);
+        decided = decide();
+        applyFit(island, decided.next);
       }
-      // A late segment's reserve (IslandSegmentPending) holds the compact
-      // width it was last drawn at: the pill measures narrower than it will
-      // once the segment arrives, so a compact island waits for it.
-      const reserved = wasCompact && pill.querySelector('[data-island-pending]') !== null;
-      const compact = reserved || needed + (wasCompact ? FIT_EXPAND_MARGIN_PX : 0) > budget();
-      if (compact !== island.hasAttribute('data-compact')) island.toggleAttribute('data-compact', compact);
-      // The remembered width came from other glyph metrics (a web font that
-      // landed since, a fallback face): the labels as laid out overflow, so
-      // they are read again instead of trusted.
-      if (!compact && overflows()) {
-        measureFull(labelFitKey(pill));
-        island.toggleAttribute('data-compact', needed > budget() || overflows());
-      }
-    };
-    // Last resort once compact still overflows: the agents' running state
-    // gives way to the segment's pulse and padding tightens.
-    const fitTight = () => {
-      if (island.hasAttribute('data-compact') && overflows()) island.setAttribute('data-fit-tight', '');
-    };
-    // The worktree name is the one label that gives way after compact (which
-    // already drops its prefix and caps it): a name squeezed below its cap
-    // takes the Goal's pips, and below a readable width only its glyph stays.
-    const fitWorktree = () => {
-      const name = pill.querySelector<HTMLElement>('.composer-island-seg-branch .composer-island-seg-text');
-      if (!name || !island.hasAttribute('data-compact')) return;
-      const cut = () => name.scrollWidth > name.clientWidth;
-      if (cut() && name.clientWidth < Number.parseFloat(getComputedStyle(name).maxWidth)) {
-        island.setAttribute('data-fit-pips', '');
-      }
-      if (cut() && name.clientWidth < WORKTREE_NAME_MIN_PX) island.setAttribute('data-fit-glyph', '');
-    };
-    // What the last fit decided from: a DOM change that leaves the pill's
-    // markup, the room and the bot's reserve as they were decides nothing new.
-    let fitSignature = '';
-    const fit = (contentChanged: boolean) => {
-      if (room < 0) return;
-      if (contentChanged) {
-        const signature = `${labelFitKey(pill)}|${room}|${petIslandReserveFor(island)}`;
-        if (signature === fitSignature) return;
-        fitSignature = signature;
-      }
-      island.removeAttribute('data-fit-tight');
-      island.removeAttribute('data-fit-pips');
-      island.removeAttribute('data-fit-glyph');
-      fitLabels(contentChanged);
-      fitWorktree();
-      fitTight();
-      rememberFit(island, room);
+      fit = decided.next;
+      rememberFit(fit, room);
     };
     const initialRoom = stage.clientWidth;
+    applyFit(island, fit);
     if (initialRoom > 0) {
-      applyFit(island, fitByRoom.get(initialRoom) ?? lastFit);
       room = initialRoom;
-      fit(true);
+      refit();
     }
     // Delivered after the frame's layout: the room's read costs no layout.
     // The pill is watched too: type that lands later (fonts) resizes it with
-    // no change of room or content.
-    const resize = new ResizeObserver(() => {
-      const first = room < 0;
-      room = stage.clientWidth;
-      fit(first);
+    // no change of room or content, and its resting width is what an opened
+    // panel takes. A stage with no box (its surface hidden) decides nothing.
+    const resize = new ResizeObserver((entries) => {
+      const next = stage.clientWidth;
+      if (next > 0) {
+        room = next;
+        refit();
+      }
+      for (const entry of entries) {
+        const width = entry.borderBoxSize?.[0]?.inlineSize ?? 0;
+        if (entry.target === pill && width > 0 && island.getAttribute('data-mode') === 'pill') {
+          stage.style.setProperty(REST_WIDTH, `${width}px`);
+        }
+      }
     });
     resize.observe(stage);
     resize.observe(pill);
     const fonts = document.fonts;
-    const refit = () => {
-      fullLabelWidths.clear();
-      fitSignature = '';
-      fit(true);
+    const reread = () => {
+      formWidths.clear();
+      widthsKey = '';
+      refit();
     };
-    fonts?.addEventListener?.('loadingdone', refit);
-    const stopReserve = subscribePetIslandReserve(() => fit(false));
-    const mutation = new MutationObserver(() => fit(true));
+    fonts?.addEventListener?.('loadingdone', reread);
+    const stopReserve = subscribePetIslandReserve(refit);
+    const mutation = new MutationObserver(refit);
     mutation.observe(pill, {
       subtree: true,
       childList: true,
@@ -167,7 +204,7 @@ export function useIslandFit(islandRef: RefObject<HTMLDivElement | null>, pillRe
       resize.disconnect();
       mutation.disconnect();
       stopReserve();
-      fonts?.removeEventListener?.('loadingdone', refit);
+      fonts?.removeEventListener?.('loadingdone', reread);
     };
   }, [islandRef, pillRef]);
 }
@@ -183,16 +220,7 @@ const GLIDE_TIMING: KeyframeAnimationOptions = {
 /** Changes smaller than this are left to land in place. */
 const GLIDE_MIN_PX = 0.5;
 /** What can move the pill's segments or a panel's rows and height. */
-const GLIDE_ATTRIBUTES = [
-  'data-mode',
-  'data-expanded',
-  'data-compact',
-  'data-fit-tight',
-  'data-fit-pips',
-  'data-fit-glyph',
-  'hidden',
-  'style',
-];
+const GLIDE_ATTRIBUTES = ['data-mode', 'data-expanded', 'data-fit', 'hidden', 'style'];
 
 /** The element's own glides, its ::before frame's included (which only a
  *  subtree query lists). */
@@ -231,7 +259,11 @@ export function withoutGlides<T>(island: Element, read: () => T): T {
 }
 
 function glideTo(element: Element, keyframes: Keyframe[], options: KeyframeAnimationOptions = {}): Animation {
-  return element.animate(keyframes, { ...GLIDE_TIMING, ...options });
+  const animation = element.animate(keyframes, { ...GLIDE_TIMING, ...options });
+  // One start for every glide of a change: a composited one (a row's transform) would otherwise start a frame after
+  // a main-thread one (the panel's height), and the rows would drift against the panel's edge meanwhile.
+  animation.startTime = document.timeline.currentTime;
+  return animation;
 }
 
 /** The island never jumps when something in it changes size or place: a
@@ -412,8 +444,7 @@ function slotHeights(): Map<string, number> {
 /** Each session's last decided advance (width plus separator margin; 0 once
  *  it showed none) of the segments that read late. A remount reserves them
  *  while the segments re-read (IslandSegmentPending). */
-type AdvanceForm = 'compact' | 'full';
-const segmentAdvances = new Map<string, Partial<Record<AdvanceForm, Partial<IslandSegmentReserves>>>>();
+const segmentAdvances = new Map<string, Record<string, Partial<IslandSegmentReserves>>>();
 /** The pill markup each session's advances were last read from. */
 const recordedPillMarkup = new Map<string, string>();
 const RESERVED_SEGMENTS: Record<IslandReservedSegment, string> = {
@@ -424,10 +455,10 @@ const RESERVED_SEGMENTS: Record<IslandReservedSegment, string> = {
 
 export function rememberedSegmentAdvances(sessionId: string): Partial<IslandSegmentReserves> | undefined {
   // A segment's advance is read in the form the island will start in (the
-  // last fit's): its compact and full widths differ, and a reserve of the
-  // other form would shift every neighbour when the segment arrives.
+  // last fit's): each form's widths differ, and a reserve of another form
+  // would shift every neighbour when the segment arrives.
   if (!sessionId) return undefined;
-  return segmentAdvances.get(sessionId)?.[lastFit.includes('data-compact') ? 'compact' : 'full'];
+  return segmentAdvances.get(sessionId)?.[fitTokens(lastFit)];
 }
 
 /** Records every reserved segment of a pill that has decided. Called where
@@ -436,7 +467,7 @@ function rememberSegmentAdvances(sessionId: string, pill: Element): void {
   if (!sessionId) return;
   // The same pill markup lays out to the same advances: a remount or a slot
   // re-sync of unchanged segments skips the style and layout reads.
-  const form: AdvanceForm = pill.closest('.composer-island')?.hasAttribute('data-compact') ? 'compact' : 'full';
+  const form = pill.closest('.composer-island')?.getAttribute('data-fit') ?? '';
   const markup = `${form}|${labelFitKey(pill)}`;
   if (recordedPillMarkup.get(sessionId) === markup && segmentAdvances.get(sessionId)?.[form]) return;
   recordedPillMarkup.delete(sessionId);
@@ -536,7 +567,7 @@ function fitDockedApproval(slot: HTMLElement, island: HTMLElement): void {
 /** A panel paints upward from the pill's resting floor, so its real room is
  *  the pane's top down to that floor (the dock's height varies). */
 function measurePanelRoom(slot: HTMLElement, stage: HTMLElement, pane: Element) {
-  const pillHeight = Number.parseFloat(getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
+  const pillHeight = Number.parseFloat(window.getComputedStyle(slot).getPropertyValue('--island-pill-height')) || 0;
   const room = stage.getBoundingClientRect().top - pane.getBoundingClientRect().top + pillHeight;
   slot.style.setProperty(PANEL_ROOM, `${Math.max(0, Math.floor(room))}px`);
 }
@@ -663,10 +694,14 @@ export function useIslandSlotPresence(
     };
     const pane = slot.closest('.conversation');
     const sync = () => {
-      if (pane && island.getAttribute('data-mode') === 'panel') measurePanelRoom(slot, stage, pane);
+      const mode = island.getAttribute('data-mode');
+      // Kept current while the pill rests, not only once a panel is open: a
+      // panel's first frame then lays out under its real room, where a room
+      // left from an earlier opening gave it a height the glide (useIslandGlide,
+      // which reads the panel before this) then eased away from.
+      if (pane && (mode === 'pill' || mode === 'panel')) measurePanelRoom(slot, stage, pane);
       const animate = armed && !reducedMotion.matches;
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
-      const mode = island.getAttribute('data-mode');
       if (armed && content && (!carried || mode !== shape)) {
         if (returning || slot.closest('[data-retained]')) slot.removeAttribute('data-entry');
         else slot.setAttribute('data-entry', '');
@@ -716,16 +751,13 @@ export function useIslandSlotPresence(
       // A slot that keeps its session's remembered room for segments still reading keeps it until they have read:
       // no elapsed time closes it under the rows it holds up.
       if (reserving) return;
-      grace = window.setTimeout(
-        () => {
-          grace = 0;
-          reserve(false);
-          returning = false;
-          rememberSlotHeight(sessionIdRef.current, 0);
-          collapse(!reducedMotion.matches);
-        },
-        ISLAND_COLLAPSE_GRACE_MS
-      );
+      grace = window.setTimeout(() => {
+        grace = 0;
+        reserve(false);
+        returning = false;
+        rememberSlotHeight(sessionIdRef.current, 0);
+        collapse(!reducedMotion.matches);
+      }, ISLAND_COLLAPSE_GRACE_MS);
     };
     // Ended or cancelled (the slot left the rendered tree mid-motion): either way no motion runs.
     const onTransitionEnd = (event: TransitionEvent) => {

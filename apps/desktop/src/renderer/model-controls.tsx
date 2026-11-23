@@ -12,7 +12,9 @@ import { streamMarkAfterCall, useModelSelection } from './use-model-selection';
 import { publishInheritedOrchestrationMode, useInheritedOrchestrationMode } from './orchestration-mode-store';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
-import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import { cachedAgentTierRoute, invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import { agentProvider, useAgentRoute } from './acp-agent-status';
+import { requestBuiltInFeature } from './settings/built-in-feature-request';
 import { useProviderModelCatalog } from './use-model-catalog';
 import { catalogProviderNames, customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import {
@@ -237,29 +239,97 @@ export function useSessionRouteChoices({
   const choices: RouteSessionChoice[] = [];
   if (options.length >= 2) {
     const workflowId = String(workflow?.id || options.find((option) => option.active)?.value || '');
-    choices.push({
-      id: 'workflow',
-      label: t('Workflow'),
-      value: workflowId,
-      valueLabel: String(workflow?.name || options.find((option) => option.value === workflowId)?.label || workflowId),
-      options: options.map((option) => ({ value: option.value, label: option.label })),
-      pending: pendingWorkflow,
-      disabled,
-      onSelect: (value) => send('setWorkflow', value),
-    });
+    choices.push(
+      workflowChoice(options, workflowId, workflow, {
+        pending: pendingWorkflow,
+        disabled,
+        onSelect: (value) => send('setWorkflow', value),
+      })
+    );
   }
   if (mode) {
-    const modes = orchestrationModeOptions();
-    choices.push({
-      id: 'orchestration-mode',
-      label: t('Delegation mode'),
-      value: mode,
-      valueLabel: modes.find((option) => option.value === mode)?.label || mode,
-      options: modes,
-      pending: pendingMode,
-      disabled,
-      onSelect: (value) => send('setOrchestrationMode', value),
-    });
+    choices.push(
+      orchestrationModeChoice(mode, {
+        pending: pendingMode,
+        disabled,
+        onSelect: (value) => send('setOrchestrationMode', value),
+      })
+    );
+  }
+  return choices;
+}
+
+type ChoiceAction = Pick<RouteSessionChoice, 'pending' | 'disabled' | 'onSelect'>;
+
+function workflowChoice(
+  options: WorkflowOption[],
+  workflowId: string,
+  workflow: RecordValue | null | undefined,
+  action: ChoiceAction
+): RouteSessionChoice {
+  return {
+    id: 'workflow',
+    label: t('Workflow'),
+    value: workflowId,
+    valueLabel: String(workflow?.name || options.find((option) => option.value === workflowId)?.label || workflowId),
+    options: options.map((option) => ({ value: option.value, label: option.label })),
+    ...action,
+  };
+}
+
+function orchestrationModeChoice(mode: DesktopOrchestrationMode, action: ChoiceAction): RouteSessionChoice {
+  const modes = orchestrationModeOptions();
+  return {
+    id: 'orchestration-mode',
+    label: t('Delegation mode'),
+    value: mode,
+    valueLabel: modes.find((option) => option.value === mode)?.label || mode,
+    options: modes,
+    ...action,
+  };
+}
+
+/** A New Task draft's workflow and delegation mode as rows, as its context
+ *  bar's WorkflowSelect and OrchestrationModeSelect offer them: a pick stages
+ *  the draft's own. A row is left out without its handler, the workflow row
+ *  also while only one workflow exists. */
+export function useDraftRouteChoices({
+  workflow,
+  mode,
+  disabled,
+  onWorkflow,
+  onMode,
+}: {
+  workflow: RecordValue | null;
+  mode: DesktopOrchestrationMode | null;
+  disabled: boolean;
+  onWorkflow?: (workflow: { id: string; name: string }) => void;
+  onMode?: (mode: DesktopOrchestrationMode) => void;
+}): RouteSessionChoice[] {
+  const { options, optionsSettled } = useWorkflowOptions();
+  const inherited = useInheritedOrchestrationMode(!mode);
+  const choices: RouteSessionChoice[] = [];
+  if (onWorkflow && options.length >= 2) {
+    const workflowId = String(workflow?.id || (options.find((option) => option.active) || options[0])?.value || '');
+    choices.push(
+      workflowChoice(options, workflowId, workflow, {
+        disabled: disabled || !optionsSettled,
+        onSelect: (id) => {
+          if (id !== workflowId) onWorkflow({ id, name: options.find((option) => option.value === id)?.label || id });
+        },
+      })
+    );
+  }
+  const selected = mode ?? inherited;
+  if (onMode && selected) {
+    choices.push(
+      orchestrationModeChoice(selected, {
+        disabled,
+        onSelect: (value) => {
+          if (value !== selected) onMode(value as DesktopOrchestrationMode);
+        },
+      })
+    );
   }
   return choices;
 }
@@ -422,6 +492,8 @@ function modelChoiceSelection(
   };
 }
 
+const NOTHING_LEFT_OUT: ReadonlySet<string> = new Set();
+
 export const ModelSelector = memo(function ModelSelector({
   provider: sourceProvider,
   model: sourceModel,
@@ -536,10 +608,17 @@ export const ModelSelector = memo(function ModelSelector({
   // The catalog starts empty on a cold start, so a perfectly valid route — a
   // schedule/webhook session opened right after it ran — could not be named
   // from it. The RAW catalog answers those cases.
-  const known = selected || models.find((option) => option.provider === provider && option.model === model);
-  const awaitingRoute = !known && !startupCatalogSettled;
+  // A route saved under an external agent's own id of one tier is that model with the tier as its effort.
+  const agentTier = cachedAgentTierRoute(provider, model);
+  const known =
+    selected || models.find((option) => option.provider === provider && option.model === model) || agentTier?.row;
+  // A route on an external agent is the agent's whatever the catalog holds now; the controls it has no use for
+  // are left out, not disabled.
+  const agentRoute = useAgentRoute(provider, model, known);
+  const awaitingRoute = !known && !agentRoute && !startupCatalogSettled;
+  const notApplicable = agentRoute?.notApplicable ?? NOTHING_LEFT_OUT;
   const autoEffortRoute = useAutoEffortRoute(
-    known?.autoEffortCapable === true,
+    known?.autoEffortCapable === true && !notApplicable.has('autoEffort'),
     autoEffort,
     (enabled) => changeAutoEffort(enabled),
     known !== undefined
@@ -574,7 +653,7 @@ export const ModelSelector = memo(function ModelSelector({
   const routedParameterFields = Object.keys(routedModelParameters).length
     ? { modelParameters: routedModelParameters }
     : {};
-  const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
+  const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable) && !notApplicable.has('fast');
   const fastAvailable = fastControlVisible && modelFastAvailable(known, effort, selectedModelParameters);
   const selectableModels = useMemo(
     () =>
@@ -591,7 +670,8 @@ export const ModelSelector = memo(function ModelSelector({
   );
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
-  const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
+  let triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
+  if (agentRoute) triggerModel = agentRoute.display;
 
   useEffect(() => {
     if (model && !startupCatalogSettled) return;
@@ -773,12 +853,12 @@ export const ModelSelector = memo(function ModelSelector({
         provider={provider}
         model={model}
         triggerModel={triggerModel}
-        effort={effort}
-        effortOptions={known?.effortOptions || []}
-        fast={displayedFast}
+        effort={notApplicable.has('effort') ? '' : effort || agentTier?.effort || ''}
+        effortOptions={notApplicable.has('effort') ? [] : known?.effortOptions || []}
+        fast={displayedFast && !notApplicable.has('fast')}
         fastVisible={fastControlVisible}
         fastAvailable={fastAvailable}
-        contextVisible={maxContextWindow > 0}
+        contextVisible={maxContextWindow > 0 && !notApplicable.has('contextWindow')}
         contextPercent={normalizedContextPercent}
         contextDefaultPercent={contextDefaultPercent}
         contextTokens={contextTokens}
@@ -803,6 +883,12 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelManagement={(target) => {
+          // An agent's models are managed where the agent is: its own dialog among the built-in features.
+          if (target && agentProvider(target)) {
+            requestBuiltInFeature('acpAgents');
+            onOpenSettings('plugins');
+            return;
+          }
           if (target) requestModelManagementProvider(target);
           onOpenSettings('model-management');
         }}

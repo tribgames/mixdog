@@ -4,10 +4,11 @@ import { t } from './i18n';
 import { formatWorkElapsed, timeMs } from './transcript-primitives';
 
 /** The right-column text of an agent row, shared by the Agents pane and the
- *  composer island: time while running, otherwise the state in words. */
+ *  composer island: time while running (in `format`), otherwise the state in
+ *  words. */
 export function agentElapsedText(
   state: DesktopAgentActivityState,
-  agent: Pick<DesktopAgentPoolRow, 'turnStartedAt' | 'startedAt' | 'status' | 'stage' | 'failureReason'>,
+  agent: Pick<DesktopAgentPoolRow, 'turnStartedAt'>,
   clock: number,
   format: (elapsed: number) => string = formatWorkElapsed
 ): string {
@@ -20,6 +21,28 @@ export function agentElapsedText(
   }
   // Blocked on the user: what it waits for, never a running timer.
   return agentStateWord(state);
+}
+
+/** Every state an agent row can be in: a key each, so a state added to the type has to be named here. */
+const ROW_STATES: Record<DesktopAgentActivityState, true> = {
+  queued: true,
+  running: true,
+  'needs-user': true,
+  waiting: true,
+  'cancel-unconfirmed': true,
+  cancelled: true,
+  failed: true,
+  done: true,
+  unknown: true,
+  idle: true,
+};
+export const AGENT_ROW_STATES = Object.keys(ROW_STATES) as DesktopAgentActivityState[];
+
+/** Every word an agent row's state column can read besides a clock: agentElapsedText in each state with no turn
+ *  clock to show. */
+export function agentStateWords(): string[] {
+  const words = AGENT_ROW_STATES.map((state) => agentElapsedText(state, { turnStartedAt: null }, 0));
+  return [...new Set(words.filter(Boolean))];
 }
 
 /** An agent's state in words. */

@@ -49,11 +49,13 @@ interface TranscriptSelectionDragOptions {
   setPin(pin: TranscriptSelectionPin | null): void;
   /** Native autoscroll delta while the pointer is outside the viewport. */
   onAutoScroll(delta: number): void;
+  /** A selection covers transcript text, wherever its ends lie, or is being dragged out (true); none does (false). */
+  onHold?(held: boolean): void;
 }
 
 /** Attach the observer to a mounted viewport; the return value detaches it. */
 export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOptions): () => void {
-  const { root, rowKeyAt, setPin, onAutoScroll } = options;
+  const { root, rowKeyAt, setPin, onAutoScroll, onHold = () => {} } = options;
 
   let selecting = false;
   let finishing = false;
@@ -159,6 +161,15 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     outsideFrame = 0;
   };
 
+  /** Does the selection cover transcript text? A select-all anchored outside the rows covers them too. */
+  const coversTranscript = (selection: Selection | null): boolean => {
+    if (!selection || selection.isCollapsed) return false;
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      if (selection.getRangeAt(index).intersectsNode(root)) return true;
+    }
+    return false;
+  };
+
   /** Pin from the range the document holds right now. */
   const syncPin = () => {
     // Do not publish Chromium's transient release fallback to virtualization.
@@ -168,9 +179,11 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     // and a caret in a text field is never a transcript range.
     if (!selecting && isTextFieldElement(document.activeElement)) {
       setPin(null);
+      onHold(false);
       return;
     }
     const selection = window.getSelection();
+    onHold(selecting || coversTranscript(selection));
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       if (!selecting) setPin(null);
       return;
@@ -229,6 +242,7 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     seed = endpoint;
     lastScrollTop = root.scrollTop;
     markSelecting(true);
+    onHold(true);
     // Pin the press row now, before native autoscroll can move it out of the
     // virtual range on the first frame of the drag.
     setPin({ anchor: endpoint, focus: endpoint });
@@ -267,6 +281,8 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
   document.addEventListener('pointercancel', cancelGesture, true);
   document.addEventListener('selectionchange', syncPin);
   window.addEventListener('blur', cancelGesture);
+  // A transcript coming back on screen may find its text still selected.
+  if (coversTranscript(window.getSelection())) syncPin();
   return () => {
     root.removeEventListener('pointerdown', handlePointerDown, true);
     root.removeEventListener('scroll', handleScroll);
@@ -282,5 +298,6 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     cancelOutsideSync();
     markSelecting(false);
     setPin(null);
+    onHold(false);
   };
 }

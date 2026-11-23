@@ -10,10 +10,10 @@ import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
 const HARNESS = `
-  import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+  import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
   import { createRoot } from 'react-dom/client';
   import { flushSync } from 'react-dom';
-  import { TurnChangesContext } from './TurnChangesCard';
+  import { TurnCardsWithheldContext, TurnChangesContext, TurnRowsContext } from './TurnChangesCard';
   import { TranscriptList } from './TranscriptList';
   import { resetTurnChangesCache } from './turn-changes-model';
   import { resetTurnPreviews, runningTurnKeyOf } from './turn-preview-model';
@@ -22,7 +22,6 @@ const HARNESS = `
   import { useTranscriptRows } from './use-conversation-rows';
   import { useTranscriptFollow } from './use-transcript-follow';
   import { useTranscriptReveal } from './use-transcript-reveal';
-  import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
   import { QuestionCard } from './QuestionCard';
   import { approvalQuestions } from './question-card-logic';
   import { SteerContext } from './steer-actions';
@@ -91,14 +90,22 @@ const HARNESS = `
     // As the pane does (use-conversation-timeline.ts): a visit stays hidden until its rows read back steady.
     const revealed = useTranscriptReveal({
       identity: sessionId, enabled: transcriptRows.length > 0, draft: false, viewport, content,
-      hasScrollGesture: follow.hasScrollGesture,
-      retainedGeometry: readTranscriptVirtualSnapshot(sessionId)?.measurements, pinned: follow.following,
+      hasScrollGesture: follow.hasScrollGesture, pinned: follow.following,
     });
     useLayoutEffect(() => { if (revealed) visit.signal(); }, [revealed]);
+    // The pane's row contexts (conversation-pane-transcript.tsx): a card reads its turn's records and the view's
+    // withheld cards, one set per session shown.
+    const shownRows = useRef(transcriptRows);
+    shownRows.current = transcriptRows;
+    const rowsOf = useCallback(() => shownRows.current, []);
+    const withheldCards = useMemo(() => new Set(), [sessionId]);
+    // The pane marks an entry still covered (Conversation.tsx) and the follow state (conversation-pane-transcript.tsx):
+    // a card's read decides from them whether it would move rows a reader sees.
     return <SteerContext.Provider value={steer}><TurnChangesContext.Provider value={links.turnChangesSurface}>
-      <section className="conversation"><div className="transcript-shell">
+      <TurnRowsContext.Provider value={rowsOf}><TurnCardsWithheldContext.Provider value={withheldCards}>
+      <section className="conversation" data-transcript-entering={revealed ? undefined : 'true'}><div className="transcript-shell">
         <div className="transcript" ref={viewport} role="log" onScroll={follow.handleScroll}
-          style={revealed ? undefined : { visibility: 'hidden' }}
+          style={revealed ? undefined : { visibility: 'hidden' }} data-following={follow.following ? 'true' : 'false'}
           onWheel={follow.handleWheel} onPointerDown={follow.handlePointerDown}
           onPointerMove={follow.handlePointerMove} onPointerUp={follow.handlePointerUp}
           onPointerCancel={follow.handlePointerUp}>
@@ -112,6 +119,7 @@ const HARNESS = `
           </div>
         </div>
       </div></section>
+      </TurnCardsWithheldContext.Provider></TurnRowsContext.Provider>
     </TurnChangesContext.Provider></SteerContext.Provider>;
   }
 

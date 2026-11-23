@@ -151,18 +151,19 @@ export function writePromptHistory(scope: string, entries: ComposerHistoryEntry[
   contentLocalStorage().setItem(promptHistoryStorageKey(scope), JSON.stringify(stored));
 }
 
-export function ProjectContextSelector({
+/** The project picker's choices (no project, the one picked even when it is
+ *  no longer listed, then the projects) and what a pick does; the composer's
+ *  context pill and the session panel's Project row both offer them. */
+export function projectContextChoice({
   projects,
   activePath,
   activeLabel,
-  disabled,
   onClear,
   onSelect,
 }: {
   projects: DesktopProjectSummary[];
   activePath: string;
   activeLabel: string;
-  disabled: boolean;
   onClear(): void;
   onSelect(path: string): void;
 }) {
@@ -171,15 +172,31 @@ export function ProjectContextSelector({
     (project) => project.path.replace(/[\\/]+/g, '/').toLocaleLowerCase() === normalized
   );
   const fallbackActiveLabel = activePath ? activeLabel.trim() || displayProject(activePath).name || t('Project') : '';
-  const options = [
-    { value: PROJECT_CONTEXT_LOCAL, label: t('No project') },
-    ...(activePath && !activeProject ? [{ value: activePath, label: fallbackActiveLabel }] : []),
-    ...projects.map((project) => ({
-      value: project.path,
-      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || t('Project'),
-    })),
-  ];
-  const value = activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL;
+  return {
+    options: [
+      { value: PROJECT_CONTEXT_LOCAL, label: t('No project') },
+      ...(activePath && !activeProject ? [{ value: activePath, label: fallbackActiveLabel }] : []),
+      ...projects.map((project) => ({
+        value: project.path,
+        label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || t('Project'),
+      })),
+    ],
+    value: activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL,
+    /** '' with no project. */
+    label: activeProject ? activeLabel || t('Project') : fallbackActiveLabel,
+    pick(next: string) {
+      if (next === PROJECT_CONTEXT_LOCAL) {
+        if (activePath) onClear();
+      } else if (next !== activeProject?.path) onSelect(next);
+    },
+  };
+}
+
+export function ProjectContextSelector({
+  disabled,
+  ...context
+}: Parameters<typeof projectContextChoice>[0] & { disabled: boolean }) {
+  const choice = projectContextChoice(context);
   return (
     <div className="composer-project-context">
       <Folder size={14} />
@@ -187,15 +204,11 @@ export function ProjectContextSelector({
         className="context-pill-select project-context-select"
         ariaLabel={t('Project context')}
         tooltip={t('Select project')}
-        value={value}
-        displayValue={activeProject ? activeLabel || t('Project') : fallbackActiveLabel || t('Project')}
+        value={choice.value}
+        displayValue={choice.label || t('Project')}
         disabled={disabled}
-        options={options}
-        onChange={(next) => {
-          if (next === PROJECT_CONTEXT_LOCAL) {
-            if (activePath) onClear();
-          } else if (next !== activeProject?.path) onSelect(next);
-        }}
+        options={choice.options}
+        onChange={choice.pick}
       />
     </div>
   );

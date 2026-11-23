@@ -96,7 +96,11 @@ export function useComposerPalettes({
   userMessages,
   room = false,
   plain = false,
+  notApplicable,
 }: {
+  /** The controls the session's route has no use for (an external agent's): the commands that set them are not
+   *  listed. */
+  notApplicable?: ReadonlySet<string>;
   /** Agent mode: `/`, `@` files and `$` open nothing; the text is sent as typed. */
   plain?: boolean;
   draft: string;
@@ -133,7 +137,10 @@ export function useComposerPalettes({
   const skillPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
   // Only frequent commands appear here; direct input still uses the full registry.
-  const slashCommands = useMemo(() => desktopComposerSlashCommands(draft, room), [draft, room]);
+  const slashCommands = useMemo(
+    () => desktopComposerSlashCommands(draft, room, notApplicable),
+    [draft, room, notApplicable]
+  );
   const slashOpen = Boolean(
     !plain &&
       composerFocused &&

@@ -17,7 +17,7 @@ import {
   type WorkbenchSide,
   type WorkbenchSideViewId,
 } from './workbench-side-view-layout';
-import type { PaneSideDockDiff } from './pane-side-dock';
+import { paneDockOwnerOf, type PaneSideDockDiff } from './pane-side-dock';
 import { usePaneSideDocks } from './pane-side-dock-state';
 import {
   isSessionSidePanelView,
@@ -32,8 +32,12 @@ import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useSessionPaneSurfaces } from './use-session-pane-surfaces';
 
-function sessionTabIds(tabs: PaneLeaf['tabs']): string[] {
-  return tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : []));
+/** The owner keys of a pane's conversation tabs (sessions and New Task drafts). */
+function paneTabOwners(tabs: PaneLeaf['tabs']): string[] {
+  return tabs.flatMap((tab) => {
+    const owner = paneDockOwnerOf(tab);
+    return owner ? [owner] : [];
+  });
 }
 
 interface AppSideDockOptions {
@@ -111,21 +115,26 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     [workbenchSideLayout.layout]
   );
   const { activeSideViews, setActiveSideViews } = useActiveSideViews(workbenchSideLayout.layout);
+  const selectionOfLeaf = (leafId: string) => {
+    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+    return leaf ? paneActiveSelection(leaf) : null;
+  };
   /** The session a pane shows ('' for a draft or a non-session tab). */
   const sessionOfLeaf = (leafId: string) => {
-    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-    const selection = leaf ? paneActiveSelection(leaf) : null;
+    const selection = selectionOfLeaf(leafId);
     return selection?.kind === 'session' ? selection.id : '';
   };
+  /** Who a pane's dock opens things for: its session or its New Task draft. */
+  const ownerOfLeaf = (leafId: string) => paneDockOwnerOf(selectionOfLeaf(leafId));
   const paneSideDocks = usePaneSideDocks({
     leafIds: paneWorkspace.leaves.map((leaf) => leaf.id),
     groups: paneDockGroupsFor(workbenchSideLayout.layout.right),
-    sessionOf: sessionOfLeaf,
-    // Owned dock state follows its session's tab; read only once the layout
-    // is restored, so a placeholder pane list never releases it.
+    sessionOf: ownerOfLeaf,
+    // Owned dock state follows its tab; read only once the layout is
+    // restored, so a placeholder pane list never releases it.
     paneSessions: paneWorkspace.restorePending
       ? undefined
-      : Object.fromEntries(paneWorkspace.leaves.map((leaf) => [leaf.id, sessionTabIds(leaf.tabs)])),
+      : Object.fromEntries(paneWorkspace.leaves.map((leaf) => [leaf.id, paneTabOwners(leaf.tabs)])),
   });
   const { surfacesMigrated, migrateLegacyTerminals } = sessionSurfaces;
   useEffect(() => {
@@ -150,7 +159,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
         sessionSideSurfaces.get(sessionId) ?? null,
         sessionDiffs.get(sessionId) ?? null,
         sessionPanelViewIn(groupsForSession(sessionId), sessionPanelViews.get(sessionId)),
-        panelViewFronts.has(sessionId)
+        panelViewFronts.has(sessionId),
+        ownerOfLeaf(leafId)
       ),
     };
   };
@@ -198,7 +208,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   const togglePaneRightRegion = useStableEvent((leafId: string) => {
     const sessionId = sessionOfLeaf(leafId);
     // The pane as this tab sees it: another session's file tabs or diff are not its own.
-    const rawEntry = paneDockEntryForSession(paneSideDocks.entryFor(leafId), sessionId);
+    const owner = ownerOfLeaf(leafId);
+    const rawEntry = paneDockEntryForSession(paneSideDocks.entryFor(leafId), owner);
     const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
     const groups = groupsForSession(sessionId);
     const selectedPanelView = sessionPanelViewIn(groups, sessionPanelViews.get(sessionId));
@@ -208,7 +219,8 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       selectedSurface,
       sessionDiffs.get(sessionId) ?? null,
       selectedPanelView,
-      panelViewFronts.has(sessionId)
+      panelViewFronts.has(sessionId),
+      owner
     );
     if (displayedEntry.open) {
       dismissDockEntry(leafId, sessionId, displayedEntry);

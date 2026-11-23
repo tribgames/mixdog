@@ -256,6 +256,7 @@ export function ExtensionItemRow({
   description,
   status,
   tone = 'muted',
+  fault,
   control,
   dataAttributes,
 }: {
@@ -264,6 +265,8 @@ export function ExtensionItemRow({
   description?: string;
   status?: string;
   tone?: ExtensionItemTone;
+  /** What failed last, said under the item without replacing its state. */
+  fault?: string;
   /** Trailing control (switch, select, or action) so the setting or bundled
    *  item is handled without leaving the card. */
   control?: ReactNode;
@@ -289,6 +292,11 @@ export function ExtensionItemRow({
           ) : null}
         </span>
         {description ? <small>{description}</small> : null}
+        {fault ? (
+          <small className="extensions-item-fault" role="status">
+            {fault}
+          </small>
+        ) : null}
       </span>
       {control ? <span className="extensions-item-trailing">{control}</span> : null}
     </div>

@@ -14,6 +14,7 @@ function installBrowserImageHarness({ supportsWebp = true, stage = 'ok' } = {}) 
   const keys = ['window', 'document', 'navigator', 'FileReader', 'Image', 'URL'];
   const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const drawCalls = [];
+  const events = [];
   let capabilityCalls = 0;
   const originalCreateElement = dom.window.document.createElement.bind(dom.window.document);
 
@@ -31,6 +32,7 @@ function installBrowserImageHarness({ supportsWebp = true, stage = 'ok' } = {}) 
     value: {
       invokeCapability(request) {
         if (request.capability === 'stageAttachmentOriginal') {
+          events.push('stage');
           staged.push(request.args[0]);
           // A link that cannot carry the original refuses the call.
           if (stage === 'refuse') return Promise.reject(new Error('payload too large for the relay'));
@@ -54,6 +56,7 @@ function installBrowserImageHarness({ supportsWebp = true, stage = 'ok' } = {}) 
         },
       }),
       toBlob(callback, mimeType) {
+        events.push('encode');
         // A browser without WebP encoding hands back another type instead.
         const type = mimeType === 'image/webp' && !supportsWebp ? 'image/png' : mimeType;
         callback(new dom.window.Blob(['resized'], { type }));
@@ -77,6 +80,7 @@ function installBrowserImageHarness({ supportsWebp = true, stage = 'ok' } = {}) 
   return {
     dom,
     drawCalls,
+    events,
     capabilityCalls: () => capabilityCalls,
     staged,
     close() {
@@ -122,6 +126,17 @@ test('a resized phone image also hands its original bytes to the PC once, for th
     assert.deepEqual(harness.staged, [{ data: 'b3JpZ2luYWw=', mimeType: 'image/jpeg' }]);
     assert.equal(attachment?.originalRef, ORIGINAL_REF);
     assert.equal(attachment?.originalMimeType, 'image/jpeg');
+  } finally {
+    harness.close();
+  }
+});
+
+test('the original of a phone image starts uploading before the resize has encoded', async () => {
+  const harness = installBrowserImageHarness();
+  try {
+    const file = new harness.dom.window.File(['original'], 'KakaoTalk_1.jpg', { type: 'image/jpeg' });
+    await attachmentFromFile(file, { id: 7 });
+    assert.deepEqual(harness.events, ['stage', 'encode']);
   } finally {
     harness.close();
   }

@@ -1,11 +1,11 @@
-//   npm run dev:isolated -- --name <tag> [--copy-auth | --keep-auth] [--onboarding] [--ttl-minutes=120]
+//   npm run dev:isolated -- --name <tag> [--copy-auth] [--onboarding] [--ttl-minutes=120]
 //
-// --copy-auth copies the kept dev profile's sign-ins and model routes without their refresh tokens: refresh tokens
-// rotate, so an instance that refreshed one would sign the kept profile out.
-// --keep-auth (implies --copy-auth) also hands the instance the sign-ins kept in the kept profile's dev-isolated-auth
-// folder, refresh tokens included, and saves its provider sign-ins (those it was handed and those made in it) back
-// there at its stop. One live instance at a time may hold them: another --keep-auth start is refused. The kept dev
-// app never reads that folder, and a plain --copy-auth instance neither reads nor writes it.
+// Every start hands the instance the provider sign-ins kept in the kept dev profile's dev-isolated-auth folder,
+// refresh tokens included, and its stop (or the start or sweep that reclaims it) saves the instance's provider
+// sign-ins, those it was handed and those made in it, back there. One live instance at a time holds them: another
+// start while it runs gets none and saves none. The kept dev app never reads that folder.
+// --copy-auth also copies the kept dev profile's own sign-ins and model routes without their refresh tokens: refresh
+// tokens rotate, so an instance that refreshed one would sign the kept profile out.
 //   --config-overlay=<json file>  deep-merged into the seeded config before the core starts
 //   --pass-env=NAME,NAME          MIXDOG_* names of this shell kept in the instance env (never a name the
 //                                 isolation sets itself); MIXDOGD_TEST_HOOKS and MIXDOG_DEV_COMPUTER_RUN reach
@@ -16,7 +16,7 @@
 //   npm run dev:isolated:list
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { accessSync, closeSync, constants, openSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, statSync } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -335,7 +335,7 @@ export async function stopInstance(
     throw new Error(`Refusing to delete ${lease.instanceDir}: not an isolated instance directory.`);
   }
   let carried = [];
-  if (lease.authCarry?.seeded && lease.instanceDir) {
+  if (lease.instanceDir && (lease.authCarry?.seeded || startedUnkept(lease))) {
     // Saved only once no process of the instance can still rotate a token; an instance not saved is never deleted.
     let unsaved = remaining.length ? `processes ${remaining.join(', ')} still run` : null;
     if (!unsaved) {
@@ -352,7 +352,7 @@ export async function stopInstance(
         remaining,
         removed: false,
         carried,
-        unsaved: `its --keep-auth sign-ins were not saved, so ${lease.instanceDir} and its lease stay (${unsaved}).`,
+        unsaved: `its provider sign-ins were not saved, so ${lease.instanceDir} and its lease stay (${unsaved}).`,
       };
     }
   }
@@ -423,6 +423,15 @@ export async function sweep(
 // ── start ────────────────────────────────────────────────────────────────────
 
 const POOL_FILE = 'provider-accounts.json';
+const CONFIG_FILE = 'mixdog-config.json';
+/** Developer-only providers and their `agent.developer` option: hidden while it is off (ai_account/oauth_status.rs
+ *  `oauth_available`). */
+const DEVELOPER_OPTION = {
+  'antigravity-oauth': 'antigravityOAuth',
+  'cursor-oauth': 'cursorOAuth',
+  'devin-oauth': 'devinOAuth',
+  'mimo-oauth': 'mimoOAuth',
+};
 const CREDENTIAL_FILE = /^(provider-accounts\.json|[a-z0-9-]+-oauth(-credentials)?\.json)$/;
 const ACCOUNT_PROVIDER_DIR = /^[a-z0-9-]+$/;
 /** The GPT subscription's credential, as named in the copied list. */
@@ -609,7 +618,7 @@ export async function copyDevAuth(
   return copied;
 }
 
-// ── sign-ins kept between --keep-auth instances ─────────────────────────────
+// ── sign-ins kept between instances ─────────────────────────────────────────
 
 const CARRY_DIR = 'dev-isolated-auth';
 const HOLDER_FILE = 'holder.json';
@@ -618,7 +627,7 @@ const ACCOUNT_FILE = /^provider-accounts\/([a-z0-9-]+)\/([a-z0-9-]+)\.json$/;
 // native/core/crates/mixdog-ai/src/accounts/mod.rs MAX_ACCOUNTS: a longer list makes the core read the roster as damaged.
 const MAX_ACCOUNTS = 20;
 
-/** Where --keep-auth keeps sign-ins: always the kept profile's own folder, which the kept dev app never reads. */
+/** Where instances keep sign-ins: always the kept profile's own folder, which the kept dev app never reads. */
 export const carryStoreDir = (devProfileDir) => join(devProfileDir, CARRY_DIR);
 
 /** The provider an instance credential file belongs to, or null for anything else. */
@@ -683,7 +692,7 @@ async function withCarryLock(store, run) {
         await rm(lock, { force: true });
         continue;
       }
-      if (attempt >= 300) throw new Error(`--keep-auth: ${lock} stays held by pid ${owner || 'unknown'}.`);
+      if (attempt >= 300) throw new Error(`Kept sign-ins: ${lock} stays held by pid ${owner || 'unknown'}.`);
       await sleep(100);
     }
   }
@@ -699,7 +708,7 @@ async function readHolder(trustedRoot, store) {
   const path = join(store, HOLDER_FILE);
   if (!(await lstatTrusted(trustedRoot, path, { optional: true }))) return undefined;
   await assertDevFile(trustedRoot, path);
-  return readTrustedJson(path, `--keep-auth: the holder record ${path}`);
+  return readTrustedJson(path, `Kept sign-ins: the holder record ${path}`);
 }
 
 /** Why the kept sign-ins are in use, or null when free. Free is only no record, or a record whose lease is gone or
@@ -731,30 +740,40 @@ async function carryHeldBy(trustedRoot, store) {
   return `isolated instance "${holder.name}" (${holder.root}, started ${holder.startedAt}) holds them; ${stop}`;
 }
 
-/** Makes `holder` the one instance with the kept sign-ins and returns them, by provider. */
-async function claimCarriedAuth({ devProfileDir, trustedRoot, holder }) {
-  await lstatTrusted(trustedRoot, devProfileDir);
+/** The carry store, created below the kept profile when absent; only real directories below the trusted root. */
+async function ensureCarryStore(trustedRoot, devProfileDir) {
   const store = carryStoreDir(devProfileDir);
   const stat = await lstatTrusted(trustedRoot, store, { optional: true });
-  if (!stat) await mkdir(store);
-  else if (!stat.isDirectory()) throw new Error(`--keep-auth: ${store} is not a directory.`);
+  if (!stat) {
+    await mkdir(store, { recursive: true });
+    await lstatTrusted(trustedRoot, store);
+  } else if (!stat.isDirectory()) throw new Error(`Kept sign-ins: ${store} is not a directory.`);
+  return store;
+}
+
+/** The kept sign-ins, by provider. */
+async function readCarriedEntries(trustedRoot, store) {
+  const entries = new Map();
+  for (const file of (await readDevDir(store)).filter((name) => CARRY_ENTRY.test(name) && name !== HOLDER_FILE)) {
+    const path = join(store, file);
+    await assertDevFile(trustedRoot, path);
+    const entry = await readTrustedJson(path, `Kept sign-ins: ${path}`);
+    if (!isPlainObject(entry?.files)) throw new Error(`Kept sign-ins: ${path} holds no sign-in.`);
+    entries.set(file.slice(0, -'.json'.length), entry);
+  }
+  return entries;
+}
+
+/** Makes `holder` the one instance with the kept sign-ins and returns them, by provider. While another instance
+ *  holds them, returns none and why, and `holder` holds nothing. */
+async function claimCarriedAuth({ devProfileDir, trustedRoot, holder }) {
+  const store = await ensureCarryStore(trustedRoot, devProfileDir);
   return withCarryLock(store, async () => {
-    const held = await carryHeldBy(trustedRoot, store);
-    if (held) {
-      throw new Error(
-        `--keep-auth: the kept sign-ins in ${store} are in use: ${held}. Start with --copy-auth for an instance without them.`
-      );
-    }
-    const entries = new Map();
-    for (const file of (await readDevDir(store)).filter((name) => CARRY_ENTRY.test(name) && name !== HOLDER_FILE)) {
-      const path = join(store, file);
-      await assertDevFile(trustedRoot, path);
-      const entry = await readTrustedJson(path, `--keep-auth: ${path}`);
-      if (!isPlainObject(entry?.files)) throw new Error(`--keep-auth: ${path} holds no sign-in.`);
-      entries.set(file.slice(0, -'.json'.length), entry);
-    }
+    const heldBy = await carryHeldBy(trustedRoot, store);
+    if (heldBy) return { entries: new Map(), heldBy: `the kept sign-ins in ${store} are in use: ${heldBy}` };
+    const entries = await readCarriedEntries(trustedRoot, store);
     await writePrivateJson(join(store, HOLDER_FILE), holder);
-    return entries;
+    return { entries, heldBy: null };
   });
 }
 
@@ -801,8 +820,9 @@ async function applyCarriedAuth(dataDir, entries, kept) {
   return seeded;
 }
 
-/** --keep-auth for one instance: claims the kept sign-ins for `holder` (refused while another instance holds them),
- *  copies the kept profile's sign-ins as --copy-auth does, and lays the kept ones over them. */
+/** Every start: claims the kept sign-ins for `holder` and writes them into the instance; with `copyAuth`, the kept
+ *  profile's sign-ins are copied first as --copy-auth does, and the kept ones replace the same files. `seeded` is null
+ *  when another instance holds them: this one then holds and saves nothing. */
 export async function seedInstanceAuth(
   dataDir,
   {
@@ -810,16 +830,56 @@ export async function seedInstanceAuth(
     trustedRoot = devTrustedRoot(devProfileDir),
     ttlMs = DEFAULT_TTL_MS,
     holder,
+    copyAuth = false,
   }
 ) {
-  const entries = await claimCarriedAuth({ devProfileDir, trustedRoot, holder });
+  const { entries, heldBy } = await claimCarriedAuth({ devProfileDir, trustedRoot, holder });
   const skip = new Set();
   for (const [provider, entry] of entries) {
     for (const rel of Object.keys(entry.files)) if (credentialProvider(rel) === provider) skip.add(rel);
   }
-  const copied = await copyDevAuth(dataDir, { devProfileDir, trustedRoot, ttlMs, skip, required: !entries.size });
+  const copied = copyAuth
+    ? await copyDevAuth(dataDir, { devProfileDir, trustedRoot, ttlMs, skip, required: !entries.size })
+    : [];
   const seeded = await applyCarriedAuth(dataDir, entries, copied);
-  return { copied, carried: [...entries.keys()], seeded };
+  // A sign-in sets its provider `enabled` (ai_account/admin.rs); an entry saved before configs were kept says nothing else.
+  const providerConfigs = Object.fromEntries(
+    [...entries].map(([provider, entry]) => [provider, isPlainObject(entry.config) ? entry.config : { enabled: true }])
+  );
+  // A developer-only provider can only be signed in to with its option on, so an entry that did not record it had it on.
+  const developerOptions = Object.fromEntries(
+    [...entries]
+      .filter(([provider]) => DEVELOPER_OPTION[provider])
+      .map(([provider, entry]) => [
+        DEVELOPER_OPTION[provider],
+        typeof entry.developer === 'boolean' ? entry.developer : true,
+      ])
+  );
+  return {
+    copied,
+    carried: [...entries.keys()],
+    seeded: heldBy ? null : seeded,
+    heldBy,
+    providerConfigs,
+    developerOptions,
+  };
+}
+
+/** Puts each kept provider's config, as its sign-in left it, into the instance config under agent.providers, and the
+ *  developer options of the developer-only ones under agent.developer. */
+export async function restoreProviderConfig(dataDir, providerConfigs, developerOptions = {}) {
+  if (!Object.keys(providerConfigs).length && !Object.keys(developerOptions).length) return;
+  const file = join(dataDir, CONFIG_FILE);
+  const read = await readJson(file);
+  const config = isPlainObject(read) ? read : {};
+  const agent = isPlainObject(config.agent) ? config.agent : {};
+  const providers = isPlainObject(agent.providers) ? { ...agent.providers } : {};
+  for (const [provider, entry] of Object.entries(providerConfigs)) {
+    providers[provider] = { ...(isPlainObject(providers[provider]) ? providers[provider] : {}), ...entry };
+  }
+  const developer = { ...(isPlainObject(agent.developer) ? agent.developer : {}), ...developerOptions };
+  config.agent = { ...agent, providers, ...(Object.keys(developer).length ? { developer } : {}) };
+  await writeFile(file, JSON.stringify(config, null, 2));
 }
 
 /** The instance's provider credential files, by provider; any link or unreadable file throws. */
@@ -848,45 +908,76 @@ async function instanceCredentials(trustedRoot, dataDir) {
   return byProvider;
 }
 
-/** The holder's write-back at its stop: every sign-in it was handed or made, with the roster accounts they belong to,
- *  replaces the kept ones; the kept profile's copies stay behind. An instance that no longer holds writes nothing. */
+/** True for the lease of an instance started before sign-ins were kept by default: it holds no claim, and its stop
+ *  adopts its sign-ins when no instance holds the kept ones. */
+const startedUnkept = (lease) => !('authCarry' in lease) && typeof lease.startedAt === 'string';
+
+/** The write-back at a stop. The holder's sign-ins (those it was handed and those made in it), with the roster
+ *  accounts they belong to, replace the kept ones, and its claim ends; the kept profile's --copy-auth copies stay
+ *  behind. An instance started before this adds its sign-ins per provider, unless another instance holds them. An
+ *  instance that no longer holds writes nothing. */
 async function carryAuthOut(root, lease, devProfileDir) {
   const trustedRoot = devTrustedRoot(devProfileDir);
+  const adopt = startedUnkept(lease);
   const store = carryStoreDir(devProfileDir);
-  if (!(await lstatTrusted(trustedRoot, store, { optional: true }))) return [];
+  if (!adopt && !(await lstatTrusted(trustedRoot, store, { optional: true }))) return [];
+  if (adopt) await ensureCarryStore(trustedRoot, devProfileDir);
   return withCarryLock(store, async () => {
     const holder = { root: resolve(root), name: lease.name, startedAt: lease.startedAt };
-    if (!sameHolder(await readHolder(trustedRoot, store), holder)) return [];
+    if (adopt ? await carryHeldBy(trustedRoot, store) : !sameHolder(await readHolder(trustedRoot, store), holder)) {
+      return [];
+    }
+    const fromKeptProfile = adopt
+      ? (rel) => existsSync(join(devProfileDir, 'data', ...rel.split('/')))
+      : (rel) => lease.authCarry.seeded[rel] === 'kept';
+    const previous = await readCarriedEntries(trustedRoot, store);
     const instanceTrust = instancesDir(root);
     const dataDir = join(lease.instanceDir, 'profile', 'data');
+    if (adopt && !(await lstatTrusted(instanceTrust, dataDir, { optional: true }))) return [];
     const found = await instanceCredentials(instanceTrust, dataDir);
-    const rosterPath = join(dataDir, POOL_FILE);
-    let roster = null;
-    if (await lstatTrusted(instanceTrust, rosterPath, { optional: true })) {
-      await assertDevFile(instanceTrust, rosterPath);
-      roster = await readTrustedJson(rosterPath, `The instance's ${POOL_FILE}`);
-    }
+    const readInstanceJson = async (file) => {
+      const path = join(dataDir, file);
+      if (!(await lstatTrusted(instanceTrust, path, { optional: true }))) return null;
+      await assertDevFile(instanceTrust, path);
+      return readTrustedJson(path, `The instance's ${file}`);
+    };
+    const roster = await readInstanceJson(POOL_FILE);
+    const agentConfig = (await readInstanceJson(CONFIG_FILE))?.agent;
+    const configured = agentConfig?.providers;
     const saved = [];
     for (const [provider, files] of found) {
       const own = Object.fromEntries(
         Object.entries(files).filter(
-          ([rel, credential]) => hasRefreshToken(credential) || lease.authCarry.seeded[rel] !== 'kept'
+          ([rel, credential]) => hasRefreshToken(credential) || !fromKeptProfile(rel)
         )
       );
       if (!Object.keys(own).length) continue;
       const ids = new Set(Object.keys(own).map(accountIdOf));
       const pool = roster?.providers?.[provider];
-      const record = { files: own, savedAt: new Date().toISOString() };
+      // An adopting instance adds to the kept entry; the holder's own entry replaces it.
+      const earlier = adopt ? previous.get(provider) : undefined;
+      const record = { files: { ...earlier?.files, ...own }, savedAt: new Date().toISOString() };
+      // What the sign-in wrote to the config; an entry saved before configs were kept keeps none until one is written.
+      const config = isPlainObject(configured?.[provider]) ? configured[provider] : previous.get(provider)?.config;
+      if (isPlainObject(config)) record.config = config;
+      const option = DEVELOPER_OPTION[provider];
+      const developer = option && agentConfig?.developer?.[option];
+      if (typeof developer === 'boolean') record.developer = developer;
+      else if (typeof previous.get(provider)?.developer === 'boolean') record.developer = previous.get(provider).developer;
       if (isPlainObject(pool) && Array.isArray(pool.accounts)) {
         record.pool = {
           ...pool,
           accounts: pool.accounts.filter((row) => ids.has(row?.id)),
           selectedId: ids.has(pool.selectedId) ? pool.selectedId : undefined,
         };
-      }
+        if (isPlainObject(earlier?.pool)) {
+          record.pool = { ...mergePool(earlier.pool, record.pool), selectedId: record.pool.selectedId ?? earlier.pool.selectedId };
+        }
+      } else if (earlier?.pool) record.pool = earlier.pool;
       await writePrivateJson(join(store, `${provider}.json`), record);
       saved.push(provider);
     }
+    if (adopt) return saved;
     for (const file of await readDevDir(store)) {
       if (CARRY_ENTRY.test(file) && file !== HOLDER_FILE && !saved.includes(file.slice(0, -'.json'.length))) {
         await rm(join(store, file), { force: true });
@@ -1095,8 +1186,7 @@ function logTail(path) {
 export async function startInstance({
   name,
   ttlMs = DEFAULT_TTL_MS,
-  copyAuth: copyOnly = false,
-  keepAuth = false,
+  copyAuth = false,
   skipOnboarding = true,
   timeoutMs = 300_000,
   root = isolatedRoot(),
@@ -1108,7 +1198,6 @@ export async function startInstance({
 }) {
   if (relay !== 'off' && !LOOPBACK_RELAY.test(relay))
     throw new Error('--relay must be a ws://127.0.0.1:<port> or ws://localhost:<port> URL.');
-  const copyAuth = copyOnly || keepAuth;
   await sweep(root, { devProfileDir });
   const lease = await acquireLease(root, name, { ttlMs, devProfileDir });
   let current = lease;
@@ -1116,24 +1205,19 @@ export async function startInstance({
     const { cdpPort, rendererPort } = await allocatePorts(root, name);
     const instanceDir = join(instancesDir(root), `${name}-${randomBytes(3).toString('hex')}`);
     const profile = join(instanceDir, 'profile');
-    current = { ...lease, cdpPort, rendererPort, instanceDir, profile };
+    current = { ...lease, cdpPort, rendererPort, instanceDir, profile, authCarry: null };
     // Lease first, directory second: a concurrent sweep never sees an unowned directory.
     await replaceJson(leasePath(root, name), current);
     await mkdir(instanceDir, { recursive: true });
     const appDir = await prepareAppDir(instanceDir);
     const env = await instanceEnv({ instanceDir, cdpPort, rendererPort, appDir, relay });
     applyPassEnv(env, passEnv);
-    let copiedAuth = [];
-    let carriedAuth = [];
-    if (keepAuth) {
-      const holder = { root: resolve(root), name, startedAt: lease.startedAt };
-      const kept = await seedInstanceAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs, holder });
-      ({ copied: copiedAuth, carried: carriedAuth } = kept);
-      current = { ...current, authCarry: { seeded: kept.seeded } };
-      await replaceJson(leasePath(root, name), current);
-    } else if (copyAuth) {
-      copiedAuth = await copyDevAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs });
-    }
+    const holder = { root: resolve(root), name, startedAt: lease.startedAt };
+    const kept = await seedInstanceAuth(env.MIXDOG_DATA_DIR, { devProfileDir, ttlMs, holder, copyAuth });
+    const { copied: copiedAuth, carried: carriedAuth, heldBy: keptAuthHeldBy } = kept;
+    current = { ...current, authCarry: { seeded: kept.seeded } };
+    await replaceJson(leasePath(root, name), current);
+    if (keptAuthHeldBy) console.error(`Started without the kept sign-ins: ${keptAuthHeldBy}.`);
     if (copyAuth || skipOnboarding) {
       await seedReadyConfig(env.MIXDOG_DATA_DIR, {
         withRoutes: copyAuth,
@@ -1141,6 +1225,7 @@ export async function startInstance({
         devDataDir: join(devProfileDir, 'data'),
       });
     }
+    await restoreProviderConfig(env.MIXDOG_DATA_DIR, kept.providerConfigs, kept.developerOptions);
     if (configOverlay) await applyConfigOverlay(env.MIXDOG_DATA_DIR, configOverlay);
     assertCoreBinary(env);
     // Source checkouts prefer native/*/target/release over the pinned download;
@@ -1190,6 +1275,7 @@ export async function startInstance({
       expiresAt: new Date(Date.parse(lease.startedAt) + ttlMs).toISOString(),
       copiedAuth,
       carriedAuth,
+      ...(keptAuthHeldBy ? { keptAuthHeldBy } : {}),
     };
   } catch (error) {
     const stopped = await stopInstance(root, current, { devProfileDir }).catch(() => null);
@@ -1206,7 +1292,6 @@ async function main() {
       name: { type: 'string' },
       all: { type: 'boolean', default: false },
       'copy-auth': { type: 'boolean', default: false },
-      'keep-auth': { type: 'boolean', default: false },
       onboarding: { type: 'boolean', default: false },
       'ttl-minutes': { type: 'string', default: String(DEFAULT_TTL_MS / 60_000) },
       'timeout-seconds': { type: 'string', default: '300' },
@@ -1229,7 +1314,6 @@ async function main() {
       name: values.name,
       ttlMs,
       copyAuth: values['copy-auth'],
-      keepAuth: values['keep-auth'],
       skipOnboarding: !values.onboarding,
       timeoutMs: Number(values['timeout-seconds']) * 1000,
       root,

@@ -16,6 +16,7 @@ import { hostRouteAutoEffort } from './auto-effort-store';
 import { type RouteSpeed, speedRouteFields } from './model-route-utils';
 import {
   resolveDesktopSlashCommand,
+  slashCommandNotApplicable,
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
 } from './slash-commands';
@@ -33,6 +34,9 @@ type SlashExecutorDeps = {
   turnBusy: boolean;
   provider: string;
   model: string;
+  /** The external agent the session runs on, by name, and the controls its model has no use for; absent on a
+   *  provider's model. */
+  agentRoute?: { label: string; notApplicable: ReadonlySet<string> } | null;
   effort: string;
   fast: boolean;
   fastCapable: boolean;
@@ -91,6 +95,15 @@ export function createSlashExecutor(deps: SlashExecutorDeps) {
     }
     deps.setAttachmentError('');
     deps.clearNotice();
+    if (deps.agentRoute && slashCommandNotApplicable(command.name, deps.agentRoute.notApplicable)) {
+      deps.showNotice(
+        t('{{name}} runs its own model settings, so /{{command}} does not apply to this session.', {
+          name: deps.agentRoute.label,
+          command: command.name,
+        })
+      );
+      return true;
+    }
     if (deps.turnBusy && TURN_LOCKED_SLASH_COMMANDS.has(command.name)) {
       deps.setAttachmentError(`Wait for the current turn to finish before /${rawName}.`);
       return false;

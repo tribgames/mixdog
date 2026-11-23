@@ -14,8 +14,11 @@ export function useProgrammaticWrites() {
 
   /** Does the timeline's last write explain a scroll event at this offset?
    *  Within the write window any event is that write; later, only the first
-   *  event that lands exactly on what it wrote (see settleWrites). */
-  const attributeScroll = useCallback((top: number) => {
+   *  event that lands exactly on what it wrote (see settleWrites). `own`, a
+   *  write the app made into the viewport from outside the timeline
+   *  (own-scroll-writes.ts), counts as the timeline's. */
+  const attributeScroll = useCallback((top: number, own?: { at: number; top: number }) => {
+    if (own && own.at >= lastWrite.current.at) lastWrite.current = { at: own.at, tops: [own.top] };
     const { at, tops } = lastWrite.current;
     return attributeWrite({ lastWriteAt: at, writtenTops: tops, top, now: Date.now() });
   }, []);

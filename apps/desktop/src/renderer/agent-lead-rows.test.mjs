@@ -41,6 +41,17 @@ test('a waiting row wears the shared amber triangle with its spoken state, never
   assert.match(asked, /aria-label="sess_wait · Waiting for your answer"/);
 });
 
+test("a row on an external agent's route naming no model shows its state, as a provider's does", () => {
+  const sessions = [
+    session('sess_agent', { provider: 'acp-antigravity', model: '' }),
+    session('sess_provider', { model: '' }),
+  ];
+  const previews = Object.fromEntries(
+    agentLeadRows([], new Set(), { now: NOW, sessions }).map((row) => [row.sessionId, row.preview])
+  );
+  assert.deepEqual(previews, { sess_agent: 'Idle', sess_provider: 'Idle' });
+});
+
 test('a session waiting on the user shows "!" whether it works, rests or settled long ago', () => {
   const sessions = [
     session('sess_working_approval', { working: true }),

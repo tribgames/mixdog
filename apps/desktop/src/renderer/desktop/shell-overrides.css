@@ -340,7 +340,7 @@ html[data-mixdog-mobile-tabs] .tool-path-link::before {
   position: absolute;
   inset: calc((var(--mx-touch-min) - 1lh) / -2) 0;
 }
-html[data-mixdog-mobile-tabs] :is(.agent-activity-page, .utility-dock-header) .row-overflow-trigger {
+html[data-mixdog-mobile-tabs] .agent-activity-page .row-overflow-trigger {
   min-width: var(--mx-touch-min);
   min-height: var(--mx-touch-min);
   margin: -8px;

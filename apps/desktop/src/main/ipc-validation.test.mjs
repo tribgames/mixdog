@@ -385,7 +385,7 @@ test('desktop IPC still rejects unknown built-in lifecycle names', () => {
         capability: 'installBuiltinFeature',
         args: ['thirdPartyRuntime'],
       }),
-    /git, memory, office, localProvider, or tidy/
+    /git, memory, office, localProvider, tidy, autoEffort, or acpAgents/
   );
   assert.throws(
     () =>
@@ -393,7 +393,24 @@ test('desktop IPC still rejects unknown built-in lifecycle names', () => {
         capability: 'setBuiltinToolEnabled',
         args: ['thirdPartyRuntime', true],
       }),
-    /git, office, localProvider, tidy, autoEffort, visualize, or media/
+    /git, office, localProvider, tidy, autoEffort, visualize, media, or acpAgents/
+  );
+});
+
+test('ACP agents toggle and install through the desktop IPC boundary, the install with no options', () => {
+  for (const request of [
+    { capability: 'setBuiltinToolEnabled', args: ['acpAgents', true] },
+    { capability: 'installBuiltinFeature', args: ['acpAgents'] },
+  ]) {
+    assert.deepEqual(requiredDesktopCapabilityRequest(request), request);
+  }
+  assert.throws(
+    () =>
+      requiredDesktopCapabilityRequest({
+        capability: 'installBuiltinFeature',
+        args: ['acpAgents', { engines: ['x'] }],
+      }),
+    /engines:\[ids\] for tidy/
   );
 });
 

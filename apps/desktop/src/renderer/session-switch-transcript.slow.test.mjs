@@ -93,6 +93,19 @@ function assertRowsOf(view, keys, label) {
   assert.deepEqual(mounted, keys.slice(from, from + mounted.length), `${label}: the rows in order`);
 }
 
+/** Every frame shows the session's end, `last` its last row, and follows it. */
+function assertAtEnd(frames, last, label) {
+  for (const view of frames) {
+    assert.equal(view.last.key, last, `${label}: the last row (${describe(view)})`);
+    assert.ok(Math.abs(view.gap) <= 1, `${label}: on the end (${describe(view)})`);
+    assert.equal(view.following, true, `${label}: the end is followed (${describe(view)})`);
+  }
+}
+
+/** Whether a pane asked the core for the window around a record of `id`. */
+const readAroundAsked = (p, id) =>
+  p.run((session) => window.rig.core.moves().some((move) => move.id === session && move.kind === 'at'), id);
+
 const LONG = 300;
 const longKeys = seededKeys('A', LONG, { tools: 1 });
 const open = (id) => new Function('rig', `rig.ws.open(rig.ws.session('${id}'))`);
@@ -181,45 +194,37 @@ for (const scroll of [0, -3000]) {
     assert.equal(await p.run(() => window.rig.core.resumes('A')), 1, 'a session the pane keeps stays followed');
   });
 
-  test(`back to a session the pane let go, ${place}: the pane shows what it showed until the session is read, then the reader's place`, async (t) => {
+  test(`back to a session the pane let go, ${place}: the pane shows what it showed until the session is read, then its end, followed`, async (t) => {
     const p = await rig(t);
-    const left = await leftLongSession(p, { scroll, then: COLD });
+    await leftLongSession(p, { scroll, then: COLD });
     assert.deepEqual(await p.run(() => window.rig.core.followed().sort()), ['B', 'C', 'D'], 'A is no longer followed');
     const before = await one(p);
     const frames = await switchTo(p, 'A');
-    const arrived = assertHandover(frames, before, 'A', 'session let go', left);
+    const arrived = assertHandover(frames, before, 'A', 'session let go');
     assert.ok(arrived >= 2, 'the session is read again before it is shown');
-    for (const view of frames.slice(arrived)) {
-      assertRowsOf(view, longKeys, 'session let go');
-      assert.equal(view.following, !scroll, 'the reader is where it was: on the end, or off it');
-    }
+    assertAtEnd(frames.slice(arrived), 'A:A-r300', 'session let go');
+    for (const view of frames.slice(arrived)) assertRowsOf(view, longKeys, 'session let go');
+    assert.ok(!(await readAroundAsked(p, 'A')), 'no read around the place the reader left is asked');
     assert.equal(await p.run(() => window.rig.core.resumes('A')), 2);
   });
 
-  test(`back to a session whose kept state was dropped, ${place}: no cover, and the reader's place`, async (t) => {
+  test(`back to a session whose kept state was dropped, ${place}: no cover, and its end, followed`, async (t) => {
     const p = await rig(t);
-    const left = await leftLongSession(p, { scroll, then: COLD });
+    await leftLongSession(p, { scroll, then: COLD });
     await p.run(() => window.rig.store.evictInactive());
     assert.equal(await p.run(() => window.rig.store.get('A')), null, 'nothing is held of A');
     const before = await one(p);
     const frames = await switchTo(p, 'A');
-    assertHandover(frames, before, 'A', 'dropped session', left);
+    const arrived = assertHandover(frames, before, 'A', 'dropped session');
+    assertAtEnd(frames.slice(arrived), 'A:A-r300', 'dropped session');
   });
 }
 
-test('seventeen other sessions shown in turn: the first is still where its reader left it', async (t) => {
-  const p = await rig(t);
-  const left = await leftLongSession(p, { scroll: -3000, then: Array.from({ length: 17 }, (_, n) => `X${n}`) });
-  const before = await one(p);
-  const frames = await switchTo(p, 'A');
-  assertHandover(frames, before, 'A', 'after seventeen sessions', left);
-});
-
-test('the scroll made just before leaving is the place returned to', async (t) => {
+test('a conversation the pane keeps mounted: the scroll made just before leaving is the place it shows when it is shown again', async (t) => {
   const p = await rig(t);
   await p.act(() => {
     window.rig.core.seed('A', 300, { tools: 1 });
-    for (const id of ['B', 'C', 'D']) window.rig.core.seed(id, 12);
+    window.rig.core.seed('B', 12);
     window.rig.ws.open(window.rig.ws.session('A'));
   });
   await p.run(() => window.rig.wheel('pane-1', -3000));
@@ -229,40 +234,33 @@ test('the scroll made just before leaving is the place returned to', async (t) =
     window.rig.jump('pane-1', document.querySelector('.transcript').scrollTop - 700);
     window.rig.ws.open(window.rig.ws.session('B'));
   });
-  // The place the pane kept as it left: the row at the top of the view the last scroll made, and where it stood.
-  const kept = await p.run(() => window.rig.place('A'));
-  for (const id of ['C', 'D']) await p.act((session) => window.rig.ws.open(window.rig.ws.session(session)), id);
-  const away = await one(p);
-  const frames = await switchTo(p, 'A');
-  const arrived = assertHandover(frames, away, 'A', 'last scroll');
+  assert.equal((await one(p)).session, 'B');
+  const frames = paneFrames(await p.frames(open('A'), { count: 12 }));
+  assertPainted(frames, 'kept, last scroll');
   const moved = new Map(earlier.shown.map((entry) => entry.split('@')).map(([key, offset]) => [key, Number(offset) + 700]));
-  for (const view of frames.slice(arrived)) {
+  for (const view of frames) {
+    assert.equal(view.session, 'A', `the kept session is shown from the frame of the switch (${describe(view)})`);
+    assert.equal(view.following, false, 'its reader is off the end');
     const shared = view.shown.map((entry) => entry.split('@')).filter(([key]) => moved.has(key));
     assert.ok(shared.length > 0, `rows that were on screen before the last scroll are on screen (${describe(view)})`);
     for (const [key, offset] of shared) assert.equal(Number(offset), moved.get(key), `${key} is 700px lower`);
   }
-  // The row the last scroll put at the top is there, at the offset it had: the place returned to is that scroll's.
-  const back = await p.run(() => window.rig.place('A'));
-  assert.equal(back.position, kept.position);
-  assert.ok(Math.abs(back.top - kept.top) <= 1, `the row stands at ${back.top}, left at ${kept.top}`);
+  assert.equal(await p.run(() => window.rig.core.resumes('A')), 1, 'a session the pane keeps stays followed');
 });
 
-test('the chat text size changed while away: no frame is covered, and the reader is on the row it was on', async (t) => {
+test('the chat text size changed while away, the reader above the end: no frame is covered, and the return is the end, followed', async (t) => {
   const p = await rig(t);
-  const left = await leftLongSession(p, { scroll: -3000, then: COLD });
+  await leftLongSession(p, { scroll: -3000, then: COLD });
   await p.act(() => window.rig.setTextSize('large'));
   const before = await one(p);
   const frames = await switchTo(p, 'A');
   const arrived = assertHandover(frames, before, 'A', 'text size');
-  for (const view of frames.slice(arrived)) {
-    assert.equal(view.first.key, left.first.key, 'the row at the top of the view');
-    assert.equal(view.first.offset, left.first.offset, 'at the offset it had');
-  }
+  assertAtEnd(frames.slice(arrived), 'A:A-r300', 'text size');
 });
 
-test('row sizes learned at another text size, then the size set back: the return puts the row at the top of the view where it was, and it stays', async (t) => {
+test('row sizes learned at another text size, then the size set back: the return is the end, followed, and it stays', async (t) => {
   const p = await rig(t);
-  const left = await leftLongSession(p, { scroll: -3000, then: COLD });
+  await leftLongSession(p, { scroll: -3000, then: COLD });
   // Sessions read at the large size teach the list sizes that are not those of the rows the reader comes back to.
   await p.act(() => window.rig.setTextSize('large'));
   for (const id of ['E', 'F']) {
@@ -276,10 +274,7 @@ test('row sizes learned at another text size, then the size set back: the return
   const before = await one(p);
   const frames = await switchTo(p, 'A');
   const arrived = assertHandover(frames, before, 'A', 'sizes learned elsewhere');
-  for (const view of frames.slice(arrived)) {
-    assert.equal(view.first.key, left.first.key, `the row at the top of the view (${describe(view)})`);
-    assert.equal(view.first.offset, left.first.offset, `at the offset it had (${describe(view)})`);
-  }
+  assertAtEnd(frames.slice(arrived), 'A:A-r300', 'sizes learned elsewhere');
 });
 
 test('a kept session at another text size: the frame of the switch shows the reader on the row it was on', async (t) => {
@@ -332,17 +327,6 @@ for (const then of [['B'], COLD]) {
     assert.notDeepEqual(frames.at(-1).shown, left.shown);
   });
 
-  test(`turns ran while away (session ${kept}), the reader scrolled up: the rows on screen stand where they were, the new ones below`, async (t) => {
-    const p = await rig(t);
-    const left = await leftSession(p, { scroll: -2500, then });
-    await p.run(() => window.rig.core.seed('S', 3, { tools: 1 }));
-    const before = await one(p);
-    const frames = await switchTo(p, 'S');
-    const arrived = assertHandover(frames, before, 'S', 'rows while away', left);
-    for (const view of frames.slice(arrived)) assertRowsOf(view, seededKeys('S', 33, { tools: 1 }), 'rows while away');
-    assert.ok(frames.at(-1).height > left.height, 'the turns that ran are in the list');
-  });
-
   test(`a turn started while away and still runs (session ${kept}): the session's first frame is the running end, with no gap under it`, async (t) => {
     const p = await rig(t);
     await leftSession(p, { then });
@@ -367,14 +351,26 @@ for (const then of [['B'], COLD]) {
   });
 }
 
-test('more turns ran while away than the tail holds, the reader scrolled up: the rows on screen stand still', async (t) => {
+test('turns ran while away (session kept), the reader scrolled up: the rows on screen stand where they were, the new ones below', async (t) => {
   const p = await rig(t);
-  const left = await leftSession(p, { scroll: -2500, then: COLD });
+  const left = await leftSession(p, { scroll: -2500, then: ['B'] });
+  await p.run(() => window.rig.core.seed('S', 3, { tools: 1 }));
+  const before = await one(p);
+  const frames = await switchTo(p, 'S');
+  const arrived = assertHandover(frames, before, 'S', 'rows while away', left);
+  for (const view of frames.slice(arrived)) assertRowsOf(view, seededKeys('S', 33, { tools: 1 }), 'rows while away');
+  assert.ok(frames.at(-1).height > left.height, 'the turns that ran are in the list');
+});
+
+test('more turns ran while away than the tail holds, the reader scrolled up: the return is the new end, followed', async (t) => {
+  const p = await rig(t);
+  await leftSession(p, { scroll: -2500, then: COLD });
   await p.run(() => window.rig.core.seed('S', 20, { tools: 1 }));
   const before = await one(p);
   const frames = await switchTo(p, 'S');
-  const arrived = assertHandover(frames, before, 'S', 'a tail apart from the reader', left);
-  for (const view of frames.slice(arrived)) assertRowsOf(view, seededKeys('S', 50, { tools: 1 }), 'a tail apart from the reader');
+  const arrived = assertHandover(frames, before, 'S', 'a tail longer than held');
+  assertAtEnd(frames.slice(arrived), 'S:S-r50', 'a tail longer than held');
+  for (const view of frames.slice(arrived)) assertRowsOf(view, seededKeys('S', 50, { tools: 1 }), 'a tail longer than held');
 });
 
 test('a reply streaming when the session was left and finished while away: one reply row under the key it streamed with, then its end', async (t) => {
@@ -579,7 +575,7 @@ test('a search hit in old history of a session not shown: the pane shows what it
   assert.ok(await p.run(() => window.rig.laneRows('A')) < 700, 'the rows around the hit and the tail are held, not the session');
 });
 
-test('a search hit in old history of the session on screen: its rows stay until the hit is shown, and a return comes back to it', async (t) => {
+test('a search hit in old history of the session on screen: its rows stay until the hit is shown, and a later return is to the end, followed', async (t) => {
   const p = await rig(t);
   await p.act(() => {
     window.rig.core.seed('A', 300, { tools: 1 });
@@ -604,7 +600,58 @@ test('a search hit in old history of the session on screen: its rows stay until 
   }
   const away = await one(p);
   const back = await switchTo(p, 'A');
-  assertHandover(back, away, 'A', 'back to the hit', hit);
+  const returned = assertHandover(back, away, 'A', 'back after the hit');
+  assertAtEnd(back.slice(returned), 'A:A-r300', 'back after the hit');
+});
+
+/** Session A opened from session B at the hit `A-u40` while the core holds its answers: A is followed in frame 3, which
+ *  sends the read around the hit, and `ending` runs in frame 6 with that read out. `before` runs before the switch.
+ *  Returns the view before the switch and every frame after it, the last one at rest. */
+async function hitEndedBy(p, ending, before = () => {}) {
+  await p.act(() => {
+    window.rig.core.seed('A', 300, { tools: 1 });
+    window.rig.core.seed('B', 12);
+    window.rig.ws.open(window.rig.ws.session('B'));
+  });
+  await p.run(before);
+  const away = await one(p);
+  await p.run(() => window.rig.core.hold());
+  const followed = ({ core }) => {
+    core.release();
+    core.hold();
+  };
+  const frames = paneFrames(
+    await p.frames(({ openAt }) => openAt('A', 'A-u40'), { count: 16, at: { 3: followed, 6: ending }, rest: false })
+  );
+  assert.ok(await readAroundAsked(p, 'A'), 'the read around the hit was asked');
+  const [rested] = await p.act(() => {});
+  return { away, all: [...frames, rested] };
+}
+
+test('a search hit whose read around it is out when the connection drops: the outgoing view goes in that frame, and the session is shown at its end, followed', async (t) => {
+  const p = await rig(t);
+  const { away, all } = await hitEndedBy(p, ({ core }) => core.cut());
+  const arrived = assertHandover(all, away, 'A', 'connection lost under a hit');
+  assert.ok(arrived >= 5 && arrived <= 8, `the hold ends with the read (frame ${arrived + 1})`);
+  assertAtEnd(all.slice(arrived), 'A:A-r300', 'connection lost under a hit');
+});
+
+test('a search hit whose read is granted with no row of its record: the outgoing view goes when the window lands, and the session is shown at its end, followed', async (t) => {
+  const p = await rig(t);
+  const { away, all } = await hitEndedBy(
+    p,
+    ({ core }) => core.release(),
+    () => {
+      // Every record around the hit is gone from the history.
+      for (let n = 30; n <= 50; n += 1) {
+        for (const key of [`A-u${n}`, `A-t${n}.0`, `A-r${n}`]) window.rig.core.forget('A', key);
+      }
+      window.rig.core.grantAnything();
+    }
+  );
+  const arrived = assertHandover(all, away, 'A', 'granted without the hit');
+  assert.ok(arrived >= 5 && arrived <= 8, `the hold ends with the window (frame ${arrived + 1})`);
+  assertAtEnd(all.slice(arrived), 'A:A-r300', 'granted without the hit');
 });
 
 test('a reader on a record the history no longer holds: the return is to the end, not to a pane that waits', async (t) => {
@@ -633,66 +680,31 @@ test('a reader on a record the history no longer holds: the return is to the end
   assert.equal(frames.at(-1).last.key, 'A:A-r300');
 });
 
-// ───────────────────────────── the read around a place, ending each way ─────────────────────────────
+// ───────────────────────────── a return ending each way ─────────────────────────────
 
-/** A long session left far above its end and let go, then opened again while the core holds its answers: the session is
- *  followed again in frame 3, which sends the read around the reader's place, and `ending` runs in frame 6 with that
- *  read out. Returns the view before the switch and every frame after it, the last one at rest. */
-async function returnEndedBy(p, ending, { before = () => {} } = {}) {
+/** A long session left far above its end and let go, then opened again while the core holds its answers: `ending` runs
+ *  in frame 2 with the session's read out. Returns the view before the switch and every frame after it, the last one at
+ *  rest. */
+async function returnEndedBy(p, ending) {
   await leftLongSession(p, { scroll: -3000, then: COLD });
-  await p.run(before);
   const away = await one(p);
   await p.run(() => window.rig.core.hold());
-  const followed = ({ core }) => {
-    core.release();
-    core.hold();
-  };
-  const frames = paneFrames(await p.frames(open('A'), { count: 16, at: { 3: followed, 6: ending }, rest: false }));
-  assert.ok(
-    (await p.run(() => window.rig.core.moves())).some((move) => move.id === 'A' && move.kind === 'at'),
-    'the read around the place was asked'
-  );
+  const frames = paneFrames(await p.frames(open('A'), { count: 16, at: { 2: ending }, rest: false }));
+  assert.ok(!(await readAroundAsked(p, 'A')), 'no read around the place the reader left is asked');
   return { away, frames };
 }
 
-test('the read around a place is granted with no row of its record: the outgoing view goes when the window lands, and the reader is at the end', async (t) => {
-  const p = await rig(t);
-  const { away, frames } = await returnEndedBy(p, ({ core }) => core.release(), {
-    before: () => {
-      // Every record around the reader is gone from the history.
-      for (let n = 150; n <= 297; n += 1) {
-        for (const key of [`A-u${n}`, `A-t${n}.0`, `A-r${n}`]) window.rig.core.forget('A', key);
-      }
-      window.rig.core.grantAnything();
-    },
-  });
-  const [rested] = await p.act(() => {});
-  const arrived = assertHandover([...frames, rested], away, 'A', 'granted without the record');
-  assert.ok(arrived >= 5 && arrived <= 8, `the hold ends with the window (frame ${arrived + 1})`);
-  assert.ok(Math.abs(rested.gap) <= 1, 'the reader is at the end');
-});
-
-test('the connection drops with the read around a place out: the outgoing view goes in that frame, and the session is shown at its end', async (t) => {
-  const p = await rig(t);
-  const { away, frames } = await returnEndedBy(p, ({ core }) => core.cut());
-  const [rested] = await p.act(() => {});
-  const arrived = assertHandover([...frames, rested], away, 'A', 'connection lost');
-  assert.ok(arrived >= 5 && arrived <= 8, `the hold ends with the read (frame ${arrived + 1})`);
-  assert.ok(Math.abs(rested.gap) <= 1, 'the reader is at the end');
-  assert.equal(rested.last.key, 'A:A-r300');
-});
-
-test('the session is deleted with the read around a place out: the pane says it cannot be read, and never keeps the outgoing view', async (t) => {
+test('the session is deleted with its read out on a return: the pane says it cannot be read, and never keeps the outgoing view', async (t) => {
   const p = await rig(t);
   const { away, frames } = await returnEndedBy(p, ({ core }) => core.delete('A'));
   const arrived = frames.findIndex((view) => view.session !== away.session || view.unavailable);
-  assert.ok(arrived >= 5, `the outgoing view stands until the session is gone (frame ${arrived + 1}: ${frames.map((view) => `${view.session}${view.unavailable ? '!' : ''}${view.preparing ? '>' + view.preparing : ''}`).join(' ')})`);
+  assert.ok(arrived >= 1, `the outgoing view stands until the session is gone (frame ${arrived + 1}: ${frames.map((view) => `${view.session}${view.unavailable ? '!' : ''}${view.preparing ? '>' + view.preparing : ''}`).join(' ')})`);
   assertStill(frames.slice(0, arrived), away, 'deleted, before the handover');
   for (const view of frames.slice(arrived)) assert.equal(view.unavailable, true, `the notice stays (${describe(view)})`);
   assert.equal(await p.run(() => document.querySelectorAll('.persistent-pane-surface[data-preparing]').length), 0);
 });
 
-test('the tab is closed with the read around a place out: the pane goes on to the tab it then shows, with no frame of the closed one', async (t) => {
+test('the tab is closed with the session read out on a return: the pane goes on to the tab it then shows, with no frame of the closed one', async (t) => {
   const p = await rig(t);
   const { away, frames } = await returnEndedBy(p, ({ ws }) => ws.close(ws.session('A')));
   const [rested] = await p.act(() => window.rig.core.release());
@@ -720,9 +732,9 @@ test('a read of the session answered after its window is shown (its newest rows,
   assert.ok(await p.run(() => window.rig.store.get('A').transcriptPositioned), 'the lane still shows the window');
 });
 
-test('a read of the session answered while a pane comes back to old history: the tail is never shown in its place', async (t) => {
+test('a read of the session answered while a pane comes back to it from old history: every frame from the handover is its end, followed', async (t) => {
   const p = await rig(t);
-  const left = await leftLongSession(p, { scroll: -3000, then: COLD });
+  await leftLongSession(p, { scroll: -3000, then: COLD });
   const away = await one(p);
   await p.run(() => window.rig.core.hold());
   const step = ({ core }) => {
@@ -734,7 +746,9 @@ test('a read of the session answered while a pane comes back to old history: the
     await p.frames(open('A'), { count: 16, at: { 2: read, 3: step, 4: read, 6: step, 7: read, 9: step }, rest: false })
   );
   const [rested] = await p.act(() => window.rig.core.release());
-  assertHandover([...frames, rested], away, 'A', 'read during a return', left);
+  const all = [...frames, rested];
+  const arrived = assertHandover(all, away, 'A', 'read during a return');
+  assertAtEnd(all.slice(arrived), 'A:A-r300', 'read during a return');
 });
 
 // ───────────────────────────── a switch during a switch ─────────────────────────────
@@ -760,7 +774,7 @@ test('A to B and back to A before B answers: A is shown where it was in every fr
   assertStill([...frames, rested], left, 'there and back');
 });
 
-test("a page of A still out when the pane goes back to B's place: the read around the place is asked of B, and B is shown where its reader was", async (t) => {
+test('a page of A still out when the pane goes back to B, left read from above: A stands while B is read, and B is shown at its end, followed', async (t) => {
   const p = await rig(t);
   await p.act(() => {
     window.rig.core.seed('A', 300, { tools: 1 });
@@ -768,7 +782,6 @@ test("a page of A still out when the pane goes back to B's place: the read aroun
     window.rig.ws.open(window.rig.ws.session('B'));
   });
   await p.run(() => window.rig.wheel('pane-1', -3000));
-  const left = await one(p);
   // B is let go: two other sessions are shown after it, then A.
   for (const id of ['C', 'D', 'A']) {
     await p.act((session) => {
@@ -791,16 +804,16 @@ test("a page of A still out when the pane goes back to B's place: the read aroun
     await p.frames(open('B'), { count: 18, at: { 3: step, 6: step, 9: step, 12: step }, rest: false })
   );
   const [rested] = await p.act(() => window.rig.core.release());
-  const placed = (await p.run(() => window.rig.core.moves())).filter((move) => move.kind === 'at');
-  assert.deepEqual([...new Set(placed.map((move) => move.id))], ['B'], 'a record of B is opened in B');
+  assert.ok(!(await readAroundAsked(p, 'B')), 'no read around the place the reader left in B is asked');
   // A's page lands above its rows while it is still shown: they stand where they were, as when it is the session read.
   const all = [...frames, rested];
-  assertPainted(all, "back to B's place");
+  assertPainted(all, 'back to B');
   const arrived = all.findIndex((view) => view.session === 'B');
   assert.ok(arrived >= 2, 'A is shown while B is read');
   for (const view of all.slice(0, arrived)) assert.equal(view.session, 'A');
-  assertRowsStayPut(all.slice(0, arrived), away, "back to B's place, before the handover");
-  assertStill(all.slice(arrived), left, "back to B's place, from the handover on");
+  assertRowsStayPut(all.slice(0, arrived), away, 'back to B, before the handover');
+  assertStill(all.slice(arrived), rested, 'back to B, from the handover on');
+  assertAtEnd(all.slice(arrived), 'B:B-r300', 'back to B');
 });
 
 test('A to B to C before either answers: A stays until C is shown, B never is, and C lands where it stays', async (t) => {
@@ -823,7 +836,7 @@ test('A to B to C before either answers: A stays until C is shown, B never is, a
   assertRowsOf(rested, seededKeys('C', 40, { tools: 1 }), 'C');
 });
 
-test('four sessions, two of them read from above, switched between every few frames: each frame shows one of them where its reader left it', async (t) => {
+test('four sessions, two of them read from above, switched between every few frames: each frame shows one of them where its reader left it while the pane keeps it, and at its end, followed, once the pane enters it anew', async (t) => {
   const p = await rig(t);
   const ids = ['A', 'B', 'C', 'D'];
   const left = {};
@@ -836,19 +849,39 @@ test('four sessions, two of them read from above, switched between every few fra
     if (id === 'A' || id === 'C') await p.run(() => window.rig.wheel('pane-1', -2200));
     left[id] = await one(p);
   }
-  const order = ['A', 'B', 'C', 'D', 'B', 'A', 'C'];
+  // C, read from above, is kept and shown again three times; A, read from above and let go, is entered anew twice.
+  const order = ['C', 'A', 'B', 'C', 'D', 'A', 'C'];
+  // What each open gives the session it shows: the pane keeps the session shown and the two shown before it mounted
+  // (leftLongSession), and those show their reader's place; any other is entered anew and from then on is at its end.
+  let kept = ['D', 'C', 'B'];
+  const rule = { A: 'place', B: 'place', C: 'place', D: 'place' };
+  const rules = order.map((id) => {
+    if (!kept.includes(id)) rule[id] = 'end';
+    kept = [id, ...kept.filter((other) => other !== id)].slice(0, 3);
+    return { ...rule };
+  });
+  // The k-th open runs in frame 4k + 1, before that frame is sampled.
   const at = Object.fromEntries(order.slice(1).map((id, index) => [(index + 1) * 4 + 1, open(id)]));
   const frames = paneFrames(await p.frames(open(order[0]), { count: order.length * 4 + 6, at }));
   assertPainted(frames, 'quick switches');
   frames.forEach((view, index) => {
-    assert.deepEqual(view.shown, left[view.session].shown, `frame ${index + 1} paints ${describe(view)}`);
+    const given = rules[Math.min(Math.floor(index / 4), order.length - 1)][view.session];
+    if (given === 'place') {
+      assert.deepEqual(view.shown, left[view.session].shown, `frame ${index + 1}, kept: its place (${describe(view)})`);
+    } else {
+      assert.ok(view.following && Math.abs(view.gap) <= 1, `frame ${index + 1}, entered: its end (${describe(view)})`);
+    }
   });
+  assert.ok(
+    frames.some((view) => view.session === 'C' && !view.following),
+    'C, kept, is shown at its place off the end'
+  );
   assert.equal(frames.at(-1).session, 'C');
 });
 
 // ───────────────────────────── split panes ─────────────────────────────
 
-test('two panes on one session, each read from a place of its own: each comes back to its own place, and neither moves the other', async (t) => {
+test('two panes on one session, each read from a place of its own, both let go: each comes back to the end, followed, and neither moves the other', async (t) => {
   const p = await rig(t);
   await p.act((others) => {
     window.rig.core.seed('A', 300, { tools: 1 });
@@ -872,10 +905,11 @@ test('two panes on one session, each read from a place of its own: each comes ba
   const first = await p.frames(({ ws }) => ws.open(ws.session('A'), 'pane-2'), { count: 14 });
   const second = await p.frames(({ ws }) => ws.open(ws.session('A'), 'pane-1'), { count: 14 });
   assertPainted(paneFrames(first, 'pane-2'), 'the pane that returned first');
-  assert.deepEqual(paneFrames(first, 'pane-2').at(-1).shown, left['pane-2'].shown, 'its own place');
+  const returned = paneFrames(first, 'pane-2').at(-1);
+  assertAtEnd([returned], 'A:A-r300', 'the pane that returned first');
   assertPainted(paneFrames(second, 'pane-1'), 'the pane that returned second');
-  assert.deepEqual(paneFrames(second, 'pane-1').at(-1).shown, left['pane-1'].shown, 'its own place');
-  assertStill(paneFrames(second, 'pane-2'), left['pane-2'], 'the other pane, meanwhile');
+  assertAtEnd([paneFrames(second, 'pane-1').at(-1)], 'A:A-r300', 'the pane that returned second');
+  assertStill(paneFrames(second, 'pane-2'), returned, 'the other pane, meanwhile');
 });
 
 test('two panes on one session: switching one away and back moves nothing in the other, and the thread stays followed', async (t) => {
@@ -1016,7 +1050,6 @@ test('what is held: a long session by the window around its reader, many session
   });
   const atEnd = await p.run(() => window.rig.memory());
   await p.run(() => window.rig.wheel('pane-1', -4000));
-  const left = await one(p);
   const reading = await p.run(() => window.rig.memory());
   t.diagnostic(`a session of 11,999 rows: ${atEnd.windowRows.A} rows held at its end, ${reading.windowRows.A} read from above; ${reading.mountedRows} rows mounted`);
   assert.ok(atEnd.windowRows.A <= 400, `${atEnd.windowRows.A} rows at the end`);
@@ -1044,20 +1077,20 @@ test('what is held: a long session by the window around its reader, many session
   assert.equal(many.places, 41, 'one place per tab read from above');
   assert.ok(many.measuredRows.sessions <= 16);
   assert.ok(swept.hiddenRows <= (swept.lanes - 3) * 512, `${swept.hiddenRows} rows of ${swept.lanes - 3} sessions not shown`);
-  // The first session is still where its reader left it.
+  // The first session comes back at its end.
   const before = await one(p);
   const frames = await switchTo(p, 'A');
-  assertHandover(frames, before, 'A', 'after forty sessions', left);
+  const arrived = assertHandover(frames, before, 'A', 'after forty sessions');
+  assertAtEnd(frames.slice(arrived), 'A:A-r3000', 'after forty sessions');
 });
 
-test('a cold return after forty sessions whose placed rows parse late, a minute and more on every clock: the session shown stays, and the first frame of the return is final', async (t) => {
+test('a cold return after forty sessions whose rows parse late, a minute and more on every clock: the session shown stays, and the first frame of the return is its end, final', async (t) => {
   const p = await rig(t);
   await p.act(() => {
     window.rig.core.seed('A', 300, { tools: 1, long: true });
     window.rig.ws.open(window.rig.ws.session('A'));
   });
   await p.run(() => window.rig.wheel('pane-1', -4000));
-  const left = await one(p);
   for (let n = 0; n < 40; n += 1) {
     await p.act((id) => {
       window.rig.core.seed(id, 12);
@@ -1090,7 +1123,8 @@ test('a cold return after forty sessions whose placed rows parse late, a minute 
   const all = [...frames, rested];
   const arrived = all.findIndex((view) => view.session === 'A');
   assert.ok(arrived >= 24, `the return is presented once its rows are parsed (frame ${arrived}, ${heldAt} parses held)`);
-  assertHandover(all, before, 'A', 'after forty sessions, parsed late', left);
+  assertHandover(all, before, 'A', 'after forty sessions, parsed late');
+  assertAtEnd(all.slice(arrived), 'A:A-r300', 'after forty sessions, parsed late');
 });
 
 // ───────────────────────────── reads of the core that never answer ─────────────────────────────
@@ -1145,12 +1179,11 @@ test('a search hit on turns whose changed files are never read: each card is dra
   assert.equal(filled.recorded, 0, 'each card now shows what the core read');
 });
 
-test('a cold return to rows whose changed files are no longer held and never read: the rows come back with their cards, where the reader left them', async (t) => {
+test('a cold return to a session whose changed files are no longer held and never read, left in old history: its end comes back with its cards', async (t) => {
   const p = await rig(t);
   await p.act(withChanges);
   await p.act(() => window.rig.ws.open(window.rig.ws.session('A')));
   await p.act(() => window.rig.openAt('A', 'A-u40'));
-  const left = await one(p);
   assert.ok((await cards(p)).count > 0, 'the reader left rows with cards');
   for (let n = 0; n < 4; n += 1) {
     await p.act((id) => {
@@ -1168,8 +1201,8 @@ test('a cold return to rows whose changed files are no longer held and never rea
   const frames = paneFrames(
     await p.frames(open('A'), { count: 24, at: { 8: ({ advance }) => advance(90_000), 14: ({ advance }) => advance(90_000) } })
   );
-  const arrived = assertHandover(frames, before, 'A', 'cold return, changes unread', left);
-  assert.ok(arrived >= 0);
+  const arrived = assertHandover(frames, before, 'A', 'cold return, changes unread');
+  assertAtEnd(frames.slice(arrived), 'A:A-r300', 'cold return, changes unread');
   const drawn = await cards(p);
   assert.ok(drawn.count > 0 && drawn.recorded === drawn.count, `the cards are drawn from the records (${JSON.stringify(drawn)})`);
   const presented = frames.at(-1);

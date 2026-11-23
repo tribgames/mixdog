@@ -5,7 +5,14 @@ import { SideMarkdownPreview } from './lazy-widgets';
 import type { PaneLeaf } from './pane-layout';
 import { paneActiveSelection } from './pane-layout';
 import { navigationKey } from './text-format';
-import { paneDockActiveRoot, paneDockFileCloseEndsDock, PaneSideDock, type PaneSideDockFile } from './pane-side-dock';
+import {
+  paneDockActiveRoot,
+  paneDockFileCloseEndsDock,
+  paneDockOpenNow,
+  paneDockOwnerOf,
+  PaneSideDock,
+  type PaneSideDockFile,
+} from './pane-side-dock';
 import { PaneDockToggles } from './pane-dock-toggles';
 import { agentChatStripGroups, codingStripGroups, paneRightGroupsFor } from './routines-tile';
 import type { PaneDockFilesSurface as PaneDockFilesSurfaceComponent } from './pane-dock-files';
@@ -16,7 +23,7 @@ import { EDITOR_STARTUP_DELAY_MS, ReadyEditorPane } from './app-shell-components
 import { DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
 import { sideFileDirtyKey, type createSideFileGuard } from './side-file-guard';
-import { sideFileKey } from './side-file-tabs';
+import { sideFileKey, sideFileTabDirtyKey } from './side-file-tabs';
 import type { EditorSaveHandle } from './use-pane-tab-close';
 import {
   isSessionSidePanelView,
@@ -77,19 +84,20 @@ interface PaneDockContext {
 /** `groups`: the tab's own right-side groups (paneRightGroupsFor); a session
  *  view they do not hold is not shown. */
 function sessionDockEntry(
-  leafId: string,
+  leaf: PaneLeaf,
   sessionId: string,
   paneSideDocks: PaneDockContext['paneSideDocks'],
   sessionSurfaces: PaneDockContext['sessionSurfaces'],
   groups: readonly (readonly string[])[]
 ) {
   return sessionSideDockEntryForSession(
-    paneSideDocks.entryFor(leafId),
+    paneSideDocks.entryFor(leaf.id),
     sessionId,
     sessionSurfaces.sessionSideSurfaces.get(sessionId) ?? null,
     sessionSurfaces.sessionDiffs.get(sessionId) ?? null,
     sessionPanelViewIn(groups, sessionSurfaces.sessionPanelViews.get(sessionId)),
-    sessionSurfaces.panelViewFronts.has(sessionId)
+    sessionSurfaces.panelViewFronts.has(sessionId),
+    paneDockOwnerOf(paneActiveSelection(leaf))
   );
 }
 
@@ -97,7 +105,10 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
   const active = paneActiveSelection(leaf);
   const sessionId = active?.kind === 'session' ? active.id : '';
   const groups = paneRightGroupsFor(context.workbenchSideLayout.layout.right, sessionId);
-  const entry = sessionDockEntry(leaf.id, sessionId, context.paneSideDocks, context.sessionSurfaces, groups);
+  const entry = sessionDockEntry(leaf, sessionId, context.paneSideDocks, context.sessionSurfaces, groups);
+  // What this tab's own session opened, never the pane entry another tab of the pane may have written.
+  const changesView =
+    sessionPanelViewIn(groups, context.sessionSurfaces.sessionPanelViews.get(sessionId)) === 'session-diff';
   const prewarm = focused && context.dockBodyWarm;
   // A child session's terminal revealed in this conversation's dock (its
   // owner chain): the slot shows the child's terminal. A child's browser
@@ -121,8 +132,10 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           leafId={leaf.id}
           entry={entry}
           sessionId={sessionId}
+          draftId={active?.kind === 'new' ? active.draftId || 'default' : undefined}
           terminalSessionId={surfaceSession('terminal')}
           sessionBound={Boolean(sessionId)}
+          changesTab={changesView}
           onOpenFiles={projectPath ? () => context.paneSideDocks.openFolder(leaf.id, projectPath, filesRel) : undefined}
           groups={groups}
           // Agent mode: no Changes in the phone ⋯ switch; the changes card opens it.
@@ -133,6 +146,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
           focused={focused}
           prewarm={prewarm}
           onFocusPane={() => context.paneWorkspace.focusLeaf(leaf.id)}
+          isFileDirty={(fileKey) => context.paneSideDocks.dirtyKeysRef.current.has(sideFileTabDirtyKey(fileKey))}
           onSelect={(id) => context.selectWorkbenchSideView(id, leaf.id)}
           onClose={() => context.closePaneRightRegion(leaf.id)}
           onCloseDiff={() => {
@@ -149,7 +163,7 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
             context.sideFileGuard.closeSideFileTab(
               leaf.id,
               fileKey,
-              paneDockFileCloseEndsDock(entry, fileKey, Boolean(sessionId) && sessionDiffStripHasTabs(sessionId))
+              paneDockFileCloseEndsDock(entry, fileKey, changesView && sessionDiffStripHasTabs(sessionId))
                 ? () => context.closePaneRightRegion(leaf.id)
                 : undefined
             )
@@ -234,6 +248,15 @@ export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context
   );
 }
 
+/** A side file with unsaved edits keeps its one editor while any dock holds
+ *  its tab, whether or not a pane draws its slot (side-file-editor-portals). */
+export function sideFileEditorKept(paneSideDocks: PaneDockContext['paneSideDocks'], fileKey: string): boolean {
+  if (!paneSideDocks.dirtyKeysRef.current.has(sideFileTabDirtyKey(fileKey))) return false;
+  return Object.values(paneSideDocks.docks).some((entry) =>
+    [entry, ...Object.values(entry.held ?? {})].some((part) => part.files?.some((file) => sideFileKey(file) === fileKey))
+  );
+}
+
 /** One file of a pane's side dock: the editor (or Markdown preview) in its persistent surface. */
 function renderSideFileSurface(
   leafId: string,
@@ -278,7 +301,8 @@ function renderSideFileSurface(
         </Suspense>
       ) : (
         <ReadyEditorPane
-          surfaceKey={`${leafId}:side-file:${sideFileKey(file)}`}
+          // The file's one side editor keeps its surface when its tab changes pane.
+          surfaceKey={`side-file:${sideFileKey(file)}`}
           projectPath={file.project}
           relPath={file.rel}
           accessToken={file.accessToken}
@@ -287,12 +311,12 @@ function renderSideFileSurface(
           onSideChrome={side.onChrome}
           onShowProblems={side.onShowProblems}
           onDirty={(dirty) => {
-            context.handleFileDirty(sideFileDirtyKey(leafId, file), dirty);
+            context.handleFileDirty(sideFileDirtyKey(file), dirty);
             // An edit makes a preview tab a normal one.
             if (dirty) context.paneSideDocks.keepFile(leafId, sideFileKey(file));
           }}
           onSaveHandle={(save, released) =>
-            context.registerEditorSaveHandle(sideFileDirtyKey(leafId, file), save, released)
+            context.registerEditorSaveHandle(sideFileDirtyKey(file), save, released)
           }
           reveal={reveal}
           onOpenAt={onOpenAt}
@@ -397,8 +421,7 @@ export function renderPaneDockStripTrailing(
   const agentChat = isAgentChatSession(sessionId);
   const paneGroups = paneRightGroupsFor(workbenchSideLayout.layout.right, sessionId);
   const groups = agentChat ? agentChatStripGroups(paneGroups) : codingStripGroups(paneGroups);
-  if (groups.length === 0) return null;
-  const entry = sessionDockEntry(leaf.id, sessionId, paneSideDocks, sessionSurfaces, paneGroups);
+  const entry = sessionDockEntry(leaf, sessionId, paneSideDocks, sessionSurfaces, paneGroups);
   return (
     <SessionToggleDescriptors
       base={sideViewDescriptors}
@@ -412,6 +435,8 @@ export function renderPaneDockStripTrailing(
           descriptors={descriptors}
           activeRoot={paneDockActiveRoot(entry)}
           sessionBound={Boolean(sessionId)}
+          sessionPanel
+          dockOpen={paneGroups.length > 0 && paneDockOpenNow(entry)}
           onSelect={(id) => {
             focusLeaf(leaf.id);
             selectWorkbenchSideView(id, leaf.id);

@@ -1,4 +1,5 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback, useLayoutEffect, useRef } from 'react';
+import { onAnchorEdges } from './anchored-panel';
 import {
   ROUTE_PANEL_WIDTH,
   routeContentFit,
@@ -111,10 +112,14 @@ export function useRouteLayout({
   setFlyoutBox,
   setDrill,
   dropdown = false,
+  rowWide = false,
 }: {
   /** RouteEditor `dropdown`: the sheet and every pane share one box under
    *  (or above) the trigger at its width; no side flyout. */
   dropdown?: boolean;
+  /** The trigger is a session panel row: the sheet stands on the row's own edges (onAnchorEdges); its panes still
+   *  open beside it, or over it where no side has the room. */
+  rowWide?: boolean;
   trigger: RefObject<HTMLButtonElement | null>;
   rowButtons: RefObject<Partial<Record<RouteSheetPane, HTMLButtonElement | null>>>;
   labelWidth: RefObject<number | null>;
@@ -208,12 +213,16 @@ export function useRouteLayout({
       remeasure = false
     ): RoutePanelBox => {
       if (dropdown) return dropdownBox(triggerRect, sheetHeight, dropdownViewport(viewport));
+      if (rowWide) {
+        const row = { left: triggerRect.left, width: triggerRect.right - triggerRect.left };
+        return onAnchorEdges(routeSheetBox(triggerRect, sheetHeight, viewport, row.width, placement, 'start'), row);
+      }
       if (remeasure || labelWidth.current === null) {
         labelWidth.current = trigger.current ? naturalTriggerWidth(trigger.current) : ROUTE_PANEL_WIDTH;
       }
       return routeSheetBox(triggerRect, sheetHeight, viewport, labelWidth.current, placement, align);
     },
-    [dropdown, dropdownBox, dropdownViewport, sheetHeight, labelWidth, trigger, placement, align]
+    [dropdown, dropdownBox, dropdownViewport, rowWide, sheetHeight, labelWidth, trigger, placement, align]
   );
 
   /** Place the sheet and, when a pane is open, its flyout or drilled box. */

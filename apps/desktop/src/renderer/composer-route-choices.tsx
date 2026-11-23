@@ -1,21 +1,19 @@
 import {
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds, rectFrom } from './anchored-panel';
 import { t } from './i18n';
 import { closeOnUserScroll, useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { ROUTE_PANEL_WIDTH } from './route-editor-logic';
 import { moveRouteFocus, type RouteSessionChoice, routeSessionChoicePane } from './route-editor-panes';
 import { useSurfaceActive } from './surface-activity';
+import { useAnchoredPlacement } from './use-anchored-placement';
 
 const OPTION_SELECTOR = '.route-sheet-option:not(:disabled)';
 
@@ -28,6 +26,7 @@ export function ComposerRouteChoices({
   onClose,
   side = 'above',
   align = 'end',
+  width = ROUTE_PANEL_WIDTH,
 }: {
   anchor: RefObject<HTMLElement | null>;
   choices: RouteSessionChoice[];
@@ -35,37 +34,14 @@ export function ComposerRouteChoices({
   /** Where it opens from its anchor: the session panel's rows open it below, from their start. */
   side?: 'above' | 'below';
   align?: 'start' | 'end';
+  /** Its width: the route panel's under the composer, its row's own ('anchor') in the session panel. */
+  width?: number | 'anchor';
 }) {
   const panel = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<CSSProperties>({
-    left: 0,
-    top: 0,
-    width: ROUTE_PANEL_WIDTH,
-    visibility: 'hidden',
-  });
-  const [placement, setPlacement] = useState<'above' | 'below'>('above');
   const close = useCallback(() => onClose(false), [onClose]);
-
-  // Placed from the measured panel, so the side it opens to fits all of it.
-  const place = useCallback(() => {
-    const trigger = anchor.current;
-    const node = panel.current;
-    if (!trigger || !node) return;
-    const rect = rectFrom(trigger);
-    const geometry = anchoredPanelGeometry({
-      trigger: rect,
-      bounds: paneBounds(trigger),
-      preferredWidth: ROUTE_PANEL_WIDTH,
-      naturalHeight: node.scrollHeight,
-      align,
-      placement: side,
-    });
-    setPlacement(geometry.placement);
-    setStyle({ ...anchoredPanelStyle(geometry, rect), width: geometry.width });
-  }, [anchor, align, side]);
+  const { style, placement } = useAnchoredPlacement({ anchor, panel, width, side, align });
 
   useLayoutEffect(() => {
-    place();
     const node = panel.current;
     (
       node?.querySelector<HTMLElement>(`${OPTION_SELECTOR}[aria-checked="true"]`) ??
@@ -73,23 +49,15 @@ export function ComposerRouteChoices({
     )?.focus({
       preventScroll: true,
     });
-  }, [place]);
+  }, []);
 
-  useEffect(() => {
-    const visual = window.visualViewport;
-    window.addEventListener('resize', place);
-    visual?.addEventListener('resize', place);
-    visual?.addEventListener('scroll', place);
-    const stopScroll = closeOnUserScroll(close, (target) =>
-      Boolean(target && (panel.current?.contains(target) || anchor.current?.contains(target)))
-    );
-    return () => {
-      window.removeEventListener('resize', place);
-      visual?.removeEventListener('resize', place);
-      visual?.removeEventListener('scroll', place);
-      stopScroll();
-    };
-  }, [anchor, close, place]);
+  useEffect(
+    () =>
+      closeOnUserScroll(close, (target) =>
+        Boolean(target && (panel.current?.contains(target) || anchor.current?.contains(target)))
+      ),
+    [anchor, close]
+  );
 
   const surfaceActive = useSurfaceActive();
   useEffect(() => {

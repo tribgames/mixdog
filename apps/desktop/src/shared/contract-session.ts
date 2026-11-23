@@ -543,6 +543,13 @@ export interface DesktopModelOption {
   catalogMissing?: string[];
   /** Daemon epoch ms after which a partial answer should be fetched again. */
   catalogRetryAt?: number;
+  /** `acp`: an external agent's entry; the agent runs its own loop, model and tools. */
+  runner?: 'acp';
+  /** The external agent's id. */
+  agent?: string;
+  /** The session controls that do not apply on this route (`compaction`, `effort`, `autoEffort`, `fast`,
+   *  `contextWindow`, `fallbacks`). */
+  notApplicable?: string[];
 }
 
 export interface DesktopModelCatalogOptions {

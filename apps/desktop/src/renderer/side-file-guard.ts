@@ -24,8 +24,9 @@ export type OpenFileTab = (
 ) => void;
 
 export interface SideFileGuardDeps {
-  /** Every file tab of every pane's side dock, in tab order. */
-  sideFiles(): ReadonlyArray<{ leafId: string; file: PaneSideDockFile; active?: boolean }>;
+  /** Every file tab of every pane's side dock, in tab order; `held`: another
+   *  tab's than the one the pane shows (in front or held behind it). */
+  sideFiles(): ReadonlyArray<{ leafId: string; file: PaneSideDockFile; active?: boolean; held?: boolean }>;
   /** Keys of the file tabs open in any pane. */
   mainTabKeys(): ReadonlySet<string>;
   isDirty(key: string): boolean;
@@ -51,8 +52,8 @@ export interface SideFileGuardDeps {
 
 export function createSideFileGuard(deps: SideFileGuardDeps) {
   /** Runs `proceed` now, or after the dialog when that tab has unsaved edits. */
-  const whenSideFileSettled = (leafId: string, file: SideFileTarget, proceed: () => void) => {
-    const key = sideFileDirtyKey(leafId, file);
+  const whenSideFileSettled = (file: SideFileTarget, proceed: () => void) => {
+    const key = sideFileDirtyKey(file);
     if (!deps.isDirty(key)) {
       proceed();
       return;
@@ -71,22 +72,22 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
       then?.();
     };
     if (!held) finish();
-    else whenSideFileSettled(leafId, held.file, finish);
+    else whenSideFileSettled(held.file, finish);
   };
+
+  /** The file tabs of the tab a pane shows (not another tab's). */
+  const frontTabs = (leafId: string) => deps.sideFiles().filter((entry) => entry.leafId === leafId && !entry.held);
 
   /** Closes every tab of the pane's dock, one confirmation per dirty tab. */
   const closeSideFile = (leafId: string, then?: () => void) => {
-    const held = deps
-      .sideFiles()
-      .filter((entry) => entry.leafId === leafId)
-      .map((entry) => entry.file);
+    const held = frontTabs(leafId).map((entry) => entry.file);
     const closeFrom = (index: number) => {
       const file = held[index];
       if (!file) {
         then?.();
         return;
       }
-      whenSideFileSettled(leafId, file, () => {
+      whenSideFileSettled(file, () => {
         deps.dockCloseFile(leafId, sideFileKey(file));
         closeFrom(index + 1);
       });
@@ -107,7 +108,7 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
       deps.openMainTab(project, rel, line, accessToken, preview, mode);
       return;
     }
-    whenSideFileSettled(holder.leafId, holder.file, () => {
+    whenSideFileSettled(holder.file, () => {
       deps.dockCloseFile(holder.leafId, key);
       deps.openMainTab(project, rel, line, accessToken, preview, mode);
     });
@@ -134,15 +135,16 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
     const dockOpen = () => deps.dockOpenFile(leafId, project, rel, line, accessToken, column || undefined, request);
     const key = sideFileKey({ project, rel, accessToken });
     const holder = deps.sideFiles().find((entry) => sideFileKey(entry.file) === key);
-    if (holder?.leafId === leafId) {
+    if (holder?.leafId === leafId && !holder.held) {
       dockOpen();
       return;
     }
+    // Another tab's in this pane counts as elsewhere: one file, one editor.
     if (holder || deps.mainTabKeys().has(key)) {
       openFileTab(project, rel, line, accessToken);
       return;
     }
-    const tabs = deps.sideFiles().filter((entry) => entry.leafId === leafId);
+    const tabs = frontTabs(leafId);
     const activeTab = tabs.find((entry) => entry.active);
     const plan = planSideFileOpen(
       { files: tabs.map((entry) => entry.file), active: activeTab ? sideFileKey(activeTab.file) : null },
@@ -152,7 +154,7 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
         preview,
         from,
         now: deps.now?.(),
-        isDirty: (fileKey) => deps.isDirty(sideFileTabDirtyKey(leafId, fileKey)),
+        isDirty: (fileKey) => deps.isDirty(sideFileTabDirtyKey(fileKey)),
       }
     );
     const dropFrom = (index: number) => {
@@ -161,11 +163,11 @@ export function createSideFileGuard(deps: SideFileGuardDeps) {
         dockOpen();
         return;
       }
-      if (!deps.isDirty(sideFileDirtyKey(leafId, file))) {
+      if (!deps.isDirty(sideFileDirtyKey(file))) {
         dropFrom(index + 1);
         return;
       }
-      whenSideFileSettled(leafId, file, () => {
+      whenSideFileSettled(file, () => {
         deps.dockCloseFile(leafId, sideFileKey(file));
         dropFrom(index + 1);
       });

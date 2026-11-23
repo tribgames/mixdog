@@ -221,7 +221,7 @@ export function toolActivityItemTone(item: TranscriptItem): ToolCallTone {
 }
 
 /** A label's settled form: a catalog may give a label a `_done` variant
- *  ("메모리 저장" → "메모리 저장함"); one without it reads the same either way. */
+ *  ("Generate media" → "Generated media"); one without it reads the same either way. */
 const SETTLED = { context: 'done' } as const;
 
 function localizedToolActivityCategory(category: string, past = false): string {
