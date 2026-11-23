@@ -190,3 +190,4 @@ fn exit_2_without_env() {
     assert_eq!(status(None, Some("t")), Some(2));
     assert_eq!(status(Some(""), Some("t")), Some(2));
 }
+// measurement of the workspace build cache: a test-only change in a leaf crate
