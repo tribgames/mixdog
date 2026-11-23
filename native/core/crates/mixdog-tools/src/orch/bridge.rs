@@ -128,6 +128,12 @@ pub trait CatalogView: Send + Sync {
     /// a page that carried instruction text.
     async fn announce(&self, thread: &ThreadId, names: &[String]);
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution;
+    /// The names `call_tool` would run now: a tool [`Self::resolve_call`] answers as deferred and nothing blocks
+    /// ([`Self::block_reason`]).
+    fn callable(&self, thread: &ThreadId) -> Vec<String> {
+        let names = self.available(thread).into_iter().map(|tool| tool.name);
+        names.filter(|name| matches!(self.resolve_call(thread, name), CallResolution::Deferred(_)) && self.block_reason(thread, name).is_none()).collect()
+    }
     /// `refreshDeferredMcpToolCatalog(session)` before `load_tool` reads the catalog: the connected names and the
     /// late pool follow the live registry. A catalog that is not fed by one has nothing to refresh.
     async fn refresh(&self, _thread: &ThreadId) {}
@@ -657,6 +663,13 @@ impl CallTool {
 }
 
 impl CallTool {
+    /// What a call can name instead of one that is no tool: the names this session's `call_tool` runs now.
+    fn callable(&self, thread: &ThreadId) -> String {
+        let names = self.catalog.callable(thread);
+        let runs = if names.is_empty() { "call_tool runs no tool in this session now.".to_owned() } else { format!("call_tool runs: {}.", names.join(", ")) };
+        format!("{runs} load_tool {{names}} shows a tool's parameters.")
+    }
+
     /// `resolveExecutionToolCall`: the target a wire call stands for and its arguments. A
     /// malformed call, or one naming no tool of this session, is answered with the bridge error
     /// and never executed.
@@ -685,10 +698,7 @@ impl CallTool {
             }
             CallResolution::Excluded(reason) => return Err(bridge_error("TOOL_EXCLUDED", reason)),
             CallResolution::NotFound => {
-                return Err(bridge_error(
-                    "TOOL_NOT_FOUND",
-                    format!("no tool named \"{name}\" is available in this session; find tools with load_tool {{names: keyword}}."),
-                ));
+                return Err(bridge_error("TOOL_NOT_FOUND", format!("no tool named \"{name}\" is available in this session. {}", self.callable(thread))));
             }
             CallResolution::Unavailable(canonical) => {
                 return Err(bridge_error("TOOL_UNAVAILABLE", format!("tool \"{canonical}\" is unavailable in the current session catalog; no call was sent.")));
@@ -753,8 +763,12 @@ mod tests {
         fn instructions_for(&self, _: &ThreadId, _: &[String]) -> String {
             String::new()
         }
-        fn resolve_call(&self, _: &ThreadId, _: &str) -> CallResolution {
-            CallResolution::NotFound
+        fn resolve_call(&self, _: &ThreadId, name: &str) -> CallResolution {
+            match self.0.iter().find(|tool| tool.name == name) {
+                Some(tool) if tool.name == "read" => CallResolution::Direct(tool.name.clone()),
+                Some(tool) => CallResolution::Deferred(tool.name.clone()),
+                None => CallResolution::NotFound,
+            }
         }
     }
 
@@ -884,9 +898,11 @@ mod tests {
             (json!({"name":"web_fetch","arguments":{},"extra":1}), "Error: INVALID_ARGUMENTS: call_tool does not accept: extra."),
             (json!({"name":"web_fetch"}), "Error: INVALID_ARGUMENTS: call_tool arguments must be an object of the target tool arguments."),
             (json!({"name":"load_tool","arguments":{}}), "Error: BRIDGE_RECURSION: call_tool cannot run the bridge tool \"load_tool\"; call it directly."),
+            // A name that is no tool is answered with the names call_tool runs: not the directly defined `read`, not `shell`,
+            // which this session's read-only mode blocks.
             (
-                json!({"name":"web_fetch","arguments":{}}),
-                "Error: TOOL_NOT_FOUND: no tool named \"web_fetch\" is available in this session; find tools with load_tool {names: keyword}.",
+                json!({"name":"noop","arguments":{}}),
+                "Error: TOOL_NOT_FOUND: no tool named \"noop\" is available in this session. call_tool runs: web_fetch, huge. load_tool {names} shows a tool's parameters.",
             ),
         ] {
             assert_eq!(tool.call(&ctx, args).await.unwrap_err().message_for_model, want);

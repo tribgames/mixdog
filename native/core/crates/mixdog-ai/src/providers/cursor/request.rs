@@ -372,11 +372,31 @@ pub fn selected_tools(request: &ModelRequest) -> Vec<McpToolDefinition> {
     accepted.iter().filter(|t| named.is_none_or(|name| t.name == name)).filter(|t| !t.name.is_empty()).map(prepare_tool).collect()
 }
 
+/// The offered tools as text of the run's rule, one JSON object a line in the order offered. The service gives the model
+/// one call that takes a server, a tool name and arguments, and none of the definitions sent beside it: the rule is
+/// where the model reads each tool's name and the schema of its arguments.
+fn tool_manifest(tools: &[McpToolDefinition]) -> String {
+    let mut lines = vec![
+        "<mixdog-tools>".to_owned(),
+        "The tools of the mixdog MCP server, one per line as {name, description, inputSchema}. Call a tool by its exact name, with arguments that match its inputSchema.".to_owned(),
+    ];
+    lines.extend(
+        tools.iter().map(|tool| serde_json::json!({"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema}).to_string()),
+    );
+    lines.push("</mixdog-tools>".to_owned());
+    lines.join("\n")
+}
+
 pub fn request_context(tools: &[McpToolDefinition], cloud_rule: Option<&str>) -> RequestContext {
+    let rule = match (cloud_rule, tools.is_empty()) {
+        (rule, true) => rule.map(str::to_owned),
+        (Some(rule), false) => Some(format!("{rule}\n\n{}", tool_manifest(tools))),
+        (None, false) => Some(tool_manifest(tools)),
+    };
     RequestContext {
         tools: tools.to_vec(),
         mcp_instructions: if tools.is_empty() { Vec::new() } else { vec![("mixdog".to_owned(), MCP_INSTRUCTIONS.to_owned())] },
-        cloud_rule: cloud_rule.map(str::to_owned),
+        cloud_rule: rule,
     }
 }
 
@@ -743,6 +763,61 @@ mod tests {
             0,
         );
         assert_eq!(slim, serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}));
+    }
+
+    /// The definitions sent beside a run are not what its model reads. Every tool offered, the bridge's two among them,
+    /// is stated in the run's rule with its name and the schema of its arguments, after the system text that lists the
+    /// deferred tools, in the order offered; a request that asks and one that resumes state the same.
+    #[test]
+    fn the_rule_states_every_offered_tool_with_its_schema() {
+        use crate::providers::connect::pb::Reader;
+        use serde_json::json;
+
+        let tool = |name: &str, properties: serde_json::Value| ToolDefinition {
+            name: name.into(),
+            description: format!("{name} does."),
+            input_schema: json!({"type": "object", "properties": properties}),
+            defer_loading: false,
+            freeform: None,
+        };
+        let tools = vec![
+            tool("read", json!({"file_path": {"type": "string"}})),
+            tool("todo", json!({"op": {"type": "string", "enum": ["set", "view"]}})),
+            tool("load_tool", json!({"names": {"type": "array", "items": {"type": "string"}}})),
+            tool("call_tool", json!({"name": {"type": "string"}, "arguments": {"type": "object"}})),
+        ];
+        let system = "rules\n\n---\n\n<available-deferred-tools>\n- git: Git.\n</available-deferred-tools>\n\n<tool-bridge>\nRun one with call_tool {name, arguments}.\n</tool-bridge>";
+        let mut messages = vec![Message::new(Role::System, Content::Text(system.into())), Message::new(Role::User, Content::Text("review".into()))];
+        let selection = ModelSelection { model_id: "m".into(), parameters: Vec::new(), max_mode: false, pricing_model: None };
+        let field = |bytes: &[u8], wanted: u32| {
+            let mut reader = Reader::new(bytes);
+            std::iter::from_fn(|| reader.next_field().unwrap()).find(|(n, _)| *n == wanted).map(|(_, v)| v.bytes().to_vec())
+        };
+        // The rule of the request's context: `action` is 1 for a request that asks, 2 for one that resumes.
+        let rule_of = |messages: &[Message], action: u32| {
+            let request = ModelRequest { model: "m".into(), messages: messages.to_vec(), tools: tools.clone(), options: Default::default() };
+            let built = build_run(&request, &selection, "conversation", "message-1").unwrap();
+            let run = field(&built.message, 1).expect("run request");
+            let inner = field(&field(&run, 2).expect("action"), action).expect("the action's kind");
+            let context = field(&inner, 2).expect("request context");
+            (String::from_utf8(field(&context, 16).expect("the rule")).unwrap(), built.tools)
+        };
+        let (rule, offered) = rule_of(&messages, 1);
+        let stated = rule.strip_prefix(system).expect("the system text first").strip_prefix("\n\n<mixdog-tools>\n").expect("then the tools");
+        let lines: Vec<serde_json::Value> =
+            stated.strip_suffix("\n</mixdog-tools>").expect("closed").lines().skip(1).map(|line| serde_json::from_str(line).expect("one tool a line")).collect();
+        assert_eq!(offered.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["read", "todo", "load_tool", "call_tool"]);
+        assert_eq!(lines.len(), offered.len());
+        for (line, tool) in lines.iter().zip(&offered) {
+            assert_eq!(line, &json!({"name": tool.name, "description": tool.description, "inputSchema": tool.input_schema}));
+        }
+
+        let mut call = Message::new(Role::Assistant, Content::Text(String::new().into()));
+        call.tool_calls = vec![mixdog_core_api::domain::provider::ToolCall { id: "call-1".into(), name: "todo".into(), arguments: json!({"op": "view"}), native_type: None }];
+        let mut result = Message::new(Role::Tool, Content::Text("empty".into()));
+        result.tool_call_id = Some("call-1".into());
+        messages.extend([call, result]);
+        assert_eq!(rule_of(&messages, 2).0, rule, "a resumed turn is told the same");
     }
 
     #[test]

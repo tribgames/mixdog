@@ -920,6 +920,36 @@ mod tests {
         assert_eq!(names, ["good", "dangling"], "another family is not validated");
     }
 
+    /// A bridge session's request on the Gemini wire: every tool of the offer, the bridge's two among them, is a function
+    /// declaration with its name and its parameters, and the system text that lists the bridged tools is sent whole.
+    #[test]
+    fn a_bridge_surface_is_sent_as_function_declarations_with_the_prompts_roster() {
+        let tool = |name: &str, property: &str| ToolDefinition {
+            name: name.into(),
+            description: format!("{name} does."),
+            input_schema: json!({"type": "object", "properties": {property: {"type": "string"}}}),
+            defer_loading: false,
+            freeform: None,
+        };
+        let offered = [("read", "file_path"), ("load_tool", "names"), ("call_tool", "arguments")];
+        let system = "rules\n\n---\n\n<available-deferred-tools>\n- git: Git.\n</available-deferred-tools>\n\n<tool-bridge>\nRun one with call_tool {name, arguments}.\n</tool-bridge>";
+        let request = ModelRequest {
+            model: "gemini-2.5-pro".into(),
+            messages: vec![msg(Role::System, system), msg(Role::User, "review")],
+            tools: offered.iter().map(|(name, property)| tool(name, property)).collect(),
+            options: RequestOptions::default(),
+        };
+        let body = build_request(&request, &dialect(), &AllGemini).unwrap();
+        let declared = body["tools"][0]["functionDeclarations"].as_array().expect("declarations");
+        assert_eq!(declared.len(), offered.len());
+        for (declaration, (name, property)) in declared.iter().zip(offered) {
+            assert_eq!(declaration["name"], name);
+            assert!(declaration.to_string().contains(&format!("\"{property}\"")), "{name} with its parameters: {declaration}");
+        }
+        let escaped = serde_json::to_string(system).unwrap();
+        assert!(body.to_string().contains(&escaped[1..escaped.len() - 1]), "the roster and the guidance: {body}");
+    }
+
     #[test]
     fn thinking_and_output_cap() {
         let mut request = ModelRequest {

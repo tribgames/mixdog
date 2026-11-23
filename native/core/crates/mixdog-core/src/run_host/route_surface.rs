@@ -11,6 +11,7 @@ use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Map, Value};
 
 use mixdog_core_ports::ports::route::Route;
+use mixdog_core_prompt::prompt::blocks::SystemBlocks;
 
 use super::deferred_manifest::apply_initial_manifest;
 use super::route_change::{RouteFacts, SurfaceLookup};
@@ -62,7 +63,7 @@ pub(super) fn load_tool_def(host: &dyn SurfaceHost) -> LoadToolDef {
 
 /// `applyAgentToolExposure(session, { existing: true })`: whether the exposure changed.
 /// `hidden_agent` is `getHiddenAgent(session.agent)`: a hidden agent honors a schema allowlist.
-fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_agent: bool) -> bool {
+fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_agent: bool, blocks: &SystemBlocks) -> bool {
     if !session.get("tools").is_some_and(Value::is_array) || !is_agent_owner(session) {
         return false;
     }
@@ -86,19 +87,88 @@ fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_
     for key in ["deferredToolCatalog", "deferredLateToolCatalog", "deferredMcpToolNames", "pendingDeferredToolDelta"] {
         map.shift_remove(key);
     }
+    let bridged = before.as_deref() == Some(TOOL_EXPOSURE_BRIDGE);
     if bridge {
+        // A surface that leaves another exposure for the bridge is written with its prompt: the surface rewrites the
+        // roster and the bridge guidance in the session's system messages, which a header holds as its blocks.
+        let entering = before.is_some() && !bridged;
+        if entering {
+            session["messages"] = Value::Array(blocks.node_messages());
+        }
         let opts = options(session);
         surface.apply(session, "full", &[], &opts);
+        if entering {
+            land_bridge_prompt(session, blocks);
+        }
     } else {
         for field in AGENT_BRIDGE_FIELDS {
             map.shift_remove(field);
         }
-        if session.get("messages").is_some_and(Value::is_array) {
+        let kept = map.shift_remove(PROMPT_BEFORE_BRIDGE);
+        if bridged && !kept.is_some_and(|kept| restore_prompt(map, &kept)) {
+            // No text of an earlier exposure to return to: the bridge's roster and guidance leave the prompt.
+            session["messages"] = Value::Array(blocks.node_messages());
             apply_initial_manifest(session, &[], true, surface.clock);
+            land_prompt_blocks(session, blocks);
         }
         session.as_object_mut().expect("session object").shift_remove("deferredToolBp2Applied");
     }
     before != session_tool_exposure(session) || outdated
+}
+
+/// The prompt blocks a move to the bridge rewrote, as they were (`before`) and as it left them (`after`), by header key;
+/// `null` is a block that is not there. A return to an exposure without the bridge puts `before` back while the prompt
+/// is still `after`, so the route the session came from is sent the text it was sent before.
+const PROMPT_BEFORE_BRIDGE: &str = "promptBeforeBridge";
+
+fn prompt_keys() -> [&'static str; 5] {
+    use mixdog_core_prompt::prompt::blocks::{BASE_KEY, CORE_KEY, ENV_KEY, STABLE_KEY, TIER3_KEY};
+    [BASE_KEY, STABLE_KEY, CORE_KEY, TIER3_KEY, ENV_KEY]
+}
+
+/// The system messages the surface worked on, taken out of `session` and written back as its blocks where they changed.
+fn land_prompt_blocks(session: &mut Value, blocks: &SystemBlocks) {
+    let map = session.as_object_mut().expect("session object");
+    let Some(Value::Array(messages)) = map.shift_remove("messages") else { return };
+    let Ok(mut rebuilt) = SystemBlocks::from_node_messages(&messages) else { return };
+    rebuilt.combined = blocks.combined;
+    if rebuilt != *blocks {
+        rebuilt.write(map);
+    }
+}
+
+/// [`land_prompt_blocks`] for a move to the bridge, which also keeps what it rewrote ([`PROMPT_BEFORE_BRIDGE`]).
+fn land_bridge_prompt(session: &mut Value, blocks: &SystemBlocks) {
+    let slot = |session: &Value, key: &str| session.get(key).cloned().unwrap_or(Value::Null);
+    let was = prompt_keys().map(|key| slot(session, key));
+    land_prompt_blocks(session, blocks);
+    let (mut before, mut after) = (Map::new(), Map::new());
+    for (key, was) in prompt_keys().into_iter().zip(was) {
+        let now = slot(session, key);
+        if now != was {
+            before.insert(key.to_owned(), was);
+            after.insert(key.to_owned(), now);
+        }
+    }
+    if !after.is_empty() {
+        session[PROMPT_BEFORE_BRIDGE] = serde_json::json!({ "before": before, "after": after });
+    }
+}
+
+/// Puts back the blocks `kept` holds, when the prompt is still what the move to the bridge left; whether it did.
+fn restore_prompt(map: &mut Map<String, Value>, kept: &Value) -> bool {
+    let (Some(before), Some(after)) = (kept.get("before").and_then(Value::as_object), kept.get("after").and_then(Value::as_object)) else { return false };
+    if after.is_empty() || !after.iter().all(|(key, text)| map.get(key).unwrap_or(&Value::Null) == text) {
+        return false;
+    }
+    for (key, text) in before {
+        if text.is_null() {
+            map.shift_remove(key);
+        } else {
+            map.insert(key.clone(), text.clone());
+        }
+    }
+    true
 }
 
 /// What turns `header` into `after`, the messages aside.
@@ -156,7 +226,7 @@ fn filter_model_edit_surface(session: &mut Value, model: &str) {
 }
 
 fn lead_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mut session: Value) -> HeaderChange {
-    let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
+    let blocks = SystemBlocks::from_header(header);
     session["messages"] = Value::Array(blocks.node_messages());
     let provider = clean(session.get("provider"));
     let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host))
@@ -164,7 +234,7 @@ fn lead_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header
     surface.rebuild_for_provider(&mut session, &provider);
     let messages = session.as_object_mut().expect("session object").shift_remove("messages").expect("system messages");
     let mut after = session.as_object().expect("session object").clone();
-    let mut rebuilt = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_node_messages(messages.as_array().expect("system messages"))
+    let mut rebuilt = SystemBlocks::from_node_messages(messages.as_array().expect("system messages"))
         .expect("surface preserves system blocks");
     rebuilt.combined = blocks.combined;
     if rebuilt != blocks {
@@ -255,7 +325,8 @@ pub fn resume_header(scoped: &Header) -> Header {
 /// `applyAgentToolExposure(session, { existing: true })` over `session` (the header with its new
 /// tools), as the header change from `header`; a changed exposure is marked migrated.
 fn exposure_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mut session: Value, hidden_agent: bool) -> HeaderChange {
-    let changed = apply_agent_tool_exposure(surface, &mut session, hidden_agent);
+    let blocks = SystemBlocks::from_header(header);
+    let changed = apply_agent_tool_exposure(surface, &mut session, hidden_agent, &blocks);
     let mut change = header_diff(header, session.as_object().expect("session object"));
     if changed {
         let migrated = mark_tool_surface_migrated(clock, None, None).change;
@@ -509,5 +580,108 @@ mod tests {
         assert_eq!(eager, ["read", "load_tool"]);
         assert_eq!(after["deferredDiscoveredTools"], json!(["computer"]));
         assert_eq!(surface.pool_tool_names(&after), vec!["mcp__gmail__search_emails".to_owned()]);
+    }
+
+    /// An agent's session that leaves a native route for a bridge one (a fallback, a model switch) is told the surface it
+    /// now has, on every such route: what it calls directly is defined with its schema, the bridge's two tools are
+    /// defined, and the prompt names what is reached through them and how. The way back takes that text out again.
+    #[test]
+    fn an_agents_move_to_a_bridge_route_rewrites_the_prompts_roster_and_guidance() {
+        use super::super::tool_exposure::TOOL_BRIDGE_GUIDANCE;
+
+        let tool = |name: &str| json!({"name": name, "description": format!("{name}."), "inputSchema": {"type": "object", "properties": {name: {"type": "string"}}}});
+        let call_tool = json!({"name": "call_tool", "description": "Run a deferred tool.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "arguments": {"type": "object"}}}});
+        let host = Host(vec![tool("load_tool"), call_tool]);
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        let catalog = vec![tool("read"), tool("git"), tool("shell"), tool("load_tool"), tool("computer")];
+        let applied = |mut header: Header, change: HeaderChange| {
+            for key in change.unset {
+                header.shift_remove(&key);
+            }
+            header.extend(change.set);
+            header
+        };
+        let route = |provider: &str| Route::from_iter([("provider".into(), json!(provider)), ("model".into(), json!("m"))]);
+        let prepared = || Some(PreparedTools { tools: json!(catalog), tool_spec: json!("full") });
+        for provider in ["cursor-oauth", "gemini", "grok-oauth", "opencode-go-oauth"] {
+            // The session as its native route left it: `git` and `shell` defined, `computer` in the prompt's roster.
+            let mut session = json!({
+                "owner": "agent", "provider": "openai-oauth", "model": "m", "tools": catalog, "bp3EnvSplit": true,
+                "messages": [{"role": "system", "content": "rules"}, {"role": "system", "content": "skills"}],
+            });
+            surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+            let mut header = session.as_object().unwrap().clone();
+            let messages = header.shift_remove("messages").unwrap();
+            header.insert("promptBase".into(), messages[0]["content"].clone());
+            header.insert("promptStable".into(), messages[1]["content"].clone());
+            let native = header["promptStable"].as_str().unwrap().to_owned();
+            assert!(native.contains("\n- computer") && !native.contains("\n- git"), "{provider}: the native roster: {native}");
+
+            header.insert("provider".into(), json!(provider));
+            let change = route_surface_change(&surface, &Fixed, &header, &route("openai-oauth"), prepared(), false);
+            let bridged = applied(header, change);
+            let defined: Vec<(&str, bool)> = bridged["tools"].as_array().unwrap().iter().map(|t| (t["name"].as_str().unwrap(), t["inputSchema"].is_object())).collect();
+            assert_eq!(defined, [("read", true), ("load_tool", true), ("call_tool", true)], "{provider}: defined on the wire, each with its schema");
+            let stable = bridged["promptStable"].as_str().unwrap();
+            assert!(stable.starts_with("skills\n\n---\n\n<available-deferred-tools>\n"), "{provider}: {stable}");
+            for name in ["git", "shell", "computer"] {
+                assert!(stable.contains(&format!("\n- {name}")), "{provider}: {name} is reached through the bridge and listed: {stable}");
+            }
+            assert!(stable.ends_with(TOOL_BRIDGE_GUIDANCE), "{provider}: {stable}");
+            assert_eq!(bridged["promptBase"], "rules");
+
+            // A second bridge route is the same exposure: the prompt it was given stays.
+            let mut other = bridged.clone();
+            other.insert("provider".into(), json!("groq"));
+            let change = route_surface_change(&surface, &Fixed, &other, &route(provider), prepared(), false);
+            assert!(!change.set.contains_key("promptStable") && !change.unset.iter().any(|key| key == "promptStable"), "{provider}: {:?}", change.set.keys());
+
+            // Back on the route it came from, the prompt is the text that route was sent before, byte for byte.
+            let mut back = bridged.clone();
+            back.insert("provider".into(), json!("openai-oauth"));
+            let change = route_surface_change(&surface, &Fixed, &back, &route(provider), prepared(), false);
+            let returned = applied(back, change);
+            assert_eq!(returned["promptStable"].as_str(), Some(native.as_str()), "{provider}: back on the native route");
+            assert!(!returned.contains_key(PROMPT_BEFORE_BRIDGE));
+
+            // A prompt rebuilt while on the bridge is no longer the text the move left: the bridge's blocks leave it.
+            let mut refolded = bridged;
+            refolded.insert("promptStable".into(), json!(format!("new skills\n\n---\n\n{TOOL_BRIDGE_GUIDANCE}")));
+            refolded.insert("provider".into(), json!("openai-oauth"));
+            let change = route_surface_change(&surface, &Fixed, &refolded, &route(provider), prepared(), false);
+            assert_eq!(applied(refolded, change)["promptStable"], "new skills", "{provider}: a rebuilt prompt loses the bridge text");
+        }
+    }
+
+    /// A resumed agent on a direct route keeps its prompt as stored, also when the surface drops a name its build no longer
+    /// defines from the session's lists: nothing but a move between exposures writes the prompt.
+    #[test]
+    fn a_resume_on_a_direct_route_leaves_the_prompt_as_stored() {
+        struct WithoutGone;
+        impl SurfaceHost for WithoutGone {
+            fn defined(&self, name: &str) -> bool {
+                name != "gone"
+            }
+            fn bridge_tools(&self) -> Vec<Value> {
+                Vec::new()
+            }
+            fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+                json!({})
+            }
+        }
+        let tool = |name: &str| json!({"name": name, "description": format!("{name}."), "inputSchema": {"type": "object"}});
+        let catalog = vec![tool("read"), tool("load_tool"), tool("computer")];
+        let surface = ToolSurface { host: &WithoutGone, clock: &Fixed };
+        let mut session = json!({"owner": "agent", "provider": "openai-oauth", "model": "m", "tools": catalog});
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        let mut header = session.as_object().unwrap().clone();
+        header.extend(json!({"bp3EnvSplit": true, "promptBase": "rules", "promptStable": "skills", "deferredToolBp2Applied": true}).as_object().unwrap().clone());
+        header.insert("deferredSelectedTools".into(), json!(["read", "load_tool", "gone"]));
+        assert!(surface.retired_names(&Value::Object(header.clone())).is_empty(), "no stored definition is retired");
+        let prepared = PreparedTools { tools: json!(catalog), tool_spec: json!("full") };
+        let change = resumed_surface_change_with_skills_gate(&surface, &Fixed, &header, prepared, false, false);
+        let prompt = |key: &String| key.starts_with("prompt") || key == "bp3CoreContext";
+        assert!(!change.set.keys().any(prompt) && !change.unset.iter().any(prompt), "{:?} {:?}", change.set.keys(), change.unset);
+        assert_eq!(change.set.get("deferredSelectedTools"), Some(&json!(["read", "load_tool"])), "the list is still pruned");
     }
 }

@@ -911,6 +911,7 @@ impl HostRunParts {
                 header: header.clone(),
                 escalated_max_output_tokens: ceiling.escalated,
                 tail_gate,
+                system: Some(super::factory::system_messages(header)),
             }
         })))
     }

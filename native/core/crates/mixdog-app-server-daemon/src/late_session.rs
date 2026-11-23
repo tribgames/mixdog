@@ -369,6 +369,10 @@ impl mixdog_tools::orch::bridge::CatalogView for LateCatalog {
         self.catalog().resolve_call(thread, name)
     }
 
+    fn callable(&self, thread: &ThreadId) -> Vec<String> {
+        self.catalog().callable(thread)
+    }
+
     // The trait's defaults say "describe, nothing to refresh": a wrapper that keeps them turns a native session's
     // `load_tool` (which loads) into the bridge's describe page and its call_tool note.
     async fn refresh(&self, thread: &ThreadId) {
