@@ -11,6 +11,18 @@ export function isComposerComposing(element: Element): boolean {
   return composingElements.has(element);
 }
 
+/** Commits the IME composition still open in the focused field before a send
+ *  empties it. A programmatic value change drops the composition without
+ *  `compositionend` and without telling the keyboard, which then writes its
+ *  composing text back into the emptied field. A focus change is the one
+ *  page-side way to end it: the browser commits the text, and on Android the
+ *  keyboard's input session restarts, so the span is dropped. */
+export function finishComposerComposition(element: HTMLTextAreaElement | null): void {
+  if (!element || document.activeElement !== element || !composingElements.has(element)) return;
+  element.blur();
+  element.focus({ preventScroll: true });
+}
+
 export function useComposerIme({
   textarea,
   composingRef,
