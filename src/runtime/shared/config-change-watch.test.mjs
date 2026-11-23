@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
+import { configTimers } from './config-timers.fixture.mjs';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-config-change-watch-'));
 const dirs = {};
@@ -36,6 +36,8 @@ Object.defineProperty(process, 'platform', { value: 'linux' });
 
 const configModule = path.join(path.dirname(fileURLToPath(import.meta.url)), 'config.mjs');
 const config = await import(pathToFileURL(configModule).href);
+// Loaded as linux for its keychain; the watch underneath is this system's.
+config.configWatchDeps.vouches = realPlatform.value !== 'darwin';
 
 after(() => {
   Object.defineProperty(process, 'platform', realPlatform);
@@ -46,16 +48,7 @@ after(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-async function waitFor(predicate, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) return false;
-    await sleep(25);
-  }
-  return true;
-}
-
-test('a failed directory watch waits on its parent, is re-established on its name and announces what it may have missed', async () => {
+test('a failed directory watch waits on its parent, is re-established on its name and announces what it may have missed', async (t) => {
   const realWatch = config.configWatchDeps.watch;
   const watchers = [];
   config.configWatchDeps.watch = (dir, names, { onEvent, onLost }) => {
@@ -69,34 +62,38 @@ test('a failed directory watch waits on its parent, is re-established on its nam
     notified += 1;
   });
   try {
+    const { delays, fired } = configTimers(t, config);
     assert.equal(of(dirs.data).length, 1);
     of(dirs.data)[0].onLost(new Error('EPERM: watched directory went away'));
     const [waiter] = of(path.dirname(dirs.data));
     assert.deepEqual(waiter?.names, [path.basename(dirs.data)], 'it waits in the parent, on its own name');
-    await sleep(300);
-    assert.equal(of(dirs.data).length, 1, 'nothing retries until the parent names it');
+    assert.equal(of(dirs.data).length, 1);
+    assert.deepEqual(delays, [], 'nothing retries until the parent names it');
+    let pass = fired();
     waiter.onChange('rename', path.basename(dirs.data));
-    assert.ok(
-      await waitFor(() => of(dirs.data).length === 2 && notified === 1),
-      'the watch came back and re-announced'
-    );
+    assert.equal(of(dirs.data).length, 2, 'the watch came back');
+    await pass;
+    assert.equal(notified, 1, 'it re-announced');
     const watch = of(dirs.data)[1];
     // A rewrite of identical bytes (another process re-saving a marker) is no change.
+    pass = fired();
     watch.onChange('rename', 'mixdog-secrets-changed.json');
-    await sleep(300);
+    await pass;
     assert.equal(notified, 1, 'identical content announces nothing');
     const configFile = config.configPath();
     const before = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, 'utf8')) : {};
     fs.writeFileSync(configFile, JSON.stringify({ ...before, watchProbe: 1 }));
+    pass = fired();
     watch.onChange('rename', 'mixdog-config.json');
-    assert.ok(await waitFor(() => notified === 2), 'the new watch delivers changes');
+    await pass;
+    assert.equal(notified, 2, 'the new watch delivers changes');
   } finally {
     unsubscribe();
     config.configWatchDeps.watch = realWatch;
   }
 });
 
-test('a half-written hand edit is never quarantined by the watch: the change is read once it parses', async () => {
+test('a half-written hand edit is never quarantined by the watch: the change is read once it parses', async (t) => {
   const realWatch = config.configWatchDeps.watch;
   let watcher = null;
   config.configWatchDeps.watch = (_dir, _names, { onEvent }) => {
@@ -108,16 +105,18 @@ test('a half-written hand edit is never quarantined by the watch: the change is 
   const seen = [];
   const unsubscribe = config.subscribeConfigChange(() => seen.push(config.readConfig().ui?.theme));
   try {
+    const { delays, fired } = configTimers(t, config);
     fs.writeFileSync(configFile, '{"ui": {"theme": "aft');
+    let pass = fired();
     watcher.onChange('change', 'mixdog-config.json');
-    await sleep(150);
-    // Nothing re-reads it while it stays torn.
-    await sleep(400);
+    await pass;
     assert.deepEqual(seen, [], 'no pass ran a listener on the torn content');
+    assert.deepEqual(delays, [100], 'nothing re-reads it while it stays torn');
     // The completing write fires its own event; that pass reads it.
     fs.writeFileSync(configFile, JSON.stringify({ ui: { theme: 'after' } }));
+    pass = fired();
     watcher.onChange('change', 'mixdog-config.json');
-    assert.ok(await waitFor(() => seen.includes('after')), `notified with ${JSON.stringify(seen)}`);
+    await pass;
     assert.deepEqual(seen, ['after'], 'the torn content was never read');
     const corrupt = fs.readdirSync(path.dirname(configFile)).filter((name) => name.includes('.corrupt-'));
     assert.deepEqual(corrupt, [], 'nothing was kept aside');
@@ -127,7 +126,7 @@ test('a half-written hand edit is never quarantined by the watch: the change is 
   }
 });
 
-test('a partial save landing while a pass runs is never quarantined by the pass’s own reads', async () => {
+test('a partial save landing while a pass runs is never quarantined by the pass’s own reads', async (t) => {
   const realWatch = config.configWatchDeps.watch;
   let watcher = null;
   config.configWatchDeps.watch = (_dir, _names, { onEvent }) => {
@@ -153,15 +152,18 @@ test('a partial save landing while a pass runs is never quarantined by the pass�
     }
   });
   try {
+    const { fired } = configTimers(t, config);
     fs.writeFileSync(configFile, JSON.stringify({ ui: { theme: 'two' } }));
+    let pass = fired();
     watcher.onChange('change', 'mixdog-config.json');
-    assert.ok(await waitFor(() => seen.length === 1), 'the pass ran');
+    await pass;
     assert.deepEqual(seen, ['ECONFIG_MID_WRITE'], 'the read kept the current config');
     // The save completes and fires its own event; that pass reads it.
     fs.writeFileSync(configFile, JSON.stringify({ ui: { theme: 'three' } }));
+    pass = fired();
     watcher.onChange('change', 'mixdog-config.json');
-    assert.ok(await waitFor(() => seen.length === 2), `notified with ${JSON.stringify(seen)}`);
-    assert.equal(seen[1], 'three');
+    await pass;
+    assert.deepEqual(seen, ['ECONFIG_MID_WRITE', 'three']);
     const corrupt = fs.readdirSync(path.dirname(configFile)).filter((name) => name.includes('.corrupt-'));
     assert.deepEqual(corrupt, [], 'nothing was kept aside');
   } finally {
@@ -191,7 +193,19 @@ test('a key saved by another process reaches this process although the config fi
   assert.equal(config.getAgentApiKey('openai'), 'sk-old-key');
   const configBefore = fs.existsSync(config.configPath()) ? fs.readFileSync(config.configPath(), 'utf8') : null;
   const seen = [];
-  const unsubscribe = config.subscribeConfigChange(() => seen.push(config.getAgentApiKey('openai')));
+  let told;
+  // Rejects after 5 s; until then it also holds the process (the watch does not).
+  const reached = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`notified with ${JSON.stringify(seen)}`)), 5000);
+    told = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+  });
+  const unsubscribe = config.subscribeConfigChange(() => {
+    seen.push(config.getAgentApiKey('openai'));
+    if (seen.includes('sk-new-key')) told();
+  });
   try {
     const writer = `
       Object.defineProperty(process, 'platform', { value: 'linux' });
@@ -203,7 +217,9 @@ test('a key saved by another process reaches this process although the config fi
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.ok(await waitFor(() => seen.includes('sk-new-key')), `notified with ${JSON.stringify(seen)}`);
+    // Where the watch does not vouch, the read that finds the change announces it.
+    if (!config.configWatchDeps.vouches) config.getAgentApiKey('openai');
+    await reached;
     assert.equal(config.getAgentApiKey('openai'), 'sk-new-key');
     const configAfter = fs.existsSync(config.configPath()) ? fs.readFileSync(config.configPath(), 'utf8') : null;
     assert.equal(configAfter, configBefore, 'the key never went through mixdog-config.json');
