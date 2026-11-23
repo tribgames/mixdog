@@ -28,6 +28,24 @@ impl SessionActor {
             let _ = closed.send(Err("favorite"));
             return;
         }
+        // In `idleRefusal`'s order, before the guard: a turn that has not settled refuses as it does before the close, whichever
+        // of its steps (a completion wake's start and settlement included, which the checks before the close do not see) the
+        // close meets.
+        if idle {
+            let refusal = if self.turn_pending() {
+                Some("turn-waiting")
+            } else if self.turn_held() {
+                Some("busy")
+            } else if !self.projected.queue.is_empty() {
+                Some("queued")
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
+                let _ = closed.send(Err(refusal));
+                return;
+            }
+        }
         // A guarded delete reads the admission word first and closes it from exactly that value:
         // an attach after this point, even one that detaches again, refuses the close.
         let mut seen = None;
@@ -47,21 +65,6 @@ impl SessionActor {
                 return;
             }
             seen = Some(word);
-        }
-        if idle {
-            let refusal = if self.turn_pending() {
-                Some("turn-waiting")
-            } else if self.turn_held() {
-                Some("busy")
-            } else if !self.projected.queue.is_empty() {
-                Some("queued")
-            } else {
-                None
-            };
-            if let Some(refusal) = refusal {
-                let _ = closed.send(Err(refusal));
-                return;
-            }
         }
         // The same word an attach transitions, so exactly one of the two wins.
         match seen {

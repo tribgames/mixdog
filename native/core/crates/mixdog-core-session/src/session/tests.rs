@@ -4479,7 +4479,7 @@ async fn one_compaction_of_a_run_shows_one_divider_and_none_of_its_figures() {
         let directory = SessionDirectory::new(rig.deps());
         let handle = start_thread(&directory).await;
         turn(&handle, "go", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || settled_idle(&handle).then_some(())).await;
         assert_eq!(compaction_rows(&handle), [(777, None)], "event first: {event_first}");
     }
 }

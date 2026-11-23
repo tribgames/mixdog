@@ -150,6 +150,7 @@ impl SessionActor {
         let settle = super::super::goal_lane::settle_detail(status, error, slot.automatic, slot.tool_calls);
         // The next turn waits for the settlement, as Node's queue drains after `runTurn` returns.
         self.settling = true;
+        self.settling_wake = slot.wake;
         match error {
             Some(error) => {
                 // `transcriptMeta` carries the turn's `completionVerb` (`beginTurn`), which the failure's end and completion name.

@@ -247,7 +247,8 @@ pub(crate) struct Live {
     pub current: bool,
     /// A turn is about to start (a turn waiting for the ask lock).
     pub turn_pending: bool,
-    /// A turn runs, starts or is not settled.
+    /// A turn runs, or one other than a completion wake starts or is not settled (a wake's start and settlement are refused by
+    /// the close, on the actor).
     pub turn_running: bool,
     /// Input waits in the session's own queue.
     pub queued: bool,
