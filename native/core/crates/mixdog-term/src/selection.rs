@@ -121,8 +121,22 @@ pub struct SelectionHarvest {
 /// Applies the highlight of `rect` to `grid` and reads the selected text. `soft_wrap[y]` says that row `y` continues
 /// the row above because the text wrapped at a word.
 pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect) -> SelectionHarvest {
-    let height = i32::from(grid.height);
-    let width = i32::from(grid.width);
+    let highlight = Color::Literal(rect.background);
+    harvest(grid.width, grid.height, soft_wrap, rect, |y, x1, x2| highlight_row(grid.row_mut(y), x1, x2, highlight))
+}
+
+/// What `rect` selects on `grid`, as [`apply_selection`] reads it, the grid left as it is.
+pub fn read_selection(grid: &Grid, soft_wrap: &[bool], rect: &SelectionRect) -> SelectionHarvest {
+    harvest(grid.width, grid.height, soft_wrap, rect, |y, x1, x2| {
+        let cells = grid.row(y);
+        (x1..=x2).map_while(|x| cells.get(x as usize)).map(Cell::text).collect()
+    })
+}
+
+/// The rows of `rect` on a grid of `width` by `height`; `row_text(y, x1, x2)` gives the text of cells `x1..=x2` of row `y`.
+fn harvest(width: u16, height: u16, soft_wrap: &[bool], rect: &SelectionRect, mut row_text: impl FnMut(u16, i32, i32) -> String) -> SelectionHarvest {
+    let height = i32::from(height);
+    let width = i32::from(width);
     let linear = rect.mode == SelectionMode::Linear;
     let backwards = linear && (rect.y1 > rect.y2 || (rect.y1 == rect.y2 && rect.x1 > rect.x2));
     let (start, end) = if backwards { ((rect.x2, rect.y2), (rect.x1, rect.y1)) } else { ((rect.x1, rect.y1), (rect.x2, rect.y2)) };
@@ -131,7 +145,6 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
     let y1 = clip_y1.max(0).max(if linear { start.1 } else { rect.y1.min(rect.y2) });
     let y2 = (height - 1).min(clip_y2).min(if linear { end.1 } else { rect.y1.max(rect.y2) });
     let line_mode = linear && y1 != y2;
-    let highlight = Color::Literal(rect.background);
     let wraps = |y: i32| usize::try_from(y).ok().and_then(|at| soft_wrap.get(at)).copied().unwrap_or(false);
 
     let mut rows: Vec<SelectedRow> = Vec::new();
@@ -148,11 +161,21 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
         };
         let x1 = raw_x1.min(raw_x2).max(0);
         let x2 = (width - 1).min(raw_x1.max(raw_x2));
-        let text = highlight_row(grid.row_mut(y as u16), x1, x2, highlight);
-        let next_continues = y < y2 && wraps(y + 1);
-        let trimmed = js_trim_end(&text);
-        let text = if next_continues && trimmed.len() < text.len() { format!("{trimmed} ") } else { trimmed.to_owned() };
-        rows.push(SelectedRow { y, text, soft_wrap: sw });
+        rows.push(SelectedRow { y, text: row_text(y as u16, x1, x2), soft_wrap: sw });
+    }
+    let rows = settle_rows(rows);
+    let text = rect.capture_text.then(|| logical_text(&rows));
+    SelectionHarvest { text, rows }
+}
+
+/// The rows of a selection as they are harvested, from the text of the cells each covers, in order: trailing blanks go (one
+/// space stays where the next row continues the line), and so do the blank rows at either end.
+pub fn settle_rows(mut rows: Vec<SelectedRow>) -> Vec<SelectedRow> {
+    for at in 0..rows.len() {
+        let next_continues = rows.get(at + 1).is_some_and(|next| next.soft_wrap);
+        let text = &rows[at].text;
+        let trimmed = js_trim_end(text);
+        rows[at].text = if next_continues && trimmed.len() < text.len() { format!("{trimmed} ") } else { trimmed.to_owned() };
     }
     while rows.first().is_some_and(|row| js_trim(&row.text).is_empty()) {
         rows.remove(0);
@@ -160,8 +183,7 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
     while rows.last().is_some_and(|row| js_trim(&row.text).is_empty()) {
         rows.pop();
     }
-    let text = rect.capture_text.then(|| logical_text(&rows));
-    SelectionHarvest { text, rows }
+    rows
 }
 
 /// Paints the selection background over cells `x1..=x2` of a row and returns their text.
@@ -186,7 +208,7 @@ fn highlight_row(cells: &mut [Cell], x1: i32, x2: i32, highlight: Color) -> Stri
 }
 
 /// The selected rows as lines of text: a row that continues the one above is joined to it.
-fn logical_text(rows: &[SelectedRow]) -> String {
+pub fn logical_text(rows: &[SelectedRow]) -> String {
     let mut logical: Vec<String> = Vec::new();
     for row in rows {
         match logical.last_mut() {

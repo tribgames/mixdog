@@ -43,7 +43,7 @@ impl Mouse {
             return;
         }
         // A wheel while a selection is live (mid-drag or after release) scrolls the transcript instead of being dropped: the
-        // scroll rebuilds the rect of an active drag, shifts a released one, and stitch-harvests the rows that scroll off.
+        // scroll rebuilds the rect of an active drag, and shifts a released one.
         let rows = self.wheel.notch(wheel_dir, now_ms, &self.cfg.tuning);
         host.queue_scroll_coalesced(self, rows as f64);
     }

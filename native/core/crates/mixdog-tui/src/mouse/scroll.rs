@@ -1,8 +1,7 @@
 //! The selection side of a transcript scroll (the selection parts of `scrollTranscriptRows` and `rebuildSelectionAfterScroll`
-//! in `use-transcript-scroll.mjs`). Before a scroll that moves, the rows under a live selection are snapshotted into the stitch
-//! buffer so they survive scrolling off; after it, a live selection follows its content: an active drag is rebuilt from its
-//! anchor (span aware, so a word or line drag that reached the edge keeps extending by whole words or lines), a released one is
-//! shifted by the rows scrolled.
+//! in `use-transcript-scroll.mjs`). After a scroll that moved, a live selection follows its content: an active drag is rebuilt
+//! from its anchor (span aware, so a word or line drag that reached the edge keeps extending by whole words or lines), a
+//! released one is shifted by the rows scrolled until the next frame draws it where its content is ([`super::follow`]).
 //!
 //! [`SelectionScroll`] is the [`ScrollHost`] the application hands to
 //! [`TranscriptScroll::scroll_rows`](crate::transcript::scroll::engine::TranscriptScroll::scroll_rows): history paging goes to
@@ -15,7 +14,6 @@ use crate::transcript::scroll::engine::ScrollHost;
 use super::Mouse;
 use super::geometry::{linear_selection, selection_point_at_current_scroll};
 use super::host::{RenderStore, SelectionIo};
-use super::state::Region;
 
 /// A store paired with the scroll target the hook runs at.
 struct AtTarget<'a, S: RenderStore + ?Sized> {
@@ -32,12 +30,6 @@ impl<S: RenderStore + ?Sized> RenderStore for AtTarget<'_, S> {
     }
     fn set_render_selection(&mut self, rect: Option<&SelectionRect>) {
         self.store.set_render_selection(rect);
-    }
-    fn render_selection_text(&mut self) -> Option<String> {
-        self.store.render_selection_text()
-    }
-    fn render_selection_rows(&mut self) -> Option<Vec<mixdog_term::selection::SelectedRow>> {
-        self.store.render_selection_rows()
     }
     fn force_render_repaint(&mut self) {
         self.store.force_render_repaint();
@@ -57,24 +49,9 @@ fn shifted(rect: &SelectionRect, delta: f64) -> SelectionRect {
 }
 
 impl Mouse {
-    /// Before a scroll that moves from `target_before`: the rows under a live transcript selection go to the stitch buffer,
-    /// keyed by the pre-scroll offset, for an active drag and a released selection alike, so Ctrl+C reconstructs the full text
-    /// however far it scrolled off. A pending throttled rect is committed first so the harvest reads the newest selection.
-    pub fn selection_before_scroll<S: RenderStore + ?Sized>(&mut self, store: &mut S, target_before: f64, now_ms: u64) {
-        if self.drag.region != Some(Region::Transcript) || self.drag.rect.is_none() {
-            return;
-        }
-        let mut io = AtTarget { store, target: target_before };
-        self.flush_pending_selection_paint(&mut io, now_ms);
-        self.harvest_stitch_rows_now(&mut io, target_before);
-    }
-
-    /// After a scroll that moved by `applied_delta` rows to `target`: the layout the selection was placed against takes the new
-    /// offset and a live selection follows its content.
+    /// After a scroll that moved by `applied_delta` rows to `target`: a live selection follows its content.
     pub fn selection_after_scroll<S: RenderStore + ?Sized>(&mut self, store: &mut S, applied_delta: f64, target: f64, now_ms: u64) {
-        if let Some(layout) = self.selection_layout.as_mut() {
-            layout.scroll_offset = target.round() as i64;
-        }
+        self.follow.scrolled += applied_delta;
         if self.drag.rect.is_some() {
             let mut io = AtTarget { store, target };
             self.rebuild_selection_after_scroll(&mut io, applied_delta, now_ms);
@@ -83,8 +60,8 @@ impl Mouse {
 
     /// `rebuildSelectionAfterScroll`. The active-drag rebuild paints directly through the themed clip with text capture off
     /// (the clip carries the theme colour a bare rect would lack), after cancelling any armed throttled repaint (it would fire
-    /// the pre-scroll rect after this one, leaving two highlights). The shifted rect is clipped to the viewport, so its text is
-    /// never re-harvested: that would overwrite the full text remembered at release with the still-visible rows.
+    /// the pre-scroll rect after this one, leaving two highlights). A released selection keeps its place in the content: the shift only
+    /// says where the next frame is expected to draw it.
     fn rebuild_selection_after_scroll<S: SelectionIo + ?Sized>(&mut self, io: &mut S, applied_delta: f64, now_ms: u64) {
         let rect = if self.drag.active {
             match (self.drag.anchor_span, self.drag.last) {
@@ -103,7 +80,7 @@ impl Mouse {
         let clipped = self.with_selection_clip(rect, self.drag.active);
         self.drag.rect.clone_from(&clipped);
         self.cancel_pending_selection_paint();
-        self.paint_selection_rect(io, clipped, false, now_ms);
+        self.paint_selection_rect(io, clipped, now_ms);
     }
 }
 
@@ -130,10 +107,6 @@ impl<S: RenderStore + ?Sized, H: ScrollHost> ScrollHost for SelectionScroll<'_, 
 
     fn restore_newer(&mut self) -> bool {
         self.inner.restore_newer()
-    }
-
-    fn selection_before_scroll(&mut self, target_before: f64) {
-        self.mouse.selection_before_scroll(&mut *self.store, target_before, self.now_ms);
     }
 
     fn selection_after_scroll(&mut self, applied_delta: f64, target: f64) {

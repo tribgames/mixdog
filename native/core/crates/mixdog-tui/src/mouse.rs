@@ -1,14 +1,13 @@
 //! Mouse input and selection (`src/tui/app/mouse-input/*`, `use-mouse-input.mjs`, `use-selection-focus.mjs`,
-//! `use-selection-geometry.mjs`, `use-selection-paint.mjs` and `use-selection-paint/*`, `use-selection-stitch.mjs`,
+//! `use-selection-geometry.mjs`, `use-selection-paint.mjs` and `use-selection-paint/*`,
 //! `use-copy-selection.mjs` and `use-interaction-refs.mjs`). The prompt box's drag selection is the editor's
 //! ([`crate::editor::mouse_selection`]); this module decides which surface a press belongs to and drives it.
 //!
-//! [`Mouse`] is the state the Node hooks kept in refs (the drag, the last click, the remembered selection text, the stitch
-//! buffer, the paint throttle, the wheel acceleration, the edge autoscroll). Every entry point takes the host
+//! [`Mouse`] is the state the Node hooks kept in refs (the drag, the last click, the paint throttle, the wheel acceleration,
+//! the edge autoscroll) and the place and text of the selection in the content. Every entry point takes the host
 //! ([`host::MouseHost`]: the render selection of `mixdog-term`, the prompt box's selection, the scroll engine, the clipboard)
 //! and the clock in milliseconds. Node's timers are the caller's: it wakes at [`Mouse::next_deadline`] and calls
-//! [`Mouse::tick`]; after each painted frame it calls [`Mouse::after_frame`] (the deferred text capture and stitch harvest
-//! that Node ran after the renderer's acknowledgement).
+//! [`Mouse::tick`].
 //!
 //! * [`state`] - the drag, anchor span, last click and prompt box rect;
 //! * [`config`] - the `MIXDOG_TUI_SELECTION_PAINT_MS` interval and the environment facts the gestures read;
@@ -18,29 +17,29 @@
 //! * [`wheel`] - the wheel router (zoom passthrough, palette, overlay gate, acceleration);
 //! * [`autoscroll`] - the held-at-edge autoscroll;
 //! * [`paint`] - the clip, the publish and the motion throttle;
-//! * [`stitch`] - the buffer that keeps rows scrolled out of view;
 //! * [`focus`] - Shift+Arrow/Home/End moves of a released selection's focus end;
-//! * [`copy`] - copy-first Ctrl+C;
+//! * [`follow`] - a selection as a place in the content and the text read there when it was made;
+//! * [`copy`] - Ctrl+C, the selection's text;
 //! * [`scroll`] - the selection side of a transcript scroll ([`scroll::SelectionScroll`]).
 
 pub mod autoscroll;
 pub mod config;
 pub mod copy;
 pub mod focus;
+pub mod follow;
 pub mod geometry;
 pub mod gestures;
 pub mod host;
 pub mod paint;
 pub mod scroll;
 pub mod state;
-pub mod stitch;
 pub mod wheel;
 
 use mixdog_term::frame::Rgb;
 use mixdog_term::{MouseKind, MouseReport};
 
 use crate::transcript::scroll::tuning::WheelAccel;
-use crate::transcript::window::selection_shift::{RowRange, SelectionLayout, transcript_viewport_row_range};
+use crate::transcript::window::selection_shift::{RowRange, transcript_viewport_row_range};
 
 pub use config::MouseConfig;
 pub use focus::FocusMove;
@@ -55,10 +54,6 @@ pub struct Mouse {
     pub drag: Drag,
     /// `lastClickRef`: the previous left press, `None` after anything that resets the multi-click sequence.
     pub last_click: Option<LastClick>,
-    /// `selectionTextRef`: the text remembered while the selection was last fully painted.
-    pub selection_text: String,
-    /// `selectionLayoutRef`: the layout the selection was last placed against.
-    pub selection_layout: Option<SelectionLayout>,
     viewport: RowRange,
     frame_rows: f64,
     columns: usize,
@@ -66,8 +61,7 @@ pub struct Mouse {
     wheel: WheelAccel,
     edge: autoscroll::EdgeAutoscroll,
     paint: paint::PaintState,
-    stitch: stitch::StitchBuffer,
-    copy_retry: Option<copy::CopyRetry>,
+    follow: follow::Follow,
 }
 
 impl Mouse {
@@ -78,15 +72,12 @@ impl Mouse {
             cfg,
             drag: Drag::default(),
             last_click: None,
-            selection_text: String::new(),
-            selection_layout: None,
             viewport: RowRange { top: 0, bottom: 0 },
             frame_rows: 24.0,
             columns: 0,
             prompt_box: None,
             edge: autoscroll::EdgeAutoscroll::default(),
-            stitch: stitch::StitchBuffer::default(),
-            copy_retry: None,
+            follow: follow::Follow::default(),
         }
     }
 
@@ -139,14 +130,13 @@ impl Mouse {
 
     /// The earliest time (the caller's millisecond clock) [`Self::tick`] has work to do.
     pub fn next_deadline(&self) -> Option<u64> {
-        [self.paint.deadline(), self.edge.deadline(), self.copy_retry.map(|retry| retry.at_ms)].into_iter().flatten().min()
+        [self.paint.deadline(), self.edge.deadline()].into_iter().flatten().min()
     }
 
-    /// Runs what is due at `now_ms`: the trailing motion paint, the edge autoscroll step and the copy retry.
+    /// Runs what is due at `now_ms`: the trailing motion paint and the edge autoscroll step.
     pub fn tick<H: MouseHost + ?Sized>(&mut self, host: &mut H, now_ms: u64) {
         self.fire_paint_timer(host, now_ms);
         self.edge_tick(host, now_ms);
-        self.copy_retry_tick(host, now_ms);
     }
 
     /// Whether a transcript or status grid selection is live (`gridSelectionActiveRef`): a released, non-empty rect.
@@ -162,8 +152,6 @@ impl Mouse {
     pub fn dispose(&mut self) {
         self.paint.dispose();
         self.edge.stop();
-        self.stitch.cancel_harvest();
-        self.copy_retry = None;
     }
 
     /// `finishWindowsMouseGesture`: Windows Terminal's native selection overlay survives incremental frames, so an app-owned

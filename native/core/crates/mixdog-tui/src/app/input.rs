@@ -11,7 +11,7 @@ use mixdog_term::os::{Platform, SystemRunner};
 use mixdog_term::paste::{
     ImageAttachment, PastedImage, ResizeRequest, ResizedImage, read_clipboard_image_attachment, read_clipboard_text, read_image_attachment_from_path,
 };
-use mixdog_term::selection::{CellSpan, SelectedRow, SelectionRect as TermRect, line_rect_at, word_rect_at};
+use mixdog_term::selection::{CellSpan, SelectionRect as TermRect, line_rect_at, read_selection, word_rect_at};
 use mixdog_term::{KeyFlags, MouseReport};
 use mixdog_tui_style::{Key, theme_color};
 use mixdog_tui_widgets::question::{QuestionAction, QuestionState, questions_of};
@@ -31,6 +31,7 @@ use crate::handlers::interrupt::{InterruptOutcome, handle_prompt_interrupt, on_b
 use crate::handlers::paste::{PasteIo, handle_prompt_paste};
 use crate::handlers::queue_restore::{RestoreOptions, RestoredQueue, restore_queued_to_prompt};
 use crate::handlers::state::PromptState;
+use crate::mouse::follow::{DrawnItem, RowText};
 use crate::mouse::host::{PromptSelection, RenderStore, SelectionIo};
 use crate::mouse::{FocusMove, HintTone as MouseHint, Mouse, MouseHost, SlashPalette as MousePalette};
 use crate::slash::commands::OverlayOwner;
@@ -464,11 +465,9 @@ impl AppState {
         }
     }
 
-    /// After a frame was painted: what the mouse reads of the frame just painted.
-    pub(crate) fn after_frame(&mut self) {
-        let Some(mut mouse) = self.mouse.take() else { return };
-        mouse.after_frame(self);
-        self.mouse = Some(mouse);
+    /// The text Ctrl+C copies: the released selection as its content read when it was made.
+    pub fn selected_text(&self) -> Option<String> {
+        self.mouse.as_ref()?.selected_text()
     }
 
     /// A handler or a timer changed what the frame shows since the last call.
@@ -544,14 +543,6 @@ impl RenderStore for Render<'_> {
         if self.selection.set_selection(rect.copied()) {
             *self.frame = true;
         }
-    }
-
-    fn render_selection_text(&mut self) -> Option<String> {
-        self.selection.selection_text().map(str::to_owned)
-    }
-
-    fn render_selection_rows(&mut self) -> Option<Vec<SelectedRow>> {
-        self.selection.selection_rows().map(<[SelectedRow]>::to_vec)
     }
 
     fn force_render_repaint(&mut self) {
@@ -858,9 +849,8 @@ impl GlobalKeyHost for AppState {
     }
 
     fn copy_selection(&mut self) {
-        let now = self.clock.now();
         let Some(mut mouse) = self.mouse.take() else { return };
-        mouse.copy_selection(self, 0, now);
+        mouse.copy_selection(self);
         self.mouse = Some(mouse);
     }
 
@@ -955,16 +945,53 @@ impl RenderStore for AppState {
         self.render_view().set_render_selection(rect);
     }
 
-    fn render_selection_text(&mut self) -> Option<String> {
-        self.render_view().render_selection_text()
-    }
-
-    fn render_selection_rows(&mut self) -> Option<Vec<SelectedRow>> {
-        self.render_view().render_selection_rows()
-    }
-
     fn force_render_repaint(&mut self) {
         self.render_view().force_render_repaint();
+    }
+
+    fn frame_session(&self) -> Option<&str> {
+        self.rendered_grid.as_ref().map(|_| self.window_session.as_str())
+    }
+
+    fn frame_columns(&self) -> usize {
+        self.view_columns
+    }
+
+    fn content_row_at(&mut self, y: i32) -> Option<(usize, usize)> {
+        self.shown_row(y)
+    }
+
+    fn item_id_at(&mut self, index: usize) -> Option<String> {
+        self.shown_id(index)
+    }
+
+    fn find_item(&mut self, item: &str, index: usize) -> Option<usize> {
+        self.shown_index(item, index)
+    }
+
+    fn drawn_items(&mut self) -> Option<(usize, usize)> {
+        self.shown_run()
+    }
+
+    fn drawn_item(&mut self, index: usize) -> Option<DrawnItem> {
+        self.shown_item(index)
+    }
+
+    fn content_row_text(&mut self, index: usize, row: usize) -> Option<RowText> {
+        self.shown_row_text(index, row)
+    }
+
+    fn item_rows_text(&mut self, index: usize, lo: usize, hi: usize) -> Option<Vec<RowText>> {
+        self.shown_item_text(index, lo, hi)
+    }
+
+    fn still_rows(&mut self, index: usize, lo: usize, hi: usize) -> Option<Vec<RowText>> {
+        self.shown_still_rows(index, lo, hi)
+    }
+
+    fn frame_selection_text(&mut self, rect: &TermRect) -> Option<String> {
+        let grid = self.rendered_grid.as_ref()?;
+        read_selection(grid, &grid.soft_wrap, rect).text
     }
 }
 

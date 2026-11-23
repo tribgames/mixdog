@@ -197,6 +197,8 @@ pub struct AppState {
     /// The render selection of the terminal layer and the last frame as the layout drew it (before the highlight).
     pub(crate) render_selection: SelectionState,
     pub(crate) rendered_grid: Option<Grid>,
+    /// Where that frame drew the transcript items.
+    pub(crate) shown: render::ShownTranscript,
     pub(crate) scroll_coalescer: ScrollCoalescer,
     /// The selected row of the slash palette (`slashIndex`) and the skills of the `$name` palette.
     pub(crate) slash_index: usize,
@@ -292,6 +294,7 @@ impl AppState {
             mouse: Some(Mouse::new(MouseConfig::from_env(usize::from(mixdog_tui_widgets::statusline::STATUSLINE_BAND_ROWS)))),
             render_selection: SelectionState::default(),
             rendered_grid: None,
+            shown: render::ShownTranscript::default(),
             scroll_coalescer: ScrollCoalescer::default(),
             slash_index: 0,
             mention_skills: Vec::new(),

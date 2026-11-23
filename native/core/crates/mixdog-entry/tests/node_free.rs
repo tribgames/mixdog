@@ -52,24 +52,17 @@ impl Steps<'_> {
             left_by_the_core(self.sandbox.root())
         )
     }
-    fn stable(&self, step: &str) {
-        if !self.pty.wait_stable(Duration::from_millis(700), self.left()) {
+    fn until(&self, step: &str, holds: impl Fn(&[String]) -> bool) {
+        if !self.pty.wait_until(self.left(), holds) {
             self.fail(step);
         }
     }
     fn shows(&self, marker: &str, step: &str) {
-        if !self.pty.wait_for(marker, self.left()) {
-            self.fail(step);
-        }
+        self.until(step, |rows| rows.iter().any(|row| row.contains(marker)));
     }
     /// Waits for `marker` to leave the screen: the key that dismisses it was read.
     fn gone(&self, marker: &str, step: &str) {
-        while self.pty.shows(marker) {
-            if self.left().is_zero() {
-                self.fail(step);
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        self.until(step, |rows| !rows.iter().any(|row| row.contains(marker)));
     }
     fn exits(&mut self) -> Option<u32> {
         let left = self.left();
@@ -165,13 +158,15 @@ fn the_terminal_interface_boots_answers_and_exits_without_node() {
     let mut tui = interactive(&sandbox, &stand_in, &daemon, &["--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     let watch = procs::Watch::start(tui.pid().unwrap());
     let mut steps = Steps { pty: &mut tui, end: Instant::now() + BUDGET, stand_in: &stand_in, sandbox: &sandbox, daemon: &daemon };
-    steps.stable("the interface never booted");
     // An empty session opens on the project list; Enter takes its first row, the folder the run started in.
     steps.shows("Choose a project.", "no project list on the first screen");
     steps.pty.send(b"\r");
-    // The Enter counts when the list is gone: what follows is typed into the prompt of the entered project.
+    // The Enter counts when the list is gone: what follows is typed into the prompt of the entered project, once the prompt box
+    // and the statusline under it (which names the model, "Sonnet 4.6") are drawn.
     steps.gone("Choose a project.", "the project was never entered");
-    steps.stable("the entered project never settled");
+    steps.until("no prompt in the entered project", |rows| {
+        rows.iter().rposition(|row| row.contains('\u{256d}')).is_some_and(|top| rows[top..].iter().any(|row| row.to_lowercase().contains("sonnet")))
+    });
     steps.pty.send(b"hello\r");
     steps.shows(ANSWER, "no answer on the screen");
     steps.pty.send(b"/exit\r");
@@ -193,7 +188,8 @@ fn plain_answers_one_turn_without_node() {
     let mut repl = interactive(&sandbox, &stand_in, &daemon, &["--plain", "--provider", "anthropic", "--model", "claude-sonnet-4-6"]);
     let watch = procs::Watch::start(repl.pid().unwrap());
     let mut steps = Steps { pty: &mut repl, end: Instant::now() + BUDGET, stand_in: &stand_in, sandbox: &sandbox, daemon: &daemon };
-    steps.stable("the REPL never showed its prompt");
+    // The prompt is painted just before the line is read.
+    steps.until("the REPL never showed its prompt", |rows| rows.iter().any(|row| row.starts_with('\u{203a}')));
     steps.pty.send(b"hello\r");
     steps.shows(ANSWER, "no answer on the screen");
     steps.pty.send(b"/quit\r");

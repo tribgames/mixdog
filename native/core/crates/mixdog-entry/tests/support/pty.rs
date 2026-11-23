@@ -6,6 +6,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::Condvar;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
@@ -23,14 +24,12 @@ const CURSOR_QUERY: &[u8] = b"\x1b[6n";
 
 struct Shared {
     grid: VtGrid,
-    /// Bytes received so far (a change of this number is a change of the screen).
-    received: usize,
-    last_output: Instant,
     ended: bool,
 }
 
 pub struct Pty {
-    shared: Arc<Mutex<Shared>>,
+    /// The screen, and the signal raised with every chunk that reaches it.
+    shared: Arc<(Mutex<Shared>, Condvar)>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     _master: Box<dyn portable_pty::MasterPty + Send>,
@@ -53,7 +52,7 @@ impl Pty {
         drop(pair.slave);
         let mut source = pair.master.try_clone_reader().unwrap();
         let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(pair.master.take_writer().unwrap()));
-        let shared = Arc::new(Mutex::new(Shared { grid: VtGrid::new(COLUMNS, ROWS), received: 0, last_output: Instant::now(), ended: false }));
+        let shared = Arc::new((Mutex::new(Shared { grid: VtGrid::new(COLUMNS, ROWS), ended: false }), Condvar::new()));
         let (feed, reply) = (shared.clone(), writer.clone());
         let reader = std::thread::spawn(move || {
             let mut buffer = [0u8; 8192];
@@ -67,12 +66,13 @@ impl Pty {
                     let _ = writer.write_all(b"\x1b[1;1R");
                     let _ = writer.flush();
                 }
-                let mut shared = feed.lock().unwrap();
-                shared.grid.feed(bytes);
-                shared.received += read;
-                shared.last_output = Instant::now();
+                let (screen, fed) = &*feed;
+                screen.lock().unwrap().grid.feed(bytes);
+                fed.notify_all();
             }
-            feed.lock().unwrap().ended = true;
+            let (screen, fed) = &*feed;
+            screen.lock().unwrap().ended = true;
+            fed.notify_all();
         });
         Self { shared, writer, child, _master: pair.master, reader: Some(reader) }
     }
@@ -90,7 +90,7 @@ impl Pty {
 
     /// The rows of the screen, trailing blanks trimmed.
     pub fn screen(&self) -> Vec<String> {
-        self.shared.lock().unwrap().grid.dump().into_iter().map(|row| row.trim_end().to_owned()).collect()
+        rows(&self.shared.0.lock().unwrap().grid)
     }
 
     /// Whether the screen shows `marker` anywhere.
@@ -98,31 +98,23 @@ impl Pty {
         self.screen().iter().any(|row| row.contains(marker))
     }
 
-    /// Waits up to `limit` for the screen to show `marker`.
-    pub fn wait_for(&self, marker: &str, limit: Duration) -> bool {
+    /// Waits up to `limit` for `holds` to be true of the screen's rows, looked at again as each chunk of output reaches it.
+    pub fn wait_until(&self, limit: Duration, holds: impl Fn(&[String]) -> bool) -> bool {
         let end = Instant::now() + limit;
-        while Instant::now() < end {
-            if self.shows(marker) {
+        let (screen, fed) = &*self.shared;
+        let mut shared = screen.lock().unwrap();
+        loop {
+            if holds(&rows(&shared.grid)) {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            let Some(left) = end.checked_duration_since(Instant::now()) else { return false };
+            shared = fed.wait_timeout(shared, left).unwrap().0;
         }
-        self.shows(marker)
     }
 
-    /// Waits up to `limit` for the output to be quiet for `quiet` (a stable screen); `false` when it never was.
-    pub fn wait_stable(&self, quiet: Duration, limit: Duration) -> bool {
-        let end = Instant::now() + limit;
-        while Instant::now() < end {
-            {
-                let shared = self.shared.lock().unwrap();
-                if shared.received > 0 && shared.last_output.elapsed() >= quiet {
-                    return true;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        false
+    /// Waits up to `limit` for the screen to show `marker`.
+    pub fn wait_for(&self, marker: &str, limit: Duration) -> bool {
+        self.wait_until(limit, |rows| rows.iter().any(|row| row.contains(marker)))
     }
 
     /// Waits up to `limit` for the program to end; its exit code.
@@ -141,6 +133,10 @@ impl Pty {
     pub fn kill(&mut self) {
         let _ = self.child.kill();
     }
+}
+
+fn rows(grid: &VtGrid) -> Vec<String> {
+    grid.dump().into_iter().map(|row| row.trim_end().to_owned()).collect()
 }
 
 impl Drop for Pty {
