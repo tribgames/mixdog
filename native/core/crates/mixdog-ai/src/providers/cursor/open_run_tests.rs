@@ -1,5 +1,6 @@
 //! The run that stays open across a tool batch, against a scripted service: the result goes back on the run that asked
 //! for it, and a stop or a cut connection ends the run with nothing left behind.
+#![cfg(test)]
 
 use std::collections::VecDeque;
 use std::sync::Arc;

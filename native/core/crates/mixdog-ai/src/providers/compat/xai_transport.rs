@@ -102,6 +102,7 @@ impl XaiSocket {
             compat,
             identity: request.options.send_identity.clone(),
             delta: self.delta(),
+            instructions_with_previous_response: self.0.codec.instructions_with_previous_response(request),
         };
         send.identity.raise_requesting_once();
         let (inner, chained) = send.exchange(body, self.0.codec.responses_decoder(request), false).await?;
@@ -198,6 +199,7 @@ struct SocketSend {
     compat: Compat,
     identity: SendIdentity,
     delta: bool,
+    instructions_with_previous_response: bool,
 }
 
 impl SocketSend {
@@ -239,7 +241,7 @@ impl SocketSend {
                 return Err(error);
             }
         }
-        let framed = delta::compute(self.delta, &checkout.chain, body);
+        let framed = delta::compute_with(self.delta, self.instructions_with_previous_response, &checkout.chain, body);
         let frame = serde_json::to_string(&Value::Object(framed.frame)).expect("a JSON object serializes");
         if let Err(fault) = checkout.socket.as_ref().expect("socket attached").send(Message::text(frame)).await {
             let mut error = ProviderError::transport(fault, DeliveryState::Ambiguous);
@@ -350,8 +352,8 @@ mod tests {
         (dial, socket, account)
     }
 
-    /// Step 1 asks; step 2 carries step 1's tool call and its result.
-    fn steps() -> (ModelRequest, ModelRequest) {
+    /// Step 1 asks, under `system` when there is one; step 2 carries step 1's tool call and its result.
+    fn steps(system: Option<&str>) -> (ModelRequest, ModelRequest) {
         let tool = ToolDefinition {
             name: "lookup".into(),
             description: "Read a value".into(),
@@ -361,7 +363,11 @@ mod tests {
         };
         let first = ModelRequest {
             model: "grok-4.5".into(),
-            messages: vec![Turn::new(Role::System, Content::Text("You are a fixture assistant.".into())), Turn::new(Role::User, Content::Text("Look it up.".into()))],
+            messages: system
+                .map(|text| Turn::new(Role::System, Content::Text(text.to_owned().into())))
+                .into_iter()
+                .chain([Turn::new(Role::User, Content::Text("Look it up.".into()))])
+                .collect(),
             tools: vec![tool],
             options: RequestOptions { session_id: Some("sess".into()), ..RequestOptions::default() },
         };
@@ -401,6 +407,16 @@ mod tests {
         assert!(completed);
     }
 
+    fn texts(dial: &ScriptedDial) -> Vec<String> {
+        dial.wire()
+            .into_iter()
+            .filter_map(|seen| match seen {
+                Seen::Upgrade { .. } => None,
+                Seen::Frame(text) => Some(text),
+            })
+            .collect()
+    }
+
     fn sent(dial: &ScriptedDial) -> Vec<Option<Value>> {
         dial.wire()
             .into_iter()
@@ -417,7 +433,7 @@ mod tests {
     async fn a_step_after_tool_results_sends_the_chain_and_only_the_new_input() {
         let frames = [calls_lookup(), answers()].concat();
         let (dial, socket, account) = rig(vec![Dialed::Socket { frames, close: (1000, String::new()) }]);
-        let (first, second) = steps();
+        let (first, second) = steps(None);
         completes(socket.open(&account, &first).await.unwrap()).await;
         completes(socket.open(&account, &second).await.unwrap()).await;
 
@@ -443,7 +459,7 @@ mod tests {
             Dialed::Socket { frames: [calls_lookup(), vec![refusal.to_string()]].concat(), close: (1000, String::new()) },
             Dialed::Socket { frames: answers(), close: (1000, String::new()) },
         ]);
-        let (first, second) = steps();
+        let (first, second) = steps(None);
         completes(socket.open(&account, &first).await.unwrap()).await;
         completes(socket.open(&account, &second).await.unwrap()).await;
 
@@ -452,5 +468,24 @@ mod tests {
         assert_eq!(chained["previous_response_id"], "resp_1");
         assert!(resent.get("previous_response_id").is_none());
         assert_eq!(resent["input"].as_array().unwrap().len(), 3);
+    }
+
+    /// xAI's profile refuses `instructions` beside `previous_response_id`, and the stored response does not hold them: a step
+    /// under a system prompt goes in full, its frame naming no response and carrying the instructions and the whole input.
+    #[tokio::test]
+    async fn a_step_under_instructions_goes_in_full_as_the_profile_refuses_them_beside_the_chain() {
+        let frames = [calls_lookup(), answers()].concat();
+        let (dial, socket, account) = rig(vec![Dialed::Socket { frames, close: (1000, String::new()) }]);
+        let (first, second) = steps(Some("You are a fixture assistant."));
+        assert!(!socket.0.codec.instructions_with_previous_response(&second));
+        completes(socket.open(&account, &first).await.unwrap()).await;
+        completes(socket.open(&account, &second).await.unwrap()).await;
+
+        let [_, step2] = texts(&dial).try_into().expect("two frames on one socket");
+        assert!(step2.starts_with(r#"{"type":"response.create","#), "{step2}");
+        assert!(!step2.contains("previous_response_id"), "{step2}");
+        assert!(step2.contains(r#""instructions":"You are a fixture assistant.""#), "{step2}");
+        let input = serde_json::from_str::<Value>(&step2).unwrap()["input"].as_array().unwrap().len();
+        assert_eq!(input, 3, "the user turn, the call and its result");
     }
 }
